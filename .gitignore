@@ -1,0 +1,10 @@
+.claude/worktrees/
+.superpowers/
+/target
+node_modules/
+/ui/dist
+/ui/test-results
+/ui/playwright-report
+/ui/e2e/.fixtures.json
+*.snap.new
+/crates/*/gen/schemas

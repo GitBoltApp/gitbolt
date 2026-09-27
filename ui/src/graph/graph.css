@@ -1,0 +1,40 @@
+.graph-panel { display: flex; flex-direction: column; height: 100%; }
+.graph-header { display: flex; height: 24px; align-items: center; font-size: 10px; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; }
+.graph-header > span { padding: 0 6px; box-sizing: border-box; }
+.graph-body { position: relative; flex: 1; min-height: 0; }
+.graph-scroll { position: absolute; inset: 0; overflow: auto; outline: none; }
+.graph-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: default; }
+.graph-row > span { overflow: hidden; text-overflow: ellipsis; padding: 0 6px; box-sizing: border-box; flex: none; }
+.graph-row:hover { background: var(--hover-row); }
+.graph-row[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
+.col-msg { flex: 1 1 auto !important; min-width: 120px; }
+.col-author { width: 160px; }
+.col-date { width: 170px; }
+.col-sha { width: 72px; }
+.graph-header .col-msg { flex: 1; }
+.dim { color: var(--text-disabled); }
+.wip-tag { color: var(--text-secondary); font-style: italic; }
+.wip-counts { color: var(--text-secondary); }
+.sha { all: unset; cursor: pointer; font-family: ui-monospace, monospace; color: var(--text-secondary); }
+.sha:hover { color: var(--text-selected); text-decoration: underline; }
+.graph-canvas { position: absolute; top: 0; pointer-events: none; }
+.col-labels { display: flex; align-items: center; }
+/* No right padding: the label column is exactly LABEL_W wide and the connector below must
+   reach its right edge flush, with no gap before the canvas (which starts at the same x). */
+.graph-row > .col-labels { padding-right: 0; }
+.ref-labels { display: flex; flex: 1; align-items: center; min-width: 0; max-width: 100%; }
+/* min-width: 0 (overriding the flex default of `auto`, which would floor the item at its
+   content's width) lets a long ref name shrink and ellipsize instead of overflowing
+   `.col-labels` and pushing the connector out of view; the browser default `flex-shrink: 1`
+   (no longer overridden to 0) is what lets it actually give up that space. */
+.ref-label { display: inline-flex; gap: 3px; align-items: center; padding: 0 5px; height: 17px; border-radius: 3px; background: color-mix(in srgb, var(--lane-color) 45%, transparent); color: var(--text-selected); max-width: 170px; min-width: 0; }
+.ref-name { overflow: hidden; text-overflow: ellipsis; }
+.ref-more { margin-left: 4px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--panel-bg1); flex: none; }
+/* Continues the label connector drawn on the canvas (see draw.ts) from the chip to the canvas
+   edge. No gap in .ref-labels and no margin here: it must touch the chip (or the "+N" badge)
+   with zero space, so the DOM and canvas segments read as one unbroken line. `flex-shrink: 0`
+   with an 8px basis keeps it visible (never squeezed to 0) even when the chip and badge
+   together would otherwise overflow the column; `.ref-label` gives up space instead. */
+.ref-connector { flex: 1 0 8px; height: 1px; background: var(--lane-color); }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
+.center-message { display: grid; place-items: center; height: 100%; color: var(--text-secondary); }

@@ -1,0 +1,21 @@
+[package]
+name = "gitbolt-app"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "gitbolt"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+gitbolt-core.workspace = true
+tauri.workspace = true
+tauri-plugin-clipboard-manager.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

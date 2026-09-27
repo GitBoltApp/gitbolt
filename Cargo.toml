@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/gitbolt-core", "crates/gitbolt-app", "crates/gitbolt-harness"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+gitbolt-core = { path = "crates/gitbolt-core" }
+gix = "0.88"
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "process", "time", "sync", "fs", "net", "io-util"] }
+tokio-util = "0.7.19"
+futures-util = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+regex = "1.13"
+nix = { version = "0.31", features = ["signal", "process"] }
+ts-rs = "12.0.1"
+tempfile = "3.27"
+insta = "1.48"
+axum = { version = "0.8.9", features = ["ws"] }
+tokio-tungstenite = "0.30"
+tauri = { version = "2.12", features = [] }
+tauri-build = { version = "2.7", features = [] }
+tauri-plugin-clipboard-manager = "2.3.3"

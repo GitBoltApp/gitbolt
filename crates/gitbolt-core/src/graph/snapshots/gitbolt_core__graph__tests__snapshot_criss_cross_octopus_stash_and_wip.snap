@@ -1,0 +1,14 @@
+---
+source: crates/gitbolt-core/src/graph/tests.rs
+expression: "ascii(spec, &[\"m2\", \"t3\", \"t2\", \"t1\"])"
+---
+  W        wip
+  : S      stash
+M-X-/      m2 in:1,2 out:1
+| | M-\-\  o out:3,4
+*-|-/ | |  t3 in:2
+| M---|-|  b2 out:4
+| *---/ |  a1 in:3
+| |     *  b1
+*-/-----/  t2 in:1,4
+*          t1

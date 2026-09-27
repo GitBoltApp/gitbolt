@@ -1,0 +1,21 @@
+:root {
+  --app-bg0: #1c1e23;
+  --panel-bg0: #262930;
+  --panel-bg1: #30343c;
+  --toolbar-bg0: #2a2e36;
+  --text-selected: #ffffff;
+  --text-normal: rgba(255, 255, 255, 0.75);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --text-disabled: rgba(255, 255, 255, 0.4);
+  --hover-row: rgba(77, 136, 255, 0.1);
+  --selected-row: rgba(77, 136, 255, 0.2);
+  --section-border: rgba(255, 255, 255, 0.08);
+  --stats-added: #347d39;
+  --stats-deleted: #c93c37;
+  --blue: #4d88ff;
+  --green: #5cb85c;
+  --font-ui: system-ui, "Segoe UI", Ubuntu, Cantarell, sans-serif;
+  color-scheme: dark;
+}
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var(--font-ui); overflow: hidden; }
