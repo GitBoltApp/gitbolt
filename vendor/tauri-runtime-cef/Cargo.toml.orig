@@ -1,0 +1,128 @@
+[package]
+name = "tauri-runtime-cef"
+version = "3.0.0-alpha.4"
+description = "Tauri runtime interface for Chromium Embedded Framework"
+# lets `tauri-build` detect the CEF runtime through the `DEP_TAURI_RUNTIME_CEF_RUNTIME` env var
+links = "tauri_runtime_cef"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[test]]
+name = "macos-application-bootstrap"
+harness = false
+
+[dependencies]
+tauri = { workspace = true, features = ["gtk4"] }
+tauri-macros = { workspace = true }
+base64 = "0.22"
+cef = { version = "=152.3.0", features = ["build-util", "linux-x11"] }
+# Not actually used directly, just locking it.
+cef-dll-sys = { version = "=152.3.0", default-features = false }
+dirs = "6"
+dioxus-debug-cell = "0.1"
+http = "1"
+kuchiki = { package = "kuchikiki", version = "0.8.8-speedreader" }
+html5ever = "0.29"
+log = "0.4.21"
+raw-window-handle = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri-runtime = { workspace = true }
+tauri-utils = { workspace = true, features = ["html-manipulation"] }
+url = "2"
+winit = { version = "0.31.0-beta.3", package = "tauri-winit", default-features = false, features = [
+  "gtk4",
+] }
+
+[target."cfg(windows)".dependencies]
+softbuffer = { version = "0.4", default-features = false }
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_Globalization",
+  "Win32_System_LibraryLoader",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[target."cfg(target_os = \"macos\")".dependencies]
+# `kill(pid, 0)` and `gethostname`, to read Chromium's process singleton lock.
+libc = "0.2"
+objc2 = "0.6"
+objc2-application-services = { version = "0.3", default-features = false, features = [
+  "HIServices",
+  "Processes",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "NSApplication",
+  "NSBezierPath",
+  "NSColor",
+  "NSControl",
+  "NSDockTile",
+  "NSEvent",
+  "NSImage",
+  "NSImageView",
+  "NSProgressIndicator",
+  "NSResponder",
+  "NSRunningApplication",
+  "NSScreen",
+  "NSView",
+  "NSWindow",
+  "block2",
+  "objc2-core-graphics",
+  "objc2-quartz-core",
+] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = [
+  "CALayer",
+  "objc2-core-graphics",
+] }
+# CFRunLoop gives the run-loop observer that delivers event-loop wake-ups, see
+# `platform::macos::MainThreadWake`.
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+  "CFRunLoop",
+  "std",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "NSArray",
+  # NSDate gates the performSelector:withObject:afterDelay: binding used to
+  # restore the traffic light position after an appearance change.
+  "NSDate",
+  # NSLocale gives the user's preferred languages, which become the
+  # Accept-Language list; without it every user would report en-US.
+  "NSLocale",
+  "NSNotification",
+  "NSObject",
+  "NSValue",
+  "NSRunLoop",
+  "NSString",
+  "NSThread",
+  "NSTimer",
+  "NSURL",
+] }
+
+[target."cfg(any(target_os = \"linux\", target_os = \"dragonfly\", target_os = \"freebsd\", target_os = \"openbsd\", target_os = \"netbsd\"))".dependencies]
+dlopen2 = { version = "0.8", features = ["derive"] }
+gtk = { package = "gtk4", version = "0.11.4" }
+libc = "0.2"
+x11-dl = "2.21"
+
+[features]
+default = []
+# also enables devtools on `tauri` so the feature only needs to be enabled on this crate
+devtools = ["tauri-runtime/devtools", "tauri/devtools"]
+# also enables macos-private-api on `tauri` so the feature only needs to be enabled on this crate
+macos-private-api = [
+  "tauri-runtime/macos-private-api",
+  "tauri/macos-private-api",
+]
+# exposes the extension traits for `tauri::webview::WebviewBuilder`
+unstable = ["tauri/unstable"]

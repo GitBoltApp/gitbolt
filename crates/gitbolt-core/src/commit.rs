@@ -1,6 +1,7 @@
 //! Minimal, version-proof parser for raw git commit objects.
 
-use crate::error::GbError;
+use crate::error::{gix_err, GbError, GbErrorKind};
+use crate::payload::CommitMessage;
 use gix::ObjectId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -49,6 +50,11 @@ fn parse_signature(raw: &[u8]) -> Signature {
 }
 
 pub fn parse_commit(raw: &[u8]) -> Result<ParsedCommit, GbError> {
+    parse_commit_and_message(raw).map(|(c, _)| c)
+}
+
+/// `parse_commit`, plus the whole decoded message (CRLF normalized, trailing whitespace trimmed).
+fn parse_commit_and_message(raw: &[u8]) -> Result<(ParsedCommit, String), GbError> {
     let split = raw.windows(2).position(|w| w == b"\n\n");
     let (headers, message) = match split {
         Some(i) => (&raw[..i], &raw[i + 2..]),
@@ -83,19 +89,35 @@ pub fn parse_commit(raw: &[u8]) -> Result<ParsedCommit, GbError> {
     // Normalize CRLF line endings so the "\n\n" summary/body split (and any consumer of the
     // body) never has to deal with a stray '\r'.
     let message = message.replace("\r\n", "\n");
-    let message = message.trim_end();
+    let mut message = message;
+    message.truncate(message.trim_end().len());
     let (summary, body) = match message.split_once("\n\n") {
         Some((s, b)) => (s, b.trim()),
-        None => (message, ""),
+        None => (message.as_str(), ""),
     };
-    Ok(ParsedCommit {
+    let parsed = ParsedCommit {
         parents,
         author,
         committer,
         summary: summary.lines().next().unwrap_or("").trim().to_string(),
         body: body.to_string(),
         signed,
-    })
+    };
+    Ok((parsed, message))
+}
+
+/// The full message of commit `id` (a full hex object id), read in-process with gix (read-only).
+pub fn read_commit_message(repo: &gix::Repository, id: &str) -> Result<CommitMessage, GbError> {
+    let oid = ObjectId::from_hex(id.as_bytes()).map_err(|_| GbError::new(GbErrorKind::InvalidInput, format!("not a commit id: {id}")))?;
+    let obj = repo.try_find_object(oid).map_err(gix_err)?.ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("no such commit: {id}")))?;
+    if obj.kind != gix::object::Kind::Commit {
+        return Err(GbError::new(GbErrorKind::InvalidInput, format!("not a commit: {id}")));
+    }
+    let (parsed, message) = parse_commit_and_message(&obj.data)?;
+    // Everything after the first line: unlike `ParsedCommit::body`, this keeps the other lines of
+    // a multi-line first paragraph.
+    let body = message.split_once('\n').map(|(_, rest)| rest.trim()).unwrap_or("");
+    Ok(CommitMessage { id: oid.to_string(), summary: parsed.summary, body: body.to_string() })
 }
 
 #[cfg(test)]
@@ -189,5 +211,45 @@ mod tests {
         assert_eq!(c.author.name, "Bob");
         assert_eq!(c.author.email, "");
         assert_eq!(c.author.time, 0);
+    }
+
+    mod read {
+        use super::super::*;
+        use crate::testing::{fixtures, TestRepo};
+
+        fn open(r: &TestRepo) -> gix::Repository {
+            gix::open(r.path()).unwrap()
+        }
+
+        #[test]
+        fn reads_summary_and_full_body() {
+            let r = TestRepo::new();
+            fixtures::long_labels(&r);
+            let id = r.git(&["rev-list", "--max-parents=0", "HEAD"]);
+            let m = read_commit_message(&open(&r), &id).unwrap();
+            assert_eq!(m, CommitMessage { id: id.clone(), summary: "Initial commit".into(), body: "With a body line\n\nA second paragraph,\nwrapped over two lines.".into() });
+        }
+
+        #[test]
+        fn a_multi_line_first_paragraph_keeps_its_other_lines_in_the_body() {
+            let r = TestRepo::new();
+            let id = r.commit("Line one\nline two\n\nThe body");
+            let m = read_commit_message(&open(&r), &id).unwrap();
+            assert_eq!(m.summary, "Line one");
+            assert_eq!(m.body, "line two\n\nThe body");
+            let id = r.commit("Summary only");
+            assert_eq!(read_commit_message(&open(&r), &id).unwrap().body, "");
+        }
+
+        #[test]
+        fn bad_ids_are_rejected() {
+            let r = TestRepo::new();
+            r.commit("Initial commit");
+            let repo = open(&r);
+            assert_eq!(read_commit_message(&repo, "not-hex").unwrap_err().kind, GbErrorKind::InvalidInput);
+            assert_eq!(read_commit_message(&repo, &"1".repeat(40)).unwrap_err().kind, GbErrorKind::NotFound);
+            let tree = r.git(&["rev-parse", "HEAD^{tree}"]);
+            assert_eq!(read_commit_message(&repo, &tree).unwrap_err().kind, GbErrorKind::InvalidInput);
+        }
     }
 }

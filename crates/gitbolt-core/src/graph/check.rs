@@ -1,6 +1,8 @@
 //! Validates that a `Layout` never breaks or gaps a line: every lane that exits a row must
 //! be exactly the lane that enters the next, with a matching dash state, except for a lane
 //! whose parent lies outside the loaded window — that one legitimately runs off the bottom.
+//! It also follows every parent edge down its lane and checks that it ends in exactly that
+//! parent's node (or, for an outside parent, runs off the bottom without entering any node).
 
 use super::layout::{GraphRow, Half, Layout, LayoutNode, Parent, Segment};
 use std::collections::{HashMap, HashSet};
@@ -124,25 +126,52 @@ pub fn check_continuity(layout: &Layout, nodes: &[LayoutNode]) -> Result<(), Str
         }
     }
 
-    // The final exit set may only contain lanes whose surviving wait targets a parent
-    // outside the loaded window; anything else is a line the layout forgot to close.
-    let mut lane_is_outside: HashMap<u16, bool> = HashMap::new();
-    for (r, row) in layout.rows.iter().enumerate() {
-        for s in row.segments.iter().filter(|s| s.half == Half::Top) {
-            lane_is_outside.remove(&s.from_lane);
+    // Per edge: every Bottom segment is one parent edge (in parent order). Following its lane
+    // down must reach the parent's own row and nothing else: a Top into the node at exactly
+    // that row. An `Outside` parent's lane must instead run to the last row without entering
+    // any node. The boundary checks above only prove the lines are unbroken; this proves each
+    // line ends at the right commit.
+    //
+    // One top-down sweep (linear in the segment count, so it stays cheap on a real repo's long
+    // lanes): `open[lane]` holds the edges currently travelling down that lane, as
+    // (origin row, parent). Several edges can share a lane when they wait on the same parent.
+    let mut open: HashMap<u16, Vec<(usize, Parent)>> = HashMap::new();
+    for (q, row) in layout.rows.iter().enumerate() {
+        let tops: HashSet<u16> = row.segments.iter().filter(|s| s.half == Half::Top).map(|s| s.from_lane).collect();
+        let fulls: HashSet<u16> = row.segments.iter().filter(|s| s.half == Half::Full).map(|s| s.from_lane).collect();
+        let mut arrived = Vec::new();
+        for (&lane, edges) in &open {
+            if tops.contains(&lane) {
+                for &(r, parent) in edges {
+                    match parent {
+                        Parent::Row(p) if p as usize == q => {}
+                        Parent::Row(p) => return Err(format!("row {r}: the edge to parent row {p} on lane {lane} enters the node at row {q} instead")),
+                        Parent::Outside(_) => return Err(format!("row {r}: the edge to an outside parent on lane {lane} enters the node at row {q}")),
+                    }
+                }
+                arrived.push(lane);
+            } else if !fulls.contains(&lane) {
+                let (r, _) = edges[0];
+                return Err(format!("row {r}: the edge on lane {lane} stops at row {q} without reaching its parent"));
+            }
         }
+        for lane in arrived {
+            open.remove(&lane);
+        }
+
         let bottoms: Vec<&Segment> = row.segments.iter().filter(|s| s.half == Half::Bottom).collect();
-        if bottoms.len() != nodes[r].parents.len() {
-            return Err(format!("row {r}: {} Bottom segments but {} parents", bottoms.len(), nodes[r].parents.len()));
+        if bottoms.len() != nodes[q].parents.len() {
+            return Err(format!("row {q}: {} Bottom segments but {} parents", bottoms.len(), nodes[q].parents.len()));
         }
-        for (parent, seg) in nodes[r].parents.iter().zip(bottoms.iter()) {
-            let is_outside = matches!(parent, Parent::Outside(_));
-            lane_is_outside.entry(seg.to_lane).or_insert(is_outside);
+        for (&parent, seg) in nodes[q].parents.iter().zip(bottoms) {
+            open.entry(seg.to_lane).or_default().push((q, parent));
         }
     }
-    for (&lane, &is_outside) in &lane_is_outside {
-        if !is_outside {
-            return Err(format!("lane {lane} runs off the bottom of the window without an Outside parent"));
+    for (lane, edges) in &open {
+        for &(r, parent) in edges {
+            if let Parent::Row(p) = parent {
+                return Err(format!("row {r}: the edge to parent row {p} on lane {lane} runs off the bottom of the window"));
+            }
         }
     }
 

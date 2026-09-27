@@ -6,4 +6,9 @@ export type RowPayload = { id: string, kind: NodeKind, lane: number, color: numb
 /**
  * Packed segments; see `graph::Segment::pack`.
  */
-segments: Array<number>, summary: string, bodyFirstLine: string, authorName: string, authorEmail: string, authorTime: number, parents: Array<string>, wip: WipPayload | null, };
+segments: Array<number>, summary: string, bodyFirstLine: string, authorName: string, authorEmail: string, authorTime: number, 
+/**
+ * Committer timestamp (unix seconds): what the Date/Time column shows. It
+ * differs from `author_time` once a commit is amended, rebased or cherry-picked. 0 on WIP rows.
+ */
+committerTime: number, parents: Array<string>, wip: WipPayload | null, };

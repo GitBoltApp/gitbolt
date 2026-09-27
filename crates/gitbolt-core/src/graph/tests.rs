@@ -254,3 +254,150 @@ fn snapshot_criss_cross_octopus_stash_and_wip() {
     ];
     insta::assert_snapshot!(ascii(spec, &["m2", "t3", "t2", "t1"]));
 }
+
+fn seg(from: u16, to: u16, half: Half) -> Segment {
+    Segment { from_lane: from, to_lane: to, half, color: 0, dashed: false }
+}
+
+fn node(parents: Vec<Parent>) -> LayoutNode {
+    LayoutNode { parents, kind: NodeKind::Commit, pinned: false }
+}
+
+#[test]
+fn check_rejects_an_edge_that_lands_on_the_wrong_node() {
+    // a's only parent is c (row 2), but its lane runs into b (row 1) instead. Every row
+    // boundary matches, so only the per-edge rule can see it.
+    let nodes = vec![node(vec![Parent::Row(2)]), node(vec![Parent::Outside(ObjectId::null(gix::hash::Kind::Sha1))]), node(vec![])];
+    let lay = Layout {
+        rows: vec![
+            GraphRow { lane: 0, color: 0, segments: vec![seg(0, 0, Half::Bottom)] },
+            GraphRow { lane: 0, color: 0, segments: vec![seg(0, 0, Half::Top), seg(0, 0, Half::Bottom)] },
+            GraphRow { lane: 1, color: 1, segments: vec![seg(0, 0, Half::Full)] },
+        ],
+        max_lanes: 2,
+    };
+    let err = check_continuity(&lay, &nodes).expect_err("a's edge enters b, not its parent c");
+    assert!(err.contains("row 0") && err.contains("parent row 2") && err.contains("row 1"), "{err}");
+}
+
+#[test]
+fn check_rejects_an_outside_edge_that_enters_a_node() {
+    let x = ObjectId::null(gix::hash::Kind::Sha1);
+    let nodes = vec![node(vec![Parent::Outside(x)]), node(vec![Parent::Outside(x)])];
+    let lay = Layout {
+        rows: vec![
+            GraphRow { lane: 0, color: 0, segments: vec![seg(0, 0, Half::Bottom)] },
+            GraphRow { lane: 0, color: 0, segments: vec![seg(0, 0, Half::Top), seg(0, 0, Half::Bottom)] },
+        ],
+        max_lanes: 1,
+    };
+    let err = check_continuity(&lay, &nodes).expect_err("an Outside edge must not enter a node");
+    assert!(err.contains("row 0") && err.contains("outside") && err.contains("row 1"), "{err}");
+}
+
+/// A tiny deterministic generator (Knuth's MMIX LCG), so the fuzz test needs no new dependency.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self) -> u32 {
+        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (self.0 >> 33) as u32
+    }
+    fn below(&mut self, n: u32) -> u32 {
+        self.next() % n
+    }
+    fn chance(&mut self, percent: u32) -> bool {
+        self.below(100) < percent
+    }
+}
+
+/// A random history shaped like the ones `snapshot::assemble` builds: commits in display order
+/// (every parent below its children) with merges, octopus merges, stashes (one parent, no
+/// children), parents outside the window (a few shared ids, so lanes can share them), a pinned
+/// first-parent chain from a random tip, and WIP rows stacked directly above their HEAD commit
+/// (the lowest one pinned when its HEAD is the pinned tip).
+fn random_dag(seed: u64) -> Vec<LayoutNode> {
+    let mut rng = Lcg(seed);
+    let n = 1 + rng.below(40) as usize;
+    let outside: Vec<ObjectId> = (0..3u8).map(|i| ObjectId::from_bytes_or_panic(&[i + 1; 20])).collect();
+    let mut stash = vec![false; n];
+    let mut parents: Vec<Vec<Parent>> = vec![Vec::new(); n];
+    for i in (0..n).rev() {
+        let below: Vec<usize> = (i + 1..n).filter(|&j| !stash[j]).collect();
+        let count = match rng.below(100) {
+            0..=4 => 0,
+            5..=79 => 1,
+            80..=93 => 2,
+            _ => 3 + rng.below(2) as usize,
+        };
+        let mut ps: Vec<Parent> = Vec::new();
+        for _ in 0..count {
+            let p = if below.is_empty() || rng.chance(15) {
+                Parent::Outside(outside[rng.below(3) as usize])
+            } else {
+                // Favor near parents, like real histories.
+                let k = if rng.chance(60) { rng.below(below.len().min(4) as u32) } else { rng.below(below.len() as u32) };
+                Parent::Row(below[k as usize] as u32)
+            };
+            if !ps.contains(&p) {
+                ps.push(p);
+            }
+        }
+        stash[i] = ps.len() == 1 && rng.chance(10);
+        parents[i] = ps;
+    }
+
+    let mut pinned = vec![false; n];
+    let tips: Vec<usize> = (0..n).filter(|&i| !stash[i]).collect();
+    let tip = (!tips.is_empty() && rng.chance(70)).then(|| tips[rng.below(tips.len() as u32) as usize]);
+    let mut cur = tip;
+    while let Some(i) = cur {
+        pinned[i] = true;
+        cur = match parents[i].first() {
+            Some(Parent::Row(p)) => Some(*p as usize),
+            _ => None,
+        };
+    }
+
+    let wips: Vec<usize> = (0..n).map(|i| if !stash[i] && rng.chance(8) { 1 + rng.below(2) as usize } else { 0 }).collect();
+    let mut row_of = vec![0u32; n];
+    let mut row = 0u32;
+    for i in 0..n {
+        row += wips[i] as u32;
+        row_of[i] = row;
+        row += 1;
+    }
+    let mut nodes = Vec::with_capacity(row as usize);
+    for i in 0..n {
+        for w in 0..wips[i] {
+            let lowest = w + 1 == wips[i];
+            nodes.push(LayoutNode { parents: vec![Parent::Row(row_of[i])], kind: NodeKind::Wip, pinned: lowest && tip == Some(i) });
+        }
+        let ps: Vec<Parent> = parents[i].iter().map(|p| match *p {
+            Parent::Row(j) => Parent::Row(row_of[j as usize]),
+            o => o,
+        }).collect();
+        let kind = if stash[i] { NodeKind::Stash } else if ps.len() > 1 { NodeKind::Merge } else { NodeKind::Commit };
+        nodes.push(LayoutNode { parents: ps, kind, pinned: pinned[i] });
+    }
+    nodes
+}
+
+#[test]
+fn fuzz_random_dags_keep_every_line_continuous() {
+    let mut kinds = [0usize; 4];
+    let mut pinned_wip = 0usize;
+    for seed in 1..=500u64 {
+        let nodes = random_dag(seed);
+        for n in &nodes {
+            kinds[n.kind as usize] += 1;
+            pinned_wip += usize::from(n.pinned && n.kind == NodeKind::Wip);
+        }
+        let lay = layout(&nodes);
+        if let Err(e) = check_continuity(&lay, &nodes) {
+            panic!("seed {seed}: continuity violated: {e}");
+        }
+    }
+    // The generator really exercises every node kind, and pinned WIP rows.
+    assert!(kinds.iter().all(|&k| k > 0) && pinned_wip > 0, "node kinds generated: {kinds:?}, pinned WIP rows: {pinned_wip}");
+}

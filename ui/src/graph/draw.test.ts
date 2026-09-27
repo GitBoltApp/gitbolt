@@ -15,7 +15,7 @@ function recorder() {
 }
 
 const row = (lane: number, kind: RowPayload['kind'], segments: number[]): RowPayload => ({
-  id: 'x', kind, lane, color: lane, segments, summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, parents: [], wip: null,
+  id: 'x', kind, lane, color: lane, segments, summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], wip: null,
 });
 
 describe('drawGraph', () => {
@@ -34,8 +34,9 @@ describe('drawGraph', () => {
     // Three visible, unlabeled commit rows in different lanes.
     const rows = [row(0, 'commit', []), row(1, 'commit', []), row(2, 'commit', [])];
     drawGraph(ctx, { rows, first: 0, last: 3, scrollTop: 0, width: 100, height: 66, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b', '#c'], nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
-    // Two fillRect per visible row: the lane-color band, then the darker collapse strip drawn over it.
-    expect(calls.filter((c) => c.startsWith('fillRect(')).length).toBe(6);
+    // Three fillRect per visible row: the lane-color band, the darker collapse strip drawn over
+    // it, then the bright lane-colored rail edge.
+    expect(calls.filter((c) => c.startsWith('fillRect(')).length).toBe(9);
     // No row is labeled, so no connector line should be drawn.
     expect(calls.filter((c) => c.startsWith('moveTo(0,')).length).toBe(0);
     // Bands come before any node arcs.
@@ -49,6 +50,30 @@ describe('drawGraph', () => {
     // The strip is a second, darker fillRect at the row's right edge, drawn after the band.
     expect(calls).toContain('fillRect(88,2,12,18)');
     expect(calls).toContain('fillStyle=rgba(0,0,0,0.35)');
+  });
+
+  it('draws a solid, full-alpha 2px rail in the lane color at the right edge, after the strip', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', []), row(1, 'commit', [])];
+    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
+    for (const [top, c] of [[0, '#a'], [22, '#b']] as const) {
+      const strip = calls.indexOf(`fillRect(88,${top + 2},12,18)`);
+      const rail = calls.indexOf(`fillRect(98,${top + 2},2,18)`);
+      expect(strip).toBeGreaterThan(-1);
+      expect(rail).toBeGreaterThan(strip);
+      // The fill state in effect for the rail: the lane color, at full alpha.
+      const before = calls.slice(0, rail);
+      expect(before.findLast((x) => x.startsWith('fillStyle='))).toBe(`fillStyle=${c}`);
+      expect(before.findLast((x) => x.startsWith('globalAlpha='))).toBe('globalAlpha=1');
+    }
+  });
+
+  it('keeps the rail flush with the canvas edge and a whole number of device pixels wide at DPR 1.5', () => {
+    const { ctx, calls } = recorder();
+    // width 101 CSS px -> backing store round(151.5) = 152 device px; the rail is round(2 * 1.5) =
+    // 3 device px, so it spans device px 149..152, i.e. CSS x 149/1.5, width 3/1.5 = 2.
+    drawGraph(ctx, { rows: [row(0, 'commit', [])], first: 0, last: 1, scrollTop: 0, width: 101, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1.5 });
+    expect(calls).toContain(`fillRect(${149 / 1.5},2,2,18)`);
   });
 
   it('draws the label connector only on labeled rows, from x=0 to the node, snapped to a device pixel', () => {

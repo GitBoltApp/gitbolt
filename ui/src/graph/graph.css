@@ -1,25 +1,39 @@
 .graph-panel { display: flex; flex-direction: column; height: 100%; }
-.graph-header { display: flex; height: 24px; align-items: center; font-size: 10px; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; }
-.graph-header > span { padding: 0 6px; box-sizing: border-box; }
-.graph-body { position: relative; flex: 1; min-height: 0; }
+.graph-header { height: 24px; font-size: 10px; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; overflow: hidden; }
+.graph-header-inner { display: flex; height: 100%; align-items: center; }
+/* Widths come from allocateColumns (columns.ts) as inline styles, identical to the row cells'. */
+.graph-header-inner > span { position: relative; display: flex; align-items: center; height: 100%; padding: 0 6px; box-sizing: border-box; flex: none; }
+.col-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Drag handle centered on a column boundary. It must not be clipped, so the header cell itself
+   has no overflow: hidden (.col-title truncates instead). */
+.col-resizer { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 1; cursor: col-resize; touch-action: none; outline: none; }
+.col-resizer.end { right: -4px; }
+.col-resizer.start { left: -4px; }
+.col-resizer::after { content: ""; position: absolute; top: 4px; bottom: 4px; left: 3px; width: 2px; background: transparent; }
+.col-resizer:hover::after, .col-resizer:focus-visible::after { background: var(--blue); }
+/* overflow: hidden clips the canvas once the table scrolls horizontally past it. */
+/* isolation: its own stacking context, so z-indexes inside (the hover-expanded label chip) stay
+   above the canvas but never escape above toasts or other panels. */
+.graph-body { position: relative; flex: 1; min-height: 0; overflow: hidden; isolation: isolate; }
 .graph-scroll { position: absolute; inset: 0; overflow: auto; outline: none; }
 .graph-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: default; }
 .graph-row > span { overflow: hidden; text-overflow: ellipsis; padding: 0 6px; box-sizing: border-box; flex: none; }
 .graph-row:hover { background: var(--hover-row); }
 .graph-row[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
-.col-msg { flex: 1 1 auto !important; min-width: 120px; }
-.col-author { width: 160px; }
-.col-date { width: 170px; }
-.col-sha { width: 72px; }
-.graph-header .col-msg { flex: 1; }
 .dim { color: var(--text-disabled); }
+/* The gap between the summary and the dimmed body is a margin, not a text space, so it's the
+   same width in every font and never collapses or gets selected with the text. */
+.msg-body { margin-left: 10px; }
 .wip-tag { color: var(--text-secondary); font-style: italic; }
 .wip-counts { color: var(--text-secondary); }
 .sha { all: unset; cursor: pointer; font-family: ui-monospace, monospace; color: var(--text-secondary); }
 .sha:hover { color: var(--text-selected); text-decoration: underline; }
+/* `all: unset` above also drops the browser's focus ring: keyboard users need it back. */
+.sha:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 2px; color: var(--text-selected); }
+.graph-canvas-clip { position: absolute; top: 0; left: 0; overflow: hidden; pointer-events: none; }
 .graph-canvas { position: absolute; top: 0; pointer-events: none; }
 .col-labels { display: flex; align-items: center; }
-/* No right padding: the label column is exactly LABEL_W wide and the connector below must
+/* No right padding: the label column is exactly its allocated width and the connector below must
    reach its right edge flush, with no gap before the canvas (which starts at the same x). */
 .graph-row > .col-labels { padding-right: 0; }
 .ref-labels { display: flex; flex: 1; align-items: center; min-width: 0; max-width: 100%; }
@@ -29,6 +43,17 @@
    (no longer overridden to 0) is what lets it actually give up that space. */
 .ref-label { display: inline-flex; gap: 3px; align-items: center; padding: 0 5px; height: 17px; border-radius: 3px; background: color-mix(in srgb, var(--lane-color) 45%, transparent); color: var(--text-selected); max-width: 170px; min-width: 0; }
 .ref-name { overflow: hidden; text-overflow: ellipsis; }
+/* Hovering the first chip floats an untruncated copy exactly over it (RefLabels.tsx). It's
+   absolutely positioned at its static position (the chip's content start, vertically centered;
+   the -5px margin cancels the chip's left padding), so the in-flow chip, the "+N" badge and the
+   connector never move. Its containing block is the row (.col-labels isn't positioned), so
+   .col-labels' overflow: hidden doesn't clip it; and since rows carry no transform (they're
+   placed with `top`), its z-index lifts it above the canvas it may overlap. Opaque, so graph
+   lines don't show through it. `pointer-events: none`: it's display only, so the pointer
+   still hits what's beneath it. Moving right past the resting chip's edge therefore leaves the
+   chip (collapsing the copy) and reaches the "+N" badge and its tooltip. */
+.ref-label.ref-label-full { position: absolute; z-index: 3; pointer-events: none; margin-left: -5px; max-width: none; width: max-content; background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); }
+.ref-name-full { white-space: nowrap; }
 .ref-more { margin-left: 4px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--panel-bg1); flex: none; }
 /* Continues the label connector drawn on the canvas (see draw.ts) from the chip to the canvas
    edge. No gap in .ref-labels and no margin here: it must touch the chip (or the "+N" badge)
@@ -36,5 +61,10 @@
    with an 8px basis keeps it visible (never squeezed to 0) even when the chip and badge
    together would otherwise overflow the column; `.ref-label` gives up space instead. */
 .ref-connector { flex: 1 0 8px; height: 1px; background: var(--lane-color); }
+/* Full commit-message tooltip (GraphView MessageCell); .hover-tooltip (ui/tooltip.css) keeps the
+   line breaks (pre-wrap), caps it at 600px wide and scrolls it when very long. */
+.msg-tooltip { max-height: min(400px, calc(100vh - 16px)); }
+.msg-tooltip-summary { font-weight: 600; }
+.msg-tooltip-body { margin-top: 8px; color: var(--text-normal); }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
 .center-message { display: grid; place-items: center; height: 100%; color: var(--text-secondary); }

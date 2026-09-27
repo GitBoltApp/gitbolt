@@ -155,10 +155,10 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         })
         .collect();
     let lay = layout(&nodes);
-    #[cfg(test)]
-    {
-        crate::graph::check_continuity(&lay, &nodes).expect("graph continuity");
-    }
+    // Unit tests and the harness (and so the e2e suite, including the opt-in real-repo spec)
+    // verify every graph they build; a violation surfaces as an ordinary error, not a panic.
+    #[cfg(any(test, feature = "testing"))]
+    crate::graph::check_continuity(&lay, &nodes).map_err(|e| GbError::other(format!("graph continuity violated: {e}")))?;
 
     let main_path = worktrees.iter().find(|w| w.is_main).map(|w| w.path.clone());
     let rows = entries
@@ -181,6 +181,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                         author_name: c.author_name.clone(),
                         author_email: c.author_email.clone(),
                         author_time: c.author_time,
+                        committer_time: c.committer_time,
                         parents: c.parents.iter().map(ObjectId::to_string).collect(),
                         wip: None,
                     }
@@ -200,6 +201,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                         author_name: String::new(),
                         author_email: String::new(),
                         author_time: 0,
+                        committer_time: 0,
                         parents: vec![wt.head.expect("filtered").to_string()],
                         wip: Some(WipPayload {
                             worktree_path: wt.path.display().to_string(),
@@ -268,21 +270,27 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], workdir: &Path, index: 
             worktree: checked_out_elsewhere.get(local.full_name.as_str()).cloned(),
         });
     }
+    // Remote-only refs: one label per (commit, branch name), so the same branch on several
+    // remotes at the same commit is ONE chip with one icon per remote (§8.5).
+    let mut remote_only: HashMap<(ObjectId, &str), usize> = HashMap::new();
     for rr in &refs.refs {
         let RefKind::Remote { remote } = &rr.kind else { continue };
         if merged.contains(rr.full_name.as_str()) {
             continue;
         }
         let Some(row) = row_of(&rr.target) else { continue };
-        labels.push(RefLabel {
-            row,
-            name: rr.short_name.clone(),
-            local: None,
-            remotes: vec![RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host_kind: host(remote) }],
-            tag: false,
-            is_head: false,
-            worktree: None,
-        });
+        // Only the branch part (`p/janderson/foo`, not `origin/p/janderson/foo`): the remote
+        // icons already mark it as remote, and `remotes[].full_name` keeps each full name for
+        // the tooltip.
+        let branch = &rr.short_name[remote.len() + 1..];
+        let remote_label = RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host_kind: host(remote) };
+        match remote_only.get(&(rr.target, branch)) {
+            Some(&i) => labels[i].remotes.push(remote_label),
+            None => {
+                remote_only.insert((rr.target, branch), labels.len());
+                labels.push(RefLabel { row, name: branch.to_string(), local: None, remotes: vec![remote_label], tag: false, is_head: false, worktree: None });
+            }
+        }
     }
     for t in refs.refs.iter().filter(|r| r.kind == RefKind::Tag) {
         if let Some(row) = row_of(&t.target) {
@@ -429,6 +437,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wide_fixture_holds_one_lane_per_branch() {
+        let r = TestRepo::new();
+        fixtures::wide(&r);
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!(g.rows.len(), fixtures::WIDE_BRANCHES + 1);
+        assert_eq!(usize::from(g.max_lanes), fixtures::WIDE_BRANCHES);
+    }
+
+    #[tokio::test]
     async fn limit_truncates() {
         let r = TestRepo::new();
         fixtures::basic(&r);
@@ -491,6 +508,104 @@ mod tests {
         fixtures::basic(&r);
         add_second_worktree_at_main_head(&r);
         insta::assert_snapshot!(build(&r, BuildOptions::default()).await.ascii());
+    }
+
+    #[tokio::test]
+    async fn rows_carry_committer_time_distinct_from_author_time() {
+        let r = TestRepo::new();
+        r.commit("Initial commit");
+        r.commit("Amended later");
+        // TestRepo's clock advances 60 s per git call, and an amend keeps the original author
+        // date while stamping a fresh committer date: the two must now differ, and the row must
+        // carry both.
+        r.git(&["commit", "-q", "--amend", "--no-edit"]);
+        let author = r.git(&["log", "-1", "--format=%at"]).parse::<i64>().unwrap();
+        let committer = r.git(&["log", "-1", "--format=%ct"]).parse::<i64>().unwrap();
+        assert!(committer > author, "precondition: amend must leave committer date after author date");
+
+        let g = build(&r, BuildOptions::default()).await;
+        let row = g.rows.iter().find(|x| x.summary == "Amended later").unwrap();
+        assert_eq!(row.author_time, author);
+        assert_eq!(row.committer_time, committer);
+        assert_ne!(row.committer_time, row.author_time);
+    }
+
+    #[tokio::test]
+    async fn wip_rows_have_zero_committer_time() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let g = build(&r, BuildOptions::default()).await;
+        let wips: Vec<_> = g.rows.iter().filter(|x| x.kind == NodeKind::Wip).collect();
+        assert!(!wips.is_empty());
+        assert!(wips.iter().all(|w| w.committer_time == 0 && w.author_time == 0));
+    }
+
+    #[tokio::test]
+    async fn remote_only_labels_drop_the_remote_name_and_merge_across_remotes() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let fix_typo = r.git(&["rev-parse", "main~1"]);
+        // A remote-only branch on origin, and the same branch name on a second remote at the
+        // same commit: they merge into ONE label (one icon per remote), showing only the branch
+        // part.
+        r.git(&["remote", "add", "upstream", r.root().join("origin.git").to_str().unwrap()]);
+        r.git(&["update-ref", "refs/remotes/origin/p/janderson/foo", &fix_typo]);
+        r.git(&["update-ref", "refs/remotes/upstream/p/janderson/foo", &fix_typo]);
+        // The same name on a remote at a DIFFERENT commit stays its own label.
+        let readme = r.git(&["rev-parse", "v1.0^{commit}"]);
+        r.git(&["update-ref", "refs/remotes/upstream/elsewhere", &readme]);
+        r.git(&["update-ref", "refs/remotes/origin/elsewhere", &fix_typo]);
+        let g = build(&r, BuildOptions::default()).await;
+
+        let foo: Vec<&RefLabel> = g.labels.iter().filter(|l| l.name == "p/janderson/foo").collect();
+        assert_eq!(foo.len(), 1, "one label for the branch name on both remotes: {:?}", g.labels);
+        let foo = foo[0];
+        let full: Vec<&str> = foo.remotes.iter().map(|x| x.full_name.as_str()).collect();
+        assert_eq!(full, vec!["refs/remotes/origin/p/janderson/foo", "refs/remotes/upstream/p/janderson/foo"]);
+        assert_eq!(foo.remotes.iter().map(|x| x.remote.as_str()).collect::<Vec<_>>(), vec!["origin", "upstream"]);
+        assert!(foo.local.is_none() && !foo.tag && !foo.is_head);
+        assert_eq!(g.rows[foo.row as usize].summary, "Fix typo");
+
+        let elsewhere: Vec<&RefLabel> = g.labels.iter().filter(|l| l.name == "elsewhere").collect();
+        assert_eq!(elsewhere.len(), 2, "different commits keep separate labels");
+        assert!(elsewhere.iter().all(|l| l.remotes.len() == 1));
+        assert!(!g.labels.iter().any(|l| l.name.starts_with("origin/") || l.name.starts_with("upstream/")));
+    }
+
+    #[tokio::test]
+    async fn local_label_merges_every_same_named_remote_at_its_commit() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let main = r.git(&["rev-parse", "main"]);
+        r.git(&["remote", "add", "upstream", r.root().join("origin.git").to_str().unwrap()]);
+        r.git(&["update-ref", "refs/remotes/upstream/main", &main]);
+        let g = build(&r, BuildOptions::default()).await;
+        let mains: Vec<&RefLabel> = g.labels.iter().filter(|l| l.name == "main").collect();
+        assert_eq!(mains.len(), 1, "{:?}", g.labels);
+        let m = mains[0];
+        assert_eq!(m.local.as_deref(), Some("refs/heads/main"));
+        assert!(m.is_head, "HEAD stays on the local label");
+        assert_eq!(m.remotes.iter().map(|x| x.full_name.as_str()).collect::<Vec<_>>(), vec!["refs/remotes/origin/main", "refs/remotes/upstream/main"]);
+        assert!(g.labels.iter().any(|l| l.tag && l.name == "v1.0"), "tags stay separate labels");
+    }
+
+    #[tokio::test]
+    async fn local_label_takes_only_the_remotes_at_its_commit() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        // main == origin/main at the merge; upstream/main lags one commit behind, at "Fix typo".
+        let fix_typo = r.git(&["rev-parse", "main~1"]);
+        r.git(&["remote", "add", "upstream", r.root().join("origin.git").to_str().unwrap()]);
+        r.git(&["update-ref", "refs/remotes/upstream/main", &fix_typo]);
+        let g = build(&r, BuildOptions::default()).await;
+        let mains: Vec<&RefLabel> = g.labels.iter().filter(|l| l.name == "main").collect();
+        assert_eq!(mains.len(), 2, "{:?}", g.labels);
+        let local = mains.iter().find(|l| l.local.is_some()).unwrap();
+        assert_eq!(local.remotes.iter().map(|x| x.full_name.as_str()).collect::<Vec<_>>(), vec!["refs/remotes/origin/main"]);
+        assert_eq!(g.rows[local.row as usize].summary, "Merge branch 'feature/login'");
+        let lagging = mains.iter().find(|l| l.local.is_none()).unwrap();
+        assert_eq!(lagging.remotes.iter().map(|x| x.full_name.as_str()).collect::<Vec<_>>(), vec!["refs/remotes/upstream/main"]);
+        assert_eq!(g.rows[lagging.row as usize].summary, "Fix typo");
     }
 
     #[tokio::test]

@@ -44,3 +44,55 @@ describe('graph.css label-connector contract', () => {
     expect(connectorRule).toMatch(/flex:\s*1\s+0\s+\d/);
   });
 });
+
+describe('graph.css message cell', () => {
+  it('separates the summary from the dimmed body with a ~10px margin, not a text space', () => {
+    const bodyRule = css.match(/\.msg-body\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(bodyRule).toMatch(/margin-left:\s*10px/);
+  });
+});
+
+describe('graph.css SHA button', () => {
+  it('restores a visible keyboard focus ring after `all: unset` removed the default one', () => {
+    expect(css).toMatch(/\.sha\s*\{[^}]*all:\s*unset/);
+    const rule = css.match(/\.sha:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/outline:\s*\d+px\s+solid\s+\S+/);
+    expect(rule).not.toMatch(/outline:\s*(none|0)\b/);
+  });
+});
+
+describe('graph.css canvas clip', () => {
+  it('clips the canvas wrapper so the canvas never paints outside the scroll viewport', () => {
+    const rule = css.match(/\.graph-canvas-clip\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/overflow:\s*hidden/);
+    expect(rule).toMatch(/pointer-events:\s*none/);
+  });
+});
+
+describe('graph.css hover-expanded label chip', () => {
+  const rule = css.match(/\.ref-label\.ref-label-full\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  it('floats out of flow, above the canvas, so the row and connector geometry never move', () => {
+    expect(rule).toMatch(/position:\s*absolute/);
+    expect(rule).toMatch(/z-index:\s*[1-9]/);
+  });
+
+  it('ignores the pointer, so moving right past the resting chip reaches the +N badge beneath it', () => {
+    expect(rule).toMatch(/pointer-events:\s*none/);
+  });
+
+  it('is kept inside the graph body\'s own stacking context (never above toasts or other panels)', () => {
+    const body = css.match(/\.graph-body\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(body).toMatch(/isolation:\s*isolate/);
+  });
+
+  it('is not width-capped or truncated', () => {
+    expect(rule).toMatch(/max-width:\s*none/);
+    expect(css).not.toMatch(/\.ref-name-full\s*\{[^}]*(text-overflow|overflow:\s*hidden)/);
+  });
+
+  it('keeps the rows free of transforms (a stacking context would trap the chip under the canvas)', () => {
+    const rowRule = css.match(/\.graph-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rowRule).not.toMatch(/transform|z-index|isolation|will-change/);
+  });
+});

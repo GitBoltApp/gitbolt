@@ -2,13 +2,13 @@ import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { GraphCanvas } from './GraphCanvas';
-import type { Metrics } from './geometry';
+import { METRICS } from './metrics';
 
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 
-const metrics: Metrics = { rowH: 22, laneW: 16, padX: 8 };
+const metrics = METRICS;
 const rows: RowPayload[] = [
-  { id: 'a'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, parents: [], wip: null },
+  { id: 'a'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], wip: null },
 ];
 
 /** A minimal `matchMedia` mock: tracks listeners per query and lets a test fire 'change'. */

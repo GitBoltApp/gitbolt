@@ -9,8 +9,9 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   use: { baseURL: 'http://localhost:1420', trace: 'retain-on-failure' },
   projects: [
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    // Chromium first: it's what the CEF runtime embeds (Task 14), so this is the primary target.
     { name: 'chromium', use: { ...devices['Desktop Chrome'], permissions: ['clipboard-read', 'clipboard-write'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
   webServer: [
     { command: `${HARNESS_BIN} serve --port 7433`, url: 'http://127.0.0.1:7433/health', reuseExistingServer: false, timeout: 60_000 },

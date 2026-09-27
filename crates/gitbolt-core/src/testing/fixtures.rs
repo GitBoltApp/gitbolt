@@ -35,13 +35,31 @@ pub fn basic(r: &TestRepo) {
     r.write("file_1.txt", "main change\n");
 }
 
+/// Number of parallel branches in `wide`.
+pub const WIDE_BRANCHES: usize = 30;
+
+/// A root commit on `main` with `WIDE_BRANCHES` unmerged branches forked from it, one commit
+/// each: every branch holds its own lane down to the root, so the graph is `WIDE_BRANCHES`
+/// lanes wide (no remote, so nothing is pinned). Used by the "no lane is clipped at the default
+/// Graph width" Playwright check.
+pub fn wide(r: &TestRepo) {
+    r.commit("Root");
+    for i in 0..WIDE_BRANCHES {
+        r.switch_new(&format!("wide/{i:02}"));
+        r.commit(&format!("Branch {i:02}"));
+        r.switch("main");
+    }
+}
+
 /// `git init` with no commits (unborn HEAD).
 pub fn unborn(_r: &TestRepo) {}
 
 /// A commit carrying a very long branch name plus a tag, so the label chip truncates and the
-/// row picks up a `+1` badge. Used only by the connector/truncation Playwright assertions.
+/// row picks up a `+1` badge. Used only by the connector/truncation and column Playwright
+/// assertions. The root commit has a multi-line body, for the summary/body gap check and the
+/// full-message tooltip.
 pub fn long_labels(r: &TestRepo) {
-    r.commit_as("Initial commit", "Ada Lovelace", "ada@example.com");
+    r.commit_as("Initial commit\n\nWith a body line\n\nA second paragraph,\nwrapped over two lines.", "Ada Lovelace", "ada@example.com");
     r.switch_new("feature/this-is-an-extremely-long-branch-name-designed-to-overflow-the-label-chip-and-force-truncation-in-the-commit-graph-ui");
     let tip = r.commit_as("Long label commit", "Ada Lovelace", "ada@example.com");
     r.tag("also-tagged-here", &tip);

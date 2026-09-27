@@ -151,7 +151,7 @@ impl GitCli {
                     (code, stderr, Err(err))
                 }
             }
-            Outcome::Done(Err(e)) => (None, e.to_string(), Err(GbError::new(GbErrorKind::Io, format!("git failed: {e}")))),
+            Outcome::Done(Err(e)) => (None, e.to_string(), Err(wait_failed(id, &e))),
             Outcome::Cancelled => (None, String::new(), Err(GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Cancelled, "Cancelled") })),
             Outcome::TimedOut(d) => (None, String::new(), Err(GbError { command_id: Some(id), ..GbError::other(format!("git timed out after {}s", d.as_secs_f32())) })),
         };
@@ -177,6 +177,12 @@ impl GitCli {
         }
         Ok(v)
     }
+}
+
+/// The error for a git process that started but couldn't be waited on. It carries the
+/// command's log id like every other failure, so the UI can link it to the command log.
+fn wait_failed(id: u64, e: &std::io::Error) -> GbError {
+    GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Io, format!("git failed: {e}")) }
 }
 
 fn kill_group(pid: Option<u32>) {
@@ -208,6 +214,14 @@ mod tests {
     use crate::error::GbErrorKind;
     use crate::testing::{isolated_git_env, TestRepo};
     use std::time::Instant;
+
+    #[test]
+    fn a_failed_wait_carries_the_command_id() {
+        let err = wait_failed(42, &std::io::Error::other("boom"));
+        assert_eq!(err.kind, GbErrorKind::Io);
+        assert_eq!(err.command_id, Some(42));
+        assert_eq!(err.message, "git failed: boom");
+    }
 
     fn cli() -> GitCli {
         GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env())

@@ -22,12 +22,17 @@ const BAND_ALPHA = 0.18;
 /** Width, in CSS px, of the darker "collapse strip" at the right edge of every band. */
 export const STRIP_W = 12;
 const STRIP_COLOR = 'rgba(0,0,0,0.35)';
+/** Width, in CSS px, of the solid lane-colored rail at the graph column's right edge. */
+export const RAIL_W = 2;
 
 export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
   const { metrics: m, colors } = o;
   const color = (i: number) => colors[i % colors.length];
   ctx.setTransform(o.dpr, 0, 0, o.dpr, 0, 0);
   ctx.clearRect(0, 0, o.width, o.height);
+  const railDev = Math.max(1, Math.round(RAIL_W * o.dpr));
+  const railX = (Math.round(o.width * o.dpr) - railDev) / o.dpr;
+  const railW = railDev / o.dpr;
 
   // Row bands, and the label connector on labeled rows, before any lines or nodes so those
   // never get painted over.
@@ -43,6 +48,11 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
     ctx.globalAlpha = 1;
     ctx.fillStyle = STRIP_COLOR;
     ctx.fillRect(o.width - STRIP_W, top + 2, STRIP_W, m.rowH - 4);
+    // The bright rail edge, over the strip's last RAIL_W px: solid lane color, full alpha. Sized
+    // and placed in device pixels (a whole number of them, flush with the backing store's right
+    // edge) so it stays crisp at fractional DPR.
+    ctx.fillStyle = c;
+    ctx.fillRect(railX, top + 2, railW, m.rowH - 4);
 
     if (o.labeledRows.has(i)) {
       // `ctx.lineWidth = 1` under `setTransform(dpr, ...)` is `dpr` *device* pixels wide, which

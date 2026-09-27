@@ -2,7 +2,8 @@
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
-use axum::response::IntoResponse;
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use gitbolt_core::api::{Api, Request};
@@ -14,8 +15,28 @@ pub async fn serve(listener: tokio::net::TcpListener, api: Arc<Api>) {
     axum::serve(listener, app).await.expect("harness server failed");
 }
 
-async fn ws(State(api): State<Arc<Api>>, upgrade: WebSocketUpgrade) -> impl IntoResponse {
-    upgrade.on_upgrade(move |socket| handle(socket, api))
+async fn ws(State(api): State<Arc<Api>>, headers: HeaderMap, upgrade: WebSocketUpgrade) -> Response {
+    // Browsers always send Origin on a WebSocket upgrade, so this stops any other web page from
+    // driving the backend through the socket. Non-browser clients (the Rust tests) send none.
+    if let Some(origin) = headers.get(header::ORIGIN)
+        && !origin.to_str().is_ok_and(origin_allowed)
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    upgrade.on_upgrade(move |socket| handle(socket, api)).into_response()
+}
+
+/// `http://localhost[:port]`, `http://127.0.0.1[:port]` (the Vite dev server and the harness
+/// itself) or any `tauri://` origin.
+fn origin_allowed(origin: &str) -> bool {
+    if origin.starts_with("tauri://") {
+        return true;
+    }
+    ["http://localhost", "http://127.0.0.1"].iter().any(|host| {
+        origin.strip_prefix(host).is_some_and(|rest| {
+            rest.is_empty() || rest.strip_prefix(':').is_some_and(|port| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()))
+        })
+    })
 }
 
 async fn handle(mut socket: WebSocket, api: Arc<Api>) {

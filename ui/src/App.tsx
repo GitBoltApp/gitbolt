@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from './api/client';
+import type { CommitMessage } from './api/gen/CommitMessage';
 import type { GraphPayload } from './api/gen/GraphPayload';
 import './graph/graph.css';
 import { GraphView } from './graph/GraphView';
@@ -9,7 +10,7 @@ type State =
   | { kind: 'loading' }
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; graph: GraphPayload };
+  | { kind: 'ready'; graph: GraphPayload; repoPath: string; loadMessage: (id: string) => Promise<CommitMessage> };
 
 export function App() {
   const [state, setState] = useState<State>({ kind: 'loading' });
@@ -24,7 +25,7 @@ export function App() {
         const graph = await api.graph(repo.id);
         if (!live) return;
         document.title = `GitBolt — ${repo.name}`;
-        setState({ kind: 'ready', graph });
+        setState({ kind: 'ready', graph, repoPath: repo.path, loadMessage: (id) => api.commitMessage(repo.id, id) });
         requestAnimationFrame(() => console.info(`[gitbolt] graph ready in ${Math.round(performance.now() - t0)} ms (${graph.rows.length} rows)`));
       } catch (e) {
         if (live) setState({ kind: 'error', message: errorMessage(e) });
@@ -40,7 +41,7 @@ export function App() {
       {state.kind === 'error' && <div className="center-message" role="alert">{state.message}</div>}
       {state.kind === 'ready' && (state.graph.rows.length === 0 && state.graph.head.unborn
         ? <div className="center-message">No commits yet</div>
-        : <GraphView graph={state.graph} />)}
+        : <GraphView graph={state.graph} repoId={state.repoPath} loadMessage={state.loadMessage} />)}
       <Toast />
     </>
   );

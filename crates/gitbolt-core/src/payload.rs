@@ -33,8 +33,25 @@ pub struct RowPayload {
     pub author_email: String,
     #[ts(type = "number")]
     pub author_time: i64,
+    /// Committer timestamp (unix seconds): what the Date/Time column shows. It
+    /// differs from `author_time` once a commit is amended, rebased or cherry-picked. 0 on WIP rows.
+    #[ts(type = "number")]
+    pub committer_time: i64,
     pub parents: Vec<String>,
     pub wip: Option<WipPayload>,
+}
+
+/// A commit's complete message, fetched on demand (`Request::CommitMessage`) rather than carried
+/// by every graph row: the full-message tooltip (§8.4) and the details panel (§9.2) use it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CommitMessage {
+    pub id: String,
+    /// The first line.
+    pub summary: String,
+    /// Everything after the first line, line breaks kept, surrounding whitespace trimmed.
+    pub body: String,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

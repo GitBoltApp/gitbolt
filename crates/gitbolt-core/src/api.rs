@@ -21,6 +21,9 @@ pub enum Request {
     Graph { repo: u32, limit: Option<u32> },
     CommandLog,
     LaunchRepo,
+    /// The full message of one commit (read-only, via gix): loaded lazily by the graph's
+    /// full-message tooltip and the details panel, instead of shipping every body with the graph.
+    CommitMessage { repo: u32, id: String },
 }
 
 struct RepoHandle {
@@ -59,6 +62,13 @@ impl Api {
             }
             Request::CommandLog => to_json(self.cli.log().entries()),
             Request::LaunchRepo => to_json(&self.launch_repo),
+            Request::CommitMessage { repo, id } => {
+                let h = self.handle(repo)?;
+                let msg = tokio::task::spawn_blocking(move || crate::commit::read_commit_message(&h.repo.to_thread_local(), &id))
+                    .await
+                    .map_err(|e| GbError::other(format!("commit message task: {e}")))??;
+                to_json(msg)
+            }
         }
     }
 
@@ -153,5 +163,20 @@ mod tests {
         let api = api();
         assert_eq!(api.dispatch(req(serde_json::json!({"method": "launchRepo"}))).await.unwrap(), "/launch/path");
         assert!(api.dispatch(req(serde_json::json!({"method": "commandLog"}))).await.unwrap().is_array());
+    }
+
+    #[tokio::test]
+    async fn commit_message_is_loaded_on_demand() {
+        let r = TestRepo::new();
+        fixtures::long_labels(&r);
+        let api = api();
+        let id = api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": r.path()}}))).await.unwrap()["id"].as_u64().unwrap();
+        let root = r.git(&["rev-list", "--max-parents=0", "HEAD"]);
+        let m = api.dispatch(req(serde_json::json!({"method": "commitMessage", "params": {"repo": id, "id": root}}))).await.unwrap();
+        assert_eq!(m, serde_json::json!({"id": root, "summary": "Initial commit", "body": "With a body line\n\nA second paragraph,\nwrapped over two lines."}));
+        let graph = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}))).await.unwrap();
+        assert!(graph["rows"][0].get("body").is_none(), "graph rows don't carry full bodies");
+        let err = api.dispatch(req(serde_json::json!({"method": "commitMessage", "params": {"repo": id, "id": "1".repeat(40)}}))).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::NotFound);
     }
 }

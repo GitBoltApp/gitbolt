@@ -25,6 +25,13 @@ tempfile = "3.27"
 insta = "1.48"
 axum = { version = "0.8.9", features = ["ws"] }
 tokio-tungstenite = "0.30"
-tauri = { version = "2.12", features = [] }
-tauri-build = { version = "2.7", features = [] }
-tauri-plugin-clipboard-manager = "2.3.3"
+# Tauri 3 alpha + the official CEF (Chromium) runtime (Task 14). Pinned exactly: this is an
+# alpha series. See vendor/tauri-runtime-cef/GITBOLT-PATCH.md for the vendored runtime patch.
+tauri = { version = "=3.0.0-alpha.3", features = [] }
+tauri-build = { version = "=3.0.0-alpha.2", features = [] }
+tauri-runtime-cef = "=3.0.0-alpha.4"
+tauri-plugin-clipboard-manager = "=3.0.0-alpha.1"
+
+[patch.crates-io]
+# CEF issue #3002 idle-busy-loop workaround; see vendor/tauri-runtime-cef/GITBOLT-PATCH.md.
+tauri-runtime-cef = { path = "vendor/tauri-runtime-cef" }
