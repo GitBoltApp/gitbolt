@@ -183,6 +183,8 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                         author_time: c.author_time,
                         committer_time: c.committer_time,
                         parents: c.parents.iter().map(ObjectId::to_string).collect(),
+                        // Parsed by the walk from the full message: no second object lookup.
+                        mr_refs: c.mr_refs.clone(),
                         wip: None,
                     }
                 }
@@ -203,6 +205,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                         author_time: 0,
                         committer_time: 0,
                         parents: vec![wt.head.expect("filtered").to_string()],
+                        mr_refs: vec![],
                         wip: Some(WipPayload {
                             worktree_path: wt.path.display().to_string(),
                             worktree_name: (!is_main).then(|| wt.path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()),
@@ -606,6 +609,41 @@ mod tests {
         let lagging = mains.iter().find(|l| l.local.is_none()).unwrap();
         assert_eq!(lagging.remotes.iter().map(|x| x.full_name.as_str()).collect::<Vec<_>>(), vec!["refs/remotes/upstream/main"]);
         assert_eq!(g.rows[lagging.row as usize].summary, "Fix typo");
+    }
+
+    #[tokio::test]
+    async fn rows_carry_message_refs_and_wip_rows_have_none() {
+        let r = TestRepo::new();
+        fixtures::details(&r);
+        let g = build(&r, BuildOptions::default()).await;
+        let row = |s: &str| g.rows.iter().find(|x| x.summary == s).unwrap_or_else(|| panic!("no row {s}"));
+        // The refs sit in the body (DETAILS_MESSAGE); the URL in it contributes nothing.
+        assert_eq!(row("Rename guide and update assets").mr_refs, vec!["!42", "group/sub/project!7", "#12"]);
+        assert!(row("Initial commit").mr_refs.is_empty());
+        let wips: Vec<_> = g.rows.iter().filter(|x| x.kind == NodeKind::Wip).collect();
+        assert!(!wips.is_empty(), "the details fixture has a dirty worktree");
+        assert!(wips.iter().all(|w| w.mr_refs.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn message_refs_come_from_the_summary_too() {
+        let r = TestRepo::new();
+        r.commit("Fix login (#7)\n\nSee !8 and #7");
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!(g.rows[0].mr_refs, vec!["#7", "!8"]);
+    }
+
+    #[tokio::test]
+    async fn message_refs_include_lines_after_the_summary_without_a_blank_line() {
+        // No blank line: the ref lines are neither `summary` nor `body`, but the details panel
+        // (`read_commit_message`) shows them, so the menu's refs must include them too.
+        let r = TestRepo::new();
+        r.commit("Fix login\nCloses #12");
+        r.commit("Fix\nSee merge request group/project!1187");
+        let g = build(&r, BuildOptions::default()).await;
+        let row = |s: &str| g.rows.iter().find(|x| x.summary == s).unwrap_or_else(|| panic!("no row {s}"));
+        assert_eq!(row("Fix login").mr_refs, vec!["#12"]);
+        assert_eq!(row("Fix").mr_refs, vec!["group/project!1187"]);
     }
 
     #[tokio::test]

@@ -1,11 +1,14 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GraphView } from './GraphView';
 import { formatDate } from '../format/date';
 import { METRICS } from './metrics';
 import { COLUMN_MIN, columnPrefsPersistence, SHA_W, useColumnPrefs } from './columns';
+import { createCommitMessageCache } from '../api/commitMessages';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
+import { copyText } from '../api/transport';
+import { useToast } from '../ui/toast';
 
 vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
 
@@ -15,8 +18,8 @@ Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true
 
 const graph: GraphPayload = {
   rows: [
-    { id: 'a'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: 'Second', bodyFirstLine: 'details', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 1_767_225_600, committerTime: 1_767_227_520, parents: ['b'.repeat(40)], wip: null },
-    { id: 'b'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: 'First', bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: '', authorTime: 1_767_225_000, committerTime: 1_767_225_000, parents: [], wip: null },
+    { id: 'a'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: 'Second', bodyFirstLine: 'details', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 1_767_225_600, committerTime: 1_767_227_520, parents: ['b'.repeat(40)], mrRefs: [], wip: null },
+    { id: 'b'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: 'First', bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: '', authorTime: 1_767_225_000, committerTime: 1_767_225_000, parents: [], mrRefs: [], wip: null },
   ],
   labels: [{ row: 0, name: 'main', local: 'refs/heads/main', remotes: [], tag: false, isHead: true, worktree: null }],
   maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'a'.repeat(40), detached: false, unborn: false }, truncated: false,
@@ -56,6 +59,43 @@ describe('GraphView', () => {
     expect(summary.nextSibling).toBe(body);
   });
 
+  it('controlled selection reports Ctrl+clicks and draws compare markers', () => {
+    const onSelect = vi.fn();
+    render(<GraphView graph={graph} repoId="/r" selected={1} onSelect={onSelect} compare={{ a: 0, b: 1 }} />);
+    const rows = screen.getAllByRole('row');
+    expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+    fireEvent.mouseDown(rows[0], { ctrlKey: true });
+    expect(onSelect).toHaveBeenCalledWith(0, { ctrl: true });
+    expect(within(rows[0]).getByTestId('compare-a')).toHaveTextContent('A');
+    expect(within(rows[1]).getByTestId('compare-b')).toHaveTextContent('B');
+  });
+
+  it('passes keys it does not handle to onUnhandledKey', () => {
+    const onKey = vi.fn(() => true);
+    render(<GraphView graph={graph} repoId="/r" selected={0} onSelect={() => {}} onUnhandledKey={onKey} />);
+    fireEvent.keyDown(screen.getByRole('grid', { name: 'Commit graph' }), { key: 'Enter' });
+    expect(onKey).toHaveBeenCalledWith('Enter');
+  });
+
+  it('forwards to onUnhandledKey only keys aimed at the grid itself, with no Ctrl/Alt/Meta', () => {
+    const onKey = vi.fn(() => true);
+    render(<GraphView graph={graph} repoId="/r" selected={0} onSelect={() => {}} onUnhandledKey={onKey} />);
+    // Enter on a Tab-focused SHA button: not forwarded and not prevented, so the browser's
+    // Enter-activates-button click (the copy) goes ahead.
+    expect(fireEvent.keyDown(screen.getAllByTestId('sha')[0], { key: 'Enter' })).toBe(true);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    for (const mod of ['ctrlKey', 'altKey', 'metaKey']) expect(fireEvent.keyDown(grid, { key: 'Enter', [mod]: true })).toBe(true);
+    expect(onKey).not.toHaveBeenCalled();
+    fireEvent.keyDown(grid, { key: 'Enter', shiftKey: true });
+    expect(onKey).toHaveBeenCalledWith('Enter');
+  });
+
+  it('labels the compare badges for assistive technology', () => {
+    render(<GraphView graph={graph} repoId="/r" selected={1} onSelect={() => {}} compare={{ a: 0, b: 1 }} />);
+    expect(screen.getByRole('img', { name: 'Compare A' })).toHaveTextContent('A');
+    expect(screen.getByRole('img', { name: 'Compare B' })).toHaveTextContent('B');
+  });
+
   it('arrow keys move the selection', () => {
     render(<GraphView graph={graph} repoId="/repo" />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
@@ -63,6 +103,17 @@ describe('GraphView', () => {
     expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-selected', 'true');
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     expect(screen.getAllByRole('row')[1]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('a row SHA click copies the full id, and a failed copy shows a toast instead of an unhandled rejection', async () => {
+    useToast.setState({ message: null });
+    render(<GraphView graph={graph} repoId="/repo" />);
+    await act(async () => fireEvent.click(screen.getAllByTestId('sha')[0]));
+    expect(copyText).toHaveBeenLastCalledWith('a'.repeat(40));
+    expect(useToast.getState().message).toBe('Copied');
+    vi.mocked(copyText).mockRejectedValueOnce(new Error('denied'));
+    await act(async () => fireEvent.click(screen.getAllByTestId('sha')[1]));
+    expect(useToast.getState().message).toBe('Copy failed');
   });
 });
 
@@ -75,7 +126,7 @@ describe('GraphView full-message tooltip (lazy-loaded)', () => {
 
   it('loads and shows the whole message only after the pointer rests ~500 ms on the message cell', async () => {
     const load = loader();
-    render(<GraphView graph={graph} repoId="/repo" loadMessage={load} />);
+    render(<GraphView graph={graph} repoId="/repo" messages={createCommitMessageCache(load)} />);
     fireEvent.mouseEnter(msgCell(0));
     act(() => vi.advanceTimersByTime(400));
     expect(load).not.toHaveBeenCalled();
@@ -92,7 +143,7 @@ describe('GraphView full-message tooltip (lazy-loaded)', () => {
 
   it('caches per commit: a second rest shows it without another load', async () => {
     const load = loader();
-    render(<GraphView graph={graph} repoId="/repo" loadMessage={load} />);
+    render(<GraphView graph={graph} repoId="/repo" messages={createCommitMessageCache(load)} />);
     fireEvent.mouseEnter(msgCell(0));
     await act(async () => vi.advanceTimersByTime(500));
     fireEvent.mouseLeave(msgCell(0));
@@ -104,7 +155,7 @@ describe('GraphView full-message tooltip (lazy-loaded)', () => {
 
   it('moving off before the delay cancels it (nothing is loaded)', () => {
     const load = loader();
-    render(<GraphView graph={graph} repoId="/repo" loadMessage={load} />);
+    render(<GraphView graph={graph} repoId="/repo" messages={createCommitMessageCache(load)} />);
     fireEvent.mouseEnter(msgCell(0));
     act(() => vi.advanceTimersByTime(300));
     fireEvent.mouseLeave(msgCell(0));
@@ -114,7 +165,7 @@ describe('GraphView full-message tooltip (lazy-loaded)', () => {
   });
 
   it('a commit without a body shows just its summary', async () => {
-    render(<GraphView graph={graph} repoId="/repo" loadMessage={loader()} />);
+    render(<GraphView graph={graph} repoId="/repo" messages={createCommitMessageCache(loader())} />);
     fireEvent.mouseEnter(msgCell(1));
     await act(async () => vi.advanceTimersByTime(500));
     expect(screen.getByRole('tooltip').textContent).toBe('First');
@@ -122,7 +173,7 @@ describe('GraphView full-message tooltip (lazy-loaded)', () => {
 
   it('scrolling the grid hides it, and cancels a pending one', async () => {
     const load = loader();
-    render(<GraphView graph={graph} repoId="/repo" loadMessage={load} />);
+    render(<GraphView graph={graph} repoId="/repo" messages={createCommitMessageCache(load)} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
     fireEvent.mouseEnter(msgCell(0));
     await act(async () => vi.advanceTimersByTime(500));
@@ -142,7 +193,7 @@ describe('GraphView full-message tooltip (lazy-loaded)', () => {
   it('WIP rows get no message tooltip', () => {
     const load = loader();
     const wip: GraphPayload = { ...graph, rows: [{ ...graph.rows[0], id: 'wip:/repo', kind: 'wip', summary: '// WIP', bodyFirstLine: '', wip: { worktreePath: '/repo', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 } }, graph.rows[1]] };
-    render(<GraphView graph={wip} repoId="/repo" loadMessage={load} />);
+    render(<GraphView graph={wip} repoId="/repo" messages={createCommitMessageCache(load)} />);
     fireEvent.mouseEnter(msgCell(0));
     act(() => vi.advanceTimersByTime(1000));
     expect(screen.queryByRole('tooltip')).toBeNull();

@@ -1,12 +1,15 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { createCommitMessageCache, type CommitMessageCache } from '../api/commitMessages';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type KeyboardEvent, type RefObject } from 'react';
+import type { CommitMessageCache } from '../api/commitMessages';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
 import { formatDate } from '../format/date';
+import { wipCountsText } from '../format/wip';
+import { avatars } from '../avatars/avatarStore';
+import type { CompareMarks } from '../repo/store';
 import { useHoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { ColumnResizer } from './ColumnResizer';
@@ -18,12 +21,11 @@ import './graph.css';
 
 function WipSummary({ row }: { row: RowPayload }) {
   const w = row.wip!;
-  const parts = [w.modified && `✎${w.modified}`, w.added && `+${w.added}`, w.deleted && `−${w.deleted}`, w.conflicted && `⚠${w.conflicted}`].filter(Boolean);
   return (
     <>
       <span className="wip-tag">// WIP</span>
       {w.worktreeName && <span className="dim"> {w.worktreeName}</span>}
-      <span className="wip-counts"> {parts.join(' ')}</span>
+      <span className="wip-counts"> {wipCountsText(w)}</span>
     </>
   );
 }
@@ -41,13 +43,13 @@ const renderMessage = (m: CommitMessage) => (
 /**
  * The Message cell. Resting the pointer on it for MESSAGE_TOOLTIP_DELAY_MS shows the complete
  * message (summary plus full body, line breaks kept) in a scrollable tooltip. The graph payload
- * doesn't carry full bodies: the message is loaded on demand through `messages` (an LRU cache
- * over the `commitMessage` request), with "Loading…" if that takes over ~100 ms.
+ * doesn't carry full bodies: the message is loaded on demand through `messages` (the per-repo
+ * `commitMessage` cache the details panel shares), with "Loading…" if that takes over ~100 ms.
  * Pointer-only: the grid keeps focus on its scroll container (rows are never focused
  * themselves), and keyboard users read the selected commit's full message in the details panel
  * (§9.2).
  */
-function MessageCell({ row, width, messages }: { row: RowPayload; width: number; messages?: CommitMessageCache }) {
+function MessageCell({ row, width, messages, mark }: { row: RowPayload; width: number; messages?: CommitMessageCache; mark: 'A' | 'B' | null }) {
   const isWip = row.kind === 'wip';
   const { triggerProps, tooltip } = useHoverTooltip({
     delayMs: MESSAGE_TOOLTIP_DELAY_MS,
@@ -61,6 +63,7 @@ function MessageCell({ row, width, messages }: { row: RowPayload; width: number;
   });
   return (
     <span role="gridcell" data-col="message" className="col-msg" style={{ width }} {...triggerProps}>
+      {mark && <span className="compare-marker" role="img" aria-label={`Compare ${mark}`} data-testid={mark === 'A' ? 'compare-a' : 'compare-b'}>{mark}</span>}
       {isWip ? <WipSummary row={row} /> : <><span className="msg-summary">{row.summary}</span>{row.bodyFirstLine && <span className="dim msg-body">{row.bodyFirstLine}</span>}</>}
       {tooltip}
     </span>
@@ -69,15 +72,26 @@ function MessageCell({ row, width, messages }: { row: RowPayload; width: number;
 
 const NO_LABELS: RefLabel[] = [];
 
+/** Rows either side of the screen whose avatars are also asked for, so normal scrolling doesn't
+ * pop them in. Much smaller than the virtualizer's overscan: a fast scroll must stay cheap. */
+export const AVATAR_OVERSCAN = 5;
+
+/** Graph nodes draw from the shared avatar cache (keyed by email). Module-level, so stable. */
+const avatarBitmap = (email: string) => avatars.get(email)?.bitmap ?? null;
+
+export type SelectMods = { ctrl: boolean };
+
 interface GraphRowProps {
   row: RowPayload;
   index: number;
   start: number;
   selected: boolean;
+  /** The row's compare badge (spec §9.4), if it is a compare endpoint. */
+  mark: 'A' | 'B' | null;
   cols: ColumnWidths;
   labels: RefLabel[];
   messages?: CommitMessageCache;
-  onSelect(index: number): void;
+  onSelect(index: number, mods: SelectMods): void;
   onCopySha(id: string): void;
 }
 
@@ -86,7 +100,7 @@ interface GraphRowProps {
  * widths and label lists, stable callbacks), so scrolling re-renders only the view and the
  * canvas, not every row.
  */
-const GraphRow = memo(function GraphRow({ row, index, start, selected, cols, labels, messages, onSelect, onCopySha }: GraphRowProps) {
+const GraphRow = memo(function GraphRow({ row, index, start, selected, mark, cols, labels, messages, onSelect, onCopySha }: GraphRowProps) {
   const isWip = row.kind === 'wip';
   return (
     <div
@@ -97,13 +111,13 @@ const GraphRow = memo(function GraphRow({ row, index, start, selected, cols, lab
       // `top`, not `transform: translateY`: a transform would make each row its own
       // stacking context and trap the hover-expanded label chip under the canvas.
       style={{ top: start, height: METRICS.rowH }}
-      onMouseDown={() => onSelect(index)}
+      onMouseDown={(e) => onSelect(index, { ctrl: e.ctrlKey || e.metaKey })}
     >
       <span role="gridcell" data-col="labels" className="col-labels" style={{ width: cols.labels }}>
         <RefLabels labels={labels} color={row.color} />
       </span>
       <span role="gridcell" data-col="graph" style={{ width: cols.graph }} />
-      <MessageCell row={row} width={cols.message} messages={messages} />
+      <MessageCell row={row} width={cols.message} messages={messages} mark={mark} />
       <span role="gridcell" data-col="author" className="col-author" style={{ width: cols.author }}>{row.authorName}</span>
       <span role="gridcell" data-col="date" className="col-date" style={{ width: cols.date }}>{isWip ? '' : formatDate(row.committerTime)}</span>
       <span role="gridcell" data-col="sha" className="col-sha" style={{ width: cols.sha }}>
@@ -117,20 +131,43 @@ const GraphRow = memo(function GraphRow({ row, index, start, selected, cols, lab
   );
 });
 
-/**
- * `repoId`: a stable per-repo key (the repository's path) for per-repo view settings.
- * `loadMessage`: loads one commit's full message (the `commitMessage` request) for the
- * full-message tooltip; without it there's no such tooltip. Keep it stable (it keys the cache).
- */
-export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload; repoId: string; loadMessage?: (id: string) => Promise<CommitMessage> }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+export interface GraphViewProps {
+  graph: GraphPayload;
+  /** A stable per-repo key (the repository's path) for per-repo view settings. */
+  repoId: string;
+  /**
+   * The repo's full-message cache (`RepoServices.messages`), shared with the details panel, for
+   * the full-message tooltip; without it there's no such tooltip. Keep it stable: every row
+   * receives it, and rows are memoized.
+   */
+  messages?: CommitMessageCache;
+  /** Controlled selection (plan 1B). Omitted: GraphView keeps its own, as in 1A. */
+  selected?: number;
+  /** Called on a click (`ctrl`: Ctrl or ⌘ held) or a keyboard move. Keep it stable (rows are memoized). */
+  onSelect?: (index: number, mods: SelectMods) => void;
+  /** Compare endpoints, drawn as A/B badges (spec §9.4). */
+  compare?: CompareMarks;
+  /** Keys GraphView doesn't handle itself (→, Enter, …). Return true if handled. */
+  onUnhandledKey?: (key: string) => boolean;
+  /** The grid element, for focus-zone registration. */
+  gridRef?: RefObject<HTMLDivElement | null>;
+  gridProps?: HTMLAttributes<HTMLDivElement>;
+}
+
+export function GraphView({ graph, repoId, messages, selected: controlled, onSelect, compare, onUnhandledKey, gridRef, gridProps }: GraphViewProps) {
+  const ownRef = useRef<HTMLDivElement>(null);
+  const scrollRef = gridRef ?? ownRef;
+  // The last scroll offset while visible: restored when <Activity> shows the graph again
+  // (spec §10.1). A hidden (display: none) element loses its scroll position.
+  const lastScroll = useRef(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportH, setViewportH] = useState(0);
   const [viewportW, setViewportW] = useState(0);
   const prefs = useColumnPrefs((s) => s.prefs);
   useLayoutEffect(() => useColumnPrefs.getState().loadFor(repoId), [repoId]);
-  const [selected, setSelected] = useState(-1);
+  const [ownSelected, setOwnSelected] = useState(-1);
+  const selected = controlled ?? ownSelected;
   const toast = useToast((s) => s.show);
 
   const labelsByRow = useMemo(() => {
@@ -144,7 +181,6 @@ export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload;
   // Memoized so the (memoized) rows see the same object until a width actually changes.
   const graphW = prefs.graph ?? autoGraphWidth(graph.maxLanes, METRICS);
   const cols = useMemo(() => allocateColumns({ ...prefs, graph: graphW }, viewportW), [prefs, graphW, viewportW]);
-  const messages = useMemo(() => (loadMessage ? createCommitMessageCache(loadMessage) : undefined), [loadMessage]);
 
   const v = useVirtualizer({
     count: graph.rows.length,
@@ -153,6 +189,23 @@ export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload;
     overscan: 20,
     initialRect: { width: 1200, height: 600 },
   });
+
+  // A new avatar redraws the canvas only: rows don't take it as a prop, so memoized rows stay put.
+  const avatarVersion = useSyncExternalStore(avatars.subscribe, avatars.version);
+  // Ask for the avatars of the rows on screen plus AVATAR_OVERSCAN, latest set wins: a fast
+  // scroll drops the queued requests of rows it went past. Re-asked on each arrival too, so an
+  // image evicted while on screen comes back. Clamped: elastic overscroll (WebKit) gives a
+  // negative scrollTop, and past the end.
+  const firstVisible = Math.max(0, Math.floor(scrollTop / METRICS.rowH) - AVATAR_OVERSCAN);
+  const lastVisible = Math.min(graph.rows.length, Math.ceil((scrollTop + viewportH) / METRICS.rowH) + AVATAR_OVERSCAN);
+  useEffect(() => {
+    const emails: string[] = [];
+    for (let i = firstVisible; i < lastVisible; i++) {
+      const r = graph.rows[i];
+      if (r?.kind === 'commit') emails.push(r.authorEmail);
+    }
+    avatars.requestVisible(emails);
+  }, [graph.rows, firstVisible, lastVisible, avatarVersion]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -165,13 +218,31 @@ export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload;
     ro.observe(el);
     measure();
     return () => ro.disconnect();
-  }, []);
+  }, [scrollRef]);
 
-  const select = useCallback((i: number) => {
+  // Runs again each time <Activity> shows the graph (its effects are re-created), so returning
+  // from a diff lands where the user left off.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && el.scrollTop !== lastScroll.current) el.scrollTop = lastScroll.current;
+  }, [scrollRef]);
+
+  const select = useCallback((i: number, mods: SelectMods = { ctrl: false }) => {
     const clamped = Math.max(0, Math.min(graph.rows.length - 1, i));
-    setSelected(clamped);
+    if (onSelect) onSelect(clamped, mods);
+    else setOwnSelected(clamped);
     v.scrollToIndex(clamped, { align: 'auto' });
-  }, [graph.rows.length, v]);
+  }, [graph.rows.length, v, onSelect]);
+
+  // A controlled selection can also move from outside (a parent SHA in the details panel):
+  // bring it into view. Only on an actual change, so re-showing the graph after a diff keeps the
+  // restored scroll offset.
+  const shownSelection = useRef(selected);
+  useEffect(() => {
+    if (selected === shownSelection.current) return;
+    shownSelection.current = selected;
+    if (selected >= 0) v.scrollToIndex(selected, { align: 'auto' });
+  }, [selected, v]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     const page = Math.max(1, Math.floor(viewportH / METRICS.rowH) - 1);
@@ -179,12 +250,16 @@ export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload;
     if (e.key in moves) {
       e.preventDefault();
       select(moves[e.key]);
-    }
+    } else if (
+      // Only keys aimed at the grid itself: Enter on a Tab-focused SHA button must still click
+      // (copy), and keys typed in the portaled tooltip bubble here through React. Chords are
+      // left for other bindings.
+      e.target === e.currentTarget && !e.ctrlKey && !e.altKey && !e.metaKey && onUnhandledKey?.(e.key)
+    ) e.preventDefault();
   };
 
-  const copySha = useCallback(async (id: string) => {
-    await copyText(id);
-    toast('Copied');
+  const copySha = useCallback((id: string) => {
+    copyText(id).then(() => toast('Copied'), () => toast('Copy failed'));
   }, [toast]);
 
   return (
@@ -202,7 +277,8 @@ export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload;
         </div>
       </div>
       <div className="graph-body">
-        <div ref={scrollRef} className="graph-scroll" role="grid" aria-label="Commit graph" aria-rowcount={graph.rows.length} tabIndex={0} onKeyDown={onKeyDown} onScroll={(e) => {
+        <div {...gridProps} ref={scrollRef} className="graph-scroll" role="grid" aria-label="Commit graph" aria-rowcount={graph.rows.length} tabIndex={0} onKeyDown={onKeyDown} onScroll={(e) => {
+          if (e.currentTarget.offsetParent !== null) lastScroll.current = e.currentTarget.scrollTop;
           setScrollTop(e.currentTarget.scrollTop);
           setScrollLeft(e.currentTarget.scrollLeft);
         }}>
@@ -216,6 +292,7 @@ export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload;
                   index={item.index}
                   start={item.start}
                   selected={item.index === selected}
+                  mark={compare?.a === item.index ? 'A' : compare?.b === item.index ? 'B' : null}
                   cols={cols}
                   labels={labelsByRow.get(item.index) ?? NO_LABELS}
                   messages={messages}
@@ -229,7 +306,7 @@ export function GraphView({ graph, repoId, loadMessage }: { graph: GraphPayload;
         {/* Clipped to the scroll viewport (clientWidth/clientHeight exclude the scrollbars), so a
             canvas that reaches past it never paints over the vertical scrollbar. */}
         <div className="graph-canvas-clip" style={{ width: viewportW, height: viewportH }}>
-          <GraphCanvas rows={graph.rows} scrollTop={scrollTop} width={cols.graph} height={viewportH} left={cols.labels - scrollLeft} metrics={METRICS} labeledRows={labeledRows} />
+          <GraphCanvas rows={graph.rows} scrollTop={scrollTop} width={cols.graph} height={viewportH} left={cols.labels - scrollLeft} metrics={METRICS} labeledRows={labeledRows} avatar={avatarBitmap} avatarVersion={avatarVersion} />
         </div>
       </div>
     </div>

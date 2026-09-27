@@ -8,7 +8,7 @@ HTMLCanvasElement.prototype.getContext = (() => null) as never;
 
 const metrics = METRICS;
 const rows: RowPayload[] = [
-  { id: 'a'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], wip: null },
+  { id: 'a'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null },
 ];
 
 /** A minimal `matchMedia` mock: tracks listeners per query and lets a test fire 'change'. */

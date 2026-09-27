@@ -11,4 +11,10 @@ segments: Array<number>, summary: string, bodyFirstLine: string, authorName: str
  * Committer timestamp (unix seconds): what the Date/Time column shows. It
  * differs from `author_time` once a commit is amended, rebased or cherry-picked. 0 on WIP rows.
  */
-committerTime: number, parents: Array<string>, wip: WipPayload | null, };
+committerTime: number, parents: Array<string>, 
+/**
+ * MR/PR/issue references in the summary and body, as written (`!42`, `group/project!7`,
+ * `#12`, `owner/repo#3`), first occurrence first, at most 20 (`message_refs`, §9.2). The
+ * host decides what each means. Empty on WIP rows.
+ */
+mrRefs: Array<string>, wip: WipPayload | null, };

@@ -15,6 +15,8 @@ export interface DrawOptions {
   nodeFill: string;
   labeledRows: Set<number>;
   dpr: number;
+  /** A loaded avatar for an author, drawn inside the node instead of initials (spec §8.3). */
+  avatar?: (email: string) => ImageBitmap | null;
 }
 
 /** Alpha of the per-row lane-color band (ruling R10). */
@@ -129,11 +131,26 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
     ctx.stroke();
     ctx.setLineDash([]);
     if (row.kind === 'commit') {
-      ctx.fillStyle = '#fff';
-      ctx.font = `600 ${Math.round(m.rowH * 0.32)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(initials(row.authorName), x, y + 0.5);
+      const bitmap = o.avatar?.(row.authorEmail) ?? null;
+      if (bitmap) {
+        // Inside the ring: the lane-coloured stroke stays visible around the picture.
+        const ir = r - 1;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, ir, 0, Math.PI * 2);
+        ctx.clip();
+        // The bitmap is decoded larger than a node (for the details panel): downscale smoothly.
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(bitmap, x - ir, y - ir, 2 * ir, 2 * ir);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#fff';
+        ctx.font = `600 ${Math.round(m.rowH * 0.32)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(initials(row.authorName), x, y + 0.5);
+      }
     }
   }
 }

@@ -1,0 +1,27 @@
+[
+  { "message": "Refs !42 and group/sub/project!7, fixes #12.\nSee https://example.com/docs for details.", "refs": ["!42", "group/sub/project!7", "#12"] },
+  { "message": "Closes #5 and other/repo#6, not !3", "refs": ["#5", "other/repo#6", "!3"] },
+  { "message": "C#123 abc!4 v1.2#3 x-#9", "refs": [] },
+  { "message": "Again !42. and !42", "refs": ["!42"] },
+  { "message": "https://host/group/project/-/merge_requests/42#note_1", "refs": [] },
+  { "message": "(!8) [#9]", "refs": ["!8", "#9"] },
+  { "message": "", "refs": [] },
+  {
+    "message": "#1 #2 #3 #4 #5 #6 #7 #8 #9 #10 #11 #12 #13 #14 #15 #16 #17 #18 #19 #20 #21 #22 #23 #24 #25",
+    "refs": ["#1", "#2", "#3", "#4", "#5", "#6", "#7", "#8", "#9", "#10", "#11", "#12", "#13", "#14", "#15", "#16", "#17", "#18", "#19", "#20"]
+  },
+  { "message": "!1", "refs": ["!1"] },
+  { "message": "#12abc #13_x #14", "refs": ["#14"] },
+  { "message": "a/b/#5 /a/b#6 a//b#7 a/b#8", "refs": ["a/b#8"] },
+  { "message": "!!5 ##6 #7#8", "refs": ["#7"] },
+  { "message": "HTTPS://Example.com/a!5 then !6", "refs": ["!6"] },
+  { "message": "http://host/x#1\thttps://host/y!2\n#3", "refs": ["#3"] },
+  { "message": "café#5 #6é ok #7", "refs": ["#7"] },
+  { "message": "#5 !5 a/b#5 #5", "refs": ["#5", "!5", "a/b#5"] },
+  { "message": "my-group/sub.group/my_project!99, owner/repo#3", "refs": ["my-group/sub.group/my_project!99", "owner/repo#3"] },
+  { "message": "Merge branch 'x' into 'main'\n\nSee merge request group/project!1187", "refs": ["group/project!1187"] },
+  { "message": "Issue # and ! alone, #x", "refs": [] },
+  { "message": "fixes:#5 @!6 \"#7\"", "refs": ["#5", "!6", "#7"] },
+  { "message": "a != b and x!=5", "refs": [] },
+  { "message": "# Heading\n## 5", "refs": [] }
+]

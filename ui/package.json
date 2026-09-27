@@ -4,16 +4,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 1420 --strictPort",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/check-entry-chunk.mjs",
     "test": "vitest"
   },
   "dependencies": {
+    "@shikijs/monaco": "4.4.3",
     "@tanstack/react-virtual": "^3.14.13",
     "@tauri-apps/api": "3.0.0-alpha.2",
     "@tauri-apps/plugin-clipboard-manager": "3.0.0-alpha.1",
     "lucide-react": "^1.48.0",
+    "monaco-editor": "0.57.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "shiki": "4.4.3",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

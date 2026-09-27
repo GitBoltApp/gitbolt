@@ -20,6 +20,8 @@ regex.workspace = true
 nix.workspace = true
 ts-rs.workspace = true
 tempfile.workspace = true
+encoding_rs.workspace = true
+base64.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

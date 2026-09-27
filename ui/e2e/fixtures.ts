@@ -6,6 +6,8 @@ export const fixtures = JSON.parse(readFileSync(join(import.meta.dirname, '.fixt
   unborn: string;
   longLabels: string;
   wide: string;
+  details: string;
+  longHistory: string;
   notRepo: string;
 };
 export const openUrl = (path: string) => `/?repo=${encodeURIComponent(path)}`;

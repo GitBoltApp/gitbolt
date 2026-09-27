@@ -22,7 +22,14 @@ async fn main() {
             let port: u16 = args.iter().position(|a| a == "--port").and_then(|i| args.get(i + 1)).and_then(|p| p.parse().ok()).unwrap_or(7433);
             let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.expect("bind harness port");
             eprintln!("gitbolt-harness listening on ws://127.0.0.1:{port}/ws");
-            let api = Arc::new(Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None));
+            // No avatar provider (tests never touch the network) and a URL opener that only
+            // logs: the UI's link buttons are checked by their data-url attribute instead.
+            let api = Arc::new(
+                Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None).with_url_opener(Arc::new(|url: &str| {
+                    tracing::info!("openUrl {url}");
+                    Ok(())
+                })),
+            );
             gitbolt_harness::serve(listener, api).await;
         }
         Some("fixture") if args.len() == 3 => {
@@ -37,13 +44,15 @@ async fn main() {
                 "unborn" => fixtures::unborn(&repo),
                 "long_labels" => fixtures::long_labels(&repo),
                 "wide" => fixtures::wide(&repo),
+                "details" => fixtures::details(&repo),
+                "long_history" => fixtures::long_history(&repo),
                 other => panic!("unknown fixture {other}"),
             }
             std::fs::write(root.join(FIXTURE_MARKER), "").expect("write fixture marker");
             println!("{}", repo.path().display());
         }
         _ => {
-            eprintln!("usage: gitbolt-harness serve [--port N] | gitbolt-harness fixture <basic|unborn|long_labels|wide> <dir>");
+            eprintln!("usage: gitbolt-harness serve [--port N] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history> <dir>");
             std::process::exit(2);
         }
     }

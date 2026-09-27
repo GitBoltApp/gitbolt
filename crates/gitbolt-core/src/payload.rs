@@ -2,7 +2,7 @@
 
 use crate::graph::{render_ascii, AsciiRow, NodeKind, Segment};
 use crate::remotes::HostKind;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -38,6 +38,10 @@ pub struct RowPayload {
     #[ts(type = "number")]
     pub committer_time: i64,
     pub parents: Vec<String>,
+    /// MR/PR/issue references in the summary and body, as written (`!42`, `group/project!7`,
+    /// `#12`, `owner/repo#3`), first occurrence first, at most 20 (`message_refs`, §9.2). The
+    /// host decides what each means. Empty on WIP rows.
+    pub mr_refs: Vec<String>,
     pub wip: Option<WipPayload>,
 }
 
@@ -107,6 +111,120 @@ pub struct RepoSummary {
     pub name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PersonPayload {
+    pub name: String,
+    pub email: String,
+    #[ts(type = "number")]
+    pub time: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CoAuthor {
+    pub name: String,
+    pub email: String,
+}
+
+/// The right panel's commit header (spec §9.1). The message itself (§9.2) is not here: the panel
+/// gets it from `Request::CommitMessage`, sharing the graph tooltip's cache.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CommitDetailsPayload {
+    pub id: String,
+    pub parents: Vec<String>,
+    pub author: PersonPayload,
+    pub committer: PersonPayload,
+    pub co_authors: Vec<CoAuthor>,
+    /// The raw commit has a signature header (`gpgsig`). Verification is lazy (`signature`).
+    pub signed: bool,
+}
+
+/// A remote's parsed URL (spec §14.4). The URL itself is never sent: it may carry a token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RemotePayload {
+    pub name: String,
+    pub host: Option<String>,
+    pub path: Option<String>,
+    pub host_kind: HostKind,
+}
+
+/// Where one side of a file diff comes from (spec §10.2). The file list builds these and the
+/// diff viewer sends them back unchanged (`diffContents`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum BlobSource {
+    /// The side doesn't exist (an added or deleted file).
+    Absent,
+    Object { oid: String },
+    /// A gitlink; shown as `Subproject commit <oid>`, like git.
+    Submodule { oid: String },
+    /// The file at `commit` (File View of an unchanged file, spec §9.3).
+    AtCommit { commit: String },
+    /// The file in a worktree (WIP and compare-with-working-tree).
+    Worktree { worktree: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileChange {
+    pub path: String,
+    /// The source path of a rename or copy.
+    pub old_path: Option<String>,
+    /// `A`, `C`, `D`, `M`, `R`, `T`, `U` or `X`.
+    pub status: String,
+    /// `None` for binary files.
+    pub additions: Option<u32>,
+    pub deletions: Option<u32>,
+    pub old: BlobSource,
+    pub new: BlobSource,
+    pub submodule: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FileListPayload {
+    pub files: Vec<FileChange>,
+    /// Line totals over the text files (spec §9.3 header).
+    pub added: u32,
+    pub deleted: u32,
+}
+
+/// The signature badge (spec §9.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum SignatureKind {
+    Verified,
+    Unverified,
+    Bad,
+    Expired,
+    UnknownKey,
+    Unsigned,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SignaturePayload {
+    pub kind: SignatureKind,
+    pub signer: String,
+    pub key: String,
+    pub fingerprint: String,
+    /// GPG trust level (`fully`, `ultimate`, …); empty when git has none.
+    pub trust: String,
+    pub detail: Option<String>,
+}
+
 impl GraphPayload {
     /// ASCII dump: layout grid, then the row summary (WIP rows show their worktree).
     pub fn ascii(&self) -> String {
@@ -128,4 +246,45 @@ impl GraphPayload {
             .collect();
         render_ascii(&rows, self.max_lanes)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum Eol {
+    Lf,
+    Crlf,
+    Mixed,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct BlobPayload {
+    #[ts(type = "number")]
+    pub size: u64,
+    pub binary: bool,
+    /// e.g. `UTF-8`, `UTF-8 BOM`, `UTF-16LE`, `ISO-8859-1`; empty for binary or unloaded sides.
+    pub encoding: String,
+    pub eol: Eol,
+    /// Decoded text; `None` for binary files and for sides held back by the large-file prompt.
+    pub text: Option<String>,
+    /// Raw bytes, base64, for binary images only (spec §10.4).
+    pub base64: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DiffContentsPayload {
+    pub old: Option<BlobPayload>,
+    pub new: Option<BlobPayload>,
+    /// A side is over 2 MiB and `force` was false: show "Large file — load anyway?". Even with
+    /// `force`, a side over 64 MiB (`MAX_FORCED_BYTES`) stays `too_large`: that size is never loaded.
+    pub too_large: bool,
+    /// Only the line endings changed (spec §10.2 banner).
+    pub eol_only: bool,
+    /// The path has a raster-image extension (the UI shows the image diff).
+    pub image: bool,
 }

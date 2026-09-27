@@ -1,0 +1,21 @@
+.diff-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; background: var(--app-bg0); }
+.diff-header { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; }
+.diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumb { color: var(--text-secondary); }
+.diff-path strong { color: var(--text-selected); }
+.diff-encoding { color: var(--text-secondary); font-size: 11px; }
+.diff-body { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.text-diff { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.monaco-host { position: absolute; inset: 0; }
+.diff-message { display: grid; place-items: center; align-content: center; gap: 8px; flex: 1; color: var(--text-secondary); }
+.diff-message p { margin: 0; }
+.diff-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); background: var(--toolbar-bg0); flex: none; }
+.diff-toolbar .segmented > button, .diff-toolbar .toggle { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); }
+.diff-toolbar .toggle { border: 1px solid var(--section-border); border-radius: 4px; }
+.diff-toolbar button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
+.diff-toolbar .segmented > button:focus-visible, .diff-toolbar .toggle:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.diff-toolbar button:disabled { opacity: 0.4; cursor: default; }
+.diff-toolbar .icon-button:disabled:hover { background: none; color: var(--text-secondary); }
+.diff-banner { padding: 4px 12px; background: color-mix(in srgb, #ecb91c 18%, transparent); color: var(--text-selected); flex: none; }
+.text-button { all: unset; cursor: pointer; padding: 3px 10px; border-radius: 4px; background: var(--blue); color: #fff; }
+.text-button:focus-visible { outline: 2px solid var(--text-selected); outline-offset: 1px; }

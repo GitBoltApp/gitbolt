@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from './api/client';
-import type { CommitMessage } from './api/gen/CommitMessage';
 import type { GraphPayload } from './api/gen/GraphPayload';
 import './graph/graph.css';
-import { GraphView } from './graph/GraphView';
+import { RepoView } from './repo/RepoView';
+import { createServices, type RepoServices } from './repo/services';
 import { Toast } from './ui/Toast';
 
 type State =
   | { kind: 'loading' }
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; graph: GraphPayload; repoPath: string; loadMessage: (id: string) => Promise<CommitMessage> };
+  | { kind: 'ready'; graph: GraphPayload; repo: number; repoPath: string; services: RepoServices };
 
 export function App() {
   const [state, setState] = useState<State>({ kind: 'loading' });
@@ -25,7 +25,9 @@ export function App() {
         const graph = await api.graph(repo.id);
         if (!live) return;
         document.title = `GitBolt — ${repo.name}`;
-        setState({ kind: 'ready', graph, repoPath: repo.path, loadMessage: (id) => api.commitMessage(repo.id, id) });
+        // One RepoServices per open repo: its message cache is shared by the graph tooltip and
+        // the details panel.
+        setState({ kind: 'ready', graph, repo: repo.id, repoPath: repo.path, services: createServices(repo.id) });
         requestAnimationFrame(() => console.info(`[gitbolt] graph ready in ${Math.round(performance.now() - t0)} ms (${graph.rows.length} rows)`));
       } catch (e) {
         if (live) setState({ kind: 'error', message: errorMessage(e) });
@@ -41,7 +43,7 @@ export function App() {
       {state.kind === 'error' && <div className="center-message" role="alert">{state.message}</div>}
       {state.kind === 'ready' && (state.graph.rows.length === 0 && state.graph.head.unborn
         ? <div className="center-message">No commits yet</div>
-        : <GraphView graph={state.graph} repoId={state.repoPath} loadMessage={state.loadMessage} />)}
+        : <RepoView key={state.repo} repo={state.repo} repoPath={state.repoPath} graph={state.graph} services={state.services} />)}
       <Toast />
     </>
   );

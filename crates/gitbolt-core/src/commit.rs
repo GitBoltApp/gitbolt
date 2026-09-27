@@ -1,6 +1,6 @@
 //! Minimal, version-proof parser for raw git commit objects.
 
-use crate::error::{gix_err, GbError, GbErrorKind};
+use crate::error::{GbError, GbErrorKind};
 use crate::payload::CommitMessage;
 use gix::ObjectId;
 
@@ -19,6 +19,8 @@ pub struct ParsedCommit {
     pub committer: Signature,
     pub summary: String,
     pub body: String,
+    /// Full message: decoded, CRLF normalized to LF, trailing whitespace trimmed.
+    pub message: String,
     pub signed: bool,
 }
 
@@ -49,12 +51,18 @@ fn parse_signature(raw: &[u8]) -> Signature {
     Signature { name, email, time }
 }
 
-pub fn parse_commit(raw: &[u8]) -> Result<ParsedCommit, GbError> {
-    parse_commit_and_message(raw).map(|(c, _)| c)
+/// A full 40-hex (SHA-1) object id sent by the UI: the only kind this gix build (without its
+/// `sha256` feature) can represent. Abbreviations and everything else (for example text starting
+/// with `-`, which git would read as an option) are rejected, so a parsed id is always safe to
+/// pass to git as an argument.
+pub fn parse_oid(s: &str) -> Result<ObjectId, GbError> {
+    if s.len() != 40 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GbError::new(GbErrorKind::InvalidInput, format!("not a full object id: {s:?}")));
+    }
+    ObjectId::from_hex(s.as_bytes()).map_err(|e| GbError::new(GbErrorKind::InvalidInput, format!("bad object id {s:?}: {e}")))
 }
 
-/// `parse_commit`, plus the whole decoded message (CRLF normalized, trailing whitespace trimmed).
-fn parse_commit_and_message(raw: &[u8]) -> Result<(ParsedCommit, String), GbError> {
+pub fn parse_commit(raw: &[u8]) -> Result<ParsedCommit, GbError> {
     let split = raw.windows(2).position(|w| w == b"\n\n");
     let (headers, message) = match split {
         Some(i) => (&raw[..i], &raw[i + 2..]),
@@ -95,29 +103,19 @@ fn parse_commit_and_message(raw: &[u8]) -> Result<(ParsedCommit, String), GbErro
         Some((s, b)) => (s, b.trim()),
         None => (message.as_str(), ""),
     };
-    let parsed = ParsedCommit {
-        parents,
-        author,
-        committer,
-        summary: summary.lines().next().unwrap_or("").trim().to_string(),
-        body: body.to_string(),
-        signed,
-    };
-    Ok((parsed, message))
+    let summary = summary.lines().next().unwrap_or("").trim().to_string();
+    let body = body.to_string();
+    Ok(ParsedCommit { parents, author, committer, summary, body, message, signed })
 }
 
 /// The full message of commit `id` (a full hex object id), read in-process with gix (read-only).
 pub fn read_commit_message(repo: &gix::Repository, id: &str) -> Result<CommitMessage, GbError> {
-    let oid = ObjectId::from_hex(id.as_bytes()).map_err(|_| GbError::new(GbErrorKind::InvalidInput, format!("not a commit id: {id}")))?;
-    let obj = repo.try_find_object(oid).map_err(gix_err)?.ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("no such commit: {id}")))?;
-    if obj.kind != gix::object::Kind::Commit {
-        return Err(GbError::new(GbErrorKind::InvalidInput, format!("not a commit: {id}")));
-    }
-    let (parsed, message) = parse_commit_and_message(&obj.data)?;
+    let oid = parse_oid(id)?;
+    let parsed = parse_commit(&crate::details::read_commit(repo, oid)?)?;
     // Everything after the first line: unlike `ParsedCommit::body`, this keeps the other lines of
     // a multi-line first paragraph.
-    let body = message.split_once('\n').map(|(_, rest)| rest.trim()).unwrap_or("");
-    Ok(CommitMessage { id: oid.to_string(), summary: parsed.summary, body: body.to_string() })
+    let body = parsed.message.split_once('\n').map(|(_, rest)| rest.trim()).unwrap_or("");
+    Ok(CommitMessage { id: oid.to_string(), body: body.to_string(), summary: parsed.summary })
 }
 
 #[cfg(test)]
@@ -211,6 +209,22 @@ mod tests {
         assert_eq!(c.author.name, "Bob");
         assert_eq!(c.author.email, "");
         assert_eq!(c.author.time, 0);
+    }
+
+    #[test]
+    fn keeps_the_full_message() {
+        let c = parse_commit(&raw("", b"Title\nwrapped title line\n\nBody\r\n\r\nCo-authored-by: X <x@y>\n")).unwrap();
+        assert_eq!(c.summary, "Title");
+        assert_eq!(c.message, "Title\nwrapped title line\n\nBody\n\nCo-authored-by: X <x@y>");
+    }
+
+    #[test]
+    fn parse_oid_accepts_full_hex_only() {
+        assert!(parse_oid(P1).is_ok());
+        // SHA-256 repositories (64-hex ids) would need gix's `sha256` feature, which isn't enabled.
+        for bad in ["HEAD", "1111111", "--output=/tmp/x", "", &"g".repeat(40), &"ab".repeat(32)] {
+            assert_eq!(parse_oid(bad).unwrap_err().kind, crate::error::GbErrorKind::InvalidInput, "{bad}");
+        }
     }
 
     mod read {

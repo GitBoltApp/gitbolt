@@ -1,0 +1,16 @@
+.details-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.commit-details { padding: 10px 12px; border-bottom: 1px solid var(--section-border); flex: none; max-height: 45%; overflow: auto; }
+.commit-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.commit-ids { display: flex; gap: 10px; align-items: center; color: var(--text-secondary); }
+.parents { display: inline-flex; gap: 6px; align-items: center; }
+.person { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.person-name { color: var(--text-selected); }
+.details-summary { font-size: 14px; font-weight: 600; margin: 6px 0; color: var(--text-selected); overflow-wrap: anywhere; }
+.details-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-normal); }
+/* The graph row's first body line, standing in while the full message loads. */
+.details-body[aria-busy="true"] { color: var(--text-secondary); }
+.details-error { padding: 4px 0; color: var(--text-secondary); }
+.compare-header, .wip-header { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--section-border); flex: none; }
+.compare-header > span { flex: 1; }
+.compare-header code { color: var(--text-selected); }
+.compare-hint { padding: 6px 12px; color: var(--text-secondary); background: var(--selected-row); flex: none; }

@@ -1,18 +1,26 @@
 //! GitBolt core: all git access, graph layout and the API surface. No Tauri dependency.
 
 pub mod api;
+pub mod avatar;
+pub mod blob;
 pub mod commit;
+pub mod details;
+pub mod diff;
 pub mod error;
 pub mod git;
 pub mod graph;
+pub mod links;
 pub mod log;
+pub mod message_refs;
 pub mod payload;
 pub mod redact;
 pub mod reflog;
 pub mod refs;
 pub mod remotes;
+pub mod signature;
 pub mod snapshot;
 pub mod status;
+pub mod tree;
 pub mod walk;
 pub mod worktree;
 

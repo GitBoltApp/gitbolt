@@ -68,3 +68,5 @@
 .msg-tooltip-body { margin-top: 8px; color: var(--text-normal); }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
 .center-message { display: grid; place-items: center; height: 100%; color: var(--text-secondary); }
+/* Compare endpoints (spec §9.4): the first Ctrl+clicked commit is A, the second B. */
+.compare-marker { display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: 6px; border-radius: 3px; background: var(--blue); color: var(--text-selected); font-size: 10px; font-weight: 700; flex: none; vertical-align: middle; }

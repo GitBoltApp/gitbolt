@@ -15,7 +15,7 @@ function recorder() {
 }
 
 const row = (lane: number, kind: RowPayload['kind'], segments: number[]): RowPayload => ({
-  id: 'x', kind, lane, color: lane, segments, summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], wip: null,
+  id: 'x', kind, lane, color: lane, segments, summary: '', bodyFirstLine: '', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null,
 });
 
 describe('drawGraph', () => {
@@ -129,5 +129,25 @@ describe('drawGraph', () => {
     // top = 0 - 0.3 = -0.3; center = -0.3 + 11 = 10.7 device px at dpr 1 -> floor(10.7)+0.5 = 10.5.
     expect(calls).toContain('moveTo(0,10.5)');
     expect(calls).toContain('lineWidth=1');
+  });
+  it('draws a loaded avatar bitmap clipped to the node instead of initials', () => {
+    const { ctx, calls } = recorder();
+    const bitmap = {} as ImageBitmap;
+    const rows = [{ ...row(0, 'commit', []), authorEmail: 'ada@example.com' }, { ...row(0, 'commit', []), authorEmail: 'nobody@example.com' }];
+    const asked: string[] = [];
+    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 50, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, avatar: (e) => { asked.push(e); return e === 'ada@example.com' ? bitmap : null; } });
+    expect(asked).toEqual(['ada@example.com', 'nobody@example.com']);
+    const clip = calls.indexOf('clip()');
+    expect(clip).toBeGreaterThan(-1);
+    expect(calls.slice(clip).findIndex((c) => c.startsWith('drawImage('))).toBeGreaterThan(0);
+    expect(calls.filter((c) => c.startsWith('drawImage(')).length).toBe(1);
+    expect(calls).toContain('save()');
+    expect(calls).toContain('restore()');
+    // Downscaled smoothly (the decoded bitmap is larger than the node).
+    const smooth = calls.indexOf('imageSmoothingQuality=high');
+    expect(smooth).toBeGreaterThan(-1);
+    expect(smooth).toBeLessThan(calls.findIndex((c) => c.startsWith('drawImage(')));
+    // The second row has no avatar: it keeps its initials.
+    expect(calls.filter((c) => c.startsWith('fillText(')).length).toBe(1);
   });
 });

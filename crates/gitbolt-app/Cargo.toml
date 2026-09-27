@@ -13,9 +13,12 @@ tauri-build.workspace = true
 
 [dependencies]
 gitbolt-core.workspace = true
+gitbolt-forge.workspace = true
 tauri.workspace = true
 tauri-runtime-cef.workspace = true
 tauri-plugin-clipboard-manager.workspace = true
+tauri-plugin-opener.workspace = true
+dirs.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

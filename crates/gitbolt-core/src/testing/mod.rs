@@ -10,7 +10,12 @@ use std::sync::atomic::{AtomicI64, Ordering};
 /// 2026-01-01T00:00:00Z. Every git call advances the clock by 60 s.
 pub const BASE_TIME: i64 = 1_767_225_600;
 
-/// Environment that isolates git from the developer's configuration.
+/// Environment that isolates git from the developer's configuration. This also covers SSH: a
+/// test that signs or verifies an SSH signature (`ssh-keygen -Y sign`/`git`'s own verification)
+/// must never reach the developer's real `ssh-agent`, so `SSH_AUTH_SOCK`/`SSH_AGENT_PID` are
+/// overridden to a socket path that can't exist. `Command::envs` overrides an inherited variable
+/// of the same name, so this is enough even though the child process still inherits everything
+/// else from this one.
 pub fn isolated_git_env() -> Vec<(OsString, OsString)> {
     [
         ("GIT_CONFIG_GLOBAL", "/dev/null"),
@@ -21,10 +26,48 @@ pub fn isolated_git_env() -> Vec<(OsString, OsString)> {
         ("GIT_COMMITTER_EMAIL", "ada@example.com"),
         ("GIT_TERMINAL_PROMPT", "0"),
         ("LC_ALL", "C"),
+        ("SSH_AUTH_SOCK", "/nonexistent/gitbolt-test-no-ssh-agent"),
+        ("SSH_AGENT_PID", ""),
     ]
     .into_iter()
     .map(|(k, v)| (k.into(), v.into()))
     .collect()
+}
+
+/// `None` if this machine can actually verify SSH-signed commits: `ssh-keygen` supports `-Y sign`
+/// (OpenSSH 8.2+, what git's own SSH signing uses) and git is new enough to understand
+/// `gpg.format = ssh` (2.34+). Otherwise `Some(reason)`, to print before skipping a test cleanly
+/// rather than failing it. Probed with obviously-missing files: an unsupported `-Y` is rejected by
+/// getopt before it ever looks at them, while a supported one fails later, on the missing
+/// key/file, so no real key is needed just to tell those two cases apart.
+pub fn ssh_signing_unavailable() -> Option<&'static str> {
+    if std::process::Command::new("ssh-keygen").arg("-?").output().is_err() {
+        return Some("ssh-keygen not installed");
+    }
+    let probe = std::process::Command::new("ssh-keygen")
+        .args(["-Y", "sign", "-f", "/nonexistent-gitbolt-probe-key", "-n", "git", "/nonexistent-gitbolt-probe-file"])
+        .output();
+    let unsupported_flag = match &probe {
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_ascii_lowercase();
+            ["unknown option", "illegal option", "invalid option", "unknown command"].iter().any(|n| stderr.contains(n))
+        }
+        Err(_) => true,
+    };
+    if unsupported_flag {
+        return Some("ssh-keygen doesn't support `-Y sign` (needs OpenSSH 8.2+)");
+    }
+    let git_new_enough = std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| crate::git::parse_version(&s))
+        .is_some_and(|v| v >= (2, 34, 0));
+    if !git_new_enough {
+        return Some("git is too old for SSH commit signing (needs 2.34+)");
+    }
+    None
 }
 
 pub struct TestRepo {
@@ -129,6 +172,14 @@ impl TestRepo {
         self.git(&["rev-parse", "HEAD"])
     }
 
+    /// Stages everything (`git add -A`) and commits it as the given author.
+    pub fn commit_all_as(&self, msg: &str, name: &str, email: &str) -> String {
+        self.git(&["add", "-A"]);
+        let author = format!("{name} <{email}>");
+        self.git(&["commit", "-q", "--author", &author, "-m", msg]);
+        self.git(&["rev-parse", "HEAD"])
+    }
+
     pub fn switch_new(&self, branch: &str) {
         self.git(&["switch", "-q", "-c", branch]);
     }
@@ -208,5 +259,38 @@ mod tests {
         assert!(r.root().join("wt-hotfix").is_dir());
         assert_eq!(r.git(&["stash", "list"]).lines().count(), 1);
         assert_eq!(r.git(&["symbolic-ref", "refs/remotes/origin/HEAD"]), "refs/remotes/origin/main");
+    }
+
+    #[test]
+    fn details_fixture_builds() {
+        let r = TestRepo::new();
+        fixtures::details(&r);
+        assert_eq!(r.git(&["rev-list", "--count", "HEAD"]), "4");
+        assert_eq!(r.git(&["rev-list", "--parents", "-n1", "HEAD"]).split(' ').count(), 3, "HEAD is a merge");
+        let status = r.git(&["status", "--porcelain"]);
+        assert!(status.contains("M  src/app.php"), "{status}");
+        assert!(status.contains(" M docs/manual.txt"), "{status}");
+        assert!(status.contains("?? notes.txt"), "{status}");
+        assert_eq!(r.git(&["remote", "get-url", "origin"]), "https://gitlab.example.com/group/project.git");
+        assert!(std::fs::metadata(r.path().join("big.txt")).unwrap().len() > 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn long_history_fixture_builds() {
+        let r = TestRepo::new();
+        fixtures::long_history(&r);
+        assert_eq!(r.git(&["rev-list", "--count", "--no-merges", "HEAD"]), "60");
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "Commit 59");
+        assert_eq!(r.git(&["log", "-1", "--format=%s", "HEAD~59"]), "Commit 00");
+    }
+
+    #[test]
+    fn tiny_png_is_a_valid_png() {
+        let png = fixtures::tiny_png(6, 4, [0, 0, 255, 255]);
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(&png[12..16], b"IHDR");
+        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 6);
+        assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 4);
+        assert!(png.ends_with(&[0xAE, 0x42, 0x60, 0x82]), "IEND chunk CRC");
     }
 }

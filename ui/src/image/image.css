@@ -1,0 +1,22 @@
+.image-diff { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.image-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); flex: none; }
+.image-toolbar .segmented > button, .image-toolbar .toggle { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); }
+.image-toolbar .toggle { border: 1px solid var(--section-border); border-radius: 4px; }
+.image-toolbar button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
+.image-toolbar button:disabled { opacity: 0.4; cursor: default; }
+.image-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.image-stage { display: flex; gap: 2px; flex: 1; min-height: 0; }
+.image-source { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.image-viewport { position: relative; flex: 1; min-width: 0; overflow: hidden; cursor: grab; touch-action: none; }
+.image-viewport:active { cursor: grabbing; }
+.checkerboard { background-color: #2a2a2a; background-image: linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%), linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.image-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; user-select: none; }
+.swipe-clip { position: absolute; inset: 0; }
+.swipe-divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--blue); cursor: ew-resize; outline: none; }
+.onion-opacity { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: 40%; }
+/* `all: unset` and `outline: none` above drop the browser's focus ring: keyboard users need it back
+   (the same ring as `.sha:focus-visible` in graph.css). */
+.image-toolbar .segmented > button:focus-visible, .image-toolbar .toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; color: var(--text-selected); }
+.image-toolbar .segmented > button:focus-visible { border-radius: 2px; }
+.swipe-divider:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 2px; }
+.image-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); pointer-events: none; }

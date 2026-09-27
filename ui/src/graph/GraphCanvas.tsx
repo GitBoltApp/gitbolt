@@ -4,9 +4,21 @@ import { GRAPH_COLORS } from '../theme/graphColors';
 import { drawGraph } from './draw';
 import type { Metrics } from './geometry';
 
-interface Props { rows: RowPayload[]; scrollTop: number; width: number; height: number; left: number; metrics: Metrics; labeledRows: Set<number> }
+interface Props {
+  rows: RowPayload[];
+  scrollTop: number;
+  width: number;
+  height: number;
+  left: number;
+  metrics: Metrics;
+  labeledRows: Set<number>;
+  /** Loaded avatar bitmaps by author email, drawn in commit nodes. Keep it stable. */
+  avatar?: (email: string) => ImageBitmap | null;
+  /** Bumped when a new avatar arrives, to redraw with it. */
+  avatarVersion?: number;
+}
 
-export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows }: Props) {
+export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const nodeFillRef = useRef<string | undefined>(undefined);
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
@@ -38,8 +50,8 @@ export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, lab
     if (nodeFillRef.current === undefined) {
       nodeFillRef.current = getComputedStyle(document.documentElement).getPropertyValue('--app-bg0').trim() || '#1c1e23';
     }
-    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: GRAPH_COLORS, nodeFill: nodeFillRef.current, labeledRows, dpr });
-  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr]);
+    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: GRAPH_COLORS, nodeFill: nodeFillRef.current, labeledRows, dpr, avatar });
+  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion]);
 
   return <canvas ref={ref} className="graph-canvas" data-testid="graph-canvas" style={{ left, width, height }} />;
 }

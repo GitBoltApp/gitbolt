@@ -3,6 +3,7 @@
 
 use crate::commit::parse_commit;
 use crate::error::{gix_err, GbError};
+use crate::message_refs::parse_message_refs;
 use gix::ObjectId;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -17,6 +18,9 @@ pub struct CommitMeta {
     pub committer_time: i64,
     pub summary: String,
     pub body: String,
+    /// MR/PR/issue references in the full message (`message_refs`), parsed from the same
+    /// decoded commit: it includes lines 2+ of the first paragraph, which `summary`/`body` drop.
+    pub mr_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -52,6 +56,7 @@ fn load(repo: &gix::Repository, id: ObjectId, opts: &WalkOptions) -> Result<Opti
         author_email: c.author.email,
         author_time: c.author.time,
         committer_time: c.committer.time,
+        mr_refs: parse_message_refs(&c.message),
         summary: c.summary,
         body: c.body,
     }))

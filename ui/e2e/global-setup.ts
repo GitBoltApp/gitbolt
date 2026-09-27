@@ -8,7 +8,7 @@ export default function globalSetup() {
   const root = mkdtempSync(join(tmpdir(), 'gitbolt-e2e-'));
   const make = (name: string) =>
     execFileSync(HARNESS_BIN, ['fixture', name, join(root, name)], { encoding: 'utf8' }).trim();
-  const fixtures = { basic: make('basic'), unborn: make('unborn'), longLabels: make('long_labels'), wide: make('wide'), notRepo: root };
+  const fixtures = { basic: make('basic'), unborn: make('unborn'), longLabels: make('long_labels'), wide: make('wide'), details: make('details'), longHistory: make('long_history'), notRepo: root };
   writeFileSync(join(import.meta.dirname, '.fixtures.json'), JSON.stringify(fixtures));
   return () => rmSync(root, { recursive: true, force: true });
 }
