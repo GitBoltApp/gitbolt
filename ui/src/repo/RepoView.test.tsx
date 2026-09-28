@@ -33,10 +33,12 @@ function services(overrides: Partial<RepoServices> = {}): RepoServices {
   return fakeServices({
     details: new Loader(async (id) => byId[id], new Lru(10)),
     messages: createCommitMessageCache(async (id) => msgs[id]),
+    files: new Loader(async () => EMPTY_LIST, new Lru(10)),
     ...overrides,
   });
 }
 
+const EMPTY_LIST: FileListPayload = { files: [], added: 0, deleted: 0 };
 const realWidth = window.innerWidth;
 function setWindowWidth(w: number) {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
@@ -93,23 +95,23 @@ describe('RepoView', () => {
     expect(screen.queryByTestId('compare-a')).toBeNull();
   });
 
-  it('leaving compare from the header (× or Escape on Swap) gives keyboard focus back to the grid', () => {
+  it('leaving compare from the header (× or Escape on Swap) gives keyboard focus back to the grid', async () => {
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
-    const compare = () => {
+    const compare = async () => {
       const rows = screen.getAllByRole('row');
       fireEvent.mouseDown(rows[1], { ctrlKey: true });
       fireEvent.mouseDown(rows[0], { ctrlKey: true });
-      expect(screen.getByTestId('compare-header')).toBeInTheDocument();
+      expect(await screen.findByTestId('compare-header')).toBeInTheDocument();
     };
-    compare();
+    await compare();
     const exit = screen.getByRole('button', { name: 'Exit compare' });
     exit.focus();
     fireEvent.click(exit);
     expect(screen.queryByTestId('compare-header')).toBeNull();
     expect(document.activeElement).toBe(grid);
 
-    compare();
+    await compare();
     const swap = screen.getByRole('button', { name: 'Swap' });
     swap.focus();
     fireEvent.keyDown(swap, { key: 'Escape' });
@@ -117,31 +119,107 @@ describe('RepoView', () => {
     expect(document.activeElement).toBe(grid);
   });
 
-  it('labels the right panel by what it shows', () => {
+  it('labels the right panel by what it shows', async () => {
     const wipRow: RowPayload = { ...row('wip:/r', '', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 } };
     render(<RepoView repo={1} repoPath="/r" graph={{ ...graph, rows: [wipRow, ...graph.rows] }} services={services()} />);
     const rows = screen.getAllByRole('row');
     fireEvent.mouseDown(rows[1]);
-    expect(screen.getByRole('complementary', { name: 'Commit details' })).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: 'Commit details' })).toBeInTheDocument();
     fireEvent.mouseDown(rows[2], { ctrlKey: true });
     fireEvent.mouseDown(rows[1], { ctrlKey: true });
-    expect(screen.getByRole('complementary', { name: 'Compare' })).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: 'Compare' })).toBeInTheDocument();
     fireEvent.mouseDown(rows[0]);
-    expect(screen.getByRole('complementary', { name: 'Working tree changes' })).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: 'Working tree changes' })).toBeInTheDocument();
   });
 
-  it('shows the graph row\'s summary and first body line at once, before the full message has loaded', () => {
-    // The message never loads: the placeholder is the selected commit's own row text, so fast
-    // Up/Down doesn't flash an empty panel.
-    const g: GraphPayload = { ...graph, rows: [{ ...graph.rows[0], bodyFirstLine: 'Body first line' }, graph.rows[1]] };
-    render(<RepoView repo={1} repoPath="/r" graph={g} services={services({ messages: fakeServices().messages })} />);
+  // Review fix: a focus request while the panel is pending must not land in the stale list,
+  // whose unmount on the swap would drop DOM focus to <body> (a dead keyboard).
+  describe('focus while the next commit loads', () => {
+    const fileOf = (path: string): FileListPayload => ({ files: [{ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object', oid: B }, new: { kind: 'object', oid: A }, submodule: false }], added: 1, deleted: 0 });
+    /** A's content loads at once; B's message waits for `release()`. */
+    async function pendingB() {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((r) => { release = r; });
+      const msgs: Record<string, CommitMessage> = { [A]: { id: A, summary: 'Second', body: '' }, [B]: { id: B, summary: 'First', body: '' } };
+      render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({
+        messages: createCommitMessageCache(async (id) => { if (id === B) await gate; return msgs[id]; }),
+        files: new Loader(async (k: string) => fileOf(k.includes(A) ? 'a.txt' : 'b.txt'), new Lru(10)),
+      })} />);
+      const grid = screen.getByRole('grid', { name: 'Commit graph' });
+      fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+      const stale = await screen.findByRole('listbox', { name: 'Changed files' });
+      await act(async () => fireEvent.mouseDown(screen.getAllByRole('row')[1]));
+      expect(screen.getByRole('complementary', { name: 'Commit details' })).toHaveAttribute('aria-busy', 'true');
+      grid.focus();
+      return { grid, stale, release: () => act(async () => release()) };
+    }
+
+    it('→ lands on the files zone, then the new list once it swaps in', async () => {
+      const { grid, stale, release } = await pendingB();
+      fireEvent.keyDown(grid, { key: 'ArrowRight' });
+      expect(document.activeElement).not.toBe(stale);
+      expect(document.activeElement).toHaveAttribute('data-focus-zone', 'files');
+      // Keys on the stale list open nothing.
+      fireEvent.keyDown(stale, { key: 'ArrowDown' });
+      expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
+      await release();
+      const box = screen.getByRole('listbox', { name: 'Changed files' });
+      expect(box).not.toBe(stale);
+      expect(document.activeElement).toBe(box);
+      expect(box.querySelector('[data-path="b.txt"]')).not.toBeNull();
+      fireEvent.keyDown(box, { key: 'ArrowDown' });
+      expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('b.txt');
+    });
+
+    it('Enter (the list loaded before the message) opens the new first file and focus follows it', async () => {
+      const { grid, stale, release } = await pendingB();
+      await act(async () => fireEvent.keyDown(grid, { key: 'Enter' }));
+      expect(document.activeElement).not.toBe(stale);
+      await release();
+      const box = screen.getByRole('listbox', { name: 'Changed files' });
+      expect(document.activeElement).toBe(box);
+      expect(box.querySelector('[data-path="b.txt"]')).toHaveAttribute('aria-selected', 'true');
+      expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('b.txt');
+    });
+
+    it('focus lost to <body> while the store names the files returns to the new list', async () => {
+      const { stale, release } = await pendingB();
+      act(() => stale.focus()); // the store now names the files
+      act(() => stale.blur());
+      expect(document.activeElement).toBe(document.body);
+      await release();
+      expect(document.activeElement).toBe(screen.getByRole('listbox', { name: 'Changed files' }));
+    });
+  });
+
+  // Feedback F12 replaces the old stand-in (the graph row's summary while the message loads):
+  // the panel appears with everything loaded, and keeps the previous commit, whole, meanwhile.
+  it('the panel appears once the commit\'s content has loaded, and keeps it (busy) while the next one loads', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const msgs: Record<string, CommitMessage> = { [A]: { id: A, summary: 'Second', body: 'Body text' }, [B]: { id: B, summary: 'First', body: '' } };
+    // B's message waits for the gate; A's is immediate.
+    const messages = createCommitMessageCache(async (id) => { if (id === B) await gate; return msgs[id]; });
+    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ messages })} />);
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    expect(screen.queryByRole('complementary')).toBeNull(); // nothing loaded yet: no empty panel
+    const panel = await screen.findByRole('complementary', { name: 'Commit details' });
+    expect(screen.getByTestId('details-body')).toHaveTextContent('Body text');
+    expect(panel).toHaveAttribute('aria-busy', 'false');
+    expect(screen.queryByTestId('panel-busy')).toBeNull();
+    await act(async () => fireEvent.mouseDown(screen.getAllByRole('row')[1]));
+    // B's details and files are in; its message isn't: A stays, whole, with the busy line.
     expect(screen.getByTestId('details-summary')).toHaveTextContent('Second');
-    expect(screen.getByTestId('details-body')).toHaveTextContent('Body first line');
-    expect(screen.getByTestId('details-body')).toHaveAttribute('aria-busy', 'true');
-    fireEvent.mouseDown(screen.getAllByRole('row')[1]);
+    expect(screen.getByTestId('details-body')).toHaveTextContent('Body text');
+    expect(screen.getByTestId('details-sha')).toHaveTextContent(A.slice(0, 6));
+    expect(panel).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('panel-busy')).toBeInTheDocument();
+    await act(async () => release());
     expect(screen.getByTestId('details-summary')).toHaveTextContent('First');
+    expect(screen.getByTestId('details-sha')).toHaveTextContent(B.slice(0, 6));
     expect(screen.queryByTestId('details-body')).toBeNull();
+    expect(panel).toHaveAttribute('aria-busy', 'false');
+    expect(screen.queryByTestId('panel-busy')).toBeNull();
   });
 
   it('a failed message load shows an error instead of the body', async () => {
@@ -164,14 +242,15 @@ describe('RepoView', () => {
     } finally {
       vi.useRealTimers();
     }
-    expect(load).toHaveBeenCalledTimes(1);
+    // One load for the selected commit (the neighbours' messages are prefetched separately).
+    expect(load.mock.calls.filter(([id]) => id === A)).toHaveLength(1);
   });
 
-  it('the details panel is resizable between 280 and 720 px, 400 by default', () => {
+  it('the details panel is resizable between 280 and 720 px, 400 by default', async () => {
     setWindowWidth(1600);
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
-    const panel = screen.getByRole('complementary', { name: 'Commit details' });
+    const panel = await screen.findByRole('complementary', { name: 'Commit details' });
     const sep = screen.getByRole('separator', { name: 'Resize details panel' });
     expect(RIGHT_PANEL).toEqual({ min: 280, max: 720, default: 400 });
     expect(panel).toHaveStyle({ width: '400px' });
@@ -191,11 +270,11 @@ describe('RepoView', () => {
     expect(panel).toHaveStyle({ width: '280px' });
   });
 
-  it('losing pointer capture ends a drag', () => {
+  it('losing pointer capture ends a drag', async () => {
     setWindowWidth(1600);
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
-    const panel = screen.getByRole('complementary', { name: 'Commit details' });
+    const panel = await screen.findByRole('complementary', { name: 'Commit details' });
     const sep = screen.getByRole('separator', { name: 'Resize details panel' });
     fireEvent.pointerDown(sep, { clientX: 800, pointerId: 1, button: 0 });
     fireEvent.lostPointerCapture(sep, { pointerId: 1 });
@@ -203,11 +282,11 @@ describe('RepoView', () => {
     expect(panel).toHaveStyle({ width: '400px' });
   });
 
-  it('on a narrow window the panel leaves the center at least 320 px, re-clamped on resize', () => {
+  it('on a narrow window the panel leaves the center at least 320 px, re-clamped on resize', async () => {
     setWindowWidth(900);
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
-    const panel = screen.getByRole('complementary', { name: 'Commit details' });
+    const panel = await screen.findByRole('complementary', { name: 'Commit details' });
     const sep = screen.getByRole('separator', { name: 'Resize details panel' });
     expect(sep).toHaveAttribute('aria-valuemax', '580');
     fireEvent.keyDown(sep, { key: 'End' });
@@ -274,6 +353,64 @@ describe('RepoView', () => {
     expect(screen.getByRole('grid', { name: 'Commit graph' })).toBe(grid);
     expect(document.activeElement).toBe(grid);
     expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Ctrl+W closes the open file from the file list (as Escape does), and does nothing with none open', async () => {
+    const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
+    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    const box = await screen.findByRole('listbox', { name: 'Changed files' });
+    // No file open: left alone (plan 1C makes it close the tab).
+    expect(fireEvent.keyDown(grid, { key: 'w', ctrlKey: true })).toBe(true);
+    grid.focus();
+    await act(async () => fireEvent.keyDown(grid, { key: 'Enter' }));
+    expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('a.txt');
+    expect(fireEvent.keyDown(box, { key: 'w', ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(screen.getByRole('region', { name: 'Diff' })).toBeInTheDocument();
+    expect(fireEvent.keyDown(box, { key: 'w', ctrlKey: true })).toBe(false);
+    expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
+  });
+
+  it('with DiffPanel inside RepoView: Esc is left to an open editor overlay, Ctrl+W closes the file regardless', async () => {
+    const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
+    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    await screen.findByRole('listbox', { name: 'Changed files' });
+    grid.focus();
+    await act(async () => fireEvent.keyDown(grid, { key: 'Enter' }));
+    expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('a.txt');
+    const region = screen.getByRole('region', { name: 'Diff' });
+    // A Monaco content hover (Monaco hides it on Esc without stopping the event): shown, in the panel.
+    const hover = document.createElement('div');
+    hover.className = 'monaco-hover';
+    hover.getClientRects = () => [new DOMRect(0, 0, 100, 20)] as unknown as DOMRectList;
+    const input = document.createElement('textarea');
+    region.append(hover, input);
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByRole('region', { name: 'Diff' })).toBeInTheDocument();
+    // Ctrl+W always closes the file, overlay or not (as VS Code does).
+    expect(fireEvent.keyDown(input, { key: 'w', ctrlKey: true })).toBe(false);
+    expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
+  });
+
+  it('with DiffPanel inside RepoView: Esc with no overlay open closes the file', async () => {
+    const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
+    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    await screen.findByRole('listbox', { name: 'Changed files' });
+    grid.focus();
+    await act(async () => fireEvent.keyDown(grid, { key: 'Enter' }));
+    expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('a.txt');
+    const region = screen.getByRole('region', { name: 'Diff' });
+    const hidden = document.createElement('div');
+    hidden.className = 'monaco-hover hidden';
+    const input = document.createElement('textarea');
+    region.append(hidden, input);
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
   });
 
   it('ArrowRight from the graph focuses the file list once it has loaded, and ← returns', async () => {

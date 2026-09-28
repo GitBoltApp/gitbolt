@@ -69,3 +69,24 @@ land in the repo.
   or the wrong version).
 - The first build downloads the CEF distribution (~320 MB compressed) into `~/.cache/tauri-cef`;
   after that, rebuilds are incremental.
+
+## Running `just e2e` from parallel worktrees
+
+`just e2e` starts the `gitbolt-harness` WebSocket server and the Vite dev server on fixed ports
+(7433 and 1420 by default). Two `just e2e` runs on those same ports collide, so if you're running
+the suite from more than one git worktree at once (e.g. parallel agents), give each worktree a
+distinct `GITBOLT_E2E_PORT_BASE`:
+
+```bash
+# worktree A
+just e2e
+# worktree B (concurrently)
+GITBOLT_E2E_PORT_BASE=7600 just e2e
+# worktree C (concurrently)
+GITBOLT_E2E_PORT_BASE=7700 just e2e
+```
+
+Setting `GITBOLT_E2E_PORT_BASE=N` runs the harness on port `N` and Vite on port `N+1`; leave it
+unset to keep the defaults (7433 / 1420). Pick bases far enough apart that `N` and `N+1` don't
+overlap another worktree's pair -- e.g. 7500, 7600, 7700. This only affects `just e2e`; `just dev`
+and the packaged app are unaffected and always use 1420.

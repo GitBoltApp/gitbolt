@@ -1,6 +1,7 @@
 import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RowPayload } from '../api/gen/RowPayload';
+import { SELECTED_BAND_ALPHA } from './draw';
 import { GraphCanvas } from './GraphCanvas';
 import { METRICS } from './metrics';
 
@@ -75,6 +76,22 @@ describe('GraphCanvas', () => {
     expect(canvas.height).toBe(88);
     // The listener re-arms itself at the new ratio rather than staying subscribed at the old one.
     expect(queries).toContain('(resolution: 2dppx)');
+  });
+
+  it('redraws with the selected row\'s brighter band when the selection moves (H14)', () => {
+    const alphas: unknown[] = [];
+    const ctx = new Proxy({} as Record<string, unknown>, {
+      get: (t, k: string) => (k in t ? t[k] : () => {}),
+      set: (t, k: string, v) => { t[k] = v; if (k === 'globalAlpha') alphas.push(v); return true; },
+    });
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => ctx) as never);
+    const two = [rows[0], { ...rows[0], id: 'b'.repeat(40) }];
+    const { rerender } = render(<GraphCanvas rows={two} scrollTop={0} width={100} height={60} left={0} metrics={metrics} labeledRows={new Set()} />);
+    expect(alphas).not.toContain(SELECTED_BAND_ALPHA);
+    alphas.length = 0;
+    rerender(<GraphCanvas rows={two} scrollTop={0} width={100} height={60} left={0} metrics={metrics} labeledRows={new Set()} selected={1} />);
+    expect(alphas.filter((a) => a === SELECTED_BAND_ALPHA)).toHaveLength(1);
+    getContext.mockRestore();
   });
 
   it('does not throw when matchMedia is unavailable (older WebViews, jsdom)', () => {

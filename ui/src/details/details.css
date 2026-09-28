@@ -1,14 +1,27 @@
 .details-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.commit-details { padding: 10px 12px; border-bottom: 1px solid var(--section-border); flex: none; max-height: 45%; overflow: auto; }
-.commit-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-.commit-ids { display: flex; gap: 10px; align-items: center; color: var(--text-secondary); }
-.parents { display: inline-flex; gap: 6px; align-items: center; }
-.person { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.person-name { color: var(--text-selected); }
-.details-summary { font-size: 14px; font-weight: 600; margin: 6px 0; color: var(--text-selected); overflow-wrap: anywhere; }
+/* Feedback F13: the top section (header + message) takes the split's share (inline
+   flex-basis); the header is fixed and only the message scrolls. */
+.commit-details { display: flex; flex-direction: column; flex-grow: 0; flex-shrink: 0; min-height: 72px; overflow: hidden; box-sizing: border-box; padding: 10px 12px 0; }
+.commit-message { flex: 1 1 auto; min-height: 0; overflow: auto; padding-bottom: 8px; }
+.split-resizer { flex: none; height: 5px; margin: -2px 0; position: relative; z-index: 1; cursor: row-resize; touch-action: none; }
+.split-resizer::before { content: ""; position: absolute; left: 0; right: 0; top: 2px; height: 1px; background: var(--section-border); }
+.split-resizer:hover::before, .split-resizer:focus-visible::before { top: 1px; height: 3px; background: var(--blue); }
+.split-resizer:focus-visible { outline: none; }
+.commit-header { flex: none; display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+/* Justified three-part top row (feedback F16): signature icon | SHA | parent(s). */
+.commit-ids { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; height: 22px; color: var(--text-secondary); }
+.commit-ids-start { justify-self: start; display: inline-flex; }
+.commit-ids > .sha { justify-self: center; }
+.parents { justify-self: end; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+/* Fixed row heights (the avatar's box), so a swap doesn't reflow (feedback F12). */
+.person { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; }
+.person-id { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.person-name { color: var(--text-selected); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Committed date first (primary); the author date below, dimmer, when it differs (F15). */
+.person-dates { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; flex: none; line-height: 1.3; color: var(--text-normal); font-size: 12px; }
+.person-dates > .dim { font-size: 11px; }
+.details-summary { font-size: 14px; font-weight: 600; margin: 4px 0 6px; color: var(--text-selected); overflow-wrap: anywhere; }
 .details-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-normal); }
-/* The graph row's first body line, standing in while the full message loads. */
-.details-body[aria-busy="true"] { color: var(--text-secondary); }
 .details-error { padding: 4px 0; color: var(--text-secondary); }
 .compare-header, .wip-header { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--section-border); flex: none; }
 .compare-header > span { flex: 1; }

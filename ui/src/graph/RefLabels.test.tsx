@@ -14,25 +14,73 @@ const remoteOnly = (branch: string, ...remotes: string[]): RefLabel => ({
 const LONG = 'feature/a-very-long-branch-name-that-the-chip-truncates';
 
 describe('RefLabels', () => {
-  it('shows a remote-only label by its branch part, with the remote ref in the (instant) tooltip', () => {
-    render(<RefLabels labels={[remoteOnly('p/janderson/foo', 'origin')]} color={0} />);
+  /** A source icon's hover target in the expanded (hovered) copy, the one the pointer can reach. */
+  const fullIcon = (container: HTMLElement, aria: string) => container.querySelector('.ref-label-full')!.querySelector(`[aria-label="${aria}"]`)!.closest('.ref-icon')!;
+
+  it('shows a remote-only label by its branch part; its remote icon\'s (instant) tooltip reads `origin → <branch> (Remote)` (H12)', () => {
+    const { container } = render(<RefLabels labels={[remoteOnly('p/janderson/foo', 'origin')]} color={0} />);
     const chip = screen.getByText('p/janderson/foo').closest('.ref-label')!;
     expect(chip).not.toHaveAttribute('title');
     fireEvent.mouseEnter(chip);
-    expect(screen.getByRole('tooltip')).toHaveTextContent('origin/p/janderson/foo');
+    // The name itself has no tooltip (F9).
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    fireEvent.mouseEnter(fullIcon(container, 'remote origin'));
+    const tip = screen.getByRole('tooltip');
+    expect(tip.textContent).toBe('origin → p/janderson/foo (Remote)');
+    // The remote name is highlighted, the branch dimmed (tooltip.css / graph.css).
+    expect(tip.querySelector('.ref-tip-remote')!.textContent).toBe('origin');
+    expect(tip.querySelector('.ref-tip-branch')!.textContent).toBe('p/janderson/foo');
   });
 
-  it('one chip per branch name: one icon per ref, and the tooltip lists exactly those refs', () => {
+  it('one chip per branch name: one icon per ref, each with its own short-name tooltip (no refs/heads/)', () => {
     const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: true, worktree: null, remotes: [remote('origin', 'foo'), remote('upstream', 'foo')] };
-    render(<RefLabels labels={[label]} color={0} />);
-    const chip = screen.getByText('foo').closest('.ref-label')!;
-    expect(chip.querySelectorAll('[aria-label="local"]')).toHaveLength(1);
+    const { container } = render(<RefLabels labels={[label]} color={0} />);
+    const chip = container.querySelector('.ref-labels > .ref-label')!;
+    expect(chip.querySelectorAll(':scope > .ref-icon [aria-label="local"]')).toHaveLength(1);
     expect(chip.querySelector('[aria-label="remote origin"]')).not.toBeNull();
     expect(chip.querySelector('[aria-label="remote upstream"]')).not.toBeNull();
     fireEvent.mouseEnter(chip);
-    expect(screen.getByRole('tooltip').textContent).toBe('refs/heads/foo\norigin/foo\nupstream/foo');
-    fireEvent.mouseLeave(chip);
     expect(screen.queryByRole('tooltip')).toBeNull();
+    for (const [aria, tip] of [['local', 'foo (Local)'], ['remote origin', 'origin → foo (Remote)'], ['remote upstream', 'upstream → foo (Remote)']]) {
+      const icon = fullIcon(container, aria);
+      fireEvent.mouseEnter(icon);
+      expect(screen.getByRole('tooltip').textContent).toBe(tip);
+      // Back onto the copy's name: still over the chip, so it stays expanded, with no tooltip.
+      fireEvent.mouseLeave(icon, { relatedTarget: container.querySelector('.ref-name-full') });
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    }
+    expect(document.body.textContent).not.toMatch(/refs\//);
+  });
+
+  it('a remote icon keeps the upstream\'s own branch name when it differs from the local one', () => {
+    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: false, worktree: null, remotes: [remote('origin', 'feature/foo')] };
+    const { container } = render(<RefLabels labels={[label]} color={0} />);
+    fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label')!);
+    fireEvent.mouseEnter(fullIcon(container, 'remote origin'));
+    expect(screen.getByRole('tooltip').textContent).toBe('origin → feature/foo (Remote)');
+  });
+
+  it('the resting chip\'s icons show their tooltip too, at once: the pointer can land on one before the expanded copy covers it (H12)', () => {
+    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: false, worktree: null, remotes: [] };
+    const { container } = render(<RefLabels labels={[label]} color={0} />);
+    fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label > .ref-icon')!);
+    expect(screen.getByRole('tooltip').textContent).toBe('foo (Local)');
+  });
+
+  it('stays expanded while the pointer moves onto the expanded copy (including its icons), collapses on leaving it', () => {
+    const label: RefLabel = { row: 0, name: LONG, local: `refs/heads/${LONG}`, tag: false, isHead: false, worktree: null, remotes: [remote('origin', LONG)] };
+    const { container } = render(<div data-testid="outside"><RefLabels labels={[label]} color={0} /></div>);
+    const chip = container.querySelector('.ref-labels > .ref-label')!;
+    fireEvent.mouseEnter(chip);
+    const icon = fullIcon(container, 'remote origin');
+    // Onto the copy's cloud icon, past the resting chip's right edge: still expanded, and the
+    // icon's tooltip shows.
+    fireEvent.mouseLeave(chip, { relatedTarget: icon });
+    fireEvent.mouseEnter(icon);
+    expect(container.querySelector('.ref-label-full')).not.toBeNull();
+    expect(screen.getByRole('tooltip').textContent).toBe(`origin → ${LONG} (Remote)`);
+    fireEvent.mouseLeave(chip, { relatedTarget: screen.getByTestId('outside') });
+    expect(container.querySelector('.ref-label-full')).toBeNull();
   });
 
   it('gives remote-only labels their remote prefix back in the +N tooltip (every remote)', () => {
@@ -41,6 +89,26 @@ describe('RefLabels', () => {
     expect(more).not.toHaveAttribute('title');
     fireEvent.mouseEnter(more);
     expect(screen.getByRole('tooltip').textContent).toBe('origin/foo, upstream/foo\nfork/bar');
+  });
+
+  it('a membership chip goes after the real chips and the +N badge, before the connector, without changing them (F7)', () => {
+    const tagOnly: RefLabel = { row: 0, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null };
+    const membership = { name: 'main', color: 2, ref: 'refs/heads/main' };
+    const { container } = render(<RefLabels labels={[tagOnly, remoteOnly('x', 'origin')]} color={0} membership={membership} />);
+    const kids = [...container.querySelector('.ref-labels')!.children].map((el) => el.className);
+    expect(kids).toEqual(['ref-label', 'ref-more', 'ref-dim-slot', 'ref-connector']);
+    expect(container.querySelector('.ref-more')).toHaveTextContent('+1');
+    const slot = container.querySelector('.ref-dim-slot')!;
+    // The line filler first (it carries the connector line when the chip is dropped), then the chip.
+    expect([...slot.children].map((el) => el.className)).toEqual(['ref-dim-fill', 'ref-label ref-label-dim']);
+    expect(slot.querySelector('.ref-label-dim')).toHaveTextContent('main');
+  });
+
+  it('with no chips of its own, the membership chip stands alone (no connector)', () => {
+    const { container } = render(<RefLabels labels={[]} color={0} membership={{ name: 'main', color: 0, ref: 'refs/heads/main' }} />);
+    expect(container.querySelector('.ref-label-dim')).toHaveTextContent('main');
+    expect(container.querySelector('.ref-connector')).toBeNull();
+    expect(container.querySelector('.ref-dim-slot')).toBeNull();
   });
 
   it('hovering the chip floats an untruncated copy over it, and leaving collapses it', () => {

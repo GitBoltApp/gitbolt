@@ -9,11 +9,11 @@ import { Lru } from '../data/lru';
 import { contentKey } from '../repo/services';
 import { contentsRequest, createRepoViewStore, fileViewTarget, RepoViewContext, targetFor, useRepoView, type DiffTarget } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
-import { DiffPanel } from './DiffPanel';
+import { DiffHeader, DiffPanel } from './DiffPanel';
 import { DEFAULT_DIFF_PREFS, DIFF_PREFS_STORAGE_KEY, useDiffPrefs } from './diffPrefs';
 
 const host = vi.hoisted(() => ({
-  attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async () => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
+  attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async (_req: { path: string }) => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
   attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(),
   setContextMenuHandler: vi.fn(), layout: vi.fn(),
 }));
@@ -63,6 +63,29 @@ describe('DiffPanel', () => {
     expect(store.getState().focus).toBe('graph');
   });
 
+  it.each([
+    ['A', 'Added'],
+    ['M', 'Modified'],
+    ['D', 'Deleted'],
+    ['R', 'Renamed'],
+    ['U', 'Unmerged'],
+    ['X', 'Unknown'],
+  ])('shows the %s change-kind icon at the top left, labelled %s (F21)', async (status, label) => {
+    const target = targetFor(change('src/app.php', status), spec);
+    renderPanel(target, text);
+    const path = await screen.findByTestId('diff-path');
+    const icon = path.previousElementSibling;
+    expect(icon).toHaveAttribute('aria-label', label);
+  });
+
+  it('an unchanged file in File View shows a spacer, not an icon, so the path lines up (F21)', async () => {
+    renderPanel(fileViewTarget('a.txt', spec.id, spec), async () => contents(null, blob('a\n')));
+    const path = await screen.findByTestId('diff-path');
+    const spacer = path.previousElementSibling;
+    expect(spacer).toHaveClass('status-spacer');
+    expect(spacer).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('moving between prefetched files keeps the editor attached (no loading frame in between)', async () => {
     const a = targetFor(change('a.txt'), spec);
     const b = targetFor(change('b.txt'), spec);
@@ -78,6 +101,86 @@ describe('DiffPanel', () => {
     expect(screen.getByTestId('text-diff')).toBe(editor);
     expect(host.detachDiff).not.toHaveBeenCalled();
     expect(host.attachDiff).toHaveBeenCalledTimes(1);
+  });
+
+  it('a file still loading keeps the previous one on screen, header included, and shows Loading only after a moment', async () => {
+    const a = targetFor(change('a.txt'), spec);
+    const b = targetFor(change('b.txt'), spec);
+    const { store } = renderPanel(a, (k) => (k.includes('b.txt') ? new Promise<DiffContentsPayload>(() => {}) : Promise.resolve(contents(blob('a1\n'), blob('a2\n')))));
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ path: 'a.txt' })));
+    const editor = screen.getByTestId('text-diff');
+    act(() => store.getState().openFile(b));
+    // The whole panel switches when b is ready, in one render: no "Loading…" frame in between.
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('a.txt');
+    expect(screen.getByTestId('text-diff')).toBe(editor);
+    expect(screen.queryByText('Loading…')).toBeNull();
+    expect(button('Next change')).toBeEnabled();
+    // A slow load says so, rather than leaving a stale file under the new selection.
+    expect(await screen.findByText('Loading…', undefined, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('b.txt');
+    expect(host.showDiff).toHaveBeenCalledTimes(1);
+  });
+
+  it('header and toolbar switch together with the editor: the previous path stays until the new diff is on screen', async () => {
+    const a = targetFor(change('a.txt'), spec);
+    const b = targetFor(change('b.bin'), spec);
+    let release!: () => void;
+    host.showDiff.mockImplementation(async (req: { path: string }) => {
+      if (req.path === 'b.bin') await new Promise<void>((r) => { release = r; });
+    });
+    const { store } = renderPanel(a, async (k) => (k.includes('b.bin') ? contents(blob('b1\n', 'ISO-8859-1'), blob('b2\n', 'ISO-8859-1')) : contents(blob('a1\n'), blob('a2\n'))));
+    await waitFor(() => expect(screen.getByTestId('diff-encoding')).toHaveTextContent('UTF-8'));
+    act(() => store.getState().openFile(b));
+    await waitFor(() => expect(host.showDiff).toHaveBeenLastCalledWith(expect.objectContaining({ path: 'b.bin' })));
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('a.txt');
+    expect(screen.getByTestId('diff-encoding')).toHaveTextContent('UTF-8');
+    await act(async () => release());
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('b.bin');
+    expect(screen.getByTestId('diff-encoding')).toHaveTextContent('ISO-8859-1');
+    host.showDiff.mockImplementation(async () => {});
+  });
+
+  it('a thin progress line shows after ~150 ms while a diff computes or loads, and goes once it is on screen', async () => {
+    let release!: () => void;
+    host.showDiff.mockImplementationOnce(() => new Promise<void>((r) => { release = r; }));
+    const t0 = performance.now();
+    const { store } = renderPanel(targetFor(change('a.txt'), spec), (k) => (k.includes('slow.txt') ? new Promise<DiffContentsPayload>(() => {}) : text()));
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalled());
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(await screen.findByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(140);
+    await act(async () => release());
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    // A slow switch (contents still loading) shows it too, while the previous file stays.
+    act(() => store.getState().openFile(targetFor(change('slow.txt'), spec)));
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(await screen.findByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
+  });
+
+  it('a failed showDiff releases the header, shows the error with Retry, and leaves no unhandled rejection', async () => {
+    const a = targetFor(change('a.txt'), spec);
+    const b = targetFor(change('b.txt'), spec);
+    const { store } = renderPanel(a, async (k) => (k.includes('b.txt') ? contents(blob('b1\n'), blob('b2\n')) : contents(blob('a1\n'), blob('a2\n'))));
+    // Generous waits (3 s, not the 1 s default): this failed once in a full run on a loaded machine.
+    await waitFor(() => expect(button('Next change')).toBeEnabled(), { timeout: 3000 });
+    host.showDiff.mockRejectedValueOnce(new Error('grammar failed'));
+    act(() => store.getState().openFile(b));
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent("Couldn't show this file: grammar failed");
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('b.txt');
+    fireEvent.click(button('Retry'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull(), { timeout: 3000 });
+    expect(host.showDiff).toHaveBeenLastCalledWith(expect.objectContaining({ path: 'b.txt' }));
+    expect(host.showDiff.mock.calls.filter(([r]) => r.path === 'b.txt')).toHaveLength(2);
+    expect(screen.getByTestId('text-diff')).toBeVisible();
+  });
+
+  it('a failed showFile shows the error too', async () => {
+    host.showFile.mockRejectedValueOnce(new Error('model failed'));
+    renderPanel(fileViewTarget('a.txt', spec.id, spec), async () => contents(null, blob('a\n')));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't show this file: model failed");
+    fireEvent.click(button('Retry'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(host.showFile).toHaveBeenCalledTimes(2);
   });
 
   it('an unchanged file from View all files opens in File View, with Diff View disabled', async () => {
@@ -151,6 +254,8 @@ describe('DiffPanel', () => {
   it('shows the EOL banner and captures F7 / Shift+F7 before the editor sees them', async () => {
     renderPanel(targetFor(change('crlf.txt'), spec), async () => contents(sized({ eol: 'crlf', text: 'a\r\n' }), sized({ text: 'a\n' }), { eolOnly: true }));
     expect(await screen.findByRole('note')).toHaveTextContent('Only line endings changed (CRLF → LF)');
+    // F7 acts once the diff is on screen (the host resolved `showDiff`), as the toolbar does.
+    await waitFor(() => expect(button('Next change')).toBeEnabled());
     const region = screen.getByRole('region', { name: 'Diff' });
     // `false`: the default is prevented (Monaco's own F7 opens its accessible diff viewer).
     expect(fireEvent.keyDown(region, { key: 'F7' })).toBe(false);
@@ -188,9 +293,68 @@ describe('DiffPanel', () => {
     expect(screen.queryByRole('button', { name: /Blame|History|Edit/ })).toBeNull();
   });
 
-  it('Previous change / Next change move through the diff; mouse-down on the toolbar never takes focus', async () => {
+  it("the toolbar layout (H9): File/Diff View centred; then prev/next, the modes and the toggles on the right", async () => {
     renderPanel(targetFor(change('a.txt'), spec), text);
     await waitFor(() => expect(host.showDiff).toHaveBeenCalled());
+    const bar = screen.getByRole('toolbar', { name: 'Diff options' });
+    const names = [...bar.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent);
+    expect(names).toEqual(['File View', 'Diff View', 'Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']);
+    expect(bar.querySelector('.diff-toolbar-end')).toContainElement(button('Previous change'));
+    // Prev/next are arrow icons with a hover tooltip, like the toggles (no native title).
+    for (const [name, tip] of [['Previous change', 'Previous change (Shift+F7)'], ['Next change', 'Next change (F7)']]) {
+      const b = button(name);
+      expect(b).not.toHaveAttribute('title');
+      expect(b.querySelector('svg')).not.toBeNull();
+      fireEvent.mouseEnter(b);
+      expect(screen.getByRole('tooltip')).toHaveTextContent(tip);
+      fireEvent.mouseLeave(b);
+    }
+  });
+
+  it("the header's leading slot sits at its left, before the change-kind icon (H9: Open in…)", () => {
+    const target = targetFor(change('src/app.php'), spec);
+    render(<DiffHeader target={target} encoding="" onClose={() => {}} leading={<button type="button">Open in</button>} />);
+    const slot = button('Open in');
+    expect(slot.closest('.diff-header')?.firstElementChild).toContainElement(slot);
+    expect(slot.compareDocumentPosition(screen.getByTestId('diff-path')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a rename shows the common base, then old ⇒ new with only the new name highlighted; the tooltip stacks both paths (H21)', () => {
+    const target = { ...targetFor({ ...change('docs/manual.txt', 'R'), oldPath: 'docs/guide.txt' }, spec) };
+    render(<DiffHeader target={target} encoding="" onClose={() => {}} />);
+    const path = screen.getByTestId('diff-path');
+    expect(path).toHaveTextContent(/^docs\/guide\.txt ⇒ manual\.txt$/);
+    expect([...path.querySelectorAll('strong')].map((s) => s.textContent)).toEqual(['manual.txt']);
+    expect(path).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(path);
+    const lines = [...screen.getByRole('tooltip').querySelectorAll('.rename-paths > *')].map((l) => l.textContent);
+    expect(lines).toEqual(['docs/guide.txt', '↓', 'docs/manual.txt']);
+    fireEvent.mouseLeave(path);
+    // Not a rename: the full path in the tooltip.
+    render(<DiffHeader target={targetFor(change('src/app.php'), spec)} encoding="" onClose={() => {}} />);
+    const plain = screen.getAllByTestId('diff-path')[1];
+    fireEvent.mouseEnter(plain);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^src\/app\.php$/);
+  });
+
+  it('Ignore whitespace and Word wrap are icon-only toggles, named for screen readers and in a hover tooltip', async () => {
+    renderPanel(targetFor(change('a.txt'), spec), text);
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalled());
+    for (const [name, tip] of [['Ignore whitespace', 'Ignore leading and trailing whitespace'], ['Word wrap', 'Word wrap']]) {
+      const b = button(name);
+      expect(b).toHaveTextContent(/^$/);
+      expect(b.querySelector('svg')).not.toBeNull();
+      expect(b).not.toHaveAttribute('title');
+      fireEvent.mouseEnter(b);
+      expect(screen.getByRole('tooltip')).toHaveTextContent(tip);
+      fireEvent.mouseLeave(b);
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    }
+  });
+
+  it('Previous change / Next change move through the diff; mouse-down on the toolbar never takes focus', async () => {
+    renderPanel(targetFor(change('a.txt'), spec), text);
+    await waitFor(() => expect(button('Next change')).toBeEnabled());
     expect(fireEvent.mouseDown(button('Next change'))).toBe(false);
     fireEvent.click(button('Next change'));
     fireEvent.click(button('Previous change'));
@@ -244,15 +408,16 @@ describe('DiffPanel', () => {
     const svg = (body: string): BlobPayload => sized({ text: `<svg>${body}</svg>\n` });
     const layers = () => [...document.querySelectorAll<HTMLImageElement>('img.image-layer')].map((i) => i.alt);
 
-    it('a raster image shows the image diff, not a binary summary; Previous/Next and F7 stay off', async () => {
+    it('a raster image shows the image diff, not a binary summary; no text-diff controls, and F7 stays off (H26)', async () => {
       renderPanel(targetFor(change('logo.png'), spec), async () => contents(png(90), png(100), { image: true }));
       expect(await screen.findByRole('toolbar', { name: 'Image diff options' })).toBeInTheDocument();
       await waitFor(() => expect(layers()).toEqual(['before', 'after']));
       expect(screen.getByTestId('image-size')).toHaveTextContent('90 B → 100 B');
       expect(screen.queryByTestId('binary-summary')).toBeNull();
       expect(screen.queryByTestId('text-diff')).toBeNull();
-      expect(button('Previous change')).toBeDisabled();
-      expect(button('Next change')).toBeDisabled();
+      // Prev/next, the modes and the toggles don't apply to an image (H26); File/Diff View does.
+      for (const name of ['Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']) expect(screen.queryByRole('button', { name })).toBeNull();
+      expect(button('File View')).toBeInTheDocument();
       expect(fireEvent.keyDown(screen.getByRole('region', { name: 'Diff' }), { key: 'F7' })).toBe(true);
       await Promise.resolve();
       expect(host.goToChange).not.toHaveBeenCalled();
@@ -274,16 +439,42 @@ describe('DiffPanel', () => {
       expect(revoke.mock.calls.map(([u]) => u).sort()).toEqual(['blob:img-1', 'blob:img-2']);
     });
 
-    it('an SVG shows as images, and its Source toggle shows the text diff; F7 stays off', async () => {
+    it("an SVG shows as images, and its Source toggle shows the text diff, with the text diff's controls (H26)", async () => {
       renderPanel(targetFor(change('icon.svg'), spec), async () => contents(svg('<rect/>'), svg('<circle/>')));
       await waitFor(() => expect(layers()).toEqual(['before', 'after']));
       expect(screen.queryByTestId('text-diff')).toBeNull();
       expect(host.showDiff).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: 'Hunk' })).toBeNull();
       fireEvent.click(button('Source'));
       expect(await screen.findByTestId('text-diff')).toBeInTheDocument();
       await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ path: 'icon.svg', original: '<svg><rect/></svg>\n', modified: '<svg><circle/></svg>\n', language: 'xml' })));
-      expect(button('Next change')).toBeDisabled();
+      for (const name of ['Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']) expect(button(name)).toBeEnabled();
+      await waitFor(() => expect(button('Next change')).toBeEnabled());
+      expect(fireEvent.keyDown(screen.getByRole('region', { name: 'Diff' }), { key: 'F7' })).toBe(false);
+      await waitFor(() => expect(host.goToChange).toHaveBeenCalledWith('next'));
+      // Source off again: an image, no text controls.
+      fireEvent.click(button('Source'));
+      expect(screen.queryByRole('button', { name: 'Hunk' })).toBeNull();
+    });
+
+    it("SVG A with Source on, then file B, then back to A: A opens as an image, with no text tools (H26)", async () => {
+      const a = targetFor(change('a.svg'), spec);
+      const b = targetFor(change('b.svg'), spec);
+      const { store } = renderPanel(a, async () => contents(svg('<rect/>'), svg('<circle/>')));
+      await waitFor(() => expect(layers()).toHaveLength(2));
+      fireEvent.click(button('Source'));
+      await waitFor(() => expect(button('Next change')).toBeEnabled());
+      act(() => store.getState().openFile(b));
+      await waitFor(() => expect(screen.getByTestId('diff-path')).toHaveTextContent('b.svg'));
+      act(() => store.getState().openFile(a));
+      await waitFor(() => expect(screen.getByTestId('diff-path')).toHaveTextContent('a.svg'));
+      await waitFor(() => expect(layers()).toHaveLength(2));
+      expect(button('Source')).toHaveAttribute('aria-pressed', 'false');
+      for (const name of ['Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']) expect(screen.queryByRole('button', { name })).toBeNull();
+      host.goToChange.mockClear();
       expect(fireEvent.keyDown(screen.getByRole('region', { name: 'Diff' }), { key: 'F7' })).toBe(true);
+      await Promise.resolve();
+      expect(host.goToChange).not.toHaveBeenCalled();
     });
 
     it('File View shows the image at that revision only; its SVG source is the file, not a diff', async () => {
@@ -291,7 +482,8 @@ describe('DiffPanel', () => {
       await waitFor(() => expect(layers()).toHaveLength(2));
       fireEvent.click(button('File View'));
       await waitFor(() => expect(layers()).toEqual(['after']));
-      expect(screen.getByTestId('image-dims')).toHaveTextContent(/^— →/);
+      // One revision: just its own size, unlabelled (H25).
+      expect(screen.getByTestId('image-meta')).not.toHaveTextContent(/—|→|added|deleted/);
       fireEvent.click(button('Source'));
       expect(await screen.findByTestId('file-view')).toBeInTheDocument();
       await waitFor(() => expect(host.showFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'icon.svg', text: '<svg><circle/></svg>\n' })));
@@ -304,11 +496,119 @@ describe('DiffPanel', () => {
       expect(create).not.toHaveBeenCalled();
     });
 
+    it('an added image in Diff View is labelled "(added)", with no compare modes (H25)', async () => {
+      renderPanel(targetFor(change('new.png', 'A'), spec), async () => contents(null, png(100), { image: true }));
+      await waitFor(() => expect(layers()).toEqual(['after']));
+      expect(screen.getByTestId('image-meta')).toHaveTextContent(/100 B \(added\)$/);
+      expect(screen.queryByRole('group', { name: 'Image mode' })).toBeNull();
+    });
+
     it('a deleted image in File View shows its last revision', async () => {
       renderPanel(fileViewTarget('gone.png', spec.id, spec), async () => contents(png(90), null, { image: true }));
       await waitFor(() => expect(layers()).toEqual(['before']));
-      expect(screen.getByTestId('image-dims')).toHaveTextContent(/→ —$/);
+      expect(screen.getByTestId('image-meta')).not.toHaveTextContent(/—|→|added|deleted/);
     });
+  });
+
+  it('Esc is taken before the editor sees it and closes the file, unless an editor overlay (find) is open', async () => {
+    let inner: HTMLElement | undefined;
+    host.attachDiff.mockImplementation((el: HTMLElement) => {
+      inner = document.createElement('div');
+      inner.className = 'monaco-host';
+      inner.innerHTML = '<div class="find-widget"></div><textarea class="inputarea"></textarea>';
+      el.appendChild(inner);
+    });
+    const { store } = renderPanel(targetFor(change('a.txt'), spec), text);
+    await waitFor(() => expect(inner).toBeDefined());
+    const find = inner!.querySelector<HTMLElement>('.find-widget')!;
+    const input = inner!.querySelector('textarea')!;
+    // An open find widget (jsdom has no layout: give it a box) keeps Esc for Monaco.
+    find.classList.add('visible');
+    find.getClientRects = () => [new DOMRect(0, 0, 100, 20)] as unknown as DOMRectList;
+    expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(true);
+    expect(store.getState().diff).not.toBeNull();
+    find.classList.remove('visible');
+    const seen = vi.fn();
+    input.addEventListener('keydown', seen);
+    expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false);
+    expect(seen).not.toHaveBeenCalled();
+    expect(store.getState().diff).toBeNull();
+    host.attachDiff.mockReset();
+  });
+
+  it('Ctrl+W closes the file from inside the editor, even with an editor overlay (find) open', async () => {
+    let inner: HTMLElement | undefined;
+    host.attachDiff.mockImplementation((el: HTMLElement) => {
+      inner = document.createElement('div');
+      inner.className = 'monaco-host';
+      inner.innerHTML = '<div class="find-widget visible"></div><textarea class="inputarea"></textarea>';
+      el.appendChild(inner);
+    });
+    const { store } = renderPanel(targetFor(change('a.txt'), spec), text);
+    await waitFor(() => expect(inner).toBeDefined());
+    const find = inner!.querySelector<HTMLElement>('.find-widget')!;
+    const input = inner!.querySelector('textarea')!;
+    find.getClientRects = () => [new DOMRect(0, 0, 100, 20)] as unknown as DOMRectList;
+    for (const mods of [{ shiftKey: true }, { altKey: true }, { metaKey: true }]) {
+      expect(fireEvent.keyDown(input, { key: 'w', ctrlKey: true, ...mods })).toBe(true);
+    }
+    expect(store.getState().diff).not.toBeNull();
+    const seen = vi.fn();
+    input.addEventListener('keydown', seen);
+    // The find widget is open: Ctrl+W still closes. By character: Dvorak's W (on Comma) works.
+    expect(fireEvent.keyDown(input, { key: 'w', code: 'Comma', ctrlKey: true })).toBe(false);
+    expect(seen).not.toHaveBeenCalled();
+    expect(store.getState().diff).toBeNull();
+    host.attachDiff.mockReset();
+  });
+
+  it("Esc is left to the editor while its context menu, a hover or the suggest widget is open, wherever it's mounted", async () => {
+    let inner: HTMLElement | undefined;
+    host.attachDiff.mockImplementation((el: HTMLElement) => {
+      inner = document.createElement('div');
+      inner.className = 'monaco-host';
+      inner.innerHTML = '<textarea class="inputarea"></textarea>';
+      el.appendChild(inner);
+    });
+    const { store } = renderPanel(targetFor(change('a.txt'), spec), text);
+    await waitFor(() => expect(inner).toBeDefined());
+    const input = inner!.querySelector('textarea')!;
+    // jsdom has no layout: a shown overlay gets a box, a hidden one (display: none) has none.
+    const overlay = (html: string, parent: HTMLElement, shown: boolean) => {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      const el = wrap.firstElementChild as HTMLElement;
+      el.getClientRects = () => (shown ? [new DOMRect(0, 0, 100, 20)] : []) as unknown as DOMRectList;
+      parent.appendChild(el);
+      return el;
+    };
+    const cases: [string, HTMLElement][] = [
+      ['<div class="context-view monaco-menu-container"><div class="monaco-menu"></div></div>', inner!],
+      ['<div class="context-view"><div class="monaco-menu-container"></div></div>', document.body],
+      ['<div class="monaco-resizable-hover"><div class="monaco-hover"></div></div>', inner!],
+      ['<div class="editor-widget suggest-widget visible"></div>', inner!],
+    ];
+    // Monaco's context view renders inside an open shadow root (`useShadowDOM`, on by default).
+    const shadowHost = document.createElement('div');
+    shadowHost.className = 'shadow-root-host';
+    inner!.appendChild(shadowHost);
+    cases.push(['<div class="context-view monaco-menu-container"></div>', shadowHost.attachShadow({ mode: 'open' }) as unknown as HTMLElement]);
+    for (const [html, parent] of cases) {
+      const el = overlay(html, parent, true);
+      el.querySelectorAll<HTMLElement>('*').forEach((c) => { c.getClientRects = el.getClientRects; });
+      expect(fireEvent.keyDown(input, { key: 'Escape' }), html).toBe(true);
+      expect(store.getState().diff, html).not.toBeNull();
+      el.remove();
+    }
+    // Hidden ones don't count: a closed hover (`.hidden`), a context view with no box, a suggest
+    // widget that isn't `.visible`.
+    overlay('<div class="monaco-hover hidden"></div>', inner!, true);
+    overlay('<div class="context-view"></div>', document.body, false);
+    overlay('<div class="suggest-widget"></div>', inner!, true);
+    expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false);
+    expect(store.getState().diff).toBeNull();
+    document.querySelectorAll('.context-view').forEach((e) => e.remove());
+    host.attachDiff.mockReset();
   });
 
   it('← in the diff zone moves the focus to the files', async () => {

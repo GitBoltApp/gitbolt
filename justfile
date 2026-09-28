@@ -13,6 +13,9 @@ test-ui:
 gen-types:
     cargo test -p gitbolt-core export_bindings
 
+# Set GITBOLT_E2E_PORT_BASE (e.g. `GITBOLT_E2E_PORT_BASE=7600 just e2e`) to run this from
+# several git worktrees at once without port collisions -- see docs/dev-setup.md. Unset, ports
+# default to 7433 (harness) / 1420 (Vite), unchanged.
 e2e:
     cargo build -p gitbolt-harness
     cd ui && npx playwright test
@@ -51,6 +54,33 @@ run-app repo="":
     set -euo pipefail
     if [ -e "{{sandbox_helper}}" ]; then export CHROME_DEVEL_SANDBOX="{{sandbox_helper}}"; rm -f target/release/chrome-sandbox; fi
     GITBOLT_OPEN="{{repo}}" target/release/gitbolt
+
+# A desktop entry for the unbundled release build (H13): the dock and the app grid then show
+# GitBolt's icon and match its window (StartupWMClass = the window's WM_CLASS, set in
+# crates/gitbolt-app/src/desktop.rs). Writes only under your home: ~/.local/share/applications
+# and ~/.local/share/icons. It launches through `just run-app` in this checkout, so the sandbox
+# helper setup stays in one place. The .deb has its own entry (Tauri's bundler writes it).
+# Run it from the MAIN checkout: Exec bakes in this checkout's path, and a `.claude/worktrees/`
+# worktree is temporary (the entry would point at a removed directory later).
+install-desktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{justfile_directory()}}" in
+      */.claude/worktrees/*) echo "warning: this is a temporary worktree ({{justfile_directory()}}); the entry's Exec points here. Run 'just install-desktop' from the main checkout instead." >&2 ;;
+    esac
+    apps="$HOME/.local/share/applications"; icons="$HOME/.local/share/icons/hicolor"
+    mkdir -p "$apps"
+    for size in 32x32:32x32.png 128x128:128x128.png 256x256:128x128@2x.png 512x512:icon.png; do
+      dir="$icons/${size%%:*}/apps"; mkdir -p "$dir"
+      cp "crates/gitbolt-app/icons/${size#*:}" "$dir/gitbolt.png"
+    done
+    printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=GitBolt' 'Comment=Git GUI' \
+      'Exec="{{just_executable()}}" --justfile "{{justfile()}}" run-app' 'Icon=gitbolt' \
+      'StartupWMClass=gitbolt' 'Categories=Development;RevisionControl;' 'Terminal=false' \
+      > "$apps/gitbolt.desktop"
+    command -v update-desktop-database >/dev/null && update-desktop-database "$apps" || true
+    command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" || true
+    echo "Wrote $apps/gitbolt.desktop (Exec: just run-app in {{justfile_directory()}})"
 
 lint:
     cargo clippy --workspace --all-targets -- -D warnings

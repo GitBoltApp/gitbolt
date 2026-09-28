@@ -37,7 +37,7 @@ describe('TextDiff', () => {
     load.fail = false;
     fireEvent.click(view.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ path: 'a.php' })));
-    expect(host.attachDiff).toHaveBeenCalledWith(view.getByTestId('text-diff'));
+    expect(host.attachDiff).toHaveBeenCalledWith(view.getByTestId('text-diff'), { path: 'a.php', original: '1', modified: '2' });
     expect(view.queryByRole('alert')).toBeNull();
     view.unmount();
   });
@@ -46,7 +46,8 @@ describe('TextDiff', () => {
     const { TextDiff, useDiffPrefs } = mod;
     const view = render(<TextDiff path="a.php" original="<?php 1" modified="<?php 2" language="php" />);
     await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ path: 'a.php', original: '<?php 1', modified: '<?php 2', language: 'php' })));
-    expect(host.attachDiff).toHaveBeenCalledWith(view.getByTestId('text-diff'));
+    // With what it will show, so the shared editor can hide another view's diff meanwhile (H6).
+    expect(host.attachDiff).toHaveBeenCalledWith(view.getByTestId('text-diff'), { path: 'a.php', original: '<?php 1', modified: '<?php 2' });
     // The shared editor must exist before anything is shown in it (MonacoHost's contract).
     expect(host.attachDiff.mock.invocationCallOrder[0]).toBeLessThan(host.showDiff.mock.invocationCallOrder[0]);
     act(() => useDiffPrefs.getState().set({ mode: 'split' }));

@@ -2,13 +2,12 @@
 .graph-header { height: 24px; font-size: 10px; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; overflow: hidden; }
 .graph-header-inner { display: flex; height: 100%; align-items: center; }
 /* Widths come from allocateColumns (columns.ts) as inline styles, identical to the row cells'. */
-.graph-header-inner > span { position: relative; display: flex; align-items: center; height: 100%; padding: 0 6px; box-sizing: border-box; flex: none; }
+.graph-header-inner > span { position: relative; display: flex; align-items: center; height: 100%; padding: 0 var(--graph-cell-pad-x); box-sizing: border-box; flex: none; }
 .col-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* Drag handle centered on a column boundary. It must not be clipped, so the header cell itself
    has no overflow: hidden (.col-title truncates instead). */
 .col-resizer { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 1; cursor: col-resize; touch-action: none; outline: none; }
 .col-resizer.end { right: -4px; }
-.col-resizer.start { left: -4px; }
 .col-resizer::after { content: ""; position: absolute; top: 4px; bottom: 4px; left: 3px; width: 2px; background: transparent; }
 .col-resizer:hover::after, .col-resizer:focus-visible::after { background: var(--blue); }
 /* overflow: hidden clips the canvas once the table scrolls horizontally past it. */
@@ -16,10 +15,22 @@
    above the canvas but never escape above toasts or other panels. */
 .graph-body { position: relative; flex: 1; min-height: 0; overflow: hidden; isolation: isolate; }
 .graph-scroll { position: absolute; inset: 0; overflow: auto; outline: none; }
-.graph-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: default; }
-.graph-row > span { overflow: hidden; text-overflow: ellipsis; padding: 0 6px; box-sizing: border-box; flex: none; }
-.graph-row:hover { background: var(--hover-row); }
-.graph-row[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
+/* Clicking anywhere on a row selects it (the graph node included), so rows use the pointer
+   cursor (F5), except the Branch/Tag cell's empty space (F6, below). */
+.graph-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: pointer; }
+/* Cell paddings and chip heights come from the display density (H1): theme/density.ts keeps
+   --graph-cell-pad-x, --graph-chip-h and --graph-row-h on :root. */
+.graph-row > span { overflow: hidden; text-overflow: ellipsis; padding: 0 var(--graph-cell-pad-x); box-sizing: border-box; flex: none; }
+/* SHA's padding is fixed at every density: its width limits (columns.ts SHA_PAD) count on it. */
+.graph-row > .col-sha, .graph-header-inner > [data-col="sha"] { padding: 0 6px; }
+.graph-row[aria-selected="true"] { color: var(--text-selected); }
+/* Hover and selection paint only the text columns (H14): the Branch/Tag
+   and Graph columns keep their own look (the canvas brightens the selected row's band instead,
+   draw.ts). The text cells are stretched to the full row height, their text centred by the line
+   height, so the four backgrounds read as one full-height band. */
+.graph-row > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { align-self: stretch; line-height: var(--graph-row-h); }
+.graph-row:hover > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { background: var(--hover-row); }
+.graph-row[aria-selected="true"] > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { background: var(--selected-row); }
 .dim { color: var(--text-disabled); }
 /* The gap between the summary and the dimmed body is a margin, not a text space, so it's the
    same width in every font and never collapses or gets selected with the text. */
@@ -27,6 +38,18 @@
 .wip-tag { color: var(--text-secondary); font-style: italic; }
 .wip-counts { color: var(--text-secondary); }
 .sha { all: unset; cursor: pointer; font-family: ui-monospace, monospace; color: var(--text-secondary); }
+/* Author, date and SHA are dimmed exactly like the rest of the commit message (.dim): one token
+   for all of them, the user's explicit choice over a separate secondary colour (F10). The SHA
+   rule is scoped to the graph (.sha is shared with the details panel's parent links) and sits
+   before .sha:hover / :focus-visible, which still brighten it. */
+.col-author { color: var(--text-disabled); }
+.col-date { color: var(--text-disabled); }
+.col-sha .sha { color: var(--text-disabled); }
+/* Brighter on the selected row (H14); the SHA's own hover and focus colours still win. */
+.graph-row[aria-selected="true"] > .col-author, .graph-row[aria-selected="true"] > .col-date, .graph-row[aria-selected="true"] > .col-sha .sha:not(:hover, :focus-visible) { color: var(--text-normal); }
+/* The SHA button holds the whole hash; the column (SHORT_SHA_LEN = 6 to 40 characters wide, columns.ts) shows
+   only as many WHOLE characters as fit: max-width snaps down to a multiple of 1ch (monospace). */
+.col-sha .sha { display: inline-block; vertical-align: top; max-width: round(down, 100%, 1ch); overflow: hidden; white-space: nowrap; }
 .sha:hover { color: var(--text-selected); text-decoration: underline; }
 /* `all: unset` above also drops the browser's focus ring: keyboard users need it back. */
 .sha:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 2px; color: var(--text-selected); }
@@ -34,36 +57,64 @@
 .graph-canvas { position: absolute; top: 0; pointer-events: none; }
 .col-labels { display: flex; align-items: center; }
 /* No right padding: the label column is exactly its allocated width and the connector below must
-   reach its right edge flush, with no gap before the canvas (which starts at the same x). */
-.graph-row > .col-labels { padding-right: 0; }
+   reach its right edge flush, with no gap before the canvas (which starts at the same x).
+   Only its chips are clickable (F6: GraphView ignores a press on the rest), hence the default
+   cursor here and the pointer on .ref-label / .ref-more. Stretched to the full row height, so
+   the space above and below a chip is this cell's too, not the (clickable) row's. */
+.graph-row > .col-labels { padding-right: 0; cursor: default; align-self: stretch; }
 .ref-labels { display: flex; flex: 1; align-items: center; min-width: 0; max-width: 100%; }
 /* min-width: 0 (overriding the flex default of `auto`, which would floor the item at its
    content's width) lets a long ref name shrink and ellipsize instead of overflowing
    `.col-labels` and pushing the connector out of view; the browser default `flex-shrink: 1`
    (no longer overridden to 0) is what lets it actually give up that space. */
-.ref-label { display: inline-flex; gap: 3px; align-items: center; padding: 0 5px; height: 17px; border-radius: 3px; background: color-mix(in srgb, var(--lane-color) 45%, transparent); color: var(--text-selected); max-width: 170px; min-width: 0; }
+.ref-label { display: inline-flex; gap: 3px; align-items: center; padding: 0 5px; height: var(--graph-chip-h); border-radius: 3px; --chip-mix: 25%; background: color-mix(in srgb, var(--lane-color) var(--chip-mix), transparent); color: var(--text-normal); max-width: 170px; min-width: 0; cursor: pointer; }
 .ref-name { overflow: hidden; text-overflow: ellipsis; }
+/* Chips rest subdued, the lane colour at 25% (--graph-color-N-bg25), and light up
+   to 45% with white text while their row is hovered or selected (H3). */
+.graph-row:hover .ref-label, .graph-row[aria-selected="true"] .ref-label { --chip-mix: 45%; color: var(--text-selected); }
+.ref-icon { display: inline-flex; flex: none; }
+/* A remote icon's tooltip (H12, RefLabels.tsx RemoteTip): the remote's name stands out in the
+   tooltip's normal colour, the branch is dimmed. */
+.ref-tip-branch { color: var(--text-secondary); }
 /* Hovering the first chip floats an untruncated copy exactly over it (RefLabels.tsx). It's
    absolutely positioned at its static position (the chip's content start, vertically centered;
    the -5px margin cancels the chip's left padding), so the in-flow chip, the "+N" badge and the
    connector never move. Its containing block is the row (.col-labels isn't positioned), so
    .col-labels' overflow: hidden doesn't clip it; and since rows carry no transform (they're
    placed with `top`), its z-index lifts it above the canvas it may overlap. Opaque, so graph
-   lines don't show through it. `pointer-events: none`: it's display only, so the pointer
-   still hits what's beneath it. Moving right past the resting chip's edge therefore leaves the
-   chip (collapsing the copy) and reaches the "+N" badge and its tooltip. */
-.ref-label.ref-label-full { position: absolute; z-index: 3; pointer-events: none; margin-left: -5px; max-width: none; width: max-content; background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); }
+   lines don't show through it. It takes the pointer (F4): being a DOM child of the chip, the
+   chip stays expanded while the pointer is anywhere over it, including the revealed part and
+   its source icons' tooltips; it collapses when the pointer leaves the copy's bounds. */
+.ref-label.ref-label-full { position: absolute; z-index: 3; margin-left: -5px; max-width: none; width: max-content; background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); }
 .ref-name-full { white-space: nowrap; }
-.ref-more { margin-left: 4px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--panel-bg1); flex: none; }
+/* The dimmed branch-membership chip (F7): half opacity, over
+   the same chip look. Inert: no pointer (so no tooltip, and no click: F6 treats it as empty). */
+.ref-label.ref-label-dim { opacity: 0.5; pointer-events: none; }
+/* After a row's real chips (RefLabels.tsx): a flex item with a huge flex-shrink, so any overflow
+   comes out of it (down to 0) before the real chip gives up a pixel. Inside, a one-line wrapping
+   box: the zero-basis filler first, then the chip; once the slot is narrower than the chip, the
+   chip wraps to the hidden second line, i.e. it's dropped whole rather than truncated. The
+   filler then spans the slot and carries the connector line (25% lane colour, like
+   .ref-connector), so the line from the chip to the canvas stays unbroken. */
+.ref-dim-slot { flex: 0 100000 auto; min-width: 0; display: flex; flex-wrap: wrap; align-content: flex-start; height: var(--graph-chip-h); overflow: hidden; }
+.ref-dim-fill { flex: 1 0 0; height: var(--graph-chip-h); background: linear-gradient(color-mix(in srgb, var(--lane-color) 25%, transparent), color-mix(in srgb, var(--lane-color) 25%, transparent)) center / 100% 1px no-repeat; }
+.ref-dim-slot > .ref-label-dim { flex: none; margin-left: 4px; }
+.ref-more { margin-left: 4px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--panel-bg1); flex: none; cursor: pointer; }
 /* Continues the label connector drawn on the canvas (see draw.ts) from the chip to the canvas
    edge. No gap in .ref-labels and no margin here: it must touch the chip (or the "+N" badge)
    with zero space, so the DOM and canvas segments read as one unbroken line. `flex-shrink: 0`
    with an 8px basis keeps it visible (never squeezed to 0) even when the chip and badge
-   together would otherwise overflow the column; `.ref-label` gives up space instead. */
-.ref-connector { flex: 1 0 8px; height: 1px; background: var(--lane-color); }
+   together would otherwise overflow the column; `.ref-label` gives up space instead. Lane colour
+   at 25% (F8), exactly like the canvas part (draw.ts CONNECTOR_ALPHA),
+   so the two still read as one line. */
+.ref-connector { flex: 1 0 8px; height: 1px; background: var(--lane-color); opacity: 0.25; }
 /* Full commit-message tooltip (GraphView MessageCell); .hover-tooltip (ui/tooltip.css) keeps the
-   line breaks (pre-wrap), caps it at 600px wide and scrolls it when very long. */
-.msg-tooltip { max-height: min(400px, calc(100vh - 16px)); }
+   line breaks (pre-wrap) and caps it at 600px wide. It never takes the pointer (F1), so a very
+   long message is cut at this height rather than scrolled (overflow hidden: no dead scrollbar);
+   the details panel has all of it. */
+.hover-tooltip.msg-tooltip { max-height: min(400px, calc(100vh - 16px)); overflow: hidden; }
+/* HoverTooltip sets data-clipped when the message is cut: fade its last lines out. */
+.hover-tooltip.msg-tooltip[data-clipped]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 32px; background: linear-gradient(transparent, var(--panel-bg1)); pointer-events: none; }
 .msg-tooltip-summary { font-weight: 600; }
 .msg-tooltip-body { margin-top: 8px; color: var(--text-normal); }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }

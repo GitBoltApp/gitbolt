@@ -3,6 +3,7 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import { DetailsPanel } from '../details/DetailsPanel';
 import { displayedOrder } from '../files/fileListPrefs';
 import { GraphView } from '../graph/GraphView';
+import { isCloseFileKey, isEditorKey } from '../ui/keys';
 import { useFocusZone } from './focus';
 import { LazyDiffPanel } from './LazyDiffPanel';
 import { PanelResizer } from './PanelResizer';
@@ -83,9 +84,14 @@ function RepoLayout() {
   const store = useRepoViewStore();
   const diff = useRepoView((s) => s.diff);
   const diffOpen = diff !== null;
-  const hasSelection = useRepoView((s) => s.selection.kind !== 'none');
+  // The panel appears with its first selection's content, all loaded (feedback F12).
+  const hasPanel = useRepoView((s) => s.panel !== null);
+  const pending = useRepoView((s) => s.panelPending);
   // The right panel's landmark name follows what it shows.
-  const panelLabel = useRepoView((s) => (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree' ? 'Compare' : s.selection.kind === 'wip' ? 'Working tree changes' : 'Commit details'));
+  const panelLabel = useRepoView((s) => {
+    const kind = s.panel?.selection.kind;
+    return kind === 'compare' || kind === 'compareWorktree' ? 'Compare' : kind === 'wip' ? 'Working tree changes' : 'Commit details';
+  });
   const [prefW, setRightW] = useState<number>(RIGHT_PANEL.default);
   const maxW = useRightPanelMax();
   // The chosen width, re-clamped to the window: widening the window again restores it.
@@ -94,8 +100,18 @@ function RepoLayout() {
   // or the diff it closes the diff and returns to the graph (`closeDiff`); in the graph (or
   // elsewhere) it leaves compare mode.
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (e.defaultPrevented) return;
     const s = store.getState();
+    // Ctrl+W closes the open file from anywhere in the view (the diff panel takes it first when it
+    // has focus). With none open it does nothing yet; plan 1C makes it close the tab.
+    if (isCloseFileKey(e)) {
+      if (!s.diff) return;
+      s.closeDiff();
+      e.preventDefault();
+      return;
+    }
+    // An editor overlay's Esc (DiffPanel marks it): not the view's.
+    if (e.key !== 'Escape' || isEditorKey(e.nativeEvent)) return;
     const inFiles = e.target instanceof Element && e.target.closest('[data-focus-zone="files"]') !== null;
     if (s.diff || inFiles) s.closeDiff();
     else if (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree' || s.marks.a !== null) {
@@ -116,10 +132,13 @@ function RepoLayout() {
       </main>
       {/* Hidden until something is selected, so a fresh view gives the graph the full width
           (plan 1B deviation 8). */}
-      {hasSelection && (
+      {hasPanel && (
         <>
           <PanelResizer width={rightW} min={RIGHT_PANEL.min} max={maxW} onChange={setRightW} />
-          <aside className="right-panel" aria-label={panelLabel} style={{ width: rightW }}>
+          <aside className="right-panel" aria-label={panelLabel} aria-busy={pending} style={{ width: rightW }}>
+            {/* The next selection is loading: the previous one stays, and past ~150 ms (CSS
+                delay) a thin progress line shows (feedback F12). */}
+            {pending && <div className="panel-busy" data-testid="panel-busy" aria-hidden="true" />}
             <DetailsPanel />
           </aside>
         </>

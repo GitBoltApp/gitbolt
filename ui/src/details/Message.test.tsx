@@ -1,11 +1,12 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const openUrl = vi.hoisted(() => vi.fn(async (_url: string): Promise<null> => null));
 vi.mock('../api/client', () => ({ api: { openUrl }, errorMessage: (e: { message: string }) => e.message }));
 
 import { useToast } from '../ui/toast';
-import { Message } from './Message';
+import { fakeServices } from '../repo/testServices';
+import { Message, useProjectRemote } from './Message';
 import type { ProjectRemote } from './messageLinks';
 
 const gitlab: ProjectRemote = { host: 'gitlab.example.com', path: 'group/project', hostKind: 'gitlab' };
@@ -63,5 +64,21 @@ describe('Message', () => {
     render(<Message summary="Closes #5 !6" body="at https://x.example/a." remote={null} />);
     expect(screen.getAllByRole('link').map((l) => l.getAttribute('href'))).toEqual(['https://x.example/a']);
     expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+describe('useProjectRemote', () => {
+  it('resolves once per repo: a later mount has the remote in its first render (no relink frame)', async () => {
+    const remotes = vi.fn(async () => [{ name: 'origin', host: 'gitlab.example.com', path: 'group/project', hostKind: 'gitlab' as const }]);
+    const services = fakeServices({ remotes });
+    const first = renderHook(() => useProjectRemote(services));
+    expect(first.result.current).toBeNull();
+    await act(async () => {});
+    expect(first.result.current).toEqual(gitlab);
+    first.unmount();
+    const renders: (ProjectRemote | null)[] = [];
+    renderHook(() => { const r = useProjectRemote(services); renders.push(r); return r; });
+    expect(renders[0]).toEqual(gitlab);
+    expect(remotes).toHaveBeenCalledTimes(1);
   });
 });

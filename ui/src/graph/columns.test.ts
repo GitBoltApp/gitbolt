@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { allocateColumns, autoGraphWidth, columnMax, columnPrefsPersistence, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_W, useColumnPrefs, type ColumnWidths, type ResizableColumn } from './columns';
+import { allocateColumns, autoGraphWidth, columnMax, handleRange, lanesWidth, SHA_MAX, columnPrefsPersistence, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_W, useColumnPrefs, type ColumnWidths, type ResizableColumn } from './columns';
 
-// labels 200, graph 64, author 160, date 170, sha 72: everything but Message sums to 666.
+// labels 200, graph 64, author 160, date 170, sha SHA_W: everything but Message sums to 594 + SHA_W.
 const prefs = { labels: 200, graph: 64, author: 160, date: 170 };
 const fixed = prefs.labels + prefs.graph + prefs.author + prefs.date + SHA_W;
 const sum = (w: ColumnWidths) => w.labels + w.graph + w.message + w.author + w.date + w.sha;
@@ -90,7 +90,10 @@ describe('useColumnPrefs', () => {
     setWidth('graph', 99.6);
     setWidth('author', 59);
     setWidth('date', 300);
-    expect(useColumnPrefs.getState().prefs).toEqual({ labels: COLUMN_MIN.labels, graph: 100, author: COLUMN_MIN.author, date: 300 });
+    setWidth('sha', 9000);
+    expect(useColumnPrefs.getState().prefs).toEqual({ labels: COLUMN_MIN.labels, graph: 100, author: COLUMN_MIN.author, date: 300, sha: SHA_MAX });
+    setWidth('sha', 1);
+    expect(useColumnPrefs.getState().prefs.sha).toBe(COLUMN_MIN.sha);
   });
 });
 
@@ -100,12 +103,13 @@ const rendered = (avail: number) => {
   const p = useColumnPrefs.getState().prefs;
   return allocateColumns({ ...p, graph: p.graph ?? GRAPH }, avail);
 };
-/** Left x of every boundary a handle sits on. */
+/** Right x of every column: each handle sits on the right edge of the column it's named after. */
 const edges = (w: ColumnWidths) => ({
   labels: w.labels,
   graph: w.labels + w.graph,
-  author: w.labels + w.graph + w.message,
-  date: w.labels + w.graph + w.message + w.author,
+  message: w.labels + w.graph + w.message,
+  author: w.labels + w.graph + w.message + w.author,
+  date: w.labels + w.graph + w.message + w.author + w.date,
 });
 /** One key press, as ColumnResizer does it. */
 const press = (col: ResizableColumn, dx: number, avail: number) => {
@@ -119,6 +123,7 @@ const drag = (col: ResizableColumn, to: number, avail: number, each: (d: number,
   const s = useColumnPrefs.getState();
   s.beginResize(col, rendered(avail), avail);
   const dir = Math.sign(to);
+  if (dir === 0) throw new Error('drag: zero-length drag');
   for (let d = dir; Math.abs(d) <= Math.abs(to); d += dir) {
     useColumnPrefs.getState().resizeBy(d);
     each(d, rendered(avail));
@@ -126,106 +131,108 @@ const drag = (col: ResizableColumn, to: number, avail: number, each: (d: number,
   useColumnPrefs.getState().endResize();
 };
 
-describe('resizing Author/Date while the smart fit is squeezing them (790 px)', () => {
-  // Default prefs, 64 px graph, 790 px: Message at its 160 minimum, Author 140 (pref 160),
-  // Date 154 (pref 170). The boundary under the pointer is the one that moves: Message is a wall.
-  const AVAIL = 790;
+describe('every handle is its column\'s right edge, and resizes that column (F3)', () => {
+  // The handle under the pointer moves 1:1, and it trades width only with the column on its
+  // right: Branch/Tag and Graph with the flexing Message; Message with Author; Author with Date;
+  // Date with SHA. SHA is last: its right edge is the table's end, with no handle.
   beforeEach(() => useColumnPrefs.getState().reset());
+  const giver = { labels: 'message', graph: 'message', message: 'author', author: 'date', date: 'sha' } as const;
+  const cols: ResizableColumn[] = ['labels', 'graph', 'message', 'author', 'date'];
 
-  it('precondition: both columns are squeezed below their preferences', () => {
-    expect(rendered(AVAIL)).toMatchObject({ message: COLUMN_MIN.message, author: 140, date: 154 });
-  });
-
-  it('Author: widening hits the Message wall (nothing moves, and nothing is adopted)', () => {
-    press('author', -8, AVAIL);
-    expect(rendered(AVAIL)).toMatchObject({ message: 160, author: 140, date: 154 });
-    expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
-    drag('author', -30, AVAIL, (d, w) => expect(w.author, `d=${d}`).toBe(140));
-    expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
-  });
-
-  it('Author: narrowing moves its handle exactly with the gesture and gives the space to Message', () => {
-    const start = rendered(AVAIL);
-    drag('author', 50, AVAIL, (d, w) => {
-      expect(edges(w).author, `d=${d}`).toBe(edges(start).author + d);
-      expect(w.author).toBe(start.author - d);
-      expect(w.date).toBe(start.date);
-      expect(w.message).toBe(start.message + d);
-    });
-  });
-
-  it('Date: widening takes width 1:1 from Author until Author is at its minimum, handle under the pointer', () => {
-    const start = rendered(AVAIL);
-    const room = start.author - COLUMN_MIN.author; // 80
-    drag('date', -120, AVAIL, (d, w) => {
-      const moved = Math.min(-d, room);
-      expect(edges(w).date, `d=${d}`).toBe(edges(start).date - moved);
-      expect(w.date).toBe(start.date + moved);
-      expect(w.author).toBe(start.author - moved);
-      expect(w.message).toBe(COLUMN_MIN.message);
-    });
-  });
-
-  it('Date: key presses step exactly 8 each way', () => {
-    let prev = rendered(AVAIL);
-    for (let i = 0; i < 3; i++) {
-      press('date', -8, AVAIL);
-      const now = rendered(AVAIL);
-      expect([now.date, now.author, edges(now).date]).toEqual([prev.date + 8, prev.author - 8, edges(prev).date - 8]);
-      prev = now;
+  // At 778 px Message is at its minimum, so Branch/Tag and Graph grow by the smart fit squeezing
+  // Author and Date (1A, covered by allocateColumns); Message's and Author's handles still trade.
+  for (const [avail, which] of [[1400, cols], [778, ['message', 'author', 'date']]] as const) {
+    for (const col of which) {
+      it(`${avail} px: dragging ${col}'s right edge right, then left, resizes ${col} with the pointer`, () => {
+        const start = rendered(avail);
+        const room = start[giver[col]] - COLUMN_MIN[giver[col]];
+        const steps = Math.min(20, room);
+        // Date's giver, SHA, starts at its minimum (H15): rightward is a wall, so only left.
+        if (steps > 0) drag(col, steps, avail, (d, w) => {
+          expect(edges(w)[col], `${col} edge d=${d}`).toBe(edges(start)[col] + d);
+          expect(w[col], `${col} width d=${d}`).toBe(start[col] + d);
+          expect(w[giver[col]]).toBe(start[giver[col]] - d);
+          expect(w.total).toBe(start.total);
+        });
+        const mid = rendered(avail);
+        drag(col, -10, avail, (d, w) => {
+          expect(edges(w)[col], `${col} edge d=${d}`).toBe(edges(mid)[col] + d);
+          expect(w[col]).toBe(mid[col] + d);
+        });
+      });
     }
-    press('date', +8, AVAIL);
-    const now = rendered(AVAIL);
-    expect([now.date, now.author, now.message]).toEqual([prev.date - 8, prev.author, prev.message + 8]);
+  }
+
+  it('the old F3 bug: Author\'s right edge resizes Author (and Date), never Message', () => {
+    const start = rendered(1400);
+    drag('author', 30, 1400, () => {});
+    const w = rendered(1400);
+    expect([w.author, w.date, w.message]).toEqual([start.author + 30, start.date - 30, start.message]);
+    drag('author', -50, 1400, () => {});
+    const back = rendered(1400);
+    expect([back.author, back.date, back.message]).toEqual([start.author - 20, start.date + 20, start.message]);
   });
 
-  it('leaves no preference above what is rendered, so widening the window afterwards does not jump', () => {
-    press('date', -8, AVAIL);
-    const after = rendered(AVAIL);
-    const { prefs } = useColumnPrefs.getState();
-    expect([prefs.author, prefs.date]).toEqual([after.author, after.date]);
-    const wide = rendered(1400);
-    expect([wide.author, wide.date]).toEqual([after.author, after.date]);
+  it('walls: the giving column stops at its minimum, and so does the dragged one', () => {
+    const start = rendered(1400);
+    drag('author', start.date - COLUMN_MIN.date + 40, 1400, () => {});
+    expect(rendered(1400)).toMatchObject({ date: COLUMN_MIN.date, message: start.message });
+    drag('author', -2000, 1400, () => {});
+    expect(rendered(1400).author).toBe(COLUMN_MIN.author);
+    useColumnPrefs.getState().reset();
+    drag('message', -2000, 1400, () => {});
+    expect(rendered(1400)).toMatchObject({ message: COLUMN_MIN.message, date: start.date });
   });
 
-  it('a stray click (no movement) or a drag back to where it started adopts nothing it has not moved', () => {
-    const s = useColumnPrefs.getState();
-    s.beginResize('date', rendered(AVAIL), AVAIL);
-    s.resizeBy(0);
-    s.endResize();
-    expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
-    // Moving and coming back restores the start widths exactly.
-    const start = rendered(AVAIL);
-    s.beginResize('date', start, AVAIL);
-    useColumnPrefs.getState().resizeBy(-10);
-    useColumnPrefs.getState().resizeBy(0);
-    useColumnPrefs.getState().endResize();
-    expect(rendered(AVAIL)).toEqual(start);
-  });
-});
+  describe('while the smart fit squeezes Author and Date (778 px)', () => {
+    // Default prefs, 64 px graph, 778 px (SHA at its 60 px default): Message at its 160 minimum, Author 140 (pref 160),
+    // Date 154 (pref 170).
+    const AVAIL = 778;
 
-describe('resizing Author/Date with room to spare (1400 px)', () => {
-  const AVAIL = 1400;
-  beforeEach(() => useColumnPrefs.getState().reset());
-
-  it('Author widens 1:1 out of Message, then stops at the Message wall', () => {
-    const start = rendered(AVAIL);
-    drag('author', -(start.message - COLUMN_MIN.message + 40), AVAIL, (d, w) => {
-      const moved = Math.min(-d, start.message - COLUMN_MIN.message);
-      expect(edges(w).author, `d=${d}`).toBe(edges(start).author - moved);
-      expect(w.author).toBe(start.author + moved);
+    it('precondition: both columns are squeezed below their preferences', () => {
+      expect(rendered(AVAIL)).toMatchObject({ message: COLUMN_MIN.message, author: 140, date: 154 });
     });
-  });
 
-  it('Date widens out of Message first, then out of Author, then stops', () => {
-    const start = rendered(AVAIL);
-    const room = start.message - COLUMN_MIN.message + start.author - COLUMN_MIN.author;
-    drag('date', -(room + 30), AVAIL, (d, w) => {
-      const moved = Math.min(-d, room);
-      expect(edges(w).date, `d=${d}`).toBe(edges(start).date - moved);
-      expect(w.date).toBe(start.date + moved);
+    it('Message is a wall: narrowing it (its right edge left) moves nothing, and adopts nothing', () => {
+      press('message', -8, AVAIL);
+      expect(rendered(AVAIL)).toMatchObject({ message: 160, author: 140, date: 154 });
+      expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
+      drag('message', -30, AVAIL, (d, w) => expect(w.message, `d=${d}`).toBe(160));
+      expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
     });
-    expect(rendered(AVAIL)).toMatchObject({ message: COLUMN_MIN.message, author: COLUMN_MIN.author });
+
+    it('Author: key presses step exactly 8 each way, trading with Date', () => {
+      let prev = rendered(AVAIL);
+      for (const dx of [8, 8, -8]) {
+        press('author', dx, AVAIL);
+        const now = rendered(AVAIL);
+        expect([now.author, now.date, now.message, edges(now).author]).toEqual([prev.author + dx, prev.date - dx, prev.message, edges(prev).author + dx]);
+        prev = now;
+      }
+    });
+
+    it('leaves no preference above what is rendered, so widening the window afterwards does not jump', () => {
+      press('author', -8, AVAIL);
+      const after = rendered(AVAIL);
+      const { prefs } = useColumnPrefs.getState();
+      expect([prefs.author, prefs.date]).toEqual([after.author, after.date]);
+      const wide = rendered(1400);
+      expect([wide.author, wide.date]).toEqual([after.author, after.date]);
+    });
+
+    it('a stray click (no movement) or a drag back to where it started adopts nothing it has not moved', () => {
+      const s = useColumnPrefs.getState();
+      s.beginResize('author', rendered(AVAIL), AVAIL);
+      s.resizeBy(0);
+      s.endResize();
+      expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
+      const start = rendered(AVAIL);
+      s.beginResize('author', start, AVAIL);
+      useColumnPrefs.getState().resizeBy(-10);
+      useColumnPrefs.getState().resizeBy(0);
+      useColumnPrefs.getState().endResize();
+      expect(rendered(AVAIL)).toEqual(start);
+    });
   });
 });
 
@@ -250,6 +257,104 @@ describe('resizing Branch/Tag and Graph wider than columnMax allows (narrow wind
       expect(rendered(AVAIL)[col]).toBe(columnMax(col, AVAIL));
     });
   }
+});
+
+describe('the SHA column (F3 review, H15): a preference between SHORT_SHA_LEN (6) and 40 hex characters', () => {
+  beforeEach(() => useColumnPrefs.getState().reset());
+
+  it('min fits the app-wide 6 hex characters with 1 px to spare (a slightly wider ch under CEF or zoom), max all 40 (13 px ui-monospace, 1ch = 7.83 px, plus 6 + 6 px padding); the default is the minimum, so it shows exactly 6 (H15)', () => {
+    expect(COLUMN_MIN.sha).toBe(Math.ceil(6 * 7.83 + 12) + 1);
+    expect(SHA_MAX).toBe(Math.ceil(40 * 7.83 + 12));
+    expect(DEFAULT_COLUMN_PREFS.sha).toBe(SHA_W);
+    expect(SHA_W).toBe(COLUMN_MIN.sha);
+  });
+
+  it('allocateColumns renders the SHA preference, clamped to [min, max], like Branch/Tag and Graph', () => {
+    expect(allocateColumns({ ...prefs, sha: 100 }, 1400).sha).toBe(100);
+    expect(allocateColumns({ ...prefs, sha: 10 }, 1400).sha).toBe(COLUMN_MIN.sha);
+    expect(allocateColumns({ ...prefs, sha: 9000 }, 1400).sha).toBe(SHA_MAX);
+    expect(allocateColumns(prefs, 1400).sha).toBe(SHA_W);
+  });
+
+  it('Date\'s handle trades 1:1 with SHA and holds both walls: SHA\'s minimum and maximum, no fallback to Message', () => {
+    const start = rendered(1400);
+    // Right: SHA starts at its minimum (H15), so Date can't grow into it at all.
+    drag('date', 20, 1400, (d, w) => {
+      const moved = Math.min(d, SHA_W - COLUMN_MIN.sha);
+      expect(edges(w).date, `d=${d}`).toBe(edges(start).date + moved);
+      expect([w.date, w.sha, w.message, w.author]).toEqual([start.date + moved, start.sha - moved, start.message, start.author]);
+    });
+    // Left: Date gives SHA width up to SHA's maximum (then stops, however far the pointer goes).
+    useColumnPrefs.getState().reset();
+    drag('date', -(SHA_MAX - SHA_W + 30), 1400, (d, w) => {
+      const moved = Math.min(-d, SHA_MAX - SHA_W, start.date - COLUMN_MIN.date);
+      expect(edges(w).date, `d=${d}`).toBe(edges(start).date - moved);
+      expect([w.date, w.sha, w.message]).toEqual([start.date - moved, start.sha + moved, start.message]);
+    });
+    expect(handleRange('date', rendered(1400), 1400).min).toBe(rendered(1400).date);
+  });
+
+  it('SHA widths persist through the same per-repo seam, and a stored set without SHA gets the default', () => {
+    const save = vi.spyOn(columnPrefsPersistence, 'save');
+    vi.spyOn(columnPrefsPersistence, 'load').mockImplementation(() => ({ labels: 250, graph: null, author: 160, date: 170 }) as never);
+    useColumnPrefs.getState().loadFor('/repo/sha');
+    expect(useColumnPrefs.getState().prefs).toEqual({ ...DEFAULT_COLUMN_PREFS, labels: 250 });
+    press('date', -20, 1400);
+    expect(save).toHaveBeenLastCalledWith('/repo/sha', expect.objectContaining({ sha: SHA_W + 20, date: 150 }));
+    vi.restoreAllMocks();
+  });
+});
+
+describe('the Graph column is capped at what its lanes need (F2)', () => {
+  beforeEach(() => useColumnPrefs.getState().reset());
+  const m = { laneW: 16, padX: 8 };
+
+  it('lanesWidth is every lane plus the node padding; autoGraphWidth floors it at 64', () => {
+    expect(lanesWidth(10, m)).toBe(176);
+    expect(lanesWidth(1, m)).toBe(32);
+    expect(autoGraphWidth(1, m)).toBe(64);
+  });
+
+  it('a drag or key press can\'t widen Graph past graphMax, and narrowing still tracks', () => {
+    const graphMax = 200;
+    useColumnPrefs.getState().setWidth('graph', 100);
+    const s = useColumnPrefs.getState();
+    s.beginResize('graph', rendered(1400), 1400, graphMax);
+    for (let d = 1; d <= 300; d++) {
+      useColumnPrefs.getState().resizeBy(d);
+      expect(useColumnPrefs.getState().prefs.graph, `d=${d}`).toBe(Math.min(100 + d, graphMax));
+    }
+    useColumnPrefs.getState().endResize();
+    expect(useColumnPrefs.getState().prefs.graph).toBeNull(); // at the cap: auto
+    s.beginResize('graph', { ...rendered(1400), graph: graphMax }, 1400, graphMax);
+    useColumnPrefs.getState().resizeBy(8);
+    useColumnPrefs.getState().endResize();
+    expect(useColumnPrefs.getState().prefs.graph).toBeNull();
+    s.beginResize('graph', { ...rendered(1400), graph: graphMax }, 1400, graphMax);
+    useColumnPrefs.getState().resizeBy(-8);
+    useColumnPrefs.getState().endResize();
+    expect(useColumnPrefs.getState().prefs.graph).toBe(graphMax - 8);
+  });
+
+  it('a gesture that ends at the cap stores "auto" (null), so more lanes auto-fit again; one below it keeps the number', () => {
+    const graphMax = 200;
+    useColumnPrefs.getState().setWidth('graph', 150);
+    const s = useColumnPrefs.getState();
+    s.beginResize('graph', { ...rendered(1400), graph: 150 }, 1400, graphMax);
+    useColumnPrefs.getState().resizeBy(80);
+    useColumnPrefs.getState().endResize();
+    expect(useColumnPrefs.getState().prefs.graph).toBeNull();
+    s.beginResize('graph', { ...rendered(1400), graph: graphMax }, 1400, graphMax);
+    useColumnPrefs.getState().resizeBy(-8);
+    useColumnPrefs.getState().endResize();
+    expect(useColumnPrefs.getState().prefs.graph).toBe(graphMax - 8);
+  });
+
+  it('handleRange reports the cap as the Graph handle\'s max', () => {
+    const w = allocateColumns({ ...DEFAULT_COLUMN_PREFS, graph: 100 }, 1400);
+    expect(handleRange('graph', w, 1400, 150).max).toBe(150);
+    expect(handleRange('graph', w, 1400).max).toBe(columnMax('graph', 1400));
+  });
 });
 
 describe('column prefs persistence seam', () => {

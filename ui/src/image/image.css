@@ -9,10 +9,21 @@
 .image-source { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .image-viewport { position: relative; flex: 1; min-width: 0; overflow: hidden; cursor: grab; touch-action: none; }
 .image-viewport:active { cursor: grabbing; }
-.checkerboard { background-color: #2a2a2a; background-image: linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%), linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+/* The background behind transparent pixels (H30; background.ts): viewports and their toolbar swatches. */
+.bg-checker { background-color: #2a2a2a; background-image: linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%), linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.bg-black { background: #000; }
+.bg-white { background: #fff; }
+.bg-grey { background: #808080; }
+.image-backgrounds { display: flex; gap: 2px; margin-left: auto; }
+.image-backgrounds .icon-button[aria-pressed="true"] { background: var(--selected-row); }
+.bg-swatch { display: block; width: 12px; height: 12px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.35); }
+.bg-swatch.bg-checker { background-size: 6px 6px; background-position: 0 0, 3px 3px; }
+.image-meta { white-space: nowrap; }
 .image-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; user-select: none; }
 .swipe-clip { position: absolute; inset: 0; }
 .swipe-divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--blue); cursor: ew-resize; outline: none; }
+/* A wider grab area than the 3 px line, so a grab near it doesn't miss onto the image. */
+.swipe-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -6px; right: -6px; }
 .onion-opacity { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: 40%; }
 /* `all: unset` and `outline: none` above drop the browser's focus ring: keyboard users need it back
    (the same ring as `.sha:focus-visible` in graph.css). */

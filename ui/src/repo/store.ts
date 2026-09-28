@@ -37,6 +37,16 @@ export interface DiffTarget {
 }
 
 export interface FileSection { title: string | null; spec: DiffSpec; list: Loadable<FileListPayload> }
+
+/** What the right panel shows: one selection with everything loaded for it (feedback F12). */
+export interface PanelContent {
+  selection: Exclude<Selection, { kind: 'none' }>;
+  marks: CompareMarks;
+  parent: number;
+  details: Loadable<CommitDetailsPayload>;
+  message: Loadable<CommitMessage>;
+  sections: FileSection[];
+}
 /** Compare endpoints as row indexes: `a` is the first Ctrl+click, `b` the second (spec §9.4). */
 export interface CompareMarks { a: number | null; b: number | null }
 
@@ -58,6 +68,16 @@ export interface RepoViewState {
    */
   message: Loadable<CommitMessage>;
   sections: FileSection[];
+  /**
+   * What the right panel shows (feedback F12, stale-while-loading): the selection's content
+   * once its details, message (a single commit) and every file list have settled (loaded or
+   * failed), else the previous selection's, unchanged, so the panel swaps in one render with no
+   * empty or partial frame. `null` while nothing is selected, and until the first selection's
+   * content has arrived.
+   */
+  panel: PanelContent | null;
+  /** The selection's content is still loading: `panel` shows an earlier one. */
+  panelPending: boolean;
   diff: DiffTarget | null;
   focus: FocusZone;
   /**
@@ -123,11 +143,55 @@ export function selectedIndex(s: RepoViewState): number {
   }
 }
 
+/** The file lists a selection shows, in order. */
+function sectionSpecs(selection: Selection, parent: number): { title: string | null; spec: DiffSpec }[] {
+  switch (selection.kind) {
+    case 'commit':
+      return [{ title: null, spec: { kind: 'commit', id: selection.id, parent } }];
+    case 'wip':
+      return [
+        { title: 'Unstaged', spec: { kind: 'wip', worktree: selection.worktree, staged: false } },
+        { title: 'Staged', spec: { kind: 'wip', worktree: selection.worktree, staged: true } },
+      ];
+    case 'compare':
+      return [{ title: null, spec: { kind: 'compare', from: selection.from, to: selection.to } }];
+    case 'compareWorktree':
+      return [{ title: null, spec: { kind: 'worktree', from: selection.from, worktree: selection.worktree } }];
+    default:
+      return [];
+  }
+}
+
+const settled = (l: Loadable<unknown>) => l.status === 'ready' || l.status === 'error';
+const settledFor = (l: Loadable<{ id: string }>, id: string) => l.status === 'error' || (l.status === 'ready' && l.data.id === id);
+
+/** The panel for state `s` (whose `panel` is the one shown so far): `s`'s own content once all
+ * of it has settled, else the one shown so far. */
+function panelFor(s: RepoViewState): Pick<RepoViewState, 'panel' | 'panelPending'> {
+  const { selection, marks, parent, details, message, sections } = s;
+  if (selection.kind === 'none') return { panel: null, panelPending: false };
+  const want = sectionSpecs(selection, parent).map((x) => filesKey(x.spec));
+  const complete = sections.length === want.length
+    && sections.every((x, i) => filesKey(x.spec) === want[i] && settled(x.list))
+    && (selection.kind !== 'commit' || (settledFor(details, selection.id) && settledFor(message, selection.id)));
+  if (!complete) return { panel: s.panel, panelPending: true };
+  const p = s.panel;
+  if (p && p.selection === selection && p.marks === marks && p.parent === parent && p.details === details && p.message === message && p.sections === sections) return { panel: p, panelPending: false };
+  return { panel: { selection, marks, parent, details, message, sections }, panelPending: false };
+}
+
 export function createRepoViewStore(repo: number, repoPath: string, graph: GraphPayload, services: RepoServices): RepoViewStore {
   // Bumped on every selection change; results for an older selection are dropped.
   let seq = 0;
 
-  return createStore<RepoViewState>((set, get) => {
+  return createStore<RepoViewState>((rawSet, get) => {
+    /** Every update also settles what the panel shows (`panelFor`), in the same update. */
+    const set = (patch: Partial<RepoViewState> | ((s: RepoViewState) => Partial<RepoViewState>)) =>
+      rawSet((st) => {
+        const p = typeof patch === 'function' ? patch(st) : patch;
+        return { ...p, ...panelFor({ ...st, ...p }) };
+      });
+
     function load<T>(source: Source<T>, key: string, apply: (l: Loadable<T>) => void, mySeq: number) {
       const hit = source.peek(key);
       if (hit !== undefined) {
@@ -163,17 +227,22 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       set((st) => ({ ...extra, focus: zone, focusRequest: st.focusRequest + 1 }));
     }
 
-    function selectCommit(index: number) {
+    /** `marks` land in the same update as the selection, so the panel never shows the new
+     * marks (the compare hint) on the previous commit. */
+    function selectCommit(index: number, marks: CompareMarks) {
       const rows = get().graph.rows;
       const row = rows[index];
       const mySeq = ++seq;
       perf.start('details');
-      set({ selection: { kind: 'commit', index, id: row.id }, parent: 0, diff: null, details: IDLE, message: IDLE });
+      const selection: Selection = { kind: 'commit', index, id: row.id };
+      set({ selection, marks, parent: 0, diff: null, details: IDLE, message: IDLE });
       loadCommit(row.id, mySeq);
-      loadSections([{ title: null, spec: { kind: 'commit', id: row.id, parent: 0 } }], mySeq);
+      loadSections(sectionSpecs(selection, 0), mySeq);
+      // The neighbours' details, file lists and messages: Up/Down then swaps the panel at once.
       const near = [index - 1, index + 1].filter((i) => i >= 0 && i < rows.length && rows[i].kind !== 'wip').map((i) => rows[i].id);
       services.details.prefetch(near);
       services.files.prefetch(near.map((id) => filesKey({ kind: 'commit', id, parent: 0 })));
+      for (const id of near) if (!services.messages.peek(id)) services.messages.get(id).catch(() => {});
     }
 
     /** `reopen`: the diff open before a swap. It stays open while the reversed list loads, then
@@ -181,8 +250,9 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
     function startCompare(from: string, to: string, marks: CompareMarks, reopen: DiffTarget | null = null) {
       const mySeq = ++seq;
       const spec: DiffSpec = { kind: 'compare', from, to };
-      set({ selection: { kind: 'compare', from, to }, marks, diff: reopen, details: IDLE, message: IDLE });
-      loadSections([{ title: null, spec }], mySeq);
+      const selection: Selection = { kind: 'compare', from, to };
+      set({ selection, marks, diff: reopen, details: IDLE, message: IDLE });
+      loadSections(sectionSpecs(selection, 0), mySeq);
       if (!reopen) return;
       const stillOpen = () => mySeq === seq && get().diff === reopen;
       services.files.get(filesKey(spec)).then((list) => {
@@ -205,6 +275,8 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       details: IDLE,
       message: IDLE,
       sections: [],
+      panel: null,
+      panelPending: false,
       diff: null,
       focus: 'graph',
       focusRequest: 0,
@@ -234,25 +306,18 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         const row = g.rows[index];
         if (!row) return;
         if (mods.ctrl && row.kind !== 'wip') {
-          if (marks.a === null || marks.a === index || selection.kind === 'compare') {
-            set({ marks: { a: index, b: null } });
-            selectCommit(index);
-          } else {
-            startCompare(g.rows[marks.a].id, row.id, { a: marks.a, b: index });
-          }
+          if (marks.a === null || marks.a === index || selection.kind === 'compare') selectCommit(index, { a: index, b: null });
+          else startCompare(g.rows[marks.a].id, row.id, { a: marks.a, b: index });
           return;
         }
-        set({ marks: NO_MARKS });
         if (row.kind === 'wip' && row.wip) {
           const w = row.wip;
           const mySeq = ++seq;
-          set({ selection: { kind: 'wip', index, worktree: w.worktreePath, name: w.worktreeName }, diff: null, details: IDLE, message: IDLE });
-          loadSections([
-            { title: 'Unstaged', spec: { kind: 'wip', worktree: w.worktreePath, staged: false } },
-            { title: 'Staged', spec: { kind: 'wip', worktree: w.worktreePath, staged: true } },
-          ], mySeq);
+          const wip: Selection = { kind: 'wip', index, worktree: w.worktreePath, name: w.worktreeName };
+          set({ selection: wip, marks: NO_MARKS, diff: null, details: IDLE, message: IDLE });
+          loadSections(sectionSpecs(wip, 0), mySeq);
         } else {
-          selectCommit(index);
+          selectCommit(index, NO_MARKS);
         }
       },
 
@@ -272,7 +337,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         const { selection, marks } = get();
         const target = marks.b ?? marks.a;
         if (selection.kind !== 'compare' && selection.kind !== 'compareWorktree' && marks.a === null) return;
-        set({ marks: NO_MARKS });
+        // Both clear the marks, in the same update as the new selection.
         if (target !== null) get().selectRow(target);
         else clearSelection();
       },
@@ -280,8 +345,9 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       compareWithWorktree(from, worktree) {
         const mySeq = ++seq;
         const a = get().indexById.get(from) ?? null;
-        set({ selection: { kind: 'compareWorktree', from, worktree }, marks: { a, b: null }, diff: null, details: IDLE, message: IDLE });
-        loadSections([{ title: null, spec: { kind: 'worktree', from, worktree } }], mySeq);
+        const selection: Selection = { kind: 'compareWorktree', from, worktree };
+        set({ selection, marks: { a, b: null }, diff: null, details: IDLE, message: IDLE });
+        loadSections(sectionSpecs(selection, 0), mySeq);
       },
 
       setParent(parent) {
@@ -292,7 +358,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         // The new seq drops any pending details/message callback, so re-attach them: these
         // loads dedupe to the in-flight request or hit the cache.
         loadCommit(selection.id, mySeq);
-        loadSections([{ title: null, spec: { kind: 'commit', id: selection.id, parent } }], mySeq);
+        loadSections(sectionSpecs(selection, parent), mySeq);
       },
 
       openFile(target, neighbours = []) {

@@ -2,10 +2,17 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Parallel `just e2e` runs (one per git worktree) each need their own dev-server port. Unset,
+// this stays 1420 exactly as before -- `just dev` and the packaged app both depend on that
+// default. Set (by the e2e harness, see playwright.config.ts), Vite takes the base + 1, leaving
+// the base port itself for the WebSocket harness.
+const portBase = process.env.GITBOLT_E2E_PORT_BASE ? Number(process.env.GITBOLT_E2E_PORT_BASE) : undefined;
+const port = portBase !== undefined ? portBase + 1 : 1420;
+
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
-  server: { port: 1420, strictPort: true },
+  server: { port, strictPort: true },
   build: { target: 'es2023' },
   // Monaco and Shiki are only reached through a dynamic import (diff/monaco/load.ts). Pre-bundle
   // them at dev-server start, so the first diff doesn't trigger a re-optimize and page reload in

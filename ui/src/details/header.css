@@ -1,10 +1,14 @@
 /* Commit header extras (Task 12): co-authors, the signature badge, message links, Open buttons. */
 .co-authors { display: flex; flex-wrap: wrap; gap: 6px; }
 .co-author { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px 1px 1px; border-radius: 10px; background: var(--panel-bg1); color: var(--text-normal); }
-.sig-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 10px; background: var(--panel-bg1); font-size: 11px; color: var(--text-secondary); }
-.sig-verified { color: var(--green); }
-.sig-bad, .sig-error { color: #d9413d; }
-.sig-expired, .sig-unknownKey, .sig-unverified { color: #de9b43; }
+/* Just an icon (feedback F16), a fixed 16 px box so no status reflows the row. */
+.sig-badge { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; border-radius: 3px; color: var(--text-secondary); }
+.sig-badge:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.sig-verified { color: var(--status-added); }
+.sig-bad { color: var(--status-deleted); }
+.sig-expired, .sig-unknownKey, .sig-unverified { color: var(--status-modified); }
+/* Not signed / checking: a dim bare shield. */
+.sig-unsigned, .sig-loading { color: var(--text-disabled); }
 /* Content of a HoverTooltip (portaled, so it's positioned by .hover-tooltip). */
 .hovercard { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
 .hovercard-title { color: var(--text-selected); font-weight: 600; }

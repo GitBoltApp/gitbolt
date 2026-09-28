@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { wsTransport } from './transport';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { copyText, wsTransport } from './transport';
 
 class FakeSocket {
   static last: FakeSocket;
@@ -64,5 +64,44 @@ describe('wsTransport', () => {
     expect(s.sent).toHaveLength(1);
     s.reply({ id: 1, ok: 'result' });
     await expect(p).resolves.toBe('result');
+  });
+});
+
+const plugin = vi.hoisted(() => ({ writeText: vi.fn(async (_t: string) => {}) }));
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => plugin);
+
+describe('copyText', () => {
+  const clip = (impl: (t: string) => Promise<void>) => {
+    const writeText = vi.fn(impl);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    return writeText;
+  };
+  const inApp = () => { (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}; };
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    plugin.writeText.mockClear();
+  });
+
+  // H19: the browser's own clipboard first, in the app too: it's the path right-click -> Copy
+  // takes, which works in the real window. The Tauri plugin (arboard) only when it refuses.
+  it("uses the browser's clipboard, in the app too", async () => {
+    inApp();
+    const writeText = clip(async () => {});
+    await copyText('abc');
+    expect(writeText).toHaveBeenCalledWith('abc');
+    expect(plugin.writeText).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the app's clipboard plugin when the browser refuses", async () => {
+    inApp();
+    clip(async () => { throw new Error('NotAllowedError'); });
+    await copyText('abc');
+    expect(plugin.writeText).toHaveBeenCalledWith('abc');
+  });
+
+  it('outside the app, a refusal is the error', async () => {
+    clip(async () => { throw new Error('NotAllowedError'); });
+    await expect(copyText('abc')).rejects.toThrow('NotAllowedError');
+    expect(plugin.writeText).not.toHaveBeenCalled();
   });
 });

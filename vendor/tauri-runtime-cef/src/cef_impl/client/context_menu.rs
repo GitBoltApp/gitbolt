@@ -81,6 +81,39 @@ const BROWSER_ONLY_COMMANDS: &[&CStr] = &[
   resources::IDC_CONTENT_CONTEXT_SHARING_SUBMENU,
   resources::IDC_CONTENT_CONTEXT_GENERATE_QR_CODE,
   resources::IDC_ROUTE_MEDIA,
+  // GitBolt patch (H19): Chrome's text-fragment links. "Copy link to highlight" hands the user
+  // a `http://tauri.localhost/#:~:text=…` URL, which means nothing outside the app window.
+  resources::IDC_CONTENT_CONTEXT_COPYLINKTOTEXT,
+  resources::IDC_CONTENT_CONTEXT_RESHARELINKTOTEXT,
+  resources::IDC_CONTENT_CONTEXT_REMOVELINKTOTEXT,
+  // GitBolt patch (H19): Chrome's AI, reading and sharing services, which hand the page to
+  // Google or to the user's other devices.
+  resources::IDC_CONTENT_CONTEXT_GLIC,
+  resources::IDC_CONTENT_CONTEXT_GLICSHAREIMAGE,
+  resources::IDC_CONTENT_CONTEXT_RELOAD_GLIC,
+  resources::IDC_CONTENT_CONTEXT_ARCHIVE_GLIC,
+  resources::IDC_CONTENT_CONTEXT_LISTEN_TO_THIS_PAGE,
+  resources::IDC_CONTENT_CONTEXT_SAVE_TO_MEMORY_BANKS,
+  resources::IDC_CONTENT_CONTEXT_QUICK_ANSWERS_INLINE_ANSWER,
+  resources::IDC_CONTENT_CONTEXT_QUICK_ANSWERS_INLINE_QUERY,
+  resources::IDC_CONTENT_CONTEXT_SEND_TAB_TO_SELF_DEVICE1,
+  resources::IDC_CONTENT_CONTEXT_SEND_TAB_TO_SELF_MANAGE_DEVICES,
+  resources::IDC_CONTENT_CONTEXT_ACCESSIBILITY_LABELS_TOGGLE,
+  resources::IDC_CONTENT_CONTEXT_ACCESSIBILITY_LABELS_TOGGLE_ONCE,
+  // GitBolt patch (H19): password and address autofill; the app has no web forms.
+  resources::IDC_CONTENT_CONTEXT_SHOWALLSAVEDPASSWORDS,
+  resources::IDC_CONTENT_CONTEXT_GENERATEPASSWORD,
+  resources::IDC_CONTENT_CONTEXT_USE_PASSKEY_FROM_ANOTHER_DEVICE,
+  resources::IDC_CONTENT_CONTEXT_AUTOFILL_FEEDBACK,
+  resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_PLUS_ADDRESS,
+  resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_PASSWORDS_SELECT_PASSWORD,
+  resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_PASSWORDS_IMPORT_PASSWORDS,
+  resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_PASSWORDS_SUGGEST_PASSWORD,
+  resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_PASSWORDS_USE_PASSKEY_FROM_ANOTHER_DEVICE,
+  resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_AT_MEMORY,
+  resources::IDC_CONTENT_CONTEXT_PROTOCOL_HANDLER_SETTINGS,
+  // GitBolt patch (H19): an image's address is a `blob:` URL; Copy image stays.
+  resources::IDC_CONTENT_CONTEXT_COPYIMAGELOCATION,
 ];
 
 /// Entries that open DevTools. Kept when the webview enables devtools, removed
@@ -204,6 +237,71 @@ wrap_context_menu_handler! {
 
       // An empty model is left empty on purpose: CEF then shows no menu at all,
       // which is the right outcome for a menu with nothing in it.
+    }
+  }
+}
+
+/// GitBolt patch (tests only): CEF builds its IDC name table lazily on the first lookup, and two
+/// first lookups on different threads race (a name then resolves to -1). The app only looks names
+/// up on CEF's UI thread; tests that do, on the harness's threads, hold this lock.
+#[cfg(test)]
+pub(crate) static NAME_LOOKUP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// GitBolt patch (H19): what the app's text menu must not offer. "Copy link to highlight"
+  /// (a `#:~:text=` link to `tauri.localhost`) and its siblings, Chrome's AI / reading / sharing
+  /// services, password and address autofill, and "copy image address" (a `blob:` URL).
+  #[test]
+  fn gitbolt_drops_text_fragment_links_and_chrome_services() {
+    for name in [
+      resources::IDC_CONTENT_CONTEXT_COPYLINKTOTEXT,
+      resources::IDC_CONTENT_CONTEXT_RESHARELINKTOTEXT,
+      resources::IDC_CONTENT_CONTEXT_REMOVELINKTOTEXT,
+      resources::IDC_CONTENT_CONTEXT_GLIC,
+      resources::IDC_CONTENT_CONTEXT_GLICSHAREIMAGE,
+      resources::IDC_CONTENT_CONTEXT_LISTEN_TO_THIS_PAGE,
+      resources::IDC_CONTENT_CONTEXT_SAVE_TO_MEMORY_BANKS,
+      resources::IDC_CONTENT_CONTEXT_SEND_TAB_TO_SELF_DEVICE1,
+      resources::IDC_CONTENT_CONTEXT_ACCESSIBILITY_LABELS_TOGGLE,
+      resources::IDC_CONTENT_CONTEXT_SHOWALLSAVEDPASSWORDS,
+      resources::IDC_CONTENT_CONTEXT_GENERATEPASSWORD,
+      resources::IDC_CONTENT_CONTEXT_AUTOFILL_FEEDBACK,
+      resources::IDC_CONTENT_CONTEXT_COPYIMAGELOCATION,
+      // Already upstream's: web search, print, Lens.
+      resources::IDC_CONTENT_CONTEXT_SEARCHWEBFOR,
+      resources::IDC_PRINT,
+      resources::IDC_CONTENT_CONTEXT_LENS_REGION_SEARCH,
+    ] {
+      assert!(BROWSER_ONLY_COMMANDS.contains(&name), "{name:?} is still offered");
+    }
+  }
+
+  /// The editing entries stay, and Inspect goes only with devtools (off in release builds).
+  #[test]
+  fn editing_entries_stay_and_inspect_goes_with_devtools() {
+    for name in [
+      resources::IDC_CONTENT_CONTEXT_COPY,
+      resources::IDC_CONTENT_CONTEXT_CUT,
+      resources::IDC_CONTENT_CONTEXT_PASTE,
+      resources::IDC_CONTENT_CONTEXT_SELECTALL,
+      resources::IDC_CONTENT_CONTEXT_COPYIMAGE,
+      resources::IDC_CONTENT_CONTEXT_COPYLINKLOCATION,
+    ] {
+      assert!(!BROWSER_ONLY_COMMANDS.contains(&name), "{name:?} dropped");
+      assert!(!DEVTOOLS_COMMANDS.contains(&name), "{name:?} dropped with devtools");
+    }
+    assert!(DEVTOOLS_COMMANDS.contains(&resources::IDC_CONTENT_CONTEXT_INSPECTELEMENT));
+  }
+
+  #[test]
+  fn every_name_resolves_to_a_command_id_in_this_cef_build() {
+    let _lookup = NAME_LOOKUP.lock().unwrap_or_else(|e| e.into_inner());
+    for name in BROWSER_ONLY_COMMANDS.iter().chain(DEVTOOLS_COMMANDS) {
+      let id = unsafe { cef_id_for_command_id_name(name.as_ptr()) };
+      assert_ne!(id, UNKNOWN_COMMAND_ID, "{name:?} is unknown to this CEF build");
     }
   }
 }

@@ -6,15 +6,24 @@ import { useToast } from '../ui/toast';
 import { mergeRequestButtons, projectRemote, tokenizeMessage, type MessageToken, type ProjectRemote } from './messageLinks';
 import './header.css';
 
+/** Each repo's resolved project remote, so a remount (e.g. back from the WIP row) links the
+ * message in its first render instead of re-rendering it once the remotes resolve (F12). */
+const resolvedRemote = new WeakMap<RepoServices, ProjectRemote | null>();
+
 /** The remote that message references point at (spec §14.4): the first with a parsed host. */
 export function useProjectRemote(services: RepoServices): ProjectRemote | null {
-  const [remote, setRemote] = useState<ProjectRemote | null>(null);
+  const [state, setState] = useState<{ services: RepoServices; remote: ProjectRemote | null } | null>(null);
   useEffect(() => {
+    if (resolvedRemote.has(services)) return;
     let live = true;
-    services.remotes().then((r) => { if (live) setRemote(projectRemote(r)); }, () => {});
+    services.remotes().then((r) => {
+      const remote = projectRemote(r);
+      resolvedRemote.set(services, remote);
+      if (live) setState({ services, remote });
+    }, () => {});
     return () => { live = false; };
   }, [services]);
-  return remote;
+  return resolvedRemote.get(services) ?? (state?.services === services ? state.remote : null);
 }
 
 /** Opens a URL in the user's browser, through the backend (the webview never navigates). */

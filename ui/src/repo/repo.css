@@ -2,11 +2,20 @@
 .center-panel { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
 .center-panel > .graph-panel { flex: 1; min-height: 0; }
 .center-panel > .diff-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.right-panel { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--panel-bg0); border-left: 1px solid var(--section-border); overflow: hidden; }
+.right-panel { position: relative; flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--panel-bg0); border-left: 1px solid var(--section-border); overflow: hidden; }
+/* Feedback F12: while the next selection loads, the panel keeps the previous one (inert to the
+   pointer, so a stale row can't be opened) and, past ~150 ms, shows a thin progress line. */
+.right-panel[aria-busy="true"] > .details-panel { pointer-events: none; }
+.panel-busy { position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 2; overflow: hidden; pointer-events: none; opacity: 0; animation: panel-busy-show 0s linear 150ms forwards; }
+.panel-busy::after { content: ""; position: absolute; top: 0; bottom: 0; left: -30%; width: 30%; background: var(--blue); animation: panel-busy-slide 1s ease-in-out infinite; }
+@keyframes panel-busy-show { to { opacity: 1; } }
+@keyframes panel-busy-slide { from { left: -30%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .panel-busy::after { animation: none; left: 0; width: 100%; opacity: 0.6; } }
 .panel-resizer { flex: none; width: 4px; margin-left: -2px; margin-right: -2px; z-index: 1; cursor: col-resize; touch-action: none; }
 .panel-resizer:hover, .panel-resizer:focus-visible { background: var(--blue); outline: none; }
-/* The focused area shows a subtle outline (spec §11.1). */
-[data-focus-zone][data-zone-focused="true"] { outline: 1px solid color-mix(in srgb, var(--blue) 45%, transparent); outline-offset: -1px; }
+/* No per-area focus visuals (feedback H4 overrides spec §11.1's focus outline): keyboard focus
+   belongs to the app as a whole, and each selection stays its normal blue whichever area has DOM
+   focus. The focus zones still route the arrow keys (focus.ts); nothing here is keyed on them. */
 /* The diff panel's own chunk failed (its diff.css may be missing too): message, Retry, Close. */
 .diff-error { display: grid; place-items: center; align-content: center; gap: 8px; flex: 1; padding: 16px; color: var(--text-secondary); text-align: center; }
 .diff-error-actions { display: flex; gap: 8px; }

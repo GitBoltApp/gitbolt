@@ -5,13 +5,20 @@ import { bundledLanguages } from 'shiki/langs';
 import { bundledThemes } from 'shiki/themes';
 import { memoizeUntilRejected } from './memo';
 import type { Monaco } from './setup';
+import { withEditorColors } from './theme';
 
 /** Default Dark's editor theme (spec §12.1). Plan 1D pairs one with every app theme. */
 export const EDITOR_THEME = 'dark-plus';
 
 // The Oniguruma WASM (inlined as base64 by shiki/wasm) loads with the first diff (spec §10.3).
+// The theme carries GitBolt's editor colours (theme.ts): `shikiToMonaco` redefines it from Shiki's
+// copy on every grammar load, so that copy is where they must live.
 const getHighlighter = memoizeUntilRejected(() =>
-  createHighlighterCore({ themes: [bundledThemes[EDITOR_THEME]], langs: [], engine: createOnigurumaEngine(import('shiki/wasm')) }),
+  createHighlighterCore({
+    themes: [bundledThemes[EDITOR_THEME]().then((m) => withEditorColors(m.default))],
+    langs: [],
+    engine: createOnigurumaEngine(import('shiki/wasm')),
+  }),
 );
 
 let themed: Promise<void> | undefined;

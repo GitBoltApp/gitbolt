@@ -17,8 +17,13 @@ pub const LOCAL_TIMEOUT: Duration = Duration::from_secs(60);
 pub struct GitCli {
     bin: PathBuf,
     env: Arc<Vec<(OsString, OsString)>>,
+    hook: Option<CommandHook>,
     log: Arc<CommandLog>,
 }
+
+/// Adjusts every command just before it starts, after the runner's own environment: the app
+/// uses it to give children the session's values of what it changed for itself.
+pub type CommandHook = Arc<dyn Fn(&mut std::process::Command) + Send + Sync>;
 
 pub struct GitInvocation {
     cwd: PathBuf,
@@ -63,12 +68,18 @@ enum Outcome {
 
 impl GitCli {
     pub fn new(log: Arc<CommandLog>) -> Self {
-        Self { bin: PathBuf::from("git"), env: Arc::new(Vec::new()), log }
+        Self { bin: PathBuf::from("git"), env: Arc::new(Vec::new()), hook: None, log }
     }
 
     /// Extra environment for every command (e.g. the captured login-shell env, or test isolation).
     pub fn with_env(mut self, env: Vec<(OsString, OsString)>) -> Self {
         self.env = Arc::new(env);
+        self
+    }
+
+    /// See [`CommandHook`].
+    pub fn with_command_hook(mut self, hook: CommandHook) -> Self {
+        self.hook = Some(hook);
         self
     }
 
@@ -97,6 +108,9 @@ impl GitCli {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if let Some(hook) = &self.hook {
+            hook(cmd.as_std_mut());
+        }
 
         // Set process group for Unix platforms
         #[cfg(unix)]
@@ -247,6 +261,23 @@ mod tests {
         assert!(err.command_id.is_some());
         assert!(err.stderr.is_some());
         assert_ne!(err.kind, GbErrorKind::Cancelled);
+    }
+
+    /// The app's hook (gitbolt-app `desktop::restore_child_env`) runs last, over the inherited
+    /// environment and `with_env`: it can put back or remove what the app set for itself.
+    #[tokio::test]
+    async fn the_command_hook_adjusts_every_commands_environment_last() {
+        let r = TestRepo::new();
+        let cli = cli()
+            .with_env(vec![("GB_HOOK_SET".into(), "from with_env".into()), ("GB_HOOK_GONE".into(), "still here".into())])
+            .with_command_hook(Arc::new(|cmd: &mut std::process::Command| {
+                cmd.env("GB_HOOK_SET", "restored").env_remove("GB_HOOK_GONE");
+            }));
+        let out = cli
+            .run(GitInvocation::new(r.path(), ["-c", "alias.env=!printf '%s|%s' \"$GB_HOOK_SET\" \"${GB_HOOK_GONE-unset}\"", "env"]))
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "restored|unset");
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drawGraph } from './draw';
+import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, SELECTED_BAND_ALPHA, STRIP_W } from './draw';
 import type { RowPayload } from '../api/gen/RowPayload';
 
 function recorder() {
@@ -34,30 +34,49 @@ describe('drawGraph', () => {
     // Three visible, unlabeled commit rows in different lanes.
     const rows = [row(0, 'commit', []), row(1, 'commit', []), row(2, 'commit', [])];
     drawGraph(ctx, { rows, first: 0, last: 3, scrollTop: 0, width: 100, height: 66, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b', '#c'], nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
-    // Three fillRect per visible row: the lane-color band, the darker collapse strip drawn over
-    // it, then the bright lane-colored rail edge.
-    expect(calls.filter((c) => c.startsWith('fillRect(')).length).toBe(9);
+    // Two fillRect per visible row: the lane-color band and the bright lane-colored rail edge.
+    // The graph fits (not clipped), so there's no overflow strip (F2).
+    expect(calls.filter((c) => c.startsWith('fillRect(')).length).toBe(6);
     // No row is labeled, so no connector line should be drawn.
     expect(calls.filter((c) => c.startsWith('moveTo(0,')).length).toBe(0);
     // Bands come before any node arcs.
     expect(calls.findIndex((c) => c.startsWith('fillRect('))).toBeLessThan(calls.findIndex((c) => c.startsWith('arc(')));
   });
 
-  it('draws a darker collapse strip over the last 12px of every band', () => {
+  it('draws the overflow strip only when the graph is clipped: a solid app-background panel, full height, over the lanes (F2)', () => {
+    const base = { rows: [row(0, 'commit', [1 << 20])], first: 0, last: 1, scrollTop: 0, width: 100, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#123456', labeledRows: new Set<number>(), dpr: 1 };
+    const fits = recorder();
+    drawGraph(fits.ctx, { ...base, clipped: false });
+    expect(fits.calls).not.toContain(`fillRect(${100 - STRIP_W},0,${STRIP_W},22)`);
+    expect(fits.calls).not.toContain('fillStyle=rgba(0,0,0,0.35)');
+    const cut = recorder();
+    drawGraph(cut.ctx, { ...base, clipped: true });
+    const strip = cut.calls.indexOf(`fillRect(${100 - STRIP_W},0,${STRIP_W},22)`);
+    expect(strip).toBeGreaterThan(-1);
+    const before = cut.calls.slice(0, strip);
+    expect(before.findLast((x) => x.startsWith('fillStyle='))).toBe('fillStyle=#123456');
+    expect(before.findLast((x) => x.startsWith('globalAlpha='))).toBe('globalAlpha=1');
+    // Over the lines and nodes (it hides the part of the graph that's cut off).
+    expect(cut.calls.findIndex((c) => c.startsWith('arc('))).toBeGreaterThan(-1);
+    const after = cut.calls.slice(strip);
+    expect(after.some((c) => c.startsWith('arc(') || c === 'stroke()')).toBe(false);
+  });
+
+  it('the strip is the scrollbar thickness (14 px), snapped to whole device pixels flush with the right edge (DPR 1.5)', () => {
+    expect(STRIP_W).toBe(14);
     const { ctx, calls } = recorder();
-    const rows = [row(0, 'commit', [])];
-    drawGraph(ctx, { rows, first: 0, last: 1, scrollTop: 0, width: 100, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
-    // The strip is a second, darker fillRect at the row's right edge, drawn after the band.
-    expect(calls).toContain('fillRect(88,2,12,18)');
-    expect(calls).toContain('fillStyle=rgba(0,0,0,0.35)');
+    // width 101 CSS px -> backing store round(151.5) = 152 device px; the strip is round(14 * 1.5)
+    // = 21 device px, so it spans device px 131..152: CSS x 131/1.5, width 21/1.5 = 14.
+    drawGraph(ctx, { rows: [row(0, 'commit', [])], first: 0, last: 1, scrollTop: 0, width: 101, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1.5, clipped: true });
+    expect(calls).toContain(`fillRect(${131 / 1.5},0,${21 / 1.5},22)`);
   });
 
   it('draws a solid, full-alpha 2px rail in the lane color at the right edge, after the strip', () => {
     const { ctx, calls } = recorder();
     const rows = [row(0, 'commit', []), row(1, 'commit', [])];
-    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
+    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, clipped: true });
     for (const [top, c] of [[0, '#a'], [22, '#b']] as const) {
-      const strip = calls.indexOf(`fillRect(88,${top + 2},12,18)`);
+      const strip = calls.indexOf(`fillRect(${100 - STRIP_W},0,${STRIP_W},44)`);
       const rail = calls.indexOf(`fillRect(98,${top + 2},2,18)`);
       expect(strip).toBeGreaterThan(-1);
       expect(rail).toBeGreaterThan(strip);
@@ -74,6 +93,26 @@ describe('drawGraph', () => {
     // 3 device px, so it spans device px 149..152, i.e. CSS x 149/1.5, width 3/1.5 = 2.
     drawGraph(ctx, { rows: [row(0, 'commit', [])], first: 0, last: 1, scrollTop: 0, width: 101, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1.5 });
     expect(calls).toContain(`fillRect(${149 / 1.5},2,2,18)`);
+  });
+
+  it('insets the row band and the rail by the density\'s bandInset (H1: standard\'s bands are chip-high, 22 of 28 px)', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', []), row(1, 'commit', [])];
+    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 56, metrics: { rowH: 28, laneW: 22, padX: 11, bandInset: 3 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
+    // Row 1: top 28, band from its node (laneX(1) = 11 + 22 + 11 = 44) to the edge.
+    expect(calls).toContain('fillRect(44,31,56,22)');
+    expect(calls).toContain('fillRect(98,31,2,22)');
+  });
+
+  it('the selected row\'s band is brighter (H14); the others keep BAND_ALPHA', () => {
+    expect(SELECTED_BAND_ALPHA).toBeGreaterThan(2 * BAND_ALPHA);
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', []), row(1, 'commit', []), row(0, 'commit', [])];
+    drawGraph(ctx, { rows, first: 0, last: 3, scrollTop: 0, width: 100, height: 75, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, selected: 1 });
+    const alphaFor = (rect: string) => calls.slice(0, calls.indexOf(rect)).findLast((c) => c.startsWith('globalAlpha='));
+    expect(alphaFor('fillRect(16,2,84,21)')).toBe(`globalAlpha=${BAND_ALPHA}`);
+    expect(alphaFor('fillRect(32,27,68,21)')).toBe(`globalAlpha=${SELECTED_BAND_ALPHA}`);
+    expect(alphaFor('fillRect(16,52,84,21)')).toBe(`globalAlpha=${BAND_ALPHA}`);
   });
 
   it('draws the label connector only on labeled rows, from x=0 to the node, snapped to a device pixel', () => {
@@ -118,6 +157,22 @@ describe('drawGraph', () => {
     expect(calls3).toContain(`lineWidth=${2 / 1.5}`);
     expect(calls3).toContain(`moveTo(0,${17 / 1.5})`);
     expect(calls3).toContain(`lineTo(16,${17 / 1.5})`);
+  });
+
+  it('strokes the connector in the lane colour at 25% alpha, then restores full alpha (F8)', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', []), row(1, 'commit', [1 << 20])];
+    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set([1]), dpr: 1 });
+    expect(CONNECTOR_ALPHA).toBe(0.25);
+    const stroke = calls.indexOf('stroke()', calls.indexOf('moveTo(0,33.5)'));
+    const before = calls.slice(0, stroke);
+    expect(before.findLast((c) => c.startsWith('globalAlpha='))).toBe('globalAlpha=0.25');
+    expect(before.findLast((c) => c.startsWith('strokeStyle='))).toBe('strokeStyle=#b');
+    // Everything after it (the next band, graph lines, nodes) is back at full alpha.
+    const after = calls.slice(stroke);
+    expect(after.find((c) => c.startsWith('globalAlpha='))).toBe('globalAlpha=1');
+    const firstLine = calls.findIndex((c, i) => i > stroke && c === 'lineCap=round');
+    expect(calls.slice(0, firstLine).findLast((c) => c.startsWith('globalAlpha='))).toBe('globalAlpha=1');
   });
 
   it('still snaps to a device pixel boundary with a fractional scrollTop', () => {

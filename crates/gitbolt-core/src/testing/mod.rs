@@ -285,6 +285,25 @@ mod tests {
     }
 
     #[test]
+    fn diff_view_fixture_builds() {
+        let r = TestRepo::new();
+        fixtures::diff_view(&r);
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "Edit far down");
+        let diff = r.git(&["diff", "HEAD~1", "HEAD", "--", "long.txt"]);
+        assert!(diff.contains("@@ -117,7 +117,7 @@"), "first change at line 120: {diff}");
+        assert!(diff.contains("-line 150\n-line 151\n-line 152\n"), "{diff}");
+        assert!(diff.contains("+inserted line"), "{diff}");
+        let mixed = r.git(&["diff", "HEAD~1", "HEAD", "--", "mixed.txt"]);
+        assert!(mixed.contains("-long 050 "), "long deleted lines: {mixed}");
+        assert!(mixed.contains("-    row 120\n") && mixed.contains("+\trow 120\n"), "re-indented block: {mixed}");
+        assert!(r.git(&["diff", "-w", "HEAD~1", "HEAD", "--", "mixed.txt"]).lines().all(|l| !l.contains("row 12")), "whitespace-only");
+        assert!(mixed.contains("-    row 150\n") && mixed.contains("+\trow 153\n"), "second re-indented block: {mixed}");
+        assert!(r.git(&["diff", "-w", "HEAD~1", "HEAD", "--", "mixed.txt"]).lines().all(|l| !l.contains("row 15")), "whitespace-only too");
+        assert!(mixed.contains("+row 135 changed\n") && mixed.contains("+row 175 changed\n"), "real changes after each re-indent: {mixed}");
+        assert!(std::fs::read_to_string(r.path().join("mixed.txt")).unwrap().starts_with(&format!("{}long 020 wrapping", (1..20).map(|i| format!("row {i:03}\n")).collect::<String>())), "a long unchanged line 20");
+    }
+
+    #[test]
     fn tiny_png_is_a_valid_png() {
         let png = fixtures::tiny_png(6, 4, [0, 0, 255, 255]);
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");

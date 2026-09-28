@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port 1420 --strictPort",
+    "dev": "vite",
     "build": "tsc --noEmit && vite build && node scripts/check-entry-chunk.mjs",
     "test": "vitest"
   },

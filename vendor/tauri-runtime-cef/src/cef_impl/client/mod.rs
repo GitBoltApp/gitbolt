@@ -244,7 +244,10 @@ wrap_with_args! {
     }
 
     fn keyboard_handler(&self) -> Option<KeyboardHandler> {
-      Some(TauriCefKeyboardHandler::new(self.devtools_enabled))
+      Some(TauriCefKeyboardHandler::new(
+        self.devtools_enabled,
+        self.frame_navigation_state.clone(),
+      ))
     }
 
     fn command_handler(&self) -> Option<CommandHandler> {

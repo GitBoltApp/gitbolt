@@ -25,3 +25,36 @@ body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var
    before any diff has opened. */
 .icon-button { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 3px; color: var(--text-secondary); }
 .icon-button:hover, .icon-button:focus-visible { background: var(--hover-row); color: var(--text-selected); }
+
+/* ==== Lane V (feedback F22, F31): text selection and scrollbars. Keep this block separate. ==== */
+:root {
+  /* One selection colour for every DOM text selection, focused or not. Without it, Chromium
+     paints its own highlight: the system colour, and a dark grey (reads as black) whenever it
+     considers the frame inactive. The same blue as the editor's selection (#264f78, monaco/theme.ts). */
+  --selection-bg: #264f78;
+  /* The scroll thumb, a step lighter on hover. Mirrored in the
+     editor's theme (monaco/theme.ts). */
+  --scroll-thumb-bg: rgba(255, 255, 255, 0.15);
+  --scroll-thumb-hover-bg: rgba(255, 255, 255, 0.25);
+}
+::selection { background-color: var(--selection-bg); }
+/* Slim scrollbars everywhere: no arrow buttons, an invisible track, a grey pill thumb. The
+   transparent border keeps a 10 px hit area around a 6 px thumb. */
+::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb-bg); background-clip: padding-box; border: 2px solid transparent; border-radius: 10px; min-height: 24px; min-width: 24px; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover-bg); }
+/* ==== end lane V block ==== */
+/* ---- File-status colours (feedback lane D: F17/F19); the diff view reuses them through files/StatusIcon.tsx. ---- */
+:root {
+  --status-added: #5cb85c;
+  --status-modified: #de9b43;
+  --status-deleted: #d9413d;
+  --status-renamed: #4d88ff;
+  --status-conflicted: #b56ee6;
+  /* +/− line totals: brighter than --stats-added/--stats-deleted, WCAG AA (4.5:1) on --panel-bg0. */
+  --stats-added-bright: #5cb85c;
+  --stats-deleted-bright: #f0625d;
+}
+/* ---- end lane D block ---- */

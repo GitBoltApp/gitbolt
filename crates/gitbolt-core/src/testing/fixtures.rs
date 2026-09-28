@@ -193,6 +193,44 @@ pub fn details(r: &TestRepo) {
     r.write("notes.txt", "untracked notes\n");
 }
 
+/// Long files edited well below the first screen (plan 1B feedback lane V's e2e). "Edit far
+/// down" changes line 120, deletes lines 150-152 and inserts a line after line 180 of the
+/// 200-line `long.txt`; in the 200-line `mixed.txt` (whose unchanged line 20 is long enough to
+/// wrap) it deletes lines 50-52 (50 and 51 are long enough to wrap), re-indents 120-127 and
+/// 150-153 (whitespace only), and changes lines 135 and 175.
+pub fn diff_view(r: &TestRepo) {
+    let lines = |f: &dyn Fn(usize) -> Vec<String>| (1..=200).flat_map(f).map(|l| l + "\n").collect::<String>();
+    r.write("long.txt", &lines(&|i| vec![format!("line {i:03}")]));
+    // mixed.txt: lines 20, 50 and 51 are long (they wrap under Word wrap) and 50-52 get deleted;
+    // the blocks 120-127 and 150-153 are re-indented (spaces to a tab), whitespace-only changes.
+    let mixed_old = |i: usize| match i {
+        20 | 50 | 51 => vec![format!("long {i:03} {}", "wrapping words ".repeat(40))],
+        120..=127 | 150..=153 => vec![format!("    row {i:03}")],
+        _ => vec![format!("row {i:03}")],
+    };
+    r.write("mixed.txt", &lines(&mixed_old));
+    r.commit_all_as("Add long file", "Ada Lovelace", "ada@example.com");
+    r.write(
+        "mixed.txt",
+        &lines(&|i| match i {
+            50..=52 => vec![],
+            120..=127 | 150..=153 => vec![format!("\trow {i:03}")],
+            135 | 175 => vec![format!("row {i:03} changed")],
+            _ => mixed_old(i),
+        }),
+    );
+    r.write(
+        "long.txt",
+        &lines(&|i| match i {
+            120 => vec!["line 120 changed".into()],
+            150..=152 => vec![],
+            180 => vec!["line 180".into(), "inserted line".into()],
+            _ => vec![format!("line {i:03}")],
+        }),
+    );
+    r.commit_all_as("Edit far down", "Grace Hopper", "grace@example.com");
+}
+
 /// 60 linear commits ("Commit 00" … "Commit 59"): enough rows for the graph to scroll (plan 1B's
 /// "Esc keeps the scroll position" e2e).
 pub fn long_history(r: &TestRepo) {

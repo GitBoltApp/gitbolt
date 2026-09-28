@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createCommitMessageCache } from '../api/commitMessages';
 import type { CommitDetailsPayload } from '../api/gen/CommitDetailsPayload';
+import type { FileListPayload } from '../api/gen/FileListPayload';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
+import { formatDate } from '../format/date';
 import { RepoView } from '../repo/RepoView';
 import { fakeServices } from '../repo/testServices';
 
@@ -23,9 +25,10 @@ const details: CommitDetailsPayload = {
   coAuthors: [{ name: 'Margaret Hamilton', email: 'margaret@example.com' }, { name: 'Linus Torvalds', email: 'linus@example.com' }],
 };
 
-function renderView() {
+function renderView(d: CommitDetailsPayload = details) {
   const services = fakeServices({
-    details: new Loader(async () => details, new Lru(4)),
+    details: new Loader(async () => d, new Lru(4)),
+    files: new Loader(async (): Promise<FileListPayload> => ({ files: [], added: 0, deleted: 0 }), new Lru(4)),
     messages: createCommitMessageCache(async (id) => ({ id, summary: 'Rename', body: 'Refs !42, fixes #12.' })),
     remotes: async () => [{ name: 'origin', host: 'gitlab.example.com', path: 'group/project', hostKind: 'gitlab' }],
   });
@@ -49,8 +52,7 @@ describe('commit header', () => {
     const chip = (await screen.findAllByTestId('co-author'))[0];
     fireEvent.mouseEnter(chip);
     const card = screen.getByRole('tooltip');
-    expect(card).toHaveTextContent('Margaret Hamilton');
-    expect(card).toHaveTextContent('margaret@example.com');
+    expect(card).toHaveTextContent(/^Margaret Hamilton <margaret@example\.com>$/);
     expect(screen.getByRole('complementary', { name: 'Commit details' }).contains(card)).toBe(false);
     fireEvent.mouseLeave(chip);
     expect(screen.queryByRole('tooltip')).toBeNull();
@@ -63,4 +65,69 @@ describe('commit header', () => {
     expect(screen.getByRole('link', { name: '#12' })).toHaveAttribute('href', 'https://gitlab.example.com/group/project/-/issues/12');
     expect(screen.getByRole('button', { name: 'Open !42' })).toBeInTheDocument();
   });
+
+  it('hovering the author or the committer shows their full "Name <email>" (F14)', async () => {
+    renderView();
+    const author = await screen.findByTestId('author');
+    const name = within(author).getByText('Grace Hopper');
+    fireEvent.mouseEnter(name);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Grace Hopper <grace@example\.com>$/);
+    expect(author.contains(screen.getByRole('tooltip'))).toBe(false); // portaled
+    fireEvent.mouseLeave(name);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    fireEvent.mouseEnter(within(screen.getByTestId('committer')).getByText('Ada Lovelace'));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Ada Lovelace <ada@example\.com>$/);
+  });
+
+  // F15, with the review fix: the committed date is primary and first; when the committer is a
+  // different person it sits on their row, so it can't be read as the author's.
+  it('same person: the committed date first, the author date below it, dimmer, only when it differs (F15)', async () => {
+    const same = { ...details, committer: { ...details.author, time: details.author.time + 60 } };
+    renderView(same);
+    const author = await screen.findByTestId('author');
+    const dates = within(author).getAllByTestId(/-date$/);
+    expect(dates.map((d) => d.dataset.testid)).toEqual(['commit-date', 'author-date']);
+    expect(dates[0]).toHaveTextContent(new RegExp(`^${formatDate(same.committer.time)}$`));
+    expect(dates[1]).toHaveTextContent(`authored ${formatDate(same.author.time)}`);
+    expect(dates[1]).toHaveClass('dim');
+    expect(dates[0]).not.toHaveClass('dim');
+    expect(screen.queryByTestId('committer')).toBeNull();
+  });
+
+  it('shows one date when the author and commit dates are the same (F15)', async () => {
+    renderView({ ...details, committer: { ...details.author } });
+    const author = await screen.findByTestId('author');
+    expect(within(author).getByTestId('commit-date')).toHaveTextContent(formatDate(details.author.time));
+    expect(within(author).queryByTestId('author-date')).toBeNull();
+  });
+
+  it('a different committer\'s row carries the committed date; the author\'s row the author date (review fix)', async () => {
+    renderView();
+    const author = await screen.findByTestId('author');
+    const committer = screen.getByTestId('committer');
+    expect(within(committer).getByTestId('commit-date')).toHaveTextContent(new RegExp(`^${formatDate(details.committer.time)}$`));
+    expect(within(committer).getByTestId('commit-date')).not.toHaveClass('dim');
+    expect(within(author).queryByTestId('commit-date')).toBeNull();
+    expect(within(author).getByTestId('author-date')).toHaveTextContent(`authored ${formatDate(details.author.time)}`);
+    // Same time, different person: the committer row still has the date; the author row none.
+    cleanup();
+    renderView({ ...details, committer: { ...details.committer, time: details.author.time } });
+    await screen.findByTestId('author');
+    expect(within(screen.getByTestId('committer')).getByTestId('commit-date')).toBeInTheDocument();
+    expect(within(screen.getByTestId('author')).queryByTestId('author-date')).toBeNull();
+  });
+
+  it('the top row is signature icon, SHA, parents: a justified three-part row (F16)', async () => {
+    renderView();
+    const sha = await screen.findByTestId('details-sha');
+    const row = sha.parentElement!;
+    expect(row).toHaveClass('commit-ids');
+    expect([...row.children].map((c) => c.className)).toEqual(['commit-ids-start', 'sha', 'parents']);
+    const badge = within(row.children[0] as HTMLElement).getByTestId('signature-badge');
+    // Just an icon, named for assistive tech; no text label.
+    expect(badge).toHaveAccessibleName('Not signed');
+    expect(badge.textContent).toBe('');
+    expect(within(row.children[2] as HTMLElement).getByTestId('parent-sha')).toHaveTextContent(B.slice(0, 6));
+  });
 });
+

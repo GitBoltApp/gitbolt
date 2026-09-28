@@ -16,9 +16,13 @@ interface Props {
   avatar?: (email: string) => ImageBitmap | null;
   /** Bumped when a new avatar arrives, to redraw with it. */
   avatarVersion?: number;
+  /** The lanes need more width than the column has: draw the overflow strip (F2). */
+  clipped?: boolean;
+  /** The selected row, drawn with a brighter band (H14); -1 or omitted: none. */
+  selected?: number;
 }
 
-export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion }: Props) {
+export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion, clipped = false, selected = -1 }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const nodeFillRef = useRef<string | undefined>(undefined);
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
@@ -50,8 +54,8 @@ export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, lab
     if (nodeFillRef.current === undefined) {
       nodeFillRef.current = getComputedStyle(document.documentElement).getPropertyValue('--app-bg0').trim() || '#1c1e23';
     }
-    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: GRAPH_COLORS, nodeFill: nodeFillRef.current, labeledRows, dpr, avatar });
-  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion]);
+    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: GRAPH_COLORS, nodeFill: nodeFillRef.current, labeledRows, dpr, avatar, clipped, selected });
+  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion, clipped, selected]);
 
-  return <canvas ref={ref} className="graph-canvas" data-testid="graph-canvas" style={{ left, width, height }} />;
+  return <canvas ref={ref} className="graph-canvas" data-testid="graph-canvas" data-clipped={clipped} style={{ left, width, height }} />;
 }

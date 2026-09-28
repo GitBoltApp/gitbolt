@@ -3,11 +3,12 @@ import { Avatar } from '../avatars/Avatar';
 import { useHoverTooltip } from '../ui/HoverTooltip';
 import './header.css';
 
+/** "Name <email>" (feedback F14); the name alone when there is no email. */
+export const personLabel = (name: string, email: string) => (email ? `${name} <${email}>` : name);
+
 function CoAuthorChip({ c }: { c: CoAuthor }) {
-  // Portaled (HoverTooltip), so the scrolling details panel can't clip it.
-  const { triggerProps, tooltip } = useHoverTooltip({
-    content: <div className="hovercard"><div className="hovercard-title">{c.name}</div><div>{c.email}</div></div>,
-  });
+  // Portaled (HoverTooltip), so the details panel can't clip it.
+  const { triggerProps, tooltip } = useHoverTooltip({ content: personLabel(c.name, c.email) });
   return (
     <span className="co-author" data-testid="co-author" {...triggerProps}>
       <Avatar name={c.name} email={c.email} size={18} />

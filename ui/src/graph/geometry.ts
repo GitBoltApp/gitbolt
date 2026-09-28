@@ -1,6 +1,8 @@
 import { HALF_BOTTOM, HALF_FULL, HALF_TOP, type Seg } from './segments';
 
-export interface Metrics { rowH: number; laneW: number; padX: number }
+/** Row height, lane width and node padding; `bandInset` (default 2): the row band's and rail's
+ * vertical inset, top and bottom (draw.ts). */
+export interface Metrics { rowH: number; laneW: number; padX: number; bandInset?: number }
 export type PathOp = { op: 'M' | 'L'; x: number; y: number } | { op: 'Q'; cx: number; cy: number; x: number; y: number };
 
 export const laneX = (lane: number, m: Metrics) => m.padX + lane * m.laneW + m.laneW / 2;

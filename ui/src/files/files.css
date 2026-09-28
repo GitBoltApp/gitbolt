@@ -1,18 +1,26 @@
 .file-sections { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; }
+/* Below the commit split (feedback F13), the file list keeps a usable height. */
+.split-resizer + .file-sections { min-height: 160px; }
 .file-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .file-section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); margin: 8px 12px 0; }
 .file-section-status { padding: 6px 12px; color: var(--text-secondary); }
 .file-list { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .file-list-header { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px; color: var(--text-secondary); }
-.file-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 6px; }
+/* Justified three-part toolbar (feedback F18): start | centre | end. */
+.file-toolbar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; padding: 0 12px 6px; }
+.file-toolbar-start { justify-self: start; min-width: 0; }
+.file-toolbar-center { justify-self: center; }
+.file-toolbar-end { justify-self: end; min-width: 0; }
 .segmented { display: inline-flex; border: 1px solid var(--section-border); border-radius: 4px; overflow: hidden; }
-.segmented > button, .file-toolbar > button { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); }
-.file-toolbar > button { border: 1px solid var(--section-border); border-radius: 4px; }
-.segmented > button:focus-visible, .file-toolbar > button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
-.segmented > button[aria-pressed="true"], .file-toolbar > button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
+.segmented > button, .toolbar-button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; color: var(--text-secondary); white-space: nowrap; }
+.toolbar-button { box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--section-border); border-radius: 4px; }
+.toolbar-button:disabled { cursor: default; opacity: 0.5; }
+.segmented > button:hover, .toolbar-button:hover:not(:disabled) { color: var(--text-selected); }
+.segmented > button:focus-visible, .toolbar-button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.segmented > button[aria-pressed="true"], .toolbar-button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 .parent-picker { align-self: flex-start; margin: 6px 12px 0; }
 .file-list-scroll { position: relative; flex: 1; min-height: 120px; overflow: auto; outline: none; }
-.file-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: default; box-sizing: border-box; padding-right: 8px; }
+.file-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: default; box-sizing: border-box; padding-right: 8px; }
 .file-row:hover { background: var(--hover-row); }
 .file-row[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
 .file-row.unchanged .file-name { color: var(--text-secondary); }
@@ -20,13 +28,13 @@
 .file-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .file-stats { margin-left: auto; visibility: hidden; font-size: 11px; }
 .file-row:hover .file-stats, .file-row[aria-selected="true"] .file-stats { visibility: visible; }
-.added { color: var(--stats-added); }
-.deleted { color: var(--stats-deleted); }
-.status-badge { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 3px; font-size: 10px; font-weight: 700; flex: none; color: #fff; }
-.status-A, .status-C { background: var(--stats-added); }
-.status-D { background: var(--stats-deleted); }
-.status-M, .status-T { background: #de9b43; }
-.status-R { background: var(--blue); }
-.status-U, .status-X { background: #8e00c2; }
-.status-none { background: transparent; }
+/* Line totals, brighter than the graph's stats colours (feedback F19; AA on the panel). */
+.added { color: var(--stats-added-bright); }
+.deleted { color: var(--stats-deleted-bright); }
+.file-chevron { display: inline-grid; place-items: center; flex: none; }
+.status-spacer { flex: none; }
+/* Coloured status icons with counts: the header row (F19) and collapsed folders (F20). */
+.status-counts { display: inline-flex; align-items: center; gap: 8px; }
+.status-count { display: inline-flex; align-items: center; gap: 3px; }
+.file-row .status-counts { margin-left: auto; gap: 6px; font-size: 11px; color: var(--text-secondary); }
 .file-list-error { display: flex; align-items: center; gap: 8px; padding: 0 12px 6px; color: var(--text-secondary); }

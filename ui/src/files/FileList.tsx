@@ -1,20 +1,19 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronRight, Folder } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, List, ListTree } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileListPayload } from '../api/gen/FileListPayload';
 import { filesKey } from '../repo/services';
-import { useRepoView, type DiffTarget } from '../repo/store';
+import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { useFileListPrefs } from './fileListPrefs';
-import { allFolderPaths, buildRows, countByStatus, type FileListMode, type FileRow } from './fileTree';
+import { allFolderPaths, buildRows, countByStatus, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
+import { StatusIcon } from './StatusIcon';
 import './files.css';
 
 /** One file-list row (plan 1B global constraints). */
 export const FILE_ROW_H = 24;
-
-const STATUS_NAMES: Record<string, string> = { A: 'Added', C: 'Copied', D: 'Deleted', M: 'Modified', R: 'Renamed', T: 'Type changed', U: 'Unmerged', X: 'Unknown' };
 
 /** "View all files": every path in `commit`'s tree (null until loaded), or the load's error. */
 function useTreePaths(commit: string | null) {
@@ -43,20 +42,33 @@ function useTreePaths(commit: string | null) {
 
 const stats = (c: FileChange | null) => (!c ? '' : c.additions === null ? 'binary' : `+${c.additions} −${c.deletions ?? 0}`);
 
-function StatusBadge({ status }: { status: string }) {
-  if (!status) return <span className="status-badge status-none" aria-hidden="true" />;
-  const name = STATUS_NAMES[status] ?? status;
-  return <span className={`status-badge status-${status}`} role="img" aria-label={name} title={name}>{status}</span>;
+const COUNT_KINDS = ['modified', 'added', 'deleted', 'renamed', 'conflicted'] as const;
+
+/** "2 modified · 1 renamed": the non-zero counts, in the header's order. */
+export const countsText = (c: StatusCounts, sep = ' · ') => COUNT_KINDS.filter((k) => c[k] > 0).map((k) => `${c[k]} ${k}`).join(sep);
+
+/** Coloured status icons with their numbers, non-zero kinds only (feedback F19/F20). Named as
+ * one image ("2 modified · 1 renamed"); the icons themselves are decorative. */
+function StatusCountsView({ counts, testId, size }: { counts: StatusCounts; testId: string; size: number }) {
+  const text = countsText(counts);
+  if (!text) return null;
+  return (
+    <span className="status-counts" data-testid={testId} role="img" aria-label={text}>
+      {COUNT_KINDS.filter((k) => counts[k] > 0).map((k) => (
+        <span key={k} className="status-count"><StatusIcon status={k} size={size} decorative />{counts[k]}</span>
+      ))}
+    </span>
+  );
 }
 
 function Row({ id, row, mode, active, top, onMouseDown }: { id: string; row: FileRow; mode: FileListMode; active: boolean; top: number; onMouseDown: (e: MouseEvent) => void }) {
-  const style = { top, height: FILE_ROW_H, paddingLeft: 8 + row.depth * 14 };
+  const style = { top, height: FILE_ROW_H, paddingLeft: rowIndent(row.depth), gap: TREE.gap };
   if (row.kind === 'folder') {
     return (
       <div id={id} role="option" aria-selected={active} aria-expanded={row.expanded} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown}>
-        {row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Folder size={12} className="dim" />
+        <span className="file-chevron" style={{ width: TREE.chevron }}>{row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="file-name">{row.name}</span>
+        {row.counts && <StatusCountsView counts={row.counts} testId="folder-counts" size={10} />}
       </div>
     );
   }
@@ -64,7 +76,7 @@ function Row({ id, row, mode, active, top, onMouseDown }: { id: string; row: Fil
   const s = stats(c);
   return (
     <div id={id} role="option" aria-selected={active} data-kind="file" data-path={row.target.path} className={c ? 'file-row' : 'file-row unchanged'} style={style} title={s || undefined} onMouseDown={onMouseDown}>
-      <StatusBadge status={c?.status ?? ''} />
+      {c ? <StatusIcon status={c.status} size={TREE.icon} /> : <span className="status-spacer" style={{ width: TREE.icon }} aria-hidden="true" />}
       {c?.oldPath && <span className="file-dir">{c.oldPath} → </span>}
       {(mode === 'path' || c?.oldPath) && row.dir && <span className="file-dir">{row.dir}/</span>}
       <span className="file-name">{row.name}</span>
@@ -105,6 +117,7 @@ interface Cursor { id: string; diffKey: string | null }
  * no rows, so the files zone can focus the right list (WIP has two).
  */
 export function FileList({ list, spec, label, allFilesCommit = null }: { list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null }) {
+  const store = useRepoViewStore();
   const openFile = useRepoView((s) => s.openFile);
   const setFocus = useRepoView((s) => s.setFocus);
   const openKey = useRepoView((s) => s.diff?.key ?? null);
@@ -159,7 +172,8 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     });
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    // A stale list (the next selection is loading, feedback F12) opens nothing.
+    if (e.ctrlKey || e.altKey || e.metaKey || store.getState().panelPending) return;
     const i = activeIndex;
     const row = rows[i];
     const page = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 240) / FILE_ROW_H) - 1);
@@ -188,30 +202,38 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     e.preventDefault();
   };
 
-  const countText = ([[counts.modified, 'modified'], [counts.added, 'added'], [counts.deleted, 'deleted'], [counts.renamed, 'renamed']] as const)
-    .filter(([n]) => n > 0)
-    .map(([n, l]) => `${n} ${l}`)
-    .join(' · ');
+  const folders = useMemo(() => (mode === 'tree' ? allFolderPaths(list.files, unchanged) : []), [mode, list.files, unchanged]);
+  const allExpanded = folders.every((p) => !collapsed.has(p));
 
   return (
     <div className="file-list">
       <div className="file-list-header">
-        <span className="file-counts" data-testid="file-counts">{countText || 'No changes'}</span>
+        {countsText(counts) ? <StatusCountsView counts={counts} testId="file-counts" size={12} /> : <span className="file-counts" data-testid="file-counts">No changes</span>}
         <span className="file-totals" data-testid="file-totals"><span className="added">+{list.added}</span> <span className="deleted">−{list.deleted}</span></span>
       </div>
+      {/* Justified: the mode's action on the left, Path/Tree in the centre, View all files on
+          the right (feedback F18). */}
       <div className="file-toolbar" role="toolbar" aria-label="File list options">
-        <div className="segmented">
-          <button type="button" aria-pressed={mode === 'path'} onClick={() => setPrefs({ mode: 'path' })}>Path</button>
-          <button type="button" aria-pressed={mode === 'tree'} onClick={() => setPrefs({ mode: 'tree' })}>Tree</button>
+        <div className="file-toolbar-start">
+          {mode === 'tree' ? (
+            // One smart button: expands everything unless everything already is (then collapses).
+            <button type="button" className="toolbar-button" disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
+              {allExpanded ? <ChevronsDownUp size={12} aria-hidden /> : <ChevronsUpDown size={12} aria-hidden />}
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </button>
+          ) : (
+            <button type="button" className="toolbar-button" aria-pressed={sort === 'status'} title="Sort by status, then path" onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>Sort by status</button>
+          )}
         </div>
-        {allFilesCommit && <button type="button" aria-pressed={allFiles} onClick={() => setPrefs({ allFiles: !allFiles })}>View all files</button>}
-        {mode === 'path' && <button type="button" aria-pressed={sort === 'status'} title="Sort by status, then path" onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>Sort by status</button>}
-        {mode === 'tree' && (
-          <>
-            <button type="button" onClick={() => setCollapsed(new Set())}>Expand all</button>
-            <button type="button" onClick={() => setCollapsed(new Set(allFolderPaths(list.files, unchanged)))}>Collapse all</button>
-          </>
-        )}
+        <div className="file-toolbar-center">
+          <div className="segmented">
+            <button type="button" aria-pressed={mode === 'path'} onClick={() => setPrefs({ mode: 'path' })}><List size={12} aria-hidden />Path</button>
+            <button type="button" aria-pressed={mode === 'tree'} onClick={() => setPrefs({ mode: 'tree' })}><ListTree size={12} aria-hidden />Tree</button>
+          </div>
+        </div>
+        <div className="file-toolbar-end">
+          {allFilesCommit && <button type="button" className="toolbar-button" aria-pressed={allFiles} onClick={() => setPrefs({ allFiles: !allFiles })}>View all files</button>}
+        </div>
       </div>
       {tree.error && (
         <div className="file-list-error">

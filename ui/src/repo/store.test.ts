@@ -283,4 +283,124 @@ describe('repo view store', () => {
     s.getState().openFile(f('b.txt', 'worktree'), [f('a.txt', 'worktree'), f('c.txt', 'object')]);
     expect(calls.filter((c) => c.startsWith('contents '))).toEqual([expect.stringContaining('"path":"c.txt"')]);
   });
+
+  // Feedback F12: the right panel swaps in one render, once everything for the new selection
+  // has arrived; until then it keeps the previous selection's content (stale-while-loading).
+  describe('panel (stale-while-loading)', () => {
+    const filesOf = (id: string, parent = 0) => `files {"kind":"commit","id":"${id}","parent":${parent}}`;
+    const list = (path: string) => ({ files: [change(path, 'M')], added: 1, deleted: 0 });
+    async function shown(rec: ReturnType<typeof fakeServices>, s: ReturnType<typeof createRepoViewStore>, index: number, id: string) {
+      s.getState().selectRow(index);
+      rec.resolve(`details ${id}`, details(id));
+      rec.resolve(`message ${id}`, message(id));
+      rec.resolve(filesOf(id), list(`${id.slice(0, 1)}.txt`));
+      await flush();
+    }
+
+    it('shows nothing until the first selection\'s details, message and file list have all arrived', async () => {
+      const rec = fakeServices();
+      const s = createRepoViewStore(1, '/r', graph, rec.services);
+      expect([s.getState().panel, s.getState().panelPending]).toEqual([null, false]);
+      s.getState().selectRow(1);
+      expect([s.getState().panel, s.getState().panelPending]).toEqual([null, true]);
+      rec.resolve(`details ${A}`, details(A));
+      rec.resolve(`message ${A}`, message(A));
+      await flush();
+      expect(s.getState().panel).toBeNull();
+      rec.resolve(filesOf(A), list('a.txt'));
+      await flush();
+      const p = s.getState().panel!;
+      expect(s.getState().panelPending).toBe(false);
+      expect(p.selection).toEqual({ kind: 'commit', index: 1, id: A });
+      expect([p.details, p.message]).toEqual([{ status: 'ready', data: details(A) }, { status: 'ready', data: message(A) }]);
+      expect(p.sections.map((x) => x.list.status)).toEqual(['ready']);
+    });
+
+    it('keeps the previous commit, unchanged, until all three loads for the next one settle', async () => {
+      const rec = fakeServices();
+      const s = createRepoViewStore(1, '/r', graph, rec.services);
+      await shown(rec, s, 1, A);
+      const before = s.getState().panel;
+      s.getState().selectRow(3);
+      expect(s.getState().panel).toBe(before);
+      expect(s.getState().panelPending).toBe(true);
+      rec.resolve(filesOf(C), list('c.txt'));
+      await flush();
+      expect(s.getState().panel).toBe(before);
+      rec.resolve(`details ${C}`, details(C));
+      await flush();
+      expect(s.getState().panel).toBe(before);
+      // A failed load counts as arrived: the panel shows the error with the rest.
+      rec.reject(`message ${C}`, { kind: 'Git', message: 'boom', commandId: null, stderr: null });
+      await flush();
+      const p = s.getState().panel!;
+      expect(p.selection).toEqual({ kind: 'commit', index: 3, id: C });
+      expect(p.message).toEqual({ status: 'error', message: 'boom' });
+      expect(s.getState().panelPending).toBe(false);
+    });
+
+    it('a cached commit swaps in at once, and unrelated updates keep the same panel object', async () => {
+      const rec = fakeServices();
+      const s = createRepoViewStore(1, '/r', graph, rec.services);
+      await shown(rec, s, 1, A);
+      await shown(rec, s, 2, B);
+      s.getState().selectRow(1);
+      expect(s.getState().panel?.selection).toEqual({ kind: 'commit', index: 1, id: A });
+      expect(s.getState().panelPending).toBe(false);
+      const p = s.getState().panel;
+      s.getState().setFocus('files');
+      s.getState().openFile(targetFor(change('a.txt', 'M'), { kind: 'commit', id: A, parent: 0 }));
+      expect(s.getState().panel).toBe(p);
+    });
+
+    it('the WIP row and a new parent wait for their own lists (never another selection\'s)', async () => {
+      const rec = fakeServices();
+      const s = createRepoViewStore(1, '/r', graph, rec.services);
+      await shown(rec, s, 1, A);
+      s.getState().selectRow(0);
+      expect(s.getState().panel?.selection.kind).toBe('commit');
+      rec.resolve('files {"kind":"wip","worktree":"/r","staged":false}', list('u.txt'));
+      await flush();
+      expect(s.getState().panel?.selection.kind).toBe('commit');
+      rec.resolve('files {"kind":"wip","worktree":"/r","staged":true}', list('s.txt'));
+      await flush();
+      expect(s.getState().panel?.selection.kind).toBe('wip');
+      expect(s.getState().panel?.sections.map((x) => x.title)).toEqual(['Unstaged', 'Staged']);
+
+      s.getState().selectRow(1); // cached: at once
+      expect(s.getState().panel?.selection.kind).toBe('commit');
+      s.getState().setParent(1);
+      expect([s.getState().panel?.parent, s.getState().panelPending]).toEqual([0, true]);
+      rec.resolve(filesOf(A, 1), list('p.txt'));
+      await flush();
+      expect(s.getState().panel?.parent).toBe(1);
+      expect(s.getState().panel?.sections[0].spec).toEqual({ kind: 'commit', id: A, parent: 1 });
+    });
+
+    it('the first Ctrl+click\'s compare hint arrives with its commit, not on the previous one', async () => {
+      const rec = fakeServices();
+      const s = createRepoViewStore(1, '/r', graph, rec.services);
+      await shown(rec, s, 1, A);
+      s.getState().selectRow(3, { ctrl: true });
+      expect(s.getState().marks).toEqual({ a: 3, b: null });
+      expect(s.getState().panel?.marks).toEqual({ a: null, b: null });
+    });
+
+    it('clearing the selection hides the panel at once', async () => {
+      const rec = fakeServices();
+      const s = createRepoViewStore(1, '/r', graph, rec.services);
+      await shown(rec, s, 2, B);
+      s.getState().setGraph({ ...graph, rows: [row(C), row(A)] });
+      expect([s.getState().panel, s.getState().panelPending]).toEqual([null, false]);
+    });
+
+    it('prefetches the neighbours\' messages too, so Up/Down swaps are instant', () => {
+      const rec = fakeServices();
+      const s = createRepoViewStore(1, '/r', graph, rec.services);
+      s.getState().selectRow(2);
+      expect(rec.calls).toContain(`message ${A}`);
+      expect(rec.calls).toContain(`message ${C}`);
+    });
+  });
 });
+

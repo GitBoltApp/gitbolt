@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { formatBytes } from '../diff/format';
+import { HoverTooltip } from '../ui/HoverTooltip';
+import { IMAGE_BACKGROUNDS, useImageBackground } from './background';
 import { drawDifference } from './difference';
 import type { ImageSource } from './sources';
-import { centered, fitScale, nextStepIndex, pixelated, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
+import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
 import './image.css';
 
 export type ImageMode = 'side' | 'swipe' | 'onion' | 'difference';
@@ -39,24 +41,48 @@ function useDecoded(src: ImageSource | null): Decoded {
   return state;
 }
 
-const dims = (d: Decoded, present: boolean) => (!present ? '—' : d.dim ? `${d.dim.w}×${d.dim.h}` : d.failed ? '?' : '…');
+const dims = (d: Decoded) => (d.dim ? `${d.dim.w}×${d.dim.h}` : d.failed ? '?' : '…');
+/** Where the swipe handle and the onion opacity start, each time their mode is entered (H28, H29). */
+const MODE_START_PCT = 50;
+/** The swipe handle's keyboard step (percent of the box). */
+const SWIPE_KEY_STEP = 5;
 const broken = <div className="image-error">Image couldn&apos;t be decoded</div>;
 
-export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; new: ImageSource | null; source?: ReactNode }) {
+/**
+ * The image diff (spec §10.4). `single`: an added or deleted image (Diff View), which shows only
+ * the side it has, labelled, and no compare modes (H25). File View's one revision passes none.
+ */
+export function ImageDiff({ old, new: neu, source, onSourceChange, single = null }: { old: ImageSource | null; new: ImageSource | null; source?: ReactNode; onSourceChange?: (on: boolean) => void; single?: 'added' | 'deleted' | null }) {
   const both = old !== null && neu !== null;
-  const [mode, setMode] = useState<ImageMode>('side');
-  const [showSource, setShowSource] = useState(false);
-  const [step, setStep] = useState(0);
+  const [mode, setModeState] = useState<ImageMode>('side');
+  const background = useImageBackground((s) => s.background);
+  const setBackground = useImageBackground((s) => s.set);
+  const [showSource, setSource] = useState(false);
+  const setShowSource = (on: boolean) => {
+    setSource(on);
+    onSourceChange?.(on);
+  };
+  // Gone (another file, File View): its Source is off, so the panel's text tools go too (H26).
+  const reportSource = useRef(onSourceChange);
+  reportSource.current = onSourceChange;
+  useEffect(() => () => reportSource.current?.(false), []);
+  const [step, setStep] = useState(DEFAULT_STEP);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
-  const [swipe, setSwipe] = useState(50);
-  const [opacity, setOpacity] = useState(50);
+  const [swipe, setSwipe] = useState(MODE_START_PCT);
+  const [opacity, setOpacity] = useState(MODE_START_PCT);
+  const [boxW, setBoxW] = useState(0);
+  const setMode = (m: ImageMode) => {
+    if (m !== mode && m === 'swipe') setSwipe(MODE_START_PCT);
+    if (m !== mode && m === 'onion') setOpacity(MODE_START_PCT);
+    setModeState(m);
+  };
   const oldImg = useDecoded(old);
   const newImg = useDecoded(neu);
   const stageRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
-  const stepRef = useRef(0);
+  const stepRef = useRef(DEFAULT_STEP);
   const viewRef = useRef(view);
   const lastBox = useRef<{ w: number; h: number } | null>(null);
   const wheelAcc = useRef(0);
@@ -64,7 +90,8 @@ export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; 
   const contentW = Math.max(oldImg.dim?.w ?? 0, newImg.dim?.w ?? 0);
   const contentH = Math.max(oldImg.dim?.h ?? 0, newImg.dim?.h ?? 0);
 
-  const applyStep = (i: number, around?: { x: number; y: number }) => {
+  /** `start`: a new image, opened at the step's start view (100%: top left where it overflows). */
+  const applyStep = (i: number, around?: { x: number; y: number }, start = false) => {
     setStep(i);
     stepRef.current = i;
     const box = boxRef.current;
@@ -72,9 +99,18 @@ export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; 
     const bw = box.clientWidth;
     const bh = box.clientHeight;
     lastBox.current = { w: bw, h: bh };
+    setBoxW(bw);
     const s = ZOOM_STEPS[i];
     if (s === 'fit') setView(centered(fitScale(contentW, contentH, bw, bh), contentW, contentH, bw, bh));
-    else setView((v) => zoomAround(v, s, around?.x ?? bw / 2, around?.y ?? bh / 2));
+    else if (start) setView(startView(s, contentW, contentH, bw, bh));
+    else setView((v) => clampView(zoomAround(v, s, around?.x ?? bw / 2, around?.y ?? bh / 2), contentW, contentH, bw, bh));
+  };
+
+  /** Pans by (dx, dy), only where the image is larger than the box (H27). */
+  const panBy = (dx: number, dy: number) => {
+    const box = boxRef.current;
+    if (!box) return;
+    setView((v) => clampView({ ...v, x: v.x + dx, y: v.y + dy }, contentW, contentH, box.clientWidth, box.clientHeight));
   };
 
   /** After a mode switch or a resize: refit while on Fit, otherwise keep the view and its centre. */
@@ -89,7 +125,8 @@ export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; 
     const h = box.clientHeight;
     const prev = lastBox.current;
     lastBox.current = { w, h };
-    if (prev && (prev.w !== w || prev.h !== h)) setView((v) => ({ ...v, x: v.x + (w - prev.w) / 2, y: v.y + (h - prev.h) / 2 }));
+    setBoxW(w);
+    if (prev && (prev.w !== w || prev.h !== h)) setView((v) => clampView({ ...v, x: v.x + (w - prev.w) / 2, y: v.y + (h - prev.h) / 2 }, contentW, contentH, w, h));
   };
 
   // Native listeners and the ResizeObserver live across renders: they call the latest closures.
@@ -99,9 +136,9 @@ export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; 
     viewRef.current = view;
   });
 
-  // New or newly decoded images start at Fit.
+  // New or newly decoded images start at 100% (H23): scrollable where larger than the box.
   useLayoutEffect(() => {
-    applyStep(0);
+    applyStep(DEFAULT_STEP, undefined, true);
   }, [contentW, contentH]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Zoom and pan are shared by every mode (spec §10.4): a mode switch only re-centres.
@@ -156,31 +193,60 @@ export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; 
       const d = drag.current;
       if (!d) return;
       if ((e.buttons & 1) === 0) return endDrag(); // the release happened somewhere we didn't see
-      setView((v) => ({ ...v, x: v.x + e.clientX - d.x, y: v.y + e.clientY - d.y }));
+      panBy(e.clientX - d.x, e.clientY - d.y);
       drag.current = { x: e.clientX, y: e.clientY };
     },
     onPointerUp: endDrag,
     onPointerCancel: endDrag,
     onLostPointerCapture: endDrag,
   };
+  // The swipe handle, kept inside the visible image, a margin from its edges (H28). jsdom (no
+  // layout) and a not-yet-decoded image have no box to clamp to.
+  const swipePct = boxW > 0 && contentW > 0 ? (clampSwipe((swipe / 100) * boxW, view, contentW, boxW) / boxW) * 100 : swipe;
+  const moveSwipe = (pct: number) => setSwipe(Math.max(0, Math.min(100, pct)));
+  const bg = `bg-${background}`;
   const img = (src: ImageSource, decoded: Decoded, label: string, style?: CSSProperties) =>
     decoded.failed ? broken : <img className="image-layer" src={src.url} alt={label} draggable={false} style={{ ...layer, ...style }} />;
 
   return (
     <div className="image-diff">
       <div className="image-toolbar" role="toolbar" aria-label="Image diff options">
-        <div className="segmented" role="group" aria-label="Image mode">
-          {MODES.map(([m, label]) => (
-            <button key={m} type="button" aria-pressed={activeMode === m && !showSource} disabled={!both && m !== 'side'} onClick={() => { setMode(m); setShowSource(false); }}>{label}</button>
-          ))}
-        </div>
+        {/* Nothing to compare for an added or deleted image (H25). */}
+        {both && (
+          <div className="segmented" role="group" aria-label="Image mode">
+            {MODES.map(([m, label]) => (
+              <button key={m} type="button" aria-pressed={activeMode === m && !showSource} onClick={() => { setMode(m); setShowSource(false); }}>{label}</button>
+            ))}
+          </div>
+        )}
         {source && <button type="button" className="toggle" aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>Source</button>}
         <label className="image-zoom">
           <input type="range" min={0} max={ZOOM_STEPS.length - 1} step={1} value={step} aria-label="Zoom" aria-valuetext={stepLabel(ZOOM_STEPS[step])} onChange={(e) => applyStep(Number(e.target.value))} />
           <span data-testid="zoom-label">{stepLabel(ZOOM_STEPS[step])}</span>
         </label>
-        <span className="dim" data-testid="image-dims">{dims(oldImg, old !== null)} → {dims(newImg, neu !== null)}</span>
-        <span className="dim" data-testid="image-size">{formatBytes(old?.size)} → {formatBytes(neu?.size)}</span>
+        <span className="dim image-meta" data-testid="image-meta">
+          {both ? (
+            <>
+              <span data-testid="image-dims">{dims(oldImg)} → {dims(newImg)}</span> · <span data-testid="image-size">{formatBytes(old?.size)} → {formatBytes(neu?.size)}</span>
+            </>
+          ) : (
+            // Only the side that exists (H25).
+            <>
+              <span data-testid="image-dims">{dims(old ? oldImg : newImg)}</span> · <span data-testid="image-size">{formatBytes((old ?? neu)?.size)}</span>
+              {single && <> ({single})</>}
+            </>
+          )}
+        </span>
+        {/* The background behind transparent pixels (H30), at the far right. */}
+        <div className="image-backgrounds" role="group" aria-label="Image background">
+          {IMAGE_BACKGROUNDS.map((b) => (
+            <HoverTooltip key={b.id} content={b.label}>
+              <button type="button" className="icon-button" aria-label={b.label} aria-pressed={background === b.id} onClick={() => setBackground(b.id)}>
+                <span className={`bg-swatch bg-${b.id}`} aria-hidden="true" />
+              </button>
+            </HoverTooltip>
+          ))}
+        </div>
       </div>
       {showSource && source ? (
         <div className="image-source">{source}</div>
@@ -190,32 +256,33 @@ export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; 
         <div ref={stageRef} className={`image-stage mode-${activeMode}`} onContextMenu={(e) => e.preventDefault()}>
           {activeMode === 'side' && (
             <>
-              {old && <div ref={boxRef} className="image-viewport checkerboard" {...pan}>{img(old, oldImg, 'before')}</div>}
-              {neu && <div ref={old ? undefined : boxRef} className="image-viewport checkerboard" {...pan}>{img(neu, newImg, 'after')}</div>}
+              {old && <div ref={boxRef} className={`image-viewport ${bg}`} {...pan}>{img(old, oldImg, 'before')}</div>}
+              {neu && <div ref={old ? undefined : boxRef} className={`image-viewport ${bg}`} {...pan}>{img(neu, newImg, 'after')}</div>}
             </>
           )}
           {activeMode === 'swipe' && old && neu && (
-            <div ref={boxRef} className="image-viewport checkerboard" {...pan}>
+            <div ref={boxRef} className={`image-viewport ${bg}`} {...pan}>
               {img(old, oldImg, 'before')}
-              <div className="swipe-clip" style={{ clipPath: `inset(0 0 0 ${swipe}%)` }}>{img(neu, newImg, 'after')}</div>
+              <div className="swipe-clip" style={{ clipPath: `inset(0 0 0 ${swipePct}%)` }}>{img(neu, newImg, 'after')}</div>
               <div
                 role="slider"
                 aria-label="Swipe position"
-                aria-valuenow={swipe}
+                aria-valuenow={Math.round(swipePct)}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 tabIndex={0}
                 className="swipe-divider"
-                style={{ left: `${swipe}%` }}
+                style={{ left: `${swipePct}%` }}
+                // Never a pan (H27): the handle's own drag, and nothing reaches the viewport.
                 onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); }}
                 onPointerMove={(e) => {
                   if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
                   const r = e.currentTarget.parentElement!.getBoundingClientRect();
-                  setSwipe(Math.round(Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100))));
+                  moveSwipe(((e.clientX - r.left) / r.width) * 100);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'ArrowLeft') setSwipe((s) => Math.max(0, s - 5));
-                  else if (e.key === 'ArrowRight') setSwipe((s) => Math.min(100, s + 5));
+                  if (e.key === 'ArrowLeft') moveSwipe(Math.round(swipePct) - SWIPE_KEY_STEP);
+                  else if (e.key === 'ArrowRight') moveSwipe(Math.round(swipePct) + SWIPE_KEY_STEP);
                   else return;
                   e.preventDefault();
                 }}
@@ -223,14 +290,15 @@ export function ImageDiff({ old, new: neu, source }: { old: ImageSource | null; 
             </div>
           )}
           {activeMode === 'onion' && old && neu && (
-            <div ref={boxRef} className="image-viewport checkerboard" {...pan}>
+            <div ref={boxRef} className={`image-viewport ${bg}`} {...pan}>
               {img(old, oldImg, 'before')}
               {img(neu, newImg, 'after', { opacity: opacity / 100 })}
               <input className="onion-opacity" type="range" min={0} max={100} value={opacity} aria-label="Opacity" onPointerDown={(e) => e.stopPropagation()} onChange={(e) => setOpacity(Number(e.target.value))} />
             </div>
           )}
           {activeMode === 'difference' && old && neu && (
-            <div ref={boxRef} className="image-viewport" {...pan}>
+            // The difference keeps its black canvas, whatever the background pick (H30).
+            <div ref={boxRef} className="image-viewport bg-black" {...pan}>
               {(oldImg.failed || newImg.failed) && broken}
               <canvas ref={canvasRef} className="image-layer" data-testid="image-difference" style={layer} />
             </div>

@@ -654,4 +654,177 @@ mod tests {
         assert_eq!(g.pinned_ref, None);
         assert!(!g.rows.is_empty());
     }
+
+    /// Real layouts for the UI's branch-membership tests (`ui/src/graph/membership.test.ts`,
+    /// feedback F7). Each case builds a repo and runs the actual `build_graph`, so `default_trunk`
+    /// pinning and `layout.rs` lane assignment are the real ones, then reduces the payload to rows
+    /// keyed by commit summary, plus the labels. Pinned in `testdata/graph-membership.json`;
+    /// regenerate with `GITBOLT_UPDATE_TESTDATA=1 cargo test -p gitbolt-core membership_vectors`.
+    #[tokio::test]
+    async fn membership_vectors() {
+        #[derive(serde::Serialize)]
+        struct Row {
+            id: String,
+            kind: NodeKind,
+            lane: u16,
+            color: u8,
+            parents: Vec<String>,
+        }
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Case {
+            name: &'static str,
+            rows: Vec<Row>,
+            labels: Vec<RefLabel>,
+            pinned_ref: Option<String>,
+        }
+        fn with_origin(r: &TestRepo) {
+            r.commit("base");
+            r.add_origin();
+        }
+        fn publish_main(r: &TestRepo) {
+            r.push("main");
+            r.git(&["remote", "set-head", "origin", "main"]);
+        }
+        type Build = fn(&TestRepo);
+        let cases: [(&'static str, Build); 11] = [
+            ("main behind origin/main, feature off origin/main", |r| {
+                with_origin(r);
+                r.commit("M");
+                r.commit("O1");
+                r.commit("O2");
+                publish_main(r);
+                r.git(&["reset", "-q", "--hard", "HEAD~2"]);
+                r.git(&["switch", "-q", "-c", "feature", "origin/main"]);
+                r.commit("F");
+                r.switch("main");
+            }),
+            ("stale fast-forwarded branch left on the trunk", |r| {
+                with_origin(r);
+                r.git(&["branch", "old"]);
+                r.commit("O");
+                publish_main(r);
+            }),
+            ("hotfix from origin/main committed after main's unpushed M1", |r| {
+                // H (newest) takes lane 1, so M1 opens lane 2: the lane order says nothing here.
+                with_origin(r);
+                r.commit("O");
+                publish_main(r);
+                r.commit("M1");
+                r.git(&["switch", "-q", "-c", "hotfix", "origin/main"]);
+                r.commit("H");
+                r.switch("main");
+            }),
+            ("upstream/main one commit ahead (fork workflow)", |r| {
+                with_origin(r);
+                r.commit("M");
+                publish_main(r);
+                r.git(&["remote", "add", "upstream", r.root().join("origin.git").to_str().unwrap()]);
+                r.switch_new("tmp");
+                r.commit("U");
+                r.git(&["update-ref", "refs/remotes/upstream/main", "tmp"]);
+                r.switch("main");
+                r.git(&["branch", "-q", "-D", "tmp"]);
+            }),
+            ("unpinned repo (no remote): hotfix off main's tip, main checked out", |r| {
+                r.commit("base");
+                r.commit("M");
+                r.switch_new("hotfix");
+                r.commit("H");
+                r.switch("main");
+            }),
+            ("feature/main off pinned main's tip", |r| {
+                with_origin(r);
+                r.commit("M");
+                publish_main(r);
+                r.switch_new("feature/main");
+                r.commit("FM");
+                r.push("feature/main");
+                r.switch("main");
+            }),
+            ("feature tip on its own lane after main merged its pushed part", |r| {
+                // feat@F3 is committed before main merges origin/feat (F2): M's second-parent
+                // line takes lane 1 first, so F2 lands there and F3 opens lane 2.
+                with_origin(r);
+                r.switch_new("feat");
+                r.commit("F1");
+                r.commit("F2");
+                r.push("feat");
+                r.commit("F3");
+                r.switch("main");
+                r.merge("origin/feat", "M");
+                publish_main(r);
+            }),
+            ("main ahead of pinned origin/main", |r| {
+                with_origin(r);
+                r.commit("O");
+                publish_main(r);
+                r.commit("M1");
+            }),
+            ("feature tip merged back, then continued", |r| {
+                with_origin(r);
+                r.switch_new("feat");
+                r.commit("F1");
+                r.commit("F2");
+                r.push("feat");
+                r.switch("main");
+                r.commit("A");
+                r.merge("feat", "M");
+                publish_main(r);
+                r.switch("feat");
+                r.commit("F3");
+                r.switch("main");
+            }),
+            ("hotfix off pinned main's tip", |r| {
+                with_origin(r);
+                r.commit("M");
+                publish_main(r);
+                r.switch_new("hotfix");
+                r.commit("H");
+                r.switch("main");
+            }),
+            ("remote-only branch off pinned main's tip", |r| {
+                with_origin(r);
+                r.commit("M");
+                publish_main(r);
+                r.switch_new("topic");
+                r.commit("T");
+                r.push("topic");
+                r.switch("main");
+                r.git(&["branch", "-q", "-D", "topic"]);
+            }),
+        ];
+        let mut out = Vec::new();
+        for (name, make) in cases {
+            let r = TestRepo::new();
+            make(&r);
+            let g = build(&r, BuildOptions::default()).await;
+            let unpinned = name.starts_with("unpinned");
+            assert_eq!(g.pinned_ref.as_deref(), if unpinned { None } else { Some("refs/remotes/origin/main") }, "{name}: trunk pinning");
+            let summary: HashMap<&str, &str> = g.rows.iter().map(|row| (row.id.as_str(), row.summary.as_str())).collect();
+            let rows = g
+                .rows
+                .iter()
+                .map(|row| Row {
+                    id: row.summary.clone(),
+                    kind: row.kind,
+                    lane: row.lane,
+                    color: row.color,
+                    parents: row.parents.iter().map(|p| summary.get(p.as_str()).expect("parent in window").to_string()).collect(),
+                })
+                .collect();
+            out.push(Case { name, rows, labels: g.labels.clone(), pinned_ref: g.pinned_ref.clone() });
+        }
+        let json = serde_json::to_string_pretty(&serde_json::json!({
+            "_comment": "Generated by gitbolt-core snapshot::tests::membership_vectors (real build_graph layouts). Regenerate: GITBOLT_UPDATE_TESTDATA=1 cargo test -p gitbolt-core membership_vectors",
+            "cases": out,
+        }))
+        .unwrap()
+            + "\n";
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/graph-membership.json");
+        if std::env::var_os("GITBOLT_UPDATE_TESTDATA").is_some() {
+            std::fs::write(&path, &json).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap_or_default(), json, "testdata/graph-membership.json is stale: regenerate it (see this test's doc comment)");
+    }
 }

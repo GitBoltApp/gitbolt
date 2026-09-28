@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { SignaturePayload } from '../api/gen/SignaturePayload';
@@ -17,29 +17,48 @@ function renderBadge(fetch: (id: string) => Promise<SignaturePayload>, id: strin
 }
 
 describe('SignatureBadge', () => {
-  it('shows "Not signed" without asking git, and no hover card', () => {
+  it('shows a dim "Not signed" icon without asking git; its hover card says so', () => {
     const fetch = vi.fn(async () => verified);
     renderBadge(fetch, 'a'.repeat(40), false);
     const badge = screen.getByTestId('signature-badge');
     expect(badge).toHaveAttribute('data-kind', 'unsigned');
-    expect(badge).toHaveTextContent('Not signed');
+    expect(badge).toHaveAccessibleName('Not signed');
+    expect(badge.textContent).toBe(''); // icon only (F16)
     fireEvent.mouseEnter(badge);
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Not signed$/);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('draws a different icon for every status (F16)', async () => {
+    const kinds = ['verified', 'unverified', 'bad', 'expired', 'unknownKey'] as const;
+    const drawings = new Set<string>();
+    for (const [i, kind] of kinds.entries()) {
+      const { unmount } = renderBadge(async () => ({ ...verified, kind }), String(i).repeat(40), true);
+      const badge = await screen.findByTestId('signature-badge');
+      await screen.findByRole('img', { name: { verified: 'Verified', unverified: 'Unverified', bad: 'Bad signature', expired: 'Expired', unknownKey: 'Unknown key' }[kind] });
+      expect(badge).toHaveAttribute('data-kind', kind);
+      drawings.add(badge.querySelector('svg')!.innerHTML);
+      unmount();
+    }
+    const { unmount } = renderBadge(async () => verified, 'f'.repeat(40), false);
+    drawings.add(screen.getByTestId('signature-badge').querySelector('svg')!.innerHTML);
+    unmount();
+    expect(drawings.size).toBe(kinds.length + 1);
   });
 
   it('checks a signed commit lazily and shows the signer, key and trust in a portaled hover card', async () => {
     const fetch = vi.fn(async () => verified);
     renderBadge(fetch, 'b'.repeat(40), true);
     expect(screen.getByTestId('signature-badge')).toHaveAttribute('data-kind', 'loading');
-    expect(await screen.findByText('Verified')).toBeInTheDocument();
-    const badge = screen.getByTestId('signature-badge');
+    const badge = await screen.findByRole('img', { name: 'Verified' });
+    expect(badge).toBe(screen.getByTestId('signature-badge'));
     expect(badge).toHaveAttribute('data-kind', 'verified');
     expect(fetch).toHaveBeenCalledWith('b'.repeat(40));
     fireEvent.mouseEnter(badge);
     const card = screen.getByRole('tooltip');
     // Portaled to <body>, so the scrolling details panel can't clip it.
     expect(badge.contains(card)).toBe(false);
+    expect(card).toHaveTextContent(/^Verified/); // the status, now that the badge has no text
     expect(card).toHaveTextContent('Signer: ada@example.com');
     expect(card).toHaveTextContent('Key: SHA256:k');
     expect(card).toHaveTextContent('Trust: fully');
@@ -51,7 +70,7 @@ describe('SignatureBadge', () => {
 
   it('shows a bad signature with its detail, and a failed check as such', async () => {
     renderBadge(async () => ({ kind: 'bad', signer: '', key: 'ABCD', fingerprint: 'ABCD1234', trust: '', detail: 'BAD signature from x' }), 'c'.repeat(40), true);
-    const badge = await screen.findByText('Bad signature');
+    const badge = await screen.findByRole('img', { name: 'Bad signature' });
     fireEvent.mouseEnter(screen.getByTestId('signature-badge'));
     const card = screen.getByRole('tooltip');
     expect(card).toHaveTextContent('Fingerprint: ABCD1234');
@@ -63,10 +82,20 @@ describe('SignatureBadge', () => {
 
   it('a failed check says so instead of staying on "Checking"', async () => {
     renderBadge(async () => { throw { kind: 'Git', message: 'gpg not found' }; }, 'd'.repeat(40), true);
-    expect(await screen.findByText('Signature check failed')).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: 'Signature check failed' })).toBeInTheDocument();
     const badge = screen.getByTestId('signature-badge');
     expect(badge).toHaveAttribute('data-kind', 'error');
     fireEvent.mouseEnter(badge);
     expect(screen.getByRole('tooltip')).toHaveTextContent('gpg not found');
+  });
+
+  it('is focusable, and keyboard focus shows the same hover card (review fix)', () => {
+    renderBadge(async () => verified, 'e'.repeat(40), false);
+    const badge = screen.getByTestId('signature-badge');
+    expect(badge).toHaveAttribute('tabindex', '0');
+    act(() => badge.focus());
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Not signed$/);
+    act(() => badge.blur());
+    expect(screen.queryByRole('tooltip')).toBeNull();
   });
 });

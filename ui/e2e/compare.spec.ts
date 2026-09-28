@@ -10,19 +10,20 @@ test.describe('compare two commits', () => {
   });
 
   test('Ctrl+click twice compares A → B; swap reverses; Esc leaves', async ({ page }) => {
-    const a = (await row(page, 'Initial commit').getByTestId('sha').textContent())!;
-    const b = (await row(page, 'Rename guide and update assets').getByTestId('sha').textContent())!;
+    // The graph's SHA button holds the whole hash (its column shows what fits); the header uses 6.
+    const a = (await row(page, 'Initial commit').getByTestId('sha').textContent())!.slice(0, 6);
+    const b = (await row(page, 'Rename guide and update assets').getByTestId('sha').textContent())!.slice(0, 6);
     await row(page, 'Initial commit').click({ modifiers: ['Control'] });
     await expect(page.getByText('Ctrl+click another commit to compare')).toBeVisible();
     await row(page, 'Rename guide and update assets').click({ modifiers: ['Control'] });
     await expect(page.getByTestId('compare-header')).toHaveText(`Comparing ${a} → ${b}`);
     await expect(row(page, 'Initial commit').getByTestId('compare-a')).toBeVisible();
     await expect(row(page, 'Rename guide and update assets').getByTestId('compare-b')).toBeVisible();
-    await expect(page.getByTestId('file-counts')).toHaveText('6 modified · 2 added · 1 deleted · 1 renamed');
+    await expect(page.getByTestId('file-counts')).toHaveAccessibleName('6 modified · 2 added · 1 deleted · 1 renamed');
 
     await page.getByRole('button', { name: 'Swap' }).click();
     await expect(page.getByTestId('compare-header')).toHaveText(`Comparing ${b} → ${a}`);
-    await expect(page.getByTestId('file-counts')).toHaveText('6 modified · 1 added · 2 deleted · 1 renamed');
+    await expect(page.getByTestId('file-counts')).toHaveAccessibleName('6 modified · 1 added · 2 deleted · 1 renamed');
 
     await page.getByRole('option').and(page.locator('[data-path="docs/guide.txt"]')).click();
     await expect(page.getByRole('region', { name: 'Diff' })).toBeVisible();

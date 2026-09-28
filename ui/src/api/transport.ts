@@ -56,11 +56,18 @@ export function createTransport(onClosed?: () => void): Transport {
   return wsTransport(import.meta.env.VITE_GITBOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws', undefined, onClosed);
 }
 
+/**
+ * Puts `text` on the system clipboard. The browser's own clipboard first, in the app too (H19):
+ * it's the path the embedded browser's right-click -> Copy takes, which reaches other apps in the
+ * real window. The app's clipboard plugin (arboard, an X11 client of its own) only when the
+ * browser refuses (no user activation, the window not focused).
+ */
 export async function copyText(text: string): Promise<void> {
-  if (inTauri()) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    if (!inTauri()) throw e;
     const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
     await writeText(text);
-  } else {
-    await navigator.clipboard.writeText(text);
   }
 }

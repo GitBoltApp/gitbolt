@@ -1,13 +1,17 @@
-import { act, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SPLIT } from './detailsSplit';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileListPayload } from '../api/gen/FileListPayload';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
+import { createCommitMessageCache } from '../api/commitMessages';
+import { Loader } from '../data/loader';
+import { Lru } from '../data/lru';
 import { createServices } from '../repo/services';
 import { createRepoViewStore, RepoViewContext, type RepoViewStore } from '../repo/store';
-import { fakeServices } from '../repo/testServices';
+import { fakeServices, recordingServices } from '../repo/testServices';
 import { DetailsPanel } from './DetailsPanel';
 
 const api = vi.hoisted(() => ({
@@ -30,6 +34,16 @@ const graph: GraphPayload = { rows: [wipRow, commit(A, 'Second'), commit(B, 'Fir
 const file = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object', oid: B }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...paths: string[]): FileListPayload => ({ files: paths.map(file), added: paths.length, deleted: 0 });
 
+/** Services whose loads all resolve: details, messages and one-file lists per commit. */
+function loadedServices() {
+  const rec = { summary: { [A]: 'Second', [B]: 'First' } as Record<string, string> };
+  return fakeServices({
+    details: new Loader(async (id) => ({ id, parents: [], signed: false, coAuthors: [], author: { name: 'Grace Hopper', email: 'grace@example.com', time: 0 }, committer: { name: 'Grace Hopper', email: 'grace@example.com', time: 0 } }), new Lru(8)),
+    messages: createCommitMessageCache(async (id) => ({ id, summary: rec.summary[id] ?? '', body: '' })),
+    files: new Loader(async () => list('a.txt'), new Lru(8)),
+  });
+}
+
 function renderPanel(store: RepoViewStore) {
   render(<RepoViewContext value={store}><DetailsPanel /></RepoViewContext>);
 }
@@ -43,31 +57,78 @@ beforeEach(() => {
 });
 
 describe('DetailsPanel', () => {
-  it('hints at the second Ctrl+click while the first is pending, then shows the compare header', () => {
-    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+  it('hints at the second Ctrl+click while the first is pending, then shows the compare header', async () => {
+    const store = createRepoViewStore(1, '/r', graph, loadedServices());
     renderPanel(store);
-    act(() => store.getState().selectRow(2, { ctrl: true }));
+    await act(async () => store.getState().selectRow(2, { ctrl: true }));
     expect(screen.getByText('Ctrl+click another commit to compare')).toBeInTheDocument();
     expect(screen.getByTestId('details-summary')).toHaveTextContent('First');
-    act(() => store.getState().selectRow(1, { ctrl: true }));
+    await act(async () => store.getState().selectRow(1, { ctrl: true }));
     expect(screen.queryByText('Ctrl+click another commit to compare')).toBeNull();
     expect(screen.getByTestId('compare-header')).toHaveTextContent(`Comparing ${B.slice(0, 6)} → ${A.slice(0, 6)}`);
     // The compare replaces the single-commit details, and lists the compare's files.
     expect(screen.queryByTestId('details-summary')).toBeNull();
     expect(store.getState().sections.map((s) => s.spec)).toEqual([{ kind: 'compare', from: B, to: A }]);
     // A plain click leaves compare mode, with no hint.
-    act(() => store.getState().selectRow(2));
+    await act(async () => store.getState().selectRow(2));
     expect(screen.queryByTestId('compare-header')).toBeNull();
     expect(screen.queryByText('Ctrl+click another commit to compare')).toBeNull();
     expect(screen.getByTestId('details-summary')).toHaveTextContent('First');
   });
 
-  it('a plain click shows no compare hint', () => {
-    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+  it('a plain click shows no compare hint', async () => {
+    const store = createRepoViewStore(1, '/r', graph, loadedServices());
     renderPanel(store);
-    act(() => store.getState().selectRow(1));
+    await act(async () => store.getState().selectRow(1));
     expect(screen.getByTestId('details-summary')).toHaveTextContent('Second');
     expect(screen.queryByText('Ctrl+click another commit to compare')).toBeNull();
+  });
+
+  // Feedback F12: no flicker. The old commit's content stays until the new commit's details,
+  // message and file list have all arrived; then the new one replaces it in one render.
+  it('switching commits keeps the old content, whole, until all three loads resolve, then swaps in one render', async () => {
+    const rec = recordingServices();
+    const store = createRepoViewStore(1, '/r', graph, rec.services);
+    renderPanel(store);
+    const detailsOf = (id: string, name: string) => ({ id, parents: [], signed: false, coAuthors: [], author: { name, email: `${name}@example.com`, time: 0 }, committer: { name, email: `${name}@example.com`, time: 0 } });
+    const filesOf = (id: string) => `files {"kind":"commit","id":"${id}","parent":0}`;
+    act(() => store.getState().selectRow(1));
+    // Nothing yet to show: no empty or skeleton frame either.
+    expect(screen.queryByTestId('details-summary')).toBeNull();
+    expect(screen.queryByText('Loading files…')).toBeNull();
+    await act(async () => {
+      rec.resolve(`details ${A}`, detailsOf(A, 'Ada'));
+      rec.resolve(`message ${A}`, { id: A, summary: 'Second', body: 'Body of second' });
+      rec.resolve(filesOf(A), list('second.txt'));
+    });
+    const content = () => ({
+      sha: screen.queryByTestId('details-sha')?.textContent,
+      author: screen.queryByTestId('author')?.textContent,
+      summary: screen.queryByTestId('details-summary')?.textContent,
+      body: screen.queryByTestId('details-body')?.textContent ?? null,
+      files: screen.queryAllByRole('option').map((o) => o.dataset.path),
+    });
+    const second = { sha: A.slice(0, 6), author: expect.stringContaining('Ada'), summary: 'Second', body: 'Body of second', files: ['second.txt'] };
+    expect(content()).toEqual(second);
+
+    // Record every DOM state the panel goes through from here on.
+    const seen: ReturnType<typeof content>[] = [];
+    const observer = new MutationObserver(() => seen.push(content()));
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    act(() => store.getState().selectRow(2));
+    expect(content()).toEqual(second);
+    await act(async () => rec.resolve(`details ${B}`, detailsOf(B, 'Bob')));
+    expect(content()).toEqual(second);
+    await act(async () => rec.resolve(filesOf(B), list('first.txt')));
+    expect(content()).toEqual(second);
+    await act(async () => rec.resolve(`message ${B}`, { id: B, summary: 'First', body: '' }));
+    const first = { sha: B.slice(0, 6), author: expect.stringContaining('Bob'), summary: 'First', body: null, files: ['first.txt'] };
+    expect(content()).toEqual(first);
+    await act(async () => {});
+    observer.disconnect();
+    // Every recorded state is one commit's full content: never a mix, never empty.
+    expect(seen.length).toBeGreaterThan(0);
+    for (const state of seen) expect([second, first]).toContainEqual(state);
   });
 
   it('the WIP row shows its header and read-only Unstaged and Staged lists, re-read on every selection (deviation 9)', async () => {
@@ -82,7 +143,7 @@ describe('DetailsPanel', () => {
     const store = createRepoViewStore(1, '/r', graph, createServices(1));
     renderPanel(store);
     act(() => store.getState().selectRow(0));
-    expect(screen.getByTestId('wip-header')).toHaveTextContent('// WIP Working tree ✎1 +1');
+    expect(await screen.findByTestId('wip-header')).toHaveTextContent('// WIP Working tree ✎1 +1');
     expect(await screen.findByRole('heading', { name: 'Unstaged (1)' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Staged (1)' })).toBeInTheDocument();
     expect(screen.getByRole('listbox', { name: 'Unstaged' })).toBeInTheDocument();
@@ -99,4 +160,144 @@ describe('DetailsPanel', () => {
     expect(await screen.findByRole('heading', { name: 'Unstaged (2)' })).toBeInTheDocument();
     expect(api.fileList.mock.calls.filter(([, spec]) => (spec as DiffSpec).kind === 'wip')).toHaveLength(4);
   });
+
+  // Feedback F13: the header is fixed, only the message scrolls, and a draggable split sits
+  // between the header+message and the file list (25 / 75 by default, persisted).
+  describe('split', () => {
+    let height: PropertyDescriptor | undefined;
+    beforeEach(() => {
+      height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+      // jsdom lays nothing out: give the panel 1000 px and the header 100 px.
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get(this: HTMLElement) { return this.classList.contains('details-panel') ? 1000 : 0; } });
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('commit-header') ? 100 : 0; });
+    });
+    afterEach(() => {
+      if (height) Object.defineProperty(HTMLElement.prototype, 'clientHeight', height);
+      vi.restoreAllMocks();
+      localStorage.clear();
+    });
+
+    async function shown() {
+      const store = createRepoViewStore(1, '/r', graph, loadedServices());
+      const view = render(<RepoViewContext value={store}><DetailsPanel /></RepoViewContext>);
+      await act(async () => store.getState().selectRow(1));
+      return { store, view };
+    }
+
+    it('the header sits outside the message\'s scroller, and the split starts at 25 %', async () => {
+      await shown();
+      const top = document.querySelector<HTMLElement>('.commit-details')!;
+      const message = screen.getByTestId('commit-message');
+      const header = top.querySelector('header.commit-header')!;
+      expect(top.contains(message) && top.contains(header)).toBe(true);
+      expect(message.contains(header)).toBe(false);
+      expect(within(message).getByTestId('details-summary')).toHaveTextContent('Second');
+      expect(top).toHaveStyle({ flexBasis: '25%' });
+      const sep = screen.getByRole('separator', { name: 'Resize commit details' });
+      expect(sep).toHaveAttribute('aria-orientation', 'horizontal');
+      expect(sep).toHaveAttribute('aria-valuenow', '25');
+      // Between the top section and the file lists.
+      expect(top.nextElementSibling).toBe(sep);
+      expect(sep.nextElementSibling).toHaveClass('file-sections');
+    });
+
+    it('drags with pointer capture, clamped to the header above and the file list below', async () => {
+      await shown();
+      const top = document.querySelector<HTMLElement>('.commit-details')!;
+      const sep = screen.getByRole('separator', { name: 'Resize commit details' });
+      expect(fireEvent.pointerDown(sep, { clientY: 250, pointerId: 1, button: 0 })).toBe(false); // no text selection
+      fireEvent.pointerMove(sep, { clientY: 400, pointerId: 1 });
+      expect(top).toHaveStyle({ flexBasis: '40%' });
+      fireEvent.pointerMove(sep, { clientY: 0, pointerId: 1 });
+      // At least the 100 px header plus the message minimum.
+      expect(top).toHaveStyle({ flexBasis: `${((100 + SPLIT.topExtraPx) / 1000) * 100}%` });
+      fireEvent.pointerMove(sep, { clientY: 2000, pointerId: 1 });
+      expect(sep).toHaveAttribute('aria-valuenow', String(Math.round(Math.min(SPLIT.max, 1 - SPLIT.bottomPx / 1000) * 100)));
+      fireEvent.pointerUp(sep, { clientY: 2000, pointerId: 1 });
+      fireEvent.pointerMove(sep, { clientY: 300, pointerId: 1 });
+      expect(sep).toHaveAttribute('aria-valuenow', String(Math.round(Math.min(SPLIT.max, 1 - SPLIT.bottomPx / 1000) * 100))); // the drag ended
+      expect(Number(localStorage.getItem(SPLIT.key))).toBeCloseTo(Math.min(SPLIT.max, 1 - SPLIT.bottomPx / 1000));
+    });
+
+    it('arrow keys, Home and End move it; the ratio persists across panels', async () => {
+      const { view } = await shown();
+      const sep = screen.getByRole('separator', { name: 'Resize commit details' });
+      fireEvent.keyDown(sep, { key: 'ArrowDown' });
+      expect(sep).toHaveAttribute('aria-valuenow', '27');
+      fireEvent.keyDown(sep, { key: 'ArrowUp' });
+      fireEvent.keyDown(sep, { key: 'ArrowUp' });
+      expect(sep).toHaveAttribute('aria-valuenow', '23');
+      fireEvent.keyDown(sep, { key: 'Home' });
+      expect(sep).toHaveAttribute('aria-valuenow', String(Math.round(((100 + SPLIT.topExtraPx) / 1000) * 100)));
+      fireEvent.keyDown(sep, { key: 'End' });
+      const end = String(Math.round(Math.min(SPLIT.max, 1 - SPLIT.bottomPx / 1000) * 100));
+      expect(sep).toHaveAttribute('aria-valuenow', end);
+      view.unmount();
+      await shown();
+      expect(screen.getByRole('separator', { name: 'Resize commit details' })).toHaveAttribute('aria-valuenow', end);
+    });
+
+    it('renders the saved ratio clamped to the measured bounds, re-clamped on resize, and keeps the choice (review fix)', async () => {
+      // A ResizeObserver whose callbacks, for the ones watching the panel, the test fires.
+      const observers: (() => void)[] = [];
+      const Real = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        cb: () => void;
+        constructor(cb: () => void) { this.cb = cb; }
+        observe(el: Element) { if (el.classList.contains('details-panel')) observers.push(this.cb); }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+      let panelPx = 1000;
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get(this: HTMLElement) { return this.classList.contains('details-panel') ? panelPx : 0; } });
+      try {
+        localStorage.setItem(SPLIT.key, '0.1');
+        await shown();
+        const top = document.querySelector<HTMLElement>('.commit-details')!;
+        const sep = screen.getByRole('separator', { name: 'Resize commit details' });
+        // 0.1 of 1000 px can't hold the 100 px header: the header plus the message minimum.
+        const lo = (100 + SPLIT.topExtraPx) / 1000;
+        expect(top).toHaveStyle({ flexBasis: `${lo * 100}%` });
+        expect(sep).toHaveAttribute('aria-valuemin', String(Math.round(lo * 100)));
+        expect(sep).toHaveAttribute('aria-valuemax', String(Math.round(SPLIT.max * 100)));
+        // The window shrinks: 400 px keeps 160 px of files, so at most 60 % on top, at least 39 %.
+        panelPx = 400;
+        act(() => observers.forEach((cb) => cb()));
+        expect(top).toHaveStyle({ flexBasis: `${((100 + SPLIT.topExtraPx) / 400) * 100}%` });
+        expect(sep).toHaveAttribute('aria-valuemax', '60');
+        // Room again: back to the (clamped) choice; the saved ratio was never overwritten.
+        panelPx = 1000;
+        act(() => observers.forEach((cb) => cb()));
+        expect(top).toHaveStyle({ flexBasis: `${lo * 100}%` });
+        expect(localStorage.getItem(SPLIT.key)).toBe('0.1');
+      } finally {
+        globalThis.ResizeObserver = Real;
+      }
+    });
+
+    it('saves once on pointer up (not per move), and ignores other pointers', async () => {
+      await shown();
+      const top = document.querySelector<HTMLElement>('.commit-details')!;
+      const save = vi.spyOn(Storage.prototype, 'setItem');
+      const sep = screen.getByRole('separator', { name: 'Resize commit details' });
+      fireEvent.pointerDown(sep, { clientY: 250, pointerId: 1, button: 0 });
+      fireEvent.pointerMove(sep, { clientY: 300, pointerId: 1 });
+      fireEvent.pointerMove(sep, { clientY: 350, pointerId: 1 });
+      fireEvent.pointerMove(sep, { clientY: 900, pointerId: 2 }); // another pointer: ignored
+      expect(top).toHaveStyle({ flexBasis: '35%' });
+      expect(save).not.toHaveBeenCalled();
+      fireEvent.pointerUp(sep, { clientY: 350, pointerId: 2 }); // not ours: the drag goes on
+      fireEvent.pointerMove(sep, { clientY: 400, pointerId: 1 });
+      fireEvent.pointerUp(sep, { clientY: 400, pointerId: 1 });
+      expect(save.mock.calls).toEqual([[SPLIT.key, '0.4']]);
+    });
+
+    it('compare and WIP have no message, so no split', async () => {
+      const { store } = await shown();
+      await act(async () => store.getState().selectRow(0));
+      expect(screen.getByTestId('wip-header')).toBeInTheDocument();
+      expect(screen.queryByRole('separator', { name: 'Resize commit details' })).toBeNull();
+    });
+  });
 });
+

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { FileChange } from '../api/gen/FileChange';
 import type { GraphPayload } from '../api/gen/GraphPayload';
@@ -9,6 +9,7 @@ import { contentKey } from '../repo/services';
 import { contentsRequest, createRepoViewStore, RepoViewContext, targetFor } from '../repo/store';
 import { fakeServices, recordingServices } from '../repo/testServices';
 import { FILE_ROW_H, FileList } from './FileList';
+import { rowIndent } from './fileTree';
 import { useFileListPrefs } from './fileListPrefs';
 
 const change = (path: string, status = 'M', additions: number | null = 2): FileChange => ({
@@ -29,11 +30,19 @@ describe('FileList', () => {
   it('shows counts, renames, binary stats, and opens files with Up/Down', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();
-    expect(screen.getByTestId('file-counts')).toHaveTextContent('2 modified · 1 renamed');
-    expect(screen.getByTestId('file-counts')).not.toHaveTextContent('added');
+    // F19: coloured status icons with their numbers, named for assistive tech.
+    const counts = screen.getByTestId('file-counts');
+    expect(counts).toHaveAccessibleName('2 modified · 1 renamed');
+    expect([...counts.querySelectorAll('svg')].map((i) => i.dataset.status)).toEqual(['modified', 'renamed']);
+    expect(counts).toHaveTextContent(/^21$/);
     expect(screen.getByTestId('file-totals')).toHaveTextContent('+4 −2');
     const rows = screen.getAllByRole('option');
     expect(rows[0]).toHaveTextContent('docs/guide.txt → docs/manual.txt');
+    // F17: an icon per status, no A/M/D letter.
+    expect(within(rows[0]).getByRole('img', { name: 'Renamed' }).tagName.toLowerCase()).toBe('svg');
+    expect(within(rows[2]).getByRole('img', { name: 'Modified' })).toHaveAttribute('data-status', 'modified');
+    expect(within(rows[2]).queryByText('M')).toBeNull();
+    expect(rows[2].querySelector('.status-badge')).toBeNull();
     expect(rows[1]).toHaveAttribute('title', 'binary');
     fireEvent.mouseDown(rows[0]);
     expect(store.getState().diff?.path).toBe('docs/manual.txt');
@@ -158,4 +167,68 @@ describe('FileList', () => {
     expect(await screen.findByText('zzz.txt')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
   });
+
+  it('tree mode: no folder icons, and each file\'s icon starts where its folder\'s name does (F17)', () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    setup();
+    const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+    expect(opt('docs').querySelector('.lucide-folder')).toBeNull();
+    expect(opt('docs').querySelectorAll('svg')).toHaveLength(1); // the chevron only
+    expect(opt('docs')).toHaveStyle({ paddingLeft: `${rowIndent(0)}px` });
+    expect(opt('docs/manual.txt')).toHaveStyle({ paddingLeft: `${rowIndent(1)}px` });
+    expect(opt('logo.png')).toHaveStyle({ paddingLeft: `${rowIndent(0)}px` });
+  });
+
+  it('a collapsed folder shows its change counts; an expanded one doesn\'t (F20)', () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    setup();
+    const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+    expect(within(opt('docs')).queryByTestId('folder-counts')).toBeNull();
+    fireEvent.mouseDown(opt('docs'));
+    const counts = within(opt('docs')).getByTestId('folder-counts');
+    expect(counts).toHaveAccessibleName('1 renamed');
+    expect([...counts.querySelectorAll('svg')].map((i) => i.dataset.status)).toEqual(['renamed']);
+    expect(counts).toHaveTextContent(/^1$/);
+  });
+
+  it('the toolbar: one smart Expand/Collapse button on the left, Path/Tree in the centre, View all files on the right (F18)', () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    setup();
+    const toolbar = screen.getByRole('toolbar', { name: 'File list options' });
+    const names = () => within(toolbar).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent);
+    expect(names()).toEqual(['Collapse all', 'Path', 'Tree', 'View all files']);
+    const slots = [...toolbar.children].map((c) => c.className);
+    expect(slots).toEqual(['file-toolbar-start', 'file-toolbar-center', 'file-toolbar-end']);
+    // Everything expanded: the button collapses everything, then offers to expand.
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Collapse all' }));
+    expect(screen.getAllByRole('option').filter((r) => r.dataset.kind === 'folder').every((r) => r.getAttribute('aria-expanded') === 'false')).toBe(true);
+    const expand = within(toolbar).getByRole('button', { name: 'Expand all' });
+    expect(within(toolbar).queryByRole('button', { name: 'Collapse all' })).toBeNull();
+    fireEvent.click(expand);
+    expect(screen.getAllByRole('option').filter((r) => r.dataset.kind === 'folder').every((r) => r.getAttribute('aria-expanded') === 'true')).toBe(true);
+    // Only some collapsed: it expands all.
+    fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')!);
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Expand all' }));
+    expect(screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'true');
+    expect(within(toolbar).getByRole('button', { name: 'Collapse all' })).toBeInTheDocument();
+    // Path and Tree carry icons; Path mode puts Sort by status in the left slot.
+    expect(within(toolbar).getByRole('button', { name: 'Path' }).querySelector('svg')).not.toBeNull();
+    expect(within(toolbar).getByRole('button', { name: 'Tree' }).querySelector('svg')).not.toBeNull();
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Path' }));
+    expect(names()).toEqual(['Sort by status', 'Path', 'Tree', 'View all files']);
+  });
+
+  it('counts conflicted (U/X) files in the header and in collapsed folders (review fix)', () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    const withConflict = { files: [change('src/app.php'), change('src/merge.php', 'U')], added: 1, deleted: 0 };
+    render(<RepoViewContext value={store}><FileList list={withConflict} spec={spec} label="Changed files" /></RepoViewContext>);
+    const counts = screen.getByTestId('file-counts');
+    expect(counts).toHaveAccessibleName('1 modified · 1 conflicted');
+    expect([...counts.querySelectorAll('svg')].map((i) => i.dataset.status)).toEqual(['modified', 'conflicted']);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    expect(within(screen.getAllByRole('option')[0]).getByTestId('folder-counts')).toHaveAccessibleName('1 modified · 1 conflicted');
+    expect(within(screen.getAllByRole('option')[0]).queryByRole('img', { name: 'Unmerged' })).toBeNull(); // folder icons are decorative
+  });
 });
+

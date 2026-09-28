@@ -18,7 +18,7 @@ test.describe('file list and diff takeover', () => {
 
   test('the header counts changes and renames read old → new', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
-    await expect(page.getByTestId('file-counts')).toHaveText('6 modified · 2 added · 1 deleted · 1 renamed');
+    await expect(page.getByTestId('file-counts')).toHaveAccessibleName('6 modified · 2 added · 1 deleted · 1 renamed');
     await expect(page.getByTestId('file-totals')).toContainText('+');
     await expect(fileRow(page, 'docs/manual.txt')).toContainText('docs/guide.txt → docs/manual.txt');
     await expect(fileRow(page, 'logo.png')).toHaveAttribute('title', 'binary');
@@ -103,12 +103,54 @@ test.describe('file list and diff takeover', () => {
     await expect(fileRow(page, 'src/app.php')).toHaveCount(0);
   });
 
+  test('the header shows coloured status icons; totals and counts sit on either side', async ({ page }) => {
+    await selectRow(page, 'Rename guide and update assets');
+    const counts = page.getByTestId('file-counts');
+    await expect(counts.locator('svg')).toHaveCount(4);
+    expect(await counts.locator('svg').evaluateAll((els) => els.map((e) => e.getAttribute('data-status')))).toEqual(['modified', 'added', 'deleted', 'renamed']);
+    await expect(counts.locator('svg[data-status="modified"]')).toHaveCSS('color', 'rgb(222, 155, 67)');
+    await expect(page.getByTestId('file-totals').locator('.added')).toHaveCSS('color', 'rgb(92, 184, 92)');
+    await expect(fileRow(page, 'src/app.php').getByRole('img', { name: 'Modified' })).toBeVisible();
+  });
+
+  test('tree mode: one smart Expand/Collapse button, and file icons line up under their folder\'s name', async ({ page }) => {
+    await selectRow(page, 'Rename guide and update assets');
+    await page.getByRole('button', { name: 'Tree' }).click();
+    const toolbar = page.getByRole('toolbar', { name: 'File list options' });
+    // Justified: smart button left, Path/Tree centred, View all files right.
+    const [smart, tree, all, bar] = await Promise.all([
+      toolbar.getByRole('button', { name: 'Collapse all' }).boundingBox(),
+      toolbar.locator('.segmented').boundingBox(),
+      toolbar.getByRole('button', { name: 'View all files' }).boundingBox(),
+      toolbar.boundingBox(),
+    ]);
+    expect(smart!.x).toBeLessThan(tree!.x);
+    expect(Math.abs(tree!.x + tree!.width / 2 - (bar!.x + bar!.width / 2))).toBeLessThan(2);
+    expect(all!.x + all!.width).toBeGreaterThan(bar!.x + bar!.width - 16);
+    // Alignment (F17), measured: the file's icon starts where its folder's name starts.
+    const folderName = await fileRow(page, 'docs').locator('.file-name').boundingBox();
+    const icon = await fileRow(page, 'docs/manual.txt').locator('svg.status-icon').boundingBox();
+    expect(Math.abs(icon!.x - folderName!.x)).toBeLessThan(0.5);
+    await expect(fileRow(page, 'docs').locator('svg')).toHaveCount(1); // no folder icon
+    // Everything expanded: collapse all; then the same button expands all.
+    await toolbar.getByRole('button', { name: 'Collapse all' }).click();
+    await expect(fileRow(page, 'docs')).toHaveAttribute('aria-expanded', 'false');
+    await expect(fileRow(page, 'docs').getByTestId('folder-counts')).toHaveAccessibleName('1 renamed');
+    await toolbar.getByRole('button', { name: 'Expand all' }).click();
+    await expect(fileRow(page, 'docs')).toHaveAttribute('aria-expanded', 'true');
+    await expect(fileRow(page, 'docs').getByTestId('folder-counts')).toHaveCount(0);
+    // Partly collapsed: it expands.
+    await fileRow(page, 'docs').click();
+    await toolbar.getByRole('button', { name: 'Expand all' }).click();
+    await expect(fileRow(page, 'docs')).toHaveAttribute('aria-expanded', 'true');
+  });
+
   test('a merge commit diffs against the parent picked', async ({ page }) => {
     await selectRow(page, "Merge branch 'feature/x'");
     await expect(page.getByRole('button', { name: 'vs 1st parent' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('option')).toHaveCount(1);
     await page.getByRole('button', { name: 'vs 2nd parent' }).click();
-    await expect(page.getByTestId('file-counts')).toHaveText('6 modified · 2 added · 1 deleted · 1 renamed');
+    await expect(page.getByTestId('file-counts')).toHaveAccessibleName('6 modified · 2 added · 1 deleted · 1 renamed');
   });
 
   test('View all files opens unchanged files in File View with their encoding', async ({ page }) => {

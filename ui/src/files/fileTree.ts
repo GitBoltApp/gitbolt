@@ -1,12 +1,23 @@
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
 import { fileViewTarget, targetFor, type DiffTarget } from '../repo/store';
+import { statusKind } from './StatusIcon';
 
 export type FileListMode = 'path' | 'tree';
 export type FileSort = 'path' | 'status';
 
+/** Changed files per `StatusIcon` kind (`conflicted`: unmerged or unknown, U/X). */
+export type StatusCounts = { modified: number; added: number; deleted: number; renamed: number; conflicted: number };
+
+/** A tree row's horizontal layout, in px: `[chevron | status icon][gap][name]`, indented by
+ * `rowIndent(depth)`. One level is exactly a chevron plus its gap, so a file's icon starts where
+ * its folder's name does (feedback F17). */
+export const TREE = { base: 8, chevron: 14, icon: 14, gap: 6 } as const;
+export const rowIndent = (depth: number) => TREE.base + depth * (TREE.chevron + TREE.gap);
+
 export type FileRow =
-  | { kind: 'folder'; id: string; depth: number; name: string; path: string; expanded: boolean }
+  /** `counts`: the subtree's changes, for a collapsed folder only (feedback F20). */
+  | { kind: 'folder'; id: string; depth: number; name: string; path: string; expanded: boolean; counts: StatusCounts | null }
   | { kind: 'file'; id: string; depth: number; name: string; dir: string; change: FileChange | null; target: DiffTarget };
 
 export interface TreeNode<T> { name: string; path: string; children: TreeNode<T>[]; item: T | null }
@@ -84,11 +95,18 @@ export function buildRows(i: RowsInput): FileRow[] {
     all.sort((a, b) => (i.sort === 'status' ? rank(a) - rank(b) : 0) || cmp(a.path, b.path));
     return all.map((it) => ({ kind: 'file', id: it.target.key, depth: 0, name: basename(it.path), dir: dirname(it.path), change: it.change, target: it.target }));
   }
-  return flattenTree(buildTree(all), i.collapsed).map(({ node, depth }): FileRow =>
-    node.item
-      ? { kind: 'file', id: node.item.target.key, depth, name: node.name, dir: '', change: node.item.change, target: node.item.target }
-      : { kind: 'folder', id: `dir:${node.path}`, depth, name: node.name, path: node.path, expanded: !i.collapsed.has(node.path) },
-  );
+  return flattenTree(buildTree(all), i.collapsed).map(({ node, depth }): FileRow => {
+    if (node.item) return { kind: 'file', id: node.item.target.key, depth, name: node.name, dir: '', change: node.item.change, target: node.item.target };
+    const expanded = !i.collapsed.has(node.path);
+    return { kind: 'folder', id: `dir:${node.path}`, depth, name: node.name, path: node.path, expanded, counts: expanded ? null : countByStatus(subtreeChanges(node)) };
+  });
+}
+
+/** The changed files under a folder (unchanged "View all files" entries don't count). */
+function subtreeChanges(node: TreeNode<Item>, out: FileChange[] = []): FileChange[] {
+  if (node.item?.change) out.push(node.item.change);
+  for (const c of node.children) subtreeChanges(c, out);
+  return out;
 }
 
 /** The changed files in display order (collapsed folders hide rows, not change their order). */
@@ -103,14 +121,10 @@ export function allFolderPaths(files: FileChange[], unchanged: { commit: string;
     .map(({ node }) => node.path);
 }
 
-/** Header counts (spec §9.3): M and T are "modified", A and C "added". */
-export function countByStatus(files: FileChange[]) {
-  const c = { modified: 0, added: 0, deleted: 0, renamed: 0 };
-  for (const f of files) {
-    if (f.status === 'A' || f.status === 'C') c.added++;
-    else if (f.status === 'D') c.deleted++;
-    else if (f.status === 'R') c.renamed++;
-    else c.modified++;
-  }
+/** Header counts (spec §9.3), by `statusKind`: M and T are "modified", A and C "added", U and X
+ * "conflicted". */
+export function countByStatus(files: FileChange[]): StatusCounts {
+  const c: StatusCounts = { modified: 0, added: 0, deleted: 0, renamed: 0, conflicted: 0 };
+  for (const f of files) c[statusKind(f.status)]++;
   return c;
 }

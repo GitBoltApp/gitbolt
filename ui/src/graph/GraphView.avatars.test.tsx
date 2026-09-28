@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 
 const avatar = vi.hoisted(() => vi.fn(async (email: string) => (email === 'ada@example.com' ? { mime: 'image/png', base64: btoa('png') } : null)));
@@ -9,6 +9,7 @@ vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
 const renders = vi.hoisted(() => ({ n: 0 }));
 vi.mock('./RefLabels', () => ({ RefLabels: () => { renders.n++; return null; } }));
 
+import { DEFAULT_DENSITY, useDensity } from '../theme/density';
 import { AVATAR_OVERSCAN, GraphView } from './GraphView';
 
 const calls: string[] = [];
@@ -48,6 +49,9 @@ describe('GraphView avatars', () => {
 });
 
 describe('GraphView avatars during a fast scroll', () => {
+  // The arithmetic below is in compact's 25 px rows.
+  beforeAll(() => useDensity.setState({ density: 'compact' }));
+  afterAll(() => useDensity.setState({ density: DEFAULT_DENSITY }));
   it('asks only for the visible rows, latest set wins: rows scrolled past before their turn are never fetched', async () => {
     const pending = new Map<string, (v: null) => void>();
     avatar.mockImplementation((email: string) => new Promise((r) => pending.set(email, r)));
