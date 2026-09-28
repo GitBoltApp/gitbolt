@@ -6,24 +6,22 @@ import { useToast } from '../ui/toast';
 import { mergeRequestButtons, projectRemote, tokenizeMessage, type MessageToken, type ProjectRemote } from './messageLinks';
 import './header.css';
 
-/** Each repo's resolved project remote, so a remount (e.g. back from the WIP row) links the
+/** The remote that message references point at (spec §14.4): the first with a parsed host.
+ * `services.remotesSnapshot()` is the one cache of "this repo's remotes, loaded" (also read by
+ * the file menu's env, `menu/menuEnv.ts`), so a remount (e.g. back from the WIP row) links the
  * message in its first render instead of re-rendering it once the remotes resolve (F12). */
-const resolvedRemote = new WeakMap<RepoServices, ProjectRemote | null>();
-
-/** The remote that message references point at (spec §14.4): the first with a parsed host. */
 export function useProjectRemote(services: RepoServices): ProjectRemote | null {
   const [state, setState] = useState<{ services: RepoServices; remote: ProjectRemote | null } | null>(null);
   useEffect(() => {
-    if (resolvedRemote.has(services)) return;
+    if (services.remotesSnapshot()) return;
     let live = true;
     services.remotes().then((r) => {
-      const remote = projectRemote(r);
-      resolvedRemote.set(services, remote);
-      if (live) setState({ services, remote });
+      if (live) setState({ services, remote: projectRemote(r) });
     }, () => {});
     return () => { live = false; };
   }, [services]);
-  return resolvedRemote.get(services) ?? (state?.services === services ? state.remote : null);
+  const snapshot = services.remotesSnapshot();
+  return snapshot ? projectRemote(snapshot) : (state?.services === services ? state.remote : null);
 }
 
 /** Opens a URL in the user's browser, through the backend (the webview never navigates). */
@@ -38,7 +36,7 @@ export function LinkedText({ tokens }: { tokens: MessageToken[] }) {
     <>
       {tokens.map((t, i) =>
         t.kind === 'text' ? <Fragment key={i}>{t.text}</Fragment> : (
-          <a key={i} href={t.url} className="msg-link" onClick={(e) => { e.preventDefault(); open(t.url); }} onAuxClick={(e) => e.preventDefault()}>{t.text}</a>
+          <a key={i} href={t.url} className="msg-link" draggable={false} onClick={(e) => { e.preventDefault(); open(t.url); }} onAuxClick={(e) => e.preventDefault()}>{t.text}</a>
         ),
       )}
     </>

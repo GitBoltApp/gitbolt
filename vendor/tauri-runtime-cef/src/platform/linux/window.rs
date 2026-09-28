@@ -42,6 +42,8 @@ pub(crate) struct CefX11Host {
   /// CSS provider currently backing this window's background color, kept so it can be removed
   /// from the display instead of accumulating one provider per `set_background_color` call.
   background_color_provider: RefCell<Option<gtk::CssProvider>>,
+  /// GitBolt patch: answers the window manager's `WM_TAKE_FOCUS` by focusing a browser.
+  _take_focus: Option<super::focus::TakeFocusRedirect>,
 }
 
 /// Geometry of the X11 host, shared with the GTK `layout` handler that keeps it up to date.
@@ -71,6 +73,8 @@ impl CefX11Host {
     let parent_xid = window_xid(window);
     let initial_size = window.surface_size();
     let (xid, colormap) = create_cef_container(parent_xid, initial_size)?;
+    let take_focus =
+      super::focus::redirect_take_focus(&WidgetExt::display(&gtk_window), parent_xid, xid);
 
     let geometry = Rc::new(HostGeometry {
       size: Cell::new(initial_size),
@@ -103,6 +107,7 @@ impl CefX11Host {
       colormap,
       geometry,
       background_color_provider: RefCell::new(None),
+      _take_focus: take_focus,
     })
   }
 

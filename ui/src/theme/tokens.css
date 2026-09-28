@@ -7,6 +7,12 @@
   --text-normal: rgba(255, 255, 255, 0.75);
   --text-secondary: rgba(255, 255, 255, 0.6);
   --text-disabled: rgba(255, 255, 255, 0.4);
+  /* The row-dim mechanism's two levels (graph/rowDim.ts): the 'filter' level (search/Ctrl+F) is
+     below --text-disabled, so the already-dim author, date and SHA dim visibly too. The
+     'branch' level (J22's branch-hover focus) is lighter, since it marks rows merely outside
+     the focused branch, not filtered out. */
+  --text-row-dimmed: rgba(255, 255, 255, 0.2);
+  --text-row-dimmed-branch: rgba(255, 255, 255, 0.5);
   --hover-row: rgba(77, 136, 255, 0.1);
   --selected-row: rgba(77, 136, 255, 0.2);
   --section-border: rgba(255, 255, 255, 0.08);
@@ -17,14 +23,41 @@
   --font-ui: system-ui, "Segoe UI", Ubuntu, Cantarell, sans-serif;
   color-scheme: dark;
 }
+/* Motion tokens: a graph row's text colour eases in
+   --motion-row-color (a selection moving, a dimmed row restored) and dims in --motion-row-dim.
+   Colour and opacity only, never layout. The motion lane (J19) adds the rest here. */
+:root {
+  --motion-row-color: 200ms;
+  --motion-row-dim: 500ms;
+}
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var(--font-ui); overflow: hidden; }
 
 /* Shared by the diff toolbar and the details panel's compare/wip headers. Lives here (loaded
    eagerly via main.tsx) rather than in diff.css (the lazy diff chunk), so it is available
    before any diff has opened. */
-.icon-button { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 3px; color: var(--text-secondary); }
+.icon-button { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 3px; color: var(--text-secondary); transition: background-color var(--motion-fast), color var(--motion-fast); }
 .icon-button:hover, .icon-button:focus-visible { background: var(--hover-row); color: var(--text-selected); }
+
+/* ==== motion (J19). Opacity/colour/background-colour/border-colour/box-shadow only — never
+   layout props, never `top`, never transforms on virtualized rows or the canvas. Two speeds,
+   for secondary chrome (buttons, toolbar toggles, panel headers, tooltips); row
+   hover/selection backgrounds stay instant, and row text-colour fades are the `--motion-row-*` tokens, not these. Kept as its own block so a later merge
+   with that work stays trivial. ==== */
+:root {
+  --motion-fast: 50ms ease-in;   /* buttons, toolbar toggles, menu items, tabs */
+  --motion-base: 150ms ease-in;  /* chips, resize handles, panel headers, tooltip fade-in */
+}
+/* ==== end motion (J19) block ==== */
+/* One reduced-motion override for every motion token above, row-dim included: every value 0s. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0s;
+    --motion-base: 0s;
+    --motion-row-color: 0s;
+    --motion-row-dim: 0s;
+  }
+}
 
 /* ==== Lane V (feedback F22, F31): text selection and scrollbars. Keep this block separate. ==== */
 :root {
@@ -43,7 +76,7 @@ body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var
 ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
-::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb-bg); background-clip: padding-box; border: 2px solid transparent; border-radius: 10px; min-height: 24px; min-width: 24px; }
+::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb-bg); background-clip: padding-box; border: 2px solid transparent; border-radius: 10px; min-height: 24px; min-width: 24px; transition: background-color var(--motion-fast); }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover-bg); }
 /* ==== end lane V block ==== */
 /* ---- File-status colours (feedback lane D: F17/F19); the diff view reuses them through files/StatusIcon.tsx. ---- */

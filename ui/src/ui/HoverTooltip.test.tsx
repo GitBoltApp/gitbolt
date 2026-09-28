@@ -9,6 +9,67 @@ describe('HoverTooltip', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  describe("placement 'left-of' (feedback J18)", () => {
+    const rect = (left: number, top: number, width: number, height: number) => new DOMRect(left, top, width, height);
+    /** A panel at x 600–1000, a 26 px row at y 300 inside it, and a 200×40 tooltip. */
+    function hover(panelLeft = 600) {
+      render(
+        <div data-testid="panel">
+          <HoverTooltip content="tip" placement="left-of" leftOf={(t) => t.closest('[data-testid="panel"]')}><span>row</span></HoverTooltip>
+        </div>,
+      );
+      screen.getByTestId('panel').getBoundingClientRect = () => rect(panelLeft, 0, 400, 800);
+      const row = screen.getByText('row');
+      row.getBoundingClientRect = () => rect(panelLeft, 300, 400, 26);
+      const spy = vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLDivElement) {
+        return this.getAttribute('role') === 'tooltip' ? rect(0, 0, 200, 40) : rect(0, 0, 0, 0);
+      });
+      fireEvent.mouseEnter(row);
+      spy.mockRestore();
+      return screen.getByRole('tooltip');
+    }
+
+    it('puts the tooltip left of the panel, its right edge a gap before the panel, centred on the row', () => {
+      const tip = hover();
+      expect(tip.style.left).toBe(`${600 - 6 - 200}px`);
+      expect(tip.style.top).toBe(`${300 + 13 - 20}px`);
+    });
+
+    it('with no room on the left, falls back to below the trigger', () => {
+      const tip = hover(100);
+      expect(tip.style.top).toBe(`${326 + 4}px`);
+      expect(tip.style.left).toBe('100px');
+    });
+  });
+
+  it('Esc dismisses a shown tooltip, and goes no further (WCAG 1.4.13)', () => {
+    render(<HoverTooltip content="tip"><span>target</span></HoverTooltip>);
+    const seen = vi.fn();
+    window.addEventListener('keydown', seen);
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true); // none shown: untouched
+    expect(seen).toHaveBeenCalledTimes(1);
+    fireEvent.mouseEnter(screen.getByText('target'));
+    expect(fireEvent.keyDown(document.body, { key: 'Escape', shiftKey: true })).toBe(true);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(false);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(seen).toHaveBeenCalledTimes(2);
+    window.removeEventListener('keydown', seen);
+  });
+
+  it('a press on the trigger hides the tooltip (as a native one), so a click then Esc is one Esc for the app', () => {
+    render(<div><HoverTooltip content="tip"><span>target</span></HoverTooltip><span>elsewhere</span></div>);
+    fireEvent.mouseEnter(screen.getByText('target'));
+    fireEvent.mouseDown(screen.getByText('elsewhere'));
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByText('target'));
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    // Shown again on the next hover.
+    fireEvent.mouseLeave(screen.getByText('target'));
+    fireEvent.mouseEnter(screen.getByText('target'));
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  });
+
   it('shows immediately by default (the app-wide no-delay rule)', () => {
     render(<HoverTooltip content="tip"><span>target</span></HoverTooltip>);
     fireEvent.mouseEnter(screen.getByText('target'));

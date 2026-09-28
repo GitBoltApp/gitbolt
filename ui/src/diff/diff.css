@@ -2,16 +2,13 @@
 .diff-header { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; position: relative; }
 /* A diff taking a moment to load or compute: a thin line sweeping along the header's bottom. */
 .diff-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; pointer-events: none; }
-.diff-progress::after { content: ""; position: absolute; top: 0; bottom: 0; width: 30%; background: var(--blue); animation: diff-progress 1.1s ease-in-out infinite; }
-@keyframes diff-progress { from { left: -30%; } to { left: 100%; } }
+/* J19: colour/opacity only, never a layout property — the sweep is a `transform: translateX`
+   (compositor-only), not an animated `left` (see .panel-busy::after, repo.css, for the 433⅓% math). */
+.diff-progress::after { content: ""; position: absolute; top: 0; bottom: 0; left: -30%; width: 30%; background: var(--blue); animation: diff-progress 1.1s ease-in-out infinite; }
+@keyframes diff-progress { from { transform: translateX(0%); } to { transform: translateX(433.333%); } }
 @media (prefers-reduced-motion: reduce) { .diff-progress::after { animation: none; left: 0; width: 100%; opacity: 0.5; } }
 .status-spacer { flex: none; }
-/* H9: the header's far-left slot ("Open in…", mounted by the controller). */
-.diff-header-leading { display: flex; align-items: center; flex: none; }
 .rename-sep { white-space: pre; }
-/* A rename's tooltip (H21): old path, a centred arrow, new path; the paths left-aligned. */
-.rename-paths { display: grid; justify-items: start; white-space: normal; }
-.rename-arrow { justify-self: center; color: var(--text-secondary); font-size: 14px; line-height: 1.2; }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumb { color: var(--text-secondary); }
 .diff-path strong { color: var(--text-selected); }
@@ -32,7 +29,7 @@
   .diff-toolbar { display: flex; flex-wrap: wrap; row-gap: 4px; }
   .diff-toolbar-end { margin-left: auto; }
 }
-.diff-toolbar .segmented > button { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); }
+.diff-toolbar .segmented > button { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
 .diff-toolbar button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 .diff-toolbar .segmented > button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
 .diff-toolbar button:disabled { opacity: 0.4; cursor: default; }

@@ -18,6 +18,34 @@ test.describe('commit details', () => {
     await expect(panel.getByTestId('parent-sha')).toHaveCount(1);
   });
 
+  test('J4: Esc closes the open file from the details header, the message and the diff toolbar', async ({ page }) => {
+    const row = page.getByRole('row').filter({ hasText: 'Rename guide and update assets' });
+    await row.click();
+    const panel = page.getByRole('complementary', { name: 'Commit details' });
+    const diff = page.getByRole('region', { name: 'Diff' });
+    const clicks: [string, () => Promise<void>][] = [
+      // A blank spot of the header's top row: focus falls to <body>.
+      ['the header', async () => {
+        const ids = (await panel.locator('.commit-ids').boundingBox())!;
+        const sha = (await panel.getByTestId('details-sha').boundingBox())!;
+        await page.mouse.click((ids.x + sha.x) / 2, ids.y + ids.height / 2);
+      }],
+      ['the author row', () => panel.getByTestId('author').click({ position: { x: 150, y: 5 } })],
+      ['the message', () => panel.getByTestId('details-body').click()],
+      ['a diff toolbar button', () => diff.getByRole('button', { name: 'Split' }).click()],
+    ];
+    for (const [where, click] of clicks) {
+      await page.getByRole('option').and(page.locator('[data-path="src/app.php"]')).click();
+      await expect(diff).toBeVisible();
+      await click();
+      await page.keyboard.press('Escape');
+      await expect(diff, where).toHaveCount(0);
+      await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+      await expect(row).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeFocused();
+    }
+  });
+
   test('arrow keys update the details immediately', async ({ page }) => {
     await page.getByRole('row').filter({ hasText: "Merge branch 'feature/x'" }).click();
     const summary = page.getByTestId('details-summary');
@@ -70,7 +98,7 @@ test.describe('commit details', () => {
     const panel = page.getByRole('complementary', { name: 'Commit details' });
     const [sig, sha, parents, row] = await Promise.all([
       panel.getByTestId('signature-badge').boundingBox(),
-      panel.getByTestId('details-sha').boundingBox(),
+      panel.locator('.commit-id').boundingBox(),
       panel.locator('.parents').boundingBox(),
       panel.locator('.commit-ids').boundingBox(),
     ]);
@@ -82,6 +110,109 @@ test.describe('commit details', () => {
     await expect(page.getByRole('tooltip')).toHaveText('Not signed');
     // The fixture commits have one timestamp for author and committer: one date, no "authored".
     await expect(panel.getByTestId('commit-date')).toHaveText(/^\d{4}-\d{2}-\d{2} @ \d{1,2}:\d{2} [AP]M$/);
+  });
+
+  test('H11: commit:/parent: labels, white hashes, the icon centred on the digits, an instant parent tooltip, the message box', async ({ page }) => {
+    await page.getByRole('row').filter({ hasText: 'Rename guide and update assets' }).click();
+    const panel = page.getByRole('complementary', { name: 'Commit details' });
+    const sha = panel.getByTestId('details-sha');
+    const parent = panel.getByTestId('parent-sha');
+    await expect(panel.locator('.commit-id')).toHaveText(/^commit: [0-9a-f]{6}$/);
+    await expect(panel.locator('.parents')).toHaveText(/^parent: [0-9a-f]{6}$/);
+    await expect(sha).toHaveCSS('color', 'rgb(255, 255, 255)');
+    await expect(parent).toHaveCSS('color', 'rgb(255, 255, 255)');
+    const label = panel.locator('.commit-id .id-label');
+    await expect(label).toHaveCSS('color', 'rgba(255, 255, 255, 0.6)');
+    // J8: the labels in the UI font, the hashes in monospace, at the same size.
+    const bodyFont = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+    for (const l of [label, panel.locator('.parents .id-label')]) await expect(l).toHaveCSS('font-family', bodyFont);
+    expect(await sha.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/monospace/);
+    await expect(label).toHaveCSS('font-size', await sha.evaluate((el) => getComputedStyle(el).fontSize));
+    await expect(sha).toHaveCSS('cursor', 'pointer');
+    await expect(parent).toHaveCSS('cursor', 'pointer');
+    // J8: the labels and the hashes share a baseline, at every zoom.
+    const baselines = () => page.evaluate(() => [...document.querySelectorAll('.commit-ids .id-label, .commit-ids .sha')].map((el) => {
+      const probe = document.createElement('span');
+      probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+      el.appendChild(probe);
+      const y = probe.getBoundingClientRect().top;
+      probe.remove();
+      return y;
+    }));
+    for (const zoom of [1, 1.25, 1.5]) {
+      await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, zoom);
+      const ys = await baselines();
+      expect(ys.length).toBe(4);
+      expect(Math.max(...ys) - Math.min(...ys), `baselines at ${zoom}`).toBeLessThan(0.5);
+    }
+    await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+    // "Go to parent commit", at once.
+    await parent.hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Go to parent commit', { timeout: 300 });
+    await sha.hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Copy full SHA', { timeout: 300 });
+    // The message in a darker, rounded box.
+    const box = panel.getByTestId('commit-message');
+    await expect(box).toHaveCSS('background-color', 'rgb(28, 30, 35)');
+    expect(parseFloat(await box.evaluate((el) => getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThan(0);
+    const summary = (await panel.getByTestId('details-summary').boundingBox())!;
+    const b = (await box.boundingBox())!;
+    expect(summary.x - b.x).toBeGreaterThanOrEqual(8);
+    expect(summary.y - b.y).toBeGreaterThanOrEqual(4);
+  });
+
+  // Measured on the painted pixels, at the zooms CEF's page zoom renders like (the device scale):
+  // the shield's ink centre against the hash digits'. Before J8 the icon was 1.5 device px low
+  // at 150% and 200%; rounding leaves at most 1 device px, and never low.
+  test('J8: the signature icon is centred on the hash digits\' ink at every zoom, never below it', async ({ browser, browserName }) => {
+    test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
+    for (const dsf of [1, 1.25, 1.5, 2]) {
+      const context = await browser.newContext({ deviceScaleFactor: dsf, baseURL: test.info().project.use.baseURL });
+      const page = await context.newPage();
+      await page.goto(openUrl(fixtures.details));
+      await page.getByRole('row').filter({ hasText: 'Rename guide and update assets' }).click();
+      const panel = page.getByRole('complementary', { name: 'Commit details' });
+      const [row, badge, sha] = await Promise.all([panel.locator('.commit-ids'), panel.getByTestId('signature-badge'), panel.getByTestId('details-sha')].map(async (l) => (await l.boundingBox())!));
+      const png = (await page.screenshot({ clip: row })).toString('base64');
+      // Ink rows (device px) of the badge's columns (anything off the background) and the hash's
+      // (bright text), decoded in the page.
+      const ink = await page.evaluate(async ({ png, cols }) => {
+        const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+        const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const { data, width, height } = ctx.getImageData(0, 0, img.width, img.height);
+        const px = (x: number, y: number) => data.subarray((y * width + x) * 4, (y * width + x) * 4 + 3);
+        const bg = px(Math.floor(width * 0.3), 1);
+        const rows = (x0: number, x1: number, hit: (p: Uint8ClampedArray) => boolean) => {
+          const ys: number[] = [];
+          for (let y = 0; y < height; y++) for (let x = Math.floor(x0); x < Math.floor(x1); x++) if (hit(px(x, y))) { ys.push(y); break; }
+          return (ys[0] + ys[ys.length - 1] + 1) / 2;
+        };
+        return {
+          icon: rows(cols.badge[0], cols.badge[1], (p) => Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2]) > 60),
+          hash: rows(cols.sha[0], cols.sha[1], (p) => p[0] + p[1] + p[2] > 500),
+        };
+      }, { png, cols: { badge: [(badge.x - row.x) * dsf, (badge.x - row.x + badge.width) * dsf], sha: [(sha.x - row.x) * dsf, (sha.x - row.x + sha.width) * dsf] } });
+      // Device px: positive is the icon below the digits.
+      const off = ink.icon - ink.hash;
+      expect(Math.abs(off), `at ${dsf}x`).toBeLessThanOrEqual(1);
+      expect(off, `at ${dsf}x`).toBeLessThanOrEqual(0.5);
+      await context.close();
+    }
+  });
+
+  test('H5: every clickable element in the panel shows a pointer cursor', async ({ page }) => {
+    for (const [commit, tree] of [['Rename guide and update assets', true], ["Merge branch 'feature/x'", false]] as const) {
+      await page.getByRole('row').filter({ hasText: commit }).click();
+      const panel = page.getByRole('complementary', { name: 'Commit details' });
+      await expect(panel.getByTestId('details-summary')).toHaveText(commit);
+      if (tree) await panel.getByRole('button', { name: 'Tree' }).click();
+      const cursors = await panel.evaluate((el) =>
+        [...el.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [role="option"]')].map((c) => [c.dataset.testid ?? c.dataset.path ?? c.textContent?.trim(), getComputedStyle(c).cursor]),
+      );
+      expect(cursors.length).toBeGreaterThan(5);
+      expect(cursors.filter(([, cursor]) => cursor !== 'pointer')).toEqual([]);
+    }
   });
 
   test('the header stays put, only the message scrolls, and the split resizes and persists (F13)', async ({ page }) => {

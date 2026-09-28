@@ -8,9 +8,9 @@ use crate::details::read_commit;
 use crate::error::{GbError, GbErrorKind};
 use crate::git::{GitCli, GitInvocation};
 use crate::payload::{BlobSource, FileChange, FileListPayload};
-use crate::status::{status, EntryKind};
+use crate::status::{status, EntryKind, StatusEntry};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use ts_rs::TS;
 
@@ -51,6 +51,11 @@ pub struct RawChange {
     /// `None` for binary files (numstat prints `-`).
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
+    /// Whether a numstat record actually matched this path. `false` (with `additions`/`deletions`
+    /// both `None`) means git never computed a content diff for this path at all — the raw
+    /// record is a stat-dirty phantom, not a real change (see `drop_phantom_stat_dirty`). `true`
+    /// with `None`/`None` means a real binary diff (numstat prints `-\t-`).
+    pub has_numstat: bool,
 }
 
 pub fn is_null_oid(oid: &str) -> bool {
@@ -79,7 +84,7 @@ pub fn parse_raw_numstat(out: &[u8]) -> Result<Vec<RawChange>, GbError> {
         } else {
             (first, None)
         };
-        changes.push(RawChange { status, old_mode: mode(old_mode)?, new_mode: mode(new_mode)?, old_oid: old_oid.into(), new_oid: new_oid.into(), path, old_path, additions: None, deletions: None });
+        changes.push(RawChange { status, old_mode: mode(old_mode)?, new_mode: mode(new_mode)?, old_oid: old_oid.into(), new_oid: new_oid.into(), path, old_path, additions: None, deletions: None, has_numstat: false });
     }
     let mut stats: HashMap<String, (Option<u32>, Option<u32>)> = HashMap::new();
     while let Some(tok) = tokens.next() {
@@ -103,6 +108,7 @@ pub fn parse_raw_numstat(out: &[u8]) -> Result<Vec<RawChange>, GbError> {
         if let Some(&(a, d)) = stats.get(&c.path) {
             c.additions = a;
             c.deletions = d;
+            c.has_numstat = true;
         }
     }
     Ok(changes)
@@ -213,8 +219,35 @@ fn diff_tree(tail: &[String]) -> Vec<String> {
     ["diff-tree", "-r", "-M", "--no-ext-diff", "--no-textconv", "--no-abbrev", "-z", "--raw", "--numstat"].iter().map(|s| s.to_string()).chain(tail.iter().cloned()).collect()
 }
 
+/// Porcelain `git diff` (index/worktree comparisons). `-c diff.autoRefreshIndex=false` (passed as
+/// argv, not repo config, so it can never be overridden by the user's own config) stops git from
+/// silently rewriting `.git/index` to clear stat-dirty entries it finds identical (`C1`) — but it
+/// also makes git list every merely-stat-dirty path as a phantom `M` with no real content diff.
+/// Callers must run those results through `drop_phantom_stat_dirty`.
 fn diff_porcelain(extra: &[&str]) -> Vec<String> {
-    ["diff", "--no-ext-diff", "--no-textconv", "--no-abbrev", "-z", "--raw", "--numstat"].iter().chain(extra).map(|s| s.to_string()).collect()
+    ["-c", "diff.autoRefreshIndex=false", "diff", "--no-ext-diff", "--no-textconv", "--no-abbrev", "-z", "--raw", "--numstat"].iter().chain(extra).map(|s| s.to_string()).collect()
+}
+
+/// Drops the phantom `M` records `diff_porcelain` produces for a stat-dirty-but-content-identical
+/// path (see its doc comment and `C1` in the pre-review): git flags the path as changed purely
+/// because its stat info doesn't match the index, without ever reading it to check, so there's no
+/// numstat record for it. A real change — including one that also happens to be stat-dirty —
+/// always gets a numstat record (git has to read the file to diff it) and/or shows up in `git
+/// status`, which does the real content comparison. Keep a record unless both signals agree it's
+/// clean: `git status` doesn't consider the path dirty, and the numstat side is uninformative —
+/// either no numstat record at all, or one that can't tell content changed from unchanged.
+/// Binary paths are the latter: `--numstat` always prints `-\t-\tpath` (additions/deletions both
+/// `None`) whether or not the bytes actually differ, so `has_numstat` alone can't rule out a
+/// phantom binary entry; `dirty` has to decide those too.
+fn drop_phantom_stat_dirty(raw: Vec<RawChange>, dirty: &HashSet<String>) -> Vec<RawChange> {
+    raw.into_iter().filter(|c| !(c.status == 'M' && !dirty.contains(&c.path) && (!c.has_numstat || (c.additions.is_none() && c.deletions.is_none())))).collect()
+}
+
+/// Every path `git status` considers not-clean: staged, unstaged, untracked or conflicted. Used
+/// as the ground truth for `drop_phantom_stat_dirty` (status does a real content comparison and,
+/// thanks to `GIT_OPTIONAL_LOCKS=0`, never writes back what it finds).
+fn dirty_paths(entries: &[StatusEntry]) -> HashSet<String> {
+    entries.iter().filter(|e| e.kind != EntryKind::Ignored).map(|e| e.path.clone()).collect()
 }
 
 async fn run(cli: &GitCli, cwd: &Path, args: Vec<String>) -> Result<Vec<RawChange>, GbError> {
@@ -278,6 +311,11 @@ pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: 
             let from = parse_oid(from)?.to_string();
             let name = wt.to_string_lossy().into_owned();
             let raw = run(cli, wt, diff_porcelain(&["-M", from.as_str(), "--"])).await?;
+            // Known narrow gap (not fixed here): `status` is index-vs-HEAD/worktree, not against
+            // an arbitrary `from`, so a binary that's genuinely different since a non-HEAD `from`
+            // but otherwise clean (uninformative numstat, clean `status`) would be dropped too.
+            let dirty = dirty_paths(&status(cli, wt).await?);
+            let raw = drop_phantom_stat_dirty(raw, &dirty);
             let mut files = to_changes(&repo.to_thread_local(), raw, Some(&name));
             resolve_dirty_submodules(wt, &mut files);
             files
@@ -290,10 +328,12 @@ pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: 
         DiffSpec::Wip { staged: false, .. } => {
             let wt = resolved(worktree)?;
             let name = wt.to_string_lossy().into_owned();
-            let raw = collapse_unmerged(run(cli, wt, diff_porcelain(&[])).await?);
+            let entries = status(cli, wt).await?;
+            let dirty = dirty_paths(&entries);
+            let raw = drop_phantom_stat_dirty(collapse_unmerged(run(cli, wt, diff_porcelain(&[])).await?), &dirty);
             let mut files = to_changes(&repo.to_thread_local(), raw, Some(&name));
             resolve_dirty_submodules(wt, &mut files);
-            for e in status(cli, wt).await?.into_iter().filter(|e| e.kind == EntryKind::Untracked) {
+            for e in entries.into_iter().filter(|e| e.kind == EntryKind::Untracked) {
                 let additions = count_lines(&wt.join(&e.path));
                 files.push(FileChange {
                     path: e.path,
@@ -447,6 +487,121 @@ mod tests {
         assert!(matches!(f["src/app.php"].new, BlobSource::Object { .. }), "staged and unchanged since: git names the index blob");
         assert!(f.contains_key("feature.txt"));
         assert!(!f.contains_key("notes.txt"), "untracked files aren't part of a commit-vs-worktree diff");
+    }
+
+    /// Bumps a file's mtime, without touching its content, far enough into the future to defeat
+    /// racy-git's same-second heuristic (see `status.rs`'s `status_does_not_rewrite_the_index`).
+    fn bump_mtime(path: &Path) {
+        let f = std::fs::File::open(path).unwrap();
+        let modified = f.metadata().unwrap().modified().unwrap();
+        f.set_modified(modified + std::time::Duration::from_secs(120)).unwrap();
+    }
+
+    /// C1 regression: a stat-dirty (mtime bumped) but content-identical file must not be listed
+    /// by either porcelain diff, and — the read-only guarantee — running them must never touch
+    /// `.git/index` (byte-for-byte, mtime included). Before the fix, plain `git diff` refreshed
+    /// the index for exactly this case (`diff.autoRefreshIndex` defaults to true).
+    #[tokio::test]
+    async fn stat_dirty_unchanged_file_is_not_listed_and_index_is_untouched() {
+        let r = TestRepo::new();
+        r.write("f.txt", "hello\n");
+        r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
+        let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
+        let wt = r.path().canonicalize().unwrap();
+        let name = wt.to_string_lossy().into_owned();
+        let root = r.git(&["rev-parse", "HEAD"]);
+
+        bump_mtime(&wt.join("f.txt"));
+
+        let index_path = wt.join(".git/index");
+        let before_bytes = std::fs::read(&index_path).unwrap();
+        let before_mtime = std::fs::metadata(&index_path).unwrap().modified().unwrap();
+
+        let wip = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name.clone(), staged: false }, Some(&wt)).await.unwrap();
+        assert!(wip.files.iter().all(|f| f.path != "f.txt"), "stat-dirty but content-identical file must not be listed (Wip): {:?}", wip.files);
+
+        let worktree_diff = file_list(&repo, &cli(), r.path(), &DiffSpec::Worktree { from: root, worktree: name }, Some(&wt)).await.unwrap();
+        assert!(worktree_diff.files.iter().all(|f| f.path != "f.txt"), "stat-dirty but content-identical file must not be listed (Worktree): {:?}", worktree_diff.files);
+
+        let after_bytes = std::fs::read(&index_path).unwrap();
+        let after_mtime = std::fs::metadata(&index_path).unwrap().modified().unwrap();
+        assert_eq!(before_bytes, after_bytes, ".git/index bytes must be unchanged by diff (Wip/Worktree)");
+        assert_eq!(before_mtime, after_mtime, ".git/index mtime must be unchanged by diff (Wip/Worktree)");
+    }
+
+    /// The companion case: a file that's both stat-dirty *and* really changed must still be
+    /// listed, by both specs. The phantom-entry filter must not swallow real changes.
+    #[tokio::test]
+    async fn stat_dirty_and_really_changed_file_is_still_listed() {
+        let r = TestRepo::new();
+        r.write("f.txt", "hello\n");
+        r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
+        let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
+        let wt = r.path().canonicalize().unwrap();
+        let name = wt.to_string_lossy().into_owned();
+        let root = r.git(&["rev-parse", "HEAD"]);
+
+        r.write("f.txt", "hello\nworld\n");
+        bump_mtime(&wt.join("f.txt"));
+
+        let wip = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name.clone(), staged: false }, Some(&wt)).await.unwrap();
+        assert_eq!(wip.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), vec!["f.txt"], "a real change must still be listed (Wip)");
+
+        let worktree_diff = file_list(&repo, &cli(), r.path(), &DiffSpec::Worktree { from: root, worktree: name }, Some(&wt)).await.unwrap();
+        assert!(worktree_diff.files.iter().any(|f| f.path == "f.txt"), "a real change must still be listed (Worktree): {:?}", worktree_diff.files);
+    }
+
+    /// C1 fix-round-1 regression: a binary's numstat is always `-\t-\tpath` (`has_numstat` is
+    /// true even when nothing changed), so a stat-dirty-but-byte-identical binary must still be
+    /// dropped via the `dirty`/`git status` cross-check, not kept just because it has a numstat
+    /// record. And, as ever, no write to `.git/index`.
+    #[tokio::test]
+    async fn stat_dirty_unchanged_binary_is_not_listed_and_index_is_untouched() {
+        let r = TestRepo::new();
+        r.write_bytes("f.bin", b"\x00\x01\x02binary data\x00");
+        r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
+        let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
+        let wt = r.path().canonicalize().unwrap();
+        let name = wt.to_string_lossy().into_owned();
+        let root = r.git(&["rev-parse", "HEAD"]);
+
+        bump_mtime(&wt.join("f.bin"));
+
+        let index_path = wt.join(".git/index");
+        let before_bytes = std::fs::read(&index_path).unwrap();
+        let before_mtime = std::fs::metadata(&index_path).unwrap().modified().unwrap();
+
+        let wip = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name.clone(), staged: false }, Some(&wt)).await.unwrap();
+        assert!(wip.files.iter().all(|f| f.path != "f.bin"), "stat-dirty but byte-identical binary must not be listed (Wip): {:?}", wip.files);
+
+        let worktree_diff = file_list(&repo, &cli(), r.path(), &DiffSpec::Worktree { from: root, worktree: name }, Some(&wt)).await.unwrap();
+        assert!(worktree_diff.files.iter().all(|f| f.path != "f.bin"), "stat-dirty but byte-identical binary must not be listed (Worktree): {:?}", worktree_diff.files);
+
+        let after_bytes = std::fs::read(&index_path).unwrap();
+        let after_mtime = std::fs::metadata(&index_path).unwrap().modified().unwrap();
+        assert_eq!(before_bytes, after_bytes, ".git/index bytes must be unchanged by diff (Wip/Worktree, binary)");
+        assert_eq!(before_mtime, after_mtime, ".git/index mtime must be unchanged by diff (Wip/Worktree, binary)");
+    }
+
+    /// The companion case for a binary: stat-dirty *and* really changed must still be listed.
+    #[tokio::test]
+    async fn stat_dirty_binary_that_really_changed_is_still_listed() {
+        let r = TestRepo::new();
+        r.write_bytes("f.bin", b"\x00\x01\x02binary data\x00");
+        r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
+        let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
+        let wt = r.path().canonicalize().unwrap();
+        let name = wt.to_string_lossy().into_owned();
+        let root = r.git(&["rev-parse", "HEAD"]);
+
+        r.write_bytes("f.bin", b"\x00\x01\x02different binary\x00");
+        bump_mtime(&wt.join("f.bin"));
+
+        let wip = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name.clone(), staged: false }, Some(&wt)).await.unwrap();
+        assert_eq!(wip.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), vec!["f.bin"], "a real binary change must still be listed (Wip)");
+
+        let worktree_diff = file_list(&repo, &cli(), r.path(), &DiffSpec::Worktree { from: root, worktree: name }, Some(&wt)).await.unwrap();
+        assert!(worktree_diff.files.iter().any(|f| f.path == "f.bin"), "a real binary change must still be listed (Worktree): {:?}", worktree_diff.files);
     }
 
     /// Advances a nested git repository's own HEAD (used to build a "dirty submodule" scenario:

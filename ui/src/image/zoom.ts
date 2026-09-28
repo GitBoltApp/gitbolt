@@ -49,16 +49,16 @@ export function nextStepIndex(scale: number, dir: 1 | -1): number {
   return ([...numeric].reverse().find(([s]) => s < scale - 1e-9) ?? numeric[0])[1];
 }
 
-/** How close the swipe handle may come to the visible image's edges (H28): it stays grabbable,
- * clear of the resize handle of the panel beside it. */
-export const SWIPE_MARGIN_PX = 12;
+/** How close the swipe handle may come to the VIEWPORT's edges (never the image's, J10): its 3 px
+ * line stays on screen, and clear of the right panel's resizer, which overlaps the centre by 2 px
+ * (repo.css `.panel-resizer`). */
+export const SWIPE_VIEWPORT_EDGE_PX = 4;
 
-/** The swipe handle's position (px from the box's left), kept inside the part of the image on
- * screen, `SWIPE_MARGIN_PX` from its edges (H28). */
+/** The swipe handle's position (px from the box's left): anywhere over the image, its left edge
+ * (0%) to its right edge (100%, J10), except that it stays `SWIPE_VIEWPORT_EDGE_PX` inside the
+ * viewport where the image reaches or passes the viewport's edges (zoomed in). */
 export function clampSwipe(px: number, v: View, w: number, boxW: number): number {
-  const left = Math.max(0, v.x);
-  const right = Math.min(boxW, v.x + w * v.scale);
-  // Too small on screen for the margin: the image's own edges.
-  const m = right - left > 2 * SWIPE_MARGIN_PX ? SWIPE_MARGIN_PX : 0;
-  return Math.min(right - m, Math.max(left + m, px));
+  const left = Math.max(SWIPE_VIEWPORT_EDGE_PX, v.x);
+  const right = Math.max(left, Math.min(boxW - SWIPE_VIEWPORT_EDGE_PX, v.x + w * v.scale));
+  return Math.min(right, Math.max(left, px));
 }

@@ -12,6 +12,8 @@ pub mod graph;
 pub mod links;
 pub mod log;
 pub mod message_refs;
+pub mod open_copy;
+pub mod openers;
 pub mod payload;
 pub mod redact;
 pub mod reflog;

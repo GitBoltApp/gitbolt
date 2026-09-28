@@ -33,7 +33,8 @@ async function sampleFrames(page: Page): Promise<() => Promise<Frame[]>> {
     w.sampled = [];
     w.stopSampling = false;
     const sample = (phase: Frame['phase']) => {
-      const panel = document.querySelector('.diff-panel');
+      // The one on screen: a closed diff's panel is kept, hidden (J16).
+      const panel = [...document.querySelectorAll('.diff-panel')].find((p) => p.getClientRects().length > 0);
       w.sampled.push({
         path: panel?.querySelector('[data-testid="diff-path"]')?.textContent ?? null,
         lines: [...(panel?.querySelectorAll('.editor.modified .margin-view-overlays .line-numbers') ?? [])].map((e) => e.textContent?.trim() ?? ''),
@@ -154,7 +155,10 @@ test.describe('diff viewer controls', () => {
       await open(page, 'src/app.php');
       const d = diff(page);
       const bar = (await d.getByRole('toolbar', { name: 'Diff options' }).boundingBox())!;
+      // Open in… (J1) is on the bar too, at its far left.
+      await expect(d.getByRole('toolbar', { name: 'Diff options' }).getByRole('group', { name: 'Open in' })).toBeVisible();
       const boxes = await Promise.all([
+        d.getByRole('toolbar', { name: 'Diff options' }).getByRole('group', { name: 'Open in' }),
         d.getByRole('button', { name: 'Previous change' }),
         d.getByRole('button', { name: 'Next change' }),
         d.getByRole('button', { name: 'File View' }).locator('..'),
@@ -280,7 +284,8 @@ test.describe('diff viewer controls', () => {
     const d = diff(page);
     await expect(d.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true');
     await expect(d.getByRole('button', { name: 'Inline' })).toHaveAttribute('aria-pressed', 'false');
-    await expect.poll(() => sideRatio(page)).toBeGreaterThan(0.8);
+    // The reloaded page's first diff loads the editor's chunk again: allow for a cold start.
+    await expect.poll(() => sideRatio(page), { timeout: 15_000 }).toBeGreaterThan(0.8);
   });
 
   test('Ignore whitespace hides a re-indentation', async ({ page }) => {
@@ -345,6 +350,66 @@ test.describe('diff viewer controls', () => {
     await expect(active).toHaveText('55');
   });
 
+  test('right after a file is clicked, with the file list focused, F7 and Shift+↑/↓ step the changes; plain ↓ still switches files (J14)', async ({ page }) => {
+    await open(page, 'src/app.php');
+    const d = diff(page);
+    await computed(page);
+    const list = page.getByRole('listbox', { name: 'Changed files' });
+    await expect(list).toBeFocused();
+    const active = d.locator('.editor.modified .active-line-number');
+    await page.keyboard.press('F7');
+    await expect(active).toHaveText('5');
+    await page.keyboard.press('F7');
+    await expect(active).toHaveText('55');
+    await page.keyboard.press('Shift+ArrowUp');
+    await expect(active).toHaveText('5');
+    await page.keyboard.press('Shift+ArrowDown');
+    await expect(active).toHaveText('55');
+    // Still the same file, and the list keeps the keyboard.
+    await expect(d.getByTestId('diff-path')).toContainText('app.php');
+    await expect(list).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(d.getByTestId('diff-path')).toContainText('ws.txt');
+  });
+
+  test('Shift+↓ inside the editor extends its selection, not a change step (J14)', async ({ page }) => {
+    await open(page, 'src/app.php');
+    const d = diff(page);
+    await computed(page);
+    await d.locator('.editor.modified .view-line').filter({ hasText: 'final class Card' }).click();
+    const line = await d.locator('.editor.modified .active-line-number').textContent();
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.keyboard.press('Shift+ArrowDown');
+    // A selection of two lines, and the cursor two lines on: not at a change (5 or 55).
+    await expect(d.locator('.editor.modified .selected-text')).not.toHaveCount(0);
+    await expect(d.locator('.editor.modified .active-line-number')).toHaveText(String(Number(line) + 2));
+  });
+
+  test('closing and reopening a file wakes the kept panel fast: the reopen is well under the cold open (J16)', async ({ page }) => {
+    const ready: number[] = [];
+    page.on('console', (m) => {
+      const t = /\[gitbolt\] diff ready in (\d+) ms/.exec(m.text());
+      if (t) ready.push(Number(t[1]));
+    });
+    const d = diff(page);
+    await open(page, 'src/app.php');
+    await computed(page);
+    await expect.poll(() => ready.length).toBe(1);
+    for (let i = 0; i < 3; i++) {
+      // The open file's row toggles it closed (H5b), and again open.
+      await fileRow(page, 'src/app.php').click();
+      await expect(d).toHaveCount(0);
+      await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+      await open(page, 'src/app.php');
+      await expect.poll(() => ready.length).toBe(i + 2);
+      await expect(d.locator('.editor.modified .line-insert').first()).toBeVisible();
+    }
+    const [cold, ...reopens] = ready;
+    // Before J16 a reopen remounted the panel and its lazy chunk suspended: React holds a
+    // revealed Suspense boundary back ~300 ms. Now it's the diff's own present, tens of ms.
+    for (const t of reopens) expect(t, `cold ${cold} ms, reopens ${reopens.join(', ')} ms`).toBeLessThan(Math.min(cold / 3, 200));
+  });
+
   test('a toolbar click leaves the focus in the file list: ↓ then opens the next file', async ({ page }) => {
     await open(page, 'src/app.php');
     const d = diff(page);
@@ -353,7 +418,9 @@ test.describe('diff viewer controls', () => {
     await expect(d.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(d.getByTestId('diff-path')).toContainText('ws.txt');
+    // Another file's header follows once its diff is on screen, and this is still the page's first
+    // diff loading the editor's chunk (Monaco + Shiki, 3-5 s cold): allow for a cold start.
+    await expect(d.getByTestId('diff-path')).toContainText('ws.txt', { timeout: 15_000 });
   });
 
   test('File View shows the whole file at the commit', async ({ page }) => {

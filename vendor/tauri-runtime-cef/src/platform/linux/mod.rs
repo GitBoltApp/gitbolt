@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 mod event_loop;
+mod focus;
 mod monitor;
 mod taskbar;
 mod utils;

@@ -1982,6 +1982,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "ts-rs",
+ "zbus",
 ]
 
 [[package]]
@@ -6029,6 +6030,7 @@ dependencies = [
  "dioxus-debug-cell",
  "dirs 6.0.0",
  "dlopen2",
+ "gdk4-x11",
  "gtk4",
  "html5ever 0.29.1",
  "http",

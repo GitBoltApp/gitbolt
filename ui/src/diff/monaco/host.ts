@@ -27,6 +27,10 @@ export interface MonacoHost {
    * hidden until `showDiff` puts `next` on screen, so that one is never presented for a frame. */
   attachDiff(el: HTMLElement, next?: DiffContent): void;
   detachDiff(el: HTMLElement): void;
+  /** A kept (hidden, then shown again) panel's view (J16): true when the diff editor is still in
+   * `el`, so it needn't attach again. It hides a diff other than `next` until `showDiff` puts
+   * `next` on screen, as `attachDiff` does. False (nothing done) when it's elsewhere. */
+  keepDiff(el: HTMLElement, next: DiffContent): boolean;
   /** Resolves once the diff is on screen. Monaco computes it off-screen first, so the previous
    * diff stays until the new one swaps in whole: decorations, Hunk mode's collapsed regions and,
    * in Inline and Split, scrolled to its first change. A newer call makes an older one a no-op.
@@ -42,6 +46,8 @@ export interface MonacoHost {
   /** `next`: as `attachDiff`'s, for File View. */
   attachFile(el: HTMLElement, next?: FileContent): void;
   detachFile(el: HTMLElement): void;
+  /** As `keepDiff`, for File View. */
+  keepFile(el: HTMLElement, next: FileContent): boolean;
   /** `attachFile` must have run first: before that there's no file editor, and it resolves
    * without showing anything. */
   showFile(req: FileShowRequest): Promise<void>;
@@ -53,7 +59,14 @@ export interface MonacoHost {
   /** Plan 1C seam: its context menu replaces Monaco's. `null` restores Monaco's own menu, which
    * stays on in 1B (plan 1B deviation 1). */
   setContextMenuHandler(handler: ((e: EditorContextMenuEvent) => void) | null): void;
+  /** Lays the attached editors out in their boxes, except a hidden (0×0) one: a kept panel
+   * closed with `display: none` (J16) keeps its layout for when it shows again. */
   layout(): void;
+  /** Detaches an editor whose box has left the document without a detach: a kept panel
+   * (J16) unmounted while hidden, whose attach cleanup already ran (and kept the editor) when it
+   * was hidden. The view calls it on unmount (`releaseDetachedEditors`); the next attach elsewhere
+   * lets such a box go too. */
+  releaseDetached(): void;
 }
 
 type Side = EditorContextMenuEvent['side'];
@@ -82,6 +95,7 @@ function withBackstop(p: Promise<void>, ms: number): Promise<void> {
 const sticky = () => useEditorSettings.getState().settings.stickyScroll;
 
 const sameDiff = (a: DiffContent, b: DiffContent) => a.path === b.path && a.original === b.original && a.modified === b.modified;
+const sameFile = (a: FileContent, b: FileContent) => a.path === b.path && a.text === b.text;
 
 /** Hides `el` while the editor in it holds content (`shown`) other than what the attaching view
  * will show (`next`). Visible again once that is shown. */
@@ -127,6 +141,9 @@ class Host implements MonacoHost {
   private diffSeq = 0;
   private fileSeq = 0;
   private readonly ro = new ResizeObserver(() => this.layout());
+  /** The boxes the editors were last attached to (and are observed in), until detached. */
+  private diffBox: HTMLElement | null = null;
+  private fileBox: HTMLElement | null = null;
 
   constructor() {
     this.diffEl.className = 'monaco-host';
@@ -142,6 +159,9 @@ class Host implements MonacoHost {
 
   attachDiff(el: HTMLElement, next?: DiffContent): void {
     hideUnless(this.diffEl, this.diffShown, next, sameDiff);
+    // A previous box never detached (a kept panel unmounted while hidden, J16): stop observing it.
+    if (this.diffBox && this.diffBox !== el) this.ro.unobserve(this.diffBox);
+    this.diffBox = el;
     el.appendChild(this.diffEl);
     this.ro.observe(el);
     if (!this.diff) {
@@ -178,9 +198,16 @@ class Host implements MonacoHost {
     this.layout();
   }
 
+  keepDiff(el: HTMLElement, next: DiffContent): boolean {
+    if (!this.diff || this.diffEl.parentElement !== el) return false;
+    hideUnless(this.diffEl, this.diffShown, next, sameDiff);
+    return true;
+  }
+
   detachDiff(el: HTMLElement): void {
     this.dropAnchor();
     this.ro.unobserve(el);
+    if (this.diffBox === el) this.diffBox = null;
     if (this.diffEl.parentElement === el) el.removeChild(this.diffEl);
   }
 
@@ -314,7 +341,9 @@ class Host implements MonacoHost {
   }
 
   attachFile(el: HTMLElement, next?: FileContent): void {
-    hideUnless(this.fileEl, this.fileShown, next, (a, b) => a.path === b.path && a.text === b.text);
+    hideUnless(this.fileEl, this.fileShown, next, sameFile);
+    if (this.fileBox && this.fileBox !== el) this.ro.unobserve(this.fileBox);
+    this.fileBox = el;
     el.appendChild(this.fileEl);
     this.ro.observe(el);
     if (!this.file) {
@@ -324,9 +353,21 @@ class Host implements MonacoHost {
     this.layout();
   }
 
+  keepFile(el: HTMLElement, next: FileContent): boolean {
+    if (!this.file || this.fileEl.parentElement !== el) return false;
+    hideUnless(this.fileEl, this.fileShown, next, sameFile);
+    return true;
+  }
+
   detachFile(el: HTMLElement): void {
     this.ro.unobserve(el);
+    if (this.fileBox === el) this.fileBox = null;
     if (this.fileEl.parentElement === el) el.removeChild(this.fileEl);
+  }
+
+  releaseDetached(): void {
+    if (this.diffBox && !this.diffBox.isConnected) this.detachDiff(this.diffBox);
+    if (this.fileBox && !this.fileBox.isConnected) this.detachFile(this.fileBox);
   }
 
   async showFile(req: FileShowRequest): Promise<void> {
@@ -372,8 +413,11 @@ class Host implements MonacoHost {
 
   layout(): void {
     const size = (el: HTMLElement) => ({ width: el.parentElement?.clientWidth ?? 0, height: el.parentElement?.clientHeight ?? 0 });
-    if (this.diff && this.diffEl.parentElement) this.diff.layout(size(this.diffEl));
-    if (this.file && this.fileEl.parentElement) this.file.layout(size(this.fileEl));
+    const shown = (d: { width: number; height: number }) => d.width > 0 && d.height > 0;
+    const diff = size(this.diffEl);
+    const file = size(this.fileEl);
+    if (this.diff && this.diffEl.parentElement && shown(diff)) this.diff.layout(diff);
+    if (this.file && this.fileEl.parentElement && shown(file)) this.file.layout(file);
   }
 
   private wireMenu(ed: MonacoNs.editor.ICodeEditor, side: Side): void {

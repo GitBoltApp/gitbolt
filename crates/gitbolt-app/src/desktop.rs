@@ -22,22 +22,25 @@ pub const APPLICATION_NAME: &str = "GitBolt";
 /// Chromium feeds the input method from its own X11 events, outside GTK's event loop, so a
 /// re-emitted key never reaches it: in an editable field (Monaco's input) Ctrl+C, Ctrl+X,
 /// Ctrl+V, Ctrl+A, Ctrl+= / Ctrl+- / Ctrl+0 and every other chord the engine passes on are
-/// dropped before the page, or CEF's `on_pre_key_event`, sees them. Reproduced in the real CEF
-/// runtime with `IBUS_ENABLE_SYNC_MODE=0` (see the lane V2 report). In sync mode the engine's
-/// answer comes back from the filter call itself, so a key it doesn't handle goes on to Chromium
-/// as usual; typing through an IME still works. Forced whatever the session's value, unless
-/// `GITBOLT_IBUS_SYNC=0` (an escape hatch, should sync mode misbehave with some engine).
+/// dropped before the page, or CEF's `on_pre_key_event`, sees them. This was suspected as the
+/// cause of dropped keys (see the lane V2 report), but that theory didn't hold up: the real
+/// cause was mutter's `WM_TAKE_FOCUS` stealing X focus into GDK's focus window, fixed in
+/// `vendor/tauri-runtime-cef/src/platform/linux/focus.rs`. Sync mode adds per-keystroke IPC
+/// latency and changes IME behaviour for users of real input methods, so it's left off by
+/// default and is opt-in via `GITBOLT_IBUS_SYNC=1`, kept as a diagnostic knob should IBus's
+/// async mode misbehave again with some engine, not as the fix itself.
 ///
 /// `get` reads the process environment (a snapshot in tests).
 pub fn input_method_env(get: impl Fn(&str) -> Option<OsString>) -> Vec<(&'static str, &'static str)> {
-    if get(IBUS_SYNC_OPT_OUT).is_some_and(|v| v == "0") {
-        return vec![];
+    if get(IBUS_SYNC_OPT_IN).is_some_and(|v| v == "1") {
+        vec![(IBUS_SYNC, "1")]
+    } else {
+        vec![]
     }
-    vec![(IBUS_SYNC, "1")]
 }
 
 const IBUS_SYNC: &str = "IBUS_ENABLE_SYNC_MODE";
-const IBUS_SYNC_OPT_OUT: &str = "GITBOLT_IBUS_SYNC";
+const IBUS_SYNC_OPT_IN: &str = "GITBOLT_IBUS_SYNC";
 /// Set for the app's own process by the CEF runtime (`x11`, its X11-hosted browser).
 const GDK_BACKEND: &str = "GDK_BACKEND";
 
@@ -106,17 +109,18 @@ mod tests {
     }
 
     #[test]
-    fn ibus_is_forced_into_sync_mode_whatever_the_session_says() {
+    fn ibus_sync_mode_is_left_untouched_by_default() {
         for session in [&[][..], &[("IBUS_ENABLE_SYNC_MODE", "0")][..], &[("IBUS_ENABLE_SYNC_MODE", "2")][..]] {
-            assert_eq!(input_method_env(env_of(session)), vec![("IBUS_ENABLE_SYNC_MODE", "1")], "{session:?}");
+            assert_eq!(input_method_env(env_of(session)), vec![], "{session:?}");
         }
     }
 
     #[test]
-    fn gitbolt_ibus_sync_0_opts_out() {
-        assert_eq!(input_method_env(env_of(&[("GITBOLT_IBUS_SYNC", "0"), ("IBUS_ENABLE_SYNC_MODE", "0")])), vec![]);
-        // Any other value keeps the default.
+    fn gitbolt_ibus_sync_1_opts_in() {
         assert_eq!(input_method_env(env_of(&[("GITBOLT_IBUS_SYNC", "1")])), vec![("IBUS_ENABLE_SYNC_MODE", "1")]);
+        // Any other value keeps the default (untouched).
+        assert_eq!(input_method_env(env_of(&[("GITBOLT_IBUS_SYNC", "0")])), vec![]);
+        assert_eq!(input_method_env(env_of(&[("GITBOLT_IBUS_SYNC", "2")])), vec![]);
     }
 
     /// The variables the app changes for itself go back to the session's values for a child

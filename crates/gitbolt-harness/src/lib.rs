@@ -8,10 +8,62 @@ use axum::routing::get;
 use axum::Router;
 use gitbolt_core::api::{Api, Request};
 use gitbolt_core::error::{GbError, GbErrorKind};
-use std::sync::Arc;
+use gitbolt_core::openers::{ArgStyle, ExecArg, LaunchCommand, Opener, OpenerKind};
+use std::sync::{Arc, Mutex};
+
+/// The "Open in…" launches the harness recorded instead of running anything (tests never start
+/// a real application). Served as JSON at `GET /launches`: `[{program, args}]`, oldest first.
+#[derive(Default)]
+pub struct Launches(Mutex<Vec<serde_json::Value>>);
+
+impl Launches {
+    pub fn record(&self, c: &LaunchCommand) {
+        let args: Vec<String> = c.args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        self.0.lock().expect("launches poisoned").push(serde_json::json!({"program": c.program.to_string_lossy(), "args": args}));
+    }
+
+    pub fn all(&self) -> Vec<serde_json::Value> {
+        self.0.lock().expect("launches poisoned").clone()
+    }
+}
+
+/// What `/launches` names "Other…" (the Open With chooser) by, in place of a program.
+pub const CHOOSER_PROGRAM: &str = "open-with-chooser";
+
+/// A fixed opener list (one of each style; the programs don't exist) plus "Other…", whose
+/// launches `launches` records.
+pub fn with_fake_openers(api: Api, launches: Arc<Launches>) -> Api {
+    let chosen = launches.clone();
+    api.with_chooser(Arc::new(move |file: &std::path::Path| {
+        chosen.record(&LaunchCommand { program: CHOOSER_PROGRAM.into(), args: vec![file.into()] });
+        Ok(())
+    }))
+    .with_openers(
+        Arc::new(|| {
+            vec![
+                Opener::new("vscode", "VS Code", OpenerKind::Editor, "/fake/bin/code", ArgStyle::VsCode),
+                Opener::new("jetbrains-phpstorm", "PhpStorm", OpenerKind::Editor, "/fake/bin/phpstorm", ArgStyle::JetBrains),
+                Opener::new("text-editor", "Text Editor", OpenerKind::Editor, "/fake/bin/gnome-text-editor", ArgStyle::Exec(vec![ExecArg::File])),
+                Opener::new("file-manager", "Files", OpenerKind::FileManager, "/fake/bin/nautilus", ArgStyle::Exec(vec![ExecArg::Literal("--new-window".into()), ExecArg::File])),
+            ]
+        }),
+        Arc::new(move |c: &LaunchCommand| {
+            launches.record(c);
+            Ok(())
+        }),
+    )
+}
 
 pub async fn serve(listener: tokio::net::TcpListener, api: Arc<Api>) {
-    let app = Router::new().route("/health", get(|| async { "ok" })).route("/ws", get(ws)).with_state(api);
+    serve_with_launches(listener, api, Arc::default()).await;
+}
+
+pub async fn serve_with_launches(listener: tokio::net::TcpListener, api: Arc<Api>, launches: Arc<Launches>) {
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/launches", get(move || async move { axum::Json(launches.all()) }))
+        .route("/ws", get(ws))
+        .with_state(api);
     axum::serve(listener, app).await.expect("harness server failed");
 }
 

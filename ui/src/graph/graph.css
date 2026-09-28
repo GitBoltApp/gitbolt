@@ -1,4 +1,7 @@
-.graph-panel { display: flex; flex-direction: column; height: 100%; }
+/* No text selection anywhere in the table (J20): headers, rows, cells, chips, resizers. A
+   double-click or a drag selects rows, not text; copying is the explicit actions' job (the SHA
+   button). Inherited by everything inside; nothing re-enables it. */
+.graph-panel { display: flex; flex-direction: column; height: 100%; -webkit-user-select: none; user-select: none; }
 .graph-header { height: 24px; font-size: 10px; letter-spacing: 0.04em; color: var(--text-secondary); border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; overflow: hidden; }
 .graph-header-inner { display: flex; height: 100%; align-items: center; }
 /* Widths come from allocateColumns (columns.ts) as inline styles, identical to the row cells'. */
@@ -45,14 +48,29 @@
 .col-author { color: var(--text-disabled); }
 .col-date { color: var(--text-disabled); }
 .col-sha .sha { color: var(--text-disabled); }
-/* Brighter on the selected row (H14); the SHA's own hover and focus colours still win. */
-.graph-row[aria-selected="true"] > .col-author, .graph-row[aria-selected="true"] > .col-date, .graph-row[aria-selected="true"] > .col-sha .sha:not(:hover, :focus-visible) { color: var(--text-normal); }
+/* On the selected row they light up to the row's own white, like its summary (H14, J7). --text-normal (75%) over the blue band read as barely brighter than 40% on
+   the bare panel, next to a white summary. */
+.graph-row[aria-selected="true"] > .col-author, .graph-row[aria-selected="true"] > .col-date, .graph-row[aria-selected="true"] > .col-sha .sha { color: var(--text-selected); }
 /* The SHA button holds the whole hash; the column (SHORT_SHA_LEN = 6 to 40 characters wide, columns.ts) shows
    only as many WHOLE characters as fit: max-width snaps down to a multiple of 1ch (monospace). */
 .col-sha .sha { display: inline-block; vertical-align: top; max-width: round(down, 100%, 1ch); overflow: hidden; white-space: nowrap; }
 .sha:hover { color: var(--text-selected); text-decoration: underline; }
 /* `all: unset` above also drops the browser's focus ring: keyboard users need it back. */
 .sha:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 2px; color: var(--text-selected); }
+/* Row text motion (a 0.2 s ease-in): the text cells' colours ease when the selection moves, and when the row-dim mechanism (rowDim.ts) dims or
+   restores them. The parts with a colour of their own (the body, the SHA, the WIP bits) carry
+   it too; everything else inherits the cell's. Colour only, never a background, the rows' `top`
+   or the canvas; the durations are the motion tokens (theme/tokens.css), 0 under
+   prefers-reduced-motion. */
+.graph-row > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]), .graph-row > [data-col] :is(.dim, .sha, .wip-tag, .wip-counts) { transition: color var(--motion-row-color) ease-in; }
+/* The row-dim mechanism (rowDim.ts: J22's branch-hover focus, plan 1C's Ctrl+F): a dimmed row's
+   text cells take a dimmed colour, the selected row's white included (this comes after it, at
+   the same specificity for the SHA). Dimming eases out over --motion-row-dim (0.5 s ease-out,
+   no delay: the 500 ms hover timer is the delay); restoring takes the base rule's --motion-row-color. The colour itself depends
+   on the level (rowDimKindClass): branch-hover (J22) is lighter than a filter/search dim. */
+.graph-row > [data-col].row-dim, .graph-row > [data-col].row-dim :is(.dim, .sha, .wip-tag, .wip-counts) { transition: color var(--motion-row-dim) ease-out; }
+.graph-row > [data-col].row-dim-branch, .graph-row > [data-col].row-dim-branch :is(.dim, .sha, .wip-tag, .wip-counts) { color: var(--text-row-dimmed-branch); }
+.graph-row > [data-col].row-dim-filter, .graph-row > [data-col].row-dim-filter :is(.dim, .sha, .wip-tag, .wip-counts) { color: var(--text-row-dimmed); }
 .graph-canvas-clip { position: absolute; top: 0; left: 0; overflow: hidden; pointer-events: none; }
 .graph-canvas { position: absolute; top: 0; pointer-events: none; }
 .col-labels { display: flex; align-items: center; }
@@ -72,6 +90,12 @@
 /* Chips rest subdued, the lane colour at 25% (--graph-color-N-bg25), and light up
    to 45% with white text while their row is hovered or selected (H3). */
 .graph-row:hover .ref-label, .graph-row[aria-selected="true"] .ref-label { --chip-mix: 45%; color: var(--text-selected); }
+/* The checked-out branch's chip (J21) is always lit, whatever the row's hover or selection: the
+   look the others take only while their row is hovered or selected. */
+.ref-label.ref-label-head { --chip-mix: 45%; color: var(--text-selected); }
+/* Its check is ~1.4x the chip's other 12 px icons (17 px at the standard 22 px
+   chip), and scales with the density's chip height. */
+.ref-head-check { flex: none; width: round(calc(var(--graph-chip-h) * 0.76), 1px); height: round(calc(var(--graph-chip-h) * 0.76), 1px); }
 .ref-icon { display: inline-flex; flex: none; }
 /* A remote icon's tooltip (H12, RefLabels.tsx RemoteTip): the remote's name stands out in the
    tooltip's normal colour, the branch is dimmed. */
@@ -88,8 +112,13 @@
 .ref-label.ref-label-full { position: absolute; z-index: 3; margin-left: -5px; max-width: none; width: max-content; background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); }
 .ref-name-full { white-space: nowrap; }
 /* The dimmed branch-membership chip (F7): half opacity, over
-   the same chip look. Inert: no pointer (so no tooltip, and no click: F6 treats it as empty). */
-.ref-label.ref-label-dim { opacity: 0.5; pointer-events: none; }
+   the same chip look (always the lit one: it only shows on a hovered or selected row). It takes
+   the pointer like any chip (J6): hovered, it's at full strength, i.e. the hovered chip look, and
+   floats its untruncated copy (RefLabels.tsx); a press selects the row. Its opacity is 1 whenever
+   the copy exists (the copy is its DOM child, so hovering the copy hovers it), so it's no stacking
+   context then and the copy's z-index lifts it above the canvas like the first chip's. */
+.ref-label.ref-label-dim { opacity: 0.5; }
+.ref-label.ref-label-dim:hover { opacity: 1; }
 /* After a row's real chips (RefLabels.tsx): a flex item with a huge flex-shrink, so any overflow
    comes out of it (down to 0) before the real chip gives up a pixel. Inside, a one-line wrapping
    box: the zero-basis filler first, then the chip; once the slot is narrower than the chip, the
@@ -108,6 +137,10 @@
    at 25% (F8), exactly like the canvas part (draw.ts CONNECTOR_ALPHA),
    so the two still read as one line. */
 .ref-connector { flex: 1 0 8px; height: 1px; background: var(--lane-color); opacity: 0.25; }
+/* The checked-out branch's connector (J21) is a graph line: 2 px, the full lane colour, as the
+   canvas part (draw.ts `headRow`); the dimmed chip's slot filler carries the same line. */
+.ref-labels-head > .ref-connector { height: 2px; opacity: 1; }
+.ref-labels-head .ref-dim-fill { background: linear-gradient(var(--lane-color), var(--lane-color)) center / 100% 2px no-repeat; }
 /* Full commit-message tooltip (GraphView MessageCell); .hover-tooltip (ui/tooltip.css) keeps the
    line breaks (pre-wrap) and caps it at 600px wide. It never takes the pointer (F1), so a very
    long message is cut at this height rather than scrolled (overflow hidden: no dead scrollbar);

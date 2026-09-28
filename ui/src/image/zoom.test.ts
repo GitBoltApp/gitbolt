@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nextStepIndex, pixelated, startView, stepLabel, SWIPE_MARGIN_PX, ZOOM_STEPS, zoomAround } from './zoom';
+import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nextStepIndex, pixelated, startView, stepLabel, SWIPE_VIEWPORT_EDGE_PX, ZOOM_STEPS, zoomAround } from './zoom';
 
 describe('image zoom', () => {
   it('fits, centres and labels', () => {
@@ -44,15 +44,22 @@ describe('image zoom', () => {
     expect(startView(1, 100, 50, 400, 300)).toEqual({ scale: 1, x: 150, y: 125 });
   });
 
-  it('the swipe handle stays inside the visible image, a margin from its edges (H28)', () => {
-    // The image spans 100..300 px of a 400 px box.
+  it('the swipe handle travels the whole image, 0% to 100%, and is kept only inside the viewport (J10)', () => {
+    // The image spans 100..300 px of a 400 px box: its own edges, no margin inside it.
     const view = { scale: 1, x: 100, y: 0 };
-    expect(clampSwipe(390, view, 200, 400)).toBe(300 - SWIPE_MARGIN_PX);
-    expect(clampSwipe(0, view, 200, 400)).toBe(100 + SWIPE_MARGIN_PX);
+    expect(clampSwipe(390, view, 200, 400)).toBe(300);
+    expect(clampSwipe(0, view, 200, 400)).toBe(100);
     expect(clampSwipe(200, view, 200, 400)).toBe(200);
-    // An image wider than the box: its visible part is the whole box.
-    expect(clampSwipe(400, { scale: 1, x: -100, y: 0 }, 800, 400)).toBe(400 - SWIPE_MARGIN_PX);
-    // Too small on screen for the margin (6 px): its own edges.
+    // A tiny one (6 px on screen) too.
     expect(clampSwipe(400, { scale: 1, x: 197, y: 0 }, 6, 400)).toBe(203);
+    expect(clampSwipe(0, { scale: 1, x: 197, y: 0 }, 6, 400)).toBe(197);
+    // An image wider than the box (zoomed in): the viewport's edges, clear of the panel resizer
+    // beside it.
+    expect(clampSwipe(400, { scale: 1, x: -100, y: 0 }, 800, 400)).toBe(400 - SWIPE_VIEWPORT_EDGE_PX);
+    expect(clampSwipe(-50, { scale: 1, x: -100, y: 0 }, 800, 400)).toBe(SWIPE_VIEWPORT_EDGE_PX);
+    // One exactly as wide as the box: the same.
+    expect(clampSwipe(400, { scale: 1, x: 0, y: 0 }, 400, 400)).toBe(400 - SWIPE_VIEWPORT_EDGE_PX);
+    // The edge is only what keeps the 3 px line on screen and off the resizer: a few px.
+    expect(SWIPE_VIEWPORT_EDGE_PX).toBeLessThanOrEqual(4);
   });
 });

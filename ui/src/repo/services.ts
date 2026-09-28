@@ -31,6 +31,11 @@ export interface RepoServices {
   messages: CommitMessageCache;
   /** Loaded once per repo (a failed load is retried on the next call). */
   remotes(): Promise<RemotePayload[]>;
+  /** `remotes()`'s result, once it has resolved (else `null`): synchronous, for a caller that
+   * can't await it (a menu build, a message's first render). The one cache of "this repo's
+   * remotes, loaded" — `useProjectRemote` (`details/Message.tsx`) and the file menu's env
+   * (`menu/menuEnv.ts`) both read it instead of keeping their own. */
+  remotesSnapshot(): RemotePayload[] | null;
 }
 
 export const filesKey = (spec: DiffSpec) => JSON.stringify(spec);
@@ -46,6 +51,7 @@ export const contentSize = (c: DiffContentsPayload) =>
 
 export function createServices(repo: number): RepoServices {
   let remotes: Promise<RemotePayload[]> | undefined;
+  let snapshot: RemotePayload[] | null = null;
   return {
     details: new Loader((id) => api.commitDetails(repo, id), new Lru(256)),
     files: new Loader((k) => api.fileList(repo, JSON.parse(k) as DiffSpec), new Lru(128), 4, (k) => !isMutableKey(k)),
@@ -53,9 +59,10 @@ export function createServices(repo: number): RepoServices {
     signature: new Loader((id) => api.signature(repo, id), new Lru(512), 2),
     treeFiles: new Loader((id) => api.treeFiles(repo, id), new Lru(4), 1),
     messages: createCommitMessageCache((id) => api.commitMessage(repo, id)),
-    remotes: () => (remotes ??= api.remotes(repo).catch((e: unknown) => {
+    remotes: () => (remotes ??= api.remotes(repo).then((r) => (snapshot = r)).catch((e: unknown) => {
       remotes = undefined;
       throw e;
     })),
+    remotesSnapshot: () => snapshot,
   };
 }

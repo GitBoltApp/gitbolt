@@ -21,6 +21,9 @@ export interface DrawOptions {
   clipped?: boolean;
   /** The selected row's index: its band is drawn brighter (H14). */
   selected?: number;
+  /** The checked-out branch's row (HEAD's label): its label connector is a graph line, the
+   * lines' width in the full lane colour, not the quiet 1 px at 25% (J21). */
+  headRow?: number;
 }
 
 /** Alpha of the per-row lane-color band (ruling R10). */
@@ -38,6 +41,8 @@ export const RAIL_W = 2;
 /** Alpha of the chip-to-node connector: 25% (feedback F8),
  * so it reads quieter than the graph lines it crosses. `.ref-connector` in graph.css matches. */
 export const CONNECTOR_ALPHA = 0.25;
+/** The graph lines' width, in CSS px; also the checked-out branch's connector (J21). */
+export const LINE_W = 2;
 
 export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
   const { metrics: m, colors } = o;
@@ -70,14 +75,17 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
       // boundary: an odd device width centers on a half device pixel, an even one on a whole
       // one. All of this happens in device space (`* o.dpr` / `/ o.dpr`) so it's correct at any
       // dpr, and independent of whether `top` itself is a whole CSS pixel.
-      const lwDev = Math.max(1, Math.round(o.dpr));
+      // The checked-out branch's (J21): the graph lines' width, as a whole number of device
+      // pixels, at full alpha.
+      const head = i === o.headRow;
+      const lwDev = Math.max(1, Math.round((head ? LINE_W : 1) * o.dpr));
       ctx.lineWidth = lwDev / o.dpr;
       const cDev = (top + m.rowH / 2) * o.dpr;
       const y = (lwDev % 2 ? Math.floor(cDev) + 0.5 : Math.round(cDev)) / o.dpr;
       ctx.strokeStyle = c;
       ctx.lineCap = 'butt';
       ctx.setLineDash([]);
-      ctx.globalAlpha = CONNECTOR_ALPHA;
+      ctx.globalAlpha = head ? 1 : CONNECTOR_ALPHA;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(x, y);
@@ -86,7 +94,7 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
     }
   }
 
-  ctx.lineWidth = 2;
+  ctx.lineWidth = LINE_W;
   ctx.lineCap = 'round';
 
   for (let i = o.first; i < o.last; i++) {

@@ -1,12 +1,16 @@
 import { Check, Cloud, FolderOpen, Laptop, Tag } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
 import { GRAPH_COLORS } from '../theme/graphColors';
-import type { BranchMembership } from './membership';
+import { chipRefs, type BranchMembership } from './membership';
 import { useHoverTooltip } from '../ui/HoverTooltip';
 import { remoteShort } from './refNames';
 
+
+/** J22's branch-hover focus: a chip entered (the refs it stands for) or left (null). */
+type BranchHover = (refs: readonly string[] | null) => void;
+const NO_REFS: readonly string[] = [];
 
 /** A remote-only label's `name` is just the branch part (the payload drops the remote name,
  * since the chip's remote icons say it's remote). The `+N` tooltip is plain text with no icons,
@@ -43,7 +47,8 @@ function SourceIcon({ tip, children }: { tip: ReactNode; children: ReactNode }) 
 function ChipContent({ label, full = false }: { label: RefLabel; full?: boolean }) {
   return (
     <>
-      {label.isHead && <Check size={12} aria-label="HEAD" />}
+      {/* The checked-out branch's check, ~1.4x the other icons (J21, graph.css .ref-head-check). */}
+      {label.isHead && <Check size={12} className="ref-head-check" aria-label="HEAD" />}
       {label.tag && <Tag size={12} aria-label="tag" />}
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}
       <span className={full ? 'ref-name-full' : 'ref-name'}>{label.name}</span>
@@ -55,7 +60,8 @@ function ChipContent({ label, full = false }: { label: RefLabel; full?: boolean 
 }
 
 /**
- * The row's first label. Hovering it floats an untruncated copy (`.ref-label-full`) exactly over
+ * A chip: the row's first label, or the dimmed membership chip (J6). `content(full)` renders its
+ * inside, resting (`false`) or in the expanded copy (`true`). Hovering it floats an untruncated copy (`.ref-label-full`) exactly over
  * it: absolutely positioned (so the in-flow chip, the `+N` badge and the connector keep their
  * resting geometry) and above the canvas (graph.css). The copy takes the pointer and is a DOM
  * child of the chip, so the chip stays expanded wherever the pointer is over the copy, including
@@ -63,19 +69,34 @@ function ChipContent({ label, full = false }: { label: RefLabel; full?: boolean 
  * collapses once the pointer leaves the copy. The copy is never smaller than the chip it covers,
  * so expanding can't move the pointer "out" and back in (no flicker at the edge).
  */
-function Chip({ label, color }: { label: RefLabel; color: string }) {
+function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranchHover }: { color: string; className?: string; content: (full: boolean) => ReactNode; refs?: readonly string[]; onBranchHover?: BranchHover }) {
   const [expanded, setExpanded] = useState(false);
+  // J22: entering a branch chip starts its branch's focus, leaving ends it. A chip unmounted
+  // under the pointer (scrolled out of the virtual window) never gets its mouseleave: end it then.
+  const focusing = useRef<BranchHover | null>(null);
+  useEffect(() => () => focusing.current?.(null), []);
+  const enter = () => {
+    setExpanded(true);
+    if (!onBranchHover || refs.length === 0) return;
+    focusing.current = onBranchHover;
+    onBranchHover(refs);
+  };
+  const leave = () => {
+    setExpanded(false);
+    focusing.current?.(null);
+    focusing.current = null;
+  };
   return (
     <span
-      className="ref-label"
+      className={className}
       style={{ ['--lane-color' as string]: color }}
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
+      onMouseEnter={enter}
+      onMouseLeave={leave}
     >
-      <ChipContent label={label} />
+      {content(false)}
       {expanded && (
         <span className="ref-label ref-label-full" aria-hidden="true">
-          <ChipContent label={label} full />
+          {content(true)}
         </span>
       )}
     </span>
@@ -92,14 +113,18 @@ function More({ rest }: { rest: RefLabel[] }) {
   );
 }
 
-/** The dimmed branch-membership chip itself (F7): the chip look at half opacity,
- * just the branch name, inert (`pointer-events: none`: no tooltip, and a press on it
- * is a press on the empty cell). */
-function DimChip({ membership }: { membership: BranchMembership }) {
+/** The dimmed branch-membership chip itself (F7): the chip look at half opacity, just the branch name, no tooltip (F9). Otherwise it behaves like the first chip
+ * (J6): hovered, it lights up to full strength and floats its untruncated copy, and a press on
+ * it selects the row. */
+function DimChip({ membership, onBranchHover }: { membership: BranchMembership; onBranchHover?: BranchHover }) {
   return (
-    <span className="ref-label ref-label-dim" style={{ ['--lane-color' as string]: GRAPH_COLORS[membership.color % GRAPH_COLORS.length] }}>
-      <span className="ref-name">{membership.name}</span>
-    </span>
+    <Chip
+      className="ref-label ref-label-dim"
+      refs={[membership.ref]}
+      onBranchHover={onBranchHover}
+      color={GRAPH_COLORS[membership.color % GRAPH_COLORS.length]}
+      content={(full) => <span className={full ? 'ref-name-full' : 'ref-name'}>{membership.name}</span>}
+    />
   );
 }
 
@@ -109,20 +134,23 @@ function DimChip({ membership }: { membership: BranchMembership }) {
  * `.ref-dim-slot`, which gives up its width before the real chip does and drops the dimmed chip
  * whole when it doesn't fit (graph.css), so it never truncates or displaces a real chip.
  */
-export function RefLabels({ labels, color, membership = null }: { labels: RefLabel[]; color: number; membership?: BranchMembership | null }) {
-  if (labels.length === 0) return membership ? <span className="ref-labels"><DimChip membership={membership} /></span> : null;
+export function RefLabels({ labels, color, membership = null, onBranchHover }: { labels: RefLabel[]; color: number; membership?: BranchMembership | null; onBranchHover?: BranchHover }) {
+  if (labels.length === 0) return membership ? <span className="ref-labels"><DimChip membership={membership} onBranchHover={onBranchHover} /></span> : null;
   const c = GRAPH_COLORS[color % GRAPH_COLORS.length];
   const rest = labels.slice(1);
+  // The checked-out branch (HEAD's label always sorts first): its chip is always lit and its
+  // connector is the graph line's width and colour (J21, graph.css; draw.ts `headRow`).
+  const head = labels[0].isHead;
   return (
     // `--lane-color` is set here (not just on the chip) so `.ref-connector`, a sibling of the
     // chip, can read it too: it continues the connector drawn in the canvas (see draw.ts).
-    <span className="ref-labels" style={{ ['--lane-color' as string]: c }}>
-      <Chip label={labels[0]} color={c} />
+    <span className={head ? 'ref-labels ref-labels-head' : 'ref-labels'} style={{ ['--lane-color' as string]: c }}>
+      <Chip color={c} className={head ? 'ref-label ref-label-head' : 'ref-label'} refs={chipRefs(labels[0])} onBranchHover={onBranchHover} content={(full) => <ChipContent label={labels[0]} full={full} />} />
       {rest.length > 0 && <More rest={rest} />}
       {membership && (
         <span className="ref-dim-slot">
           <span className="ref-dim-fill" />
-          <DimChip membership={membership} />
+          <DimChip membership={membership} onBranchHover={onBranchHover} />
         </span>
       )}
       <span className="ref-connector" />

@@ -1,19 +1,25 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, List, ListTree } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileListPayload } from '../api/gen/FileListPayload';
+import { fileMenu, folderMenu, warmFileMenu } from '../menu/menuEnv';
+import { openContextMenu, useMenu } from '../menu/menuStore';
 import { filesKey } from '../repo/services';
 import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
+import { DENSITY_METRICS, useDensity } from '../theme/density';
+import { useHoverTooltip } from '../ui/HoverTooltip';
 import { useFileListPrefs } from './fileListPrefs';
 import { allFolderPaths, buildRows, countByStatus, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
+import { PathTooltip } from './RenamePaths';
 import { StatusIcon } from './StatusIcon';
 import './files.css';
 
-/** One file-list row (plan 1B global constraints). */
-export const FILE_ROW_H = 24;
+/** A file-list row's height, CSS px: the density preset's (feedback H1; `--file-row-h` on :root
+ * carries the same value). */
+export const useFileRowH = () => useDensity((s) => DENSITY_METRICS[s.density].fileRowH);
 
 /** "View all files": every path in `commit`'s tree (null until loaded), or the load's error. */
 function useTreePaths(commit: string | null) {
@@ -61,11 +67,22 @@ function StatusCountsView({ counts, testId, size }: { counts: StatusCounts; test
   );
 }
 
-function Row({ id, row, mode, active, top, onMouseDown }: { id: string; row: FileRow; mode: FileListMode; active: boolean; top: number; onMouseDown: (e: MouseEvent) => void }) {
-  const style = { top, height: FILE_ROW_H, paddingLeft: rowIndent(row.depth), gap: TREE.gap };
+interface RowProps { id: string; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; onMouseDown: (e: MouseEvent) => void; onContextMenu: (e: MouseEvent) => void }
+
+/** The file list a row is in: its tooltip opens left of it, over the center panel, so it never
+ * covers the rows above or below (feedback J18). */
+const fileListOf = (row: HTMLElement) => row.closest('.file-list');
+
+/** A folder row, or a file row with its full path in an instant hover tooltip, left of the list (a rename: old,
+ * ↓, new; feedback H22). A renamed file shows its new name (tree) or new path (path view); the
+ * old one is in the tooltip and the diff header. */
+function Row({ id, row, mode, active, top, height, onMouseDown, onContextMenu }: RowProps) {
+  const style = { top, height, paddingLeft: rowIndent(row.depth), gap: TREE.gap };
+  const file = row.kind === 'file' ? row : null;
+  const tip = useHoverTooltip({ content: file ? <PathTooltip path={file.target.path} oldPath={file.change?.oldPath ?? null} /> : null, disabled: !file, placement: 'left-of', leftOf: fileListOf });
   if (row.kind === 'folder') {
     return (
-      <div id={id} role="option" aria-selected={active} aria-expanded={row.expanded} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown}>
+      <div id={id} role="option" aria-selected={active} aria-expanded={row.expanded} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={onContextMenu}>
         <span className="file-chevron" style={{ width: TREE.chevron }}>{row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="file-name">{row.name}</span>
         {row.counts && <StatusCountsView counts={row.counts} testId="folder-counts" size={10} />}
@@ -75,16 +92,30 @@ function Row({ id, row, mode, active, top, onMouseDown }: { id: string; row: Fil
   const c = row.change;
   const s = stats(c);
   return (
-    <div id={id} role="option" aria-selected={active} data-kind="file" data-path={row.target.path} className={c ? 'file-row' : 'file-row unchanged'} style={style} title={s || undefined} onMouseDown={onMouseDown}>
+    <div
+      id={id}
+      role="option"
+      aria-selected={active}
+      data-kind="file"
+      data-path={row.target.path}
+      className={c ? 'file-row' : 'file-row unchanged'}
+      style={style}
+      onMouseDown={onMouseDown}
+      onContextMenu={(e) => {
+        tip.hide();
+        onContextMenu(e);
+      }}
+      {...tip.triggerProps}
+    >
       {c ? <StatusIcon status={c.status} size={TREE.icon} /> : <span className="status-spacer" style={{ width: TREE.icon }} aria-hidden="true" />}
-      {c?.oldPath && <span className="file-dir">{c.oldPath} → </span>}
-      {(mode === 'path' || c?.oldPath) && row.dir && <span className="file-dir">{row.dir}/</span>}
+      {mode === 'path' && row.dir && <span className="file-dir">{row.dir}/</span>}
       <span className="file-name">{row.name}</span>
       {s && (
         <span className="file-stats">
           {c?.additions === null ? 'binary' : <><span className="added">+{c?.additions}</span> <span className="deleted">−{c?.deletions}</span></>}
         </span>
       )}
+      {tip.tooltip}
     </div>
   );
 }
@@ -93,9 +124,10 @@ function Row({ id, row, mode, active, top, onMouseDown }: { id: string; row: Fil
  * The active row: the keyboard cursor while the diff it was set for is still open, else the
  * open file's row, else (its folder collapsed) the deepest visible folder holding it.
  */
-function activeRowId(rows: FileRow[], cursor: Cursor | null, open: { key: string; path: string } | null, own: boolean): string | null {
+function activeRowId(rows: FileRow[], cursor: Cursor | null, open: { key: string; path: string } | null, own: boolean, cursorHere: boolean): string | null {
   const openKey = open?.key ?? null;
-  if (cursor && cursor.diffKey === openKey && rows.some((r) => r.id === cursor.id)) return cursor.id;
+  // With no diff open, only the list the cursor was last put in shows it (a WIP has two).
+  if (cursor && cursor.diffKey === openKey && (openKey !== null || cursorHere) && rows.some((r) => r.id === cursor.id)) return cursor.id;
   if (!own || !open) return null;
   const row = rows.find((r) => r.kind === 'file' && r.target.key === open.key);
   if (row) return row.id;
@@ -119,23 +151,37 @@ interface Cursor { id: string; diffKey: string | null }
 export function FileList({ list, spec, label, allFilesCommit = null }: { list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null }) {
   const store = useRepoViewStore();
   const openFile = useRepoView((s) => s.openFile);
-  const setFocus = useRepoView((s) => s.setFocus);
+  const closeDiffTo = useRepoView((s) => s.closeDiffTo);
+  const closeDiff = useRepoView((s) => s.closeDiff);
   const openKey = useRepoView((s) => s.diff?.key ?? null);
   const openPath = useRepoView((s) => s.diff?.path ?? null);
-  const diffOpen = openKey !== null;
   const { mode, sort, allFiles, set: setPrefs } = useFileListPrefs();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [cursor, setCursor] = useState<Cursor | null>(null);
+  // The file menu's openers and remotes, loaded ahead so it opens fully drawn (spec §7).
+  const services = useRepoView((s) => s.services);
+  const graph = useRepoView((s) => s.graph);
+  useEffect(() => warmFileMenu(services, graph), [services, graph]);
   const tree = useTreePaths(allFiles ? allFilesCommit : null);
   const paths = tree.paths;
   const unchanged = useMemo(() => (allFiles && allFilesCommit && paths ? { commit: allFilesCommit, paths } : null), [allFiles, allFilesCommit, paths]);
   const rows = useMemo(() => buildRows({ files: list.files, spec, unchanged, mode, sort, collapsed }), [list.files, spec, unchanged, mode, sort, collapsed]);
   // Every target key of this list starts with its spec's key (`targetFor`, `fileViewTarget`).
   const own = openKey !== null && openKey.startsWith(`${filesKey(spec)}|`);
-  const activeId = activeRowId(rows, cursor, openKey !== null && openPath !== null ? { key: openKey, path: openPath } : null, own);
+  const cursorHere = useRepoView((s) => s.fileListCursor === filesKey(spec));
+  const setFileListCursor = useRepoView((s) => s.setFileListCursor);
+  const activeId = activeRowId(rows, cursor, openKey !== null && openPath !== null ? { key: openKey, path: openPath } : null, own, cursorHere);
   const scrollRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
-  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => FILE_ROW_H, overscan: 12, initialRect: { width: 400, height: 400 } });
+  const rowH = useFileRowH();
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => rowH, overscan: 12, initialRect: { width: 400, height: 400 } });
+  // A density change re-lays the rows out at the new height.
+  const laidOutRowH = useRef(rowH);
+  useLayoutEffect(() => {
+    if (laidOutRowH.current === rowH) return;
+    laidOutRowH.current = rowH;
+    v.measure();
+  }, [rowH, v]);
   const counts = countByStatus(list.files);
   const items = v.getVirtualItems();
   const activeIndex = rows.findIndex((r) => r.id === activeId);
@@ -154,14 +200,50 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     openFile(row.target, [near(-1), near(1)].filter((t): t is DiffTarget => t !== null));
   };
   // Puts the cursor on `row`; a file row opens, so the cursor belongs to its diff.
-  const place = (row: FileRow) => setCursor({ id: row.id, diffKey: row.kind === 'file' ? row.target.key : openKey });
-  const moveTo = (index: number) => {
-    const j = Math.max(0, Math.min(rows.length - 1, index));
+  const place = (row: FileRow) => {
+    setCursor({ id: row.id, diffKey: row.kind === 'file' ? row.target.key : openKey });
+    setFileListCursor(filesKey(spec));
+  };
+  /** The first file row from `from` (inclusive) stepping by `step`; failing that, by `fallback`
+   * from the same place. -1 when there's none. */
+  const fileAt = (from: number, step: 1 | -1, fallback?: 1 | -1): number => {
+    for (let j = from; j >= 0 && j < rows.length; j += step) if (rows[j].kind === 'file') return j;
+    return fallback ? fileAt(from, fallback) : -1;
+  };
+  /** Puts the cursor on file row `j`, scrolls to it and opens it; nothing if there's none, or
+   * it's the open file already. */
+  const moveToFile = (j: number) => {
     const row = rows[j];
-    if (!row) return;
+    if (row?.kind !== 'file' || (j === activeIndex && row.target.key === openKey)) return;
     place(row);
     v.scrollToIndex(j, { align: 'auto' });
     open(j);
+  };
+  // Feedback H5b: the open file's row closes it (a toggle). The row keeps the cursor, with no
+  // diff, so Enter/Space opens it again; the keyboard stays in the list.
+  const toggleFile = (row: Extract<FileRow, { kind: 'file' }>, index: number) => {
+    if (row.target.key === openKey) {
+      setCursor({ id: row.id, diffKey: null });
+      setFileListCursor(filesKey(spec));
+      closeDiffTo('files');
+    } else {
+      place(row);
+      open(index);
+    }
+  };
+  // The file or folder menu (spec §7) for `row`. A folder's Open in ▸ Files opens a path in it:
+  // its first file listed.
+  const menuFor = (row: FileRow) => {
+    if (row.kind === 'file') return fileMenu(store, spec, row.target, row.change !== null);
+    const inside = `${row.path}/`;
+    const child = list.files.find((f) => f.path.startsWith(inside))?.path ?? unchanged?.paths.find((p) => p.startsWith(inside)) ?? `${inside}${row.name}`;
+    return folderMenu(store, spec, row.path, child);
+  };
+  // From the keyboard, at `at`; timed from the key, before the rows are built.
+  const showMenu = (row: FileRow, at: { x: number; y: number }) => {
+    const t0 = performance.now();
+    const build = menuFor(row);
+    useMenu.getState().show(build(), at.x, at.y, t0, build);
   };
   const toggle = (path: string, expand?: boolean) =>
     setCollapsed((c) => {
@@ -176,25 +258,55 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     if (e.ctrlKey || e.altKey || e.metaKey || store.getState().panelPending) return;
     const i = activeIndex;
     const row = rows[i];
-    const page = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 240) / FILE_ROW_H) - 1);
+    // The context menu from the keyboard (the menu key, Shift+F10), at the active file's row.
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      const el = row ? document.getElementById(rowId(i)) : null;
+      if (row && el) {
+        const r = el.getBoundingClientRect();
+        showMenu(row, { x: r.left + rowIndent(row.depth), y: r.bottom });
+        e.preventDefault();
+      }
+      return;
+    }
+    const page = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 240) / rowH) - 1);
+    const last = rows.length - 1;
+    // Feedback J3: the moves land on file rows only (folder rows are skipped), and open them.
     switch (e.key) {
-      case 'ArrowDown': moveTo(i + 1); break;
-      case 'ArrowUp': moveTo(i < 0 ? 0 : i - 1); break;
-      case 'PageDown': moveTo(i + page); break;
-      case 'PageUp': moveTo(i - page); break;
-      case 'Home': moveTo(0); break;
-      case 'End': moveTo(rows.length - 1); break;
+      case 'ArrowDown': moveToFile(i < 0 ? fileAt(0, 1) : fileAt(i + 1, 1)); break;
+      case 'ArrowUp': moveToFile(i < 0 ? fileAt(0, 1) : fileAt(i - 1, -1)); break;
+      case 'PageDown': { const t = Math.min(last, i + page); moveToFile(fileAt(t, 1, -1)); break; }
+      case 'PageUp': { const t = Math.max(0, i - page); moveToFile(fileAt(t, -1, 1)); break; }
+      case 'Home': moveToFile(fileAt(0, 1)); break;
+      case 'End': moveToFile(fileAt(last, -1)); break;
+      // Feedback J2: ← collapses an expanded folder; anywhere else it closes the diff and goes
+      // back to the graph (the selection stays). → expands a collapsed folder, moves into an
+      // expanded one (its first child), or opens the file (nothing if it's already open).
       case 'ArrowLeft':
         if (row?.kind === 'folder' && row.expanded) {
           place(row);
           toggle(row.path, false);
-        } else if (!diffOpen) setFocus('graph');
+        } else closeDiff();
         break;
       case 'ArrowRight':
         if (row?.kind === 'folder' && !row.expanded) {
           place(row);
           toggle(row.path, true);
-        } else if (diffOpen) setFocus('diff');
+        } else if (row?.kind === 'folder') {
+          // Expanded: on to its first child (a file opens, as every move onto one does).
+          const child = rows[i + 1];
+          if (child?.kind === 'file' && child.depth > row.depth) moveToFile(i + 1);
+          else if (child && child.depth > row.depth) {
+            place(child);
+            v.scrollToIndex(i + 1, { align: 'auto' });
+          }
+        } else if (row?.kind === 'file' && row.target.key !== openKey) toggleFile(row, i);
+        break;
+      case 'Enter':
+      case ' ':
+        if (row?.kind === 'folder') {
+          place(row);
+          toggle(row.path);
+        } else if (row?.kind === 'file') toggleFile(row, i);
         break;
       default:
         return;
@@ -217,7 +329,9 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
         <div className="file-toolbar-start">
           {mode === 'tree' ? (
             // One smart button: expands everything unless everything already is (then collapses).
-            <button type="button" className="toolbar-button" disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
+            // `icon-lead` (feedback H17): the chevrons' ink starts ~3 px into their box, so the
+            // left padding is trimmed to match the text's right padding.
+            <button type="button" className="toolbar-button icon-lead" disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
               {allExpanded ? <ChevronsDownUp size={12} aria-hidden /> : <ChevronsUpDown size={12} aria-hidden />}
               {allExpanded ? 'Collapse all' : 'Expand all'}
             </button>
@@ -263,12 +377,15 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
                 mode={mode}
                 active={row.id === activeId}
                 top={item.start}
+                height={rowH}
                 onMouseDown={(e) => {
-                  if (e.button !== 0) return;
+                  // A double-click's second press would toggle the file straight back.
+                  if (e.button !== 0 || e.detail > 1) return;
+                  if (row.kind === 'file') return toggleFile(row, item.index);
                   place(row);
-                  if (row.kind === 'folder') toggle(row.path);
-                  else open(item.index);
+                  toggle(row.path);
                 }}
+                onContextMenu={(e) => openContextMenu(e, menuFor(row))}
               />
             );
           })}

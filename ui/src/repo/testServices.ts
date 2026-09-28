@@ -2,6 +2,7 @@
 // every store/component test. Test-only; nothing in the app imports this module.
 import type { CommitMessageCache } from '../api/commitMessages';
 import type { CommitMessage } from '../api/gen/CommitMessage';
+import type { RemotePayload } from '../api/gen/RemotePayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
 import type { RepoServices } from './services';
@@ -12,6 +13,22 @@ export const idle = <V,>(): Loader<V> => new Loader<V>(() => new Promise<V>(() =
 /** A message cache whose loads never settle. */
 export const idleMessages = (): CommitMessageCache => ({ capacity: 0, peek: () => undefined, get: () => new Promise<CommitMessage>(() => {}) });
 
+/** `remotes()` and `remotesSnapshot()`, wired the way `createServices` wires them, from any
+ * `fetch` a test gives `remotes:` in its overrides (else one that never settles): the snapshot
+ * fills in once `fetch` resolves, whichever test drives it (a resolved array, a held promise a
+ * test answers later, …). */
+function wireRemotes(fetch: () => Promise<RemotePayload[]>): Pick<RepoServices, 'remotes' | 'remotesSnapshot'> {
+  let pending: Promise<RemotePayload[]> | undefined;
+  let snapshot: RemotePayload[] | null = null;
+  return {
+    remotes: () => (pending ??= fetch().then((r) => (snapshot = r)).catch((e: unknown) => {
+      pending = undefined;
+      throw e;
+    })),
+    remotesSnapshot: () => snapshot,
+  };
+}
+
 /** `RepoServices` whose loads never settle, with any member replaced by `overrides`. */
 export function fakeServices(overrides: Partial<RepoServices> = {}): RepoServices {
   return {
@@ -21,8 +38,9 @@ export function fakeServices(overrides: Partial<RepoServices> = {}): RepoService
     signature: idle(),
     treeFiles: idle(),
     messages: idleMessages(),
-    remotes: async () => [],
+    ...wireRemotes(async () => []),
     ...overrides,
+    ...(overrides.remotes && !overrides.remotesSnapshot ? wireRemotes(overrides.remotes) : {}),
   };
 }
 
@@ -48,8 +66,9 @@ export function recordingServices(overrides: Partial<RepoServices> = {}) {
     signature: mk('signature'),
     treeFiles: mk('tree'),
     messages,
-    remotes: async () => [],
+    ...wireRemotes(async () => []),
     ...overrides,
+    ...(overrides.remotes && !overrides.remotesSnapshot ? wireRemotes(overrides.remotes) : {}),
   };
   const settle = (call: string) => {
     const p = pending.get(call);

@@ -175,6 +175,25 @@ describe('drawGraph', () => {
     expect(calls.slice(0, firstLine).findLast((c) => c.startsWith('globalAlpha='))).toBe('globalAlpha=1');
   });
 
+  it("the checked-out branch's connector (headRow) is the graph line's width and the full lane colour (J21)", () => {
+    const rows = [row(0, 'commit', []), row(1, 'commit', [1 << 20])];
+    for (const dpr of [1, 1.5, 2]) {
+      const { ctx, calls } = recorder();
+      drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set([0, 1]), dpr, headRow: 1 });
+      const moves = calls.map((c, i) => [c, i] as const).filter(([c]) => c.startsWith('moveTo(0,'));
+      expect(moves).toHaveLength(2);
+      const style = (at: number, prop: string) => calls.slice(0, calls.indexOf('stroke()', at)).findLast((c) => c.startsWith(`${prop}=`));
+      // Row 0: the quiet 1-device-pixel line at 25%.
+      expect(style(moves[0][1], 'globalAlpha'), `dpr ${dpr}`).toBe('globalAlpha=0.25');
+      expect(style(moves[0][1], 'lineWidth')).toBe(`lineWidth=${Math.max(1, Math.round(dpr)) / dpr}`);
+      // HEAD's row: 2 CSS px (a whole number of device pixels, centred on a device-pixel line), at full alpha.
+      expect(style(moves[1][1], 'globalAlpha'), `dpr ${dpr}`).toBe('globalAlpha=1');
+      expect(style(moves[1][1], 'lineWidth')).toBe(`lineWidth=${Math.round(2 * dpr) / dpr}`);
+      const y = Number(/moveTo\(0,(.*)\)/.exec(moves[1][0])![1]);
+      expect((y * dpr) % 1).toBe(Math.round(2 * dpr) % 2 ? 0.5 : 0);
+    }
+  });
+
   it('still snaps to a device pixel boundary with a fractional scrollTop', () => {
     const { ctx, calls } = recorder();
     const rows = [row(0, 'commit', [])];

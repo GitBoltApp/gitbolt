@@ -154,14 +154,15 @@ describe('RepoView', () => {
       return { grid, stale, release: () => act(async () => release()) };
     }
 
-    it('→ lands on the files zone, then the new list once it swaps in', async () => {
+    it('→ (J2: opens the new first file) lands on the files zone, then the new list once it swaps in', async () => {
       const { grid, stale, release } = await pendingB();
-      fireEvent.keyDown(grid, { key: 'ArrowRight' });
-      expect(document.activeElement).not.toBe(stale);
-      expect(document.activeElement).toHaveAttribute('data-focus-zone', 'files');
       // Keys on the stale list open nothing.
       fireEvent.keyDown(stale, { key: 'ArrowDown' });
       expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
+      grid.focus();
+      await act(async () => fireEvent.keyDown(grid, { key: 'ArrowRight' }));
+      expect(document.activeElement).not.toBe(stale);
+      expect(document.activeElement).toHaveAttribute('data-focus-zone', 'files');
       await release();
       const box = screen.getByRole('listbox', { name: 'Changed files' });
       expect(box).not.toBe(stale);
@@ -324,16 +325,31 @@ describe('RepoView', () => {
     expect(useToast.getState().message).toBe('Copy failed');
   });
 
-  it('ArrowRight in the graph moves the focus zone to the files', () => {
-    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
+  it('J2: → in the graph opens the first file as the list displays it and focuses the list; with none, it stays', async () => {
+    useFileListPrefs.getState().set({ mode: 'path', sort: 'status', allFiles: false });
+    const f = (path: string, status: string) => ({ path, oldPath: null, status, additions: 1, deletions: 0, old: { kind: 'object' as const, oid: B }, new: { kind: 'object' as const, oid: A }, submodule: false });
+    const list: FileListPayload = { files: [f('a.txt', 'M'), f('z.txt', 'A')], added: 2, deleted: 0 };
+    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async (k: string) => (k.includes(A) ? list : EMPTY_LIST), new Lru(10)) })} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
     expect(grid).toHaveAttribute('data-focus-zone', 'graph');
-    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    // An empty commit: nothing to open, the graph keeps the keyboard.
+    fireEvent.mouseDown(screen.getAllByRole('row')[1]);
+    await screen.findByRole('listbox', { name: 'Changed files' });
+    grid.focus();
     expect(fireEvent.keyDown(grid, { key: 'ArrowRight' })).toBe(false); // handled: default prevented
-    expect(grid).toHaveAttribute('data-zone-focused', 'false');
+    expect(document.activeElement).toBe(grid);
+    expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
+    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    await screen.findByText('z.txt');
+    grid.focus();
+    await act(async () => fireEvent.keyDown(grid, { key: 'ArrowRight' }));
+    expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('z.txt');
+    const box = screen.getByRole('listbox', { name: 'Changed files' });
+    expect(document.activeElement).toBe(box);
+    expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('opening a diff hands DOM focus to the file list; → focuses the diff and Escape closes it back to the graph', async () => {
+  it('opening a diff hands DOM focus to the file list; → on the open file does nothing and Escape closes it back to the graph', async () => {
     const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
@@ -347,7 +363,8 @@ describe('RepoView', () => {
     expect(box.closest('[data-focus-zone]')).toHaveAttribute('data-zone-focused', 'true');
     fireEvent.keyDown(box, { key: 'ArrowRight' });
     const region = screen.getByRole('region', { name: 'Diff' });
-    expect(document.activeElement).toBe(region);
+    expect(document.activeElement).toBe(box);
+    act(() => region.focus());
     fireEvent.keyDown(region, { key: 'Escape' });
     expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
     expect(screen.getByRole('grid', { name: 'Commit graph' })).toBe(grid);
@@ -386,8 +403,9 @@ describe('RepoView', () => {
     const hover = document.createElement('div');
     hover.className = 'monaco-hover';
     hover.getClientRects = () => [new DOMRect(0, 0, 100, 20)] as unknown as DOMRectList;
-    const input = document.createElement('textarea');
-    region.append(hover, input);
+    const editor = Object.assign(document.createElement('div'), { className: 'monaco-editor' });
+    const input = editor.appendChild(document.createElement('textarea'));
+    region.append(hover, editor);
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.getByRole('region', { name: 'Diff' })).toBeInTheDocument();
     // Ctrl+W always closes the file, overlay or not (as VS Code does).
@@ -407,13 +425,133 @@ describe('RepoView', () => {
     const region = screen.getByRole('region', { name: 'Diff' });
     const hidden = document.createElement('div');
     hidden.className = 'monaco-hover hidden';
-    const input = document.createElement('textarea');
-    region.append(hidden, input);
+    const editor = Object.assign(document.createElement('div'), { className: 'monaco-editor' });
+    const input = editor.appendChild(document.createElement('textarea'));
+    region.append(hidden, editor);
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
   });
 
-  it('ArrowRight from the graph focuses the file list once it has loaded, and ← returns', async () => {
+  describe('J4: Esc closes the open file wherever the focus is', () => {
+    const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
+    async function openA() {
+      const view = render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);
+      const grid = screen.getByRole('grid', { name: 'Commit graph' });
+      fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+      await screen.findByRole('listbox', { name: 'Changed files' });
+      grid.focus();
+      await act(async () => fireEvent.keyDown(grid, { key: 'Enter' }));
+      expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('a.txt');
+      return { grid, view };
+    }
+    const diffOpen = () => screen.queryByRole('region', { name: 'Diff' }) !== null;
+
+    it('from <body> (a click on the details header\'s blank area), the details header and the message', async () => {
+      for (const from of ['body', 'sha', 'message'] as const) {
+        const { grid, view } = await openA();
+        const el = from === 'body' ? document.body : from === 'sha' ? screen.getByTestId('details-sha') : screen.getByTestId('commit-message');
+        if (from === 'body') act(() => (document.activeElement as HTMLElement | null)?.blur());
+        else act(() => el.focus());
+        expect(fireEvent.keyDown(el, { key: 'Escape' }), from).toBe(false);
+        expect(diffOpen(), from).toBe(false);
+        expect(document.activeElement, from).toBe(grid);
+        expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-selected', 'true');
+        view.unmount();
+      }
+    });
+
+    it('leaves Esc to a menu: one it comes from, or any shown one (focus kept on its trigger)', async () => {
+      await openA();
+      const menu = document.createElement('div');
+      menu.setAttribute('role', 'menu');
+      const item = menu.appendChild(document.createElement('button'));
+      document.body.append(menu);
+      expect(fireEvent.keyDown(item, { key: 'Escape' })).toBe(true);
+      expect(diffOpen()).toBe(true);
+      // Shown, with the focus elsewhere (on its trigger): still the menu's.
+      menu.getClientRects = () => [new DOMRect(0, 0, 100, 20)] as unknown as DOMRectList;
+      expect(fireEvent.keyDown(screen.getByTestId('details-sha'), { key: 'Escape' })).toBe(true);
+      expect(diffOpen()).toBe(true);
+      // Hidden (no box): not open.
+      menu.getClientRects = () => [] as unknown as DOMRectList;
+      expect(fireEvent.keyDown(screen.getByTestId('details-sha'), { key: 'Escape' })).toBe(false);
+      expect(diffOpen()).toBe(false);
+      menu.remove();
+    });
+
+    it('an open find widget claims Esc only from inside the editor: from the file list, Esc closes the diff', async () => {
+      await openA();
+      const region = screen.getByRole('region', { name: 'Diff' });
+      const editor = Object.assign(document.createElement('div'), { className: 'monaco-editor' });
+      const find = Object.assign(document.createElement('div'), { className: 'find-widget visible' });
+      find.getClientRects = () => [new DOMRect(0, 0, 100, 20)] as unknown as DOMRectList;
+      const input = document.createElement('textarea');
+      editor.append(find, input);
+      region.append(editor);
+      // Inside the editor: the find widget's (left to Monaco, unhandled here); the file stays.
+      expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(true);
+      expect(diffOpen()).toBe(true);
+      // From the file list: the file closes, and the find widget with it.
+      const box = screen.getByRole('listbox', { name: 'Changed files' });
+      act(() => box.focus());
+      expect(fireEvent.keyDown(box, { key: 'Escape' })).toBe(false);
+      expect(diffOpen()).toBe(false);
+      expect(document.activeElement).toBe(screen.getByRole('grid', { name: 'Commit graph' }));
+    });
+
+    it('a find widget that is `.visible` but not on screen (a hidden, kept editor) claims nothing', async () => {
+      await openA();
+      const region = screen.getByRole('region', { name: 'Diff' });
+      const editor = Object.assign(document.createElement('div'), { className: 'monaco-editor' });
+      // jsdom: no box, so not shown, whatever its class says.
+      const find = Object.assign(document.createElement('div'), { className: 'find-widget visible' });
+      const input = document.createElement('textarea');
+      editor.append(find, input);
+      region.append(editor);
+      expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false);
+      expect(diffOpen()).toBe(false);
+    });
+
+    it("a find widget open anywhere doesn't block Esc from the details header; with a modifier, Esc doesn't act", async () => {
+      await openA();
+      const find = Object.assign(document.createElement('div'), { className: 'find-widget visible' });
+      find.getClientRects = () => [new DOMRect(0, 0, 100, 20)] as unknown as DOMRectList;
+      document.body.append(find);
+      expect(fireEvent.keyDown(document.body, { key: 'Escape', ctrlKey: true })).toBe(true);
+      expect(diffOpen()).toBe(true);
+      expect(fireEvent.keyDown(screen.getByTestId('details-sha'), { key: 'Escape' })).toBe(false);
+      expect(diffOpen()).toBe(false);
+      find.remove();
+    });
+
+    it("an app text box keeps its Esc (plan 1C's search box); a shown HoverTooltip is dismissed first", async () => {
+      await openA();
+      const search = Object.assign(document.createElement('input'), { type: 'search' });
+      document.body.append(search);
+      expect(fireEvent.keyDown(search, { key: 'Escape' })).toBe(true);
+      expect(diffOpen()).toBe(true);
+      search.remove();
+      // The details SHA's instant tooltip: the first Esc dismisses it, the next closes the file.
+      const sha = screen.getByTestId('details-sha');
+      fireEvent.mouseEnter(sha);
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Copy full SHA');
+      fireEvent.keyDown(sha, { key: 'Escape' });
+      expect(screen.queryByRole('tooltip')).toBeNull();
+      expect(diffOpen()).toBe(true);
+      fireEvent.keyDown(sha, { key: 'Escape' });
+      expect(diffOpen()).toBe(false);
+    });
+
+    it('with no file open, Esc outside the view does nothing, and the listener goes with the view', async () => {
+      const { view } = await openA();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true); // nothing to close
+      view.unmount();
+      expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true);
+    });
+  });
+
+  it('ArrowRight from the graph opens the first file and focuses the list once it has loaded, and ← closes it back to the graph', async () => {
     // Every file-list load (the selected commit's and its prefetched neighbour's) waits for this.
     const pending: ((l: FileListPayload) => void)[] = [];
     const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
@@ -426,8 +564,11 @@ describe('RepoView', () => {
     await act(async () => pending.forEach((r) => r(list)));
     const box = screen.getByRole('listbox', { name: 'Changed files' });
     expect(document.activeElement).toBe(box);
+    expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('a.txt');
     fireEvent.keyDown(box, { key: 'ArrowLeft' });
+    expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
     expect(document.activeElement).toBe(grid);
+    expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-selected', 'true');
   });
 
   it('a WIP row with only staged changes: → and Enter focus the Staged list, never the empty Unstaged one', async () => {
@@ -441,8 +582,9 @@ describe('RepoView', () => {
     const stagedBox = await screen.findByRole('listbox', { name: 'Staged' });
     await screen.findByRole('listbox', { name: 'Unstaged' });
     grid.focus();
-    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    await act(async () => fireEvent.keyDown(grid, { key: 'ArrowRight' }));
     expect(document.activeElement).toBe(stagedBox);
+    expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('s.txt');
     fireEvent.keyDown(stagedBox, { key: 'ArrowLeft' });
     expect(document.activeElement).toBe(grid);
     await act(async () => fireEvent.keyDown(grid, { key: 'Enter' }));
@@ -476,10 +618,8 @@ describe('RepoView', () => {
     for (const [box, path] of [[stagedBox, 's.txt'], [unstagedBox, 'u.txt']] as const) {
       fireEvent.mouseDown(box.querySelector(`[data-path="${path}"]`)!);
       expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent(path);
-      box.focus();
-      fireEvent.keyDown(box, { key: 'ArrowRight' });
       const region = screen.getByRole('region', { name: 'Diff' });
-      expect(document.activeElement).toBe(region);
+      act(() => region.focus());
       fireEvent.keyDown(region, { key: 'ArrowLeft' });
       expect(document.activeElement).toBe(box);
     }

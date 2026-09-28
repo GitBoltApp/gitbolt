@@ -1,3 +1,5 @@
+import { registerKeys } from './keyRouter';
+
 /**
  * App zoom (spec §12.2): Ctrl+= / Ctrl++ zoom in, Ctrl+- out, Ctrl+0 resets, through the stepped
  * levels below. The webview's own zoom does the scaling (`setZoom`, which CEF turns into
@@ -64,8 +66,10 @@ export function applyWebviewZoom(pct: number): void {
 }
 
 /**
- * Installs the zoom keys and the Ctrl+wheel guard on `window`, and applies the saved step. Both
- * listeners are capture-phase, so the editor never sees the zoom keys. Ctrl+wheel (and a touchpad
+ * Installs the zoom keys and the Ctrl+wheel guard on `window`, and applies the saved step. The
+ * keys are app actions in the key router (`keyRouter.ts`, capture phase), so the editor never
+ * sees them, and (H2) they work even with a menu open: the router routes zoom past the menu
+ * layer, the one exception to "an open menu takes every key first". Ctrl+wheel (and a touchpad
  * pinch, which arrives as one) is cancelled so the webview never zooms itself; a component with
  * its own Ctrl+wheel (the image diff) still gets the event. Returns the uninstaller.
  */
@@ -81,17 +85,17 @@ export function installZoom(apply: (pct: number) => void = applyWebviewZoom): ()
     const dir = zoomDirection(e);
     if (dir === null) return;
     e.preventDefault();
-    e.stopPropagation();
     set(nextZoom(current, dir));
     save(current);
+    return 'handled' as const;
   };
   const onWheel = (e: WheelEvent) => {
     if (e.ctrlKey) e.preventDefault();
   };
-  window.addEventListener('keydown', onKeyDown, { capture: true });
+  const offKeys = registerKeys('app', onKeyDown);
   window.addEventListener('wheel', onWheel, { capture: true, passive: false });
   return () => {
-    window.removeEventListener('keydown', onKeyDown, { capture: true });
+    offKeys();
     window.removeEventListener('wheel', onWheel, { capture: true });
   };
 }

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 're
 import { errorMessage } from '../api/client';
 import { perf } from '../perf';
 import { useDiffPrefs } from './diffPrefs';
+import { setEditorRelease } from './editorRelease';
 import type { MonacoHost } from './monaco/host';
 import { loadMonacoHost } from './monaco/load';
 
@@ -27,6 +28,7 @@ export function useMonacoHost(): MonacoHostState {
     loadMonacoHost().then(
       (h) => {
         loaded = h;
+        setEditorRelease(() => h.releaseDetached());
         if (live) setState({ host: h, error: null });
       },
       (e: unknown) => { if (live) setState({ host: null, error: errorMessage(e) }); },
@@ -97,6 +99,19 @@ export function useShow(host: MonacoHost | null, show: (h: MonacoHost) => Promis
   return { failed, retry: () => setAttempt((n) => n + 1) };
 }
 
+/**
+ * The attach effect's cleanup (J16). A closed diff's panel is kept, hidden, by `<Activity>`, which
+ * runs this cleanup too but leaves the box in the document: the editor stays in it, so showing the
+ * panel again only `keep`s it. Unmounted while shown, the box is gone by the next microtask:
+ * `detach`. Unmounted while hidden, this has already run (at the hide) and React doesn't run it
+ * again, so nothing here detaches: the host lets that box go on the next attach elsewhere, and
+ * the repo view's unmount calls `releaseDetachedEditors` (see `editorRelease.ts`).
+ */
+export const keepWhileHidden = (el: HTMLElement, detach: () => void) => () =>
+  queueMicrotask(() => {
+    if (!el.isConnected) detach();
+  });
+
 /** The error for a file the editor couldn't show, over the (hidden) editor. */
 export const SHOW_ERROR_TITLE = "Couldn't show this file";
 
@@ -117,8 +132,8 @@ export function TextDiff({ path, original, modified, language, onShown }: { path
   useLayoutEffect(() => {
     const el = ref.current;
     if (!host || !el) return;
-    host.attachDiff(el, content.current);
-    return () => host.detachDiff(el);
+    if (!host.keepDiff(el, content.current)) host.attachDiff(el, content.current);
+    return keepWhileHidden(el, () => host.detachDiff(el));
   }, [host]);
   const show = useShow(host, (h) => h.showDiff({ path, original, modified, language, prefs: useDiffPrefs.getState().prefs }), [path, original, modified, language], shown);
   useEffect(() => {

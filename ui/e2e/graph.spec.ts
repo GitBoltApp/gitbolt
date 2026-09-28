@@ -106,19 +106,67 @@ test.describe('commit graph', () => {
   });
 
   test('the chip-to-node connector is the lane colour at 25%, on the canvas and in the DOM (F8)', async ({ page }) => {
-    // Row 4 is main's merge (lane 0, labeled). Sample the canvas connector left of the node.
-    const px = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, rowH: number) => {
-      const dpr = c.width / c.getBoundingClientRect().width;
-      const d = c.getContext('2d')!.getImageData(Math.round(2 * dpr), Math.floor((4 * rowH + rowH / 2) * dpr), 1, 1).data;
-      return [d[0], d[1], d[2], d[3]];
-    }, METRICS.rowH);
-    expect(px[3]).toBeGreaterThanOrEqual(56);
-    expect(px[3]).toBeLessThanOrEqual(72);
+    // hotfix's tip: labeled, not checked out (main is, J21). Sample the canvas connector at the
+    // left edge, on the row's centre line.
+    const row = page.getByRole('row').filter({ hasText: 'Hotfix: null check' });
+    const px = await connectorPixels(page, row);
+    expect(px.centre[3]).toBeGreaterThanOrEqual(56);
+    expect(px.centre[3]).toBeLessThanOrEqual(72);
     // The lane colour, give or take the rounding of premultiplied alpha at 25%.
-    const lane = [1, 3, 5].map((i) => parseInt(GRAPH_COLORS[0].slice(i, i + 2), 16));
-    for (let i = 0; i < 3; i++) expect(Math.abs(px[i] - lane[i]), `channel ${i}`).toBeLessThanOrEqual(4);
-    const connector = page.getByRole('row').nth(4).locator('.ref-connector');
+    for (let i = 0; i < 3; i++) expect(Math.abs(px.centre[i] - px.lane[i]), `channel ${i}`).toBeLessThanOrEqual(4);
+    // One CSS px thick, a whole number of device pixels (draw.ts).
+    expect(px.thickness).toBe(await page.evaluate(() => Math.max(1, Math.round(window.devicePixelRatio))));
+    const connector = row.locator('.ref-connector');
     expect(await connector.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.25');
+    expect((await connector.boundingBox())!.height).toBe(1);
+  });
+
+  test("the checked-out branch: a bigger check, a chip always lit, a 2 px full-colour connector (J21)", async ({ page }) => {
+    const rows = page.getByRole('row');
+    const head = rows.nth(4);
+    await expect(head.getByText('main', { exact: true })).toBeVisible();
+    const chip = head.locator('.ref-labels > .ref-label');
+    const style = () => chip.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
+    const other = page.getByRole('row').filter({ hasText: 'Hotfix: null check' }).locator('.ref-labels > .ref-label');
+    const otherStyle = () => other.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
+    // At rest (neither hovered nor selected), HEAD's chip already has the lit look: the one the
+    // other chip takes only when its row is hovered.
+    await page.mouse.move(5, 5);
+    const rest = await style();
+    const otherRest = await otherStyle();
+    expect(rest.color).toBe('rgb(255, 255, 255)');
+    expect(otherRest.color).not.toBe('rgb(255, 255, 255)');
+    await other.hover();
+    const otherLit = await otherStyle();
+    expect(otherLit.color).toBe('rgb(255, 255, 255)');
+    // Lit is 45% of the lane colour, rest 25%: HEAD's chip matches the lit ratio at rest.
+    expect(alphaOf(rest.bg)).toBeCloseTo(0.45, 2);
+    expect(alphaOf(otherRest.bg)).toBeCloseTo(0.25, 2);
+    // Selected elsewhere, hovered, selected itself: always the same.
+    await rows.nth(3).click();
+    await page.mouse.move(5, 5);
+    expect(await style()).toEqual(rest);
+    await head.hover();
+    expect(await style()).toEqual(rest);
+    await head.click();
+    await page.mouse.move(5, 5);
+    expect(await style()).toEqual(rest);
+    // The check: ~1.4x the 12 px icons.
+    const check = (await head.locator('[aria-label="HEAD"]').boundingBox())!;
+    expect(check.width).toBe(17);
+    expect(check.height).toBe(17);
+    expect((await head.locator('[aria-label="local"]').boundingBox())!.width).toBe(12);
+    // The connector, DOM and canvas: 2 px, the full lane colour.
+    const connector = head.locator('.ref-connector');
+    expect(await connector.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    expect((await connector.boundingBox())!.height).toBe(2);
+    const px = await connectorPixels(page, head);
+    expect(px.centre[3]).toBe(255);
+    for (let i = 0; i < 3; i++) expect(Math.abs(px.centre[i] - px.lane[i]), `channel ${i}`).toBeLessThanOrEqual(1);
+    expect(px.thickness).toBe(await page.evaluate(() => Math.round(2 * window.devicePixelRatio)));
+    // The DOM line sits on the canvas line: same rows of pixels.
+    const conn = (await connector.boundingBox())!;
+    expect(Math.abs(conn.y + conn.height / 2 - px.centreY)).toBeLessThanOrEqual(0.5);
   });
 
   test('keyboard navigation moves the selection', async ({ page }) => {
@@ -185,8 +233,11 @@ test.describe('commit graph', () => {
     await expect(plain).toHaveAttribute('aria-selected', 'true');
     // Empty chip-cell space, on a row without chips and beside a chip: nothing changes.
     // (An empty labels cell is 0 px tall, so aim by the row's box.)
+    // Near the cell's right end: the hover gives this row its dimmed membership chip (F7) at the
+    // cell's start, and a press on that chip selects the row (J6), so x + 20 raced its render.
     const typoRow = (await rows.filter({ hasText: 'Fix typo' }).boundingBox())!;
-    await page.mouse.click(typoRow.x + 20, typoRow.y + typoRow.height / 2);
+    const labelsCol = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!;
+    await page.mouse.click(labelsCol.x + labelsCol.width - 6, typoRow.y + typoRow.height / 2);
     const labeledRow = (await labeled.boundingBox())!;
     const chipBox = (await labeled.locator('.ref-labels > .ref-label').boundingBox())!;
     await page.mouse.click(chipBox.x + 2, labeledRow.y + 2);
@@ -219,6 +270,46 @@ test.describe('commit graph', () => {
     await page.locator('.graph-header [data-col="message"]').hover();
     await expect(dim('Initial commit')).toHaveText('main');
     await expect(page.locator('.ref-label-dim')).toHaveCount(1);
+  });
+
+  test('hovering the dimmed chip brightens it to the hovered chip look and expands its truncated name; a click selects its row (J6)', async ({ page }) => {
+    // Narrowest Branch/Tag column: "feature/login" no longer fits.
+    const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+    await handle.focus();
+    for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
+    await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.labels));
+    const row = page.getByRole('row').filter({ hasText: 'Login form' });
+    const style = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => ({ opacity: getComputedStyle(el).opacity, bg: getComputedStyle(el).backgroundColor, cursor: getComputedStyle(el).cursor }));
+    await row.locator('[data-col="message"]').hover();
+    const dim = row.locator('.ref-labels > .ref-label-dim');
+    await expect(dim).toHaveText('feature/login');
+    expect(await dim.locator('.ref-name').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    const rest = await style(dim);
+    expect(rest.opacity).toBe('0.5');
+    await expect(page.locator('.ref-label-full')).toHaveCount(0);
+    const restBox = (await dim.boundingBox())!;
+
+    await dim.hover();
+    const lit = await style(dim);
+    expect(lit.opacity).toBe('1');
+    // The same lit chip as a real chip on a hovered row (H3): 45% lane colour.
+    expect(alphaOf(lit.bg)).toBeCloseTo(0.45, 2);
+    expect(lit.cursor).toBe('pointer');
+    const full = dim.locator('.ref-label-full');
+    await expect(full).toBeVisible();
+    await expect(full).toHaveText('feature/login');
+    const fullBox = (await full.boundingBox())!;
+    expect(fullBox.x).toBeCloseTo(restBox.x, 0);
+    expect(fullBox.width).toBeGreaterThan(restBox.width);
+    // Fully shown: nothing of it is clipped (the Branch/Tag cell doesn't cut the copy).
+    expect(await full.locator('.ref-name-full').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+    await full.click();
+    await expect(row).toHaveAttribute('aria-selected', 'true');
+    // The pointer leaves: collapsed, and back to dimmed (still shown, the row being selected).
+    await page.locator('.graph-header [data-col="message"]').hover();
+    await expect(page.locator('.ref-label-full')).toHaveCount(0);
+    expect((await style(dim)).opacity).toBe('0.5');
   });
 
   test('a row with chips that aren\'t its branch\'s tip gets the dimmed chip after them, dropped whole when it doesn\'t fit (F7)', async ({ page }) => {
@@ -445,8 +536,40 @@ const alphaOf = (c: string) => {
   return m ? Number(m[1]) : 1;
 };
 
+/**
+ * The relative luminance (WCAG) of an element's text as it's actually shown: its computed
+ * `color` composited over every background under it (its own and its ancestors', down to the
+ * first opaque one). Alpha colours and translucent row bands both count, so it compares what the
+ * eye sees, not token names.
+ */
+const shownLuminance = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => {
+  type C = [number, number, number, number];
+  const parse = (c: string): C => {
+    if (c === 'transparent') return [0, 0, 0, 0];
+    const srgb = /color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)/.exec(c);
+    if (srgb) return [Number(srgb[1]) * 255, Number(srgb[2]) * 255, Number(srgb[3]) * 255, srgb[4] === undefined ? 1 : Number(srgb[4])];
+    const n = /rgba?\(([^)]+)\)/.exec(c)![1].split(/[ ,/]+/).filter(Boolean).map(Number);
+    return [n[0], n[1], n[2], n[3] ?? 1];
+  };
+  const over = (top: C, under: C): C => [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3])).concat(1) as C;
+  const layers: C[] = [];
+  for (let e: Element | null = el; e; e = e.parentElement) {
+    const bg = parse(getComputedStyle(e).backgroundColor);
+    if (bg[3] > 0) layers.push(bg);
+    if (bg[3] >= 1) break;
+  }
+  let shown: C = [0, 0, 0, 1];
+  for (const l of layers.reverse()) shown = over(l, shown);
+  shown = over(parse(getComputedStyle(el).color), shown);
+  const lin = (v: number) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(shown[0]) + 0.7152 * lin(shown[1]) + 0.0722 * lin(shown[2]);
+});
+
 test.describe('row and chip states (H3, H4, H5, H14)', () => {
   test.beforeEach(async ({ page }) => {
+    // These read the settled colours of each state; the row text's colour transitions (J22's
+    // motion tokens) have their own test, and are 0 under reduced motion.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(openUrl(fixtures.basic));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
   });
@@ -466,8 +589,9 @@ test.describe('row and chip states (H3, H4, H5, H14)', () => {
     await row.locator('[data-col="author"]').click();
     await page.locator('.graph-header [data-col="message"]').hover();
     expect(alphaOf(await bg(chip))).toBeCloseTo(0.45, 2);
-    // Another row's chip, neither hovered nor selected, rests.
-    const other = page.getByRole('row').nth(4).locator('.ref-labels > .ref-label').first();
+    // Another row's chip, neither hovered nor selected, rests. (Not main's: the checked-out
+    // branch's chip is always lit, J21.)
+    const other = page.getByRole('row').filter({ hasText: 'Hotfix: null check' }).locator('.ref-labels > .ref-label').first();
     expect(alphaOf(await bg(other))).toBeCloseTo(0.25, 2);
   });
 
@@ -507,6 +631,56 @@ test.describe('row and chip states (H3, H4, H5, H14)', () => {
     expect(sel).toBeGreaterThan(2 * rest);
   });
 
+  test('the selected row\'s author, date and SHA show as bright as its summary, far brighter than on other rows (J7)', async ({ page }) => {
+    const rows = page.getByRole('row');
+    const row = rows.filter({ hasText: 'Fix typo' });
+    const other = rows.filter({ hasText: 'Login form' });
+    await row.locator('[data-col="author"]').click();
+    await page.locator('.graph-header [data-col="message"]').hover();
+    await expect(row).toHaveAttribute('aria-selected', 'true');
+    const summary = await shownLuminance(row.locator('.msg-summary'));
+    for (const [name, sel, rest] of [
+      ['author', row.locator('[data-col="author"]'), other.locator('[data-col="author"]')],
+      ['date', row.locator('[data-col="date"]'), other.locator('[data-col="date"]')],
+      ['sha', row.getByTestId('sha'), other.getByTestId('sha')],
+    ] as const) {
+      const [lit, dim] = [await shownLuminance(sel), await shownLuminance(rest)];
+      expect(lit, name).toBeCloseTo(summary, 3);
+      expect(lit, name).toBeGreaterThan(2.5 * dim);
+    }
+  });
+
+  test('double-clicking and dragging across the table selects rows, never text (J20)', async ({ page }) => {
+    const rows = page.getByRole('row');
+    const selectedText = () => page.evaluate(() => window.getSelection()?.toString() ?? '');
+    const msg = rows.filter({ hasText: 'Fix typo' }).locator('[data-col="message"]');
+    await msg.dblclick();
+    expect(await selectedText()).toBe('');
+    await expect(rows.filter({ hasText: 'Fix typo' })).toHaveAttribute('aria-selected', 'true');
+    // Drag from one row's message down across others, through author, date and SHA.
+    const from = (await msg.boundingBox())!;
+    const to = (await rows.filter({ hasText: 'Initial commit' }).getByTestId('sha').boundingBox())!;
+    await page.mouse.move(from.x + 5, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 10 });
+    await page.mouse.up();
+    expect(await selectedText()).toBe('');
+    // Across the column headers too.
+    const h1 = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!;
+    const h2 = (await page.locator('.graph-header [data-col="sha"]').boundingBox())!;
+    await page.mouse.move(h1.x + 2, h1.y + h1.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h2.x + h2.width - 2, h2.y + h2.height / 2, { steps: 10 });
+    await page.mouse.up();
+    await page.locator('.graph-header [data-col="message"] .col-title').dblclick();
+    expect(await selectedText()).toBe('');
+    // Keyboard row selection is unaffected.
+    await page.getByRole('grid', { name: 'Commit graph' }).focus();
+    const before = Number(await page.locator('[role="row"][aria-selected="true"]').getAttribute('aria-rowindex'));
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('[role="row"][aria-selected="true"]')).toHaveAttribute('aria-rowindex', String(before - 1));
+  });
+
   test('no per-panel focus visuals: no outline, and the selection stays blue whichever panel has focus (H4)', async ({ page }) => {
     const grid = page.getByRole('grid', { name: 'Commit graph' });
     const row = page.getByRole('row').filter({ hasText: 'Fix typo' });
@@ -517,8 +691,9 @@ test.describe('row and chip states (H3, H4, H5, H14)', () => {
     const cell = row.locator('[data-col="message"]');
     const blue = await bg(cell);
     expect(alphaOf(blue)).toBeCloseTo(0.2, 2);
-    // → moves focus to the file list (no diff is open, so none opens).
-    await page.keyboard.press('ArrowRight');
+    // Focus into the file list. (Not with →: since J2 it opens the first file, which hides the
+    // graph; ← below still goes back.)
+    await page.getByRole('listbox', { name: 'Changed files' }).focus();
     await expect(grid).toHaveAttribute('data-zone-focused', 'false');
     const files = page.locator('[data-focus-zone="files"]');
     await expect(files).toHaveAttribute('data-zone-focused', 'true');
@@ -976,5 +1151,110 @@ test.describe('graph column width', () => {
     await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.width / (window.devicePixelRatio || 1))).toBeGreaterThanOrEqual(need);
     expect((await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(need);
     expect((await page.locator('.graph-header [data-col="graph"]').boundingBox())!.width).toBeGreaterThanOrEqual(need);
+  });
+});
+
+/** The canvas's label connector on `row`, sampled at the canvas's left edge: the pixel on the
+ * row's centre line, the lane colour (the row's --lane-color), how many device pixels thick the
+ * line is there, and its centre in page CSS px. */
+async function connectorPixels(page: Page, row: ReturnType<Page['getByRole']>) {
+  const [box, canvasBox] = await Promise.all([row.boundingBox(), page.getByTestId('graph-canvas').boundingBox()]);
+  const lane = await row.locator('.ref-labels').evaluate((el) => getComputedStyle(el).getPropertyValue('--lane-color').trim());
+  const rgb = [1, 3, 5].map((i) => parseInt(lane.slice(i, i + 2), 16));
+  const centreCss = box!.y + box!.height / 2 - canvasBox!.y;
+  const r = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, y: number) => {
+    const dpr = c.width / c.getBoundingClientRect().width;
+    const x = Math.round(2 * dpr);
+    const ctx = c.getContext('2d')!;
+    const at = (py: number) => [...ctx.getImageData(x, py, 1, 1).data];
+    // The line straddles the centre: find the inked device rows around it.
+    const mid = Math.floor(y * dpr);
+    const inked = (py: number) => at(py)[3] > 0;
+    let a = mid, b = mid;
+    while (inked(a - 1)) a--;
+    while (inked(b + 1)) b++;
+    return { centre: at(mid), thickness: inked(mid) ? b - a + 1 : 0, centreDev: (a + b + 1) / 2, dpr };
+  }, centreCss);
+  return { centre: r.centre, lane: rgb, thickness: r.thickness, centreY: canvasBox!.y + r.centreDev / r.dpr };
+}
+
+test.describe('branch-hover focus (J22)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(openUrl(fixtures.basic));
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+  });
+  /** Per row (by its message text): '' (bright), 'dim' (its four text cells dimmed) or 'mixed'. */
+  const dimState = (page: Page) => page.getByRole('row').evaluateAll((rows) => rows.map((r) => {
+    const dims = ['message', 'author', 'date', 'sha'].map((c) => r.querySelector(`[data-col="${c}"]`)!.classList.contains('row-dim'));
+    const other = ['labels', 'graph'].some((c) => r.querySelector(`[data-col="${c}"]`)!.classList.contains('row-dim'));
+    return [r.querySelector('[data-col="message"]')!.textContent!.trim(), other ? 'wrong cell' : dims.every(Boolean) ? 'dim' : dims.some(Boolean) ? 'mixed' : ''] as const;
+  }));
+  const noneDimmed = async (page: Page) => (await dimState(page)).every(([, d]) => d === '');
+  const canvasHash = (page: Page) => page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement) => {
+    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    let h = 0;
+    for (let i = 0; i < d.length; i += 7) h = (h * 31 + d[i]) | 0;
+    return h;
+  });
+  const featureChip = (page: Page) => page.getByRole('row').filter({ hasText: 'Login validation' }).locator('.ref-labels > .ref-label');
+
+  test('resting 500 ms on a branch chip dims the text of every row outside that branch, graph and chips untouched; leaving restores it', async ({ page }) => {
+    const mainChip = page.getByRole('row').nth(4).locator('.ref-labels > .ref-label');
+    const chipLook = () => mainChip.evaluate((el) => `${getComputedStyle(el).backgroundColor} ${getComputedStyle(el).color} ${getComputedStyle(el).opacity}`);
+    await page.mouse.move(5, 5);
+    const canvas = await canvasHash(page);
+    const look = await chipLook();
+    expect(await noneDimmed(page)).toBe(true);
+    const t0 = Date.now();
+    await featureChip(page).hover();
+    // Not before 500 ms.
+    await page.waitForTimeout(250);
+    if (Date.now() - t0 < 450) expect(await noneDimmed(page)).toBe(true);
+    await expect.poll(async () => (await dimState(page)).filter(([, d]) => d === 'dim').length).toBeGreaterThan(0);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(500);
+    const focused = Object.fromEntries(await dimState(page));
+    // feature/login's rows: its tip and the commit below it (its first-parent claims). The rest
+    // (main's history, the hotfix, the stash and the WIP rows) dim.
+    expect(focused['Login validation']).toBe('');
+    expect(focused['Login form']).toBe('');
+    for (const s of ["Merge branch 'feature/login'", 'Fix typo', 'Add readme', 'Initial commit', 'Hotfix: null check']) expect(focused[s], s).toBe('dim');
+    expect(Object.values(focused).filter((d) => d !== '' && d !== 'dim')).toEqual([]);
+    // Dimmed text settles at the branch-hover dimmed colour (lighter than the 20% filter/search
+    // dim, rowDim.ts's 'branch' level); the in-branch rows keep theirs; the graph canvas and the
+    // other chips don't change.
+    const dimmed = page.getByRole('row').filter({ hasText: 'Fix typo' });
+    await expect(dimmed.locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.5)');
+    await expect(dimmed.locator('[data-col="message"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.5)');
+    await expect(page.getByRole('row').filter({ hasText: 'Login form' }).locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.4)');
+    expect(await canvasHash(page)).toBe(canvas);
+    expect(await chipLook()).toBe(look);
+    // Leaving clears it at once (the colour then eases back).
+    await page.mouse.move(5, 5);
+    expect(await noneDimmed(page)).toBe(true);
+    await expect(dimmed.locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.4)');
+  });
+
+  test('a tag chip, or a pointer that leaves before 500 ms, focuses nothing', async ({ page }) => {
+    await page.getByRole('row').filter({ hasText: 'Add readme' }).locator('.ref-labels > .ref-label').hover();
+    await page.waitForTimeout(800);
+    expect(await noneDimmed(page)).toBe(true);
+    await featureChip(page).hover();
+    await page.waitForTimeout(150);
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(700);
+    expect(await noneDimmed(page)).toBe(true);
+  });
+
+  test('the row text eases its colour: 200 ms ease-in, dimming 500 ms ease-out, no delay; none under reduced motion', async ({ page }) => {
+    const cell = page.getByRole('row').filter({ hasText: 'Fix typo' }).locator('[data-col="author"]');
+    const timing = () => cell.evaluate((el) => { const s = getComputedStyle(el); return `${s.transitionProperty} ${s.transitionDuration} ${s.transitionTimingFunction} ${s.transitionDelay}`; });
+    expect(await timing()).toBe('color 0.2s ease-in 0s');
+    await featureChip(page).hover();
+    await expect(cell).toHaveClass(/row-dim/);
+    expect(await timing()).toBe('color 0.5s ease-out 0s');
+    await page.mouse.move(5, 5);
+    await expect(cell).not.toHaveClass(/row-dim/);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    expect(await timing()).toBe('color 0s ease-in 0s');
   });
 });

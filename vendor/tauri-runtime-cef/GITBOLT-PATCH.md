@@ -127,10 +127,23 @@ says.
   call at the top of `on_pre_key_event`, ahead of (and independent of) the devtools block: the
   reserved chords above get `is_keyboard_shortcut = 1` and return 0, for the app's own browser
   only. `TauriCefKeyboardHandler` gains a `frame_navigation_state` field for that, passed in by
-  `src/cef_impl/client/mod.rs`'s `keyboard_handler()` (the one change in that file). Unit tests
+  `src/cef_impl/client/mod.rs`'s `keyboard_handler()`. Unit tests
   for the chord table, the Shift rules and the ownership scoping.
 - `src/cef_impl/client/context_menu.rs` (context menu, below): more IDC names in
   `BROWSER_ONLY_COMMANDS`, and the file's first unit tests.
+- `src/cef_impl/client/mod.rs`: `keyboard_handler()` passes `frame_navigation_state` (above),
+  and a `pub(crate) use command::gitbolt_key_log;` re-export (Linux/BSD) for the focus redirect.
+- Keyboard focus under a window manager (below):
+  - `src/platform/linux/focus.rs` (new): `redirect_take_focus()`, `TakeFocusRedirect`, the pure
+    `take_focus_time()` / `focus_target()` and their unit tests, plus one `#[ignore]`d X-level
+    test.
+  - `src/platform/linux/window.rs`: `CefX11Host::new` installs the redirect for its toplevel and
+    keeps it in a new `_take_focus` field (disconnected when the host drops).
+  - `src/platform/linux/mod.rs`: `mod focus;`.
+  - `src/platform/linux/utils.rs`: `xlib_fns()`, the module's lazily opened Xlib entry points.
+  - `Cargo.toml`: a Linux/BSD dependency on `gdk4-x11` 0.11 with its `xlib` feature (the `xevent`
+    signal and GDK's X error traps). The build already had it, with that feature, through
+    `tauri-winit-gtk4`; `Cargo.lock` only gains the edge.
 
 ## Context menu entries that make no sense in an app window
 
@@ -146,5 +159,68 @@ address" (a `blob:` URL; Copy image stays). Upstream's own list already drops we
 print, Lens, translate, back/forward/reload, save and view source; Inspect goes with devtools,
 which release builds disable. Tests: `cargo test -p tauri-runtime-cef --lib context_menu`
 (the dropped names, the kept editing entries, every name resolves in this CEF build).
+CEF builds its IDC name table lazily on the first lookup, and two first lookups on different
+threads race (a name then resolves to -1); the app only ever looks names up on CEF's UI thread,
+so this only bites the tests, which do it from the harness's threads. `context_menu.rs`'s
+`NAME_LOOKUP` mutex (test-only) serializes them — `command.rs`'s own name-resolution test
+(`every_gitbolt_name_resolves_to_a_command_id_in_this_cef_build`) holds the same lock.
+
+## Keyboard focus under a window manager (WM_TAKE_FOCUS)
+
+**Problem:** under GNOME (mutter on Xwayland; any EWMH window manager), keys stopped reaching
+the browser: `on_pre_key_event` saw nothing at all, while the mouse kept working. It looked like
+"after an editable element gains focus", because opening a diff and clicking into Monaco are
+clicks.
+
+- GDK advertises `WM_TAKE_FOCUS` on its toplevels. It answers the window manager's
+  `WM_TAKE_FOCUS` with `XSetInputFocus` on its own 1x1 InputOnly focus window, a child of the
+  toplevel (`gdk/x11/gdkdisplay-x11.c`).
+- The CEF browsers are X children of the `CefX11Host`, not of that focus window. So the X server
+  delivers every key to GDK, and GTK has no way to pass it on: the browser gets no key at all.
+- mutter sends `WM_TAKE_FOCUS` whenever it focuses the window: on activation, and on every
+  button press inside it (`meta_window_handle_ungrabbed_event` → `meta_window_focus`).
+- Chromium can't win the focus back.
+  - Its `X11Window::Activate()` asks for its child window with `_NET_ACTIVE_WINDOW`, which
+    mutter ignores for a window it doesn't manage.
+  - CEF's Chrome-style child window has no `CefWindowX11`, so `SetFocus(true)` doesn't move the
+    native focus either.
+  - Only Chromium's startup activation calls `XSetInputFocus` directly, and it races GDK's
+    handler. Keys worked, or didn't, depending on which one landed last. After the next click
+    they were gone for good.
+- Plain Xvfb has no window manager, so no `WM_TAKE_FOCUS` is ever sent, and it never
+  reproduced.
+
+**Evidence:** the reproduction ran in a private headless GNOME Shell 50 (mutter plus Xwayland,
+on its own D-Bus session and XDG dirs), with real compositor input through mutter's
+`org.gnome.Mutter.RemoteDesktop`. An `LD_PRELOAD` spy logged every `SetInputFocus`.
+- On each click, GDK set the focus to its focus window (backtrace from libgtk-4's `xevent`
+  handler), and no key reached `on_pre_key_event`.
+- A direct `XSetInputFocus` on Chromium's window made keys work again, until the next click.
+
+**Fix:**
+- Each toplevel answers `WM_TAKE_FOCUS` itself, through `GdkX11Display`'s `xevent` signal,
+  ahead of GDK's own handler. This is what CEF's own X11 host window does
+  (`CefWindowX11::Focus`).
+- The focus goes to the topmost viewable browser window in the X11 host, `RevertToParent`, with
+  the message's timestamp, inside a GDK error trap. The signal then stops there.
+- With no viewable browser yet (early startup), GDK handles the message as before.
+- Only `WM_TAKE_FOCUS` for that toplevel is touched. GDK's own focus tracking is unaffected. The
+  browser window is a descendant of the toplevel, so the move shows up as a `NotifyInferior`
+  focus change, which GDK ignores (checked with `GDK_DEBUG=events`: no extra `GdkFocusEvent`).
+- A consequence: GTK widgets in the window (a Tauri menu bar) no longer get the keyboard focus
+  from the window manager. GitBolt has none.
+
+**Diagnostic:** with `GITBOLT_KEY_LOG` in a debug build, each redirect prints a
+`[gitbolt-keys] WM_TAKE_FOCUS …` line.
+
+**Tests:**
+- `cargo test -p tauri-runtime-cef --lib focus` covers the message filter and the target choice.
+- The X-level test is ignored by default, because it must never run on a real session. Run it
+  against a throwaway server:
+  `Xvfb :77 & GITBOLT_X11_TEST_DISPLAY=:77 cargo test -p tauri-runtime-cef --lib focus -- --ignored`.
+  - It builds a GTK4 toplevel, an X11 host and a "browser" window made by another X client,
+    sends the window manager's `WM_TAKE_FOCUS`, and checks that the X focus ends up on the
+    browser.
+  - Without the redirect, the focus stays on GDK's focus window.
 
 No other files differ from the published 3.0.0-alpha.4 crate.

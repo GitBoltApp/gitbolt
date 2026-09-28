@@ -15,9 +15,11 @@ import { useToast } from '../ui/toast';
 import { ColumnResizer } from './ColumnResizer';
 import { allocateColumns, autoGraphWidth, lanesWidth, useColumnPrefs, type ColumnWidths } from './columns';
 import { GraphCanvas } from './GraphCanvas';
-import { branchMembership, labelsByRow as groupLabels, type BranchMembership } from './membership';
+import { labelsByRowOf, membershipOf } from './graphIndex';
+import { branchRows, type BranchMembership } from './membership';
 import { useGraphMetrics } from './metrics';
 import { RefLabels } from './RefLabels';
+import { dimAllBut, ROW_DIM_CLASS, rowDimKindClass, useBranchFocus, type DimKind, type RowDim } from './rowDim';
 import './graph.css';
 
 function WipSummary({ row }: { row: RowPayload }) {
@@ -52,7 +54,7 @@ const renderMessage = (m: CommitMessage) => (
  * themselves), and keyboard users read the selected commit's full message in the details panel
  * (§9.2).
  */
-function MessageCell({ row, width, messages, mark }: { row: RowPayload; width: number; messages?: CommitMessageCache; mark: 'A' | 'B' | null }) {
+function MessageCell({ row, width, messages, mark, dim }: { row: RowPayload; width: number; messages?: CommitMessageCache; mark: 'A' | 'B' | null; dim: string }) {
   const isWip = row.kind === 'wip';
   const { triggerProps, tooltip } = useHoverTooltip({
     delayMs: MESSAGE_TOOLTIP_DELAY_MS,
@@ -65,7 +67,7 @@ function MessageCell({ row, width, messages, mark }: { row: RowPayload; width: n
     },
   });
   return (
-    <span role="gridcell" data-col="message" className="col-msg" style={{ width }} {...triggerProps}>
+    <span role="gridcell" data-col="message" className={`col-msg${dim}`} style={{ width }} {...triggerProps}>
       {mark && <span className="compare-marker" role="img" aria-label={`Compare ${mark}`} data-testid={mark === 'A' ? 'compare-a' : 'compare-b'}>{mark}</span>}
       {isWip ? <WipSummary row={row} /> : <><span className="msg-summary">{row.summary}</span>{row.bodyFirstLine && <span className="dim msg-body">{row.bodyFirstLine}</span>}</>}
       {tooltip}
@@ -84,11 +86,11 @@ const avatarBitmap = (email: string) => avatars.get(email)?.bitmap ?? null;
 
 export type SelectMods = { ctrl: boolean };
 
-/** In the Branch/Tag cell only the chips (and the +N badge) select the row: a press on the empty
- * space around them, on the connector or on the inert membership chip (F7) stops here instead of
+/** In the Branch/Tag cell only the chips (the membership chip too, J6) and the +N badge select
+ * the row: a press on the empty space around them or on the connector stops here instead of
  * reaching the row (F6). */
 const onLabelsMouseDown = (e: MouseEvent<HTMLElement>) => {
-  if (!(e.target instanceof Element && e.target.closest('.ref-label:not(.ref-label-dim), .ref-more'))) e.stopPropagation();
+  if (!(e.target instanceof Element && e.target.closest('.ref-label, .ref-more'))) e.stopPropagation();
 };
 
 interface GraphRowProps {
@@ -108,16 +110,24 @@ interface GraphRowProps {
   onSelect(index: number, mods: SelectMods): void;
   onHover(id: string, index: number, inside: boolean): void;
   onCopySha(id: string): void;
+  /** Its text cells are dimmed, and at which level (the row-dim mechanism, rowDim.ts); `false`
+   * for not dimmed. */
+  dimmed: DimKind | false;
+  /** A branch chip on this row is entered (its refs) or left (null): J22's focus. */
+  onBranchHover(refs: readonly string[] | null): void;
 }
 
 /**
  * One virtual row. Memoized: its props are all stable across scroll events (rows, memoized
  * widths, label lists and membership objects, stable callbacks), so scrolling re-renders only
  * the view and the canvas, not every row; a hover re-renders only the rows whose membership
- * chip appears or goes.
+ * chip appears or goes, and a branch focus (J22) only the rows whose `dimmed` changes.
  */
-const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, mark, cols, labels, membership, messages, onSelect, onHover, onCopySha }: GraphRowProps) {
+const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, mark, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover }: GraphRowProps) {
   const isWip = row.kind === 'wip';
+  // The row-dim mechanism's classes, on the text cells only (never the chips or the graph): the
+  // shared motion class plus the level's own colour class.
+  const dim = dimmed ? ` ${ROW_DIM_CLASS} ${rowDimKindClass(dimmed)}` : '';
   return (
     <div
       role="row"
@@ -132,13 +142,13 @@ const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, mar
       onMouseLeave={() => onHover(row.id, index, false)}
     >
       <span role="gridcell" data-col="labels" className="col-labels" style={{ width: cols.labels }} onMouseDown={onLabelsMouseDown}>
-        <RefLabels labels={labels} color={row.color} membership={membership} />
+        <RefLabels labels={labels} color={row.color} membership={membership} onBranchHover={onBranchHover} />
       </span>
       <span role="gridcell" data-col="graph" style={{ width: cols.graph }} />
-      <MessageCell row={row} width={cols.message} messages={messages} mark={mark} />
-      <span role="gridcell" data-col="author" className="col-author" style={{ width: cols.author }}>{row.authorName}</span>
-      <span role="gridcell" data-col="date" className="col-date" style={{ width: cols.date }}>{isWip ? '' : formatDate(row.committerTime)}</span>
-      <span role="gridcell" data-col="sha" className="col-sha" style={{ width: cols.sha }}>
+      <MessageCell row={row} width={cols.message} messages={messages} mark={mark} dim={dim} />
+      <span role="gridcell" data-col="author" className={`col-author${dim}`} style={{ width: cols.author }}>{row.authorName}</span>
+      <span role="gridcell" data-col="date" className={`col-date${dim}`} style={{ width: cols.date }}>{isWip ? '' : formatDate(row.committerTime)}</span>
+      <span role="gridcell" data-col="sha" className={`col-sha${dim}`} style={{ width: cols.sha }}>
         {!isWip && (
           <button type="button" data-testid="sha" className="sha" title="Copy full SHA" onMouseDown={(e) => e.stopPropagation()} onClick={() => onCopySha(row.id)}>
             {/* The whole hash: the column shows as many whole characters as fit (graph.css). */}
@@ -171,9 +181,15 @@ export interface GraphViewProps {
   /** The grid element, for focus-zone registration. */
   gridRef?: RefObject<HTMLDivElement | null>;
   gridProps?: HTMLAttributes<HTMLDivElement>;
+  /**
+   * Rows whose text cells to dim, from outside (plan 1C Task 17's Ctrl+F:
+   * `dimAllBut(matches, 'filter')`). While set, it takes precedence over the branch-hover focus
+   * (J22). See rowDim.ts.
+   */
+  rowDim?: RowDim | null;
 }
 
-export function GraphView({ graph, repoId, messages, selected: controlled, onSelect, compare, onUnhandledKey, gridRef, gridProps }: GraphViewProps) {
+export function GraphView({ graph, repoId, messages, selected: controlled, onSelect, compare, onUnhandledKey, gridRef, gridProps, rowDim = null }: GraphViewProps) {
   const ownRef = useRef<HTMLDivElement>(null);
   const scrollRef = gridRef ?? ownRef;
   // The last scroll offset while visible: restored when <Activity> shows the graph again
@@ -192,12 +208,20 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
   // paddings and chip height are CSS variables on :root (theme/density.ts, read by graph.css).
   const metrics = useGraphMetrics();
 
-  const labelsByRow = useMemo(() => groupLabels(graph.labels), [graph.labels]);
+  // Shared with the file menu (graphIndex.ts): computed once per payload.
+  const labelsByRow = useMemo(() => labelsByRowOf(graph.labels), [graph.labels]);
   const labeledRows = useMemo(() => new Set(labelsByRow.keys()), [labelsByRow]);
+  // The checked-out branch's row: HEAD's label sorts first on its row (J21).
+  const headRow = useMemo(() => [...labelsByRow].find(([, ls]) => ls[0]?.isHead)?.[0] ?? -1, [labelsByRow]);
   // Once per graph (linear): the branch each non-tip commit belongs to (F7).
-  const membership = useMemo(() => branchMembership(graph.rows, labelsByRow, graph.pinnedRef), [graph.rows, labelsByRow, graph.pinnedRef]);
+  const membership = useMemo(() => membershipOf(graph.rows, labelsByRow, graph.pinnedRef), [graph.rows, labelsByRow, graph.pinnedRef]);
   const membershipRef = useRef(membership);
   membershipRef.current = membership;
+  // J22: a branch chip hovered for 500 ms dims the text of every row outside that branch (its
+  // membership claims and tip), at the 'branch' level (the row-dim mechanism, rowDim.ts).
+  const { refs: focusRefs, onBranchHover } = useBranchFocus();
+  const hoverDim = useMemo(() => (focusRefs ? dimAllBut(branchRows(membership, labelsByRow, focusRefs), 'branch') : null), [focusRefs, membership, labelsByRow]);
+  const dim = rowDim ?? hoverDim;
   // The commit under the pointer is a ref: most crossings change nothing on screen. State holds
   // only the commit whose membership chip the hover shows, and is set only when that changes, so
   // crossing rows without a chip doesn't re-render the view at all. Keyed by commit id (not row
@@ -355,6 +379,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
                   onSelect={select}
                   onHover={hover}
                   onCopySha={copySha}
+                  dimmed={dim?.dimmed(item.index) ?? false}
+                  onBranchHover={onBranchHover}
                 />
               );
             })}
@@ -363,7 +389,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
         {/* Clipped to the scroll viewport (clientWidth/clientHeight exclude the scrollbars), so a
             canvas that reaches past it never paints over the vertical scrollbar. */}
         <div className="graph-canvas-clip" style={{ width: viewportW, height: viewportH }}>
-          <GraphCanvas rows={graph.rows} scrollTop={scrollTop} width={cols.graph} height={viewportH} left={cols.labels - scrollLeft} metrics={metrics} labeledRows={labeledRows} avatar={avatarBitmap} avatarVersion={avatarVersion} clipped={cols.graph < lanesWidth(graph.maxLanes, metrics)} selected={selected} />
+          <GraphCanvas rows={graph.rows} scrollTop={scrollTop} width={cols.graph} height={viewportH} left={cols.labels - scrollLeft} metrics={metrics} labeledRows={labeledRows} avatar={avatarBitmap} avatarVersion={avatarVersion} clipped={cols.graph < lanesWidth(graph.maxLanes, metrics)} selected={selected} headRow={headRow} />
         </div>
       </div>
     </div>

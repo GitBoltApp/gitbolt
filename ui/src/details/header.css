@@ -1,8 +1,10 @@
 /* Commit header extras (Task 12): co-authors, the signature badge, message links, Open buttons. */
 .co-authors { display: flex; flex-wrap: wrap; gap: 6px; }
 .co-author { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px 1px 1px; border-radius: 10px; background: var(--panel-bg1); color: var(--text-normal); }
-/* Just an icon (feedback F16), a fixed 16 px box so no status reflows the row. */
-.sig-badge { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; border-radius: 3px; color: var(--text-secondary); }
+/* Just an icon (feedback F16), a fixed box so no status reflows the row. `--sig-badge-size` is
+   also what the header row centres the icon by (details.css, J8). */
+.sig-badge { --sig-badge-size: 16px; display: inline-grid; place-items: center; width: var(--sig-badge-size); height: var(--sig-badge-size); flex: none; border-radius: 3px; color: var(--text-secondary); }
+.sig-badge > svg { width: var(--sig-badge-size); height: var(--sig-badge-size); }
 .sig-badge:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .sig-verified { color: var(--status-added); }
 .sig-bad { color: var(--status-deleted); }
@@ -12,9 +14,10 @@
 /* Content of a HoverTooltip (portaled, so it's positioned by .hover-tooltip). */
 .hovercard { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
 .hovercard-title { color: var(--text-selected); font-weight: 600; }
-.msg-link { color: #40c5ec; text-decoration: none; }
+/* An explicit pointer: WebKit leaves a link at `auto` until it is hovered (H5). */
+.msg-link { color: #40c5ec; text-decoration: none; cursor: pointer; }
 .msg-link:hover { text-decoration: underline; }
 .mr-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.mr-button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--section-border); color: var(--text-normal); }
+.mr-button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--section-border); color: var(--text-normal); transition: background-color var(--motion-fast); }
 .mr-button:hover { background: var(--hover-row); }
 .mr-button:focus-visible { outline: 1px solid var(--blue); }

@@ -43,6 +43,9 @@ glib = "0.22"
 # Pre-release: the only line compatible with tauri 3 alpha. Only its free function
 # `open_url` is used; the plugin isn't registered and there's no JS package (plan 1C does the same).
 tauri-plugin-opener = "=3.0.0-alpha.1"
+# "Other…" (feedback H32): the xdg-desktop-portal Open With chooser over D-Bus. Already in the
+# tree through tauri-plugin-opener; same version and features.
+zbus = "5.19"
 
 [patch.crates-io]
 # CEF issue #3002 idle-busy-loop workaround; see vendor/tauri-runtime-cef/GITBOLT-PATCH.md.

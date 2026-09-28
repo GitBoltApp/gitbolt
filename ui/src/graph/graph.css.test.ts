@@ -51,6 +51,30 @@ describe('graph.css label-connector contract', () => {
   });
 });
 
+describe("graph.css checked-out branch (J21)", () => {
+  const rule = (sel: RegExp) => css.match(new RegExp(`${sel.source}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  it('its chip is always lit: the hovered/selected look, with no row condition', () => {
+    const r = rule(/\n\.ref-label\.ref-label-head/);
+    expect(r).toMatch(/--chip-mix:\s*45%/);
+    expect(r).toMatch(/color:\s*var\(--text-selected\)/);
+  });
+  it('its check is ~1.4x the 12 px icons (17 px at the standard 22 px chip), scaling with the density', () => {
+    const r = rule(/\.ref-head-check/);
+    const k = Number(/var\(--graph-chip-h\)\s*\*\s*([\d.]+)/.exec(r)?.[1]);
+    expect(Math.round(22 * k)).toBe(17);
+    expect(r).toMatch(/width:/);
+    expect(r).toMatch(/height:/);
+  });
+  it('its connector is the graph line: 2 px, the full lane colour', () => {
+    const r = rule(/\.ref-labels-head\s*>\s*\.ref-connector/);
+    expect(r).toMatch(/height:\s*2px/);
+    expect(r).toMatch(/opacity:\s*1\b/);
+    const fill = rule(/\.ref-labels-head\s+\.ref-dim-fill/);
+    expect(fill).toMatch(/100%\s+2px/);
+    expect(fill).not.toMatch(/25%/);
+  });
+});
+
 describe('graph.css message cell', () => {
   it('separates the summary from the dimmed body with a ~10px margin, not a text space', () => {
     const bodyRule = css.match(/\.msg-body\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -132,8 +156,12 @@ describe('graph.css branch membership chip (F7)', () => {
     expect(rule).toMatch(/opacity:\s*0?\.5\b/);
   });
 
-  it('is inert: never takes the pointer', () => {
-    expect(rule).toMatch(/pointer-events:\s*none/);
+  it('takes the pointer like the other chips (J6): hover, expansion and the pointer cursor', () => {
+    expect(rule).not.toMatch(/pointer-events|cursor/);
+  });
+
+  it('hovered, it brightens to the hovered chip look: full strength (J6)', () => {
+    expect(css).toMatch(/(?:^|\})\s*\.ref-label\.ref-label-dim:hover\s*\{[^}]*opacity:\s*1\b/m);
   });
 });
 
@@ -225,6 +253,16 @@ describe('graph.css chips at rest (H3)', () => {
   });
 });
 
+describe('graph.css text selection (J20)', () => {
+  it('the whole graph panel (headers, rows, cells, chips, resizers) never selects text', () => {
+    const panel = ruleBody('.graph-panel');
+    expect(panel).toMatch(/(?:^|;)\s*user-select:\s*none/);
+    expect(panel).toMatch(/-webkit-user-select:\s*none/);
+    // Nothing inside turns it back on.
+    expect(css.match(/user-select:\s*(?!none)\w+/g)).toBeNull();
+  });
+});
+
 describe('graph.css selected and hovered rows (H14)', () => {
   const TEXT = ':is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"])';
 
@@ -245,8 +283,51 @@ describe('graph.css selected and hovered rows (H14)', () => {
     expect(css).not.toMatch(/data-zone-focused|data-focus-zone/);
   });
 
-  it('author, date and SHA brighten on the selected row (the SHA\'s own hover/focus still wins)', () => {
-    const lit = ruleBody('.graph-row[aria-selected="true"] > .col-author, .graph-row[aria-selected="true"] > .col-date, .graph-row[aria-selected="true"] > .col-sha .sha:not(:hover, :focus-visible)');
-    expect(lit).toMatch(/color:\s*var\(--text-normal\)/);
+  it('author, date and SHA light up to the selected row\'s own white, like its summary (J7)', () => {
+    const lit = ruleBody('.graph-row[aria-selected="true"] > .col-author, .graph-row[aria-selected="true"] > .col-date, .graph-row[aria-selected="true"] > .col-sha .sha');
+    expect(lit).toMatch(/color:\s*var\(--text-selected\)/);
+    expect(ruleBody('.graph-row[aria-selected="true"]')).toMatch(/color:\s*var\(--text-selected\)/);
+  });
+});
+
+describe('graph.css row text: the row-dim mechanism and its motion (J22)', () => {
+  const tokens = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../theme/tokens.css'), 'utf8');
+  const TEXT = ':is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"])';
+  const PARTS = ':is(.dim, .sha, .wip-tag, .wip-counts)';
+
+  it('the text cells, and their own-coloured parts, ease their colour: 200 ms ease-in (the selection moving)', () => {
+    expect(ruleBody(`.graph-row > ${TEXT}, .graph-row > [data-col] ${PARTS}`)).toMatch(/^\s*transition:\s*color var\(--motion-row-color\) ease-in;?\s*$/);
+  });
+
+  it('dimmed: every level eases in over 500 ms ease-out, no delay; restoring takes the 200 ms; the base rule carries no colour of its own', () => {
+    const dim = ruleBody(`.graph-row > [data-col].row-dim, .graph-row > [data-col].row-dim ${PARTS}`);
+    expect(dim).not.toMatch(/color:/);
+    expect(dim).toMatch(/^\s*transition:\s*color var\(--motion-row-dim\) ease-out;?\s*$/);
+    // It comes after the selected row's white (same specificity for the SHA): a selected row
+    // outside the branch dims too.
+    expect(css.indexOf('.row-dim')).toBeGreaterThan(css.indexOf('.graph-row[aria-selected="true"] > .col-sha .sha'));
+  });
+
+  it("two dim levels (rowDim.ts DimKind), each its own colour: branch-hover (J22) lighter than filter/search", () => {
+    const branch = ruleBody(`.graph-row > [data-col].row-dim-branch, .graph-row > [data-col].row-dim-branch ${PARTS}`);
+    expect(branch).toMatch(/color:\s*var\(--text-row-dimmed-branch\)/);
+    const filter = ruleBody(`.graph-row > [data-col].row-dim-filter, .graph-row > [data-col].row-dim-filter ${PARTS}`);
+    expect(filter).toMatch(/color:\s*var\(--text-row-dimmed\)/);
+    // The tokens themselves: 50% white for branch-hover, 20% for
+    // filter.
+    expect(tokens).toMatch(/--text-row-dimmed-branch:\s*rgba\(255,\s*255,\s*255,\s*0\.5\)/);
+    expect(tokens).toMatch(/--text-row-dimmed:\s*rgba\(255,\s*255,\s*255,\s*0\.2\)/);
+  });
+
+  it('colour only: no transition on backgrounds, the rows\' top or transform, or anything else', () => {
+    for (const t of css.match(/transition:[^;}]*/g) ?? []) expect(t).toMatch(/^transition:\s*color /);
+  });
+
+  it('the motion tokens: 200 ms and 500 ms, both 0 under prefers-reduced-motion (the one shared chrome+row override, J19)', () => {
+    expect(tokens).toMatch(/--motion-row-color:\s*200ms/);
+    expect(tokens).toMatch(/--motion-row-dim:\s*500ms/);
+    const reduced = /@media \(prefers-reduced-motion: reduce\)\s*\{\s*:root\s*\{([^}]*)\}/.exec(tokens)?.[1] ?? '';
+    expect(reduced).toMatch(/--motion-row-color:\s*0s/);
+    expect(reduced).toMatch(/--motion-row-dim:\s*0s/);
   });
 });

@@ -1,14 +1,15 @@
-import { Activity, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Activity, useCallback, useEffect, useRef, useState } from 'react';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { DetailsPanel } from '../details/DetailsPanel';
+import { releaseDetachedEditors } from '../diff/editorRelease';
 import { displayedOrder } from '../files/fileListPrefs';
 import { GraphView } from '../graph/GraphView';
-import { isCloseFileKey, isEditorKey } from '../ui/keys';
+import { useAppEscape } from './escape';
 import { useFocusZone } from './focus';
 import { LazyDiffPanel } from './LazyDiffPanel';
 import { PanelResizer } from './PanelResizer';
 import { createServices, type RepoServices } from './services';
-import { createRepoViewStore, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore } from './store';
+import { createRepoViewStore, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore, type DiffTarget } from './store';
 import './repo.css';
 
 export const RIGHT_PANEL = { min: 280, max: 720, default: 400 } as const;
@@ -58,11 +59,11 @@ function ConnectedGraph() {
   const store = useRepoViewStore();
   const gridRef = useRef<HTMLDivElement>(null);
   const zone = useFocusZone('graph', gridRef);
+  // → and Enter open the first changed file as its list displays it, and the keyboard follows
+  // it into the list (feedback J2; with nothing to open, it stays in the graph).
   const onUnhandledKey = useCallback((key: string) => {
-    const s = store.getState();
-    if (key === 'ArrowRight') s.setFocus('files');
-    else if (key === 'Enter') s.openFirstFile(displayedOrder);
-    else return false;
+    if (key !== 'ArrowRight' && key !== 'Enter') return false;
+    store.getState().openFirstFile(displayedOrder);
     return true;
   }, [store]);
   return (
@@ -84,6 +85,11 @@ function RepoLayout() {
   const store = useRepoViewStore();
   const diff = useRepoView((s) => s.diff);
   const diffOpen = diff !== null;
+  // The last file opened: what the kept (hidden) diff panel holds while none is (J16). `session`
+  // counts the opens, so the panel knows a reopen from a switch while open.
+  const [kept, setKept] = useState<{ target: DiffTarget; session: number; closed: boolean } | null>(null);
+  if (!diff && kept && !kept.closed) setKept({ ...kept, closed: true });
+  if (diff && (!kept || kept.closed || kept.target !== diff)) setKept({ target: diff, session: (kept?.session ?? 0) + (!kept || kept.closed ? 1 : 0), closed: false });
   // The panel appears with its first selection's content, all loaded (feedback F12).
   const hasPanel = useRepoView((s) => s.panel !== null);
   const pending = useRepoView((s) => s.panelPending);
@@ -96,39 +102,30 @@ function RepoLayout() {
   const maxW = useRightPanelMax();
   // The chosen width, re-clamped to the window: widening the window again restores it.
   const rightW = Math.min(prefW, maxW);
-  // Escape anywhere in the view, unless something inside already handled it. In the file list
-  // or the diff it closes the diff and returns to the graph (`closeDiff`); in the graph (or
-  // elsewhere) it leaves compare mode.
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.defaultPrevented) return;
-    const s = store.getState();
-    // Ctrl+W closes the open file from anywhere in the view (the diff panel takes it first when it
-    // has focus). With none open it does nothing yet; plan 1C makes it close the tab.
-    if (isCloseFileKey(e)) {
-      if (!s.diff) return;
-      s.closeDiff();
-      e.preventDefault();
-      return;
-    }
-    // An editor overlay's Esc (DiffPanel marks it): not the view's.
-    if (e.key !== 'Escape' || isEditorKey(e.nativeEvent)) return;
-    const inFiles = e.target instanceof Element && e.target.closest('[data-focus-zone="files"]') !== null;
-    if (s.diff || inFiles) s.closeDiff();
-    else if (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree' || s.marks.a !== null) {
-      s.exitCompare();
-      // From the compare header (Swap or ×, which unmount), focus would drop to <body>.
-      const inGraph = e.target instanceof Element && e.target.closest('[data-focus-zone="graph"]') !== null;
-      if (!inGraph) s.setFocus('graph');
-    } else return;
-    e.preventDefault();
-  };
+  // Esc, from wherever the focus is (feedback J4): one handler on `window`, not per zone.
+  const viewRef = useRef<HTMLDivElement>(null);
+  useAppEscape(store, viewRef);
+  // The kept diff panel may unmount with the view while hidden, when its own attach cleanup has
+  // already run (J16): let the shared editor go of its box. Outside the panel's `<Activity>`, so
+  // it runs on this unmount; a microtask, once the view's DOM is gone.
+  useEffect(() => () => queueMicrotask(releaseDetachedEditors), []);
+  // Ctrl+W closes the open file from anywhere in the view, even with focus on <body> (I1): it's
+  // in the key router's `app` layer (`useAppEscape`, above), next to Esc. With none open it does
+  // nothing yet; plan 1C makes it close the tab.
   return (
-    <div className="repo-view" data-testid="repo-view" onKeyDown={onKeyDown}>
+    <div ref={viewRef} className="repo-view" data-testid="repo-view">
       <main className="center-panel">
         <Activity mode={diffOpen ? 'hidden' : 'visible'}>
           <ConnectedGraph />
         </Activity>
-        {diff && <LazyDiffPanel target={diff} />}
+        {/* J16: once opened, the diff panel stays mounted, hidden while no file is open, so a
+            reopen wakes the same panel and editor (no lazy-chunk suspense, no re-attach). Hidden,
+            it runs no effects: no keys, observers, timers or focus. */}
+        {kept && (
+          <Activity mode={diffOpen ? 'visible' : 'hidden'}>
+            <LazyDiffPanel target={diff ?? kept.target} session={kept.session} />
+          </Activity>
+        )}
       </main>
       {/* Hidden until something is selected, so a fresh view gives the graph the full width
           (plan 1B deviation 8). */}

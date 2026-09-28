@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BlobPayload } from '../api/gen/BlobPayload';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
@@ -6,18 +7,23 @@ import type { FileChange } from '../api/gen/FileChange';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
+import { useAppEscape } from '../repo/escape';
 import { contentKey } from '../repo/services';
 import { contentsRequest, createRepoViewStore, fileViewTarget, RepoViewContext, targetFor, useRepoView, type DiffTarget } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { DiffHeader, DiffPanel } from './DiffPanel';
 import { DEFAULT_DIFF_PREFS, DIFF_PREFS_STORAGE_KEY, useDiffPrefs } from './diffPrefs';
+import { DiffToolbar } from './DiffToolbar';
 
 const host = vi.hoisted(() => ({
   attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async (_req: { path: string }) => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
-  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(),
+  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
   setContextMenuHandler: vi.fn(), layout: vi.fn(),
 }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
+// The header's "Open in…" loads the openers: none here, and no socket to a harness
+// (DiffPanel.openIn.test.tsx covers the button).
+vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null } }));
 
 const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
@@ -35,6 +41,7 @@ function renderPanel(target: DiffTarget, load: (key: string) => Promise<DiffCont
   // Re-render with the store's target, so File/Diff View switches reach the panel as in RepoView.
   const Connected = () => {
     const diff = useRepoView((s) => s.diff);
+    useAppEscape(store); // RepoView's app-wide Esc (J4), which closes the file
     return diff && <DiffPanel target={diff} />;
   };
   const view = render(<RepoViewContext value={store}><Connected /></RepoViewContext>);
@@ -263,6 +270,80 @@ describe('DiffPanel', () => {
     await waitFor(() => expect(host.goToChange.mock.calls).toEqual([['next'], ['previous']]));
   });
 
+  describe('change keys, app-wide (J14)', () => {
+    /** An element outside the panel (the file list, the graph, …) with the keyboard. */
+    const outside = (html = '<button type="button">file row</button>') => {
+      const host = document.createElement('div');
+      host.innerHTML = html;
+      document.body.append(host);
+      const el = host.querySelector<HTMLElement>('button, textarea, input')!;
+      el.focus();
+      return { el, remove: () => host.remove() };
+    };
+    const openText = async () => {
+      const r = renderPanel(targetFor(change('a.txt'), spec), text);
+      await waitFor(() => expect(button('Next change')).toBeEnabled());
+      return r;
+    };
+    const press = (el: Element, key: string, mods: { shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean } = {}) => fireEvent.keyDown(el, { key, ...mods });
+
+    it('F7 / Shift+F7 step the changes whatever has the keyboard, the file list included', async () => {
+      await openText();
+      const { el, remove } = outside();
+      expect(el).toHaveFocus();
+      expect(press(el, 'F7')).toBe(false);
+      expect(press(el, 'F7', { shiftKey: true })).toBe(false);
+      expect(press(document.body, 'F7')).toBe(false);
+      await waitFor(() => expect(host.goToChange.mock.calls).toEqual([['next'], ['previous'], ['next']]));
+      remove();
+    });
+
+    it('Shift+↓ / Shift+↑ step the changes outside the editor; plain ↑/↓ and other chords are left alone', async () => {
+      await openText();
+      const { el, remove } = outside();
+      expect(press(el, 'ArrowDown', { shiftKey: true })).toBe(false);
+      expect(press(el, 'ArrowUp', { shiftKey: true })).toBe(false);
+      // Plain ↑/↓ still switch files; Ctrl/Alt chords are someone else's.
+      expect(press(el, 'ArrowDown')).toBe(true);
+      expect(press(el, 'ArrowUp', { shiftKey: true, ctrlKey: true })).toBe(true);
+      expect(press(el, 'ArrowDown', { shiftKey: true, altKey: true })).toBe(true);
+      await waitFor(() => expect(host.goToChange.mock.calls).toEqual([['next'], ['previous']]));
+      remove();
+    });
+
+    it('Shift+↑/↓ inside the editor (or a text field) extend the selection, as usual', async () => {
+      await openText();
+      const editor = outside('<div class="monaco-editor"><textarea class="inputarea"></textarea></div>');
+      expect(press(editor.el, 'ArrowDown', { shiftKey: true })).toBe(true);
+      expect(press(editor.el, 'ArrowUp', { shiftKey: true })).toBe(true);
+      // F7 there still steps (Monaco's own F7 is its accessible diff viewer).
+      expect(press(editor.el, 'F7')).toBe(false);
+      editor.remove();
+      const input = outside('<input type="text" />');
+      expect(press(input.el, 'ArrowDown', { shiftKey: true })).toBe(true);
+      input.remove();
+      await waitFor(() => expect(host.goToChange.mock.calls).toEqual([['next']]));
+    });
+
+    // An image diff: the "images" tests below.
+    it('none of them act for File View, or once the panel is gone', async () => {
+      const file = renderPanel(fileViewTarget('a.txt', spec.id, spec), async () => contents(null, blob('a\n')));
+      await screen.findByTestId('file-view');
+      const list = outside();
+      for (const [key, shiftKey] of [['F7', false], ['F7', true], ['ArrowDown', true], ['ArrowUp', true]] as const) expect(press(list.el, key, { shiftKey })).toBe(true);
+      list.remove();
+      file.view.unmount();
+      const { view } = await openText();
+      view.unmount();
+      const { el, remove } = outside();
+      expect(press(el, 'F7')).toBe(true);
+      expect(press(el, 'ArrowDown', { shiftKey: true })).toBe(true);
+      remove();
+      await Promise.resolve();
+      expect(host.goToChange).not.toHaveBeenCalled();
+    });
+  });
+
   it('F7 is left alone in File View', async () => {
     renderPanel(fileViewTarget('a.txt', spec.id, spec), async () => contents(null, blob('a\n')));
     await screen.findByTestId('file-view');
@@ -311,12 +392,21 @@ describe('DiffPanel', () => {
     }
   });
 
-  it("the header's leading slot sits at its left, before the change-kind icon (H9: Open in…)", () => {
+  it("the toolbar's leading slot sits at its far left, before File/Diff View; the header has none (J1: Open in…)", () => {
     const target = targetFor(change('src/app.php'), spec);
-    render(<DiffHeader target={target} encoding="" onClose={() => {}} leading={<button type="button">Open in</button>} />);
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    const inStore = (ui: ReactNode) => render(<RepoViewContext value={store}>{ui}</RepoViewContext>);
+    inStore(<DiffToolbar target={target} canDiff canStep textTools leading={<button type="button">Open in</button>} />);
+    const bar = screen.getByRole('toolbar', { name: 'Diff options' });
     const slot = button('Open in');
-    expect(slot.closest('.diff-header')?.firstElementChild).toContainElement(slot);
-    expect(slot.compareDocumentPosition(screen.getByTestId('diff-path')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar.firstElementChild).toHaveClass('diff-toolbar-start');
+    expect(bar.firstElementChild).toContainElement(slot);
+    expect(slot.compareDocumentPosition(button('File View')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // An image diff hides the text tools, not the slot.
+    inStore(<DiffToolbar target={target} canDiff canStep={false} textTools={false} leading={<button type="button">Open image</button>} />);
+    expect(screen.getAllByRole('toolbar', { name: 'Diff options' })[1].firstElementChild).toContainElement(button('Open image'));
+    render(<DiffHeader target={target} encoding="" onClose={() => {}} />);
+    expect(document.querySelector('.diff-header-leading')).toBeNull();
   });
 
   it('a rename shows the common base, then old ⇒ new with only the new name highlighted; the tooltip stacks both paths (H21)', () => {
@@ -327,7 +417,7 @@ describe('DiffPanel', () => {
     expect([...path.querySelectorAll('strong')].map((s) => s.textContent)).toEqual(['manual.txt']);
     expect(path).not.toHaveAttribute('title');
     fireEvent.mouseEnter(path);
-    const lines = [...screen.getByRole('tooltip').querySelectorAll('.rename-paths > *')].map((l) => l.textContent);
+    const lines = [...within(screen.getByRole('tooltip')).getByTestId('rename-paths').children].map((l) => l.textContent);
     expect(lines).toEqual(['docs/guide.txt', '↓', 'docs/manual.txt']);
     fireEvent.mouseLeave(path);
     // Not a rename: the full path in the tooltip.
@@ -419,6 +509,9 @@ describe('DiffPanel', () => {
       for (const name of ['Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']) expect(screen.queryByRole('button', { name })).toBeNull();
       expect(button('File View')).toBeInTheDocument();
       expect(fireEvent.keyDown(screen.getByRole('region', { name: 'Diff' }), { key: 'F7' })).toBe(true);
+      // Nor Shift+↑/↓ (J14), from anywhere.
+      expect(fireEvent.keyDown(document.body, { key: 'ArrowDown', shiftKey: true })).toBe(true);
+      expect(fireEvent.keyDown(document.body, { key: 'F7' })).toBe(true);
       await Promise.resolve();
       expect(host.goToChange).not.toHaveBeenCalled();
     });

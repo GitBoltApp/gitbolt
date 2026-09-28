@@ -24,13 +24,19 @@ async fn main() {
             eprintln!("gitbolt-harness listening on ws://127.0.0.1:{port}/ws");
             // No avatar provider (tests never touch the network) and a URL opener that only
             // logs: the UI's link buttons are checked by their data-url attribute instead.
-            let api = Arc::new(
-                Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None).with_url_opener(Arc::new(|url: &str| {
+            // "Open in…" lists fake openers and records launches (GET /launches) without
+            // running anything.
+            // Old versions are copied into a temporary directory that lives as long as the server.
+            let launches = Arc::new(gitbolt_harness::Launches::default());
+            let open_cache = tempfile::tempdir().expect("open-in cache");
+            let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
+                .with_url_opener(Arc::new(|url: &str| {
                     tracing::info!("openUrl {url}");
                     Ok(())
-                })),
-            );
-            gitbolt_harness::serve(listener, api).await;
+                }))
+                .with_open_cache(open_cache.path().to_path_buf());
+            let api = Arc::new(gitbolt_harness::with_fake_openers(api, launches.clone()));
+            gitbolt_harness::serve_with_launches(listener, api, launches).await;
         }
         Some("fixture") if args.len() == 3 => {
             let root = PathBuf::from(&args[2]);

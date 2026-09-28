@@ -1,10 +1,10 @@
 import { fireEvent, render, waitFor } from '@testing-library/react';
-import { act } from 'react';
+import { act, Activity } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
   attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async () => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
-  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(),
+  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
   setContextMenuHandler: vi.fn(), layout: vi.fn(),
 }));
 const load = vi.hoisted(() => ({ fail: false }));
@@ -25,7 +25,13 @@ beforeEach(async () => {
   const [t, f, p] = await Promise.all([import('./TextDiff'), import('./FileView'), import('./diffPrefs')]);
   mod = { TextDiff: t.TextDiff, FileView: f.FileView, useDiffPrefs: p.useDiffPrefs };
 });
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  host.attachDiff.mockReset();
+  host.attachFile.mockReset();
+  host.keepDiff.mockReset().mockReturnValue(false);
+  host.keepFile.mockReset().mockReturnValue(false);
+});
 
 describe('TextDiff', () => {
   it('a failed editor load shows the error and Retry loads it again', async () => {
@@ -53,7 +59,29 @@ describe('TextDiff', () => {
     act(() => useDiffPrefs.getState().set({ mode: 'split' }));
     expect(host.setDiffPrefs).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'split' }));
     view.unmount();
-    expect(host.detachDiff).toHaveBeenCalled();
+    await waitFor(() => expect(host.detachDiff).toHaveBeenCalledWith(expect.any(HTMLElement)));
+  });
+
+  it('hidden (a closed diff kept by <Activity>, J16), it keeps the editor attached; shown again, it keeps it, not attaching again', async () => {
+    const { TextDiff } = mod;
+    // The host holds its editor in the box it was attached to.
+    let box: HTMLElement | null = null;
+    host.attachDiff.mockImplementation((el: HTMLElement) => { box = el; });
+    host.keepDiff.mockImplementation((el: HTMLElement) => el === box);
+    const ui = (mode: 'visible' | 'hidden', modified: string) => <Activity mode={mode}><TextDiff path="a.php" original="1" modified={modified} language="php" /></Activity>;
+    const view = render(ui('visible', '2'));
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalledTimes(1));
+    view.rerender(ui('hidden', '2'));
+    await act(async () => {});
+    expect(host.detachDiff).not.toHaveBeenCalled();
+    // Shown again, for another file: kept, told what comes next (so it can hide the old one), shown.
+    view.rerender(ui('visible', '3'));
+    await waitFor(() => expect(host.showDiff).toHaveBeenLastCalledWith(expect.objectContaining({ modified: '3' })));
+    expect(host.keepDiff).toHaveBeenLastCalledWith(box, { path: 'a.php', original: '1', modified: '3' });
+    expect(host.attachDiff).toHaveBeenCalledTimes(1);
+    expect(host.detachDiff).not.toHaveBeenCalled();
+    view.unmount();
+    await waitFor(() => expect(host.detachDiff).toHaveBeenCalledWith(box));
   });
 });
 
@@ -66,6 +94,23 @@ describe('FileView', () => {
     expect(host.setFileWordWrap).toHaveBeenLastCalledWith(true);
     expect(host.showFile).toHaveBeenCalledTimes(1);
     view.unmount();
-    expect(host.detachFile).toHaveBeenCalled();
+    await waitFor(() => expect(host.detachFile).toHaveBeenCalled());
+  });
+
+  it('hidden and shown again (J16), it keeps the file editor attached', async () => {
+    const { FileView } = mod;
+    let box: HTMLElement | null = null;
+    host.attachFile.mockImplementation((el: HTMLElement) => { box = el; });
+    host.keepFile.mockImplementation((el: HTMLElement) => el === box);
+    const ui = (mode: 'visible' | 'hidden') => <Activity mode={mode}><FileView path="a.txt" text={'x\n'} language="plaintext" /></Activity>;
+    const view = render(ui('visible'));
+    await waitFor(() => expect(host.showFile).toHaveBeenCalledTimes(1));
+    view.rerender(ui('hidden'));
+    await act(async () => {});
+    view.rerender(ui('visible'));
+    await waitFor(() => expect(host.showFile).toHaveBeenCalledTimes(2));
+    expect(host.attachFile).toHaveBeenCalledTimes(1);
+    expect(host.detachFile).not.toHaveBeenCalled();
+    view.unmount();
   });
 });

@@ -1,4 +1,4 @@
-/* HoverTooltip (ui/src/ui/HoverTooltip.tsx): local stand-in until plan 1C's shared primitive. */
+/* The app's tooltip look: HoverTooltip (ui/src/ui/HoverTooltip.tsx) and TooltipHost (the menu's). */
 .hover-tooltip {
   position: fixed;
   z-index: 1000;
@@ -17,5 +17,13 @@
   overflow-wrap: anywhere;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
   pointer-events: none;
+  /* motion (J19): a short fade-in only. `delayMs` (the "show immediately" rule) is unaffected: this only fades
+     the opacity of an already-mounted tooltip via `@starting-style`, it never delays showing it.
+     There's no fade-out: the tooltip unmounts synchronously on hide (HoverTooltip.tsx), so
+     nothing is left mounted for an exit transition to animate. */
+  transition: opacity var(--motion-base);
+}
+@starting-style {
+  .hover-tooltip { opacity: 0; }
 }
 .hover-tooltip.interactive { pointer-events: auto; }

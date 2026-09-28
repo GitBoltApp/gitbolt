@@ -86,6 +86,12 @@ export interface RepoViewState {
    * follows DOM focus-in only, so it can be stale after focus moved outside every zone.
    */
   focusRequest: number;
+  /**
+   * The file list (its `filesKey`) the keyboard cursor was last put in. With no diff open, only
+   * that list shows its cursor row, so a WIP's two lists never both show one (fix round 1).
+   */
+  fileListCursor: string | null;
+  setFileListCursor(key: string): void;
   setGraph(graph: GraphPayload): void;
   selectRow(index: number, mods?: { ctrl?: boolean }): void;
   selectCommitById(id: string): boolean;
@@ -101,6 +107,8 @@ export interface RepoViewState {
   openFirstFile(order?: FileOrder): void;
   setView(view: 'diff' | 'file'): void;
   closeDiff(): void;
+  /** Closes the diff, focusing `zone` instead of the graph (the file list's toggle, H5b). */
+  closeDiffTo(zone: FocusZone): void;
   setFocus(zone: FocusZone): void;
 }
 
@@ -280,6 +288,11 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       diff: null,
       focus: 'graph',
       focusRequest: 0,
+      fileListCursor: null,
+
+      setFileListCursor(key) {
+        if (get().fileListCursor !== key) set({ fileListCursor: key });
+      },
 
       setGraph(next) {
         const prev = get();
@@ -397,6 +410,10 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
 
       closeDiff() {
         requestFocus('graph', { diff: null });
+      },
+
+      closeDiffTo(zone) {
+        requestFocus(zone, { diff: null });
       },
 
       setFocus(zone) {

@@ -431,6 +431,87 @@ describe('MonacoHost', () => {
     expect((third.firstElementChild as HTMLElement).style.visibility).toBe('');
   });
 
+  it('a kept panel shown again keeps its editor: keepDiff/keepFile hide what it holds unless it is the next one (J16)', async () => {
+    const { host, state } = await fresh();
+    const box = document.createElement('div');
+    host.attachDiff(box);
+    const a = diffReq('a.txt');
+    await host.showDiff(a);
+    const el = box.firstElementChild as HTMLElement;
+    // Still in its box (the panel was hidden, not unmounted): kept, not attached again.
+    expect(host.keepDiff(box, a)).toBe(true);
+    expect(el.style.visibility).toBe('');
+    const b = { ...diffReq('a.txt'), modified: 'another commit\n' };
+    expect(host.keepDiff(box, b)).toBe(true);
+    expect(el.style.visibility).toBe('hidden');
+    await host.showDiff(b);
+    expect(el.style.visibility).toBe('');
+    expect(state.diffs).toHaveLength(1);
+    // Another box: that one attaches.
+    expect(host.keepDiff(document.createElement('div'), b)).toBe(false);
+    // File View the same.
+    const fileBox = document.createElement('div');
+    host.attachFile(fileBox);
+    const one = { path: 'a.txt', text: 'one\n', language: 'plaintext', wordWrap: false };
+    await host.showFile(one);
+    expect(host.keepFile(fileBox, { path: 'a.txt', text: 'two\n' })).toBe(true);
+    expect((fileBox.firstElementChild as HTMLElement).style.visibility).toBe('hidden');
+    expect(host.keepFile(document.createElement('div'), one)).toBe(false);
+    expect(state.files).toHaveLength(1);
+  });
+
+  it('a box that left the document with no detach (a kept panel unmounted while hidden, J16) is let go: by the next attach, or releaseDetached', async () => {
+    const { host } = await fresh();
+    const unobserve = vi.spyOn(ResizeObserver.prototype, 'unobserve');
+    const box = () => document.body.appendChild(document.createElement('div'));
+    try {
+      for (const [attach, name] of [[host.attachDiff.bind(host), 'diff'], [host.attachFile.bind(host), 'file']] as const) {
+        // Hidden (its cleanup kept the editor: the box was still in the document), then unmounted:
+        // no detach ever runs for it.
+        const old = box();
+        attach(old);
+        old.remove();
+        const next = box();
+        attach(next);
+        expect(unobserve, name).toHaveBeenCalledWith(old);
+        expect(next.childElementCount, name).toBe(1);
+        // Without a next attach: the view's unmount calls releaseDetached.
+        const gone = box();
+        attach(gone);
+        gone.remove();
+        unobserve.mockClear();
+        host.releaseDetached();
+        expect(gone.childElementCount, name).toBe(0);
+        expect(unobserve, name).toHaveBeenCalledWith(gone);
+        // A box still in the document (another view's, or a hidden kept one) keeps its editor.
+        const shown = box();
+        attach(shown);
+        host.releaseDetached();
+        expect(shown.childElementCount, name).toBe(1);
+        shown.remove();
+      }
+    } finally {
+      unobserve.mockRestore();
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('a hidden box (0×0: display none) is never laid out; a shown one is (J16)', async () => {
+    const { host, state } = await fresh();
+    const box = document.createElement('div');
+    host.attachDiff(box);
+    const size = { w: 0, h: 0 };
+    Object.defineProperty(box, 'clientWidth', { get: () => size.w });
+    Object.defineProperty(box, 'clientHeight', { get: () => size.h });
+    const layout = (state.diffs[0] as unknown as { layout: ReturnType<typeof vi.fn> }).layout;
+    layout.mockClear();
+    host.layout();
+    expect(layout).not.toHaveBeenCalled();
+    Object.assign(size, { w: 800, h: 600 });
+    host.layout();
+    expect(layout).toHaveBeenCalledExactlyOnceWith({ width: 800, height: 600 });
+  });
+
   it('a show that fails un-hides the editor (its error UI shows over it, and a Retry can show into it)', async () => {
     const { host } = await fresh();
     const first = document.createElement('div');

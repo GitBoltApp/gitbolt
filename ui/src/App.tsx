@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from './api/client';
 import type { GraphPayload } from './api/gen/GraphPayload';
 import './graph/graph.css';
+import { ContextMenu } from './menu/ContextMenu';
 import { RepoView } from './repo/RepoView';
 import { createServices, type RepoServices } from './repo/services';
 import { Toast } from './ui/Toast';
+import { TooltipHost } from './ui/TooltipHost';
 
 type State =
   | { kind: 'loading' }
@@ -45,6 +47,9 @@ export function App() {
         ? <div className="center-message">No commits yet</div>
         : <RepoView key={state.repo} repo={state.repo} repoPath={state.repoPath} graph={state.graph} services={state.services} />)}
       <Toast />
+      {/* The one context menu and its tooltip (spec §7). Plan 1C moves them to AppShell. */}
+      <ContextMenu />
+      <TooltipHost />
     </>
   );
 }

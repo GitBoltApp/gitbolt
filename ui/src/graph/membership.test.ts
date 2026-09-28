@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RowPayload } from '../api/gen/RowPayload';
-import { branchMembership, labelsByRow } from './membership';
+import { branchMembership, branchRows, chipRefs, labelsByRow } from './membership';
 
 type Spec = [id: string, lane: number, parents: string[], kind?: RowPayload['kind']];
 const rowsOf = (specs: Spec[]): RowPayload[] => specs.map(([id, lane, parents, kind = parents.length > 1 ? 'merge' : 'commit']) => ({
@@ -192,4 +192,34 @@ describe('branchMembership on real layouts', () => {
       expect(got).toEqual(expected[v.name]);
     });
   }
+});
+
+describe('branchRows (J22): the rows a hovered branch chip focuses', () => {
+  const sorted = (set: ReadonlySet<number>) => [...set].sort((a, b) => a - b);
+  // M merges feat (F2 <- F1) into main (M <- A <- B); feat's tip is F2.
+  const r = rows(['M', 0, ['A', 'F2']], ['F2', 1, ['F1']], ['A', 0, ['B']], ['F1', 1, ['B']], ['B', 0, []]);
+  const byRow = labelsByRow([local(0, 'main'), local(1, 'feat')]);
+  const m = branchMembership(r, byRow);
+
+  it("is the membership algorithm's first-parent claims plus the tip, not all reachable history", () => {
+    expect(sorted(branchRows(m, byRow, ['refs/heads/main']))).toEqual([0, 2, 4]);
+    // feat: its tip and F1 (B, reachable from feat too, is main's claim).
+    expect(sorted(branchRows(m, byRow, ['refs/heads/feat']))).toEqual([1, 3]);
+  });
+
+  it("takes a chip's refs (local and remotes) together; a tag, a detached HEAD or an unknown ref focus nothing", () => {
+    const withRemote: RefLabel = { ...local(0, 'main'), remotes: [{ fullName: 'refs/remotes/origin/main', remote: 'origin', hostKind: 'generic' }] };
+    expect(chipRefs(withRemote)).toEqual(['refs/heads/main', 'refs/remotes/origin/main']);
+    expect(chipRefs(tag(0, 'v1'))).toEqual([]);
+    expect(chipRefs(detachedHead(0))).toEqual([]);
+    const b2 = labelsByRow([withRemote, local(1, 'feat')]);
+    expect(sorted(branchRows(branchMembership(r, b2), b2, chipRefs(withRemote)))).toEqual([0, 2, 4]);
+    expect(sorted(branchRows(m, byRow, ['refs/heads/gone']))).toEqual([]);
+  });
+
+  it('a branch whose tip another branch claimed (a fast-forwarded one) is just its tip', () => {
+    const line = rows(['c', 0, ['b']], ['b', 0, ['a']], ['a', 0, []]);
+    const l = labelsByRow([local(0, 'main'), local(1, 'old')]);
+    expect(sorted(branchRows(branchMembership(line, l), l, ['refs/heads/old']))).toEqual([1]);
+  });
 });

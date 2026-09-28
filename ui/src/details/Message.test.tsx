@@ -48,6 +48,11 @@ describe('Message', () => {
     expect(openUrl).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
   });
 
+  it('a link is not draggable (Minor 10): dragging it, or dropping a URL onto it, must not navigate the main frame', () => {
+    render(<Message summary="s" body={body} remote={gitlab} />);
+    expect(screen.getByRole('link', { name: 'https://example.com/docs' })).toHaveAttribute('draggable', 'false');
+  });
+
   it('a failed open shows a toast', async () => {
     openUrl.mockRejectedValueOnce({ message: 'no browser' });
     render(<Message summary="s" body={body} remote={gitlab} />);

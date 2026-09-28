@@ -108,6 +108,12 @@ impl GitCli {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // GitBolt's own environment (openers::PRIVATE_ENV) must never leak into a child, the
+        // same guarantee `openers::launch_command` gives an opener/chooser/URL-open launch, and
+        // regardless of whether a command hook is installed.
+        for var in crate::openers::PRIVATE_ENV {
+            cmd.as_std_mut().env_remove(var);
+        }
         if let Some(hook) = &self.hook {
             hook(cmd.as_std_mut());
         }
@@ -278,6 +284,23 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), "restored|unset");
+    }
+
+    /// I2: `CHROME_DEVEL_SANDBOX` and `GITBOLT_OPEN` (`openers::PRIVATE_ENV`) are GitBolt's own,
+    /// never git's to inherit — the same guarantee `openers::launch_command` gives every opener,
+    /// chooser and URL-open launch. `GitCli::run` is the other place a child process starts, so
+    /// it must strip them too, even with no command hook installed (the app always installs one,
+    /// but this must not depend on that).
+    #[tokio::test]
+    async fn private_app_env_never_reaches_a_child_even_without_a_hook() {
+        let r = TestRepo::new();
+        let cli = GitCli::new(Arc::new(CommandLog::new(10)))
+            .with_env(vec![("CHROME_DEVEL_SANDBOX".into(), "/leaked/sandbox".into()), ("GITBOLT_OPEN".into(), "/leaked/repo".into())]);
+        let out = cli
+            .run(GitInvocation::new(r.path(), ["-c", "alias.env=!printf '%s|%s' \"${CHROME_DEVEL_SANDBOX-unset}\" \"${GITBOLT_OPEN-unset}\"", "env"]))
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "unset|unset");
     }
 
     #[tokio::test]

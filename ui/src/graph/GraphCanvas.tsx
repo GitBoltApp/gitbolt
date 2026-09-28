@@ -20,9 +20,11 @@ interface Props {
   clipped?: boolean;
   /** The selected row, drawn with a brighter band (H14); -1 or omitted: none. */
   selected?: number;
+  /** The checked-out branch's row, whose connector is a graph line (J21); -1 or omitted: none. */
+  headRow?: number;
 }
 
-export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion, clipped = false, selected = -1 }: Props) {
+export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion, clipped = false, selected = -1, headRow = -1 }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const nodeFillRef = useRef<string | undefined>(undefined);
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
@@ -54,8 +56,8 @@ export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, lab
     if (nodeFillRef.current === undefined) {
       nodeFillRef.current = getComputedStyle(document.documentElement).getPropertyValue('--app-bg0').trim() || '#1c1e23';
     }
-    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: GRAPH_COLORS, nodeFill: nodeFillRef.current, labeledRows, dpr, avatar, clipped, selected });
-  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion, clipped, selected]);
+    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: GRAPH_COLORS, nodeFill: nodeFillRef.current, labeledRows, dpr, avatar, clipped, selected, headRow });
+  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion, clipped, selected, headRow]);
 
   return <canvas ref={ref} className="graph-canvas" data-testid="graph-canvas" data-clipped={clipped} style={{ left, width, height }} />;
 }

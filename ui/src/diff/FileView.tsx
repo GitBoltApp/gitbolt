@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useDiffPrefs } from './diffPrefs';
-import { EditorLoadError, SHOW_ERROR_TITLE, useMonacoHost, useOnShown, useShow } from './TextDiff';
+import { EditorLoadError, keepWhileHidden, SHOW_ERROR_TITLE, useMonacoHost, useOnShown, useShow } from './TextDiff';
 
 /** File View: the whole file at that commit, read-only and highlighted (spec §10.1). Attached
  * before it's shown, as `TextDiff` is; `onShown` as there. */
@@ -15,8 +15,8 @@ export function FileView({ path, text, language, onShown }: { path: string; text
   useLayoutEffect(() => {
     const el = ref.current;
     if (!host || !el) return;
-    host.attachFile(el, content.current);
-    return () => host.detachFile(el);
+    if (!host.keepFile(el, content.current)) host.attachFile(el, content.current);
+    return keepWhileHidden(el, () => host.detachFile(el));
   }, [host]);
   // Word wrap isn't a dependency: toggling it goes through the editor's options (below), so the
   // file isn't shown again and keeps its scroll position.

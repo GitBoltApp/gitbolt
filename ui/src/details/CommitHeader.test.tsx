@@ -120,14 +120,52 @@ describe('commit header', () => {
   it('the top row is signature icon, SHA, parents: a justified three-part row (F16)', async () => {
     renderView();
     const sha = await screen.findByTestId('details-sha');
-    const row = sha.parentElement!;
+    const row = sha.parentElement!.parentElement!; // .commit-id, in the row (H11)
     expect(row).toHaveClass('commit-ids');
-    expect([...row.children].map((c) => c.className)).toEqual(['commit-ids-start', 'sha', 'parents']);
+    expect([...row.children].map((c) => c.className)).toEqual(['commit-ids-start', 'commit-id', 'parents']);
     const badge = within(row.children[0] as HTMLElement).getByTestId('signature-badge');
     // Just an icon, named for assistive tech; no text label.
     expect(badge).toHaveAccessibleName('Not signed');
     expect(badge.textContent).toBe('');
     expect(within(row.children[2] as HTMLElement).getByTestId('parent-sha')).toHaveTextContent(B.slice(0, 6));
+  });
+
+  it('labels the hashes "commit:" and "parent:" (H11)', async () => {
+    renderView();
+    const sha = await screen.findByTestId('details-sha');
+    const id = sha.parentElement!;
+    expect(id).toHaveClass('commit-id');
+    expect(id).toHaveTextContent(`commit: ${A.slice(0, 6)}`);
+    expect(id.querySelector('.id-label')).toHaveTextContent(/^commit:$/);
+    const parents = screen.getByTestId('parent-sha').parentElement!;
+    expect(parents).toHaveTextContent(`parent: ${B.slice(0, 6)}`);
+    expect(parents.querySelector('.id-label')).toHaveTextContent(/^parent:$/);
+    cleanup();
+    renderView({ ...details, parents: [B, A] });
+    await screen.findByTestId('details-sha');
+    expect(screen.getAllByTestId('parent-sha')[0].parentElement!.querySelector('.id-label')).toHaveTextContent(/^parents:$/);
+  });
+
+  it('the parent hash says "Go to parent commit" at once, and the SHA "Copy full SHA" (H11)', async () => {
+    renderView();
+    const parent = await screen.findByTestId('parent-sha');
+    expect(parent).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(parent);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Go to parent commit$/);
+    fireEvent.mouseLeave(parent);
+    const sha = screen.getByTestId('details-sha');
+    expect(sha).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(sha);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^Copy full SHA$/);
+    // Keyboard users get the same words as a description.
+    expect(parent).toHaveAccessibleDescription('Go to parent commit');
+    expect(sha).toHaveAccessibleDescription('Copy full SHA');
+  });
+
+  it('the message sits in its own darker box (H11)', async () => {
+    renderView();
+    await screen.findByTestId('details-sha');
+    expect(screen.getByTestId('commit-message')).toHaveClass('message-box');
   });
 });
 

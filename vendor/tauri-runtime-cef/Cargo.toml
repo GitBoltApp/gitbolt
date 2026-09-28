@@ -127,6 +127,12 @@ package = "tauri-winit"
 version = "0.8"
 features = ["derive"]
 
+# GitBolt patch: the `xevent` signal and error traps for the WM_TAKE_FOCUS redirect
+# (src/platform/linux/focus.rs). Already in the build through tauri-winit-gtk4, same features.
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.gdk4-x11]
+version = "0.11.4"
+features = ["xlib"]
+
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.gtk]
 version = "0.11.4"
 package = "gtk4"

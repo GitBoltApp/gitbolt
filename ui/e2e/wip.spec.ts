@@ -14,7 +14,9 @@ test('the WIP row shows read-only unstaged and staged files with their diffs', a
   await expect(unstaged.getByRole('option')).toHaveText([/manual\.txt/, /notes\.txt/]);
   await unstaged.getByRole('option').filter({ hasText: 'notes.txt' }).click();
   const diff = page.getByRole('region', { name: 'Diff' });
-  await expect(diff.locator('.editor.modified')).toContainText('untracked notes');
+  // The page's first diff loads the editor's chunk (Monaco + Shiki, 3-5 s cold on the dev server
+  // at idle, more on a loaded machine): allow for a cold start.
+  await expect(diff.locator('.editor.modified')).toContainText('untracked notes', { timeout: 15_000 });
   await page.getByRole('listbox', { name: 'Staged', exact: true }).getByRole('option').click();
   await expect(diff.locator('.editor.modified')).toContainText('// staged tweak');
   await expect(page.getByRole('button', { name: /stage|discard/i })).toHaveCount(0);

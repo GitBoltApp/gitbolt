@@ -90,7 +90,7 @@ pub fn is_image_path(path: &str) -> bool {
 /// - `.git` with trailing dots or spaces (NTFS drops them)
 /// - `.git` with HFS+-ignorable code points
 /// - the 8.3 short name `git~1`
-fn is_dotgit(name: &str) -> bool {
+pub(crate) fn is_dotgit(name: &str) -> bool {
     const HFS_IGNORABLE: [std::ops::RangeInclusive<char>; 4] =
         ['\u{200C}'..='\u{200F}', '\u{202A}'..='\u{202E}', '\u{206A}'..='\u{206F}', '\u{FEFF}'..='\u{FEFF}'];
     let n: String = name.chars().filter(|c| !HFS_IGNORABLE.iter().any(|r| r.contains(c))).collect();
@@ -111,14 +111,7 @@ fn is_dotgit(name: &str) -> bool {
 /// target, as git does.
 pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, GbError> {
     let bad = || GbError::new(GbErrorKind::InvalidInput, format!("path is outside the worktree: {rel:?}"));
-    let malformed = |s: &str| s.is_empty() || s == "." || s == ".." || is_dotgit(s);
-    if rel.is_empty() || rel.contains('\0') || rel.split('/').any(malformed) {
-        return Err(bad());
-    }
-    let rel_path = Path::new(rel);
-    if rel_path.is_absolute() || !rel_path.components().all(|c| matches!(c, Component::Normal(_))) {
-        return Err(bad());
-    }
+    check_relative(rel)?;
     let (dir, name) = rel.rsplit_once('/').unwrap_or(("", rel));
     let root_real = root.canonicalize()?;
     let parent_real = if dir.is_empty() {
@@ -131,6 +124,38 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, GbError> {
         return Err(bad());
     }
     Ok(parent_real.join(name))
+}
+
+/// `safe_join`'s checks on the path alone, before anything touches the disk: relative, no
+/// empty, `.`, `..` or `.git` segment, no NUL.
+pub fn check_relative(rel: &str) -> Result<(), GbError> {
+    let bad = || GbError::new(GbErrorKind::InvalidInput, format!("path is outside the worktree: {rel:?}"));
+    let malformed = |s: &str| s.is_empty() || s == "." || s == ".." || is_dotgit(s);
+    if rel.is_empty() || rel.contains('\0') || rel.split('/').any(malformed) {
+        return Err(bad());
+    }
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() || !rel_path.components().all(|c| matches!(c, Component::Normal(_))) {
+        return Err(bad());
+    }
+    Ok(())
+}
+
+/// The raw bytes of `path` on a repository side (a blob, or the file at a commit), as stored:
+/// what "Open in…" copies for an old version (spec §14.5). Over `limit` bytes it's refused
+/// before anything is read.
+pub fn side_bytes(repo: &gix::Repository, path: &str, side: &Side, limit: u64) -> Result<Vec<u8>, GbError> {
+    match side {
+        Side::Object(_) | Side::AtCommit(_) => {}
+        _ => return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path}: only a stored version can be copied"))),
+    }
+    let resolved = resolve(repo, path, side)?.ok_or_else(|| not_found(format!("{path} has no stored version")))?;
+    let size = resolved.size(repo)?;
+    if size > limit {
+        let mib = |n: u64| n.div_ceil(1024 * 1024);
+        return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path} is too large to open ({} MiB; the limit is {} MiB)", mib(size), mib(limit))));
+    }
+    Ok(resolved.bytes(repo)?.0)
 }
 
 /// `git check-attr -z working-tree-encoding -- <path>` output: `path NUL attr NUL value NUL`.
@@ -326,6 +351,11 @@ mod tests {
     fn at_commit_reads_the_tree_and_decodes_legacy_encodings() {
         let (r, repo) = setup();
         let head = oid(&r.git(&["rev-parse", "HEAD"]));
+        // "Open in…" copies (fix round 2): the bytes as stored, refused above the limit.
+        assert_eq!(side_bytes(&repo, "latin1.txt", &Side::AtCommit(head), 64).unwrap(), b"caf\xe9 cr\xe8me br\xfbl\xe9e\n");
+        let too_big = side_bytes(&repo, "latin1.txt", &Side::AtCommit(head), 8).unwrap_err();
+        assert_eq!(too_big.kind, GbErrorKind::InvalidInput);
+        assert!(too_big.message.contains("too large"), "{}", too_big.message);
         let latin1 = diff_contents(&repo, "latin1.txt", &Side::Absent, &Side::AtCommit(head), false).unwrap().new.unwrap();
         assert_eq!((latin1.text.as_deref(), latin1.encoding.as_str()), (Some("caf\u{e9} cr\u{e8}me br\u{fb}l\u{e9}e\n"), "ISO-8859-1"));
         let utf16 = diff_contents(&repo, "utf16.txt", &Side::Absent, &Side::AtCommit(head), false).unwrap().new.unwrap();

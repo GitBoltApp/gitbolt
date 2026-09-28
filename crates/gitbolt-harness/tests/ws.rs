@@ -103,3 +103,50 @@ async fn commit_message_over_websocket() {
     assert_eq!(reply["ok"]["summary"], "Initial commit");
     assert_eq!(reply["ok"]["body"], "With a body line\n\nA second paragraph,\nwrapped over two lines.");
 }
+
+/// A raw HTTP/1.1 GET (the harness's plain routes), returning the body.
+async fn http_get(addr: std::net::SocketAddr, path: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    s.write_all(format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).await.unwrap();
+    assert!(out.starts_with("HTTP/1.1 200"), "{out}");
+    out.split_once("\r\n\r\n").unwrap().1.to_string()
+}
+
+/// The harness lists fake openers and records "Open in…" launches instead of running anything;
+/// e2e reads them back from `/launches`.
+#[tokio::test]
+async fn open_in_is_recorded_not_launched() {
+    let r = TestRepo::new();
+    fixtures::details(&r);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let launches = Arc::new(gitbolt_harness::Launches::default());
+    let api = Arc::new(gitbolt_harness::with_fake_openers(Api::new(GitCli::new(Arc::new(CommandLog::new(10))).with_env(isolated_git_env()), None), launches.clone()));
+    tokio::spawn(gitbolt_harness::serve_with_launches(listener, api, launches));
+
+    assert_eq!(http_get(addr, "/launches").await, "[]");
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws")).await.unwrap();
+    let mut call = async |id: u32, req: serde_json::Value| {
+        ws.send(Message::Text(serde_json::json!({"id": id, "req": req}).to_string().into())).await.unwrap();
+        serde_json::from_str::<serde_json::Value>(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap()
+    };
+    let list = call(1, serde_json::json!({"method": "listOpeners"})).await;
+    let ids: Vec<&str> = list["ok"].as_array().unwrap().iter().map(|o| o["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["vscode", "jetbrains-phpstorm", "text-editor", "file-manager", "other"]);
+    let repo = call(2, serde_json::json!({"method": "openRepo", "params": {"path": r.path()}})).await["ok"]["id"].clone();
+    let wt = r.path().canonicalize().unwrap();
+    let reply = call(3, serde_json::json!({"method": "openIn", "params": {"repo": repo, "worktree": wt, "path": "src/app.php", "line": 4, "opener": "vscode"}})).await;
+    assert!(reply["ok"].is_null(), "{reply}");
+    // "Other…" is recorded too, as the chooser it would have shown.
+    let reply = call(4, serde_json::json!({"method": "openIn", "params": {"repo": repo, "worktree": wt, "path": "src/app.php", "line": 4, "opener": "other"}})).await;
+    assert!(reply["ok"].is_null(), "{reply}");
+    let file = wt.join("src/app.php").display().to_string();
+    let got: serde_json::Value = serde_json::from_str(&http_get(addr, "/launches").await).unwrap();
+    assert_eq!(got, serde_json::json!([
+        {"program": "/fake/bin/code", "args": ["-g", format!("{file}:4")]},
+        {"program": gitbolt_harness::CHOOSER_PROGRAM, "args": [file]},
+    ]));
+}

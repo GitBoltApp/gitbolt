@@ -3,7 +3,7 @@ import { errorMessage } from '../api/client';
 import { useFocusZone } from './focus';
 import { useRepoView, type DiffTarget } from './store';
 
-type PanelModule = { default: ComponentType<{ target: DiffTarget }> };
+type PanelModule = { default: ComponentType<{ target: DiffTarget; session?: number }> };
 
 // Lazy: the diff panel reaches Shiki's language registry and the Monaco loader, which must stay
 // out of the startup chunk (spec §10.3; `npm run build` checks it).
@@ -51,9 +51,9 @@ function DiffError({ error, onRetry, onClose }: { error: unknown; onRetry: () =>
 /**
  * The diff panel, loaded on the first diff. While its chunk loads, the panel's empty frame
  * (`aria-busy`); if the load or the panel fails, the error with Retry (a fresh import: React.lazy
- * would replay the rejection) and Close. `load` is a test seam.
+ * would replay the rejection) and Close. `session` goes to the panel (J16). `load` is a test seam.
  */
-export function LazyDiffPanel({ target, load = loadDiffPanel }: { target: DiffTarget; load?: () => Promise<PanelModule> }) {
+export function LazyDiffPanel({ target, session, load = loadDiffPanel }: { target: DiffTarget; session?: number; load?: () => Promise<PanelModule> }) {
   const closeDiff = useRepoView((s) => s.closeDiff);
   const [attempt, setAttempt] = useState(0);
   // `attempt` is a dependency on purpose: each Retry makes a fresh lazy() that imports again.
@@ -64,7 +64,7 @@ export function LazyDiffPanel({ target, load = loadDiffPanel }: { target: DiffTa
       fallback={(error) => <DiffError error={error} onRetry={() => setAttempt((n) => n + 1)} onClose={closeDiff} />}
     >
       <Suspense fallback={<section className="diff-panel" role="region" aria-label="Diff" aria-busy="true" />}>
-        <Panel target={target} />
+        <Panel target={target} session={session} />
       </Suspense>
     </Boundary>
   );

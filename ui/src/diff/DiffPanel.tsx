@@ -1,24 +1,28 @@
 // Reached only through RepoView's React.lazy import: this module pulls in Shiki's language
 // registry (language.ts) and the Monaco loader, which stay out of the startup chunk (spec §10.3).
 import { X } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { errorMessage } from '../api/client';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
+import { renameParts } from '../files/renameParts';
+import { RenamePaths } from '../files/RenamePaths';
 import { StatusIcon } from '../files/StatusIcon';
 import { ImageDiff } from '../image/ImageDiff';
 import { useImageSources } from '../image/sources';
+import { useEscapeOwner } from '../repo/escape';
 import { useFocusZone } from '../repo/focus';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { isCloseFileKey, markEditorKey } from '../ui/keys';
+import { OpenInButton } from '../openIn/OpenInMenu';
 import { contentKey, type RepoServices } from '../repo/services';
 import { contentsRequest, useRepoView, type DiffTarget, type Loadable } from '../repo/store';
-import { DiffToolbar, goToChange } from './DiffToolbar';
+import { useChangeKeys } from './changeKeys';
+import { DiffToolbar } from './DiffToolbar';
 import { FileView } from './FileView';
+import { firstChangedLine } from './firstChange';
 import { eolLabel, formatBytes } from './format';
 import { highlightLanguage } from './language';
 import { loadMonacoHost } from './monaco/load';
-import { renameParts } from './renamePath';
 import { TextDiff } from './TextDiff';
 import './diff.css';
 
@@ -50,14 +54,18 @@ export function useContents(services: RepoServices, target: DiffTarget, force: b
  * the panel says "Loading…". Long enough to cover a normal load, so the switch is one render. */
 export const STALE_MS = 300;
 
+/** What the panel presents, in which `session` (J16: one per open of the kept panel). */
+export interface Presented { target: DiffTarget; contents: Loadable<DiffContentsPayload>; session: number }
+
 /**
  * What the panel presents: `target` and its contents once they're ready and, while they load,
  * the last ready file, for up to `STALE_MS` (F24). Header, toolbar and body all follow it, so a
  * switch replaces the whole panel in one render instead of flashing "Loading…" (which also
- * detached the editor). Errors and ready contents present at once.
+ * detached the editor). Errors and ready contents present at once. Only a file of the same
+ * `session` stays: one from before a close is never presented after the reopen (J16, H6).
  */
-export function usePresented(target: DiffTarget, contents: Loadable<DiffContentsPayload>): { target: DiffTarget; contents: Loadable<DiffContentsPayload> } {
-  const last = useRef<{ target: DiffTarget; contents: Loadable<DiffContentsPayload> } | null>(null);
+export function usePresented(target: DiffTarget, contents: Loadable<DiffContentsPayload>, session = 0): Presented {
+  const last = useRef<Presented | null>(null);
   const [expired, setExpired] = useState<string | null>(null);
   const loading = contents.status === 'loading' || contents.status === 'idle';
   useEffect(() => {
@@ -68,9 +76,9 @@ export function usePresented(target: DiffTarget, contents: Loadable<DiffContents
       setExpired(null);
     };
   }, [loading, target.key]);
-  if (!loading) return (last.current = { target, contents });
-  if (last.current && expired !== target.key) return last.current;
-  return { target, contents };
+  if (!loading) return (last.current = { target, contents, session });
+  if (last.current && last.current.session === session && expired !== target.key) return last.current;
+  return { target, contents, session };
 }
 
 /** How long a diff may take to load or compute before the header's progress line shows. */
@@ -87,26 +95,14 @@ function useLateFlag(on: boolean, ms: number, key: string): boolean {
   return on && late === key;
 }
 
-/** A rename's tooltip (H21): the old full path, a centred ↓, the new full path, left-aligned.
- * Lane P builds the shared `RenamePaths` for the file list (H22); the controller dedupes the two at
- * merge. */
-export function RenameTooltip({ oldPath, path }: { oldPath: string; path: string }) {
-  return (
-    <div className="rename-paths">
-      <span>{oldPath}</span>
-      <span className="rename-arrow" aria-label="renamed to">↓</span>
-      <span>{path}</span>
-    </div>
-  );
-}
-
 /** The path: its directories dim and the file name highlighted. A rename (H21):
- * the directories both paths share, then `old ⇒ new` with only the new file name highlighted. */
+ * the directories both paths share, then `old ⇒ new` with only the new file name highlighted;
+ * its tooltip is the file list's (`RenamePaths`: old path, ↓, new path). */
 function DiffPath({ target }: { target: DiffTarget }) {
   if (target.oldPath && target.oldPath !== target.path) {
     const r = renameParts(target.oldPath, target.path);
     return (
-      <HoverTooltip content={<RenameTooltip oldPath={target.oldPath} path={target.path} />}>
+      <HoverTooltip content={<RenamePaths oldPath={target.oldPath} path={target.path} />}>
         <span className="diff-path" data-testid="diff-path">
           {r.common && <span className="crumb">{r.common}</span>}
           <span className="crumb">{r.old}</span>
@@ -129,12 +125,10 @@ function DiffPath({ target }: { target: DiffTarget }) {
   );
 }
 
-/** `leading` (H9): the slot at the header's far left, for the controller's "Open in…" button
- * (lane P's `OpenInButton`). */
-export function DiffHeader({ target, encoding, onClose, busy = false, leading }: { target: DiffTarget; encoding: string; onClose: () => void; busy?: boolean; leading?: ReactNode }) {
+/** The path, its change kind and encoding, and ×. "Open in…" is on the toolbar below (J1). */
+export function DiffHeader({ target, encoding, onClose, busy = false }: { target: DiffTarget; encoding: string; onClose: () => void; busy?: boolean }) {
   return (
     <header className="diff-header">
-      {leading && <div className="diff-header-leading">{leading}</div>}
       {/* F21: the change-kind icon, before the path. Empty for an unchanged File View file
           (fileViewTarget's status is ''), which has nothing to show an icon for: a same-width
           spacer (FileList.tsx's pattern) keeps the path from shifting as files are stepped
@@ -148,6 +142,14 @@ export function DiffHeader({ target, encoding, onClose, busy = false, leading }:
       {busy && <div className="diff-progress" role="progressbar" aria-label="Loading diff" />}
     </header>
   );
+}
+
+/** Where "Open in…" puts the cursor: the diff's first change (a plain line compare), when the
+ * new side is text. */
+function openInLine(contents: Loadable<DiffContentsPayload>): number | null {
+  if (contents.status !== 'ready' || contents.data.tooLarge) return null;
+  const neu = contents.data.new?.text;
+  return neu == null ? null : firstChangedLine(contents.data.old?.text ?? '', neu);
 }
 
 /** The backend's ceiling for a forced load (`MAX_FORCED_BYTES`, diff.rs): a side over it stays
@@ -254,6 +256,8 @@ const ESCAPE_OWNERS = [
   '.parameter-hints-widget.visible',
 ].join(', ');
 const isShown = (el: HTMLElement) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+/** An overlay's own area, wherever it's mounted (a context view on <body>, a shadow root's host). */
+const ESCAPE_OWNER_AREAS = `${ESCAPE_OWNERS}, .shadow-root-host`;
 /** Whether one of `ESCAPE_OWNERS` is on screen. The whole document, not just the panel, and
  * inside Monaco's shadow roots: its context view renders in an open shadow root
  * (`.shadow-root-host`, `useShadowDOM` is on by default), in the editor's container or on
@@ -271,24 +275,27 @@ const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role
  * The center-panel takeover (spec §10.1). The graph stays mounted, hidden, underneath.
  * `target` comes from the parent's `diff` selector, so it's never null while this renders.
  *
- * F7 / Shift+F7 are captured here, before Monaco sees them: Monaco binds F7 to its accessible
- * diff viewer, which stays reachable from its F1 palette (plan 1B deviation 7). So is Esc, which
- * closes the file from anywhere in the panel, the editor included (F26): Monaco would otherwise
- * spend it on cancelling a selection. Its own overlays (find, the command palette, the context
- * menu, hovers, …) still close on Esc first (`editorOwnsEscape`). Ctrl+W always closes the file.
+ * F7 / Shift+F7 and Shift+↑/↓ step the changes app-wide while a text diff is shown
+ * (`useChangeKeys`, J14), before Monaco sees them: Monaco binds F7 to its accessible diff viewer,
+ * which stays reachable from its F1 palette (plan 1B deviation 7). Esc closes the file from
+ * anywhere, the editor included (F26, J4), through the app's handler on window (`useAppEscape`),
+ * which sees it before Monaco would spend it on cancelling a selection; the panel only registers
+ * Monaco's overlays (find, the command palette, the context menu, hovers, …) as owners that close
+ * on Esc first (`editorOwnsEscape`). Ctrl+W always closes the file.
  */
-export function DiffPanel({ target }: { target: DiffTarget }) {
+export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session?: number }) {
   const services = useRepoView((s) => s.services);
   const closeDiff = useRepoView((s) => s.closeDiff);
   const setFocus = useRepoView((s) => s.setFocus);
   const ref = useRef<HTMLElement>(null);
   const zone = useFocusZone('diff', ref);
-  // "Load anyway" holds for the file it was pressed on; another file asks again.
+  // "Load anyway" holds for the file it was pressed on, until it's closed; another file asks again.
   const [forcedKey, setForcedKey] = useState<string | null>(null);
-  const live = useContents(services, target, forcedKey === target.key);
+  const forcedFor = (t: DiffTarget) => forcedKey === `${session}|${t.key}`;
+  const live = useContents(services, target, forcedFor(target));
   // The body renders the presented file: the target, or the previous one while it loads.
-  const body = usePresented(target, live);
-  const forced = forcedKey === body.target.key;
+  const body = usePresented(target, live, session);
+  const forced = forcedFor(body.target);
   // The header and toolbar follow the body, but an editor body only once the host has shown it:
   // the diff (or file) computes off-screen, and all of it switches in the same frame (F24).
   // `flushSync`, so that render commits in the task that swapped the editor, before a paint.
@@ -301,36 +308,24 @@ export function DiffPanel({ target }: { target: DiffTarget }) {
   const busy = useLateFlag(pending, BUSY_DELAY_MS, `${target.key}|${bodyId}`);
   // Only a switch to another file waits: the same file (its first load, File/Diff View, "Load
   // anyway") has nothing else on screen to be out of step with.
+  // A reopen (another session, J16) starts over: the closed file's header is never shown.
   const header = useRef(body);
-  if (!showsEditor(body.target, body.contents) || editorShown === bodyId || header.current.target.key === body.target.key) header.current = body;
+  if (!showsEditor(body.target, body.contents) || editorShown === bodyId || header.current.target.key === body.target.key || header.current.session !== session) header.current = body;
   const { target: shown, contents } = header.current;
   // An SVG's Source toggle, per file: its text diff gets the text-diff controls (H26).
   const [sourceOf, setSourceOf] = useState<string | null>(null);
   const imageDiff = contents.status === 'ready' && isImage(shown, contents.data) && !contents.data.tooLarge;
   const svgSource = imageDiff && sourceOf === shown.key;
   const textDiff = showsTextDiff(shown, contents) || (svgSource && shown.view === 'diff');
+  useChangeKeys(textDiff);
   const encoding = contents.status === 'ready' ? (contents.data.new?.encoding || contents.data.old?.encoding || '') : '';
   // An unchanged file from "View all files" has nothing to diff against.
   const canDiff = !(shown.status === '' && shown.old.kind === 'absent');
-  const onKeyDownCapture = (e: KeyboardEvent) => {
-    const esc = e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
-    if (esc || isCloseFileKey(e)) {
-      // Esc belongs to an open editor overlay; mark it so the view's own Esc (RepoView) skips it
-      // too, since Monaco closes some (a hover) without stopping the event. Ctrl+W always closes.
-      if (esc && editorOwnsEscape()) {
-        markEditorKey(e.nativeEvent);
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      closeDiff();
-      return;
-    }
-    if (e.key !== 'F7' || e.ctrlKey || e.altKey || e.metaKey || !textDiff) return;
-    e.preventDefault();
-    e.stopPropagation();
-    goToChange(e.shiftKey ? 'previous' : 'next');
-  };
+  // Esc is the app's (`useAppEscape`, on window, ahead of Monaco); an open editor overlay claims
+  // it first, but only for a key pressed in the panel or in the overlay itself (feedback J4).
+  useEscapeOwner(useCallback((e: globalThis.KeyboardEvent) => e.composedPath().some((n) => n === ref.current || (n instanceof Element && n.matches(ESCAPE_OWNER_AREAS))) && editorOwnsEscape(), []));
+  // Ctrl+W (I1) always closes, editor overlay or not: it's in the key router's `app` layer
+  // (`useAppEscape`), which runs ahead of this component's own handlers and stops the event.
   // ← goes back to the file list (the mirror of → there), unless the editor or a control in the
   // zone uses the key.
   const onKeyDown = (e: KeyboardEvent) => {
@@ -348,11 +343,17 @@ export function DiffPanel({ target }: { target: DiffTarget }) {
     void loadMonacoHost().then((h) => h.focus());
   };
   return (
-    <section ref={ref} className="diff-panel" role="region" aria-label="Diff" tabIndex={-1} onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown} onClick={onClick} {...zone}>
+    <section ref={ref} className="diff-panel" role="region" aria-label="Diff" tabIndex={-1} onKeyDown={onKeyDown} onClick={onClick} {...zone}>
       <DiffHeader target={shown} encoding={encoding} onClose={closeDiff} busy={busy} />
-      <DiffToolbar target={shown} canDiff={canDiff} canStep={textDiff} textTools={!imageDiff || svgSource} />
+      <DiffToolbar
+        target={shown}
+        canDiff={canDiff}
+        canStep={textDiff}
+        textTools={!imageDiff || svgSource}
+        leading={<OpenInButton target={shown} line={openInLine(contents)} />}
+      />
       <div className="diff-body">
-        <Body target={body.target} contents={body.contents} forced={forced} onLoadAnyway={() => setForcedKey(body.target.key)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} />
+        <Body target={body.target} contents={body.contents} forced={forced} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} />
       </div>
     </section>
   );

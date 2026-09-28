@@ -34,9 +34,23 @@ function Person({ name, email, size }: { name: string; email: string; size: numb
   );
 }
 
+/** A short hash button in the header's top row, with its action as an instant tooltip (and, for
+ * keyboard users, as its description; feedback H11). */
+function HashButton({ hash, testId, tip, onClick }: { hash: string; testId: string; tip: string; onClick: () => void }) {
+  const { triggerProps, tooltip } = useHoverTooltip({ content: tip });
+  return (
+    <>
+      <button type="button" className="sha" data-testid={testId} aria-description={tip} onClick={onClick} {...triggerProps}>
+        {shortSha(hash)}
+      </button>
+      {tooltip}
+    </>
+  );
+}
+
 /**
  * The commit header (spec §9.1). The top row is justified (feedback F16): the signature icon on
- * the left, the SHA centred, the parent(s) on the right. Then the author with the committed date
+ * the left, `commit: <sha>` centred, `parent: <sha>` on the right (H11). Then the author with the committed date
  * (primary) and, only when it differs, the author date below it, dimmer (F15); a different
  * committer gets their own row, which carries the committed date; and co-authors.
  */
@@ -49,15 +63,14 @@ function CommitHeader({ d }: { d: CommitDetailsPayload }) {
     <header className="commit-header">
       <div className="commit-ids">
         <span className="commit-ids-start"><SignatureBadge id={d.id} signed={d.signed} /></span>
-        <button type="button" className="sha" data-testid="details-sha" title="Copy full SHA" onClick={() => copyText(d.id).then(() => toast('Copied'), () => toast('Copy failed'))}>
-          {shortSha(d.id)}
-        </button>
+        <span className="commit-id">
+          <span className="id-label">commit:</span>{' '}
+          <HashButton hash={d.id} testId="details-sha" tip="Copy full SHA" onClick={() => copyText(d.id).then(() => toast('Copied'), () => toast('Copy failed'))} />
+        </span>
         <span className="parents">
-          {d.parents.length > 0 && (d.parents.length > 1 ? 'parents' : 'parent')}
+          {d.parents.length > 0 && <><span className="id-label">{d.parents.length > 1 ? 'parents:' : 'parent:'}</span>{' '}</>}
           {d.parents.map((p) => (
-            <button key={p} type="button" className="sha" data-testid="parent-sha" title={p} onClick={() => { if (!selectById(p)) toast('Not in the loaded history'); }}>
-              {shortSha(p)}
-            </button>
+            <HashButton key={p} hash={p} testId="parent-sha" tip="Go to parent commit" onClick={() => { if (!selectById(p)) toast('Not in the loaded history'); }} />
           ))}
         </span>
       </div>
@@ -101,7 +114,7 @@ function CommitDetails({ panel, ratio }: { panel: PanelContent; ratio: number })
     <div className="commit-details" style={{ flexBasis: `${ratio * 100}%` }}>
       {details.status === 'ready' && <CommitHeader d={details.data} />}
       {details.status === 'error' && <div role="alert" className="details-error">{details.message}</div>}
-      <div className="commit-message" data-testid="commit-message">
+      <div className="commit-message message-box" data-testid="commit-message">
         {message.status === 'ready' ? <Message summary={message.data.summary} body={message.data.body} remote={remote} /> : (
           <>
             <h2 className="details-summary" data-testid="details-summary">{row?.summary ?? ''}</h2>

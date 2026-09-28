@@ -26,6 +26,15 @@ mod permission;
 mod process;
 
 use command::{TauriCefCommandHandler, TauriCefCommandHandlerArgs};
+/// GitBolt patch: the opt-in key diagnostic, also used by the Linux focus redirect.
+#[cfg(any(
+  target_os = "linux",
+  target_os = "dragonfly",
+  target_os = "freebsd",
+  target_os = "netbsd",
+  target_os = "openbsd"
+))]
+pub(crate) use command::gitbolt_key_log;
 use context_menu::TauriCefContextMenuHandler;
 use display::{TauriCefDisplayHandler, TauriCefDisplayHandlerArgs};
 use download::TauriCefDownloadHandler;

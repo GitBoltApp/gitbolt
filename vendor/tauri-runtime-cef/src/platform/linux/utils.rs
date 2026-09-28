@@ -20,6 +20,11 @@ const SUBSTRUCTURE_NOTIFY_MASK: c_long = 1 << 19;
 
 static XLIB: LazyLock<Option<xlib::Xlib>> = LazyLock::new(|| xlib::Xlib::open().ok());
 
+/// GitBolt patch: the Xlib entry points, for calls on a display this module doesn't own.
+pub(super) fn xlib_fns() -> Option<&'static xlib::Xlib> {
+  XLIB.as_ref()
+}
+
 struct Display(*mut xlib::Display);
 
 thread_local! {

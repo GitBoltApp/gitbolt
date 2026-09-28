@@ -1,0 +1,7 @@
+/* RenamePaths (feedback H21, H22): old path, a centred ↓ (the larger arrow of the diff header's
+   H21 review), new path, all left-aligned. The file list's row tooltip and the diff header's. */
+.rename-paths { display: grid; justify-items: start; row-gap: 1px; white-space: normal; }
+/* J15: what both paths share is dimmed; what changed keeps the tooltip's bright text. */
+.rename-common { color: var(--text-secondary); }
+.rename-changed { color: var(--text-selected); }
+.rename-arrow { justify-self: center; color: var(--text-secondary); font-size: 14px; line-height: 1.1; }

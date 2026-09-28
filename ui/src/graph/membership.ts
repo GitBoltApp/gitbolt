@@ -22,6 +22,27 @@ export function labelsByRow(labels: RefLabel[]): Map<number, RefLabel[]> {
   return m;
 }
 
+/** The branch refs a chip stands for (J22 branch-hover focus): its local branch and every
+ * remote-tracking one it carries. A tag or a detached HEAD stands for none. */
+export function chipRefs(label: RefLabel): string[] {
+  if (label.tag) return [];
+  return [...(label.local ? [label.local] : []), ...label.remotes.map((r) => r.fullName)];
+}
+
+/**
+ * The rows "in" the branches `refs` (J22's branch-hover focus): the rows `branchMembership`
+ * claimed for any of them, plus their tips. Not all reachable history: a commit a higher-ranked
+ * branch claimed (the trunk's, below a merge) isn't in. O(rows).
+ */
+export function branchRows(membership: readonly (BranchMembership | null)[], labels: Map<number, RefLabel[]>, refs: readonly string[]): Set<number> {
+  const wanted = new Set(refs);
+  const rows = new Set<number>();
+  if (wanted.size === 0) return rows;
+  for (const [row, list] of labels) if (list.some((l) => chipRefs(l).some((r) => wanted.has(r)))) rows.add(row);
+  membership.forEach((m, i) => { if (m && wanted.has(m.ref)) rows.add(i); });
+  return rows;
+}
+
 /** A branch that claims its first-parent history. `rank` orders the claimants (lower first). */
 interface Claimant {
   tip: number;

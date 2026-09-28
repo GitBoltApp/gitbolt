@@ -107,7 +107,7 @@ describe('GraphView', () => {
     }
   });
 
-  it('a hovered or selected commit below its branch tip shows a dimmed, inert chip naming the branch (F7)', () => {
+  it('a hovered or selected commit below its branch tip shows a dimmed chip naming the branch (F7), which selects its row like the others (J6)', () => {
     const onSelect = vi.fn();
     const { rerender } = render(<GraphView graph={graph} repoId="/r" selected={-1} onSelect={onSelect} />);
     const rows = () => screen.getAllByRole('row');
@@ -115,9 +115,9 @@ describe('GraphView', () => {
     expect(dim(1)).toBeNull();
     fireEvent.mouseEnter(rows()[1]);
     expect(dim(1)).toHaveTextContent('main');
-    // Inert: a press on it is a press on the cell's empty space (F6), and it has no tooltip.
+    // A press on it selects the row, as on any chip (J6); it has no tooltip.
     fireEvent.mouseDown(dim(1)!);
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith(1, { ctrl: false });
     fireEvent.mouseEnter(dim(1)!);
     expect(screen.queryByRole('tooltip')).toBeNull();
     fireEvent.mouseLeave(rows()[1]);

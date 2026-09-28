@@ -14,6 +14,20 @@ const remoteOnly = (branch: string, ...remotes: string[]): RefLabel => ({
 const LONG = 'feature/a-very-long-branch-name-that-the-chip-truncates';
 
 describe('RefLabels', () => {
+  it("marks the checked-out branch's chip, its bigger check and its connector (J21); other rows' aren't", () => {
+    const head: RefLabel = { row: 0, name: 'main', local: 'refs/heads/main', tag: false, isHead: true, worktree: null, remotes: [] };
+    const { container, rerender } = render(<RefLabels labels={[head, remoteOnly('topic', 'origin')]} color={0} membership={{ name: 'x', color: 1, ref: 'refs/heads/x' }} />);
+    const labels = container.querySelector('.ref-labels')!;
+    expect(labels).toHaveClass('ref-labels-head');
+    expect(labels.querySelector(':scope > .ref-label')).toHaveClass('ref-label-head');
+    expect(labels.querySelector(':scope > .ref-label [aria-label="HEAD"]')).toHaveClass('ref-head-check');
+    // The dimmed membership chip is never the head chip.
+    expect(labels.querySelector('.ref-label-dim')).not.toHaveClass('ref-label-head');
+    rerender(<RefLabels labels={[remoteOnly('topic', 'origin')]} color={0} />);
+    expect(container.querySelector('.ref-labels')).not.toHaveClass('ref-labels-head');
+    expect(container.querySelector('.ref-label-head')).toBeNull();
+  });
+
   /** A source icon's hover target in the expanded (hovered) copy, the one the pointer can reach. */
   const fullIcon = (container: HTMLElement, aria: string) => container.querySelector('.ref-label-full')!.querySelector(`[aria-label="${aria}"]`)!.closest('.ref-icon')!;
 
@@ -102,6 +116,27 @@ describe('RefLabels', () => {
     // The line filler first (it carries the connector line when the chip is dropped), then the chip.
     expect([...slot.children].map((el) => el.className)).toEqual(['ref-dim-fill', 'ref-label ref-label-dim']);
     expect(slot.querySelector('.ref-label-dim')).toHaveTextContent('main');
+  });
+
+  it('the membership chip expands like the others while hovered: an untruncated copy over it, gone on leaving (J6)', () => {
+    const tagOnly: RefLabel = { row: 0, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null };
+    const membership = { name: LONG, color: 1, ref: `refs/heads/${LONG}` };
+    // Alone on its row, and after a real chip (in the slot).
+    for (const labels of [[], [tagOnly]]) {
+      const { container, unmount } = render(<RefLabels labels={labels} color={0} membership={membership} />);
+      const dim = container.querySelector('.ref-label-dim')!;
+      expect(container.querySelector('.ref-label-full')).toBeNull();
+      fireEvent.mouseEnter(dim);
+      const full = dim.querySelector(':scope > .ref-label-full');
+      expect(full).toHaveTextContent(LONG);
+      expect(full).toHaveAttribute('aria-hidden', 'true');
+      expect(full!.querySelector('.ref-name-full')).not.toBeNull();
+      // Still no tooltip on the name (F9).
+      expect(screen.queryByRole('tooltip')).toBeNull();
+      fireEvent.mouseLeave(dim);
+      expect(container.querySelector('.ref-label-full')).toBeNull();
+      unmount();
+    }
   });
 
   it('with no chips of its own, the membership chip stands alone (no connector)', () => {

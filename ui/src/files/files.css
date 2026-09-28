@@ -1,4 +1,4 @@
-.file-sections { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; }
+.file-sections { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; -webkit-user-select: none; user-select: none; }
 /* Below the commit split (feedback F13), the file list keeps a usable height. */
 .split-resizer + .file-sections { min-height: 160px; }
 .file-section { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -12,15 +12,18 @@
 .file-toolbar-center { justify-self: center; }
 .file-toolbar-end { justify-self: end; min-width: 0; }
 .segmented { display: inline-flex; border: 1px solid var(--section-border); border-radius: 4px; overflow: hidden; }
-.segmented > button, .toolbar-button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; color: var(--text-secondary); white-space: nowrap; }
+.segmented > button, .toolbar-button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; color: var(--text-secondary); white-space: nowrap; transition: color var(--motion-fast), background-color var(--motion-base); }
 .toolbar-button { box-sizing: border-box; max-width: 100%; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--section-border); border-radius: 4px; }
 .toolbar-button:disabled { cursor: default; opacity: 0.5; }
+/* A leading lucide icon's ink starts ~3 px into its 12 px box: 5 px of padding puts the ink
+   8 px from the border, like the text's right side (feedback H17). */
+.toolbar-button.icon-lead { padding-left: 5px; }
 .segmented > button:hover, .toolbar-button:hover:not(:disabled) { color: var(--text-selected); }
 .segmented > button:focus-visible, .toolbar-button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
 .segmented > button[aria-pressed="true"], .toolbar-button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 .parent-picker { align-self: flex-start; margin: 6px 12px 0; }
 .file-list-scroll { position: relative; flex: 1; min-height: 120px; overflow: auto; outline: none; }
-.file-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: default; box-sizing: border-box; padding-right: 8px; }
+.file-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: pointer; box-sizing: border-box; padding-right: 8px; }
 .file-row:hover { background: var(--hover-row); }
 .file-row[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
 .file-row.unchanged .file-name { color: var(--text-secondary); }
@@ -36,5 +39,9 @@
 /* Coloured status icons with counts: the header row (F19) and collapsed folders (F20). */
 .status-counts { display: inline-flex; align-items: center; gap: 8px; }
 .status-count { display: inline-flex; align-items: center; gap: 3px; }
-.file-row .status-counts { margin-left: auto; gap: 6px; font-size: 11px; color: var(--text-secondary); }
+/* Right after the folder's name (feedback H16), not at the right edge. */
+.file-row .status-counts { flex: none; gap: 6px; font-size: 11px; color: var(--text-secondary); }
 .file-list-error { display: flex; align-items: center; gap: 8px; padding: 0 12px 6px; color: var(--text-secondary); }
+/* The panel ignores text selection (feedback J9: a double-click or a drag there selects nothing);
+   an error message (a list's, or "View all files"') can still be selected and copied. */
+.file-sections [role="alert"] { -webkit-user-select: text; user-select: text; }
