@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { GbError } from '../api/gen/GbError';
-import { useToast } from '../ui/toast';
+import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { openActivityLog } from './activityLog';
 import { useOps } from './ops';
 import { platform } from './platform';
 import { useRuntime } from './runtime';
+import { clampFetchInterval } from '../settings/schema';
 import { useAppState } from './state';
 
 export interface FetchDeps {
@@ -89,7 +91,8 @@ const failing = new Set<number>();
  * (§5.4) and shows nothing while it runs or when it succeeds: it's only in the activity log (K30,
  * `useOps().activity`). A fetch that would need credentials comes back skipped and shows as a
  * status-bar warning until a fetch succeeds. Errors: a background one goes to the bell's history
- * (once, when the failures start), a user's to a toast (§16.1). A cancel is quiet. A user's fetch
+ * (once, when the failures start), a user's to a toast with git's message and an "Activity log"
+ * link (§16.1, K96); a fetch that worked says nothing (7c303cc), a failure still toasts. A cancel is quiet. A user's fetch
  * that finds a background one running waits on that one: the Fetch button shows it as busy.
  */
 export async function runFetch(tabId: string, background: boolean): Promise<void> {
@@ -103,8 +106,11 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
   try {
     const out = await api.fetch(repo.id, background);
     if (out.status === 'done' || out.reason === 'authRequired') failing.delete(repo.id);
-    if (out.status === 'done') patch({ lastFetchAt: Date.now(), fetchSkipped: null });
-    else if (out.reason === 'authRequired') patch({ lastFetchAt: Date.now(), fetchSkipped: FETCH_SKIPPED_AUTH });
+    if (out.status === 'done') {
+      // A fetch that worked says nothing, user-initiated or not: the button's spinner and the
+      // graph are enough, and a toast every time is noise (the user's call, after K96).
+      patch({ lastFetchAt: Date.now(), fetchSkipped: null });
+    } else if (out.reason === 'authRequired') patch({ lastFetchAt: Date.now(), fetchSkipped: FETCH_SKIPPED_AUTH });
     else if (!background) {
       const running = Object.values(useOps.getState().ops).find((o) => o.kind === 'fetch' && o.repo === repo.id);
       if (running) useOps.getState().showOp(running.op);
@@ -119,7 +125,8 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
     const text = kind === 'AuthFailed' ? `Authentication failed (${errorMessage(e)})` : errorMessage(e);
     const started = !failing.has(repo.id);
     failing.add(repo.id);
-    if (!background) useToast.getState().show(`Fetch failed: ${text}`);
+    // K96: long enough to read git's message, with the activity log (which keeps it) a click away.
+    if (!background) useToast.getState().show(`Fetch failed: ${text}`, { ms: ERROR_TOAST_MS, action: { label: 'Activity log', run: openActivityLog } });
     else if (started) useOps.getState().pushError(`Fetch failed (${repo.name}): ${text}`);
   }
 }
@@ -130,7 +137,7 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
  * Focus 1), and showing it again restarts the schedule (one fetch at once if it's due).
  */
 export function useFetchScheduler(tabId: string, repoId: number | undefined): void {
-  const intervalMs = useAppState((s) => s.settings.fetchIntervalSecs) * 1000;
+  const intervalMs = clampFetchInterval(useAppState((s) => s.settings.fetchIntervalSecs)) * 1000;
   useEffect(() => {
     if (repoId === undefined || !(intervalMs > 0)) return;
     const s = new FetchScheduler(intervalMs, {

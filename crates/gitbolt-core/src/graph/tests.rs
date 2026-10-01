@@ -4,13 +4,25 @@ use std::collections::HashMap;
 
 /// `spec` rows are (name, parent names). Names starting with `wip`/`stash` set the node kind.
 /// Parents not in `spec` become `Outside`.
+/// A distinct id per outside parent name, so different outside parents never share a lane's
+/// home, lock or takeover state.
+fn outside_id(name: &str) -> ObjectId {
+    let mut b = [0xAAu8; 20];
+    for (i, c) in name.bytes().take(20).enumerate() {
+        b[i] = c;
+    }
+    ObjectId::from_bytes_or_panic(&b)
+}
+
+/// Rows get descending committer times (row 0 newest), as in the real display order.
 fn build(spec: &[(&str, &[&str])], pinned: &[&str]) -> Vec<LayoutNode> {
     let index: HashMap<&str, usize> = spec.iter().enumerate().map(|(i, (n, _))| (*n, i)).collect();
     spec.iter()
-        .map(|(name, parents)| LayoutNode {
+        .enumerate()
+        .map(|(row, (name, parents))| LayoutNode {
             parents: parents
                 .iter()
-                .map(|p| index.get(p).map(|&i| Parent::Row(i as u32)).unwrap_or(Parent::Outside(ObjectId::null(gix::hash::Kind::Sha1))))
+                .map(|p| index.get(p).map(|&i| Parent::Row(i as u32)).unwrap_or_else(|| Parent::Outside(outside_id(p))))
                 .collect(),
             kind: if name.starts_with("wip") {
                 NodeKind::Wip
@@ -22,14 +34,21 @@ fn build(spec: &[(&str, &[&str])], pinned: &[&str]) -> Vec<LayoutNode> {
                 NodeKind::Commit
             },
             pinned: pinned.contains(name),
+            time: (spec.len() - row) as i64,
         })
         .collect()
+}
+
+/// Whether a pinned trunk is laid out: in these tests, whenever any row is pinned (the app passes
+/// the pinned-ref choice instead).
+fn reserves_trunk(nodes: &[LayoutNode]) -> bool {
+    nodes.iter().any(|n| n.pinned)
 }
 
 /// `layout()` plus a mandatory continuity check: no test may forget to verify that the
 /// graph's lines never break or gap.
 fn checked_layout(nodes: &[LayoutNode]) -> Layout {
-    let l = layout(nodes);
+    let l = layout(nodes, reserves_trunk(nodes));
     if let Err(e) = check_continuity(&l, nodes) {
         panic!("continuity violated: {e}");
     }
@@ -260,7 +279,7 @@ fn seg(from: u16, to: u16, half: Half) -> Segment {
 }
 
 fn node(parents: Vec<Parent>) -> LayoutNode {
-    LayoutNode { parents, kind: NodeKind::Commit, pinned: false }
+    LayoutNode { parents, kind: NodeKind::Commit, pinned: false, time: 0 }
 }
 
 #[test]
@@ -376,7 +395,7 @@ fn random_dag(seed: u64) -> Vec<LayoutNode> {
     let mut wip_on = |i: usize, nodes: &mut Vec<LayoutNode>| {
         let pin = tip == Some(i) && !tip_wip_pinned;
         tip_wip_pinned |= pin;
-        nodes.push(LayoutNode { parents: vec![Parent::Row(row_of[i])], kind: NodeKind::Wip, pinned: pin });
+        nodes.push(LayoutNode { parents: vec![Parent::Row(row_of[i])], kind: NodeKind::Wip, pinned: pin, time: i64::MAX });
     };
     if let Some(c) = current {
         wip_on(c, &mut nodes);
@@ -390,7 +409,7 @@ fn random_dag(seed: u64) -> Vec<LayoutNode> {
             o => o,
         }).collect();
         let kind = if stash[i] { NodeKind::Stash } else if ps.len() > 1 { NodeKind::Merge } else { NodeKind::Commit };
-        nodes.push(LayoutNode { parents: ps, kind, pinned: pinned[i] });
+        nodes.push(LayoutNode { parents: ps, kind, pinned: pinned[i], time: (n - i) as i64 });
     }
     nodes
 }
@@ -399,17 +418,384 @@ fn random_dag(seed: u64) -> Vec<LayoutNode> {
 fn fuzz_random_dags_keep_every_line_continuous() {
     let mut kinds = [0usize; 4];
     let mut pinned_wip = 0usize;
-    for seed in 1..=500u64 {
+    for seed in 1..=1000u64 {
         let nodes = random_dag(seed);
         for n in &nodes {
             kinds[n.kind as usize] += 1;
             pinned_wip += usize::from(n.pinned && n.kind == NodeKind::Wip);
         }
-        let lay = layout(&nodes);
+        let lay = layout(&nodes, reserves_trunk(&nodes));
         if let Err(e) = check_continuity(&lay, &nodes) {
             panic!("seed {seed}: continuity violated: {e}");
         }
     }
     // The generator really exercises every node kind, and pinned WIP rows.
     assert!(kinds.iter().all(|&k| k > 0) && pinned_wip > 0, "node kinds generated: {kinds:?}, pinned WIP rows: {pinned_wip}");
+}
+
+// ---- K79: the column rule (home lane, lower-lane takeover, merge lock) ----
+
+/// A commit lands in the lane of the first child that reached it, unless a later non-merge
+/// first-parent child in a lower lane takes it over: `a` (lane 1) reaches `p` first, then `b`
+/// (lane 0, freed by `y`) takes it over, so `p` lands in lane 0 and `a`'s lane curves in.
+#[test]
+fn a_lower_non_merge_first_parent_child_takes_over_the_home() {
+    let spec: &[(&str, &[&str])] = &[("z", &["y"]), ("a", &["p"]), ("y", &[]), ("b", &["p"]), ("p", &[])];
+    assert_eq!(ascii(spec, &[]), "*    z\n| *  a\n* |  y\n* |  b\n*-/  p in:1\n");
+}
+
+/// A merge never takes over a home: `f` (lane 1) reaches `t` first and the merge `m` (lane 0)
+/// later. Before K79 `t` took the left-most waiting lane (0); now it stays in lane 1 and the
+/// merge's line curves in from the left.
+#[test]
+fn a_merge_never_takes_over_its_first_parent() {
+    let spec: &[(&str, &[&str])] = &[("z", &["y"]), ("f", &["t"]), ("y", &[]), ("m", &["t", "x"]), ("x", &["t"]), ("t", &[])];
+    let nodes = build(spec, &[]);
+    let l = checked_layout(&nodes);
+    assert_eq!(l.rows[5].lane, 1, "t stays in the lane f reserved for it");
+    insta::assert_snapshot!(render(&l, &nodes, spec));
+}
+
+/// A merge locks its parents: `m` (lane 1) claims `t` first, so the later fork `f` in lane 0
+/// can't pull it left. This is the shape of the K79 screenshot: a trunk merge newer than the
+/// branches forked under it.
+#[test]
+fn a_merge_child_locks_the_home_against_a_lower_fork() {
+    let spec: &[(&str, &[&str])] = &[("o", &["q"]), ("m", &["t", "x"]), ("q", &[]), ("f", &["t"]), ("x", &["t"]), ("t", &[])];
+    let nodes = build(spec, &[]);
+    let l = checked_layout(&nodes);
+    assert_eq!(l.rows[5].lane, 1, "t stays under its merge child m");
+    assert_eq!(render(&l, &nodes, spec), "*      o\n| M-\\  m out:2\n* | |  q\n* | |  f\n| | *  x\n\\-*-/  t in:0,2\n");
+}
+
+/// A trunk of merges stays in one lane while the branches forked from each trunk commit come
+/// and go on both sides of it.
+#[test]
+fn a_trunk_of_merges_stays_straight() {
+    let spec: &[(&str, &[&str])] = &[
+        ("z", &["y"]),
+        ("m2", &["m1", "b2"]),
+        ("y", &[]),
+        ("f2", &["m1"]),
+        ("b2", &["m1"]),
+        ("m1", &["t", "b1"]),
+        ("f1", &["t"]),
+        ("b1", &["t"]),
+        ("t", &[]),
+    ];
+    let nodes = build(spec, &[]);
+    let l = checked_layout(&nodes);
+    for r in [1, 5, 8] {
+        assert_eq!(l.rows[r].lane, 1, "trunk row {r} ({}) stays in lane 1", spec[r].0);
+    }
+    insta::assert_snapshot!(render(&l, &nodes, spec));
+}
+
+/// The stash clause: a home set by a stash goes to a branch whose chain is newer than
+/// the stash, even from a higher lane, so the branch's line stays straight.
+#[test]
+fn a_newer_branch_takes_a_commit_back_from_a_stash() {
+    let spec: &[(&str, &[&str])] = &[("z", &["y"]), ("c2", &["c1"]), ("y", &[]), ("stash", &["p"]), ("c1", &["p"]), ("p", &[])];
+    let l = checked_layout(&build(spec, &[]));
+    assert_eq!(l.rows[3].lane, 0, "the stash sits in the freed lane 0");
+    assert_eq!(l.rows[5].lane, 1, "p lands in the branch's lane, not the stash's");
+}
+
+/// A WIP row never takes over another commit's home (spec §8.6): `x` (lane 1) reaches `p`
+/// first, the WIP docked on `p` sits in lane 0, and `p` stays in lane 1.
+#[test]
+fn a_wip_never_takes_over_a_home() {
+    let spec: &[(&str, &[&str])] = &[("z", &["y"]), ("x", &["p"]), ("y", &[]), ("wip", &["p"]), ("p", &[])];
+    let l = checked_layout(&build(spec, &[]));
+    assert_eq!(l.rows[3].lane, 0);
+    assert_eq!(l.rows[4].lane, 1, "p keeps the home x set");
+}
+
+/// A root commit frees its lane: `c` reuses lane 0.
+#[test]
+fn a_root_frees_its_lane_for_the_next_branch() {
+    let spec: &[(&str, &[&str])] = &[("a", &["r"]), ("r", &[]), ("b", &["s"]), ("s", &[])];
+    assert_eq!(ascii(spec, &[]), "*  a\n*  r\n*  b\n*  s\n");
+}
+
+/// Columns from the column rule, re-stated as a reference model with reservations and per-parent waiting
+/// lists instead of a lane vector: a commit takes its reserved column, else the lowest free one;
+/// a first-parent child in a lower column takes the reservation over unless a merge child has
+/// locked it; a merge reserves new parents in the lowest free column. Plus the further rules:
+/// a root frees its column, pinned rows in column 0 (others from 1), a WIP row never takes a
+/// reservation over, and a merge line never joins a dashed (WIP) waiting column.
+fn reference_columns(nodes: &[LayoutNode], reserve_trunk: bool) -> Vec<usize> {
+    use std::collections::{HashMap, HashSet};
+    #[derive(Clone, Copy)]
+    struct Res {
+        col: usize,
+        stash: bool,
+        newest: Option<i64>,
+    }
+    let min = usize::from(reserve_trunk);
+    let take = |used: &mut HashSet<usize>| {
+        let c = (min..).find(|c| !used.contains(c)).unwrap();
+        used.insert(c);
+        c
+    };
+    let mut used = HashSet::new();
+    let mut res: HashMap<Parent, Res> = HashMap::new();
+    let mut waiters: HashMap<Parent, Vec<(usize, bool)>> = HashMap::new(); // (column, dashed)
+    let mut merge_child: HashSet<Parent> = HashSet::new();
+    let mut out = Vec::new();
+    for (r, n) in nodes.iter().enumerate() {
+        let me = Parent::Row(r as u32);
+        for (c, _) in waiters.remove(&me).unwrap_or_default() {
+            used.remove(&c);
+        }
+        let s = res.remove(&me);
+        let col = if n.pinned { 0 } else { s.map_or_else(|| take(&mut used), |s| s.col) };
+        used.insert(col);
+        let wip = n.kind == NodeKind::Wip;
+        let stash = n.kind == NodeKind::Stash;
+        for (k, &p) in n.parents.iter().enumerate() {
+            if n.kind == NodeKind::Merge {
+                merge_child.insert(p);
+            }
+            let w = waiters.entry(p).or_default();
+            let line = if k == 0 {
+                col
+            } else if let Some(c) = res.get(&p).filter(|c| w.contains(&(c.col, false))) {
+                c.col
+            } else if let Some(&(c, _)) = w.iter().filter(|(_, dashed)| !dashed).min() {
+                c
+            } else {
+                take(&mut used)
+            };
+            if !w.iter().any(|&(c, _)| c == line) {
+                w.push((line, wip));
+            }
+            match res.get(&p).copied() {
+                None => {
+                    let newest = match s {
+                        Some(s) if s.col == col => s.newest,
+                        _ => Some(n.time),
+                    };
+                    res.insert(p, Res { col: line, stash, newest });
+                }
+                Some(c) if k == 0 && c.col != col && !wip && !merge_child.contains(&p) => {
+                    let stash_steal = c.stash && !stash && matches!((s.and_then(|s| s.newest), c.newest), (Some(a), Some(b)) if a > b);
+                    if c.col > col || stash_steal {
+                        res.insert(p, Res { col, stash, newest: s.and_then(|s| s.newest) });
+                    }
+                }
+                _ => {}
+            }
+        }
+        if n.parents.is_empty() {
+            used.remove(&col); // A root frees its column.
+        }
+        out.push(col);
+    }
+    out
+}
+
+/// Every commit lands in the column the reference model gives it, WIP rows and pinned trunks
+/// included. Its seeds follow the continuity fuzz test's (`checked_layout` checks those too).
+#[test]
+fn columns_match_the_reference_model_on_random_histories() {
+    let mut rows = 0;
+    for seed in 1001..=2000u64 {
+        let nodes = random_dag(seed);
+        let l = checked_layout(&nodes);
+        let lanes: Vec<usize> = l.rows.iter().map(|r| usize::from(r.lane)).collect();
+        assert_eq!(lanes, reference_columns(&nodes, reserves_trunk(&nodes)), "seed {seed}");
+        rows += nodes.len();
+    }
+    assert!(rows > 10_000, "{rows} rows compared");
+}
+
+/// A stand-in id for a row beyond a window's end (what a commit-limited window sees there).
+fn beyond(row: u32) -> ObjectId {
+    let mut b = [0xEEu8; 20];
+    b[..4].copy_from_slice(&row.to_le_bytes());
+    ObjectId::from_bytes_or_panic(&b)
+}
+
+fn beyond_row(id: &ObjectId) -> Option<u32> {
+    let b = id.as_bytes();
+    (b[4..] == [0xEEu8; 16]).then(|| u32::from_le_bytes(b[..4].try_into().unwrap()))
+}
+
+/// Row `r` as a window ending at `end` sees it: parents at or past `end` are outside.
+fn windowed(n: &LayoutNode, end: usize) -> LayoutNode {
+    let parents = n.parents.iter().map(|p| match *p {
+        Parent::Row(q) if q as usize >= end => Parent::Outside(beyond(q)),
+        o => o,
+    });
+    LayoutNode { parents: parents.collect(), ..n.clone() }
+}
+
+/// `nodes` laid out `size` rows at a time from one `LayoutState`, as Load more would: each chunk
+/// sees the parents past its end as outside, and before the next chunk the lanes waiting for
+/// them are resolved to the now-loaded rows.
+fn chunked(nodes: &[LayoutNode], size: usize) -> Vec<GraphRow> {
+    let mut state = super::layout::LayoutState::new(reserves_trunk(nodes));
+    let mut rows = Vec::with_capacity(nodes.len());
+    for start in (0..nodes.len()).step_by(size) {
+        let end = (start + size).min(nodes.len());
+        state.resolve_outside(|id| beyond_row(id).filter(|&r| (r as usize) < end));
+        for (r, n) in nodes.iter().enumerate().take(end).skip(start) {
+            rows.push(state.push(r as u32, &windowed(n, end)));
+        }
+    }
+    rows
+}
+
+/// The continuation state is the lane vector: laying a history out in chunks of 1-9 rows (and
+/// wave histories in larger chunks) gives exactly the single pass, homes, locks and all.
+#[test]
+fn chunked_layout_equals_the_single_pass() {
+    for seed in 1..=1000u64 {
+        let nodes = random_dag(seed);
+        let whole = layout(&nodes, reserves_trunk(&nodes)).rows;
+        for size in 1..=9 {
+            assert_eq!(chunked(&nodes, size), whole, "seed {seed}, chunks of {size}");
+        }
+    }
+    for seed in 1..=10u64 {
+        let nodes = wave_history(seed, 30);
+        let whole = layout(&nodes, false).rows;
+        for size in [1, 7, 50, 333] {
+            assert_eq!(chunked(&nodes, size), whole, "wave seed {seed}, chunks of {size}");
+        }
+    }
+}
+
+/// With the trunk reservation passed in from the pinned-ref choice, a window cut at any row lays
+/// out as the prefix of the whole history, even when the cut is above the pinned chain.
+#[test]
+fn a_truncated_window_is_the_prefix_of_the_whole() {
+    let mut cut_above_pin = 0;
+    for seed in 1..=1000u64 {
+        let nodes = random_dag(seed);
+        let reserve = reserves_trunk(&nodes);
+        let whole = layout(&nodes, reserve).rows;
+        for k in 1..nodes.len() {
+            let window: Vec<LayoutNode> = nodes[..k].iter().map(|n| windowed(n, k)).collect();
+            cut_above_pin += usize::from(reserve && !reserves_trunk(&window));
+            assert_eq!(layout(&window, reserve).rows[..], whole[..k], "seed {seed}, cut at {k}");
+        }
+    }
+    assert!(cut_above_pin > 1000, "{cut_above_pin} cuts above the pinned chain");
+}
+
+/// The stash clause needs a newer chain: a branch whose chain is older than the stash leaves
+/// `p` in the stash's lane.
+#[test]
+fn an_older_branch_leaves_a_commit_with_its_stash() {
+    let spec: &[(&str, &[&str])] = &[("z", &["y"]), ("c2", &["c1"]), ("y", &[]), ("stash", &["p"]), ("c1", &["p"]), ("p", &[])];
+    let mut nodes = build(spec, &[]);
+    nodes[1].time = 0; // c2's chain is older than the stash (clock skew)
+    let l = checked_layout(&nodes);
+    assert_eq!(l.rows[3].lane, 0);
+    assert_eq!(l.rows[5].lane, 0, "p stays in the stash's lane");
+}
+
+/// A merge child locks the stash's home too: the newer branch can't take `p` back.
+#[test]
+fn a_merge_child_blocks_the_stash_takeover() {
+    let spec: &[(&str, &[&str])] = &[("z", &["y"]), ("c2", &["c1"]), ("y", &[]), ("stash", &["p"]), ("m", &["q", "p"]), ("c1", &["p"]), ("p", &[])];
+    let l = checked_layout(&build(spec, &[]));
+    assert_eq!(l.rows[3].lane, 0);
+    assert_eq!(l.rows[6].lane, 0, "the merge locked p in the stash's lane");
+}
+
+/// Crossings: a Top or Bottom curve passing over a straight lane strictly between its ends.
+fn crossings(l: &Layout) -> usize {
+    l.rows
+        .iter()
+        .map(|row| {
+            let fulls: Vec<u16> = row.segments.iter().filter(|s| s.half == Half::Full).map(|s| s.from_lane).collect();
+            row.segments
+                .iter()
+                .filter(|s| s.half != Half::Full && s.from_lane != s.to_lane)
+                .map(|s| fulls.iter().filter(|&&f| f > s.from_lane.min(s.to_lane) && f < s.from_lane.max(s.to_lane)).count())
+                .sum::<usize>()
+        })
+        .sum()
+}
+
+/// A merge-heavy history like this repo's own: waves of 2-5 branches forked from the trunk's
+/// tip, committed at interleaved times, then merged one by one into the trunk, with now and then
+/// a plain trunk commit, plus a few open branches forked long ago and committed to last. Rows
+/// are in committer-time order (every parent older than its child).
+fn wave_history(seed: u64, waves: usize) -> Vec<LayoutNode> {
+    let mut rng = Lcg(seed);
+    let mut commits: Vec<(i64, Vec<usize>)> = vec![(0, vec![])]; // (time, parent ids); id = index
+    let mut trunk = 0usize;
+    let mut now = 0i64;
+    let mut forks = Vec::new(); // trunk commits that open, still-unmerged branches fork from
+    for wave in 0..waves {
+        if wave % 8 == 4 {
+            forks.push(trunk);
+        }
+        let (base, start) = (trunk, now);
+        let mut tips = Vec::new();
+        for _ in 0..2 + rng.below(4) {
+            let mut tip = base;
+            let mut t = start + 1 + i64::from(rng.below(20));
+            for _ in 0..2 + rng.below(5) {
+                commits.push((t, vec![tip]));
+                tip = commits.len() - 1;
+                t += 1 + i64::from(rng.below(15));
+            }
+            now = now.max(t);
+            tips.push((t, tip));
+        }
+        tips.sort();
+        for (_, tip) in tips {
+            now += 1 + i64::from(rng.below(5));
+            if rng.chance(20) {
+                commits.push((now, vec![trunk]));
+                trunk = commits.len() - 1;
+                now += 1;
+            }
+            commits.push((now, vec![trunk, tip]));
+            trunk = commits.len() - 1;
+        }
+    }
+    // Open branches, newest of all, so their tips sit at the top in the left-most lanes (like
+    // the lanes of a project in flight) and their lanes free up far down the history.
+    for base in forks {
+        let mut tip = base;
+        for _ in 0..1 + rng.below(3) {
+            now += 1;
+            commits.push((now, vec![tip]));
+            tip = commits.len() - 1;
+        }
+    }
+    let mut order: Vec<usize> = (0..commits.len()).collect();
+    order.sort_by_key(|&i| (std::cmp::Reverse(commits[i].0), std::cmp::Reverse(i)));
+    let mut row_of = vec![0u32; commits.len()];
+    for (r, &i) in order.iter().enumerate() {
+        row_of[i] = r as u32;
+    }
+    order
+        .iter()
+        .map(|&i| {
+            let parents: Vec<Parent> = commits[i].1.iter().map(|&p| Parent::Row(row_of[p])).collect();
+            let kind = if parents.len() > 1 { NodeKind::Merge } else { NodeKind::Commit };
+            LayoutNode { parents, kind, pinned: false, time: commits[i].0 }
+        })
+        .collect()
+}
+
+/// K79's point: on a merge-heavy history the trunk keeps its lane, so fewer curves cross lanes,
+/// with no more lanes than before. The pre-K79 layout (left-most waiting lane) gave 8634
+/// crossings and 185 summed max lanes on the same 20 histories.
+#[test]
+fn wave_history_crossings_regression() {
+    let mut total = (0usize, 0usize);
+    for seed in 1..=20u64 {
+        let l = checked_layout(&wave_history(seed, 30));
+        total.0 += crossings(&l);
+        total.1 += usize::from(l.max_lanes);
+    }
+    assert_eq!(total, (7941, 185), "(crossings, summed max lanes) over 20 synthetic histories");
 }

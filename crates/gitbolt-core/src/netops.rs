@@ -1,6 +1,7 @@
 //! Network operations (spec §13 clone, §15 fetch). Both run with no timeout, stream progress
 //! as `opProgress`, can be cancelled (`cancelOp`: git is killed as a process group), and use
-//! askpass (spec §5.4).
+//! askpass (spec §5.4). They run detached from any terminal (K96), so every prompt reaches
+//! askpass or fails at once: nothing waits on a tty.
 //!
 //! Amendment 2: fetch is allowed. It writes remote-tracking refs and objects, never the working
 //! tree, the index, local branches or config; `--no-prune-tags` keeps a `fetch.pruneTags`
@@ -151,6 +152,12 @@ const NO_EXT: [&str; 2] = ["-c", "protocol.ext.allow=never"];
 /// rewrites the commit-graph: that's the user's own git's job, not a viewer's.
 const NO_UPKEEP: [&str; 2] = ["--no-auto-maintenance", "--no-write-commit-graph"];
 
+/// The command as the activity log shows it (K101): `git` and its argv (no environment), through
+/// the redactor so a URL's credentials never reach the log.
+fn display_command(args: &[&str]) -> String {
+    crate::redact::redact(&format!("git {}", args.join(" ")))
+}
+
 impl Api {
     /// `git fetch --all` for repo `id` (spec §15), with no upkeep after it (`NO_UPKEEP`). `background` fetches are GitBolt-started: they
     /// never prompt, and a credential prompt makes them `skipped: authRequired`.
@@ -161,15 +168,20 @@ impl Api {
         };
         let op = self.ops.begin(OpKind::Fetch, Some(id), !background);
         self.bus.emit(AppEvent::OpStarted { op: op.id, kind: OpKind::Fetch, repo: Some(id), label: h.name.clone(), interactive: op.interactive });
+        let mut command = None;
         let res = async {
             let before = ref_state_async(h.repo.clone()).await?;
             let prune = if self.store.state().settings.prune { "--prune" } else { "--no-prune" };
             let (tx, progress) = forward_progress(self.bus.clone(), op.id);
-            let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(["fetch", "--all", prune, "--no-prune-tags"]).chain(NO_UPKEEP).chain(["--progress"]))
+            let args: Vec<&str> = ["fetch", "--all", prune, "--no-prune-tags"].into_iter().chain(NO_UPKEEP).chain(["--progress"]).collect();
+            command = Some(display_command(&args));
+            let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(args))
                 .timeout(None)
                 .cancel(op.cancel.clone())
+                .detach_terminal()
                 .stream_stderr(tx)
-                .envs(self.net_env(op.id));
+                .envs(self.net_env(op.id))
+                .env("GIT_NO_LAZY_FETCH", "0"); // a network op may lazy-fetch (a clone's checkout needs it)
             let out = self.cli.run(inv).await;
             let _ = progress.await;
             out?;
@@ -188,7 +200,7 @@ impl Api {
             Err(e) => (OpOutcome::Failed, Err(e)),
         };
         let message = result.as_ref().err().map(|e| e.message.clone());
-        self.bus.emit(AppEvent::OpFinished { op: op.id, kind: OpKind::Fetch, repo: Some(id), outcome, message });
+        self.bus.emit(AppEvent::OpFinished { op: op.id, kind: OpKind::Fetch, repo: Some(id), outcome, message, command });
         result
     }
 
@@ -206,14 +218,23 @@ impl Api {
         }
         let parent = dest_path.parent().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "The destination has no parent folder"))?;
         std::fs::create_dir_all(parent)?;
+        // git runs from `/`, never from a folder a clone created: a concurrent clone's cleanup may
+        // remove one while it's still empty, and git can't work from a deleted cwd ("Unable to
+        // read current working directory"). The URL and `dest` are absolute (the UI only takes
+        // absolute ones), so the cwd changes nothing else.
+        let cwd = PathBuf::from("/");
         let op = self.ops.begin(OpKind::Clone, None, true);
         self.bus.emit(AppEvent::OpStarted { op: op.id, kind: OpKind::Clone, repo: None, label: dest.clone(), interactive: op.interactive });
         let (tx, progress) = forward_progress(self.bus.clone(), op.id);
-        let inv = GitInvocation::new(parent, NO_EXT.into_iter().chain(["clone", "--progress", "--", url.as_str(), dest.as_str()]))
+        let args = ["clone", "--progress", "--", url.as_str(), dest.as_str()];
+        let command = Some(display_command(&args));
+        let inv = GitInvocation::new(cwd, NO_EXT.into_iter().chain(args))
             .timeout(None)
             .cancel(op.cancel.clone())
+            .detach_terminal()
             .stream_stderr(tx)
-            .envs(self.net_env(op.id));
+            .envs(self.net_env(op.id))
+            .env("GIT_NO_LAZY_FETCH", "0"); // a network op may lazy-fetch (a clone's checkout needs it)
         let res = self.cli.run(inv).await;
         let _ = progress.await;
         let (outcome, message) = match &res {
@@ -224,7 +245,7 @@ impl Api {
         if res.is_err() {
             remove_failed_clone(&dest_path, created.as_deref());
         }
-        self.bus.emit(AppEvent::OpFinished { op: op.id, kind: OpKind::Clone, repo: None, outcome, message });
+        self.bus.emit(AppEvent::OpFinished { op: op.id, kind: OpKind::Clone, repo: None, outcome, message, command });
         res.map_err(|e| user_cancelled(e, &op))?;
         self.open_repo(&dest).await
     }
@@ -414,6 +435,142 @@ mod tests {
         let mut rx = api.subscribe();
         assert!(api.fetch(id, true).await.is_err());
         assert!(drain(&mut rx).iter().any(|e| matches!(e, AppEvent::OpFinished { outcome: crate::events::OpOutcome::Failed, message: Some(_), .. })));
+    }
+
+    /// `scripts/fake-ssh` (K96): an ssh stand-in that fails like a dead agent, asks a passphrase
+    /// through SSH_ASKPASS, or hangs.
+    fn fake_ssh() -> String {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fake-ssh").to_string()
+    }
+
+    /// Points the fixture's `origin` at an ssh URL served by `ssh_command` (its bare origin).
+    fn ssh_origin(r: &TestRepo, ssh_command: &str) {
+        let origin = r.root().join("origin.git");
+        r.git(&["remote", "set-url", "origin", &format!("ssh://fake{}", origin.display())]);
+        r.git(&["config", "core.sshCommand", ssh_command]);
+        r.git(&["config", "ssh.variant", "simple"]);
+    }
+
+    /// K96: what ssh gets from a fetch: our askpass for every prompt (`SSH_ASKPASS_REQUIRE=force`,
+    /// whatever DISPLAY says), git's askpass, git's own terminal prompt off, and no controlling
+    /// terminal (its own session), so nothing can wait on a tty.
+    #[tokio::test]
+    async fn ssh_runs_with_our_askpass_forced_and_no_terminal() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let dump = r.root().join("ssh-env");
+        let script = r.root().join("env-ssh");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\n{{ env; echo SID=$(cut -d' ' -f6 /proc/$$/stat); }} > '{}'\necho \"$1: Permission denied (publickey).\" >&2\nexit 255\n", dump.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        ssh_origin(&r, script.to_str().unwrap());
+        // No display at all: DISPLAY and WAYLAND_DISPLAY unset (not just empty), after everything else.
+        let no_display: crate::git::CommandHook = Arc::new(|c| {
+            c.env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
+        });
+        let api = Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env()).with_command_hook(no_display), None);
+        let dir = tempfile::tempdir().unwrap();
+        api.start_askpass(dir.path(), "/bin/false".into()).await.unwrap();
+        let id = open(&api, &r).await;
+        let err = api.fetch(id, false).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::AuthFailed, "{err:?}");
+        let seen = std::fs::read_to_string(&dump).unwrap();
+        let get = |k: &str| seen.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).map(str::to_string);
+        assert_eq!((get("DISPLAY"), get("WAYLAND_DISPLAY")), (None, None), "ssh sees no display");
+        assert_eq!(get("SSH_ASKPASS").as_deref(), Some("/bin/false"));
+        assert_eq!(get("GIT_ASKPASS").as_deref(), Some("/bin/false"));
+        assert_eq!(get("SSH_ASKPASS_REQUIRE").as_deref(), Some("force"));
+        assert_eq!(get("GIT_TERMINAL_PROMPT").as_deref(), Some("0"));
+        assert!(get(crate::askpass::ENV_OP).is_some_and(|op| op != "0"), "the prompt is tied to the fetch's op");
+        // The session id comes from /proc (Linux only).
+        #[cfg(target_os = "linux")]
+        assert_ne!(get("SID"), Some(nix::unistd::getsid(None).unwrap().as_raw().to_string()), "ssh runs in its own session");
+    }
+
+    /// K96: a fetch whose ssh can't authenticate (the agent is gone) is an `AuthFailed` error
+    /// carrying ssh's own line, even with several remotes (git prints "Fetching <remote>" first),
+    /// and its op finishes as failed with that message, for the activity log.
+    #[tokio::test]
+    async fn a_dead_agent_fetch_fails_with_sshs_message() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        ssh_origin(&r, &format!("{} --dead-agent", fake_ssh()));
+        let origin = r.root().join("origin.git");
+        r.git(&["remote", "add", "second", &format!("ssh://fake{}", origin.display())]);
+        let api = api();
+        let id = open(&api, &r).await;
+        let mut rx = api.subscribe();
+        let err = api.fetch(id, false).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::AuthFailed, "{err:?}");
+        assert_eq!(err.message, "fake: Permission denied (publickey).");
+        let finished = drain(&mut rx).into_iter().find_map(|e| match e { AppEvent::OpFinished { outcome, message, .. } => Some((outcome, message)), _ => None });
+        assert_eq!(finished, Some((crate::events::OpOutcome::Failed, Some("fake: Permission denied (publickey).".into()))));
+    }
+
+    /// K96 review: what a failed fetch carries to the toast (its error) and to the activity log
+    /// (`opFinished`'s message) never has a URL's password, ssh included.
+    #[tokio::test]
+    async fn a_failed_fetchs_error_and_activity_message_are_redacted() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let script = r.root().join("leaky-ssh");
+        std::fs::write(&script, "#!/bin/sh\necho \"fatal: repository 'ssh://ada:hunter2@fake/x' not found\" >&2\nexit 128\n").unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        ssh_origin(&r, script.to_str().unwrap());
+        let api = api();
+        let id = open(&api, &r).await;
+        let mut rx = api.subscribe();
+        let err = api.fetch(id, false).await.unwrap_err();
+        assert_eq!(err.message, "repository 'ssh://***@fake/x' not found");
+        assert!(!err.stderr.unwrap_or_default().contains("hunter2"));
+        let messages: Vec<String> = drain(&mut rx).into_iter().filter_map(|e| match e { AppEvent::OpFinished { message, .. } => message, _ => None }).collect();
+        assert_eq!(messages, vec!["repository 'ssh://***@fake/x' not found".to_string()]);
+    }
+
+    /// K101: a finished fetch carries the git command that ran, and a credentialed URL in a clone's is redacted.
+    #[tokio::test]
+    async fn an_op_records_its_command_redacted() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        let mut rx = api.subscribe();
+        api.fetch(id, false).await.unwrap();
+        let cmds: Vec<Option<String>> = drain(&mut rx).into_iter().filter_map(|e| match e { AppEvent::OpFinished { command, .. } => Some(command), _ => None }).collect();
+        assert_eq!(cmds.len(), 1);
+        assert!(cmds[0].as_deref().unwrap().starts_with("git fetch --all"), "{cmds:?}");
+        let dest = r.root().join("clone-dest");
+        let _ = api.clone_repo("ssh://ada:hunter2@127.0.0.1:1/x".into(), dest.to_str().unwrap().into()).await;
+        let cmds: Vec<Option<String>> = drain(&mut rx).into_iter().filter_map(|e| match e { AppEvent::OpFinished { command, .. } => Some(command), _ => None }).collect();
+        let c = cmds[0].clone().unwrap();
+        assert!(c.starts_with("git clone") && !c.contains("hunter2"), "{c}");
+    }
+
+    /// K96: a fetch stuck on a remote that never answers runs until cancelled, and a cancel
+    /// kills it (ssh included) at once.
+    #[tokio::test]
+    async fn a_stuck_fetch_is_cancelled() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        ssh_origin(&r, &format!("{} --hang", fake_ssh()));
+        let api = Arc::new(api());
+        let id = open(&api, &r).await;
+        let mut rx = api.subscribe();
+        let a2 = api.clone();
+        let fetch = tokio::spawn(async move { a2.fetch(id, false).await });
+        let op = loop {
+            if let AppEvent::OpStarted { op, .. } = rx.recv().await.unwrap() {
+                break op;
+            }
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(!fetch.is_finished(), "a stuck remote has no timeout of its own");
+        api.ops().cancel(op);
+        let err = tokio::time::timeout(std::time::Duration::from_secs(5), fetch).await.unwrap().unwrap().unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Cancelled);
     }
 
     #[tokio::test]

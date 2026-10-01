@@ -157,6 +157,17 @@ impl Harness {
         let runtime_tmp = tempfile::tempdir().expect("temp runtime dir");
         let home = runtime_tmp.path().join("home");
         std::fs::create_dir_all(&home).expect("harness home");
+        // "Your repos" and the repos-folder suggestion read <home>/repos: one sample repo there
+        // (<home>/repos/sample/repo, two levels deep as the scan expects).
+        let sample = gitbolt_core::testing::TestRepo::init_at(&home.join("repos").join("sample"));
+        sample.commit("Sample commit");
+        // <home>/more: 40 bare-bones repos (a `.git/HEAD` each) so a test can fill "Your repos" past the
+        // screen without paying for 40 commits. Not scanned until a test adds the folder.
+        for n in 0..40 {
+            let dot = home.join("more").join(format!("bulk-{n:02}")).join(".git");
+            std::fs::create_dir_all(&dot).expect("bulk repo dir");
+            std::fs::write(dot.join("HEAD"), "ref: refs/heads/bulk\n").expect("bulk HEAD");
+        }
         let next_pick = picks.clone();
         let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
             .with_url_opener(Arc::new(|url: &str| {
@@ -205,7 +216,7 @@ impl Harness {
 pub async fn serve(listener: tokio::net::TcpListener, harness: Harness) {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/launches", get(|State(h): State<Arc<Harness>>| async move { Json(h.launches.all()) }))
+        .route("/launches", get(launches))
         .route("/ws", get(ws))
         .route("/test/emit", post(test_emit))
         .route("/test/reset", post(test_reset))
@@ -261,8 +272,18 @@ fn foreign_origin(headers: &HeaderMap) -> bool {
     headers.get(header::ORIGIN).is_some_and(|origin| !origin.to_str().is_ok_and(origin_allowed))
 }
 
-async fn test_watched(State(h): State<Arc<Harness>>) -> Json<Vec<u32>> {
-    Json(h.api.watched_repos())
+async fn test_watched(State(h): State<Arc<Harness>>, headers: HeaderMap) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(h.api.watched_repos()).into_response()
+}
+
+async fn launches(State(h): State<Arc<Harness>>, headers: HeaderMap) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(h.launches.all()).into_response()
 }
 
 async fn test_emit(State(h): State<Arc<Harness>>, headers: HeaderMap, Json(ev): Json<AppEvent>) -> Response {

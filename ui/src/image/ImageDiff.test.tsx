@@ -423,7 +423,7 @@ describe('ImageDiff', () => {
     const side = (text: string) => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'none' as const, text, base64: null });
     const contents = (a: string, b: string): DiffContentsPayload => ({ old: side(a), new: side(b), tooLarge: false, eolOnly: false, image: false });
     const { result, rerender, unmount } = renderHook(({ c }) => useImageSources(c, 'icon.svg'), { initialProps: { c: contents('<svg/>', '<svg />') } });
-    expect(result.current).toEqual({ old: { url: 'blob:u1', size: 6 }, new: { url: 'blob:u2', size: 7 } });
+    expect(result.current).toEqual({ old: { url: 'blob:u1', size: 6, intrinsic: null }, new: { url: 'blob:u2', size: 7, intrinsic: null } });
     expect(revoke).not.toHaveBeenCalled();
     rerender({ c: contents('<svg/>', '<svg  />') });
     expect(revoke.mock.calls.map((c) => c[0])).toEqual(['blob:u1', 'blob:u2']);

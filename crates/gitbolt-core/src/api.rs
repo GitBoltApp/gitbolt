@@ -76,6 +76,13 @@ pub enum Request {
     OpenUrl { url: String },
     /// The detected external editors and the file manager, for "Open in…" (spec §14.5, H9).
     ListOpeners,
+    /// `ListOpeners` for one repository: the `custom` entry is listed only when that
+    /// repository's effective editor (its own setting, else the profile's) is a Custom command.
+    ListOpenersFor { repo: u32 },
+    /// Checks a custom editor command template the way an open would build it (the shell-code
+    /// guard, then the program lookup), so the settings can show a refusal inline. Returns `null`
+    /// when the template would open, else the error.
+    ValidateEditorTemplate { template: String },
     /// Opens `path` (relative to `worktree`, one of this repo's worktrees) in the opener `id`d by
     /// `opener` (or `"other"`, the Open With chooser), at `line` when it supports one. `source` is
     /// the version shown: the working-tree file (`worktree`, or none), or a stored one (`object`,
@@ -134,6 +141,9 @@ pub enum Request {
     /// The repositories in `root` (absolute), two levels deep, newest first: `ScannedRepo[]`.
     /// Cached per root; `refresh` rescans.
     ScanRepos { root: String, refresh: bool },
+    /// `ScanRepos` over several folders in parallel, merged and de-duplicated by path:
+    /// `ScannedRepo[]`. Each folder is cached on its own; a folder that fails to scan is skipped.
+    ScanFolders { roots: Vec<String>, refresh: bool },
     /// `~/repos` when it exists, else `null`.
     SuggestReposFolder,
     /// Starts the file watcher for this repo (the active tab's, spec §4.4); idempotent. `null`.
@@ -234,6 +244,16 @@ impl OpenerSource {
     }
 }
 
+/// Signature statuses kept per process; past this the cache starts over.
+const SIGNATURE_CACHE_MAX: usize = 4096;
+
+/// Whether a signature status may be remembered for the process lifetime. An unknown key and an
+/// unverified signature both change when the user trusts the key (or adds it to the allowed
+/// signers), so neither is cached: the badge follows the next look.
+fn cacheable(kind: SignatureKind) -> bool {
+    !matches!(kind, SignatureKind::UnknownKey | SignatureKind::Unverified)
+}
+
 /// `opener_refresh` unless changed.
 const OPENER_REFRESH: Duration = Duration::from_secs(30);
 
@@ -290,6 +310,20 @@ impl Api {
         self.scans.lock().expect("scans poisoned").clear();
     }
 
+    /// One folder's scan: absolute roots only, cached per root unless `refresh`.
+    async fn scan_root(&self, root: String, refresh: bool) -> Result<Vec<ScannedRepo>, GbError> {
+        if !Path::new(&root).is_absolute() {
+            return Err(GbError::new(GbErrorKind::InvalidInput, format!("not an absolute folder: {root}")));
+        }
+        if !refresh && let Some(hit) = self.scans.lock().expect("scans poisoned").get(&root).cloned() {
+            return Ok(hit);
+        }
+        let dir = PathBuf::from(&root);
+        let found = blocking(move || Ok(crate::scan::scan_repos(&dir))).await?;
+        self.scans.lock().expect("scans poisoned").insert(root, found.clone());
+        Ok(found)
+    }
+
     /// git's version, checked against `MIN_GIT` once and cached for the process lifetime.
     pub(crate) async fn git_version(&self) -> Result<(u32, u32, u32), GbError> {
         self.version.get_or_try_init(|| self.cli.check_version()).await.copied()
@@ -314,6 +348,29 @@ impl Api {
             template_opener(CUSTOM_ID, "Custom", &template, root, &env)
         })
         .await
+    }
+
+    /// The "Open in…" list. The `custom` entry is in it only when the Custom editor is the
+    /// effective setting: the repository's own at `workdir`, else the profile's.
+    async fn list_openers(&self, workdir: Option<String>) -> Result<serde_json::Value, GbError> {
+        let mut list: Vec<OpenerPayload> = self.openers(false).await?.iter().map(Opener::payload).collect();
+        let profile = self.store.active_profile();
+        let own = workdir.and_then(|w| profile.repos.get(&w).and_then(|r| r.editor.clone()));
+        if matches!(own.or(profile.editor), Some(EditorChoice::Custom { .. })) {
+            let at = list.iter().position(|o| o.kind != OpenerKind::Editor).unwrap_or(list.len());
+            list.insert(at, OpenerPayload { id: CUSTOM_ID.into(), name: "Custom".into(), kind: OpenerKind::Editor });
+        }
+        if self.chooser.is_some() {
+            list.push(OpenerPayload { id: CHOOSER_ID.into(), name: "Other…".into(), kind: OpenerKind::Chooser });
+        }
+        to_json(list)
+    }
+
+    /// Pushes the Gravatar on/off setting to the avatar provider (spec §14.1).
+    fn apply_avatar_setting(&self, on: bool) {
+        if let Some(p) = &self.avatars {
+            p.set_enabled(on);
+        }
     }
 
     pub fn ops(&self) -> &Arc<OpRegistry> {
@@ -496,8 +553,12 @@ impl Api {
                 }
                 let signed = parse_commit(&read_commit(&h.repo.to_thread_local(), id)?)?.signed;
                 let s = signature_status(&self.cli, &h.workdir, id, signed).await?;
-                if s.kind != SignatureKind::UnknownKey {
-                    self.signatures.lock().expect("signatures poisoned").insert(cache_key, s.clone());
+                if cacheable(s.kind) {
+                    let mut cache = self.signatures.lock().expect("signatures poisoned");
+                    if cache.len() >= SIGNATURE_CACHE_MAX {
+                        cache.clear();
+                    }
+                    cache.insert(cache_key, s.clone());
                 }
                 to_json(s)
             }
@@ -505,12 +566,22 @@ impl Api {
                 Some(p) => to_json(p.avatar(&email).await?),
                 None => to_json(Option::<AvatarPayload>::None),
             },
-            Request::ListOpeners => {
-                let mut list: Vec<OpenerPayload> = self.openers(false).await?.iter().map(Opener::payload).collect();
-                if self.chooser.is_some() {
-                    list.push(OpenerPayload { id: CHOOSER_ID.into(), name: "Other…".into(), kind: OpenerKind::Chooser });
-                }
-                to_json(list)
+            Request::ListOpeners => self.list_openers(None).await,
+            Request::ListOpenersFor { repo } => {
+                let workdir = self.handle(repo)?.workdir.display().to_string();
+                self.list_openers(Some(workdir)).await
+            }
+            Request::ValidateEditorTemplate { template } => {
+                let captured = self.cli.child_env().await;
+                blocking(move || {
+                    let mut env = DetectEnv::from_system();
+                    if let Some(path) = captured.as_ref().and_then(|vars| vars.iter().find(|(k, _)| k == "PATH")).map(|(_, v)| v.clone()) {
+                        env.path = std::env::split_paths(&path).filter(|d| d.is_absolute()).collect();
+                    }
+                    template_opener(CUSTOM_ID, "Custom", &template, "/", &env).map(|_| ())
+                })
+                .await?;
+                to_json(())
             }
             Request::OpenIn { repo, worktree, path, line, opener, source, fallback } => {
                 let h = self.handle(repo)?;
@@ -558,9 +629,13 @@ impl Api {
             }
             Request::LoadState => {
                 self.apply_profile_git_config();
-                to_json(self.store.state())
+                let mut state = self.store.state();
+                state.profile.migrate_repos_folders(self.home.as_deref());
+                self.apply_avatar_setting(state.settings.gravatar);
+                to_json(state)
             }
             Request::SaveSettings { settings } => {
+                self.apply_avatar_setting(settings.gravatar);
                 self.store.save_settings(settings);
                 to_json(())
             }
@@ -571,7 +646,8 @@ impl Api {
             }
             Request::CreateProfile { name, color } => to_json(self.store.create_profile(&name, &color)?),
             Request::SwitchProfile { id } => {
-                let st = self.store.switch_profile(&id)?;
+                let mut st = self.store.switch_profile(&id)?;
+                st.profile.migrate_repos_folders(self.home.as_deref());
                 self.apply_profile_git_config();
                 to_json(st)
             }
@@ -606,17 +682,12 @@ impl Api {
                 let picked = blocking(move || Ok(picker(start.as_deref()))).await?;
                 to_json(picked.map(|p| p.display().to_string()))
             }
-            Request::ScanRepos { root, refresh } => {
-                if !Path::new(&root).is_absolute() {
-                    return Err(GbError::new(GbErrorKind::InvalidInput, format!("not an absolute folder: {root}")));
-                }
-                if !refresh && let Some(hit) = self.scans.lock().expect("scans poisoned").get(&root).cloned() {
-                    return to_json(hit);
-                }
-                let dir = PathBuf::from(&root);
-                let found = blocking(move || Ok(crate::scan::scan_repos(&dir))).await?;
-                self.scans.lock().expect("scans poisoned").insert(root, found.clone());
-                to_json(found)
+            Request::ScanRepos { root, refresh } => to_json(self.scan_root(root, refresh).await?),
+            Request::ScanFolders { roots, refresh } => {
+                let mut seen = std::collections::HashSet::new();
+                let roots: Vec<String> = roots.into_iter().filter(|r| seen.insert(r.clone())).collect();
+                let scans = futures_util::future::join_all(roots.into_iter().map(|r| self.scan_root(r, refresh))).await;
+                to_json(crate::scan::merge_scans(scans.into_iter().filter_map(Result::ok)))
             }
             Request::SuggestReposFolder => to_json(crate::scan::suggest_repos_folder(self.home.as_deref())),
             Request::WatchRepo { repo } => {
@@ -805,6 +876,18 @@ mod tests {
         Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env()), Some("/launch/path".into()))
     }
 
+    /// An unverified signature (a good one from a key that isn't trusted yet) is looked at again
+    /// next time, as an unknown key is, so trusting the key shows without a restart.
+    #[test]
+    fn only_settled_signature_statuses_are_cached() {
+        for kind in [SignatureKind::Verified, SignatureKind::Bad, SignatureKind::Expired, SignatureKind::Unsigned] {
+            assert!(cacheable(kind), "{kind:?}");
+        }
+        for kind in [SignatureKind::Unverified, SignatureKind::UnknownKey] {
+            assert!(!cacheable(kind), "{kind:?}");
+        }
+    }
+
     fn req(json: serde_json::Value) -> Request {
         serde_json::from_value(json).unwrap()
     }
@@ -980,6 +1063,18 @@ mod tests {
         assert_eq!(api.dispatch(scan(true)).await.unwrap().as_array().unwrap().len(), 2, "refresh rescans");
         let rel = api.dispatch(req(serde_json::json!({"method": "scanRepos", "params": {"root": "relative", "refresh": false}}))).await.unwrap_err();
         assert_eq!(rel.kind, GbErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn scan_folders_merges_dedupes_and_skips_bad_folders() {
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        TestRepo::init_at(&a.path().join("one")).commit("a");
+        TestRepo::init_at(&b.path().join("two")).commit("b");
+        let api = api();
+        let scan = |roots: serde_json::Value| req(serde_json::json!({"method": "scanFolders", "params": {"roots": roots, "refresh": false}}));
+        let got = api.dispatch(scan(serde_json::json!([a.path(), b.path(), a.path(), "relative", "/no/such/dir"]))).await.unwrap();
+        assert_eq!(got.as_array().unwrap().len(), 2, "{got}");
+        assert!(api.dispatch(scan(serde_json::json!([]))).await.unwrap().as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1207,6 +1302,72 @@ mod tests {
         fn avatar<'a>(&'a self, email: &'a str) -> crate::avatar::AvatarFuture<'a> {
             Box::pin(async move { Ok((email == "ada@example.com").then(|| crate::avatar::AvatarPayload { mime: "image/png".into(), base64: "iVBO".into() })) })
         }
+    }
+
+    #[tokio::test]
+    async fn the_gravatar_setting_reaches_the_provider() {
+        struct Flag(std::sync::atomic::AtomicBool);
+        impl crate::avatar::AvatarProvider for Flag {
+            fn avatar<'a>(&'a self, _: &'a str) -> crate::avatar::AvatarFuture<'a> {
+                Box::pin(async { Ok(None) })
+            }
+            fn set_enabled(&self, on: bool) {
+                self.0.store(on, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let flag = Arc::new(Flag(std::sync::atomic::AtomicBool::new(true)));
+        let api = api().with_avatars(flag.clone());
+        let mut s = serde_json::to_value(crate::settings::AppSettings::default()).unwrap();
+        s["gravatar"] = false.into();
+        api.dispatch(req(serde_json::json!({"method": "saveSettings", "params": {"settings": s}}))).await.unwrap();
+        assert!(!flag.0.load(std::sync::atomic::Ordering::SeqCst));
+        s["gravatar"] = true.into();
+        api.dispatch(req(serde_json::json!({"method": "saveSettings", "params": {"settings": s}}))).await.unwrap();
+        assert!(flag.0.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn editor_templates_are_validated_with_the_guards_message() {
+        let api = api();
+        let check = |t: &str| req(serde_json::json!({"method": "validateEditorTemplate", "params": {"template": t}}));
+        assert!(api.dispatch(check("/bin/echo {file}")).await.unwrap().is_null());
+        let refused = api.dispatch(check(r#"sh -c "geany {file}""#)).await.unwrap_err();
+        assert_eq!(refused.kind, GbErrorKind::InvalidInput);
+        assert!(refused.message.contains("can't contain"), "{}", refused.message);
+        assert_eq!(api.dispatch(check("no-such-editor-xyz {file}")).await.unwrap_err().kind, GbErrorKind::NotFound);
+    }
+
+    #[tokio::test]
+    async fn the_custom_editor_is_listed_only_for_a_repo_whose_effective_editor_is_custom() {
+        let r = TestRepo::new();
+        fixtures::details(&r);
+        let (api, _launches) = with_openers(api());
+        let id = open(&api, &r).await;
+        let workdir = api.handle(id as u32).unwrap().workdir.display().to_string();
+        let ids = |v: serde_json::Value| v.as_array().unwrap().iter().map(|o| o["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        let global = || req(serde_json::json!({"method": "listOpeners"}));
+        let for_repo = || req(serde_json::json!({"method": "listOpenersFor", "params": {"repo": id}}));
+        let custom = "custom".to_string();
+        assert!(!ids(api.dispatch(global()).await.unwrap()).contains(&custom));
+        assert!(!ids(api.dispatch(for_repo()).await.unwrap()).contains(&custom));
+
+        let mut p = api.store().active_profile();
+        p.editor = Some(EditorChoice::Custom { template: "/bin/echo {file}".into() });
+        api.store().save_profile(p.clone()).unwrap();
+        assert!(ids(api.dispatch(global()).await.unwrap()).contains(&custom));
+        assert!(ids(api.dispatch(for_repo()).await.unwrap()).contains(&custom), "the profile's Custom applies to the repo");
+
+        // The repo's own detected-editor choice overrides the profile's Custom: no entry.
+        p.repos.insert(workdir.clone(), crate::settings::RepoSettings { editor: Some(EditorChoice::Opener { id: "vscode".into() }), ..Default::default() });
+        api.store().save_profile(p.clone()).unwrap();
+        assert!(!ids(api.dispatch(for_repo()).await.unwrap()).contains(&custom));
+
+        // Custom on one repo only: not listed for a repo (or the profile) without it.
+        p.editor = None;
+        p.repos.insert(workdir, crate::settings::RepoSettings { editor: Some(EditorChoice::Custom { template: "/bin/echo {file}".into() }), ..Default::default() });
+        api.store().save_profile(p).unwrap();
+        assert!(ids(api.dispatch(for_repo()).await.unwrap()).contains(&custom));
+        assert!(!ids(api.dispatch(global()).await.unwrap()).contains(&custom), "other repos don't see it");
     }
 
     #[tokio::test]

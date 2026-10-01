@@ -214,6 +214,16 @@ on its own D-Bus session and XDG dirs), with real compositor input through mutte
 - A consequence: GTK widgets in the window (a Tauri menu bar) no longer get the keyboard focus
   from the window manager. GitBolt has none.
 
+**Known limits (one webview per window; revisit if that changes):**
+- The target is the *topmost* viewable browser, not the one clicked. With several webviews in one
+  toplevel, a click on a lower one would still send the keys to the topmost. GitBolt has one:
+  1C's tabs are `<Activity>` panels inside the single page, not webviews. The fix, if it's ever
+  needed, is to prefer the child under the pointer (`XQueryPointer`), then the last focused.
+- `RevertToParent`: if the focused browser window is later unmapped or destroyed (a webview
+  hidden or recreated), X focus reverts to the CEF host window, which neither GDK nor Chromium
+  reads, so keys go nowhere until the next click. With one permanent webview this doesn't
+  happen; with more, re-run the redirect on `UnmapNotify` of the focused child.
+
 **Diagnostic:** with `GITBOLT_KEY_LOG` in a debug build, each redirect prints a
 `[gitbolt-keys] WM_TAKE_FOCUS …` line.
 

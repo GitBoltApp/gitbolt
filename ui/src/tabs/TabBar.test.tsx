@@ -118,3 +118,18 @@ describe('TabBar: rename field', () => {
     expect(useAppState.getState().profile.tabs[1].alias).toBe('Blurred');
   });
 });
+
+describe('TabBar: the settings gear (K102)', () => {
+  it('sits left of the profile button and runs the settings action', async () => {
+    const { registerActions } = await import('../app/actions');
+    const run = vi.fn();
+    const off = registerActions([{ id: 'file.settings', label: 'Settings', group: 'File', icon: (() => null) as never, tooltip: 't', run }]);
+    setTabs(['a'], 'a');
+    render(<TabBar />);
+    const gear = screen.getByRole('button', { name: 'Settings' });
+    expect(gear.parentElement?.nextElementSibling ?? gear.nextElementSibling).toBeTruthy();
+    fireEvent.click(gear);
+    expect(run).toHaveBeenCalled();
+    off();
+  });
+});

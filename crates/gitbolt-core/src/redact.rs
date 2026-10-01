@@ -3,14 +3,27 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-static URL_CREDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(https?://)[^/\s@]+@").unwrap());
+/// http(s): any userinfo (a lone user name is often a token: `https://<token>@github.com`).
+static HTTP_USERINFO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(https?://)[^/\s@'\x22]+@").unwrap());
+/// Any other scheme (ssh, git, ftp(s), file, `git+ssh`, ...): a `user:password@` userinfo. A user
+/// name alone (`ssh://git@host`) isn't secret there.
+static URL_PASSWORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s@:'\x22]*:[^/\s@'\x22]*@").unwrap());
+/// Tokens in a query string (`?private_token=...`).
+static QUERY_TOKEN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)([?&](?:access_token|private_token|oauth_token|job_token|token|password|passwd|secret|api_key|apikey|key)=)[^&\s'\x22]+").unwrap());
+/// Forge tokens: GitLab's family (`glpat-`, `gloas-`, `glrt-`, ...), GitHub's, Bitbucket and
+/// Atlassian app passwords and API tokens.
 static TOKENS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(glpat-[A-Za-z0-9_\-]{20,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})").unwrap()
+    Regex::new(r"\b(gl(?:pat|oas|dt|rt|cbt|ptt|ft|imt|agent|soat|ffct)-[A-Za-z0-9_\-]{20,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|ATBB[A-Za-z0-9]{24,}|ATATT[A-Za-z0-9_\-=]{20,})").unwrap()
 });
 static AUTH_HEADER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(authorization:\s*)\S+(\s+\S+)?").unwrap());
 
+/// Every message, stderr and log line goes through this before it's logged, stored (the activity
+/// log) or shown (toasts): `GitCli::run` redacts stderr before taking the error's message.
 pub fn redact(s: &str) -> String {
-    let s = URL_CREDS.replace_all(s, "${1}***@");
+    let s = HTTP_USERINFO.replace_all(s, "${1}***@");
+    let s = URL_PASSWORD.replace_all(&s, "${1}***@");
+    let s = QUERY_TOKEN.replace_all(&s, "${1}***");
     let s = TOKENS.replace_all(&s, "***");
     AUTH_HEADER.replace_all(&s, "${1}***").into_owned()
 }
@@ -23,6 +36,43 @@ mod tests {
     fn removes_url_credentials() {
         assert_eq!(redact(&format!("https://oauth2:glpat-{}@gitlab.example.com/a/b.git", "a".repeat(21))), "https://***@gitlab.example.com/a/b.git");
         assert_eq!(redact("http://user@h/x"), "http://***@h/x");
+    }
+
+    /// K96 review: a password in the userinfo of any URL scheme, not just http(s). A user name
+    /// alone (`ssh://git@host`) isn't secret there and stays readable.
+    #[test]
+    fn removes_passwords_from_any_url_scheme() {
+        for scheme in ["ssh", "git", "ftp", "ftps", "file", "git+ssh", "ssh+git", "svn+ssh", "rsync", "SSH"] {
+            assert_eq!(redact(&format!("{scheme}://ada:hunter2@h.example/x.git")), format!("{scheme}://***@h.example/x.git"), "{scheme}");
+        }
+        assert_eq!(redact("ssh://git@gitlab.example.com:2222/a/b.git"), "ssh://git@gitlab.example.com:2222/a/b.git", "a user name alone stays");
+        assert_eq!(redact("ssh://h.example:22/x.git"), "ssh://h.example:22/x.git", "a port isn't a password");
+        assert_eq!(redact("file:///home/ada/repo.git"), "file:///home/ada/repo.git");
+        // http(s) keeps hiding a lone user name too: it's often a token.
+        assert_eq!(redact("https://ghtoken@github.com/o/r"), "https://***@github.com/o/r");
+    }
+
+    /// As git prints them: the URL quoted mid-sentence, sometimes several on one line or across
+    /// lines of a whole stderr.
+    #[test]
+    fn removes_credentials_from_urls_inside_messages() {
+        assert_eq!(redact("fatal: repository 'ssh://ada:hunter2@h/x' not found"), "fatal: repository 'ssh://***@h/x' not found");
+        assert_eq!(redact("fatal: unable to access 'https://ada:pw@h/x.git/': The requested URL returned error: 403"), "fatal: unable to access 'https://***@h/x.git/': The requested URL returned error: 403");
+        assert_eq!(
+            redact("Fetching origin\nfatal: unable to connect to git://u:p@a/x (and ftp://u2:p2@b/y)\nerror: could not fetch origin"),
+            "Fetching origin\nfatal: unable to connect to git://***@a/x (and ftp://***@b/y)\nerror: could not fetch origin"
+        );
+        assert_eq!(redact("Cloning into 'x'... from \"ssh://ada:s3cr3t@h/x\"."), "Cloning into 'x'... from \"ssh://***@h/x\".");
+    }
+
+    /// Tokens in a query string, and the other forges' token formats.
+    #[test]
+    fn removes_query_tokens_and_more_token_formats() {
+        assert_eq!(redact("https://h/x.git?private_token=abc123&ref=main"), "https://h/x.git?private_token=***&ref=main");
+        assert_eq!(redact("'https://h/api?access_token=abc.def'"), "'https://h/api?access_token=***'");
+        assert_eq!(redact(&format!("x gloas-{} y", "a".repeat(24))), "x *** y");
+        assert_eq!(redact(&format!("glrt-{}", "Z9".repeat(12))), "***");
+        assert_eq!(redact(&format!("ATBB{}", "k".repeat(28))), "***");
     }
 
     #[test]

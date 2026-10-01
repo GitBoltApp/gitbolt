@@ -1,5 +1,74 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#1C1E23"/>
-  <polyline points="300,56 170,272 290,272 210,456" fill="none" stroke="#0669f7" stroke-width="40" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="170" cy="272" r="34" fill="#2ece9d"/><circle cx="290" cy="272" r="34" fill="#2ece9d"/>
+  <!-- GitBolt round 4, R3C: fading lanes, set B, shadow 1 -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2a4a"/>
+      <stop offset="1" stop-color="#0a0f1e"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#0669f7" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#0669f7" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="litFace" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8cc4ff"/>
+      <stop offset="1" stop-color="#2a82ff"/>
+    </linearGradient>
+    <linearGradient id="shadeFace" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a80ff"/>
+      <stop offset="1" stop-color="#0757e0"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.16"/>
+      <stop offset="0.55" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+    <clipPath id="plateClip">
+      <path d="M152 32H360C440 32 480 72 480 152V360C480 440 440 480 360 480H152C72 480 32 440 32 360V152C32 72 72 32 152 32Z"/>
+    </clipPath>
+      <linearGradient id="fadeY" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.3" stop-color="#fff" stop-opacity="1"/>
+      <stop offset="0.7" stop-color="#fff" stop-opacity="1"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="fade" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="url(#fadeY)"/>
+    </mask>
+    <filter id="halo" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="drop" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="20"/></filter>
+    <filter id="contact" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+  </defs>
+  <!-- K85: scaled about the centre so the plate inset is about 6px of 512 (was 32px) -->
+  <g transform="translate(256 256) scale(1.116) translate(-256 -256)">
+
+  <path d="M152 32H360C440 32 480 72 480 152V360C480 440 440 480 360 480H152C72 480 32 440 32 360V152C32 72 72 32 152 32Z" fill="url(#plate)"/>
+  <g clip-path="url(#plateClip)">
+    <circle cx="256" cy="262" r="230" fill="url(#glow)"/>
+    <g mask="url(#fade)">
+      <line x1="112" y1="0" x2="112" y2="512" stroke="#2ece9d" stroke-width="18"/>
+      <line x1="184" y1="0" x2="184" y2="512" stroke="#f25d2e" stroke-width="18"/>
+      <line x1="256" y1="0" x2="256" y2="512" stroke="#c517b6" stroke-width="18"/>
+      <line x1="328" y1="0" x2="328" y2="512" stroke="#f2ca33" stroke-width="18"/>
+      <line x1="400" y1="0" x2="400" y2="512" stroke="#15a0bf" stroke-width="18"/>
+    </g>
+    <path d="M152 32H360C440 32 480 72 480 152V360C480 440 440 480 360 480H152C72 480 32 440 32 360V152C32 72 72 32 152 32Z" fill="url(#sheen)"/>
+  </g>
+  <path d="M152 34.5H360C438.5 34.5 477.5 73.5 477.5 152V360C477.5 438.5 438.5 477.5 360 477.5H152C73.5 477.5 34.5 438.5 34.5 360V152C34.5 73.5 73.5 34.5 152 34.5Z"
+        fill="none" stroke="#fff" stroke-opacity="0.10" stroke-width="5"/>
+
+  <!-- Bolt shadows, cast on the lanes and the plate -->
+  <g clip-path="url(#plateClip)">
+  <path d="M318 74 150 290H250L202 446 366 220H264Z" transform="translate(22 36)" fill="#02040c" opacity="0.85" filter="url(#drop)"/>
+  <path d="M318 74 150 290H250L202 446 366 220H264Z" transform="translate(3 6)" fill="none" stroke="#02040c" stroke-width="30" stroke-linejoin="round" opacity="0.8" filter="url(#contact)"/>
+  <path d="M318 74 150 290H250L202 446 366 220H264Z" fill="none" stroke="#070e22" stroke-width="20" stroke-linejoin="round"/>
+  </g>
+  <!-- Bolt: a lit upper-left face and a shaded lower-right face. -->
+  <g stroke-linejoin="round" stroke-width="14">
+    <path d="M318 74 150 290H250L202 446 366 220H264Z" fill="url(#shadeFace)" stroke="#0a55d8"/>
+    <path d="M318 74 150 290H250L264 220Z" fill="url(#litFace)" stroke="none"/>
+  </g>
+
+  </g>
 </svg>

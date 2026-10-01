@@ -80,6 +80,7 @@ pub struct RemoteBranch {
 #[ts(export)]
 pub struct RemoteGroup {
     pub name: String,
+    pub host: Option<String>,
     pub host_kind: HostKind,
     pub branches: Vec<RemoteBranch>,
 }
@@ -191,7 +192,8 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
     let worktrees = list_worktrees(cli, workdir).await?;
     let local = repo.to_thread_local();
     let remote_names: Vec<String> = local.remote_names().into_iter().map(|n| n.to_str_lossy().into_owned()).collect();
-    let host_kind_of = |remote: &str| remote_url(&local, remote, Direction::Fetch).and_then(|u| parse_remote_url(&u)).map(|u| host_kind(&u.host)).unwrap_or(HostKind::Generic);
+    let host_of = |remote: &str| remote_url(&local, remote, Direction::Fetch).and_then(|u| parse_remote_url(&u)).map(|u| u.host);
+    let host_kind_of = |remote: &str| host_of(remote).map(|h| host_kind(&h)).unwrap_or(HostKind::Generic);
     let head_branch = local.head_name().ok().flatten().map(|n| n.as_bstr().to_string());
     let here = canonical(workdir);
     let elsewhere: std::collections::HashMap<String, String> = worktrees
@@ -237,7 +239,7 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
             let branch = RemoteBranch { name: rest[remote.len() + 1..].to_string(), full_name: full.clone(), target, tip_time, summary, author };
             match s.remotes.iter_mut().find(|g| g.name == remote) {
                 Some(g) => g.branches.push(branch),
-                None => s.remotes.push(RemoteGroup { host_kind: host_kind_of(&remote), name: remote, branches: vec![branch] }),
+                None => s.remotes.push(RemoteGroup { host: host_of(&remote), host_kind: host_kind_of(&remote), name: remote, branches: vec![branch] }),
             }
         } else if let Some(name) = full.strip_prefix("refs/tags/") {
             s.tags.push(TagItem { name: name.into(), full_name: full.clone(), target, time: tip_time });

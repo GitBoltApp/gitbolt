@@ -1,7 +1,9 @@
 import { GitPullRequest } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api, errorMessage } from '../api/client';
+import { effectiveKind } from '../forge/urls';
 import type { RepoServices } from '../repo/services';
+import { useAppState } from '../app/state';
 import { useToast } from '../ui/toast';
 import { mergeRequestButtons, projectRemote, tokenizeMessage, type MessageToken, type ProjectRemote } from './messageLinks';
 import './header.css';
@@ -11,17 +13,25 @@ import './header.css';
  * the file menu's env, `menu/menuEnv.ts`), so a remount (e.g. back from the WIP row) links the
  * message in its first render instead of re-rendering it once the remotes resolve (F12). */
 export function useProjectRemote(services: RepoServices): ProjectRemote | null {
+  const overrides = useAppState((s) => s.profile.hostOverrides);
   const [state, setState] = useState<{ services: RepoServices; remote: ProjectRemote | null } | null>(null);
   useEffect(() => {
     if (services.remotesSnapshot()) return;
     let live = true;
     services.remotes().then((r) => {
-      if (live) setState({ services, remote: projectRemote(r) });
+      if (live) setState({ services, remote: projectRemote(r, overrides) });
     }, () => {});
     return () => { live = false; };
+    // The overrides apply below; this only waits for the remotes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services]);
   const snapshot = services.remotesSnapshot();
-  return snapshot ? projectRemote(snapshot) : (state?.services === services ? state.remote : null);
+  const base = snapshot ? snapshot : null;
+  return useMemo(() => {
+    if (base) return projectRemote(base, overrides);
+    if (state?.services !== services || !state.remote) return null;
+    return { ...state.remote, hostKind: effectiveKind(state.remote.host, state.remote.hostKind, overrides) };
+  }, [base, state, services, overrides]);
 }
 
 /** Opens a URL in the user's browser, through the backend (the webview never navigates). */

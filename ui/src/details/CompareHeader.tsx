@@ -1,10 +1,11 @@
 import { ArrowLeftRight, X } from 'lucide-react';
 import { Avatar } from '../avatars/Avatar';
+import { useAppState } from '../app/state';
 import { formatDate } from '../format/date';
 import { shortSha } from '../format/sha';
 import { wipCountsText } from '../format/wip';
 import { useRepoView } from '../repo/store';
-import { useHoverTooltip } from '../ui/HoverTooltip';
+import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { personLabel } from './CoAuthors';
 
 /** Compare rows' avatar size: the co-author chips' scale, a notch under the author's. */
@@ -14,6 +15,7 @@ const AVATAR_PX = 20;
  * (ellipsized; hovering shows it whole, with the author) and its committed date, from its graph
  * row. A commit outside the loaded graph shows its short SHA. */
 export function CompareCommit({ id, testId = 'compare-commit' }: { id: string; testId?: string }) {
+  const dateFormat = useAppState((s) => s.settings.dateFormat);
   const row = useRepoView((s) => {
     const i = s.indexById.get(id);
     return i === undefined ? undefined : s.graph.rows[i];
@@ -29,7 +31,7 @@ export function CompareCommit({ id, testId = 'compare-commit' }: { id: string; t
     <div className="compare-commit" data-testid={testId}>
       <Avatar name={row.authorName} email={row.authorEmail} size={AVATAR_PX} />
       <span className="compare-summary" data-testid="compare-summary" {...triggerProps}>{row.summary}</span>
-      <span className="compare-date" data-testid="compare-date">{formatDate(row.committerTime)}</span>
+      <span className="compare-date" data-testid="compare-date">{formatDate(row.committerTime, dateFormat)}</span>
       {tooltip}
     </div>
   );
@@ -71,9 +73,9 @@ export function CompareHeader() {
       <div className="panel-bar compare-bar">
         <span data-testid="compare-header">Comparing <code>{shortSha(selection.from)}</code> <span role="img" aria-label="to">→</span> {to}</span>
         {selection.kind === 'compare' && (
-          <button type="button" className="icon-button" aria-label="Swap" title="Swap from and to" onClick={swap}><ArrowLeftRight size={14} /></button>
+          <HoverTooltip content="Swap from and to"><button type="button" className="icon-button" aria-label="Swap" onClick={swap}><ArrowLeftRight size={14} /></button></HoverTooltip>
         )}
-        <button type="button" className="icon-button" aria-label="Exit compare" title="Exit compare (Esc)" onClick={onExit}><X size={14} /></button>
+        <HoverTooltip content="Exit compare (Esc)"><button type="button" className="icon-button" aria-label="Exit compare" onClick={onExit}><X size={14} /></button></HoverTooltip>
       </div>
       <div className="compare-commits">
         <CompareCommit id={selection.from} />

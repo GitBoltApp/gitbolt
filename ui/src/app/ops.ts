@@ -20,6 +20,8 @@ export interface BgError { at: number; message: string }
  * Debug (spec §16.2) read. `durationMs` runs from `opStarted` to `opFinished`. */
 export interface ActivityEntry {
   at: number; kind: OpKind; label: string; background: boolean; durationMs: number; outcome: OpOutcome; message: string | null;
+  /** The git command that ran, redacted (K101). */
+  command: string | null;
 }
 export const MAX_ERRORS = 100;
 export const MAX_ACTIVITY = 200;
@@ -73,7 +75,7 @@ export const useOps = create<OpsState>((set) => ({
           const now = Date.now();
           const entry: ActivityEntry = {
             at: now, kind: ev.kind, label: done?.label ?? '', background: done ? !done.interactive : false,
-            durationMs: done ? now - done.startedAt : 0, outcome: ev.outcome, message: ev.message,
+            durationMs: done ? now - done.startedAt : 0, outcome: ev.outcome, message: ev.message, command: ev.command,
           };
           // A finished op's askpass child is gone, so a prompt of its that's still listed (its
           // `authResolved` lost to a reconnect) would never close.

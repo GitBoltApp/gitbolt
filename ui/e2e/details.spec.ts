@@ -210,9 +210,11 @@ test.describe('commit details', () => {
       await expect(panel.getByTestId('details-summary')).toHaveText(commit);
       if (tree) await panel.getByRole('button', { name: 'Tree' }).click();
       const cursors = await panel.evaluate((el) =>
-        [...el.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [role="option"]')].map((c) => [c.dataset.testid ?? c.dataset.path ?? c.textContent?.trim(), getComputedStyle(c).cursor]),
+        [...el.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [role="option"], [role="treeitem"]')].map((c) => [c.dataset.testid ?? c.dataset.path ?? c.textContent?.trim(), getComputedStyle(c).cursor]),
       );
       expect(cursors.length).toBeGreaterThan(5);
+      // File rows are options (Path) or treeitems (Tree): the check must reach at least one.
+      expect(await panel.locator('[role="option"][data-path], [role="treeitem"][data-path]').count()).toBeGreaterThan(0);
       expect(cursors.filter(([, cursor]) => cursor !== 'pointer')).toEqual([]);
     }
   });

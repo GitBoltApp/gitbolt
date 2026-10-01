@@ -24,6 +24,17 @@ function pushFromElsewhere(repo: string, message: string) {
   git(other, 'push', '-q', 'origin', 'from-e2e');
 }
 
+/** `scripts/fake-ssh` (K96): an ssh stand-in that fails like a dead agent, asks a key passphrase
+ * through askpass, or hangs. */
+const FAKE_SSH = join(import.meta.dirname, '..', '..', 'scripts', 'fake-ssh');
+
+/** Points the fixture's origin at an ssh URL that `fake-ssh <mode>` serves (its bare origin). */
+function sshOrigin(repo: string, mode: string) {
+  git(repo, 'remote', 'set-url', 'origin', `ssh://fake${join(dirname(repo), 'origin.git')}`);
+  git(repo, 'config', 'core.sshCommand', `${FAKE_SSH} ${mode}`);
+  git(repo, 'config', 'ssh.variant', 'simple');
+}
+
 /** What the shown diff panel paints, as one string (diff.spec's `paintedNow`, K7): its path, then
  * every visible text of its body. Runs in the page. */
 function paintedNow(): string {
@@ -117,6 +128,82 @@ test.describe('fetch', () => {
     await expect(fetchButton(page)).toBeEnabled();
   });
 
+  test("a failing user fetch shows git's message in a toast that links to the activity log (K96)", async ({ page }) => {
+    const repo = freshFixture('basic');
+    sshOrigin(repo, '--dead-agent');
+    await page.goto(openUrl(repo));
+    await expect(graph(page)).toBeVisible();
+    await fetchButton(page).click();
+    const toast = page.getByRole('status');
+    await expect(toast).toContainText('Fetch failed: Authentication failed (fake: Permission denied (publickey).)', { timeout: 10_000 });
+    await toast.getByRole('button', { name: 'Activity log' }).click();
+    await expect(toast).toHaveCount(0);
+    const activity = page.getByRole('dialog', { name: 'Activity' });
+    await expect(activity).toBeVisible();
+    await expect(activity.locator('.activity-entry').first()).toContainText('fake: Permission denied (publickey).');
+    await expect(activity.locator('.activity-entry').first()).toContainText('$ git fetch --all');
+    await page.keyboard.press('Escape');
+    await expect(activity).toHaveCount(0);
+    await expect(fetchButton(page)).toBeEnabled();
+  });
+
+  test('an ssh key passphrase prompt goes through the modal (K96)', async ({ page }) => {
+    const repo = freshFixture('basic');
+    pushFromElsewhere(repo, 'Fetched over ssh');
+    sshOrigin(repo, '--passphrase testpass');
+    await page.goto(openUrl(repo));
+    await expect(graph(page)).toBeVisible();
+    await fetchButton(page).click();
+    const dialog = authDialog(page);
+    await expect(dialog).toContainText('Enter passphrase for key');
+    await expect(dialog.getByLabel('Password')).toHaveAttribute('type', 'password');
+    await dialog.getByLabel('Password').fill('testpass');
+    await dialog.getByRole('button', { name: 'OK' }).click();
+    // The fetched commit shows; a fetch that worked raises no toast.
+    await expect(page.getByText('Fetched over ssh')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('status').filter({ hasText: 'Fetch failed' })).toHaveCount(0);
+  });
+
+  test('a passphrase prompt that arrives while the palette is open is on top, focused, and owns Enter (I1)', async ({ page }) => {
+    const repo = freshFixture('basic');
+    pushFromElsewhere(repo, 'Fetched under the palette');
+    sshOrigin(repo, '--delay 2 --passphrase testpass');
+    await page.goto(openUrl(repo));
+    await expect(graph(page)).toBeVisible();
+    await fetchButton(page).click();
+    await page.keyboard.press('Control+p');
+    await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+    await page.keyboard.type('>find'); // Enter would run "Find in graph" if the palette still owned it
+    const dialog = authDialog(page);
+    await expect(dialog).toContainText('Enter passphrase for key', { timeout: 10_000 });
+    await expect(dialog.getByLabel('Password')).toBeFocused();
+    // The prompt is the topmost thing at its own centre, above the palette.
+    const onTop = await dialog.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    });
+    expect(onTop).toBe(true);
+    await page.keyboard.type('testpass');
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText('Fetched under the palette')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('search', { name: 'Find in graph' })).toHaveCount(0);
+  });
+
+  test('a stuck user fetch shows in the status bar once slow, and Cancel stops it quietly (K96)', async ({ page }) => {
+    const repo = freshFixture('basic');
+    sshOrigin(repo, '--hang');
+    await page.goto(openUrl(repo));
+    await expect(graph(page)).toBeVisible();
+    await fetchButton(page).click();
+    await expect(fetchButton(page)).toHaveAttribute('aria-busy', 'true');
+    await expect(statusBar(page)).toContainText('Fetching repo…', { timeout: 10_000 });
+    await statusBar(page).getByRole('button', { name: 'Cancel' }).click();
+    await expect(statusBar(page)).not.toContainText('Fetching', { timeout: 5000 });
+    await expect(fetchButton(page)).toBeEnabled();
+    await expect(page.getByRole('status')).toHaveCount(0);
+  });
+
   test('background fetch never shows the auth modal', async ({ page }) => {
     const repo = freshFixture('basic');
     git(repo, 'remote', 'set-url', 'origin', AUTH_URL);
@@ -125,9 +212,7 @@ test.describe('fetch', () => {
     await page.evaluate(() => window.__gb!.setSettings({ fetchIntervalSecs: 1 }));
     await expect(statusBar(page)).toContainText('Fetch skipped: authentication required', { timeout: 10_000 });
     await expect(authDialog(page)).toHaveCount(0);
-    // Ticks go on; none of them prompts either.
-    await page.waitForTimeout(2500);
-    await expect(authDialog(page)).toHaveCount(0);
+    // (This covers the first background fetch only: the interval is clamped to 60 s, so no second tick is waited for.)
   });
 
   test('background fetch runs on its own, and not while the window is minimized', async ({ page }) => {
@@ -140,7 +225,7 @@ test.describe('fetch', () => {
     await page.waitForTimeout(2500);
     await expect(page.getByText('Fetched in the background')).toHaveCount(0);
     // Restored: the focus comes back, and the missed tick is replayed. The next regular tick is
-    // 30 s away, so only the replay can fetch within the wait below.
+    // 60 s away (30 is clamped to 60), so only the replay can fetch within the wait below.
     await page.evaluate(() => { window.__gbTestMinimized = false; window.dispatchEvent(new Event('focus')); });
     await expect(page.getByText('Fetched in the background')).toBeVisible({ timeout: 10_000 });
   });

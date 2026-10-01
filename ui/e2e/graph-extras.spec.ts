@@ -99,18 +99,81 @@ test.describe('graph extras', () => {
     expect((await snapshot()).zone).toBe(before.zone);
   });
 
-  test('right-clicking the header hides and shows columns (session only, until Task 16b)', async ({ page }) => {
+  test('right-clicking the header hides and shows columns', async ({ page }) => {
     await open(page);
+    // A commit row: a WIP row's message spans Author and Date (K100).
+    const commitRow = page.locator('[role="row"]:not(:has(.wip-summary))').first();
     await page.locator('.graph-header').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Hide Author' }).click();
     await expect(page.locator('.graph-header [data-col="author"]')).toHaveCount(0);
-    await expect(page.getByRole('row').first().locator('[data-col="author"]')).toHaveCount(0);
+    await expect(commitRow.locator('[data-col="author"]')).toHaveCount(0);
     // Header and rows still line up: Message took Author's width.
-    const [h, c] = await Promise.all([page.locator('.graph-header [data-col="message"]').boundingBox(), page.getByRole('row').first().locator('[data-col="message"]').boundingBox()]);
+    const [h, c] = await Promise.all([page.locator('.graph-header [data-col="message"]').boundingBox(), commitRow.locator('[data-col="message"]').boundingBox()]);
     expect(h!.width).toBeCloseTo(c!.width, 0);
     await page.locator('.graph-header').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Show Author' }).click();
-    await expect(page.getByRole('row').first().locator('[data-col="author"]')).toHaveCount(1);
+    await expect(commitRow.locator('[data-col="author"]')).toHaveCount(1);
+  });
+
+  test('hidden columns and widths persist per repo across a reload (Task 16b)', async ({ page }) => {
+    await open(page);
+    const width = (col: string) => page.locator(`.graph-header [data-col="${col}"]`).evaluate((e) => e.getBoundingClientRect().width);
+    const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+    await handle.focus();
+    const before = await width('labels');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => width('labels')).toBeGreaterThan(before + 8);
+    const resized = await width('labels');
+    await page.locator('.graph-header').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Hide Author' }).click();
+    await expect(page.locator('.graph-header [data-col="author"]')).toHaveCount(0);
+    await page.evaluate(() => window.__gb!.flush());
+    await page.reload();
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+    await expect(page.locator('.graph-header [data-col="author"]')).toHaveCount(0);
+    expect(await width('labels')).toBeCloseTo(resized, 0);
+    // Showing it again persists too.
+    await page.locator('.graph-header').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Show Author' }).click();
+    await page.evaluate(() => window.__gb!.flush());
+    await page.reload();
+    await expect(page.locator('.graph-header [data-col="author"]')).toHaveCount(1);
+  });
+
+  test('the header pin button: Default (origin/HEAD), None and the branches; the choice persists', async ({ page }) => {
+    await open(page);
+    const pin = page.getByRole('button', { name: /^Pinned trunk: / });
+    const trunk = ((await pin.getAttribute('aria-label')) ?? '').replace('Pinned trunk: ', '');
+    expect(trunk).not.toBe('No trunk');
+    await pin.hover();
+    await expect(page.getByRole('tooltip')).toContainText(`Pinned trunk: ${trunk}`);
+    await pin.click();
+    const options = page.getByRole('option');
+    await expect(options.nth(0)).toContainText('Default (origin/HEAD)');
+    await expect(options.nth(0)).toHaveAttribute('data-current', 'true');
+    await expect(options.nth(1)).toHaveText('None');
+    await expect(options.filter({ hasText: 'hotfix' })).toHaveCount(1);
+    // The button toggles its picker.
+    await pin.click();
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+
+    await pin.click();
+    await page.getByRole('option', { name: 'None' }).click();
+    await expect(page.getByRole('button', { name: 'Pinned trunk: No trunk' })).toBeVisible();
+    await page.evaluate(() => window.__gb!.flush());
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Pinned trunk: No trunk' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Pinned trunk: No trunk' }).click();
+    await expect(page.getByRole('option', { name: 'None' })).toHaveAttribute('data-current', 'true');
+    await page.getByPlaceholder('Pin a branch as trunk').fill('hotfix');
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('button', { name: 'Pinned trunk: hotfix' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Pinned trunk: hotfix' }).click();
+    await page.getByRole('option', { name: /^Default \(origin\/HEAD\)/ }).click();
+    await expect(page.getByRole('button', { name: `Pinned trunk: ${trunk}` })).toBeVisible();
   });
 
   test('the column menu opens from the keyboard (menu key or Shift+F10 on a header control) and runs from it', async ({ page }) => {

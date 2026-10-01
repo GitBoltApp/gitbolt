@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useOps, type AuthPrompt } from '../app/ops';
 import { useMenu } from '../menu/menuStore';
-import { useKeys } from '../ui/keyRouter';
+import { pushModal } from '../app/modalKeys';
+import { registerKeys } from '../ui/keyRouter';
 import { closePickers } from '../ui/RefPicker';
 import './auth.css';
 
@@ -48,7 +49,8 @@ function AuthForm({ prompt }: { prompt: AuthPrompt }) {
   // While open it owns the keyboard (ruling R6): it's in the key router's `menu` layer, so no key
   // reaches the app behind it (Esc never also closes the open file, Ctrl+W never closes the tab).
   // Esc cancels the prompt; Tab stays inside it; every other key goes on to the field and buttons.
-  useKeys('menu', (e) => {
+  const keys = useRef<(e: KeyboardEvent) => 'handled' | 'native'>(() => 'native');
+  keys.current = (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
       answer(null);
@@ -64,11 +66,21 @@ function AuthForm({ prompt }: { prompt: AuthPrompt }) {
       return 'handled';
     }
     return 'native';
-  });
+  };
+  // On top of the dialog stack (a prompt can arrive while Settings or the Palette is open): the
+  // dialogs under it stay up but inert, and get their keys back when this closes.
+  useEffect(() => {
+    const pop = pushModal(form);
+    const off = registerKeys('menu', (e) => keys.current(e));
+    return () => {
+      off();
+      pop();
+    };
+  }, []);
 
   const text = prompt.text.trim();
   return (
-    <div className="modal-backdrop">
+    <div className="modal-backdrop auth-backdrop">
       <form
         ref={form}
         className="modal auth-modal"

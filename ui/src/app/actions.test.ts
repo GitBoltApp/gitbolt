@@ -73,4 +73,15 @@ describe('action registry', () => {
     expect(label('x.closeFile', fileRows())).toBeUndefined();
     expect(label('x.closeTab', fileRows())?.shortcut).toBe('Ctrl+W');
   });
+
+  it('hamburger: Quit is the last entry of File, after a separator, even when registered before others (K95)', () => {
+    offs.push(registerActions([
+      { id: 'file.quit', label: 'Quit', group: 'File', icon: Info, tooltip: 'Quit', run: () => {} },
+      { id: 'f.settings', label: 'Settings', group: 'File', icon: FolderOpen, tooltip: 'Settings', run: () => {} },
+      { id: 'f.open', label: 'Open', group: 'File', icon: FolderOpen, tooltip: 'Open', run: () => {} },
+    ]));
+    const file = hamburgerRows()[0];
+    const rows = file.kind === 'submenu' ? file.rows : [];
+    expect(rows.map((r) => (r.kind === 'separator' ? '-' : r.id))).toEqual(['f.settings', 'f.open', '-', 'file.quit']);
+  });
 });

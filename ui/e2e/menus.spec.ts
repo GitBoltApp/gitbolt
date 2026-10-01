@@ -52,21 +52,13 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
   test('a plain commit: Copy SHA, Copy message, Compare with working tree; no branch or forge rows; under budget', async ({ page }) => {
     const menu = await commitMenu(page, 'Fix typo');
     await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Copy SHA', 'Copy message', 'Compare with working tree']);
-    // The cold first opening (plan 1C's e2e caveat, M report item 15): a tripwire, not the budget.
-    expect(await page.evaluate(() => window.__gbMenuLatency!)).toBeLessThan(75);
+    // The latency budgets (cold tripwire, warm median) live in menu-perf.spec.ts, so a loaded
+    // machine can't fail this functional test. Here: the opening was timed, and wasn't absurd.
+    const opened = await page.evaluate(() => window.__gbMenuLatency!);
+    expect(opened).toBeGreaterThanOrEqual(0);
+    expect(opened).toBeLessThan(2000);
     await page.keyboard.press('Escape');
-
-    // Warm, the budget applies (spec §7, §17.3): the median of 5 (files.spec.ts's pattern), since
-    // any one sample is at the mercy of a GC pause or a busy machine.
-    const warm: number[] = [];
-    for (let i = 0; i < 5; i++) {
-      await row(page, 'Fix typo').locator('[data-col="message"]').click({ button: 'right' });
-      await expect(menu).toBeVisible();
-      warm.push(await page.evaluate(() => window.__gbMenuLatency!));
-      await page.keyboard.press('Escape');
-      await expect(menu).toBeHidden();
-    }
-    expect(warm.sort((a, b) => a - b)[2]).toBeLessThan(16);
+    await expect(menu).toBeHidden();
 
     await row(page, 'Fix typo').locator('[data-col="message"]').click({ button: 'right' });
     await action(menu, 'Copy SHA').hover();

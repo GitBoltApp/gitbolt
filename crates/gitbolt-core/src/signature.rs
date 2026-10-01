@@ -73,6 +73,85 @@ mod tests {
         assert_eq!(parse_signature_status(b"N\0\0\0\0undefined\n", "", false).kind, SignatureKind::Unsigned);
     }
 
+    /// A throwaway GnuPG home (short path: gpg-agent's socket lives in it), whose agent is stopped
+    /// when it drops. `program` is a `gpg.program` wrapper that points git at it.
+    struct GpgHome {
+        dir: tempfile::TempDir,
+        program: std::path::PathBuf,
+    }
+
+    impl GpgHome {
+        fn gpg(&self, args: &[&str]) -> std::process::Output {
+            std::process::Command::new("gpg").arg("--homedir").arg(self.dir.path().join("home")).args(["--batch", "--yes", "--pinentry-mode", "loopback", "--passphrase", ""]).args(args).output().unwrap()
+        }
+
+        fn new() -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::Builder::new().prefix("gpg").tempdir_in("/tmp").unwrap();
+            let home = dir.path().join("home");
+            std::fs::create_dir(&home).unwrap();
+            std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let program = dir.path().join("gpg.sh");
+            std::fs::write(&program, format!("#!/bin/sh\nexec gpg --homedir {} \"$@\"\n", home.display())).unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            Self { dir, program }
+        }
+    }
+
+    impl Drop for GpgHome {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("gpgconf").arg("--homedir").arg(self.dir.path().join("home")).args(["--kill", "all"]).output();
+        }
+    }
+
+    /// Spec §17.1: signature status with a test GPG key. One commit signed by a throwaway key is
+    /// read three ways: by the keyring that made it (the key is ultimately trusted: verified), by
+    /// one that holds only its public half (untrusted: unverified) and by an empty one (unknown).
+    #[tokio::test]
+    async fn gpg_signatures_are_verified_by_git() {
+        if let Some(reason) = crate::testing::gpg_signing_unavailable() {
+            eprintln!("{reason}; skipping");
+            return;
+        }
+        let (maker, reader, stranger) = (GpgHome::new(), GpgHome::new(), GpgHome::new());
+        let made = maker.gpg(&["--quick-generate-key", "Ada Lovelace <ada@example.com>", "ed25519", "sign", "never"]);
+        if !made.status.success() {
+            eprintln!("gpg can't make a key here ({}); skipping", String::from_utf8_lossy(&made.stderr).trim());
+            return;
+        }
+        let public = maker.gpg(&["--export"]).stdout;
+        let mut import = std::process::Command::new("gpg")
+            .arg("--homedir").arg(reader.dir.path().join("home")).args(["--batch", "--import"])
+            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(import.stdin.as_mut().unwrap(), &public).unwrap();
+        assert!(import.wait().unwrap().success());
+
+        let r = TestRepo::new();
+        r.commit("base");
+        r.git(&["config", "gpg.program", maker.program.to_str().unwrap()]);
+        r.git(&["config", "user.signingkey", "ada@example.com"]);
+        r.write("signed.txt", "x\n");
+        r.git(&["add", "-A"]);
+        r.git(&["commit", "-q", "-S", "-m", "signed"]);
+        let id = ObjectId::from_hex(r.git(&["rev-parse", "HEAD"]).as_bytes()).unwrap();
+        let cli = cli();
+        let read_with = |home: &GpgHome| {
+            r.git(&["config", "gpg.program", home.program.to_str().unwrap()]);
+            signature_status(&cli, r.path(), id, true)
+        };
+
+        let ok = read_with(&maker).await.unwrap();
+        assert_eq!(ok.kind, SignatureKind::Verified, "{ok:?}");
+        assert!(ok.signer.contains("ada@example.com"), "{ok:?}");
+        assert!(!ok.fingerprint.is_empty(), "{ok:?}");
+        let untrusted = read_with(&reader).await.unwrap();
+        assert_eq!(untrusted.kind, SignatureKind::Unverified, "{untrusted:?}");
+        let unknown = read_with(&stranger).await.unwrap();
+        assert_eq!(unknown.kind, SignatureKind::UnknownKey, "{unknown:?}");
+    }
+
     /// F11: the throwaway repo's own config carries `gpg.format`/`user.signingkey`, never
     /// `-c user.signingkey=...` on the command line, and the user's global git config is never
     /// touched (`isolated_git_env` already points `GIT_CONFIG_GLOBAL` at `/dev/null`).

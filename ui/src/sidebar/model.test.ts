@@ -5,7 +5,7 @@ import { buildPanels, folderKey, sectionKey, sectionsOf, type Panel } from './mo
 const branch = (name: string, tipTime: number, extra: object = {}) => ({ name, fullName: `refs/heads/${name}`, target: name.padEnd(40, '0'), upstream: null, ahead: 0, behind: 0, gone: false, tipTime, summary: `tip of ${name}`, author: 'Ada', isHead: false, worktree: null, ...extra });
 const payload: SidebarPayload = {
   locals: [branch('feature/login', 30), branch('feature/pay/v2', 10), branch('main', 20, { isHead: true })],
-  remotes: [{ name: 'origin', hostKind: 'gitlab', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main', target: 'm'.repeat(40), tipTime: 20, summary: 's', author: 'a' }] }],
+  remotes: [{ name: 'origin', host: null, hostKind: 'gitlab', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main', target: 'm'.repeat(40), tipTime: 20, summary: 's', author: 'a' }] }],
   worktrees: [{ path: '/r', name: 'r', branch: 'main', head: 'h'.repeat(40), isMain: true, isCurrent: true }],
   stashes: [{ index: 0, id: 's'.repeat(40), message: 'On main: wip', time: 5 }],
   tags: [{ name: 'v1.0', fullName: 'refs/tags/v1.0', target: 't'.repeat(40), time: 1 }],
@@ -53,8 +53,8 @@ describe('sidebar model', () => {
   it('K76: remote groups order by newest tip, branches inside newest first (ties by name), flat, no prefix', () => {
     const rb = (name: string, tipTime: number, remote: string) => ({ name, fullName: `refs/remotes/${remote}/${name}`, target: 'x'.repeat(40), tipTime, summary: '', author: '' });
     const p: SidebarPayload = { ...payload, remotes: [
-      { name: 'origin', hostKind: 'generic', branches: [rb('old', 5, 'origin'), rb('b/deep', 10, 'origin'), rb('a', 10, 'origin')] },
-      { name: 'upstream', hostKind: 'generic', branches: [rb('fresh', 50, 'upstream')] },
+      { name: 'origin', host: null, hostKind: 'generic', branches: [rb('old', 5, 'origin'), rb('b/deep', 10, 'origin'), rb('a', 10, 'origin')] },
+      { name: 'upstream', host: null, hostKind: 'generic', branches: [rb('fresh', 50, 'upstream')] },
     ] };
     const panel = buildPanels(sectionsOf(p), opts({ sort: { remote: 'recent' } }))[1];
     expect(view([panel])).toEqual(['[Remote 4]', '  upstream/', '    fresh', '  origin/', '    a', '    b/deep', '    old']);

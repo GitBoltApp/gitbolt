@@ -46,19 +46,18 @@ pub struct RepoRefs {
     pub refs: Vec<RefInfo>,
     pub remote_heads: HashMap<String, String>,
     pub remote_hosts: HashMap<String, HostKind>,
+    /// Each remote's host name (the UI applies the profile's host-type overrides by host).
+    pub remote_host_names: HashMap<String, String>,
     pub stashes: Vec<StashEntry>,
 }
 
 pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
     let config = repo.config_snapshot();
     let remotes: Vec<String> = repo.remote_names().into_iter().map(|n| n.to_str_lossy().into_owned()).collect();
-    let remote_hosts = remotes
-        .iter()
-        .map(|r| {
-            let kind = remote_url(repo, r, Direction::Fetch).and_then(|u| parse_remote_url(&u)).map(|u| host_kind(&u.host)).unwrap_or(HostKind::Generic);
-            (r.clone(), kind)
-        })
-        .collect();
+    let parsed: Vec<(String, Option<String>)> =
+        remotes.iter().map(|r| (r.clone(), remote_url(repo, r, Direction::Fetch).and_then(|u| parse_remote_url(&u)).map(|u| u.host))).collect();
+    let remote_hosts = parsed.iter().map(|(r, h)| (r.clone(), h.as_deref().map(host_kind).unwrap_or(HostKind::Generic))).collect();
+    let remote_host_names = parsed.into_iter().filter_map(|(r, h)| h.map(|h| (r, h))).collect();
 
     let mut refs = Vec::new();
     let mut remote_heads = HashMap::new();
@@ -101,7 +100,7 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
         refs.push(RefInfo { full_name: full, short_name: short, kind, target, upstream });
     }
 
-    Ok(RepoRefs { head: read_head(repo)?, refs, remote_heads, remote_hosts, stashes: read_stashes(repo)? })
+    Ok(RepoRefs { head: read_head(repo)?, refs, remote_heads, remote_hosts, remote_host_names, stashes: read_stashes(repo)? })
 }
 
 /// Longest remote name that prefixes `rest` (remote names may contain `/`).

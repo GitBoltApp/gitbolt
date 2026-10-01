@@ -1,22 +1,17 @@
 import { Check, Laptop, Tag, TreePine } from 'lucide-react';
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
 import { RemoteIcon } from '../icons/brands';
 import { GRAPH_COLORS } from '../theme/graphColors';
 import { chipRefs, type BranchMembership } from './membership';
 import { useHoverTooltip } from '../ui/HoverTooltip';
-import { remoteShort } from './refNames';
 
 
 /** J22's branch-hover focus: a chip entered (the refs it stands for) or left (null). */
 type BranchHover = (refs: readonly string[] | null) => void;
 const NO_REFS: readonly string[] = [];
 
-/** A remote-only label's `name` is just the branch part (the payload drops the remote name,
- * since the chip's remote icons say it's remote). The `+N` tooltip is plain text with no icons,
- * so there it gets its remote prefix back, for every remote it's on. */
-const overflowName = (l: RefLabel) => (!l.local && l.remotes.length > 0 ? l.remotes.map(remoteShort).join(', ') : l.name);
 
 /** A remote icon's tooltip (H12): `origin → <branch> (Remote)`, the remote's name in the
  * tooltip's normal colour and the branch dimmed (graph.css). The branch is the remote's own name
@@ -61,7 +56,7 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}
       {!(compact && !full) && <span className={full ? 'ref-name-full' : 'ref-name'}>{label.name}</span>}
       {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>}
-      {label.remotes.map((r) => <SourceIcon key={r.fullName} tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} remote={r.remote} size={12} /></SourceIcon>)}
+      {label.remotes.map((r) => <SourceIcon key={r.fullName} tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} host={r.host} remote={r.remote} size={12} /></SourceIcon>)}
       {label.worktree && <SourceIcon tip={`Checked out in ${label.worktree}`}><TreePine size={SOURCE_OUTLINE} aria-label="checked out in another worktree" /></SourceIcon>}
     </>
   );
@@ -77,7 +72,7 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
  * collapses once the pointer leaves the copy. The copy is never smaller than the chip it covers,
  * so expanding can't move the pointer "out" and back in (no flicker at the edge).
  */
-function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranchHover, onContextMenu }: { color: string; className?: string; content: (full: boolean) => ReactNode; refs?: readonly string[]; onBranchHover?: BranchHover; onContextMenu?: (e: MouseEvent<HTMLElement>) => void }) {
+function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranchHover, onContextMenu, stack }: { color: string; className?: string; content: (full: boolean) => ReactNode; stack?: () => ReactNode; refs?: readonly string[]; onBranchHover?: BranchHover; onContextMenu?: (e: MouseEvent<HTMLElement>) => void }) {
   const [expanded, setExpanded] = useState(false);
   // J22: entering a branch chip starts its branch's focus, leaving ends it. A chip unmounted
   // under the pointer (scrolled out of the virtual window) never gets its mouseleave: end it then.
@@ -103,21 +98,82 @@ function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranc
       onContextMenu={onContextMenu}
     >
       {content(false)}
-      {expanded && (
+      {expanded && (stack ? stack() : (
         <span className="ref-label ref-label-full" aria-hidden="true">
           {content(true)}
         </span>
-      )}
+      ))}
     </span>
   );
 }
 
-function More({ rest }: { rest: RefLabel[] }) {
-  const { triggerProps, tooltip } = useHoverTooltip({ content: rest.map(overflowName).join('\n') });
+/** One row of the label stack (K77): a full chip for one ref. Hovering it starts that ref's
+ * branch focus (J22), ended on leaving or unmounting; right-clicking opens that label's menu. */
+function StackRow({ label, onBranchHover, onContextMenu }: { label: RefLabel; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
+  const focusing = useRef<BranchHover | null>(null);
+  useEffect(() => () => focusing.current?.(null), []);
   return (
-    <span className="ref-more" {...triggerProps}>
-      +{rest.length}
-      {tooltip}
+    <span
+      className="ref-stack-row"
+      onMouseEnter={() => {
+        const refs = chipRefs(label);
+        if (!onBranchHover || refs.length === 0) return;
+        focusing.current = onBranchHover;
+        onBranchHover(refs);
+      }}
+      onMouseLeave={() => {
+        focusing.current?.(null);
+        focusing.current = null;
+      }}
+      onContextMenu={onContextMenu && ((e) => { e.stopPropagation(); onContextMenu(label, e); })}
+    >
+      <ChipContent label={label} full />
+    </span>
+  );
+}
+
+/**
+ * The hover stack (K77): a row with several labels floats one full chip per label,
+ * the first exactly over the resting chip, the rest below it, every row as wide as the widest
+ * and never narrower than chip + `+N`. A DOM child of the hovered chip or `+N` badge, so it stays
+ * open while the pointer is anywhere over it. Absolutely positioned from the row (as the single
+ * copy is: `.col-labels` clips nothing it doesn't contain); measured once on mount, before paint.
+ */
+function LabelStack({ labels, onBranchHover, onContextMenu }: { labels: RefLabel[]; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const host = el?.closest('.ref-labels');
+    const chip = host?.firstElementChild;
+    const op = el?.offsetParent;
+    if (!el || !host || !chip || !op) return;
+    const c = chip.getBoundingClientRect();
+    const o = op.getBoundingClientRect();
+    const more = host.querySelector('.ref-more');
+    if (more) el.style.minWidth = `${more.getBoundingClientRect().right - c.left}px`;
+    // Open downward from the chip; near the bottom of the scroller, slide up just enough.
+    let top = c.top;
+    const scroller = el.closest('.graph-scroll');
+    if (scroller) {
+      const s = scroller.getBoundingClientRect();
+      top -= Math.max(0, Math.min(top + el.offsetHeight - s.bottom, top - s.top));
+    }
+    el.style.left = `${c.left - o.left}px`;
+    el.style.top = `${top - o.top}px`;
+  }, []);
+  return (
+    <span ref={ref} className="ref-stack" aria-hidden="true">
+      {labels.map((l, i) => <StackRow key={`${i}:${l.name}`} label={l} onBranchHover={onBranchHover} onContextMenu={onContextMenu} />)}
+    </span>
+  );
+}
+
+function More({ count, stack }: { count: number; stack: () => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="ref-more" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      +{count}
+      {open && stack()}
     </span>
   );
 }
@@ -152,7 +208,7 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   onBranchHover?: BranchHover;
   compact?: boolean;
   /** Right-clicking the row's own (first) label chip: the commit or tag menu for that branch or
-   * tag (plan 1C Task 15). Not on the `+N` overflow badge or the dimmed membership chip. */
+   * tag (plan 1C Task 15). or any row of the hover stack (K77). Not on the `+N` badge or the dimmed membership chip. */
   onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void;
   /** The connector's line, CSS px from the row's top: placed on the device pixel rows the canvas
    * draws its half on (K57, pixels.ts connectorLine). Omitted: centred, 1 px (2 px for HEAD). */
@@ -164,6 +220,7 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   // The checked-out branch (HEAD's label always sorts first): its chip is always lit and its
   // connector is the graph line's width and colour (J21, graph.css; draw.ts `headRow`).
   const head = labels[0].isHead;
+  const stack = rest.length > 0 ? () => <LabelStack labels={labels} onBranchHover={onBranchHover} onContextMenu={onContextMenu} /> : undefined;
   return (
     // `--lane-color` is set here (not just on the chip) so `.ref-connector`, a sibling of the
     // chip, can read it too: it continues the connector drawn in the canvas (see draw.ts).
@@ -174,9 +231,10 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
         refs={chipRefs(labels[0])}
         onBranchHover={onBranchHover}
         onContextMenu={onContextMenu && ((e) => onContextMenu(labels[0], e))}
+        stack={stack}
         content={(full) => <ChipContent label={labels[0]} full={full} compact={compact} />}
       />
-      {rest.length > 0 && <More rest={rest} />}
+      {stack && <More count={rest.length} stack={stack} />}
       {membership && (
         <span className="ref-dim-slot">
           <span className="ref-dim-fill" />

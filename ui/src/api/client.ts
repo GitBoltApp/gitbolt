@@ -80,7 +80,10 @@ export const api = {
   avatar: (email: string) => t().call({ method: 'avatar', params: { email } }) as Promise<AvatarPayload | null>,
   openUrl: (url: string) => t().call({ method: 'openUrl', params: { url } }) as Promise<null>,
   /** The external editors and the file manager found on this machine (spec §14.5). */
-  listOpeners: () => t().call({ method: 'listOpeners' }) as Promise<OpenerPayload[]>,
+  /** `repo`: the list as that repository sees it (its Custom editor, if its setting is one). */
+  listOpeners: (repo?: number) => t().call(repo === undefined ? { method: 'listOpeners' } : { method: 'listOpenersFor', params: { repo } }) as Promise<OpenerPayload[]>,
+  /** Checks a custom editor template; rejects with the guard's message when it would be refused. */
+  validateEditorTemplate: (template: string) => t().call({ method: 'validateEditorTemplate', params: { template } }) as Promise<null>,
   openIn: (repo: number, r: OpenInRequest) => t().call({ method: 'openIn', params: { repo, worktree: r.worktree, path: r.path, line: r.line, opener: r.opener, source: r.source, fallback: r.fallback } }) as Promise<null>,
   // Plan 1C: settings and profiles (spec §14.1).
   loadState: () => call<StatePayload>({ method: 'loadState' }),
@@ -100,6 +103,10 @@ export const api = {
   appInfo: () => call<AppInfoPayload>({ method: 'appInfo' }),
   pickFolder: (start: string | null) => call<string | null>({ method: 'pickFolder', params: { start } }),
   scanRepos: (root: string, refresh: boolean) => call<ScannedRepo[]>({ method: 'scanRepos', params: { root, refresh } }),
+  /** The repos in every folder, scanned in parallel, merged and de-duplicated ("Your repos"). */
+  scanFolders: (roots: string[], refresh: boolean) => call<ScannedRepo[]>({ method: 'scanFolders', params: { roots, refresh } }),
+  /** Clones `url` into the absolute `dest` (spec §13); the op's label is `dest`. */
+  clone: (url: string, dest: string) => call<RepoSummary>({ method: 'clone', params: { url, dest } }),
   suggestReposFolder: () => call<string | null>({ method: 'suggestReposFolder' }),
   /** `git fetch --all` (spec §15). `background`: GitBolt's own timer, which never prompts. */
   fetch: (repo: number, background: boolean) => call<FetchOutcome>({ method: 'fetch', params: { repo, background } }),

@@ -10,7 +10,7 @@ const DIFF_PREFS_KEY = 'gitbolt.diffPrefs.v1';
 async function selectRow(page: Page, text: string) {
   await page.getByRole('row').filter({ hasText: text }).click();
 }
-const fileRow = (page: Page, path: string) => page.getByRole('option').and(page.locator(`[data-path="${path}"]`));
+const fileRow = (page: Page, path: string) => page.locator(`[role="option"][data-path="${path}"], [role="treeitem"][data-path="${path}"]`);
 /** The file list's own Path/Tree buttons: the sidebar's "Sort …: tree" buttons share the name. */
 const listMode = (page: Page, mode: 'Path' | 'Tree') => page.getByRole('toolbar', { name: 'File list options' }).getByRole('button', { name: mode });
 
@@ -154,7 +154,7 @@ test.describe('file list and diff takeover', () => {
     await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
     // The keyboard stays on the file: Enter opens it again, Space closes it.
-    const list = page.getByRole('listbox', { name: 'Changed files' });
+    const list = page.getByRole('tree', { name: 'Changed files' });
     await expect(list).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('diff-path')).toContainText('app.php');
@@ -228,12 +228,11 @@ test.describe('file list and diff takeover', () => {
     const m = (await menu.boundingBox())!;
     expect(Math.abs(m.x - (box.x + 40))).toBeLessThan(2);
     expect(Math.abs(m.y - (box.y + 10))).toBeLessThan(2);
-    // The FIRST opening, cold (dev build): typically 20-36 ms on Chromium and 26-35 ms on
-    // WebKit (measured 2026-09-28, fix round 1), about 15 ms of it before the event is even
-    // dispatched (the press moves focus from the graph into the list, re-rendering the focus
-    // zones). Up to ~95 ms seen on a heavily loaded machine. A tripwire for regressions (~3x
-    // typical), not the budget: that's asserted on the warm opening below.
-    expect(await page.evaluate(() => window.__gbMenuLatency!)).toBeLessThan(75);
+    // The latency budgets (cold tripwire, warm median) live in menu-perf.spec.ts, so a loaded
+    // machine can't fail this functional test. Here: the opening was timed, and wasn't absurd.
+    const opened = await page.evaluate(() => window.__gbMenuLatency!);
+    expect(opened).toBeGreaterThanOrEqual(0);
+    expect(opened).toBeLessThan(2000);
     await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Copy path', 'Forge link', 'Open in', 'View']);
     await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
     // Every row's tooltip shows at once.
@@ -243,36 +242,10 @@ test.describe('file list and diff takeover', () => {
     await menu.getByRole('button', { name: /absolute path/ }).click();
     await expect(menu).toBeHidden();
     if (browserName === 'chromium') await expect.poll(clip).toBe(`${fixtures.details}/src/app.php`);
-    // Within the latency budget (spec §7, §17.3) once warm: the median of five openings (one
-    // sample is at the mercy of a GC or a busy machine; warm openings measure ~8 ms when idle).
-    // The budget is the app's (CEF, i.e. Chromium); WebKit on the dev build only gets a
-    // one-frame sanity bound.
-    const warm: number[] = [];
-    for (let i = 0; i < 5; i++) {
-      await row.click({ button: 'right' });
-      await expect(menu).toBeVisible();
-      warm.push(await page.evaluate(() => window.__gbMenuLatency!));
-      if (i < 4) {
-        await page.keyboard.press('Escape');
-        await expect(menu).toBeHidden();
-      }
-    }
-    expect(warm.sort((p, q) => p - q)[2]).toBeLessThan(browserName === 'chromium' ? 16 : 33);
+    await row.click({ button: 'right' });
+    await expect(menu).toBeVisible();
     await menu.getByRole('button', { name: /repository-relative path/ }).click();
     if (browserName === 'chromium') await expect.poll(clip).toBe('src/app.php');
-    // Plan 1C's frame check: from a contextmenu event to the next frame, under two frames.
-    const frameMs = await page.evaluate(() => new Promise<number>((resolve) => {
-      const el = document.querySelector<HTMLElement>('[role="option"][data-path="src/app.php"]')!;
-      const r = el.getBoundingClientRect();
-      const t0 = performance.now();
-      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 5 }));
-      requestAnimationFrame(() => resolve(performance.now() - t0));
-    }));
-    // Chromium is the app's runtime (CEF). Headless WebKit's frames are far noisier on a busy
-    // machine (9-16 ms idle, 64 ms seen at load 11): a sanity bound only.
-    expect(frameMs).toBeLessThan(browserName === 'chromium' ? 33 : 100);
-    await expect(menu).toBeVisible();
-    await page.keyboard.press('Escape');
     // Forge link: no upstream is known (never fetched), so its label copies the permalink.
     await row.click({ button: 'right' });
     await expect(menu.getByRole('button', { name: /on its branch/ })).toHaveAttribute('aria-disabled', 'true');
@@ -318,7 +291,7 @@ test.describe('file list and diff takeover', () => {
     await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
     expect((await launches()).length).toBe(before + 3);
     // A WIP file opens the working-tree file itself.
-    await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
+    await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
     const unstaged = page.getByRole('listbox', { name: 'Unstaged' });
     await unstaged.getByRole('option').and(page.locator('[data-path="notes.txt"]')).click({ button: 'right' });
     await openIn.hover();
@@ -450,7 +423,7 @@ test.describe('file list and diff takeover', () => {
   test("the diff toolbar's Open in…, at its far left, opens the working-tree file at the first change (H9, J1)", async ({ page, request }) => {
     const launches = async () => (await (await request.get(`${harnessHttp}/launches`)).json()) as { program: string; args: string[] }[];
     const before = (await launches()).length;
-    await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
+    await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
     await page.getByRole('listbox', { name: 'Unstaged' }).getByRole('option').and(page.locator('[data-path="docs/manual.txt"]')).click();
     const d = page.getByRole('region', { name: 'Diff' });
     const bar = d.getByRole('toolbar', { name: 'Diff options' });
@@ -536,7 +509,7 @@ test.describe('file list and diff takeover', () => {
     await commit.click();
     await listMode(page, 'Tree').click();
     const grid = page.getByRole('grid', { name: 'Commit graph' });
-    const list = page.getByRole('listbox', { name: 'Changed files' });
+    const list = page.getByRole('tree', { name: 'Changed files' });
     const path = page.getByTestId('diff-path');
     await grid.focus();
     // → in the graph: the first file as the tree displays it, and the keyboard in the list.
@@ -548,8 +521,8 @@ test.describe('file list and diff takeover', () => {
     await expect(list).toBeFocused();
     await expect(path).toContainText('ünï.txt');
     // Down/Up: every stop is a file, opened; folder rows are skipped.
-    const files = await page.locator('[role="option"][data-kind="file"]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.path!));
-    const folders = await page.locator('[role="option"][data-kind="folder"]').count();
+    const files = await page.locator('.file-row[data-kind="file"]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.path!));
+    const folders = await page.locator('.file-row[data-kind="folder"]').count();
     expect(folders).toBeGreaterThan(1);
     for (const f of files.slice(1)) {
       await page.keyboard.press('ArrowDown');
@@ -582,7 +555,7 @@ test.describe('file list and diff takeover', () => {
     await expect(page.getByTestId('diff-path')).toContainText('ünï.txt');
     await expect(fileRow(page, 'dir with space/ünï.txt')).toHaveAttribute('aria-selected', 'true');
     await expect(fileRow(page, 'src/app.php')).toHaveAttribute('aria-selected', 'false');
-    await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
+    await expect(page.getByRole('tree', { name: 'Changed files' })).toBeFocused();
   });
 
   test('tree mode nests folders and ←/→ collapse and expand them', async ({ page }) => {

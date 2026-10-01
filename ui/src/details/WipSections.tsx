@@ -47,7 +47,14 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
           </button>
         </h3>
         {counts && <span className="wip-section-summary"><StatusCountsView counts={counts} testId={`${which}-counts`} size={12} /></span>}
-        {ready && <span className="file-totals" data-testid={`${which}-totals`}><span className="added">+{ready.added}</span> <span className="deleted">−{ready.deleted}</span></span>}
+        {ready && (ready.added > 0 || ready.deleted > 0) && (
+          // Like the per-type counts (K47), a zero side is not shown: an empty section shows no totals (K86).
+          <span className="file-totals" data-testid={`${which}-totals`}>
+            {ready.added > 0 && <span className="added">+{ready.added}</span>}
+            {ready.added > 0 && ready.deleted > 0 && ' '}
+            {ready.deleted > 0 && <span className="deleted">−{ready.deleted}</span>}
+          </span>
+        )}
       </div>
       <div className="wip-section-body" hidden={collapsed}>{body}</div>
     </section>

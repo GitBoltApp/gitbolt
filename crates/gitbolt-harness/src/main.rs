@@ -48,13 +48,14 @@ async fn harness_main() {
                 "details" => fixtures::details(&repo),
                 "long_history" => fixtures::long_history(&repo),
                 "diff_view" => fixtures::diff_view(&repo),
+                "merge_lock" => fixtures::merge_lock(&repo),
                 other => panic!("unknown fixture {other}"),
             }
             std::fs::write(root.join(FIXTURE_MARKER), "").expect("write fixture marker");
             println!("{}", repo.path().display());
         }
         _ => {
-            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view> <dir>");
+            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock> <dir>");
             std::process::exit(2);
         }
     }

@@ -10,7 +10,7 @@ test('the WIP row shows read-only unstaged and staged files with their diffs', a
   // where the default Inline mode (amendment 3) would leave it below Monaco's rendered lines.
   await page.addInitScript(() => localStorage.setItem('gitbolt.diffPrefs.v1', JSON.stringify({ mode: 'hunk', ignoreWhitespace: false, wordWrap: false })));
   await page.goto(openUrl(fixtures.details));
-  await rows(page).filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
+  await rows(page).filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   await expect(page.getByTestId('wip-header')).toContainText('3 file changes on');
   await expect(page.getByRole('heading', { name: 'Unstaged (2)' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Staged (1)' })).toBeVisible();
@@ -35,7 +35,7 @@ test('K44: the watched tab holds the WIP lists: they update live, and re-selecti
   }));
   await page.goto(openUrl(repo));
   const wip = rows(page).filter({ hasText: '// WIP' });
-  await wip.locator('[data-col="author"]').click();
+  await wip.locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   await expect(page.getByRole('heading', { name: 'Unstaged (2)' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Staged (1)' })).toBeVisible();
 
@@ -48,7 +48,7 @@ test('K44: the watched tab holds the WIP lists: they update live, and re-selecti
   await rows(page).filter({ hasText: 'Initial commit' }).click();
   await expect(page.getByTestId('details-summary')).toHaveText('Initial commit');
   const before = wipReads.length;
-  await wip.locator('[data-col="author"]').click();
+  await wip.locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   await expect(page.getByRole('heading', { name: 'Unstaged (3)' })).toBeVisible({ timeout: 1000 });
   await expect(page.getByRole('heading', { name: 'Staged (1)' })).toBeVisible({ timeout: 1000 });
   // A request would be sent at once: give one a moment to show up before checking there's none.
@@ -58,7 +58,7 @@ test('K44: the watched tab holds the WIP lists: they update live, and re-selecti
 
 test('K36: up/down run from the last unstaged file into the staged list, and wrap at the ends', async ({ page }) => {
   await page.goto(openUrl(fixtures.details));
-  await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
+  await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   const unstaged = page.getByRole('listbox', { name: 'Unstaged' });
   const staged = page.getByRole('listbox', { name: 'Staged', exact: true });
   await unstaged.getByRole('option').first().click();
@@ -73,15 +73,16 @@ test('K36: up/down run from the last unstaged file into the staged list, and wra
 
 test('the WIP panel (K36): one shared Path/Tree, collapsible sections, a drag handle', async ({ page }) => {
   await page.goto(openUrl(fixtures.details));
-  await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
+  await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   const unstaged = page.getByRole('listbox', { name: 'Unstaged' });
   const staged = page.getByRole('listbox', { name: 'Staged', exact: true });
   await expect(unstaged).toBeVisible();
   // One Path/Tree toggle, for both lists.
   await expect(page.getByRole('button', { name: 'Tree', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Tree', exact: true }).click();
-  await expect(unstaged.locator('[data-kind="folder"]').first()).toBeVisible();
-  await expect(staged.locator('[data-kind="folder"]').first()).toBeVisible();
+  // Tree mode's lists are trees (review M8), path mode's listboxes.
+  await expect(page.getByRole('tree', { name: 'Unstaged' }).locator('[data-kind="folder"]').first()).toBeVisible();
+  await expect(page.getByRole('tree', { name: 'Staged', exact: true }).locator('[data-kind="folder"]').first()).toBeVisible();
   await page.getByRole('button', { name: 'Path', exact: true }).click();
   // The handle resizes: the Unstaged section grows with the keyboard.
   const sep = page.getByRole('separator', { name: 'Resize unstaged and staged files' });
@@ -96,7 +97,7 @@ test('the WIP panel (K36): one shared Path/Tree, collapsible sections, a drag ha
   await expect(sep).toHaveCount(0);
   await expect(staged).toBeVisible();
   await page.reload();
-  await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
+  await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   await expect(page.getByRole('button', { name: /Unstaged/ })).toHaveAttribute('aria-expanded', 'false');
   await page.getByRole('button', { name: /Unstaged/ }).click();
   await expect(page.getByRole('listbox', { name: 'Unstaged' })).toBeVisible();
@@ -132,7 +133,7 @@ test("the checked-out worktree's WIP is row 0 (\"now\") above newer commits; a l
 
   // Selected, it stays selected (and row 0) across a refresh that brings an even newer commit
   // on another branch.
-  await r.nth(0).locator('[data-col="author"]').click();
+  await r.nth(0).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   await expect(page.getByTestId('wip-header')).toBeVisible();
   const newer = git(repo, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Newer elsewhere');
   git(repo, 'branch', 'elsewhere', newer);
@@ -209,9 +210,35 @@ test('K48: the WIP row takes a draft summary that survives a reload, clicking it
   await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeFocused();
   await expect(box).toHaveValue('fix the end key ');
   // Elsewhere on the row selects it.
-  await row.locator('[data-col="date"]').click();
+  await row.locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
   await expect(row).toHaveAttribute('aria-selected', 'true');
   await page.waitForTimeout(500);
   await page.reload();
   await expect(rows(page).filter({ hasText: '// WIP' }).getByPlaceholder('// WIP')).toHaveValue('fix the end key ');
+});
+
+test("K100: a WIP row's message cell spans Author and Date; a linked worktree's name and draft box never overlap", async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 700 });
+  await page.goto(openUrl(freshFixture('basic')));
+  const wt = rows(page).filter({ hasText: 'wt-hotfix' });
+  await expect(wt).toHaveCount(1);
+  // No Author/Date cells on WIP rows: the message cell runs to the SHA column (or the row end).
+  await expect(wt.locator('[data-col="author"], [data-col="date"]')).toHaveCount(0);
+  const commit = rows(page).filter({ hasText: 'Hotfix: null check' });
+  const box = async (l: ReturnType<typeof rows>) => (await l.boundingBox())!;
+  const msg = await box(wt.locator('[data-col="message"]'));
+  const commitMsg = await box(commit.locator('[data-col="message"]'));
+  const commitDate = await box(commit.locator('[data-col="date"]'));
+  expect(msg.x + msg.width).toBeCloseTo(commitDate.x + commitDate.width, 0);
+  expect(msg.width).toBeGreaterThan(commitMsg.width + 50);
+  for (const w of [720, 520]) {
+    await page.setViewportSize({ width: w, height: 700 });
+    const name = await box(wt.locator('.wip-worktree'));
+    const input = await box(wt.locator('.wip-input'));
+    expect(input.width).toBeGreaterThanOrEqual(115);
+    expect(name.x >= input.x + input.width - 0.5 || input.x >= name.x + name.width - 0.5).toBe(true);
+  }
+  // The main WIP row too.
+  const main = rows(page).filter({ hasText: '// WIP' }).first();
+  await expect(main.locator('[data-col="author"]')).toHaveCount(0);
 });

@@ -70,6 +70,28 @@ land in the repo.
 - The first build downloads the CEF distribution (~320 MB compressed) into `~/.cache/tauri-cef`;
   after that, rebuilds are incremental.
 
+## Dock and app-grid icon (unbundled builds)
+
+The window names itself `gitbolt` (X11 `WM_CLASS`, set in `crates/gitbolt-app/src/desktop.rs`)
+and carries a 256 px window icon (`_NET_WM_ICON`, Tauri's default window icon: the first PNG in
+`tauri.conf.json`'s `bundle.icon`). An X11 taskbar can show that, but **Wayland docks need the
+`.desktop` file to show the icon**: Wayland has no window-icon property, so GNOME and KDE match
+the window to a `.desktop` entry by its class/app id (`StartupWMClass=gitbolt`) and show that
+entry's `Icon=`. (The CEF window runs through XWayland, where a shell may fall back to
+`_NET_WM_ICON` for an unmatched window, but pinning, the app grid and a reliable dock icon all
+need the entry.) An unbundled build has no entry until you install one.
+
+From the main checkout, after `just build-app`:
+
+```bash
+just install-desktop     # ~/.local/share/applications/gitbolt.desktop + hicolor icons
+just uninstall-desktop   # removes them again
+```
+
+Both honour `XDG_DATA_HOME` (default `~/.local/share`). The entry runs `just run-app` in this
+checkout. Re-run `just install-desktop` after regenerating the icons; GNOME may need you to log
+out and back in before it picks up a changed icon. The `.deb`/`.rpm` install their own entry.
+
 ## Running `just e2e` from parallel worktrees
 
 `just e2e` starts the `gitbolt-harness` WebSocket server and the Vite dev server on fixed ports
@@ -90,3 +112,174 @@ Setting `GITBOLT_E2E_PORT_BASE=N` runs the harness on port `N` and Vite on port 
 unset to keep the defaults (7433 / 1420). Pick bases far enough apart that `N` and `N+1` don't
 overlap another worktree's pair -- e.g. 7500, 7600, 7700. This only affects `just e2e`; `just dev`
 and the packaged app are unaffected and always use 1420.
+
+## Plan 1C runtime notes
+
+- **Open Repository screen** (Ctrl+O, or the automatic tab of an empty profile): Recent (pinned
+  first, filterable), "Your repos" (a scan of the profile's default repos folder; a banner offers
+  to set one), **Open folder…** and Clone. Any folder inside a repository opens that repository;
+  a linked worktree opens as its own tab.
+- **Folder picker:** a direct D-Bus call to xdg-desktop-portal's
+  `org.freedesktop.portal.FileChooser` (zbus, `crates/gitbolt-core/src/openers/folder_picker.rs`),
+  parented to the main window (`x11:<xid>`). No GTK 3 dialog, which would clash with the CEF
+  runtime's GTK 4. It needs `xdg-desktop-portal` plus a desktop backend (GNOME:
+  `xdg-desktop-portal-gnome`; KDE: `-kde`), which standard desktops already run. Without a portal,
+  **Open folder…** picks nothing and logs a warning.
+- **Settings and profiles:** `$XDG_CONFIG_HOME/gitbolt` (`~/.config/gitbolt`): `settings.json`
+  (app-wide: fetch interval, prune, commit limit, date format, Gravatar, window geometry) and
+  `profiles/<id>/profile.json` (tabs, recent repos, repos folder, editor, extra gitconfig, host
+  overrides, per-repo settings). Written debounced and flushed once more on exit. The Settings
+  dialog is Ctrl+, (or the hamburger's File menu). The CEF profile is
+  `$XDG_CACHE_HOME/dev.gitbolt.desktop/cef`, avatars and "open old version" copies are under
+  `$XDG_CACHE_HOME/gitbolt`. To run a second instance without touching your own, point
+  `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` at throwaway dirs.
+- **Command palette:** Ctrl+P. Prefixes narrow it to one group: `>` actions, `@` branches and
+  tags, `/` files at HEAD, `#` settings (opens the Settings dialog on that setting).
+- **Askpass:** git and ssh run the `gitbolt` binary itself as `GIT_ASKPASS`/`SSH_ASKPASS`
+  (`SSH_ASKPASS_REQUIRE=force`, so ssh uses it with or without `DISPLAY`; OpenSSH 8.4+). The
+  per-session socket is `$XDG_RUNTIME_DIR/gitbolt-askpass-<pid>-<rand>.sock` (mode 0600, removed
+  on exit). Fetch and clone run with `GIT_TERMINAL_PROMPT=0`, stdin closed and in their own
+  session (`setsid`, no controlling terminal), so no prompt can wait on a tty, even when GitBolt
+  was started from a shell. A user-started fetch or clone shows the credential modal; background
+  fetches never prompt: one that needs credentials is reported as skipped in the status bar until
+  a fetch succeeds. To try it without your real keys, see "Trying the askpass flow" below.
+- **Background fetch:** `git fetch --all` of the **active** tab's repo every
+  `fetchIntervalSecs` (default 60; 0 is off), with `--prune` per the Prune setting,
+  `--no-prune-tags`, `--no-auto-maintenance` and `--no-write-commit-graph`. It writes only
+  remote-tracking refs, objects and `FETCH_HEAD`, never the worktree, the index, local branches
+  or config. Ticks are skipped while the window is minimized and replayed on focus. A successful
+  background fetch shows nowhere but the activity log.
+- **Watcher (only the active tab):** inotify, non-recursive on every tracked directory of every
+  worktree (from its index) and every directory with an untracked, non-ignored file, plus `.git`,
+  `.git/worktrees`, each linked worktree's gitdir and `.git/refs` (recursive). Ignored trees
+  (`node_modules`, `vendor`) are never watched. Past 20 000 directories (or inotify's limit), the
+  watch degrades: it still reports what it sees, and each graph build re-reads status. Inactive
+  tabs aren't watched and aren't even opened until first activated.
+- **Worktrees:** the sidebar's Worktrees panel lists the main and linked worktrees (the current
+  one marked); a change in any of them refreshes the tab.
+- **Activity log:** every finished fetch and clone, background ones included (newest first, at
+  most 200), with git's message; open it from the bell's "Activity log" submenu or Help →
+  Activity log (devtools: `window.__gb.activity()`). Git's own command log (the last 1000
+  commands) is the `commandLog` request. Background fetch errors go to the status bar's bell. A
+  user's Fetch always says how it went: a short "Fetched: …" toast, or an 8 s "Fetch failed: …"
+  toast with git's message and an "Activity log" link. A user's fetch still running after 2 s
+  shows "Fetching <repo>… N%" with Cancel in the status bar.
+- **Harness:** `gitbolt-harness serve [--port N] [--config-dir DIR]` uses a throwaway config dir
+  (never `~/.config/gitbolt`), a temp home and runtime dir, no avatar provider, starts with
+  background fetch off, records launches instead of running them, and exposes test-only routes:
+  `POST /test/reset`, `/test/emit`, `/test/next-pick`, `GET /test/watched`, `GET /launches`, and
+  `ANY /test/auth/*` (always 401).
+
+
+## Trying the askpass flow (no real keys)
+
+Everything lives in `/tmp/gb-askpass` and runs in a **throwaway GitBolt instance**. Neither the
+setup nor that instance reads your git config:
+- `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` keep out `~/.gitconfig`, so no
+  `credential.helper store`, no signing and no 1Password.
+- Throwaway `XDG_*` dirs give a fresh default profile, with no extra gitconfig and none of your
+  tabs or recent repos.
+
+Nothing here touches `~/.ssh`, your ssh agent, `~/.git-credentials`, `~/.config/gitbolt` or a
+real repository. (This holds unless your shell's startup files set `GIT_CONFIG_GLOBAL`
+themselves: GitBolt runs git with your login shell's environment.)
+
+`scripts/fake-ssh` stands in for ssh. It asks for a key passphrase the way OpenSSH decides
+(through `SSH_ASKPASS`), then serves a local bare repo, so no sshd or key is needed. It needs a
+release build (`just build-app`).
+
+**1. Set up a throwaway repo whose remote is "ssh".** Paste this as is: it runs in a subshell, so
+your shell keeps its own directory and environment.
+
+```sh
+(
+  set -e
+  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+  GB=~/repos/gitbolt          # your GitBolt checkout
+  T=/tmp/gb-askpass
+  id="-c user.name=gb-test -c user.email=gb-test@example.invalid"
+  rm -rf $T && mkdir -p $T
+  git init -q --bare -b main $T/origin.git
+  git init -q -b main $T/seed
+  git -C $T/seed $id commit -q --allow-empty -m first
+  git -C $T/seed push -q $T/origin.git main
+  git clone -q $T/origin.git $T/work
+  git -C $T/work remote set-url origin ssh://fake$T/origin.git
+  git -C $T/work config ssh.variant simple
+  git -C $T/work config core.sshCommand "$GB/scripts/fake-ssh --passphrase testpass"
+  git -C $T/work config credential.helper ""      # belt and braces: no helper, even if one slipped in
+  git -C $T/seed $id commit -q --allow-empty -m "new upstream commit"
+  git -C $T/seed push -q $T/origin.git main
+)
+```
+
+**2. Start the throwaway instance** on that repo. Your usual GitBolt can stay open.
+
+```sh
+env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  XDG_CONFIG_HOME=/tmp/gb-askpass/xdg/config XDG_CACHE_HOME=/tmp/gb-askpass/xdg/cache XDG_DATA_HOME=/tmp/gb-askpass/xdg/data \
+  just --justfile ~/repos/gitbolt/justfile run-app /tmp/gb-askpass/work &
+```
+
+Its git sees no credential helper at all. To check, run this; it prints only the repo's own
+empty `credential.helper` line (config, never credentials):
+
+```sh
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C /tmp/gb-askpass/work config --show-origin --get-all credential.helper
+```
+
+**3. SSH key passphrase.** The first background fetch can't prompt, so the status bar says
+"Fetch skipped: authentication required"; that's expected. Click **Fetch**:
+
+- The modal asks "Enter passphrase for key '/tmp/gb-askpass-key'". Type `testpass`: the toast says
+  "Fetched: remote changes", and "new upstream commit" shows on `origin/main`.
+- Click **Fetch** again and type anything else: the toast says "Fetch failed: Authentication failed
+  (fake: Permission denied (publickey).)". Its **Activity log** link lists every fetch and how it
+  went.
+- Press Esc in the modal: the fetch is cancelled quietly (no toast).
+
+**4. A dead agent, and a stuck remote.** A dead agent is what 1Password closed looks like to an
+ssh remote:
+
+```sh
+git -C /tmp/gb-askpass/work config core.sshCommand "$HOME/repos/gitbolt/scripts/fake-ssh --dead-agent"
+```
+
+**Fetch** shows "Fetch failed: Authentication failed (fake: Permission denied (publickey).)". For a
+stuck remote, use `--hang` instead: **Fetch** spins, and after 2 s the status bar shows "Fetching
+work…" with **Cancel**, which stops it.
+
+**5. HTTPS username and password.** Start an always-401 server (its PID goes in a file, so any
+shell can stop it), then point the repo at it:
+
+```sh
+python3 -c 'import http.server as h
+class H(h.BaseHTTPRequestHandler):
+    def do_GET(s): s.send_response(401); s.send_header("WWW-Authenticate", "Basic realm=gitbolt-test"); s.send_header("Content-Length", "0"); s.end_headers()
+    def log_message(s, *a): pass
+h.HTTPServer(("127.0.0.1", 8765), H).serve_forever()' & echo $! > /tmp/gb-askpass/server.pid
+git -C /tmp/gb-askpass/work config --unset core.sshCommand
+git -C /tmp/gb-askpass/work remote set-url origin http://127.0.0.1:8765/x.git
+```
+
+In the throwaway instance, **Fetch** asks "Username for 'http://127.0.0.1:8765'", then the
+password, then fails with "Fetch failed: Authentication failed (…)". No credential helper is
+consulted, so whatever you type is never stored, and `~/.git-credentials` is never opened.
+
+**6. Clean up:** quit the throwaway instance, then run
+`kill "$(cat /tmp/gb-askpass/server.pid)"; rm -rf /tmp/gb-askpass`.
+
+A real ssh key with a passphrase isn't covered here. It would be
+`ssh-keygen -t ed25519 -N testpass -f /tmp/gb-askpass-key`, then
+`core.sshCommand = ssh -i /tmp/gb-askpass-key -o IdentitiesOnly=yes -o IdentityAgent=none`. But it
+needs an sshd that accepts that key: ssh only asks for the passphrase after the server accepts
+the public key.
+
+Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a repo-local
+`credential.helper ""`:
+- That reset does work against `~/.gitconfig` (git 2.53, checked).
+- But GitBolt passes the active profile's extra gitconfig as `-c include.path=…`. That is read
+  after the repo's config, so a helper set there comes back.
+- With such a helper, git still calls it to `get` and, after a 401, to `erase`; `store` rewrites
+  `~/.git-credentials` on erase.
+- A fresh profile has no extra gitconfig, and `/dev/null` has no helper.

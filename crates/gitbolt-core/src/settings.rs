@@ -239,6 +239,8 @@ pub struct Profile {
     /// Newest first.
     pub recent: Vec<RecentRepo>,
     pub repos_folder: Option<String>,
+    /// The folders "Your repos" scans, merged. `None` = never set (see `migrate_repos_folders`).
+    pub repos_folders: Option<Vec<String>>,
     pub editor: Option<EditorChoice>,
     /// Added to every git command as `-c include.path=<path>` (spec §14.2).
     pub extra_gitconfig: Option<String>,
@@ -266,6 +268,7 @@ impl Default for Profile {
             closed_tabs: Vec::new(),
             recent: Vec::new(),
             repos_folder: None,
+            repos_folders: None,
             editor: None,
             extra_gitconfig: None,
             host_overrides: BTreeMap::new(),
@@ -279,6 +282,15 @@ impl Default for Profile {
 }
 
 impl Profile {
+    /// A profile that never chose "Your repos" folders gets its default clone folder, else the
+    /// suggested `<home>/repos` when it exists. An explicit (even empty) list is left alone.
+    pub fn migrate_repos_folders(&mut self, home: Option<&std::path::Path>) {
+        if self.repos_folders.is_none() {
+            let first = self.repos_folder.clone().or_else(|| crate::scan::suggest_repos_folder(home));
+            self.repos_folders = Some(first.into_iter().collect());
+        }
+    }
+
     pub fn new(id: &str, name: &str, color: &str) -> Self {
         Self { id: id.into(), name: name.into(), color: color.into(), ..Default::default() }
     }
@@ -416,14 +428,22 @@ fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), GbError> {
     let dir = path.parent().ok_or_else(|| GbError::other("settings path has no parent"))?;
     std::fs::create_dir_all(dir)?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.tmp"));
+    // A unique name per write (pid + counter): two instances (or two stores) on one directory
+    // never share a temp inode, so a rename always installs one writer's complete JSON.
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let tmp = dir.join(format!(".{name}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
     let json = serde_json::to_vec_pretty(value).map_err(|e| GbError::other(format!("serialize settings: {e}")))?;
-    {
+    let written = (|| -> Result<(), GbError> {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(&json)?;
         f.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
-    std::fs::rename(&tmp, path)?;
     // The rename is durable only once the directory entry is.
     std::fs::File::open(dir)?.sync_all()?;
     Ok(())
@@ -734,6 +754,44 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_saves_from_two_stores_always_leave_valid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = SettingsStore::open(dir.path());
+        let b = SettingsStore::open(dir.path());
+        let path = dir.path().join("settings.json");
+        let writers: Vec<_> = [a, b]
+            .into_iter()
+            .map(|store| {
+                std::thread::spawn(move || {
+                    for i in 0..40 {
+                        let mut s = store.state().settings;
+                        s.commit_limit = 100 + i;
+                        store.save_settings(s);
+                        store.flush_now().unwrap();
+                    }
+                })
+            })
+            .collect();
+        let reader = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                for _ in 0..400 {
+                    if let Ok(bytes) = std::fs::read(&path) {
+                        serde_json::from_slice::<serde_json::Value>(&bytes).expect("settings.json is always valid JSON");
+                    }
+                }
+            })
+        };
+        for w in writers {
+            w.join().unwrap();
+        }
+        reader.join().unwrap();
+        read(&path);
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).collect();
+        assert!(leftovers.is_empty(), "no temp file is left behind: {leftovers:?}");
+    }
+
+    #[test]
     fn empty_dir_gets_a_default_profile() {
         let dir = tempfile::tempdir().unwrap();
         let st = SettingsStore::open(dir.path()).state();
@@ -824,6 +882,34 @@ mod tests {
         assert_eq!(again.profile.repos_folder.as_deref(), Some("/home/u/repos"));
         assert_eq!(again.profile.right_panel_width, Some(420));
         assert_eq!(again.profile.repos["/r"].columns.as_ref().unwrap().sha, 90, "a saved SHA width survives a reload");
+    }
+
+    #[test]
+    fn repos_folders_round_trip_and_migrate_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join("repos")).unwrap();
+        let store = SettingsStore::open(dir.path());
+        let mut p = store.active_profile();
+        assert_eq!(p.repos_folders, None, "an existing profile has no folders yet");
+        p.migrate_repos_folders(Some(home.path()));
+        assert_eq!(p.repos_folders, Some(vec![home.path().join("repos").display().to_string()]));
+        p.repos_folders = Some(vec!["/a".into(), "/b".into()]);
+        p.migrate_repos_folders(Some(home.path()));
+        assert_eq!(p.repos_folders.as_deref(), Some(&["/a".to_string(), "/b".to_string()][..]), "set lists are kept");
+        p.repos_folders = Some(vec![]);
+        p.migrate_repos_folders(Some(home.path()));
+        assert_eq!(p.repos_folders, Some(vec![]), "a deliberately emptied list stays empty");
+        p.repos_folders = Some(vec!["/a".into(), "/b".into()]);
+        store.save_profile(p).unwrap();
+        store.flush_now().unwrap();
+        assert_eq!(SettingsStore::open(dir.path()).state().profile.repos_folders, Some(vec!["/a".into(), "/b".into()]));
+        let mut q = Profile { repos_folder: Some("/clone".into()), ..Default::default() };
+        q.migrate_repos_folders(Some(home.path()));
+        assert_eq!(q.repos_folders, Some(vec!["/clone".into()]), "the default clone folder wins");
+        let mut none = Profile::default();
+        none.migrate_repos_folders(None);
+        assert_eq!(none.repos_folders, Some(vec![]));
     }
 
     #[tokio::test(start_paused = true)]

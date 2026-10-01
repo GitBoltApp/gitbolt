@@ -106,6 +106,8 @@ pub struct RefLabel {
 pub struct RemoteRefLabel {
     pub full_name: String,
     pub remote: String,
+    /// The remote's host name, so the UI can apply the profile's host-type override.
+    pub host: Option<String>,
     pub host_kind: HostKind,
 }
 

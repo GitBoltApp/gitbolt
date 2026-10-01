@@ -362,6 +362,46 @@ describe('RepoView', () => {
     expect(panel).toHaveStyle({ width: '280px' });
   });
 
+  it('a request to focus the files lands on the file list in tree mode too (a tree, not a listbox)', async () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    const list: FileListPayload = { files: [{ path: 'src/a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
+    const store = createRepoViewStore(1, '/r', graph, services({ files: new Loader(async () => list, new Lru(10)) }));
+    render(<RepoView repo={1} repoPath="/r" graph={graph} store={store} />);
+    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    const tree = await screen.findByRole('tree', { name: 'Changed files' });
+    act(() => store.getState().setFocus('files'));
+    expect(tree).toHaveFocus();
+  });
+
+  it('the center keeps 320 px of the room beside the sidebar, not of the whole window', async () => {
+    // The view sits 240 px in (the sidebar), and a widening sidebar moves it without a window resize.
+    let left = 240;
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { left: this.classList.contains('repo-view') ? left : 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    });
+    const observed: ResizeObserverCallback[] = [];
+    vi.stubGlobal('ResizeObserver', class { constructor(cb: ResizeObserverCallback) { observed.push(cb); } observe() {} unobserve() {} disconnect() {} });
+    try {
+      setWindowWidth(900);
+      render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
+      fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+      const panel = await screen.findByRole('complementary', { name: 'Commit details' });
+      const sep = screen.getByRole('separator', { name: 'Resize details panel' });
+      // 900 - 240 (sidebar) - 320 (center minimum).
+      expect(sep).toHaveAttribute('aria-valuemax', '340');
+      fireEvent.keyDown(sep, { key: 'End' });
+      expect(panel).toHaveStyle({ width: '340px' });
+      // The narrow strip: the room grows back.
+      // The sidebar collapsing moves the view's edge with no window resize: only the observer tells.
+      left = 48;
+      act(() => observed.forEach((cb) => cb([], {} as ResizeObserver)));
+      expect(sep).toHaveAttribute('aria-valuemax', '532');
+    } finally {
+      vi.unstubAllGlobals();
+      rect.mockRestore();
+    }
+  });
+
   it('Enter on a focused row SHA button copies instead of opening a diff', async () => {
     const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);

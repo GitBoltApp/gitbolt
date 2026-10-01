@@ -46,12 +46,14 @@
 /* The WIP box (K51 round 2): darker than the row, a faint 1px edge, ~116px wide at
    rest; it grows with what's typed (field-sizing), up to the cell. */
 .wip-summary { --wip-input-bg: #16181c; --wip-input-border: #282a2d; --wip-input-placeholder: #6e6f71; }
-.wip-draft { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.wip-draft { flex: 0 1 auto; min-width: 116px; display: flex; align-items: center; gap: 6px; }
 .wip-input { all: unset; box-sizing: border-box; flex: 0 1 auto; field-sizing: content; width: auto; min-width: 116px; max-width: 100%; height: calc(var(--graph-row-h) - 6px); padding: 0 8px; font: inherit; color: var(--text-normal); background: var(--wip-input-bg); border: 1px solid var(--wip-input-border); border-radius: 4px; text-overflow: ellipsis; cursor: text; }
 .wip-input::placeholder { color: var(--wip-input-placeholder); opacity: 1; }
 .wip-input:focus, .wip-input:focus-visible { border-color: var(--blue); outline: 1px solid var(--blue); outline-offset: -1px; }
 .wip-counter { flex: none; font-size: 11px; color: var(--text-secondary); }
-.wip-worktree, .wip-summary .wip-counts { flex: none; }
+.wip-summary .wip-counts { flex: none; }
+/* K100: the worktree name gives way first (an ellipsis); the draft box keeps its 116px minimum and the counts follow. */
+.wip-worktree { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wip-summary .status-counts { gap: 8px; font-size: 11px; }
 /* The accessible/searchable "// WIP" name of the row; the placeholder is what's seen. */
 .wip-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -132,6 +134,14 @@
    its source icons' tooltips; it collapses when the pointer leaves the copy's bounds. */
 .ref-label.ref-label-full { position: absolute; z-index: 3; margin-left: -5px; max-width: none; width: max-content; background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); }
 .ref-name-full { white-space: nowrap; }
+/* The label stack (K77, RefLabels.tsx LabelStack): a row with several labels floats one full chip
+   per label over the rows below, no gaps, all as wide as the widest (grid). Positioned like the
+   single copy (containing block: the row; left/top set on mount). The first (HEAD) row is the lit
+   chip, the others the dimmer lane tint; all opaque. */
+.ref-stack { position: absolute; z-index: 3; display: grid; width: max-content; color: var(--text-selected); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); border-radius: 3px; overflow: hidden; cursor: pointer; }
+.ref-stack-row { display: flex; gap: 3px; align-items: center; box-sizing: border-box; padding: 0 5px; height: var(--graph-chip-h); white-space: nowrap; background: color-mix(in srgb, var(--lane-color) 25%, var(--panel-bg0)); }
+.ref-stack-row:first-child { background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); }
+.ref-stack-row:not(:first-child):hover { background: color-mix(in srgb, var(--lane-color) 35%, var(--panel-bg0)); }
 /* The dimmed branch-membership chip (F7): half opacity, over
    the same chip look (always the lit one: it only shows on a hovered or selected row). It takes
    the pointer like any chip (J6): hovered, it's at full strength, i.e. the hovered chip look, and
@@ -173,5 +183,8 @@
 .hover-tooltip.msg-tooltip[data-clipped]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 32px; background: linear-gradient(transparent, var(--panel-bg1)); pointer-events: none; }
 .msg-tooltip-summary { font-weight: 600; }
 .msg-tooltip-body { margin-top: 8px; color: var(--text-normal); }
-.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100vw - 32px)); overflow-wrap: anywhere; background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
+.toast-action { all: unset; margin-left: 10px; color: var(--blue); cursor: pointer; white-space: nowrap; }
+.toast-action:hover { text-decoration: underline; }
+.toast-action:focus-visible { outline: 1px solid var(--blue); }
 .center-message { display: grid; place-items: center; height: 100%; color: var(--text-secondary); }

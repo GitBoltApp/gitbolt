@@ -16,17 +16,18 @@ export type SideItem =
   | (Base & { kind: 'tag'; tag: TagItem });
 
 export type SectionKind = 'local' | 'remote' | 'worktrees' | 'stashes' | 'tags';
-export interface Section { id: SectionKind; kind: SectionKind; label: string; hosts?: Record<string, HostKind>; items: SideItem[]; nests: boolean }
+export interface Section { id: SectionKind; kind: SectionKind; label: string; hosts?: Record<string, HostKind>; hostNames?: Record<string, string | null>; items: SideItem[]; nests: boolean }
 
 /** The sidebar's panels, in fixed display order (spec §6.4): Local, Remote (one top-level folder
  * per remote), Worktrees, Stashes, Tags. */
 export function sectionsOf(p: SidebarPayload): Section[] {
   const hosts: Record<string, HostKind> = {};
-  for (const g of p.remotes) hosts[g.name] = g.hostKind;
+  const hostNames: Record<string, string | null> = {};
+  for (const g of p.remotes) { hosts[g.name] = g.hostKind; hostNames[g.name] = g.host; }
   return [
     { id: 'local', kind: 'local', label: 'Local', nests: true, items: p.locals.map((b): SideItem => ({ key: b.fullName, kind: 'local', name: b.name, target: b.target, time: b.tipTime, branch: b })) },
     {
-      id: 'remote', kind: 'remote', label: 'Remote', nests: true, hosts,
+      id: 'remote', kind: 'remote', label: 'Remote', nests: true, hosts, hostNames,
       items: p.remotes.flatMap((g) => g.branches.map((b): SideItem => ({ key: b.fullName, kind: 'remote', name: b.name, target: b.target, time: b.tipTime, remote: g.name, branch: b }))),
     },
     { id: 'worktrees', kind: 'worktrees', label: 'Worktrees', nests: false, items: p.worktrees.map((w): SideItem => ({ key: `wt:${w.path}`, kind: 'worktree', name: w.name, target: w.head, time: 0, worktree: w })) },
@@ -36,7 +37,7 @@ export function sectionsOf(p: SidebarPayload): Section[] {
 }
 
 export type FlatRow =
-  | { type: 'folder'; key: string; name: string; depth: number; collapsed: boolean; section: Section; hostKind?: HostKind; remote?: string }
+  | { type: 'folder'; key: string; name: string; depth: number; collapsed: boolean; section: Section; hostKind?: HostKind; host?: string | null; remote?: string }
   | { type: 'item'; key: string; item: SideItem; depth: number; label: string; section: Section };
 
 /** One stacked panel: its header numbers and its (virtualized) body rows. `matched` is what the
@@ -87,7 +88,7 @@ export function buildPanels(sections: Section[], o: RowOptions): Panel[] {
       for (const [remote, items] of ordered) {
         const key = folderKey(s.id, remote);
         const fc = !q && o.collapsed.has(key);
-        out.push({ type: 'folder', key, name: remote, depth: 1, collapsed: fc, section: s, remote, hostKind: s.hosts?.[remote] });
+        out.push({ type: 'folder', key, name: remote, depth: 1, collapsed: fc, section: s, remote, hostKind: s.hosts?.[remote], host: s.hostNames?.[remote] });
         if (fc) continue;
         for (const it of [...items].sort((a, b) => b.time - a.time || byName(a.name, b.name))) out.push(item(it, 2));
       }
@@ -124,7 +125,7 @@ export function buildPanels(sections: Section[], o: RowOptions): Panel[] {
         const key = folderKey(s.id, path);
         const fc = !q && o.collapsed.has(key);
         const isRemote = s.kind === 'remote' && depth === 1;
-        out.push({ type: 'folder', key, name: e.folder, depth, collapsed: fc, section: s, ...(isRemote ? { remote: e.folder, hostKind: s.hosts?.[e.folder] } : {}) });
+        out.push({ type: 'folder', key, name: e.folder, depth, collapsed: fc, section: s, ...(isRemote ? { remote: e.folder, hostKind: s.hosts?.[e.folder], host: s.hostNames?.[e.folder] } : {}) });
         if (!fc) walk(e.child, depth + 1, path);
       }
     };

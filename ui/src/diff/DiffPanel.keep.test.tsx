@@ -77,7 +77,7 @@ describe('a closed diff is kept, hidden (J16)', () => {
     await openRow('a.txt');
     await act(async () => fireEvent.mouseDown(fileRow('a.txt'), { button: 0, detail: 1 }));
     expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
-    const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    const settle = () => act(async () => { await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0))); });
     await settle();
     const before = toolbarRenders.n;
     // Select the other commit, then back: each moves the panel's sections, details and message.

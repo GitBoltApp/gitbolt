@@ -1,5 +1,7 @@
 import { Cloud } from 'lucide-react';
 import type { HostKind } from '../api/gen/HostKind';
+import { useAppState } from '../app/state';
+import { effectiveKind } from '../forge/urls';
 
 // SVG paths from simple-icons 16.32.0 (CC0 1.0): https://simpleicons.org. Copied rather than
 // depending on the whole icon set; only colors come from nowhere else (spec §12.1: no third-party app art).
@@ -18,7 +20,9 @@ export const GitLabMark = ({ size = 12, label = 'GitLab' }: { size?: number; lab
 export const GitHubMark = ({ size = 12, label = 'GitHub' }: { size?: number; label?: string }) => <Mark path={GITHUB} label={label} size={size} kind="github" />;
 
 /** Remote icon by host type (spec §8.5, §14.4): GitLab fox, GitHub mark, else a generic cloud. */
-export function RemoteIcon({ kind, remote, size = 12 }: { kind: HostKind; remote: string; size?: number }) {
+export function RemoteIcon({ kind: detected, host, remote, size = 12 }: { kind: HostKind; host?: string | null; remote: string; size?: number }) {
+  // The profile's host-type override for this remote's host (Settings > Hosts), else the detected one.
+  const kind = useAppState((s) => effectiveKind(host, detected, s.profile.hostOverrides));
   const label = `remote ${remote}`;
   if (kind === 'gitlab') return <GitLabMark size={size} label={label} />;
   if (kind === 'github') return <GitHubMark size={size} label={label} />;

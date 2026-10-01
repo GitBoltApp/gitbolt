@@ -3,7 +3,9 @@ import { formatBytes } from '../diff/format';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { onResetDoubleClick } from '../ui/resetHandle';
 import { IMAGE_BACKGROUNDS, useImageBackground } from './background';
+import { openContextMenu } from '../menu/menuStore';
 import { drawDifference } from './difference';
+import { imageMenuRows, type ImageSide } from './imageMenu';
 import type { ImageSource } from './sources';
 import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
 import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
@@ -34,7 +36,7 @@ function useDecoded(src: ImageSource | null): Decoded {
     setState({ dim: null, failed: false });
     if (!src) return;
     const img = new Image();
-    img.onload = () => setState({ dim: { w: img.naturalWidth, h: img.naturalHeight }, failed: false });
+    img.onload = () => setState({ dim: src.intrinsic ?? { w: img.naturalWidth, h: img.naturalHeight }, failed: false });
     img.onerror = () => setState({ dim: null, failed: true });
     img.src = src.url;
     // A superseded source must not report after the new one.
@@ -267,10 +269,10 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
     void Promise.all([loadImage(old.url), loadImage(neu.url)]).then(([a, b]) => {
       if (!live) return;
       diffImgs.current = { a, b };
-      drawDifference(canvas, a, b, contentW, contentH, amplifyRef.current);
+      drawDifference(canvas, a, b, contentW, contentH, amplifyRef.current, oldImg.dim, newImg.dim);
     });
     return () => { live = false; };
-  }, [activeMode, old, neu, contentW, contentH]);
+  }, [activeMode, old, neu, contentW, contentH, oldImg.dim, newImg.dim]);
 
   // K10: the Amplify slider repaints from the already-loaded images — no reload, so dragging it
   // stays fast — via the same `drawDifference`, which keeps the canvas's zoom/pan transform and
@@ -282,9 +284,9 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
     if (activeMode !== 'difference' || !canvasRef.current || !diffImgs.current) return;
     const canvas = canvasRef.current;
     const { a, b } = diffImgs.current;
-    const raf = requestAnimationFrame(() => drawDifference(canvas, a, b, contentW, contentH, amplify));
+    const raf = requestAnimationFrame(() => drawDifference(canvas, a, b, contentW, contentH, amplify, oldImg.dim, newImg.dim));
     return () => cancelAnimationFrame(raf);
-  }, [amplify, activeMode, contentW, contentH]);
+  }, [amplify, activeMode, contentW, contentH, oldImg.dim, newImg.dim]);
 
   // J13: until every side has decoded (or failed), there's no size to place the images by, and a
   // later side's size moves the view again: they'd paint at the top left, then jump. Hidden until
@@ -336,8 +338,15 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
     onLostPointerCapture: () => { swipeDragging.current = false; },
   };
   const bg = `bg-${background}`;
+  /** Side-by-side: the pane right-clicked (its viewport is the second one when both are shown). */
+  const sideOf = (t: EventTarget): ImageSide => {
+    const vp = (t as HTMLElement).closest?.('.image-viewport');
+    return both && activeMode === 'side' && vp && vp === stageRef.current?.querySelectorAll('.image-viewport')[1] ? 'new' : 'old';
+  };
+  // The size is explicit: an SVG with only a viewBox lays out at the viewport's width otherwise,
+  // not at the size the frame and the zoom math use.
   const img = (src: ImageSource, decoded: Decoded, label: string, style?: CSSProperties) =>
-    decoded.failed ? broken : <img className="image-layer" src={src.url} alt={label} draggable={false} style={{ ...layer, ...style }} />;
+    decoded.failed ? broken : <img className="image-layer" src={src.url} alt={label} draggable={false} style={{ ...layer, ...style, width: decoded.dim?.w, height: decoded.dim?.h }} />;
   /** An image's bounds on screen (J11): the background pick behind it only, and a 1 px border
    * around it, so the viewport's neutral grey shows how much room there is around the image. */
   const frame = (d: Dim | null, cls = bg) =>
@@ -439,10 +448,10 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
       {showSource && source ? (
         <div className="image-source">{source}</div>
       ) : (
-        // No native context menu: WebKit's "Open Image in New Window" would load an SVG blob as a
-        // document (defence in depth; 1C adds our own menu). No native drag either: WebKit starts
+        // Our own context menu (K98), never the native one: WebKit's "Open Image in New Window"
+        // would load an SVG blob as a document. No native drag either: WebKit starts
         // one from the swipe handle (a selection), which ends the handle's own drag midway (J10).
-        <div ref={stageRef} className={`image-stage mode-${activeMode}`} onContextMenu={(e) => e.preventDefault()} onDragStart={(e) => e.preventDefault()}>
+        <div ref={stageRef} className={`image-stage mode-${activeMode}`} onContextMenu={(e) => openContextMenu(e, () => imageMenuRows({ old, new: neu }, sideOf(e.target)))} onDragStart={(e) => e.preventDefault()}>
           {activeMode === 'side' && (
             <>
               {/* K9: subtle, non-interactive Old/New chips. */}

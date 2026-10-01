@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 /** Mirrors `Profile::default()` (Rust). */
 export const EMPTY_PROFILE: Profile = {
-  version: 1, id: '', name: '', color: '#4d88ff', tabs: [], activeTab: null, closedTabs: [], recent: [], reposFolder: null,
+  version: 1, id: '', name: '', color: '#4d88ff', tabs: [], activeTab: null, closedTabs: [], recent: [], reposFolder: null, reposFolders: null,
   editor: null, extraGitconfig: null, hostOverrides: {}, sidebarWidth: 240, sidebarNarrow: false, sidebarPanels: {}, rightPanelWidth: null, repos: {},
 };
 export const EMPTY_REPO_SETTINGS: RepoSettings = { pin: null, columns: null, hiddenColumns: [], sidebarSort: {}, collapsed: [], editor: null };
@@ -34,6 +34,9 @@ export async function flushSaves(): Promise<void> {
 
 interface AppState {
   loaded: boolean;
+  /** Set once the launch repos are open: the automatic Open tab waits for it, so a `?repo=` launch doesn't also open one. */
+  booted: boolean;
+  setBooted(): void;
   settings: AppSettings;
   profile: Profile;
   profiles: ProfileMeta[];
@@ -53,6 +56,10 @@ const fromState = (st: StatePayload) => ({ settings: st.settings, profile: st.pr
 /** App settings and the active profile (spec §14.1), backed by the core's store. */
 export const useAppState = create<AppState>((set, get) => ({
   loaded: false,
+  booted: false,
+  setBooted() {
+    set({ booted: true });
+  },
   settings: DEFAULT_SETTINGS,
   profile: EMPTY_PROFILE,
   profiles: [],

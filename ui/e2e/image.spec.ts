@@ -1,5 +1,7 @@
 import { expect, test, type Page } from './test';
-import { fixtures, harnessHttp, openUrl } from './fixtures';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fixtures, freshFixture, git, harnessHttp, openUrl } from './fixtures';
 
 // The `details` fixture's "Rename guide and update assets" commit changes logo.png from a 4×4 red
 // PNG to a 6×4 blue one, and icon.svg from a rect to a circle (fixtures.rs).
@@ -90,6 +92,24 @@ test.describe('image diff', () => {
     // K12: Home lands on the ladder's own minimum (10%), not Fit.
     await zoomTo(page, 0);
     await expect(d.getByTestId('zoom-label')).toHaveText('10%');
+  });
+
+  test('K98: right-clicking the new pane and choosing Copy New Image puts its PNG on the clipboard', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard-read is granted on Chromium only');
+    await open(page, 'logo.png');
+    await diff(page).locator('.image-viewport').nth(1).click({ button: 'right' });
+    const items = page.getByRole('menuitem');
+    await expect(items).toHaveText([/Copy New Image/, /Copy Old Image/]);
+    await items.first().click();
+    await expect(page.getByRole('status').filter({ hasText: 'Image copied' })).toBeVisible();
+    // The new logo.png is 6×4.
+    const size = await page.evaluate(async () => {
+      const item = (await navigator.clipboard.read())[0];
+      if (!item.types.includes('image/png')) return item.types.join();
+      const bmp = await createImageBitmap(await item.getType('image/png'));
+      return `${bmp.width}×${bmp.height}`;
+    });
+    expect(size).toBe('6×4');
   });
 
   test("K11: the · separator has breathing room, and the meta block sits well clear of the zoom slider", async ({ page }) => {
@@ -352,11 +372,14 @@ test.describe('image diff', () => {
 
   test("the image stage's context menu is suppressed", async ({ page }) => {
     await open(page, 'logo.png');
+    // K98: the stage prevents the native menu and stops the event (so a bubbling window listener
+    // never sees it); what shows is the app's own menu.
     await page.evaluate(() => {
-      window.addEventListener('contextmenu', (e) => { (window as unknown as { menuPrevented: boolean }).menuPrevented = e.defaultPrevented; });
+      const w = window as unknown as { seen: boolean };
+      document.addEventListener('contextmenu', (e) => { setTimeout(() => { w.seen = e.defaultPrevented; }); }, true);
     });
     await diff(page).locator('.image-viewport').first().click({ button: 'right' });
-    await expect.poll(() => page.evaluate(() => (window as unknown as { menuPrevented?: boolean }).menuPrevented)).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { seen?: boolean }).seen)).toBe(true);
   });
 
   test('an SVG shows as images, with a Source toggle for the text diff', async ({ page }) => {
@@ -373,6 +396,41 @@ test.describe('image diff', () => {
     await expect(d.getByRole('button', { name: 'Next change' })).toBeEnabled();
     await d.getByRole('button', { name: 'Source', exact: true }).click();
     await expect(d.getByRole('button', { name: 'Hunk', exact: true })).toHaveCount(0);
+  });
+
+  test('K81: an SVG with only a viewBox is drawn inside its box, at Fit and at 100% (intrinsic size = the viewBox)', async ({ page }) => {
+    const repo = freshFixture('details');
+    writeFileSync(join(repo, 'viewbox.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#15a0bf"/><circle cx="256" cy="256" r="200" fill="#f25d2e"/></svg>\n');
+    git(repo, 'add', 'viewbox.svg');
+    git(repo, 'commit', '-m', 'Add viewbox svg');
+    await page.setViewportSize({ width: 1100, height: 520 }); // small enough that 512×512 needs Fit < 100%
+    await page.goto(openUrl(repo));
+    await page.getByRole('row').filter({ hasText: 'Add viewbox svg' }).click();
+    await open(page, 'viewbox.svg');
+    const d = diff(page);
+    await expect(d.getByTestId('image-dims')).toHaveText('512×512');
+    const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(0.5);
+    const check = async (inside: boolean) => {
+      const img = (await d.locator('img.image-layer').boundingBox())!;
+      const frame = (await d.locator('.image-frame').boundingBox())!;
+      const view = (await d.locator('.image-viewport').boundingBox())!;
+      near(img.x, frame.x); near(img.y, frame.y); near(img.width, frame.width); near(img.height, frame.height);
+      expect(img.width).toBeGreaterThan(8);
+      if (!inside) return img; // 100% of 512×512 is larger than this viewport; only the box match matters
+      expect(img.x).toBeGreaterThanOrEqual(view.x - 0.5);
+      expect(img.x + img.width).toBeLessThanOrEqual(view.x + view.width + 0.5);
+      expect(img.y + img.height).toBeLessThanOrEqual(view.y + view.height + 0.5);
+      return img;
+    };
+    await fitButton(page).click();
+    await expect(fitButton(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(d.getByTestId('zoom-label')).not.toHaveText('100%');
+    const fit = await check(true);
+    expect(fit.width).toBeLessThan(512);
+    await d.getByRole('slider', { name: 'Zoom' }).dblclick(); // K14: back to 100%
+    const full = await check(false);
+    near(full.width, 512);
+    near(full.height, 512);
   });
 
   test('a drag pans only an image larger than the viewport; one that fits stays put (H27)', async ({ page }) => {

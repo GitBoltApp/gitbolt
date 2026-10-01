@@ -5,13 +5,17 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
+import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
+import { useAppState } from '../app/state';
 import type { EditorContextMenuEvent } from '../diff/monaco/host';
+import { useRuntime } from '../app/runtime';
 import { projectRemote, type ProjectRemote } from '../forge/urls';
 import { labelsByRowOf, membershipOf } from '../graph/graphIndex';
 import { loadOpeners, openersSnapshot, openVersion, openWith, parseListSpec, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
 import type { RepoServices } from '../repo/services';
+import type { SideItem } from '../sidebar/model';
 import { openWorktree, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
 import { useToast } from '../ui/toast';
 import './builders';
@@ -60,6 +64,11 @@ export interface MenuActions {
   compare(from: string, to: string | 'worktree'): void;
   /** Copies a commit's full message (summary + body), loading it first if it isn't cached. */
   copyMessage(sha: string): void;
+  /** Selects the commit in the graph and moves the keyboard there (the sidebar menus' "Show in
+   * graph"); a toast when it isn't in the loaded history. */
+  showInGraph(sha: string): void;
+  /** Shows a worktree's own folder in the file manager. */
+  openFolder(path: string): void;
 }
 
 export interface MenuEnv {
@@ -72,6 +81,8 @@ export interface MenuEnv {
    * guard (spec §7 target table). `null` on an unborn or detached HEAD. */
   headBranch: string | null;
   headSha: string | null;
+  /** Whether the commit is among the graph's loaded rows ("Show in graph" is greyed otherwise). */
+  inGraph(sha: string): boolean;
 }
 
 /** A folder row the folder menu is for. */
@@ -113,6 +124,14 @@ export interface MonacoTarget {
   /** What Open in ▸ opens: the same version the file list's row would (spec §14.5), at `lines[0]`. */
   openIn: OpenInTarget;
 }
+
+/** The sidebar menus' own rows (`sidebar` kind; branches and tags use the `commit` and `tag`
+ * kinds, plus the "Show in graph" row). */
+export type SidebarTarget =
+  | { what: 'ref'; sha: string | null }
+  | { what: 'remote'; name: string; url: string | null }
+  | { what: 'worktree'; path: string; branch: string | null; head: string | null }
+  | { what: 'stash'; sha: string; message: string };
 
 export const commitTargetOf = (row: RowPayload, branch: BranchRef | null = null): CommitTarget =>
   ({ sha: row.id, mrRefs: row.mrRefs, isWip: row.kind === 'wip', branch });
@@ -179,12 +198,13 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
   const head = s.graph.head;
   return {
     forge: (remote) => {
-      const r = projectRemote(remote === undefined ? remotes : remotes.filter((x) => x.name === remote));
+      const r = projectRemote(remote === undefined ? remotes : remotes.filter((x) => x.name === remote), useAppState.getState().profile.hostOverrides);
       return r && r.hostKind !== 'generic' ? r : null;
     },
     openers: openersSnapshot(),
     headBranch: head.branch?.replace(/^refs\/heads\//, '') ?? null,
     headSha: head.target,
+    inGraph: (sha) => s.indexById.has(sha),
     act: {
       copy: (text) => { copyText(text).then(() => toast('Copied'), () => toast('Copy failed')); },
       openUrl: (url) => { api.openUrl(url).catch((e: unknown) => toast(errorMessage(e))); },
@@ -193,6 +213,16 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
       viewFile: (t) => store.getState().openFile({ ...t, view: 'file' }),
       compare: (from, to) => compare(store, from, to),
       copyMessage: (sha) => copyMessage(store, sha),
+      showInGraph: (sha) => {
+        const g = store.getState();
+        if (g.selectCommitById(sha)) g.setFocus('graph');
+        else toast('Not in the loaded history');
+      },
+      // No dedicated "open a folder" request: `openIn` with the file manager and any one valid
+      // segment lands on the worktree itself (core `folder_target`), as the tab menu's does.
+      openFolder: (path) => {
+        api.openIn(s.repo, { worktree: path, path: 'root', line: null, opener: 'file-manager', source: null, fallback: null }).catch((e: unknown) => toast(errorMessage(e)));
+      },
     },
   };
 }
@@ -214,27 +244,58 @@ function sameNamed(g: GraphPayload, branch: string): Upstream | null {
   return r ? upstreamFrom(r) : null;
 }
 
+/** The sidebar payload of the tab showing repo `repo`, when loaded (menus read stores only). Any tab on the same `repo.id` is the same repo, so its payload is equally current: the first will do. */
+const sidebarFor = (repo: number): SidebarPayload | null =>
+  Object.values(useRuntime.getState().tabs).find((t) => t.repo?.id === repo && t.sidebar)?.sidebar ?? null;
+
+/** `refs/remotes/<remote>/<branch>` split by the sidebar's remote names (a remote name may hold
+ * "/"; the longest match wins), else at the first "/". */
+export function splitRemoteRef(ref: string, remotes: readonly string[]): Upstream | null {
+  const rest = ref.startsWith('refs/remotes/') ? ref.slice('refs/remotes/'.length) : null;
+  if (!rest) return null;
+  const known = [...remotes].sort((a, b) => b.length - a.length).find((r) => rest.startsWith(`${r}/`));
+  const remote = known ?? rest.slice(0, Math.max(0, rest.indexOf('/')));
+  return remote && rest.length > remote.length + 1 ? { remote, branch: rest.slice(remote.length + 1) } : null;
+}
+
+/** A local branch's configured upstream, from the sidebar: the upstream, `null` when it has none
+ * (or its remote branch is gone), `undefined` when the sidebar doesn't know the branch (not
+ * loaded yet): the caller then infers it. */
+function configuredUpstream(sidebar: SidebarPayload | null, local: string): Upstream | null | undefined {
+  const b = sidebar?.locals.find((x) => x.fullName === local);
+  if (!sidebar || !b) return undefined;
+  if (!b.upstream || b.gone) return null;
+  return splitRemoteRef(b.upstream, sidebar.remotes.map((r) => r.name));
+}
+
 /**
  * The upstream of the branch `sha` is on (spec §7, the file menu's ⎇): the branches whose tip
  * it is (HEAD's first), else the branch it belongs to (the graph's first-parent membership,
- * F7). A remote-tracking branch is its own; a local branch's is inferred as the same-named
- * remote-tracking branch, since 1B's payloads carry no configured upstreams (plan 1C: use the
- * sidebar's). Null when none is known.
+ * F7). A local branch's is its configured upstream, from the sidebar (`sidebar`); a branch the
+ * sidebar doesn't know (or no sidebar yet) is inferred as the same-named remote-tracking branch.
+ * A remote-tracking branch is its own. Null when none is known.
  */
-export function upstreamOf(g: GraphPayload, indexById: Map<string, number>, sha: string): Upstream | null {
+export function upstreamOf(g: GraphPayload, indexById: Map<string, number>, sha: string, sidebar: SidebarPayload | null = null): Upstream | null {
   const i = indexById.get(sha);
   if (i === undefined) return null;
   const { byRow, membership } = graphInfo(g);
   const labels = (byRow.get(i) ?? []).filter((l) => !l.tag).sort((a, b) => Number(b.isHead) - Number(a.isHead));
   for (const l of labels) {
+    const cfg = l.local ? configuredUpstream(sidebar, l.local) : undefined;
+    if (cfg) return cfg;
+    // The sidebar knows this branch and it has no (or a gone) upstream: none, not a same-named guess.
+    if (cfg === null) continue;
     const own = originFirst(l.remotes);
     if (own) return upstreamFrom(own);
-    const up = l.local ? sameNamed(g, l.local.replace(/^refs\/heads\//, '')) : null;
+    const up = l.local && cfg === undefined ? sameNamed(g, l.local.replace(/^refs\/heads\//, '')) : null;
     if (up) return up;
   }
   const m = membership[i];
   if (!m) return null;
-  if (m.ref.startsWith('refs/heads/')) return sameNamed(g, m.ref.slice('refs/heads/'.length));
+  if (m.ref.startsWith('refs/heads/')) {
+    const cfg = configuredUpstream(sidebar, m.ref);
+    return cfg !== undefined ? cfg : sameNamed(g, m.ref.slice('refs/heads/'.length));
+  }
   const r = g.labels.flatMap((l) => l.remotes).find((x) => x.fullName === m.ref);
   return r ? upstreamFrom(r) : null;
 }
@@ -259,17 +320,31 @@ function commitsOf(s: RepoViewState, spec: DiffSpec, t: DiffTarget, deleted: boo
   }
 }
 
+/** K99: the folder a list's paths are relative to. A WIP/worktree list: that worktree. A commit
+ * that is a checked-out worktree's HEAD (its branch label says where): that worktree. Else the
+ * repository's own. */
+export function rootOfSpec(s: RepoViewState, spec: DiffSpec): string {
+  if (spec.kind === 'wip' || spec.kind === 'worktree') return spec.worktree;
+  if (spec.kind === 'commit') {
+    const r = s.indexById.get(spec.id);
+    const wt = r === undefined ? undefined : s.graph.labels.find((l) => l.row === r && l.worktree)?.worktree;
+    if (wt) return wt;
+    return sidebarFor(s.repo)?.worktrees.find((w) => !w.isCurrent && w.head === spec.id)?.path ?? s.repoPath;
+  }
+  return s.repoPath;
+}
+
 /** The file menu's target for row `t` of the list for `spec`. */
 export function fileTargetOf(s: RepoViewState, spec: DiffSpec, t: DiffTarget, changed: boolean): FileTarget {
   const inWorktree = spec.kind === 'wip' || spec.kind === 'worktree' ? spec.worktree : null;
-  const root = inWorktree ?? worktreeOf(t) ?? s.repoPath;
+  const root = inWorktree ?? worktreeOf(t) ?? rootOfSpec(s, spec);
   const deleted = t.new.kind === 'absent';
   const { sha, branch } = commitsOf(s, spec, t, deleted);
   return {
     path: t.path,
     root,
     sha,
-    upstream: branch ? upstreamOf(s.graph, s.indexById, branch) : null,
+    upstream: branch ? upstreamOf(s.graph, s.indexById, branch, sidebarFor(s.repo)) : null,
     diff: t,
     changed,
     deleted,
@@ -295,7 +370,7 @@ export function fileMenu(store: RepoViewStore, spec: DiffSpec, t: DiffTarget, ch
 
 /** The folder menu's target: `inside`, a path in the folder, is what Open in ▸ Files opens. */
 export function folderTargetOf(s: RepoViewState, spec: DiffSpec, path: string, inside: string): FolderTarget {
-  const root = spec.kind === 'wip' || spec.kind === 'worktree' ? spec.worktree : s.repoPath;
+  const root = rootOfSpec(s, spec);
   return { path, root, openIn: { worktree: root, path: inside, line: null, source: null, fallback: null } };
 }
 
@@ -342,13 +417,13 @@ export function monacoTargetOf(s: RepoViewState, e: EditorContextMenuEvent): Mon
   // `object`/`worktree`/`absent`; `atCommit` is only File View's "unchanged file" case).
   const { sha, branch } = spec ? commitsOf(s, spec, diff, onOld) : { sha: null, branch: null };
   const inWorktree = spec && (spec.kind === 'wip' || spec.kind === 'worktree') ? spec.worktree : null;
-  const root = inWorktree ?? worktreeOf(diff) ?? s.repoPath;
+  const root = inWorktree ?? worktreeOf(diff) ?? (spec ? rootOfSpec(s, spec) : s.repoPath);
   return {
     path,
     sha,
     lines,
     selectionText: e.selectionText,
-    upstream: branch ? upstreamOf(s.graph, s.indexById, branch) : null,
+    upstream: branch ? upstreamOf(s.graph, s.indexById, branch, sidebarFor(s.repo)) : null,
     // The same version the file list's row would open (spec §14.5), at the clicked line.
     openIn: { worktree: root, path, line: lines[0], ...openVersion(diff, inWorktree) },
   };
@@ -364,6 +439,52 @@ export function monacoMenu(store: RepoViewStore, e: EditorContextMenuEvent): () 
   return () => {
     const t = monacoTargetOf(store.getState(), e);
     return t ? buildMenu<MonacoTarget, MenuEnv>('monaco', t, fileMenuEnv(store)) : [];
+  };
+}
+
+// Plan 1C Task 15b: the sidebar's item menus (spec §7's target table: branch, remote branch,
+// remote, tag, stash, worktree). Read-only rows only; checkout, delete, push… are sub-project #2's.
+
+/** Joins row groups with a separator between the non-empty ones. */
+const joinGroups = (...groups: MenuRow[][]): MenuRow[] =>
+  groups.filter((g) => g.length > 0).flatMap((g, i) => (i === 0 ? g : [{ kind: 'separator' as const }, ...g]));
+
+/** A right-click (or the menu key) on a sidebar item. A local or remote branch gets the branch
+ * label's commit menu (a local's remote copy is its configured upstream, from the sidebar), a tag
+ * the tag menu, a stash and a worktree their own copy/open rows; each ends with "Show in graph". */
+export function sidebarItemMenu(store: RepoViewStore, item: SideItem): () => MenuRow[] {
+  afterOpening(store);
+  return () => {
+    const s = store.getState();
+    const env = fileMenuEnv(store);
+    const view = (target: SidebarTarget) => buildMenu<SidebarTarget, MenuEnv>('sidebar', target, env);
+    const sha = item.target;
+    switch (item.kind) {
+      case 'local': case 'remote': {
+        const sidebar = sidebarFor(s.repo);
+        const upstream = item.kind === 'local' && item.branch.upstream && !item.branch.gone ? splitRemoteRef(item.branch.upstream, sidebar?.remotes.map((r) => r.name) ?? []) : null;
+        const branch: BranchRef = item.kind === 'local'
+          ? { name: item.name, local: item.branch.fullName, remotes: upstream ? [{ fullName: item.branch.upstream!, remote: upstream.remote }] : [] }
+          : { name: `${item.remote}/${item.name}`, local: null, remotes: [{ fullName: item.branch.fullName, remote: item.remote }] };
+        const mrRefs = sha ? s.graph.rows[s.indexById.get(sha) ?? -1]?.mrRefs ?? [] : [];
+        return joinGroups(sha ? buildMenu<CommitTarget, MenuEnv>('commit', { sha, mrRefs, isWip: false, branch }, env) : [], view({ what: 'ref', sha }));
+      }
+      case 'tag':
+        return joinGroups(sha ? buildMenu<TagTarget, MenuEnv>('tag', { name: item.tag.name, fullName: item.tag.fullName, sha }, env) : [], view({ what: 'ref', sha }));
+      case 'stash':
+        return view({ what: 'stash', sha: item.stash.id, message: item.stash.message });
+      case 'worktree':
+        return view({ what: 'worktree', path: item.worktree.path, branch: item.worktree.branch, head: item.worktree.head });
+    }
+  };
+}
+
+/** A right-click on a remote's folder row in the Remote panel. */
+export function sidebarRemoteMenu(store: RepoViewStore, remote: string): () => MenuRow[] {
+  afterOpening(store);
+  return () => {
+    const url = Object.values(useRuntime.getState().tabs).find((t) => t.repo?.id === store.getState().repo)?.info?.remotes.find((r) => r.name === remote)?.url ?? null;
+    return buildMenu<SidebarTarget, MenuEnv>('sidebar', { what: 'remote', name: remote, url }, fileMenuEnv(store));
   };
 }
 

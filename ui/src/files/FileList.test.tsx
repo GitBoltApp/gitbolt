@@ -27,6 +27,10 @@ function setup(services: RepoServices = fakeServices({ treeFiles: new Loader(asy
   return store;
 }
 
+/** The rows and the list, whatever their roles: tree mode is a `tree` of `treeitem`s (M8), path mode a `listbox` of `option`s. */
+const rowEls = () => [...document.querySelectorAll<HTMLElement>('[role="option"], [role="treeitem"]')];
+const listEl = () => document.querySelector<HTMLElement>('.file-list-scroll')!;
+
 describe('FileList', () => {
   beforeEach(() => useDensity.setState({ density: DEFAULT_DENSITY }));
 
@@ -39,7 +43,7 @@ describe('FileList', () => {
     expect([...counts.querySelectorAll('svg')].map((i) => i.dataset.status)).toEqual(['modified', 'renamed']);
     expect(counts).toHaveTextContent(/^21$/);
     expect(screen.getByTestId('file-totals')).toHaveTextContent('+4 −2');
-    const rows = screen.getAllByRole('option');
+    const rows = rowEls();
     // H22: a rename shows its new path; the old one is in the row's tooltip.
     expect(rows[0]).toHaveTextContent('docs/manual.txt');
     expect(rows[0]).not.toHaveTextContent('guide');
@@ -62,28 +66,28 @@ describe('FileList', () => {
   it('tree mode toggles folders with clicks and arrow keys', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     setup();
-    const docs = screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')!;
+    const docs = rowEls().find((r) => r.dataset.path === 'docs')!;
     expect(docs).toHaveAttribute('aria-expanded', 'true');
     fireEvent.mouseDown(docs);
-    expect(screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowRight' });
-    expect(screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'true');
+    expect(rowEls().find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.keyDown(listEl(), { key: 'ArrowRight' });
+    expect(rowEls().find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
-    expect(screen.getAllByRole('option').every((r) => r.dataset.kind === 'folder' || r.dataset.path === 'logo.png')).toBe(true);
+    expect(rowEls().every((r) => r.dataset.kind === 'folder' || r.dataset.path === 'logo.png')).toBe(true);
   });
 
   it('View all files lists unchanged files from the commit tree', async () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: true });
     setup();
     expect(await screen.findByText('zzz.txt')).toBeInTheDocument();
-    expect(screen.getAllByRole('option')).toHaveLength(4);
+    expect(rowEls()).toHaveLength(4);
   });
 
   it('opening a file prefetches the contents of the files on either side', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const rec = recordingServices();
     setup(rec.services);
-    fireEvent.mouseDown(screen.getAllByRole('option')[1]);
+    fireEvent.mouseDown(rowEls()[1]);
     const key = (path: string) => `contents ${contentKey(contentsRequest(targetFor(list.files.find((f) => f.path === path)!, spec)))}`;
     expect(rec.calls).toEqual([key('docs/manual.txt'), key('src/app.php')]);
   });
@@ -94,7 +98,7 @@ describe('FileList', () => {
     for (const d of DENSITIES) {
       act(() => useDensity.setState({ density: d }));
       const h = DENSITY_METRICS[d].fileRowH;
-      expect(screen.getAllByRole('option')[2], d).toHaveStyle({ height: `${h}px`, top: `${2 * h}px` });
+      expect(rowEls()[2], d).toHaveStyle({ height: `${h}px`, top: `${2 * h}px` });
     }
     // The default, standard, is taller than 1B's fixed 24 px; compact keeps it.
     expect(DENSITY_METRICS[DEFAULT_DENSITY].fileRowH).toBe(26);
@@ -104,8 +108,8 @@ describe('FileList', () => {
   it('J2: → opens the active file (nothing if it is open); ← closes the diff and returns to the graph', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();
-    const rows = () => screen.getAllByRole('option');
-    const box = screen.getByRole('listbox');
+    const rows = () => rowEls();
+    const box = listEl();
     fireEvent.mouseDown(rows()[0]);
     act(() => store.getState().setFocus('files'));
     const open = store.getState().diff;
@@ -133,8 +137,8 @@ describe('FileList', () => {
   it('J2: ← on an expanded folder collapses it and → on a collapsed one expands it; ← on any other row closes the diff', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     const store = setup();
-    const box = screen.getByRole('listbox');
-    const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+    const box = listEl();
+    const opt = (path: string) => rowEls().find((r) => r.dataset.path === path)!;
     fireEvent.mouseDown(opt('src/app.php'));
     fireEvent.mouseDown(opt('docs')); // collapses it; the cursor is on the folder
     act(() => store.getState().setFocus('files'));
@@ -166,12 +170,12 @@ describe('FileList', () => {
   it('J3: Up/Down, Home/End and PgUp/PgDn move between files only, skipping folder rows, and open each', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     const store = setup();
-    const box = screen.getByRole('listbox');
-    const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+    const box = listEl();
+    const opt = (path: string) => rowEls().find((r) => r.dataset.path === path)!;
     const key = (k: string) => fireEvent.keyDown(box, { key: k });
     const open = () => store.getState().diff?.path;
     // Rows: docs/, manual.txt, src/, app.php, logo.png.
-    expect(screen.getAllByRole('option').map((r) => r.dataset.kind)).toEqual(['folder', 'file', 'folder', 'file', 'file']);
+    expect(rowEls().map((r) => r.dataset.kind)).toEqual(['folder', 'file', 'folder', 'file', 'file']);
     key('ArrowDown'); // nothing active yet: the first file
     expect(open()).toBe('docs/manual.txt');
     key('ArrowDown');
@@ -217,7 +221,7 @@ describe('FileList', () => {
     const many = { files: 'abcdef'.split('').map((d) => change(`${d}/x.txt`)), added: 6, deleted: 0 };
     const store = createRepoViewStore(1, '/r', graph, fakeServices());
     render(<RepoViewContext value={store}><FileList list={many} spec={spec} label="Changed files" /></RepoViewContext>);
-    const box = screen.getByRole('listbox');
+    const box = listEl();
     // jsdom has no layout: a 4-row viewport makes a page 3 rows, so every step lands on a folder.
     Object.defineProperty(box, 'clientHeight', { configurable: true, value: 4 * DENSITY_METRICS[DEFAULT_DENSITY].fileRowH });
     const key = (k: string) => fireEvent.keyDown(box, { key: k });
@@ -240,22 +244,22 @@ describe('FileList', () => {
   it('Esc, then Enter, highlights the opened file: the cursor belongs to the diff it was set for', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();
-    fireEvent.mouseDown(screen.getAllByRole('option')[2]);
+    fireEvent.mouseDown(rowEls()[2]);
     expect(store.getState().diff?.path).toBe('src/app.php');
     act(() => store.getState().closeDiff());
     // Enter in the graph: openFirstFile opens the first file.
     act(() => store.getState().openFile(targetFor(list.files[0], spec)));
-    const rows = screen.getAllByRole('option');
+    const rows = rowEls();
     expect(rows.map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false']);
-    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
+    fireEvent.keyDown(listEl(), { key: 'ArrowDown' });
     expect(store.getState().diff?.path).toBe('logo.png');
   });
 
   it('tree ←/→ on the open file\'s folder with a diff open collapse and expand it, keeping the cursor there', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     const store = setup();
-    const box = screen.getByRole('listbox');
-    const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path);
+    const box = listEl();
+    const opt = (path: string) => rowEls().find((r) => r.dataset.path === path);
     fireEvent.mouseDown(opt('docs/manual.txt')!);
     act(() => store.getState().setFocus('files'));
     // Onto the folder (a click collapses it; a second expands it again): nothing new opens.
@@ -283,13 +287,13 @@ describe('FileList', () => {
   it('the listbox points aria-activedescendant at the active option', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     setup();
-    const box = screen.getByRole('listbox');
+    const box = listEl();
     expect(box).not.toHaveAttribute('aria-activedescendant');
-    fireEvent.mouseDown(screen.getAllByRole('option')[1]);
-    const active = screen.getAllByRole('option')[1];
+    fireEvent.mouseDown(rowEls()[1]);
+    const active = rowEls()[1];
     expect(active.id).not.toBe('');
     expect(box).toHaveAttribute('aria-activedescendant', active.id);
-    expect(new Set(screen.getAllByRole('option').map((o) => o.id)).size).toBe(3);
+    expect(new Set(rowEls().map((o) => o.id)).size).toBe(3);
   });
 
   describe('View all files loading (K54)', () => {
@@ -302,7 +306,7 @@ describe('FileList', () => {
       try {
         useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
         setup(deferred());
-        const before = screen.getAllByRole('option').map((o) => o.dataset.path);
+        const before = rowEls().map((o) => o.dataset.path);
         act(() => { fireEvent.click(screen.getByRole('button', { name: 'View all files' })); });
         // Asked for, but not switched: same rows, no filter bar, and no progress line yet.
         expect(screen.getByRole('button', { name: 'View all files' })).toHaveAttribute('aria-pressed', 'true');
@@ -312,17 +316,17 @@ describe('FileList', () => {
         expect(screen.queryByRole('progressbar')).toBeNull();
         act(() => { vi.advanceTimersByTime(1); });
         expect(screen.getByRole('progressbar', { name: 'Loading all files' })).toBeInTheDocument();
-        expect(screen.getAllByRole('option').map((o) => o.dataset.path)).toEqual(before);
+        expect(rowEls().map((o) => o.dataset.path)).toEqual(before);
         expect(filter()).toBeNull();
         // The data arrives: the layout and rows switch together.
         await act(async () => { gates.get(spec.id)!(['docs/manual.txt', 'logo.png', 'src/app.php', 'zzz.txt']); });
         expect(screen.queryByRole('progressbar')).toBeNull();
         expect(filter()).not.toBeNull();
-        expect(screen.getAllByRole('option')).toHaveLength(4);
+        expect(rowEls()).toHaveLength(4);
         // Turning it off is immediate.
         act(() => { fireEvent.click(screen.getByRole('button', { name: 'View all files' })); });
         expect(filter()).toBeNull();
-        expect(screen.getAllByRole('option')).toHaveLength(3);
+        expect(rowEls()).toHaveLength(3);
       } finally { vi.useRealTimers(); }
     });
 
@@ -344,7 +348,7 @@ describe('FileList', () => {
     let fail = true;
     setup(fakeServices({ treeFiles: new Loader(async () => { if (fail) throw new Error('tree walk failed'); return ['zzz.txt']; }, new Lru(2)) }));
     expect(await screen.findByRole('alert')).toHaveTextContent('tree walk failed');
-    expect(screen.getAllByRole('option')).toHaveLength(3); // the changed files are still listed
+    expect(rowEls()).toHaveLength(3); // the changed files are still listed
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('zzz.txt')).toBeInTheDocument();
@@ -354,7 +358,7 @@ describe('FileList', () => {
   it('tree mode: no folder icons, and each file\'s icon starts where its folder\'s name does (F17)', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     setup();
-    const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+    const opt = (path: string) => rowEls().find((r) => r.dataset.path === path)!;
     expect(opt('docs').querySelector('.lucide-folder')).toBeNull();
     expect(opt('docs').querySelectorAll('svg')).toHaveLength(1); // the chevron only
     expect(opt('docs')).toHaveStyle({ paddingLeft: `${rowIndent(0)}px` });
@@ -365,7 +369,7 @@ describe('FileList', () => {
   it('a collapsed folder shows its change counts; an expanded one doesn\'t (F20)', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     setup();
-    const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+    const opt = (path: string) => rowEls().find((r) => r.dataset.path === path)!;
     expect(within(opt('docs')).queryByTestId('folder-counts')).toBeNull();
     fireEvent.mouseDown(opt('docs'));
     const counts = within(opt('docs')).getByTestId('folder-counts');
@@ -384,15 +388,15 @@ describe('FileList', () => {
     expect(slots).toEqual(['file-toolbar-start', 'file-toolbar-center', 'file-toolbar-end']);
     // Everything expanded: the button collapses everything, then offers to expand.
     fireEvent.click(within(toolbar).getByRole('button', { name: 'Collapse all' }));
-    expect(screen.getAllByRole('option').filter((r) => r.dataset.kind === 'folder').every((r) => r.getAttribute('aria-expanded') === 'false')).toBe(true);
+    expect(rowEls().filter((r) => r.dataset.kind === 'folder').every((r) => r.getAttribute('aria-expanded') === 'false')).toBe(true);
     const expand = within(toolbar).getByRole('button', { name: 'Expand all' });
     expect(within(toolbar).queryByRole('button', { name: 'Collapse all' })).toBeNull();
     fireEvent.click(expand);
-    expect(screen.getAllByRole('option').filter((r) => r.dataset.kind === 'folder').every((r) => r.getAttribute('aria-expanded') === 'true')).toBe(true);
+    expect(rowEls().filter((r) => r.dataset.kind === 'folder').every((r) => r.getAttribute('aria-expanded') === 'true')).toBe(true);
     // Only some collapsed: it expands all.
-    fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')!);
+    fireEvent.mouseDown(rowEls().find((r) => r.dataset.path === 'docs')!);
     fireEvent.click(within(toolbar).getByRole('button', { name: 'Expand all' }));
-    expect(screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'true');
+    expect(rowEls().find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'true');
     expect(within(toolbar).getByRole('button', { name: 'Collapse all' })).toBeInTheDocument();
     // Path and Tree carry icons; Path mode puts Sort by status in the left slot.
     expect(within(toolbar).getByRole('button', { name: 'Path' }).querySelector('svg')).not.toBeNull();
@@ -410,15 +414,15 @@ describe('FileList', () => {
     expect(counts).toHaveAccessibleName('1 modified · 1 conflicted');
     expect([...counts.querySelectorAll('svg')].map((i) => i.dataset.status)).toEqual(['modified', 'conflicted']);
     fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
-    expect(within(screen.getAllByRole('option')[0]).getByTestId('folder-counts')).toHaveAccessibleName('1 modified · 1 conflicted');
-    expect(within(screen.getAllByRole('option')[0]).queryByRole('img', { name: 'Unmerged' })).toBeNull(); // folder icons are decorative
+    expect(within(rowEls()[0]).getByTestId('folder-counts')).toHaveAccessibleName('1 modified · 1 conflicted');
+    expect(within(rowEls()[0]).queryByRole('img', { name: 'Unmerged' })).toBeNull(); // folder icons are decorative
   });
 
   it('clicking the open file closes it, and Enter/Space toggle the active file (H5b)', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();
-    const box = screen.getByRole('listbox');
-    const row = () => screen.getAllByRole('option')[2];
+    const box = listEl();
+    const row = () => rowEls()[2];
     fireEvent.mouseDown(row());
     expect(store.getState().diff?.path).toBe('src/app.php');
     act(() => store.getState().setFocus('files'));
@@ -446,7 +450,7 @@ describe('FileList', () => {
   it('every press toggles, however quick: a file opens and closes, a folder collapses and expands (K2, K3)', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();
-    const row = () => screen.getAllByRole('option')[2];
+    const row = () => rowEls()[2];
     fireEvent.mouseDown(row(), { detail: 1 });
     expect(store.getState().diff?.path).toBe('src/app.php');
     fireEvent.mouseDown(row(), { detail: 2 });
@@ -456,7 +460,7 @@ describe('FileList', () => {
     cleanup();
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     setup();
-    const docs = () => screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')!;
+    const docs = () => rowEls().find((r) => r.dataset.path === 'docs')!;
     expect(docs()).toHaveAttribute('aria-expanded', 'true');
     fireEvent.mouseDown(docs(), { detail: 1 });
     expect(docs()).toHaveAttribute('aria-expanded', 'false');
@@ -477,7 +481,7 @@ describe('FileList', () => {
       </RepoViewContext>,
     );
     const rows = (label: string) => within(screen.getByRole('listbox', { name: label })).getAllByRole('option');
-    const selected = () => screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true').map((o) => `${o.closest('[role="listbox"]')!.getAttribute('aria-label')} ${o.dataset.path}`);
+    const selected = () => rowEls().filter((o) => o.getAttribute('aria-selected') === 'true').map((o) => `${o.closest('[role="listbox"]')!.getAttribute('aria-label')} ${o.dataset.path}`);
     fireEvent.mouseDown(rows('Unstaged')[0]);
     fireEvent.mouseDown(rows('Unstaged')[0]); // closed there
     expect(selected()).toEqual(['Unstaged docs/manual.txt']);
@@ -490,8 +494,8 @@ describe('FileList', () => {
   it('Enter/Space on a folder toggles it', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     setup();
-    const box = screen.getByRole('listbox');
-    const docs = () => screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')!;
+    const box = listEl();
+    const docs = () => rowEls().find((r) => r.dataset.path === 'docs')!;
     fireEvent.mouseDown(docs()); // the cursor on the folder (collapsed)
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(docs()).toHaveAttribute('aria-expanded', 'true');
@@ -502,7 +506,7 @@ describe('FileList', () => {
   it('a renamed file shows only its new name in the tree (H22)', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     setup();
-    const renamed = screen.getAllByRole('option').find((r) => r.dataset.path === 'docs/manual.txt')!;
+    const renamed = rowEls().find((r) => r.dataset.path === 'docs/manual.txt')!;
     expect(renamed.querySelector('.file-name')).toHaveTextContent(/^manual\.txt$/);
     expect(renamed.querySelector('.file-dir')).toBeNull();
     expect(renamed).not.toHaveTextContent('guide');
@@ -512,7 +516,7 @@ describe('FileList', () => {
     for (const mode of ['path', 'tree'] as const) {
       useFileListPrefs.getState().set({ mode, sort: 'path', allFiles: true });
       setup();
-      const opt = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+      const opt = (path: string) => rowEls().find((r) => r.dataset.path === path)!;
       fireEvent.mouseEnter(opt('src/app.php'));
       expect(screen.getByRole('tooltip')).toHaveTextContent(/^src\/app\.php$/);
       fireEvent.mouseLeave(opt('src/app.php'));
@@ -528,7 +532,7 @@ describe('FileList', () => {
   it('K4: ↓ wraps from the last file to the first, and ↑ from the first to the last, in path mode too', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();
-    const box = screen.getByRole('listbox');
+    const box = listEl();
     const key = (k: string) => fireEvent.keyDown(box, { key: k });
     const open = () => store.getState().diff?.path;
     key('End');
@@ -557,9 +561,9 @@ describe('FileList', () => {
     it('narrows the list by a case-insensitive path substring and highlights the match', async () => {
       setupAllFiles();
       await screen.findByText('zzz.txt'); // docs/manual.txt, logo.png, src/app.php, zzz.txt
-      expect(screen.getAllByRole('option')).toHaveLength(4);
+      expect(rowEls()).toHaveLength(4);
       fireEvent.change(screen.getByLabelText('Filter files'), { target: { value: 'APP' } });
-      const rows = screen.getAllByRole('option');
+      const rows = rowEls();
       expect(rows).toHaveLength(1);
       expect(rows[0].dataset.path).toBe('src/app.php');
       expect(rows[0].querySelector('mark.filter-match')).toHaveTextContent('app');
@@ -568,7 +572,7 @@ describe('FileList', () => {
     it('keeps the selection while the selected file still matches, and drops it once it stops matching', async () => {
       setupAllFiles();
       await screen.findByText('zzz.txt');
-      fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'src/app.php')!);
+      fireEvent.mouseDown(rowEls().find((r) => r.dataset.path === 'src/app.php')!);
       const filter = screen.getByLabelText('Filter files');
       fireEvent.change(filter, { target: { value: 'app' } });
       expect(screen.getByRole('option')).toHaveAttribute('aria-selected', 'true');
@@ -579,7 +583,7 @@ describe('FileList', () => {
     it('Esc clears the filter first; with the filter already empty, Esc goes to the app\'s Esc (closes the file)', async () => {
       const store = setupAllFiles();
       await screen.findByText('zzz.txt');
-      fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'src/app.php')!);
+      fireEvent.mouseDown(rowEls().find((r) => r.dataset.path === 'src/app.php')!);
       expect(store.getState().diff?.path).toBe('src/app.php');
       const filter = screen.getByLabelText('Filter files');
       fireEvent.change(filter, { target: { value: 'app' } });
@@ -596,14 +600,14 @@ describe('FileList', () => {
       const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
       const clear = screen.getByRole('button', { name: 'Clear filter' });
       expect(clear).toBeDisabled();
-      fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'src/app.php')!);
+      fireEvent.mouseDown(rowEls().find((r) => r.dataset.path === 'src/app.php')!);
       const filter = screen.getByLabelText('Filter files');
       fireEvent.change(filter, { target: { value: 'app' } });
       expect(clear).not.toBeDisabled();
       scrollTo.mockClear();
       fireEvent.click(clear);
       expect(filter).toHaveValue('');
-      expect(screen.getAllByRole('option')).toHaveLength(4);
+      expect(rowEls()).toHaveLength(4);
       expect(scrollTo).toHaveBeenCalled(); // K20: centres the still-selected row
     });
 

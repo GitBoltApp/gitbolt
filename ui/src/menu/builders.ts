@@ -1,9 +1,9 @@
 import { refTokenFromLabel } from '../details/messageLinks';
-import { branchUrl, commitUrl, fileUrl, type ProjectRemote } from '../forge/urls';
+import { branchUrl, commitUrl, fileUrl, repoUrl, type ProjectRemote } from '../forge/urls';
 import { defaultOpener, openerRowId, openInSubmenuRows } from '../openIn/openerRows';
 import { shortSha } from '../format/sha';
 import { ICONS } from './icons';
-import type { CommitTarget, FileTarget, FolderTarget, MenuEnv, MonacoTarget, TagTarget } from './menuEnv';
+import type { CommitTarget, FileTarget, FolderTarget, MenuEnv, MonacoTarget, SidebarTarget, TagTarget } from './menuEnv';
 import { registerMenu, tmpl } from './registry';
 import type { MenuRow, Variant } from './types';
 
@@ -270,5 +270,78 @@ registerMenu<MonacoTarget, MenuEnv>({
   rows: (t, env) => {
     const { list, error } = env.openers;
     return [{ kind: 'submenu', id: 'monaco.openIn', label: 'Open in', icon: ICONS.editor, tooltip: `Open the file in another application at line ${t.lines[0]}`, rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn)) }];
+  },
+});
+
+// Plan 1C Task 15b: the sidebar's own rows (remote, worktree, stash), and the "Show in graph" row
+// that ends every sidebar item's menu. A branch or tag item gets its `commit`/`tag` menu first
+// (`sidebarItemMenu`). Read-only: checkout, delete, push… are sub-project #2's.
+
+/** `Copy SHA | Short | Full |`. */
+const copySha = (id: string, sha: string, env: MenuEnv): MenuRow => row({
+  id, label: 'Copy SHA', icon: ICONS.sha, tooltip: 'Copy the full commit id', run: () => env.act.copy(sha),
+  variants: [
+    { id: 'short', label: 'Short', tooltip: `Copy the short id (${shortSha(sha)})`, run: () => env.act.copy(shortSha(sha)) },
+    { id: 'full', label: 'Full', tooltip: 'Copy the full 40-character id', run: () => env.act.copy(sha) },
+  ],
+});
+
+registerMenu<SidebarTarget, MenuEnv>({
+  id: 'sidebar.copy', kind: 'sidebar', group: 'copy', order: 0,
+  rows: (t, env) => {
+    switch (t.what) {
+      case 'remote':
+        return [
+          row({ id: 'sidebar.copyRemote', label: 'Copy remote name', icon: ICONS.copy, tooltip: `Copy "${t.name}"`, run: () => env.act.copy(t.name) }),
+          row({ id: 'sidebar.copyUrl', label: 'Copy URL', icon: ICONS.browser, tooltip: t.url ? `Copy the remote's URL (${t.url})` : "The remote's URL isn't loaded yet", run: () => t.url && env.act.copy(t.url), disabledReason: t.url ? undefined : 'Not loaded yet' }),
+        ];
+      case 'worktree':
+        return [
+          row({ id: 'sidebar.copyPath', label: 'Copy path', icon: ICONS.copy, tooltip: `Copy "${t.path}"`, run: () => env.act.copy(t.path) }),
+          ...(t.branch ? [row({ id: 'sidebar.copyBranch', label: 'Copy branch name', icon: ICONS.branch, tooltip: `Copy "${t.branch}"`, run: () => env.act.copy(t.branch!) })] : []),
+          ...(t.head ? [copySha('sidebar.copySha', t.head, env)] : []),
+        ];
+      case 'stash':
+        return [
+          copySha('sidebar.copySha', t.sha, env),
+          row({ id: 'sidebar.copyStash', label: 'Copy message', icon: ICONS.message, tooltip: "Copy the stash's message", run: () => env.act.copy(t.message) }),
+        ];
+      case 'ref':
+        return [];
+    }
+  },
+});
+
+/** A remote's `Forge link | Open |`: its project's home page. */
+registerMenu<SidebarTarget, MenuEnv>({
+  id: 'sidebar.forge', kind: 'sidebar', group: 'forge', order: 0,
+  when: (t) => t.what === 'remote',
+  rows: (t, env) => {
+    const f = t.what === 'remote' ? env.forge(t.name) : null;
+    const url = f ? repoUrl(f) : null;
+    if (!f || !url) return [];
+    const name = forgeName(f);
+    return [row({ id: 'sidebar.forgeLink', label: 'Forge link', icon: ICONS.forge, tooltip: `Copy the link to the project on ${name}`, run: () => env.act.copy(url), variants: [{ id: 'open', icon: ICONS.browser, tooltip: `Open the project on ${name} in the browser`, run: () => env.act.openUrl(url) }] })];
+  },
+});
+
+registerMenu<SidebarTarget, MenuEnv>({
+  id: 'sidebar.open', kind: 'sidebar', group: 'open', order: 0,
+  when: (t) => t.what === 'worktree',
+  rows: (t, env) => (t.what === 'worktree'
+    ? [row({ id: 'sidebar.openFolder', label: 'Open in file manager', icon: ICONS.reveal, tooltip: "Show the worktree's folder in the file manager", run: () => env.act.openFolder(t.path) })]
+    : []),
+});
+
+registerMenu<SidebarTarget, MenuEnv>({
+  id: 'sidebar.view', kind: 'sidebar', group: 'view', order: 0,
+  rows: (t, env) => {
+    const sha = t.what === 'ref' || t.what === 'stash' ? t.sha : t.what === 'worktree' ? t.head : null;
+    if (!sha) return [];
+    const loaded = env.inGraph(sha);
+    return [row({
+      id: 'sidebar.showInGraph', label: 'Show in graph', icon: ICONS.graph, tooltip: 'Select this commit in the graph',
+      run: () => env.act.showInGraph(sha), disabledReason: loaded ? undefined : 'Not in the loaded history',
+    })];
   },
 });

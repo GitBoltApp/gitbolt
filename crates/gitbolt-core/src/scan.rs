@@ -73,6 +73,15 @@ pub fn scan_repos(root: &Path) -> Vec<ScannedRepo> {
     found
 }
 
+/// The per-folder scans as one list: de-duplicated by path (folders may overlap), sorted as a
+/// single scan is.
+pub fn merge_scans(scans: impl IntoIterator<Item = Vec<ScannedRepo>>) -> Vec<ScannedRepo> {
+    let mut seen = std::collections::HashSet::new();
+    let mut all: Vec<ScannedRepo> = scans.into_iter().flatten().filter(|r| seen.insert(r.path.clone())).collect();
+    all.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
+    all
+}
+
 /// `~/repos`, when it exists: the "Open Repository" screen's suggested default folder.
 pub fn suggest_repos_folder(home: Option<&Path>) -> Option<String> {
     let p = home?.join("repos");
@@ -99,6 +108,19 @@ mod tests {
         assert!(!names.iter().any(|p| p.contains(".hidden")), "{names:?}");
         assert!(found.iter().all(|r| r.branch.as_deref() == Some("main")));
         assert!(found.windows(2).all(|w| w[0].modified >= w[1].modified));
+    }
+
+    #[test]
+    fn merged_scans_dedupe_by_path_and_sort_like_one_scan() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        TestRepo::init_at(&a.path().join("one")).commit("1");
+        TestRepo::init_at(&b.path().join("two")).commit("2");
+        let (sa, sb) = (scan_repos(a.path()), scan_repos(b.path()));
+        let merged = merge_scans([sa.clone(), sb.clone(), sa.clone()]);
+        assert_eq!(merged.len(), 2, "{merged:?}");
+        assert!(merged.windows(2).all(|w| w[0].modified >= w[1].modified));
+        assert!(merge_scans(Vec::<Vec<ScannedRepo>>::new()).is_empty());
     }
 
     #[test]

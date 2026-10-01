@@ -14,7 +14,11 @@ closedTabs: Array<ClosedTab>,
 /**
  * Newest first.
  */
-recent: Array<RecentRepo>, reposFolder: string | null, editor: EditorChoice | null, 
+recent: Array<RecentRepo>, reposFolder: string | null, 
+/**
+ * The folders "Your repos" scans, merged. `None` = never set (see `migrate_repos_folders`).
+ */
+reposFolders: Array<string> | null, editor: EditorChoice | null, 
 /**
  * Added to every git command as `-c include.path=<path>` (spec §14.2).
  */

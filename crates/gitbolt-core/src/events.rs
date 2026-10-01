@@ -85,6 +85,9 @@ pub enum AppEvent {
         repo: Option<u32>,
         outcome: OpOutcome,
         message: Option<String>,
+        /// The git command that ran, argv joined for display and redacted (no environment, no
+        /// askpass secrets): the activity log shows it (K101).
+        command: Option<String>,
     },
     /// A credential prompt is waiting for the user (spec §5.4).
     AuthWaiting {

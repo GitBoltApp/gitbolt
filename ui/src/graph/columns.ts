@@ -157,18 +157,19 @@ export function resizeColumn(col: ResizableColumn, start: ColumnWidths, dx: numb
 
 /**
  * THE persistence seam for column widths, keyed by repo (`repoId`: a stable per-repo key, the
- * repository's path today). Session-only for now: nothing is loaded and saves go nowhere, so
- * widths last as long as the window. Plan 1C replaces this one object with the per-repo settings
- * store (spec §8.4, "Widths are saved per repo"); nothing else changes. `save` is called once
- * per gesture that changed something (pointer up, key press), never per pointer move.
+ * repository's path today). The app points it at the per-repo settings (`RepoSettings.columns`,
+ * app/columnsPersistence.ts; spec §8.4, "Widths are saved per repo"); until then it's
+ * session-only. `save` is called once per gesture that changed something (pointer up, key
+ * press), never per pointer move.
  */
 export interface ColumnPrefsPersistence { load(repoId: string): ColumnPrefs | null; save(repoId: string, prefs: ColumnPrefs): void }
 export const columnPrefsPersistence: ColumnPrefsPersistence = { load: () => null, save: () => {} };
 
 /**
  * THE persistence seam for the hidden columns (spec §8.4, "all except Graph and Message can be
- * hidden"), keyed by repo like the widths. Session-only for now; plan 1C Task 16b points it at
- * the per-repo settings (`RepoSettings.hiddenColumns`). `save` is called once per toggle. Unknown
+ * hidden"), keyed by repo like the widths. The app points it at the per-repo settings
+ * (`RepoSettings.hiddenColumns`, app/columnsPersistence.ts); until then it's session-only. `save`
+ * is called once per toggle. Unknown
  * names from storage are dropped on load.
  */
 export interface HiddenColumnsPersistence { load(repoId: string): readonly string[] | null; save(repoId: string, hidden: readonly HideableColumn[]): void }

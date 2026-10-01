@@ -57,30 +57,48 @@ run-app repo="":
 
 # A desktop entry for the unbundled release build (H13): the dock and the app grid then show
 # GitBolt's icon and match its window (StartupWMClass = the window's WM_CLASS, set in
-# crates/gitbolt-app/src/desktop.rs). Writes only under your home: ~/.local/share/applications
-# and ~/.local/share/icons. It launches through `just run-app` in this checkout, so the sandbox
-# helper setup stays in one place. The .deb has its own entry (Tauri's bundler writes it).
-# Run it from the MAIN checkout: Exec bakes in this checkout's path, and a `.claude/worktrees/`
-# worktree is temporary (the entry would point at a removed directory later).
+# crates/gitbolt-app/src/desktop.rs). Writes only under $XDG_DATA_HOME (default
+# ~/.local/share): applications/gitbolt.desktop and icons/hicolor/<size>/apps/gitbolt.png, plus
+# the scalable source.svg. It launches this checkout's release binary (target/release/gitbolt,
+# from `just build-app`) through `just run-app`, so the sandbox helper setup stays in one place.
+# The .deb has its own entry (Tauri's bundler writes it). Run it from the MAIN checkout: Exec
+# bakes in this checkout's path, and a `.claude/worktrees/` worktree is temporary (the entry
+# would point at a removed directory later). Re-run it after regenerating the icons.
+# `just uninstall-desktop` removes exactly what it writes.
+desktop_icons := "32x32:32x32.png 64x64:64x64.png 128x128:128x128.png 256x256:128x128@2x.png 512x512:icon.png"
+
 install-desktop:
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{justfile_directory()}}" in
       */.claude/worktrees/*) echo "warning: this is a temporary worktree ({{justfile_directory()}}); the entry's Exec points here. Run 'just install-desktop' from the main checkout instead." >&2 ;;
     esac
-    apps="$HOME/.local/share/applications"; icons="$HOME/.local/share/icons/hicolor"
+    [ -x "{{justfile_directory()}}/target/release/gitbolt" ] || echo "note: target/release/gitbolt isn't built yet; run 'just build-app' before launching it from the dock." >&2
+    data="${XDG_DATA_HOME:-$HOME/.local/share}"; apps="$data/applications"; icons="$data/icons/hicolor"
     mkdir -p "$apps"
-    for size in 32x32:32x32.png 128x128:128x128.png 256x256:128x128@2x.png 512x512:icon.png; do
+    for size in {{desktop_icons}}; do
       dir="$icons/${size%%:*}/apps"; mkdir -p "$dir"
-      cp "crates/gitbolt-app/icons/${size#*:}" "$dir/gitbolt.png"
+      cp "{{justfile_directory()}}/crates/gitbolt-app/icons/${size#*:}" "$dir/gitbolt.png"
     done
+    mkdir -p "$icons/scalable/apps"
+    cp "{{justfile_directory()}}/crates/gitbolt-app/icons/source.svg" "$icons/scalable/apps/gitbolt.svg"
     printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=GitBolt' 'Comment=Git GUI' \
       'Exec="{{just_executable()}}" --justfile "{{justfile()}}" run-app' 'Icon=gitbolt' \
       'StartupWMClass=gitbolt' 'Categories=Development;RevisionControl;' 'Terminal=false' \
       > "$apps/gitbolt.desktop"
     command -v update-desktop-database >/dev/null && update-desktop-database "$apps" || true
-    command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" || true
+    command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$icons" || true
     echo "Wrote $apps/gitbolt.desktop (Exec: just run-app in {{justfile_directory()}})"
+
+uninstall-desktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    data="${XDG_DATA_HOME:-$HOME/.local/share}"; apps="$data/applications"; icons="$data/icons/hicolor"
+    rm -f "$apps/gitbolt.desktop" "$icons/scalable/apps/gitbolt.svg"
+    for size in {{desktop_icons}}; do rm -f "$icons/${size%%:*}/apps/gitbolt.png"; done
+    [ -d "$apps" ] && command -v update-desktop-database >/dev/null && update-desktop-database "$apps" || true
+    [ -d "$icons" ] && command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$icons" || true
+    echo "Removed GitBolt's desktop entry and icons from $data"
 
 lint:
     cargo clippy --workspace --all-targets -- -D warnings

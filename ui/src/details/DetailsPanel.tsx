@@ -3,6 +3,7 @@ import type { CommitDetailsPayload } from '../api/gen/CommitDetailsPayload';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import { copyText } from '../api/transport';
 import { FileList } from '../files/FileList';
+import { useAppState } from '../app/state';
 import { formatDate } from '../format/date';
 import { shortSha } from '../format/sha';
 import { perf } from '../perf';
@@ -12,7 +13,7 @@ import { useRepoView, useRepoViewStore, type FileSection, type PanelContent } fr
 import { useToast } from '../ui/toast';
 import { Avatar } from '../avatars/Avatar';
 import { LARGEST_AVATAR_PX } from '../avatars/avatarStore';
-import { useHoverTooltip } from '../ui/HoverTooltip';
+import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { CoAuthors, personLabel } from './CoAuthors';
 import { CompareHeader } from './CompareHeader';
 import { loadSplit, saveSplit, splitBounds } from './detailsSplit';
@@ -57,10 +58,11 @@ function HashButton({ hash, testId, tip, onClick }: { hash: string; testId: stri
  * committer gets their own row, which carries the committed date; and co-authors.
  */
 function CommitHeader({ d }: { d: CommitDetailsPayload }) {
+  const dateFormat = useAppState((s) => s.settings.dateFormat);
   const toast = useToast((s) => s.show);
   const selectById = useRepoView((s) => s.selectCommitById);
   const committerDiffers = d.committer.name !== d.author.name || d.committer.email !== d.author.email;
-  const commitDate = <span data-testid="commit-date">{formatDate(d.committer.time)}</span>;
+  const commitDate = <span data-testid="commit-date">{formatDate(d.committer.time, dateFormat)}</span>;
   return (
     <header className="commit-header">
       <div className="commit-ids panel-bar">
@@ -80,7 +82,7 @@ function CommitHeader({ d }: { d: CommitDetailsPayload }) {
         <Person name={d.author.name} email={d.author.email} size={LARGEST_AVATAR_PX} />
         <span className="person-dates">
           {!committerDiffers && commitDate}
-          {d.author.time !== d.committer.time && <span data-testid="author-date" className="dim">authored {formatDate(d.author.time)}</span>}
+          {d.author.time !== d.committer.time && <span data-testid="author-date" className="dim">authored {formatDate(d.author.time, dateFormat)}</span>}
         </span>
       </div>
       {committerDiffers && (
@@ -139,7 +141,7 @@ function ParentPicker({ panel }: { panel: PanelContent }) {
   return (
     <div className="segmented parent-picker" role="group" aria-label="Diff against parent">
       {details.data.parents.map((p, i) => (
-        <button key={p} type="button" aria-pressed={parent === i} title={p} onClick={() => setParent(i)}>vs {ordinal(i + 1)} parent</button>
+        <HoverTooltip key={p} content={p}><button type="button" aria-pressed={parent === i} aria-description={p} onClick={() => setParent(i)}>vs {ordinal(i + 1)} parent</button></HoverTooltip>
       ))}
     </div>
   );
@@ -163,11 +165,14 @@ function FileSectionView({ section }: { section: FileSection }) {
   );
 }
 
+/** A file list (a `listbox` in path mode, a `tree` in tree mode: review M8). */
+const FILE_LIST = '.file-list-scroll';
+
 /** The list the files zone focuses: the one holding the open file, else the first with rows
  * (a WIP row may have only staged changes), else the first. */
 function pickFileList(zone: HTMLElement): HTMLElement | null {
   // A collapsed WIP section's list is mounted but hidden: never the one to focus.
-  const lists = Array.from(zone.querySelectorAll<HTMLElement>('[role="listbox"]')).filter((l) => !l.closest('[hidden]'));
+  const lists = Array.from(zone.querySelectorAll<HTMLElement>(FILE_LIST)).filter((l) => !l.closest('[hidden]'));
   return lists.find((l) => l.hasAttribute('data-open-file')) ?? lists.find((l) => !l.hasAttribute('data-empty')) ?? lists[0] ?? null;
 }
 
@@ -191,7 +196,7 @@ function FileSections({ panel }: { panel: PanelContent }) {
     const active = document.activeElement;
     if (!el) return;
     const lost = (active === null || active === document.body) && store.getState().focus === 'files';
-    if (!(lost || active === el || (active instanceof HTMLElement && el.contains(active) && active.matches('[role="listbox"][data-empty]')))) return;
+    if (!(lost || active === el || (active instanceof HTMLElement && el.contains(active) && active.matches(`${FILE_LIST}[data-empty]`)))) return;
     const list = pickFileList(el);
     if (list && list !== active) list.focus({ preventScroll: true });
     else if (!list && lost) el.focus({ preventScroll: true });

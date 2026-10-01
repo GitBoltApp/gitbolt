@@ -1,9 +1,10 @@
-import { Bell, BellOff, Check, LoaderCircle, TriangleAlert, ZoomIn } from 'lucide-react';
-import { useEffect } from 'react';
+import { Bell, BellOff, Check, History, LoaderCircle, TriangleAlert, ZoomIn } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { copyText } from '../api/transport';
+import { openActivityLog } from '../app/activityLog';
 import { useAppInfo } from '../app/appInfo';
-import { useOps } from '../app/ops';
+import { useOps, type OpInfo } from '../app/ops';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { openMenuAt } from '../menu/menuStore';
@@ -20,13 +21,15 @@ const BELL_LABEL = 80;
  * message; its tooltip has the time and the whole message. */
 function bellRows(): MenuRow[] {
   const { errors } = useOps.getState();
-  if (errors.length === 0) return [{ kind: 'action', id: 'bell.none', label: 'No notifications', icon: BellOff, tooltip: 'Background errors (a failed background fetch) appear here', run: () => {}, disabledReason: 'Nothing to show' }];
+  // K96: the activity log (every finished fetch and clone, with git's message) is one step away.
+  const activity: MenuRow = { kind: 'action', id: 'bell.activity', label: 'Activity log…', icon: History, tooltip: 'Every finished fetch and clone, background ones included', run: openActivityLog };
+  if (errors.length === 0) return [{ kind: 'action', id: 'bell.none', label: 'No notifications', icon: BellOff, tooltip: 'Background errors (a failed background fetch) appear here', run: () => {}, disabledReason: 'Nothing to show' }, { kind: 'separator' }, activity];
   const rows: MenuRow[] = errors.slice(0, BELL_ROWS).map((e, i) => ({
     kind: 'action', id: `bell.${i}`, label: e.message.length > BELL_LABEL ? `${e.message.slice(0, BELL_LABEL - 1)}…` : e.message, icon: TriangleAlert,
     tooltip: `${new Date(e.at).toLocaleString()}\n${e.message}\n\nClick to copy`,
     run: () => { void copyText(e.message).then(() => useToast.getState().show('Copied'), () => useToast.getState().show('Copy failed')); },
   }));
-  return [...rows, { kind: 'separator' }, { kind: 'action', id: 'bell.clear', label: 'Clear notifications', icon: BellOff, tooltip: 'Forget these errors', run: () => useOps.getState().clearErrors() }];
+  return [...rows, { kind: 'separator' }, activity, { kind: 'action', id: 'bell.clear', label: 'Clear notifications', icon: BellOff, tooltip: 'Forget these errors', run: () => useOps.getState().clearErrors() }];
 }
 
 /** Spec §12.3: the zoom steps, the current one first in focus. */
@@ -38,19 +41,39 @@ function zoomRows(current: number): MenuRow[] {
 }
 
 /** The running network op the bar shows: the first clone (rarely more than one runs). A fetch
- * never shows here (K30): a user's spins the Fetch button, a background one is only logged. */
+ * shows here only when it's the user's and slow (below); a background one is only logged (K30). */
 const firstOp = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops).find((o) => o.kind !== 'fetch');
+/** The user's running fetch (or the background one a user's Fetch waits on). */
+const userFetch = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops).find((o) => o.kind === 'fetch' && (o.interactive || o.shown));
+
+/** How long a user's fetch runs on its button alone (K30) before the bar shows its progress and a
+ * Cancel (K96: a stuck remote can be stopped). Most fetches are done well before. */
+export const SLOW_FETCH_MS = 2000;
+
+/** `op`, once it has run `SLOW_FETCH_MS`; else `undefined`. */
+function useSlow(op: OpInfo | undefined): OpInfo | undefined {
+  const [slowId, setSlowId] = useState<number | null>(null);
+  const id = op?.op;
+  const startedAt = op?.startedAt;
+  useEffect(() => {
+    if (id === undefined || startedAt === undefined) return;
+    const t = setTimeout(() => setSlowId(id), Math.max(0, startedAt + SLOW_FETCH_MS - Date.now()));
+    return () => clearTimeout(t);
+  }, [id, startedAt]);
+  return op && op.op === slowId ? op : undefined;
+}
 
 /**
- * The status bar (spec §6.5), in the app's `statusBar` slot: zoom, a running clone (or the auth
- * prompt a user's fetch or clone waits on) with Cancel, the active tab's fetch-skipped warning,
- * the notification bell (background errors), and the git version.
+ * The status bar (spec §6.5), in the app's `statusBar` slot: zoom, a running clone or a slow fetch
+ * of the user's (or the auth prompt one waits on) with Cancel, the active tab's fetch-skipped
+ * warning, the notification bell (background errors, and the activity log), and the git version.
  */
 export function StatusBar() {
   const zoom = useZoom((s) => s.zoom);
   const activeTab = useAppState((s) => s.profile.activeTab);
   const skipped = useRuntime((s) => (activeTab ? s.tabs[activeTab]?.fetchSkipped ?? null : null));
   const task = useOps((s) => firstOp(s.ops));
+  const fetching = useSlow(useOps((s) => userFetch(s.ops)));
   const prompt = useOps((s) => s.prompts[0]);
   const unread = useOps((s) => s.unread);
   const git = useAppInfo((s) => s.info?.gitVersion);
@@ -73,6 +96,12 @@ export function StatusBar() {
           <LoaderCircle size={12} className="sb-spin" aria-hidden />
           {`Cloning…${task.percent !== null ? ` ${task.percent}%` : ''}`}
           <button type="button" className="sb-link" onClick={() => cancel(task.op)}>Cancel</button>
+        </span>
+      ) : fetching ? (
+        <span className="sb-item sb-task">
+          <LoaderCircle size={12} className="sb-spin" aria-hidden />
+          {`Fetching ${fetching.label}…${fetching.percent !== null ? ` ${fetching.percent}%` : ''}`}
+          <button type="button" className="sb-link" onClick={() => cancel(fetching.op)}>Cancel</button>
         </span>
       ) : null}
       {skipped && <span className="sb-item sb-warn"><TriangleAlert size={12} aria-hidden /> {skipped}</span>}

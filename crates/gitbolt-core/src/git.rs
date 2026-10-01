@@ -44,6 +44,7 @@ pub struct GitInvocation {
     cancel: Option<CancellationToken>,
     envs: Vec<(OsString, OsString)>,
     stderr_lines: Option<UnboundedSender<String>>,
+    detach: bool,
 }
 
 impl GitInvocation {
@@ -52,7 +53,7 @@ impl GitInvocation {
         I: IntoIterator<Item = S>,
         S: Into<OsString>,
     {
-        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None }
+        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false }
     }
 
     /// `None` = no timeout (network operations).
@@ -82,6 +83,16 @@ impl GitInvocation {
     /// (git progress rewrites its line with `\r`). The full stderr is still collected.
     pub fn stream_stderr(mut self, tx: UnboundedSender<String>) -> Self {
         self.stderr_lines = Some(tx);
+        self
+    }
+
+    /// Runs git in a new session (`setsid`), with no controlling terminal (network ops, K96):
+    /// ssh, a credential helper or git itself then can't open `/dev/tty` to prompt, so a prompt
+    /// either reaches askpass or fails at once. Without this, an app started from a shell leaves
+    /// its terminal to them, and a read from it (by a background process group) stops the
+    /// command for good. Cancel still kills the whole group: the session leader's.
+    pub fn detach_terminal(mut self) -> Self {
+        self.detach = true;
         self
     }
 }
@@ -174,6 +185,10 @@ impl GitCli {
         }
         cmd.args(["-c", "core.quotepath=false"])
             .args(&inv.args)
+            // A partial clone must never fetch missing objects behind the user's back from a
+            // read (status, log, numstat, the watcher's lists). Network ops override it
+            // (netops.rs), as a clone's checkout needs the lazy fetch.
+            .env("GIT_NO_LAZY_FETCH", "1")
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .envs(inv.envs.iter().map(|(k, v)| (k, v)))
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -196,11 +211,20 @@ impl GitCli {
             hook(cmd.as_std_mut());
         }
 
-        // Set process group for Unix platforms
+        // Its own process group (cancel kills git's children too). A detached command gets its
+        // own session instead, whose group it leads (`setsid` fails in a group leader, so it's
+        // one or the other).
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
-            cmd.as_std_mut().process_group(0);
+            if inv.detach {
+                // SAFETY: `setsid` is async-signal-safe and the closure touches nothing else.
+                unsafe {
+                    cmd.as_std_mut().pre_exec(|| nix::unistd::setsid().map(drop).map_err(std::io::Error::from));
+                }
+            } else {
+                cmd.as_std_mut().process_group(0);
+            }
         }
 
         let mut child = match cmd.spawn() {
@@ -217,7 +241,7 @@ impl GitCli {
                     exit_code: None,
                     stderr: truncate_utf8(&redacted_err, STDERR_LOG_LIMIT).to_string(),
                 });
-                return Err(GbError { kind: GbErrorKind::Io, message: err_msg, command_id: Some(id), stderr: Some(redacted_err) });
+                return Err(GbError { kind: GbErrorKind::Io, message: redacted_err.clone(), command_id: Some(id), stderr: Some(redacted_err) });
             }
         };
 
@@ -312,7 +336,7 @@ impl GitCli {
 /// The error for a git process that started but couldn't be waited on. It carries the
 /// command's log id like every other failure, so the UI can link it to the command log.
 fn wait_failed(id: u64, e: &std::io::Error) -> GbError {
-    GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Io, format!("git failed: {e}")) }
+    GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Io, redact(&format!("git failed: {e}"))) }
 }
 
 fn kill_group(pid: Option<u32>) {
@@ -364,11 +388,13 @@ fn flush_line(tx: &UnboundedSender<String>, pending: &mut Vec<u8>) {
     }
 }
 
+/// git's first real message line: not a hint, and not progress (`Fetching origin`, a
+/// `\r`-rewritten percentage, `From <url>`), which a network command prints before it fails.
 fn first_message_line(stderr: &str) -> Option<String> {
     stderr
-        .lines()
+        .split(['\r', '\n'])
         .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("hint:"))
+        .find(|l| !l.is_empty() && !l.starts_with("hint:") && !l.starts_with("From ") && !l.starts_with("Cloning into ") && crate::netops::parse_progress(l).is_none())
         .map(|l| l.trim_start_matches("fatal: ").trim_start_matches("error: ").to_string())
 }
 
@@ -467,6 +493,46 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.stdout), "0 C 0");
     }
 
+    /// K96: a failed `fetch --all --progress` starts with progress ("Fetching origin", `\r`-joined
+    /// percentages): the message is git's (or ssh's) first real line, never a progress one.
+    #[test]
+    fn the_message_skips_progress_lines() {
+        let multi = "Fetching origin\ngit@h: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\nerror: could not fetch origin\n";
+        assert_eq!(first_message_line(multi).as_deref(), Some("git@h: Permission denied (publickey)."));
+        let cut = "remote: Counting objects: 50% (1/2)\rremote: Counting objects: 100% (2/2), done.\nReceiving objects:  10% (1/10)\rFrom /tmp/o\nfatal: early EOF\n";
+        assert_eq!(first_message_line(cut).as_deref(), Some("early EOF"));
+        assert_eq!(first_message_line("Fetching origin\n"), None, "nothing but progress: the caller says what exited");
+        assert_eq!(first_message_line("Cloning into '/tmp/x'...\nfatal: repository '/nope' does not exist\n").as_deref(), Some("repository '/nope' does not exist"));
+        assert_eq!(first_message_line("hint: x\nerror: boom\n").as_deref(), Some("boom"));
+    }
+
+    /// K96: a network command runs in its own session, with no controlling terminal: ssh (or a
+    /// credential helper) can't open `/dev/tty`, so it can't stop on a terminal read and hang the
+    /// op when GitBolt was started from a shell. Cancel still kills the whole group.
+    #[cfg(target_os = "linux")] // reads the session id from /proc
+    #[tokio::test]
+    async fn a_detached_command_has_its_own_session_and_still_cancels_as_a_group() {
+        let r = TestRepo::new();
+        let alias = "alias.sid=!cut -d' ' -f6 /proc/$$/stat";
+        let own = nix::unistd::getsid(None).unwrap().as_raw().to_string();
+        let sid = |out: GitOutput| String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(sid(cli().run(GitInvocation::new(r.path(), ["-c", alias, "sid"])).await.unwrap()), own, "a local command stays in the app's session");
+        assert_ne!(sid(cli().run(GitInvocation::new(r.path(), ["-c", alias, "sid"]).detach_terminal()).await.unwrap()), own);
+
+        let marker = r.root().join("marker-detached");
+        let slow = format!("alias.slow=!sleep 1 && touch {}", marker.display());
+        let token = CancellationToken::new();
+        let t2 = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            t2.cancel();
+        });
+        let err = cli().run(GitInvocation::new(r.path(), ["-c", slow.as_str(), "slow"]).detach_terminal().cancel(token)).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Cancelled);
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        assert!(!marker.exists(), "grandchild survived cancellation");
+    }
+
     #[tokio::test]
     async fn cancel_kills_the_whole_process_group() {
         let r = TestRepo::new();
@@ -495,6 +561,20 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.kind, GbErrorKind::Other);
         assert!(err.message.contains("timed out"), "{}", err.message);
+    }
+
+    /// K96 review: a failing command's message (what the toast shows), its stderr and its log entry
+    /// never carry a URL's password, whatever the scheme.
+    #[tokio::test]
+    async fn a_failures_message_stderr_and_log_are_redacted() {
+        let r = TestRepo::new();
+        let cli = cli();
+        let alias = "alias.boom=!echo \"fatal: repository 'ssh://ada:hunter2@h/x' not found\" >&2; exit 128";
+        let err = cli.run(GitInvocation::new(r.path(), ["-c", alias, "boom"])).await.unwrap_err();
+        assert_eq!(err.message, "repository 'ssh://***@h/x' not found");
+        assert!(!err.stderr.unwrap().contains("hunter2"));
+        let log = cli.log().entries();
+        assert!(log.iter().all(|e| !e.stderr.contains("hunter2") && e.args.iter().all(|a| !a.contains("hunter2"))), "{log:?}");
     }
 
     #[tokio::test]

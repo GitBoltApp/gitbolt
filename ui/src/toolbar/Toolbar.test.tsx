@@ -74,7 +74,7 @@ describe('Toolbar (spec §6.3)', () => {
     expect(screen.getByRole('button', { name: 'Fetch' })).not.toHaveAttribute('aria-busy');
     act(() => useOps.getState().showOp(3));
     expect(screen.getByRole('button', { name: 'Fetch' })).toHaveAttribute('aria-busy', 'true');
-    act(() => useOps.getState().apply({ type: 'opFinished', op: 3, kind: 'fetch', repo: 4, outcome: 'ok', message: null }));
+    act(() => useOps.getState().apply({ type: 'opFinished', op: 3, kind: 'fetch', repo: 4, outcome: 'ok', message: null, command: null }));
     expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
   });
 

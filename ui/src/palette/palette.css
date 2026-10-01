@@ -1,0 +1,10 @@
+.palette-backdrop { align-items: flex-start; padding-top: 12vh; }
+.palette { width: min(640px, 90vw); background: var(--panel-bg0); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); overflow: hidden; }
+.palette-input { width: 100%; box-sizing: border-box; padding: 10px 14px; font: inherit; font-size: 14px; color: var(--text-selected); background: var(--app-bg0); border: 0; border-bottom: 1px solid var(--section-border); outline: none; }
+.palette-list { max-height: 50vh; overflow: auto; padding: 4px 0; }
+.palette-group { padding: 6px 14px 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-disabled); }
+.palette-item { display: flex; align-items: center; gap: 10px; height: 26px; padding: 0 14px; cursor: default; }
+.palette-item[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
+.palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-detail { font-size: 11px; color: var(--text-secondary); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-loading, .palette-empty { padding: 6px 14px; color: var(--text-disabled); display: flex; align-items: center; gap: 6px; }

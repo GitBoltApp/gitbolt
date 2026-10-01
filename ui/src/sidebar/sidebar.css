@@ -4,8 +4,9 @@
 .sb-collapse:hover, .sn-expand:hover { color: var(--text-selected); background: var(--hover-row); }
 .sb-collapse:focus-visible, .sn-expand:focus-visible { outline: 1px solid var(--blue); }
 .sb-filter input { flex: 1; min-width: 0; box-sizing: border-box; font: inherit; padding: 4px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; }
-.sb-stack { flex: 1; min-height: 0; overflow: hidden; }
-.sb-panel { position: relative; min-height: 0; overflow: visible; display: flex; flex-direction: column; box-sizing: border-box; border-top: 1px solid var(--section-border); }
+/* A flex column: panel heights are a basis CSS shrinks at once if they sum past the room (stale measure, fractional zoom), so the stack never overflows. */
+.sb-stack { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.sb-panel { position: relative; min-height: 0; flex: 0 1 auto; overflow: visible; display: flex; flex-direction: column; box-sizing: border-box; border-top: 1px solid var(--section-border); }
 .sb-panel-head { position: sticky; top: 0; z-index: 1; background: var(--panel-bg0); display: flex; align-items: center; flex: none; padding-right: 6px; box-sizing: border-box; }
 .sb-panel-toggle { all: unset; flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 100%; padding: 0 8px; box-sizing: border-box; cursor: pointer; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
 .sb-panel-toggle:hover { background: var(--hover-row); }
@@ -40,3 +41,4 @@
 .hc-name { color: var(--text-selected); font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
 .hc-summary { margin-bottom: 4px; }
 .hc-meta { font-size: 11px; color: var(--text-secondary); }
+.sb-panel.is-collapsed { flex-shrink: 0; }

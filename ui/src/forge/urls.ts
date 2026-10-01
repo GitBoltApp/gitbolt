@@ -8,11 +8,21 @@ export interface ProjectRemote {
   hostKind: HostKind;
 }
 
+/** The profile's host → forge type overrides (spec §14.4, `Profile.hostOverrides`). */
+export type HostOverrides = { [host in string]?: HostKind };
+
+/** A host's forge type: the profile's override for that host (hosts compare case-insensitively),
+ * else the one detected from its name. Every forge link, icon and menu row goes through this. */
+export function effectiveKind(host: string | null | undefined, detected: HostKind, overrides: HostOverrides): HostKind {
+  if (!host) return detected;
+  return overrides[host] ?? overrides[host.toLowerCase()] ?? detected;
+}
+
 /** The remote that forge links point at: the first with a parsed host and path. Remotes arrive
- * `origin` first (spec §14.4). */
-export function projectRemote(remotes: RemotePayload[]): ProjectRemote | null {
+ * `origin` first (spec §14.4). `overrides` are the profile's host-type overrides. */
+export function projectRemote(remotes: RemotePayload[], overrides: HostOverrides = {}): ProjectRemote | null {
   const r = remotes.find((x) => x.host && x.path);
-  return r ? { host: r.host!, path: r.path!, hostKind: r.hostKind } : null;
+  return r ? { host: r.host!, path: r.path!, hostKind: effectiveKind(r.host, r.hostKind, overrides) } : null;
 }
 
 /** Percent-encodes each `/`-separated segment, keeping the separators themselves, so a branch or
@@ -40,6 +50,11 @@ export function fileUrl(r: ProjectRemote, ref: string, file: string, lines?: { a
   const url = `${baseUrl(r)}/blob/${encRef}/${encFile}`;
   if (!lines) return url;
   return `${url}#L${lines.a}${lines.a === lines.b ? '' : `-L${lines.b}`}`;
+}
+
+/** The project's home page (a remote's Forge link). */
+export function repoUrl(r: ProjectRemote): string | null {
+  return r.hostKind === 'generic' ? null : baseUrl(r);
 }
 
 export function branchUrl(r: ProjectRemote, branch: string): string | null {

@@ -306,11 +306,11 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
     let index: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
 
     let pinned_ref_candidate = if opts.no_pin { None } else { opts.pinned_ref.clone().or_else(|| default_trunk(&refs)) };
-    let pinned_tip = pinned_ref_candidate
-        .as_ref()
-        .and_then(|n| refs.refs.iter().find(|r| &r.full_name == n))
-        .map(|r| r.target)
-        .filter(|id| index.contains_key(id));
+    let trunk_target = pinned_ref_candidate.as_ref().and_then(|n| refs.refs.iter().find(|r| &r.full_name == n)).map(|r| r.target);
+    // Lane 0 is the trunk's whenever a pinned ref resolves, even if this window was cut above its
+    // tip: the window then lays out exactly as the prefix of a longer one (spec §8.2).
+    let reserve_trunk = trunk_target.is_some();
+    let pinned_tip = trunk_target.filter(|id| index.contains_key(id));
     // Don't report a trunk name whose target isn't actually in the walked window (an invalid
     // override, or a ref whose commit got truncated out): that would show a name with nothing
     // pinned to it.
@@ -374,12 +374,13 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                     parents: c.parents.iter().map(|p| index.get(p).map(|&pi| Parent::Row(row_of_commit[pi])).unwrap_or(Parent::Outside(*p))).collect(),
                     kind: if stash_ids.contains(&c.id) { NodeKind::Stash } else if c.parents.len() > 1 { NodeKind::Merge } else { NodeKind::Commit },
                     pinned: pinned.contains(ci),
+                    time: c.committer_time,
                 }
             }
-            Entry::Wip(k) => LayoutNode { parents: vec![Parent::Row(row_of_commit[head_of(*k)])], kind: NodeKind::Wip, pinned: pinned_wip == Some(*k) },
+            Entry::Wip(k) => LayoutNode { parents: vec![Parent::Row(row_of_commit[head_of(*k)])], kind: NodeKind::Wip, pinned: pinned_wip == Some(*k), time: i64::MAX },
         })
         .collect();
-    let lay = layout(&nodes);
+    let lay = layout(&nodes, reserve_trunk);
     // Unit tests and the harness (and so the e2e suite, including the opt-in real-repo spec)
     // verify every graph they build; a violation surfaces as an ordinary error, not a panic.
     #[cfg(any(test, feature = "testing"))]
@@ -476,6 +477,7 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], workdir: &Path, index: 
         .filter_map(|w| w.branch.as_deref().map(|b| (b, w.path.display().to_string())))
         .collect();
     let row_of = |id: &ObjectId| index.get(id).map(|&i| row_of_commit[i]);
+    let host_name = |remote: &str| refs.remote_host_names.get(remote).cloned();
     let host = |remote: &str| refs.remote_hosts.get(remote).copied().unwrap_or(HostKind::Generic);
 
     let mut labels = Vec::new();
@@ -488,7 +490,7 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], workdir: &Path, index: 
             let branch_part = &rr.short_name[remote.len() + 1..];
             let is_counterpart = branch_part == local.short_name || local.upstream.as_deref() == Some(rr.full_name.as_str());
             if rr.target == local.target && is_counterpart {
-                remotes.push(RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host_kind: host(remote) });
+                remotes.push(RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host: host_name(remote), host_kind: host(remote) });
                 merged.insert(rr.full_name.as_str());
             }
         }
@@ -515,7 +517,7 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], workdir: &Path, index: 
         // icons already mark it as remote, and `remotes[].full_name` keeps each full name for
         // the tooltip.
         let branch = &rr.short_name[remote.len() + 1..];
-        let remote_label = RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host_kind: host(remote) };
+        let remote_label = RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host: host_name(remote), host_kind: host(remote) };
         match remote_only.get(&(rr.target, branch)) {
             Some(&i) => labels[i].remotes.push(remote_label),
             None => {
@@ -768,6 +770,42 @@ mod tests {
         let g = build(&r, BuildOptions::default()).await;
         assert_eq!(g.rows.len(), fixtures::WIDE_BRANCHES + 1);
         assert_eq!(usize::from(g.max_lanes), fixtures::WIDE_BRANCHES);
+    }
+
+    /// K79: the dev merge is newer than the branches forked under it, so it locks its parents in
+    /// its own lanes and the later forks curve in from the left (the column rule).
+    #[tokio::test]
+    async fn merge_lock_fixture_keeps_the_trunk_lane() {
+        let r = TestRepo::new();
+        fixtures::merge_lock(&r);
+        let g = build(&r, BuildOptions::default()).await;
+        let summaries: Vec<&str> = g.rows.iter().map(|x| x.summary.as_str()).collect();
+        assert_eq!(
+            summaries,
+            ["// WIP", "Spike: streaming", "Merge branch 'feature/parser' into dev", "Spike: tokens", "Parser", "Retry policy", "Config loader", "Initial commit"]
+        );
+        let lanes: Vec<u16> = g.rows.iter().map(|x| x.lane).collect();
+        assert_eq!(lanes, [0, 1, 2, 1, 3, 1, 2, 0]);
+        let from_left = |row: usize| unpacked(&g.rows[row]).iter().any(|s| s.half == crate::graph::Half::Top && s.from_lane < s.to_lane);
+        assert!(from_left(4), "Spike: tokens' lane curves right into Parser");
+        assert!(from_left(6), "Retry policy's lane curves right into Config loader");
+        assert_eq!(g.max_lanes, 4);
+    }
+
+    /// A window cut above the pinned trunk's tip still reserves lane 0 for it, so every row it
+    /// shows sits where the whole history puts it (the window is the whole's prefix).
+    #[tokio::test]
+    async fn a_window_cut_above_the_trunk_tip_keeps_lane_zero_for_it() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let whole = build(&r, BuildOptions::default()).await;
+        let cut = build(&r, BuildOptions { limit: 2, ..Default::default() }).await;
+        assert!(cut.truncated && cut.pinned_ref.is_none(), "the pinned tip is below the cut");
+        let lane_in_whole = |id: &str| whole.rows.iter().find(|x| x.id == id).unwrap().lane;
+        for row in cut.rows.iter().filter(|x| x.kind != NodeKind::Wip) {
+            assert_ne!(row.lane, 0, "{} stays off the trunk's lane", row.summary);
+            assert_eq!(row.lane, lane_in_whole(&row.id), "{} is where the whole history puts it", row.summary);
+        }
     }
 
     #[tokio::test]

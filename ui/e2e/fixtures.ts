@@ -11,6 +11,7 @@ export const fixtures = JSON.parse(readFileSync(join(import.meta.dirname, '.fixt
   details: string;
   longHistory: string;
   diffView: string;
+  mergeLock: string;
   notRepo: string;
 };
 export const openUrl = (path: string) => `/?repo=${encodeURIComponent(path)}`;
@@ -25,7 +26,7 @@ export const harnessWs = `${harnessHttp.replace(/^http/, 'ws')}/ws`;
  * A brand-new copy of a fixture for one test: tests that change the repo (or its tabs) must not
  * share one. Made under the run's fixture root (`fixtures.notRepo`), which global setup removes.
  */
-export function freshFixture(name: 'basic' | 'unborn' | 'long_labels' | 'wide' | 'details' | 'long_history' | 'diff_view'): string {
+export function freshFixture(name: 'basic' | 'unborn' | 'long_labels' | 'wide' | 'details' | 'long_history' | 'diff_view' | 'merge_lock'): string {
   const root = mkdtempSync(join(fixtures.notRepo, 'fresh-'));
   return execFileSync(HARNESS_BIN, ['fixture', name, join(root, name)], { encoding: 'utf8' }).trim();
 }

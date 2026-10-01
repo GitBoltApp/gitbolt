@@ -6,6 +6,9 @@ import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
 import { useRepoView, type DiffTarget } from '../repo/store';
 import { useToast } from '../ui/toast';
+import { useRuntime } from '../app/runtime';
+import { useAppState } from '../app/state';
+import { configuredOpenerId } from './configuredOpener';
 import { loadLastOpener, saveLastOpener } from './openInPrefs';
 
 /** What "Open in…" opens: `path` in `worktree` (one of the repo's), at a 1-based `line`, in
@@ -26,7 +29,12 @@ let inflight: Promise<OpenerPayload[]> | undefined;
 export function refreshOpeners(): Promise<OpenerPayload[]> {
   // Through a promise, so a transport that throws (none, in unit tests) rejects instead.
   return (inflight ??= Promise.resolve()
-    .then(() => api.listOpeners())
+    .then(() => {
+      // The shown repo's view of the list: its own Custom editor setting decides the `custom` entry.
+      const tab = useAppState.getState().profile.activeTab;
+      const repo = tab ? useRuntime.getState().tabs[tab]?.repo?.id : undefined;
+      return repo === undefined ? api.listOpeners() : api.listOpeners(repo);
+    })
     .then(
       (list) => {
         useOpenersStore.setState({ list, error: null });
@@ -68,14 +76,15 @@ export { defaultOpener, openerLabel } from './openerRows';
  * load's error, and the last opener used (the default). */
 export function openersSnapshot(): { list: OpenerPayload[] | null; error: string | null; last: string | null } {
   const { list, error } = useOpenersStore.getState();
-  return { list, error, last: useLastOpener.getState().last };
+  return { list, error, last: configuredOpenerId(useAppState.getState().profile) ?? useLastOpener.getState().last };
 }
 
 /** Calls `fn` whenever the openers or the last used one change (an open menu rebuilds). */
 export function subscribeOpeners(fn: () => void): () => void {
   const a = useOpenersStore.subscribe(fn);
   const b = useLastOpener.subscribe(fn);
-  return () => { a(); b(); };
+  const c = useAppState.subscribe((s, prev) => { if (s.profile.editor !== prev.profile.editor || s.profile.repos !== prev.profile.repos || s.profile.activeTab !== prev.profile.activeTab) fn(); });
+  return () => { a(); b(); c(); };
 }
 
 const stored = (b: BlobSource) => b.kind === 'object' || b.kind === 'atCommit';
@@ -121,12 +130,14 @@ export function worktreeOf(t: DiffTarget): string | null {
   return null;
 }
 
-/** The last opener used (the default), and `open(opener, target)`, which remembers it and
+/** The default opener (the one Settings chose, else the last used), and `open(opener, target)`, which remembers it and
  * shows a failure as a toast. */
 export function useOpenIn() {
   const repo = useRepoView((s) => s.repo);
   const toast = useToast((s) => s.show);
-  const last = useLastOpener((s) => s.last);
+  const lastUsed = useLastOpener((s) => s.last);
+  const configured = useAppState((s) => configuredOpenerId(s.profile));
+  const last = configured ?? lastUsed;
   const open = useCallback((opener: OpenerPayload, t: OpenInTarget) => openWith(repo, opener, t, toast), [repo, toast]);
   return { last, open };
 }

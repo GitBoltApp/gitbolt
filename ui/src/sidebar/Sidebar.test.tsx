@@ -1,11 +1,13 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocalBranch } from '../api/gen/LocalBranch';
 
 vi.mock('../api/client', () => ({ api: { lastPush: vi.fn(async () => null) }, errorMessage: String, onEvent: () => () => {} }));
 vi.mock('../app/graphNav', () => ({ selectCommit: vi.fn(() => true) }));
 
 const { Sidebar } = await import('./Sidebar');
+const { useMenu } = await import('../menu/menuStore');
 const { EMPTY_GRAPH } = await import('../app/testShell');
 const { createRepoViewStore, RepoViewContext } = await import('../repo/store');
 const { fakeServices } = await import('../repo/testServices');
@@ -27,7 +29,7 @@ describe('Sidebar panels', () => {
       status: 'ready',
       sidebar: {
         locals: [branch('main', true), branch('feature/login'), branch('hotfix')],
-        remotes: [{ name: 'origin', hostKind: 'generic', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main', target: 'm'.repeat(40), tipTime: 0, summary: '', author: '' }] }],
+        remotes: [{ name: 'origin', host: null, hostKind: 'generic', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main', target: 'm'.repeat(40), tipTime: 0, summary: '', author: '' }] }],
         worktrees: [{ path: '/r', name: 'r', branch: 'main', head: 'h'.repeat(40), isMain: true, isCurrent: true }, { path: '/w', name: 'w', branch: null, head: 'i'.repeat(40), isMain: false, isCurrent: false }], stashes: [], tags: [{ name: 'v1', fullName: 'refs/tags/v1', target: 't'.repeat(40), time: 0 }],
       },
     });
@@ -150,5 +152,62 @@ describe('Sidebar panels', () => {
     expect(Math.abs(after.local - after.remote)).toBeLessThanOrEqual(1);
     // …and a panel the divider doesn't touch is not reset.
     expect(after.worktrees).not.toBeUndefined();
+  });
+});
+
+describe('Sidebar item menus (plan 1C Task 15b)', () => {
+  const rowsOpen = () => useMenu.getState().rows?.map((r) => (r.kind === 'separator' ? '---' : r.label)) ?? null;
+  beforeEach(() => {
+    useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
+    useRuntime.setState({ tabs: {} });
+    useRuntime.getState().patch('t', {
+      status: 'ready',
+      sidebar: {
+        locals: [branch('main', true), branch('hotfix')],
+        remotes: [{ name: 'origin', host: null, hostKind: 'generic', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main', target: 'm'.repeat(40), tipTime: 0, summary: '', author: '' }] }],
+        worktrees: [{ path: '/w', name: 'w', branch: null, head: 'i'.repeat(40), isMain: false, isCurrent: false }],
+        stashes: [{ index: 0, id: 's'.repeat(40), message: 'WIP on main', time: 0 }], tags: [{ name: 'v1', fullName: 'refs/tags/v1', target: 't'.repeat(40), time: 0 }],
+      },
+    });
+    useMenu.getState().close();
+  });
+  afterEach(() => act(() => useMenu.getState().close()));
+  const renderIt = () => render(<RepoViewContext value={createRepoViewStore(4, '/r', EMPTY_GRAPH, fakeServices())}><RepoContext value={ctx}><Sidebar /></RepoContext></RepoViewContext>);
+
+  it('right-click on a branch, remote folder, tag, stash and worktree opens its menu', () => {
+    renderIt();
+    fireEvent.contextMenu(within(panel('Local')).getByRole('treeitem', { name: 'hotfix' }));
+    expect(rowsOpen()).toContain('Copy branch name');
+    expect(rowsOpen()).toContain('Show in graph');
+    fireEvent.contextMenu(within(panel('Remote')).getAllByRole('treeitem')[0]);
+    expect(rowsOpen()).toEqual(['Copy remote name', 'Copy URL']);
+    fireEvent.contextMenu(within(panel('Tags')).getByRole('treeitem', { name: 'v1' }));
+    expect(rowsOpen()).toContain('Copy tag name');
+    fireEvent.contextMenu(within(panel('Stashes')).getByRole('treeitem', { name: /WIP on main/ }));
+    expect(rowsOpen()).toContain('Copy message');
+    fireEvent.contextMenu(within(panel('Worktrees')).getByRole('treeitem', { name: 'w' }));
+    expect(rowsOpen()).toContain('Open in file manager');
+  });
+
+  it('a plain folder row has no menu', () => {
+    useRuntime.getState().patch('t', { sidebar: { ...useRuntime.getState().tabs.t.sidebar!, locals: [branch('feature/login')] } });
+    renderIt();
+    const ev = fireEvent.contextMenu(within(panel('Local')).getByRole('treeitem', { name: 'feature' }));
+    expect(ev).toBe(false); // the native menu is still suppressed
+    expect(rowsOpen()).toBeNull();
+  });
+
+  it('the ContextMenu key and Shift+F10 open the active row\'s menu', () => {
+    renderIt();
+    const tree = within(panel('Local')).getByRole('tree');
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    fireEvent.keyDown(tree, { key: 'ContextMenu' });
+    expect(rowsOpen()).toContain('Copy SHA');
+    act(() => useMenu.getState().close());
+    fireEvent.keyDown(tree, { key: 'F10', shiftKey: true });
+    expect(rowsOpen()).toContain('Show in graph');
+    act(() => useMenu.getState().close());
+    fireEvent.keyDown(tree, { key: 'F10' });
+    expect(rowsOpen()).toBeNull();
   });
 });

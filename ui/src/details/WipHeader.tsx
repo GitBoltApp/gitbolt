@@ -1,4 +1,5 @@
 import { useRepoView } from '../repo/store';
+import { HoverTooltip } from '../ui/HoverTooltip';
 
 /** Spec §8.6, read-only in #1: `N file change(s) on [branch]`, no stage, unstage or discard
  * controls (#2). N counts each changed path once, staged or not. */
@@ -32,7 +33,7 @@ export function WipHeader() {
   return (
     <header className="wip-header panel-bar" data-testid="wip-header">
       <span>{count} file {count === 1 ? 'change' : 'changes'}</span>
-      {branch && <>{' '}<span>on</span>{' '}<span className="wip-branch" title={selection.name ? `Worktree ${selection.name}` : undefined}>{branch}</span></>}
+      {branch && <>{' '}<span>on</span>{' '}<HoverTooltip content={`Worktree ${selection.name}`} disabled={!selection.name}><span className="wip-branch">{branch}</span></HoverTooltip></>}
     </header>
   );
 }

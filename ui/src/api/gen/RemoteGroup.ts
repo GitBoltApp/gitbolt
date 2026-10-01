@@ -2,4 +2,4 @@
 import type { HostKind } from "./HostKind";
 import type { RemoteBranch } from "./RemoteBranch";
 
-export type RemoteGroup = { name: string, hostKind: HostKind, branches: Array<RemoteBranch>, };
+export type RemoteGroup = { name: string, host: string | null, hostKind: HostKind, branches: Array<RemoteBranch>, };

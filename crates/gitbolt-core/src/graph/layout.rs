@@ -12,7 +12,7 @@ pub enum NodeKind {
     Wip,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Parent {
     Row(u32),
     Outside(ObjectId),
@@ -23,6 +23,9 @@ pub struct LayoutNode {
     pub parents: Vec<Parent>,
     pub kind: NodeKind,
     pub pinned: bool,
+    /// Committer time (`i64::MAX` for a WIP row). Only the stash rule reads it: a commit
+    /// a stash reached first goes to a branch whose chain is newer than the stash.
+    pub time: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,10 +89,30 @@ enum Wait {
     Outside(ObjectId),
 }
 
+/// `Lane::newest` when the chain that set the home recorded no time.
+const NO_TIME: i64 = i64::MIN;
+
+/// One lane: the parent it waits for. Every awaited parent has exactly one *home* among the
+/// lanes waiting for it: the lane it will land in (its column reservation).
 #[derive(Clone, Copy)]
 struct Lane {
     wait: Wait,
+    /// The committer time of the newest commit on the chain that set the home, or `NO_TIME`.
+    newest: i64,
     dashed: bool,
+    /// `wait` lands in this lane.
+    home: bool,
+    /// A merge has `wait` as a parent, so its home never moves again: merge lines run straight
+    /// into it, and a trunk of merges keeps its lane.
+    locked: bool,
+    /// The home was set by a stash row (a newer branch takes it over).
+    by_stash: bool,
+}
+
+impl Lane {
+    fn new(wait: Wait, dashed: bool) -> Self {
+        Lane { wait, newest: NO_TIME, dashed, home: false, locked: false, by_stash: false }
+    }
 }
 
 fn color_of(lane: usize) -> u8 {
@@ -100,80 +123,197 @@ fn first_free(lanes: &[Option<Lane>], min: usize) -> usize {
     (min..lanes.len()).find(|&i| lanes[i].is_none()).unwrap_or(lanes.len().max(min))
 }
 
-/// Rows must be in display order with every parent row below its children.
-///
-/// Invariant: the pinned nodes form a single first-parent chain (each pinned commit's
-/// first parent is the next pinned commit, down to the root or an outside parent). The
-/// first-parent binding below debug-asserts this: a pinned commit's own lane must be free,
-/// or already waiting for that same parent, when it binds its first parent.
-pub fn layout(nodes: &[LayoutNode]) -> Layout {
-    let min_free = usize::from(nodes.iter().any(|n| n.pinned)); // lane 0 is reserved for the pinned trunk
-    let mut lanes: Vec<Option<Lane>> = Vec::new();
-    let mut rows = Vec::with_capacity(nodes.len());
-    let mut max_lanes = 0usize;
+/// The layout's whole state between two rows: the lanes (each with the parent it waits for and,
+/// for that parent's home lane, its lock, stash flag and chain time). Laying rows out one chunk
+/// at a time from one `LayoutState` gives exactly the single pass (spec §8.2 "Continuation").
+pub(crate) struct LayoutState {
+    lanes: Vec<Option<Lane>>,
+    /// 1 when lane 0 is reserved for the pinned trunk.
+    min_free: usize,
+    max_lanes: usize,
+}
 
-    for (r, node) in nodes.iter().enumerate() {
-        let me = Wait::Row(r as u32);
-        let waiting: Vec<usize> = lanes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, l)| matches!(l, Some(l) if l.wait == me).then_some(i))
-            .collect();
+impl LayoutState {
+    /// `reserve_trunk`: a pinned ref was chosen, so lane 0 belongs to its first-parent chain from
+    /// the first row on, even before (or without) a pinned commit in the window.
+    pub(crate) fn new(reserve_trunk: bool) -> Self {
+        LayoutState { lanes: Vec::new(), min_free: usize::from(reserve_trunk), max_lanes: 0 }
+    }
+
+    /// The widest the lanes have been so far.
+    pub(crate) fn max_lanes(&self) -> u16 {
+        self.max_lanes as u16
+    }
+
+    /// Load more: parents that were outside the window are now loaded rows. Lanes waiting for
+    /// them keep their home, lock, stash flag and chain time, so the takeover and lock rules
+    /// carry on across the boundary.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn resolve_outside(&mut self, row_of: impl Fn(&ObjectId) -> Option<u32>) {
+        for l in self.lanes.iter_mut().flatten() {
+            if let Wait::Outside(id) = l.wait
+                && let Some(r) = row_of(&id)
+            {
+                l.wait = Wait::Row(r);
+            }
+        }
+    }
+
+    /// Lays out row `r`, which must come after every row pushed so far.
+    pub(crate) fn push(&mut self, r: u32, node: &LayoutNode) -> GraphRow {
+        let min_free = self.min_free;
+        let lanes = &mut self.lanes;
+        let me = Wait::Row(r);
+        let mut home = None;
+        let mut awaited = false;
+        for (i, l) in lanes.iter().enumerate() {
+            if let Some(l) = l
+                && l.wait == me
+            {
+                awaited = true;
+                if l.home {
+                    home = Some((i, *l));
+                    break;
+                }
+            }
+        }
+        debug_assert_eq!(home.is_some(), awaited, "row {r}: an awaited commit has exactly one home lane");
         let lane = if node.pinned {
             0
-        } else if let Some(&w) = waiting.first() {
-            w
+        } else if let Some((h, _)) = home {
+            h
         } else {
-            first_free(&lanes, min_free)
+            first_free(lanes, min_free)
+        };
+        // The chain's newest time: inherited when the commit lands in
+        // its home, and the commit's own time otherwise.
+        let own_newest = home.map_or(NO_TIME, |(_, l)| l.newest);
+        let newest = match home {
+            Some((h, l)) if h == lane => l.newest,
+            _ => node.time,
         };
         if lanes.len() <= lane {
             lanes.resize(lane + 1, None);
         }
 
-        let mut segments = Vec::new();
-        for (i, l) in lanes.iter().enumerate() {
-            let Some(l) = l else { continue };
-            let (to, half) = if l.wait == me { (lane, Half::Top) } else { (i, Half::Full) };
-            segments.push(Segment { from_lane: i as u16, to_lane: to as u16, half, color: color_of(i), dashed: l.dashed });
-        }
-        for &i in &waiting {
-            lanes[i] = None;
+        let mut segments = Vec::with_capacity(lanes.len() + node.parents.len());
+        for (i, slot) in lanes.iter_mut().enumerate() {
+            let Some(l) = *slot else { continue };
+            if l.wait == me {
+                segments.push(Segment { from_lane: i as u16, to_lane: lane as u16, half: Half::Top, color: color_of(i), dashed: l.dashed });
+                *slot = None;
+            } else {
+                segments.push(Segment { from_lane: i as u16, to_lane: i as u16, half: Half::Full, color: color_of(i), dashed: l.dashed });
+            }
         }
 
         let dashed = node.kind == NodeKind::Wip;
+        let merge = node.kind == NodeKind::Merge;
+        let stash = node.kind == NodeKind::Stash;
         for (k, parent) in node.parents.iter().enumerate() {
             let wait = match *parent {
                 Parent::Row(p) => Wait::Row(p),
                 Parent::Outside(id) => Wait::Outside(id),
             };
+            // One scan: the parent's home, the first solid lane waiting for it, the first free lane.
+            // It stops at the home when that settles the target (a first parent's target is this
+            // lane; a merge line goes into a solid home).
+            let (mut held, mut solid, mut free) = (None, None, None);
+            for (j, slot) in lanes.iter().enumerate() {
+                match slot {
+                    None if j >= min_free && free.is_none() => free = Some(j),
+                    Some(l) if l.wait == wait => {
+                        if !l.dashed && solid.is_none() {
+                            solid = Some(j);
+                        }
+                        if l.home {
+                            held = Some((j, *l));
+                            if k == 0 || !l.dashed {
+                                break;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
             let target = if k == 0 {
                 debug_assert!(
                     lanes.get(lane).copied().flatten().is_none_or(|l| l.wait == wait),
                     "lane {lane} already waits for a different parent; pinned nodes must form one first-parent chain"
                 );
                 lane
-            } else if let Some(j) = lanes.iter().position(|l| matches!(l, Some(l) if l.wait == wait && !l.dashed)) {
-                // A solid merge line never joins a dashed WIP lane that happens to be
-                // waiting on the same parent: it opens or reuses its own lane instead, and
-                // the two converge at the parent node via separate Top curves.
-                j
             } else {
-                first_free(&lanes, min_free)
+                // Into the parent's home when it's solid. A solid merge line never joins a
+                // dashed WIP lane that happens to be waiting on the same parent: it opens or
+                // reuses its own lane instead, and the two converge at the parent node via
+                // separate Top curves.
+                match held {
+                    Some((h, l)) if !l.dashed => h,
+                    _ => solid.or(free).unwrap_or(lanes.len().max(min_free)),
+                }
             };
             if lanes.len() <= target {
                 lanes.resize(target + 1, None);
             }
             if lanes[target].is_none() {
-                lanes[target] = Some(Lane { wait, dashed });
+                lanes[target] = Some(Lane::new(wait, dashed));
             }
             segments.push(Segment { from_lane: lane as u16, to_lane: target as u16, half: Half::Bottom, color: color_of(target), dashed });
+
+            match held {
+                None => {
+                    let l = lanes[target].as_mut().expect("bound above");
+                    *l = Lane { home: true, locked: merge, by_stash: stash, newest, ..*l };
+                }
+                Some((h, l)) => {
+                    let mut home_now = h;
+                    if k == 0 && h != lane && !l.locked && !merge && !dashed {
+                        let stash_steal = l.by_stash && !stash && own_newest != NO_TIME && l.newest != NO_TIME && own_newest > l.newest;
+                        if lane < h || stash_steal {
+                            lanes[h] = Some(Lane { home: false, ..l });
+                            let mine = lanes[lane].as_mut().expect("bound above");
+                            *mine = Lane { home: true, locked: false, by_stash: stash, newest: own_newest, ..*mine };
+                            home_now = lane;
+                        }
+                    }
+                    if merge {
+                        lanes[home_now].as_mut().expect("home lane is bound").locked = true;
+                    }
+                }
+            }
         }
 
-        max_lanes = max_lanes.max(lanes.len());
+        self.max_lanes = self.max_lanes.max(lanes.len());
         while matches!(lanes.last(), Some(None)) {
             lanes.pop();
         }
-        rows.push(GraphRow { lane: lane as u16, color: color_of(lane), segments });
+        GraphRow { lane: lane as u16, color: color_of(lane), segments }
     }
-    Layout { rows, max_lanes: max_lanes as u16 }
+}
+
+/// The column rule, in one top-to-bottom pass whose whole state is the lane vector (`LayoutState`):
+///
+/// - A commit lands in its home lane: the lane of the first child that reached it. A commit no
+///   lane waits for (a tip) takes the left-most free lane.
+/// - A later first-parent child in a lower lane takes the home over, unless that child is a
+///   merge or a WIP row, or the home is locked. Every parent of a merge is locked, so a trunk of
+///   merges keeps its lane and the branches forked from it curve in from either side.
+/// - A home a stash set goes to a later first-parent child whose chain is newer than the stash.
+///
+/// More rules on top: pinned commits always take lane 0; a solid merge line never joins a dashed
+/// WIP lane; a root commit's lane is freed for the next branch; lines to parents outside the
+/// window run off the bottom.
+///
+/// Rows must be in display order with every parent row below its children. `reserve_trunk`
+/// comes from the pinned-ref choice, not from the window, so a truncated window lays out as
+/// the prefix of a longer one.
+///
+/// Invariant: the pinned nodes form a single first-parent chain (each pinned commit's
+/// first parent is the next pinned commit, down to the root or an outside parent). The
+/// first-parent binding debug-asserts this: a pinned commit's own lane must be free, or
+/// already waiting for that same parent, when it binds its first parent.
+pub fn layout(nodes: &[LayoutNode], reserve_trunk: bool) -> Layout {
+    let mut state = LayoutState::new(reserve_trunk);
+    let rows = nodes.iter().enumerate().map(|(r, n)| state.push(r as u32, n)).collect();
+    Layout { rows, max_lanes: state.max_lanes() }
 }

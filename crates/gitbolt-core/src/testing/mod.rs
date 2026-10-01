@@ -70,6 +70,15 @@ pub fn ssh_signing_unavailable() -> Option<&'static str> {
     None
 }
 
+/// `None` if this machine has `gpg` to make throwaway keys and verify with them; otherwise
+/// `Some(reason)`, to print before skipping a test cleanly.
+pub fn gpg_signing_unavailable() -> Option<&'static str> {
+    match std::process::Command::new("gpg").arg("--version").output() {
+        Ok(out) if out.status.success() => None,
+        _ => Some("gpg not installed"),
+    }
+}
+
 pub struct TestRepo {
     _tmp: Option<tempfile::TempDir>,
     root: PathBuf,

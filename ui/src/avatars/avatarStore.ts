@@ -28,6 +28,11 @@ export interface AvatarStore {
   subscribe(listener: () => void): () => void;
   /** Bumped by every such change. */
   version(): number;
+  /** Forgets every image and every "no avatar" answer, so all are asked for again (the Gravatar
+   * setting changed: what the backend answers is different now). Bumps `epoch` and `version`. */
+  reset(): void;
+  /** Bumped only by `reset`: components that gave up on an avatar ask again. */
+  epoch(): number;
 }
 
 /** The store's key: Gravatar's own normalization (trimmed, lowercased). */
@@ -67,6 +72,7 @@ export function createAvatarStore(fetchAvatar: (email: string) => Promise<Avatar
   const none = new Set<string>();
   const listeners = new Set<() => void>();
   let version = 0;
+  let epoch = 0;
   // Only the concurrency limit, the queue and dropping: `images` is the cache (never the
   // loader's, which could hand back a bitmap already closed on eviction).
   const loader = new Loader<AvatarImage | null>(async (key) => {
@@ -141,6 +147,14 @@ export function createAvatarStore(fetchAvatar: (email: string) => Promise<Avatar
       return () => { listeners.delete(listener); };
     },
     version: () => version,
+    epoch: () => epoch,
+    reset() {
+      for (const img of images.values()) release(img);
+      images.clear();
+      none.clear();
+      epoch++;
+      notify();
+    },
   };
 }
 
@@ -159,9 +173,11 @@ export function useAvatar(email: string, request = true): AvatarImage | null {
   const store = useContext(AvatarStoreContext);
   // The snapshot is this email's own entry: only its own arrival or eviction re-renders.
   const img = useSyncExternalStore(store.subscribe, () => store.get(email));
+  // Changes only on `reset` (the Gravatar setting), when a "no avatar" answer must be re-asked.
+  const epoch = useSyncExternalStore(store.subscribe, store.epoch);
   // Asks again after an eviction too (`img` goes back to null).
   useEffect(() => {
     if (!img && request) store.request(email);
-  }, [store, email, img, request]);
+  }, [store, email, img, request, epoch]);
   return img;
 }

@@ -100,7 +100,9 @@ test.describe('tabs', () => {
     await page.getByLabel('Profile name').fill('Work');
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByRole('button', { name: /Profile: Work/ })).toBeVisible();
-    await expect(page.getByRole('tab')).toHaveCount(0);
+    // The new profile has no tabs, so it shows its automatic Open tab.
+    await expect(page.getByRole('tab')).toHaveCount(1);
+    await expect(page.getByRole('tab').first()).toHaveText('Open repository');
     await page.getByRole('button', { name: /Profile: Work/ }).click();
     await page.getByRole('menuitem', { name: 'Default' }).click();
     await expect(page.getByRole('tab')).toHaveCount(1);
@@ -146,5 +148,46 @@ test.describe('tabs', () => {
     await expect(dialog).toContainText('git');
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
+  });
+
+  // Spec §17.3: switching to a loaded tab paints its cached snapshot in < 50 ms. Measured from the
+  // click to two animation frames later (the frame that paints it); a sample only counts if the
+  // tab's graph rows are on screen by then. Load only ever slows a sample, so the bound is checked
+  // against the best of several switches (as in menu-perf.spec.ts): a regression slows every one.
+  test('switching to a loaded tab paints in under 50 ms (best of several switches)', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'budget measured on the engine GitBolt ships (CEF = Chromium)');
+    const a = freshFixture('basic');
+    const b = freshFixture('long_labels');
+    await page.goto(openBoth(a, b));
+    const tabs = page.getByRole('tab');
+    await expect(tabs).toHaveCount(2);
+    const graphOf = (i: number) => page.locator('.tab-page').nth(i).getByRole('grid', { name: 'Commit graph' });
+    // Load both tabs once (a tab loads on its first activation), ending on tab 1.
+    await tabs.nth(0).click();
+    await expect(graphOf(0)).toBeVisible();
+    await tabs.nth(1).click();
+    await expect(graphOf(1)).toBeVisible();
+    await page.waitForTimeout(300);
+    const samples: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const to = i % 2 === 0 ? 0 : 1;
+      const ms = await page.evaluate((idx) => new Promise<number>((resolve, reject) => {
+        const tab = document.querySelectorAll<HTMLElement>('[role="tab"]')[idx];
+        const t0 = performance.now();
+        tab.click();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const dt = performance.now() - t0;
+          const grid = document.querySelectorAll<HTMLElement>('.tab-page')[idx].querySelector<HTMLElement>('[role="grid"]');
+          if (!grid || grid.getClientRects().length === 0 || !grid.querySelector('[role="row"]')) reject(new Error(`tab ${idx} not painted after two frames`));
+          else resolve(dt);
+        }));
+      }), to);
+      await expect(tabs.nth(to)).toHaveAttribute('aria-selected', 'true');
+      await expect(graphOf(to)).toBeVisible();
+      samples.push(ms);
+      await page.waitForTimeout(150);
+    }
+    test.info().annotations.push({ type: 'tab switch ms', description: samples.map((n) => n.toFixed(1)).join(', ') });
+    expect(Math.min(...samples), `switch samples ${samples.map((n) => n.toFixed(1)).join(', ')} ms`).toBeLessThan(50);
   });
 });

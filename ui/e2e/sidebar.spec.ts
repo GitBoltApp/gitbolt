@@ -156,8 +156,9 @@ test.describe('sidebar', () => {
           const stack = el.querySelector('.sb-stack')!;
           return { sh: el.scrollHeight, ch: el.clientHeight, ssh: stack.scrollHeight, sch: stack.clientHeight };
         });
-        expect(m.sh).toBeLessThanOrEqual(m.ch);
-        expect(m.ssh).toBeLessThanOrEqual(m.sch);
+        // WebKit rounds a fractional box height up in scrollHeight but down in clientHeight (233.35px gives 234 vs 233), so allow that 1px on both.
+        expect(m.sh).toBeLessThanOrEqual(m.ch + 1);
+        expect(m.ssh).toBeLessThanOrEqual(m.sch + 1);
       });
     }
   }
@@ -191,5 +192,85 @@ test.describe('sidebar', () => {
     });
     expect(Math.abs(xs.leafIcon - xs.folderIcon)).toBeLessThanOrEqual(1);
     expect(Math.abs(xs.childIcon - xs.folderName)).toBeLessThanOrEqual(1);
+  });
+});
+
+// Plan 1C Task 15b: the sidebar item context menus (spec §7's target table): read-only rows over
+// the shared menu system.
+test.describe('sidebar item menus', () => {
+  const menu = (page: Page) => page.getByTestId('context-menu');
+  const labels = (page: Page) => menu(page).locator('[data-depth="0"] > [role="menuitem"] .ctx-label').allTextContents();
+  const action = (page: Page, label: string) => menu(page).locator('[data-depth="0"] > [role="menuitem"]').filter({ has: page.locator('.ctx-label').getByText(label, { exact: true }) });
+  async function copied(page: Page, text: string) {
+    await expect(page.getByRole('status')).toHaveText('Copied');
+    if (test.info().project.name === 'chromium') await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(text);
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto(openUrl(fixtures.basic));
+    await expect(panel(page, 'Local').getByRole('tree')).toBeVisible();
+  });
+
+  test('a branch: the branch label menu, every row with an instant tooltip; Show in graph selects its tip', async ({ page }) => {
+    await item(page, 'Local', 'hotfix').click({ button: 'right' });
+    await expect(menu(page)).toBeVisible();
+    expect(await labels(page)).toEqual(['Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD', 'Show in graph']);
+    await action(page, 'Copy SHA').hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Copy the full commit id');
+    await action(page, 'Show in graph').hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Select this commit in the graph');
+    await action(page, 'Copy branch name').click();
+    await copied(page, 'hotfix');
+    await item(page, 'Local', 'hotfix').click({ button: 'right' });
+    await action(page, 'Show in graph').click();
+    await expect(menu(page)).toBeHidden();
+    await expect(page.getByRole('row', { selected: true })).toHaveCount(1);
+  });
+
+  test('the current branch cannot be compared with HEAD', async ({ page }) => {
+    await item(page, 'Local', 'main').click({ button: 'right' });
+    await expect(action(page, 'Compare with HEAD')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('a remote branch copies origin/<name>; the remote folder copies its name', async ({ page }) => {
+    const leaf = panel(page, 'Remote').locator('.sb-item').first();
+    const name = (await leaf.getAttribute('aria-label'))!;
+    await leaf.click({ button: 'right' });
+    expect((await labels(page))[0]).toBe('Copy branch name');
+    await action(page, 'Copy branch name').click();
+    await copied(page, `origin/${name}`);
+    await page.keyboard.press('Escape');
+    await panel(page, 'Remote').getByRole('treeitem').first().click({ button: 'right' });
+    expect(await labels(page)).toEqual(['Copy remote name', 'Copy URL']);
+    await action(page, 'Copy remote name').click();
+    await copied(page, 'origin');
+  });
+
+  test('a tag, a stash and a worktree', async ({ page }) => {
+    await panel(page, 'Tags').getByRole('treeitem').first().click({ button: 'right' });
+    expect(await labels(page)).toContain('Copy tag name');
+    await page.keyboard.press('Escape');
+    await panel(page, 'Stashes').getByRole('treeitem').first().click({ button: 'right' });
+    expect(await labels(page)).toEqual(['Copy SHA', 'Copy message', 'Show in graph']);
+    await page.keyboard.press('Escape');
+    await panel(page, 'Worktrees').getByRole('treeitem').nth(1).click({ button: 'right' });
+    expect(await labels(page)).toContain('Open in file manager');
+    expect(await labels(page)).toContain('Copy path');
+    // Nothing that needs sub-project #2 (checkout, delete, push…): no placeholders.
+    expect((await labels(page)).join('|')).not.toMatch(/checkout|delete|push|pull|merge|rebase/i);
+  });
+
+  test('the menu key and Shift+F10 open the focused row\'s menu; Esc closes it', async ({ page }) => {
+    await panel(page, 'Local').getByRole('tree').focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ContextMenu');
+    await expect(menu(page)).toBeVisible();
+    expect(await labels(page)).toContain('Copy branch name');
+    await page.keyboard.press('Escape');
+    await expect(menu(page)).toBeHidden();
+    await page.keyboard.press('Shift+F10');
+    await expect(menu(page)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menu(page)).toBeHidden();
   });
 });

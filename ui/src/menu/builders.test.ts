@@ -11,7 +11,7 @@ vi.mock('../api/client', () => ({ api: new Proxy({}, { get() { throw new Error('
 const { buildMenu } = await import('./registry');
 beforeAll(async () => { await import('./builders'); });
 
-import type { CommitTarget, FileTarget, FolderTarget, MenuEnv, MonacoTarget, TagTarget } from './menuEnv';
+import type { CommitTarget, FileTarget, FolderTarget, MenuEnv, MonacoTarget, SidebarTarget, TagTarget } from './menuEnv';
 
 type Action = Extract<MenuRow, { kind: 'action' }>;
 type Submenu = Extract<MenuRow, { kind: 'submenu' }>;
@@ -24,8 +24,8 @@ const OPENERS: OpenerPayload[] = [
 ];
 const gitlab = { host: 'gitlab.example.com', path: 'acme/shop', hostKind: 'gitlab' as const };
 const github = { host: 'github.com', path: 'owner/repo', hostKind: 'github' as const };
-const act = () => ({ copy: vi.fn(), openUrl: vi.fn(), openIn: vi.fn(), openDiff: vi.fn(), viewFile: vi.fn(), compare: vi.fn(), copyMessage: vi.fn() });
-const envOf = (over: Partial<MenuEnv> = {}): MenuEnv => ({ forge: () => gitlab, openers: { list: OPENERS, error: null, last: null }, act: act(), headBranch: 'main', headSha: 'h'.repeat(40), ...over });
+const act = () => ({ copy: vi.fn(), openUrl: vi.fn(), openIn: vi.fn(), openDiff: vi.fn(), viewFile: vi.fn(), compare: vi.fn(), copyMessage: vi.fn(), showInGraph: vi.fn(), openFolder: vi.fn() });
+const envOf = (over: Partial<MenuEnv> = {}): MenuEnv => ({ forge: () => gitlab, openers: { list: OPENERS, error: null, last: null }, act: act(), headBranch: 'main', headSha: 'h'.repeat(40), inGraph: () => true, ...over });
 const sha = 'a'.repeat(40);
 const diff: DiffTarget = { key: 'k|src/a b.php', path: 'src/a b.php', oldPath: null, status: 'M', old: { kind: 'object', oid: 'o'.repeat(40) }, new: { kind: 'object', oid: 'n'.repeat(40) }, view: 'diff' };
 const target = (over: Partial<FileTarget> = {}): FileTarget => ({
@@ -336,5 +336,78 @@ describe('the Monaco menu (1B GROUP_ORDER.monaco: copy, forge, open)', () => {
     const sub = monaco(t, env).find((r) => r.kind === 'submenu') as Submenu;
     find(sub.rows, 'Open in VS Code').run();
     expect(env.act.openIn).toHaveBeenLastCalledWith(OPENERS[0], t.openIn);
+  });
+});
+
+describe('the sidebar menus (plan 1C Task 15b)', () => {
+  const side = (t: SidebarTarget, env: MenuEnv) => buildMenu<SidebarTarget, MenuEnv>('sidebar', t, env);
+  const everyRow = (rows: MenuRow[]): Array<Exclude<MenuRow, { kind: 'separator' }>> => rows.flatMap((r) => (r.kind === 'separator' ? [] : r.kind === 'submenu' ? [r, ...everyRow(r.rows)] : [r]));
+  const remoteUrl = 'ssh://gitlab.example.com/acme/shop.git';
+  const targets: SidebarTarget[] = [
+    { what: 'ref', sha },
+    { what: 'remote', name: 'origin', url: remoteUrl },
+    { what: 'worktree', path: '/wt/x', branch: 'x', head: sha },
+    { what: 'stash', sha, message: 'WIP on main' },
+  ];
+
+  it('every row and variant has an icon and a tooltip; only read-only rows', () => {
+    for (const t of targets) {
+      for (const r of everyRow(side(t, envOf()))) {
+        expect(r.icon, `${t.what} ${r.id}`).toBeTruthy();
+        expect(r.tooltip.length, `${t.what} ${r.id}`).toBeGreaterThan(3);
+        if (r.kind === 'action') for (const v of r.variants ?? []) expect(v.tooltip.length, v.id).toBeGreaterThan(3);
+      }
+    }
+    expect(labels(side(targets[0], envOf()))).toEqual(['Show in graph']);
+    expect(labels(side(targets[1], envOf()))).toEqual(['Copy remote name', 'Copy URL', '---', 'Forge link']);
+    expect(labels(side(targets[2], envOf()))).toEqual(['Copy path', 'Copy branch name', 'Copy SHA', '---', 'Open in file manager', '---', 'Show in graph']);
+    expect(labels(side(targets[3], envOf()))).toEqual(['Copy SHA', 'Copy message', '---', 'Show in graph']);
+  });
+
+  it('Show in graph selects the commit; greyed out when it is not in the loaded history', () => {
+    const env = envOf();
+    find(side({ what: 'ref', sha }, env), 'Show in graph').run();
+    expect(env.act.showInGraph).toHaveBeenCalledWith(sha);
+    expect(find(side({ what: 'ref', sha }, envOf({ inGraph: () => false })), 'Show in graph').disabledReason).toBe('Not in the loaded history');
+    expect(side({ what: 'ref', sha: null }, env)).toEqual([]);
+  });
+
+  it('a remote: copies its name and URL; the forge link copies the project page, Open opens it; none on a generic host', () => {
+    const env = envOf();
+    const rows = side({ what: 'remote', name: 'origin', url: remoteUrl }, env);
+    find(rows, 'Copy remote name').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('origin');
+    find(rows, 'Copy URL').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(remoteUrl);
+    const forge = find(rows, 'Forge link');
+    forge.run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('https://gitlab.example.com/acme/shop');
+    variant(forge, 'open').run();
+    expect(env.act.openUrl).toHaveBeenLastCalledWith('https://gitlab.example.com/acme/shop');
+    expect(labels(side({ what: 'remote', name: 'origin', url: null }, envOf({ forge: () => null })))).toEqual(['Copy remote name', 'Copy URL']);
+    expect(find(side({ what: 'remote', name: 'o', url: null }, env), 'Copy URL').disabledReason).toBe('Not loaded yet');
+  });
+
+  it('a worktree: copies its path, branch and head; opens its folder in the file manager', () => {
+    const env = envOf();
+    const rows = side({ what: 'worktree', path: '/wt/x', branch: 'x', head: sha }, env);
+    find(rows, 'Copy path').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('/wt/x');
+    find(rows, 'Copy branch name').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('x');
+    variant(find(rows, 'Copy SHA'), 'short').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(shortSha(sha));
+    find(rows, 'Open in file manager').run();
+    expect(env.act.openFolder).toHaveBeenCalledWith('/wt/x');
+    expect(labels(side({ what: 'worktree', path: '/wt/y', branch: null, head: null }, env))).toEqual(['Copy path', '---', 'Open in file manager']);
+  });
+
+  it('a stash: copies its SHA and message', () => {
+    const env = envOf();
+    const rows = side({ what: 'stash', sha, message: 'WIP on main' }, env);
+    find(rows, 'Copy message').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('WIP on main');
+    find(rows, 'Copy SHA').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(sha);
   });
 });

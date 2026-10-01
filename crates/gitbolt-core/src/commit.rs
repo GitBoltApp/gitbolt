@@ -35,13 +35,21 @@ pub fn decode_text(bytes: &[u8]) -> String {
 fn decode_with(encoding: Option<&str>, bytes: &[u8]) -> String {
     match encoding.map(str::to_ascii_lowercase).as_deref() {
         None | Some("utf-8") | Some("utf8") => decode_text(bytes),
-        // ISO-8859-1/latin1 and anything unknown: Latin-1 is lossless per byte.
-        Some(_) => bytes.iter().map(|&b| b as char).collect(),
+        // A legacy encoding git was told about (Shift_JIS, EUC-KR, KOI8-R, windows-1252, ...).
+        // ISO-8859-1 labels decode as windows-1252 (the WHATWG mapping, a superset on printable
+        // text); an unknown label falls back to Latin-1, which is lossless per byte.
+        // The replacement encoding (iso-2022-kr, hz-gb-2312 ...) would turn the whole text into one
+        // U+FFFD, and UTF-16 can't be a byte-oriented commit's encoding: both read as Latin-1.
+        Some(label) => match encoding_rs::Encoding::for_label_no_replacement(label.trim().as_bytes()) {
+            Some(enc) if enc != encoding_rs::UTF_16LE && enc != encoding_rs::UTF_16BE => enc.decode_without_bom_handling(bytes).0.into_owned(),
+            _ => bytes.iter().map(|&b| b as char).collect(),
+        },
     }
 }
 
-fn parse_signature(raw: &[u8]) -> Signature {
-    let text = decode_text(raw);
+/// An author or committer line, decoded in the commit's `encoding` (names can be Shift_JIS too).
+fn parse_signature(raw: &[u8], encoding: Option<&str>) -> Signature {
+    let text = decode_with(encoding, raw);
     let (Some(lt), Some(gt)) = (text.rfind('<'), text.rfind('>')) else {
         return Signature { name: text.trim().to_string(), ..Default::default() };
     };
@@ -69,8 +77,8 @@ pub fn parse_commit(raw: &[u8]) -> Result<ParsedCommit, GbError> {
         None => (raw, &b""[..]),
     };
     let mut parents = Vec::new();
-    let mut author = Signature::default();
-    let mut committer = Signature::default();
+    // Kept raw until the `encoding` header has been read, wherever it sits among the headers.
+    let (mut author_raw, mut committer_raw): (&[u8], &[u8]) = (b"", b"");
     let mut encoding: Option<String> = None;
     let mut signed = false;
     for line in headers.split(|b| *b == b'\n') {
@@ -86,13 +94,15 @@ pub fn parse_commit(raw: &[u8]) -> Result<ParsedCommit, GbError> {
             b"parent" => parents.push(
                 ObjectId::from_hex(value).map_err(|e| GbError::other(format!("bad parent id in commit: {e}")))?,
             ),
-            b"author" => author = parse_signature(value),
-            b"committer" => committer = parse_signature(value),
+            b"author" => author_raw = value,
+            b"committer" => committer_raw = value,
             b"encoding" => encoding = Some(decode_text(value)),
             b"gpgsig" | b"gpgsig-sha256" => signed = true,
             _ => {}
         }
     }
+    let author = parse_signature(author_raw, encoding.as_deref());
+    let committer = parse_signature(committer_raw, encoding.as_deref());
     let message = decode_with(encoding.as_deref(), message);
     // Normalize CRLF line endings so the "\n\n" summary/body split (and any consumer of the
     // body) never has to deal with a stray '\r'.
@@ -160,6 +170,23 @@ mod tests {
     fn parses_latin1_message() {
         let c = parse_commit(&raw("encoding ISO-8859-1\n", b"caf\xe9 cr\xe8me\n")).unwrap();
         assert_eq!(c.summary, "café crème");
+    }
+
+    #[test]
+    fn legacy_encodings_decode_by_their_header() {
+        let message = |enc: &str, bytes: &[u8]| parse_commit(&raw(&format!("encoding {enc}\n"), bytes)).unwrap().summary;
+        assert_eq!(message("Shift_JIS", b"\x93\xfa\x96\x7b\x8c\xea\n"), "日本語");
+        assert_eq!(message("EUC-KR", b"\xc7\xd1\xb1\xdb\n"), "한글");
+        assert_eq!(message("koi8-r", b"\xf0\xd2\xc9\xd7\xc5\xd4\n"), "Привет");
+        assert_eq!(message("windows-1252", b"\x93quoted\x94\n"), "\u{201c}quoted\u{201d}");
+        // An unknown label is still readable as Latin-1.
+        assert_eq!(message("no-such-encoding", b"caf\xe9\n"), "café");
+        // Labels that would decode to nothing but U+FFFD (or can't be byte-oriented) read as Latin-1.
+        assert_eq!(message("iso-2022-kr", b"caf\xe9\n"), "café");
+        assert_eq!(message("utf-16le", b"caf\xe9\n"), "café");
+        // The author's name is in the commit's encoding too.
+        let raw = b"tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nauthor \x93\xfa\x96\x7b <a@x> 1 +0000\ncommitter A <a@x> 1 +0000\nencoding Shift_JIS\n\nm\n";
+        assert_eq!(parse_commit(raw).unwrap().author.name, "日本");
     }
 
     #[test]

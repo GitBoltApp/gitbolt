@@ -15,7 +15,7 @@ const { runFetch, useFetchScheduler } = await import('./fetchSchedule');
 const { useRuntime } = await import('./runtime');
 const { useAppState, DEFAULT_SETTINGS } = await import('./state');
 const { useOps } = await import('./ops');
-const { useToast } = await import('../ui/toast');
+const { ERROR_TOAST_MS, useToast } = await import('../ui/toast');
 
 const repo = { id: 4, path: '/r', name: 'r' };
 const rt = () => useRuntime.getState().tabs.t!;
@@ -25,7 +25,7 @@ beforeEach(() => {
   useRuntime.setState({ tabs: {} });
   useRuntime.getState().patch('t', { repo, status: 'ready' });
   useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0 });
-  useToast.setState({ message: null });
+  useToast.setState({ message: null, action: null });
   useAppState.setState({ settings: { ...DEFAULT_SETTINGS, fetchIntervalSecs: 60 } });
 });
 
@@ -37,6 +37,35 @@ describe('runFetch', () => {
     expect(api.fetch).toHaveBeenCalledWith(4, false);
     expect(rt().lastFetchAt).toBeGreaterThan(0);
     expect(rt().fetchSkipped).toBeNull();
+  });
+
+  it('a fetch that worked shows no toast, user-initiated or background', async () => {
+    for (const [background, changed] of [[true, false], [false, false], [false, true]] as const) {
+      api.fetch.mockResolvedValueOnce({ status: 'done', changed });
+      await runFetch('t', background);
+      expect(useToast.getState().message).toBeNull();
+    }
+  });
+
+  it("a user fetch's failure toast stays to be read and links to the activity log (K96)", async () => {
+    vi.useFakeTimers();
+    try {
+      api.fetch.mockRejectedValueOnce({ kind: 'AuthFailed', message: 'git@h: Permission denied (publickey).' });
+      await runFetch('t', false);
+      const s = useToast.getState();
+      expect(s.message).toBe('Fetch failed: Authentication failed (git@h: Permission denied (publickey).)');
+      expect(s.action?.label).toBe('Activity log');
+      // A quick retry that works doesn't hide the failure still on screen.
+      api.fetch.mockResolvedValueOnce({ status: 'done', changed: false });
+      await runFetch('t', false);
+      expect(useToast.getState().message).toBe('Fetch failed: Authentication failed (git@h: Permission denied (publickey).)');
+      vi.advanceTimersByTime(5000);
+      expect(useToast.getState().message).not.toBeNull();
+      vi.advanceTimersByTime(ERROR_TOAST_MS);
+      expect(useToast.getState().message).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a background fetch skipped for credentials shows as skipped, and never prompts or toasts', async () => {
@@ -58,7 +87,7 @@ describe('runFetch', () => {
     api.fetch.mockRejectedValueOnce({ kind: 'AuthFailed', message: 'remote: authentication required' });
     await runFetch('t', false);
     expect(useToast.getState().message).toBe('Fetch failed: Authentication failed (remote: authentication required)');
-    useToast.setState({ message: null });
+    useToast.setState({ message: null, action: null });
     api.fetch.mockRejectedValueOnce({ kind: 'Cancelled', message: 'Cancelled' });
     await runFetch('t', false);
     expect(useToast.getState().message).toBeNull();

@@ -12,3 +12,5 @@
 .modal-actions button:hover { color: var(--text-selected); background: var(--hover-row); }
 .modal-actions button.primary { color: #fff; background: var(--blue); border-color: var(--blue); }
 .modal-actions button:focus-visible { outline: 1px solid var(--text-selected); }
+/* Above every other dialog (800) but under the status bar (810), whose Cancel stays reachable. */
+.modal-backdrop.auth-backdrop { z-index: 805; }

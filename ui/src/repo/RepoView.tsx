@@ -1,4 +1,4 @@
-import { Activity, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { Activity, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RowPayload } from '../api/gen/RowPayload';
@@ -22,17 +22,29 @@ export const RIGHT_PANEL = { min: 280, max: 720, default: 400 } as const;
 /** The narrowest the center panel gets from widening the details panel. */
 export const CENTER_MIN = 320;
 
-/** The details panel's widest, so a narrow window still leaves the center CENTER_MIN px.
- * Follows window resizes. */
-function useRightPanelMax(): number {
-  const compute = () => Math.max(RIGHT_PANEL.min, Math.min(RIGHT_PANEL.max, window.innerWidth - CENTER_MIN));
+/** The room the view has to its right-hand side: from its own left edge (past the sidebar, or its
+ * narrow strip, and the sidebar's resizer) to the window's right edge. */
+const roomOf = (view: HTMLElement | null) => window.innerWidth - (view?.getBoundingClientRect().left ?? 0);
+
+/** The details panel's widest, so the center keeps CENTER_MIN px of what the view really has:
+ * the window less the sidebar (or its narrow strip), which a wide panel would otherwise squeeze
+ * the center against. Follows window resizes and the view's own (the sidebar's resizer, its
+ * collapse to the strip). */
+function useRightPanelMax(viewRef: RefObject<HTMLElement | null>): number {
+  const compute = () => Math.max(RIGHT_PANEL.min, Math.min(RIGHT_PANEL.max, roomOf(viewRef.current) - CENTER_MIN));
   const [max, setMax] = useState(compute);
   useEffect(() => {
-    const onResize = () => setMax(compute());
-    window.addEventListener('resize', onResize);
-    onResize();
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+    const update = () => setMax(compute());
+    window.addEventListener('resize', update);
+    // The sidebar changing width moves the view's left edge without a window resize.
+    const observer = new ResizeObserver(update);
+    if (viewRef.current) observer.observe(viewRef.current);
+    update();
+    return () => {
+      window.removeEventListener('resize', update);
+      observer.disconnect();
+    };
+  }, [viewRef]);
   return max;
 }
 
@@ -129,7 +141,8 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
     return kind === 'compare' || kind === 'compareWorktree' ? 'Compare' : kind === 'multi' ? 'Selected commits' : kind === 'wip' ? 'Working tree changes' : 'Commit details';
   });
   const [prefW, setRightW] = useState<number>(RIGHT_PANEL.default);
-  const maxW = useRightPanelMax();
+  const viewRef = useRef<HTMLDivElement>(null);
+  const maxW = useRightPanelMax(viewRef);
   // The chosen width, re-clamped to the window: widening the window again restores it.
   const rightW = Math.min(prefW, maxW);
   // PanelResizer writes the live width straight here while dragging (rAF-coalesced), bypassing
@@ -137,7 +150,6 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
   // details panel per pointer event.
   const rightPanelRef = useRef<HTMLElement>(null);
   // Esc, from wherever the focus is (feedback J4): one handler on `window`, not per zone.
-  const viewRef = useRef<HTMLDivElement>(null);
   useAppEscape(store, viewRef);
   // The kept diff panel may unmount with the view while hidden, when its own attach cleanup has
   // already run (J16): let the shared editor go of its box. Outside the panel's `<Activity>`, so

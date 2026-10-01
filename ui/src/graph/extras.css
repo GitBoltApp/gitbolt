@@ -16,3 +16,11 @@
 
 /* The avatar-only Author cell (Author at its minimum): the avatar centred in the row. */
 .graph-row > .col-author-avatar { display: flex; align-items: center; }
+
+/* The Graph header's pin button (PinButton): the trunk's name beside the GRAPH title, shrinking
+   (ellipsis) before the title does; icon-only when the column is narrow. */
+.pin-btn { all: unset; display: inline-flex; align-items: center; gap: 3px; min-width: 0; margin-left: 6px; padding: 1px 4px; border-radius: 3px; color: var(--text-secondary); cursor: pointer; font-size: 10px; letter-spacing: 0; }
+.pin-btn:hover, .pin-btn[aria-expanded="true"] { color: var(--text-selected); background: var(--hover-row); }
+.pin-btn:focus-visible { outline: 1px solid var(--blue); }
+.pin-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin-btn > svg { flex: none; }

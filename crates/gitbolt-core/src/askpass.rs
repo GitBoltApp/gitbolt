@@ -166,7 +166,10 @@ impl AskpassServer {
         vec![
             ("GIT_ASKPASS".into(), self.exe.clone().into_os_string()),
             ("SSH_ASKPASS".into(), self.exe.clone().into_os_string()),
-            ("SSH_ASKPASS_REQUIRE".into(), "prefer".into()),
+            // "force" (OpenSSH 8.4+): every ssh prompt (passphrase, host key, PIN) comes here,
+            // display or not. "prefer" only uses askpass when DISPLAY/WAYLAND_DISPLAY is set and
+            // otherwise reads the terminal (K96).
+            ("SSH_ASKPASS_REQUIRE".into(), "force".into()),
             (ENV_SOCKET.into(), self.path.clone().into_os_string()),
             (ENV_TOKEN.into(), self.token.clone().into()),
             (ENV_OP.into(), op.unwrap_or(0).to_string().into()),
@@ -239,7 +242,7 @@ impl AskpassServer {
         let id = self.next_prompt.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.pending().insert(id, tx);
-        self.bus.emit(AppEvent::AuthWaiting { prompt: id, op, repo: entry.repo, secret: is_secret(&text), text });
+        self.bus.emit(AppEvent::AuthWaiting { prompt: id, op, repo: entry.repo, secret: is_secret(&text), text: crate::redact::redact(&text) });
         // Also runs if this future is dropped (the client hung up): the modal always closes.
         let _resolved = Resolved { server: self, id };
         tokio::select! {
@@ -311,7 +314,9 @@ mod tests {
         let get = |k: &str| env.iter().find(|(a, _)| a == k).map(|(_, v)| v.to_string_lossy().into_owned());
         assert_eq!(get("GIT_ASKPASS").as_deref(), Some("/bin/false"));
         assert_eq!(get("SSH_ASKPASS").as_deref(), Some("/bin/false"));
-        assert_eq!(get("SSH_ASKPASS_REQUIRE").as_deref(), Some("prefer"));
+        // K96: "force", not "prefer": with "prefer", ssh uses askpass only when DISPLAY (or
+        // WAYLAND_DISPLAY) is set, and otherwise reads the terminal.
+        assert_eq!(get("SSH_ASKPASS_REQUIRE").as_deref(), Some("force"));
         assert_eq!(get(ENV_SOCKET).as_deref(), Some(s.socket_path().to_str().unwrap()));
         assert_eq!(get(ENV_OP).as_deref(), Some("7"));
         let token = get(ENV_TOKEN).unwrap();
@@ -349,7 +354,7 @@ mod tests {
         let s2 = s.clone();
         let answering = tokio::spawn(async move {
             let AppEvent::AuthWaiting { prompt, text, secret, op: op_id, .. } = rx.recv().await.unwrap() else { panic!("expected authWaiting") };
-            assert_eq!(text, "Password for 'https://ada@h': ");
+            assert_eq!(text, "Password for 'https://***@h': ", "the prompt's userinfo is redacted");
             assert!(secret);
             s2.answer(prompt, Some("s3cret".into())).unwrap();
             assert_eq!(rx.recv().await.unwrap(), AppEvent::AuthResolved { prompt });

@@ -2,6 +2,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { X } from 'lucide-react';
 import { useRef } from 'react';
 import { useRepoView } from '../repo/store';
+import { HoverTooltip } from '../ui/HoverTooltip';
 import { CompareCommit, CompareWorktree } from './CompareHeader';
 
 /** A row's height: the compare row's 28 px plus a 2 px gap (details.css). */
@@ -58,7 +59,7 @@ export function MultiSummary() {
     <section className="multi-summary" aria-label="Selected commits">
       <div className="panel-bar multi-bar">
         <span data-testid="multi-count">{selection.ids.length} commits selected</span>
-        <button type="button" className="icon-button" aria-label="Exit multi-selection" title="Exit multi-selection (Esc)" onClick={onExit}><X size={14} /></button>
+        <HoverTooltip content="Exit multi-selection (Esc)"><button type="button" className="icon-button" aria-label="Exit multi-selection" onClick={onExit}><X size={14} /></button></HoverTooltip>
       </div>
       <MultiRows ids={selection.ids} />
     </section>

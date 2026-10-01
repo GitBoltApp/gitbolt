@@ -1,10 +1,11 @@
-import { ArrowLeftToLine, ArrowRightToLine, Copy, FileX, FolderOpen, FolderPlus, Info, LogOut, RotateCcw, X } from 'lucide-react';
+import { ArrowLeftToLine, ArrowRightToLine, Copy, CopyPlus, FileX, FolderOpen, FolderPlus, Info, LogOut, RotateCcw, X } from 'lucide-react';
 import { api, errorMessage } from '../api/client';
 import type { Profile } from '../api/gen/Profile';
 import { copyText, inTauri } from '../api/transport';
 import { useToast } from '../ui/toast';
 import { activeRuntime, activeStore, activeTab, registerActions } from './actions';
 import { useAbout } from './About';
+import { useOpenUi } from '../open/openUi';
 import { flushSaves, useAppState } from './state';
 import { closeTab, cycleTab, openBlankTab, reopenClosed } from './tabs';
 
@@ -44,6 +45,14 @@ const off = registerActions([
   {
     id: 'file.openRepo', label: 'Open repository…', group: 'File', icon: FolderPlus, tooltip: 'Open the Open Repository screen in a new tab', shortcuts: ['Ctrl+O'],
     run: () => update((p) => openBlankTab(p).profile),
+  },
+  {
+    id: 'file.clone', label: 'Clone repository…', group: 'File', icon: CopyPlus, tooltip: 'Clone a repository into a new tab',
+    run: () => {
+      const { profile, tabId } = openBlankTab(useAppState.getState().profile);
+      useAppState.getState().setProfile(profile);
+      useOpenUi.getState().requestClone(tabId);
+    },
   },
   // Ctrl+W (ruling R6, the user's words: "close tab aka close repo, or close file like ESC if a
   // file is open"): with a file open it closes that file, else the tab — one or the other per

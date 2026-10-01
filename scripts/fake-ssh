@@ -1,0 +1,71 @@
+#!/bin/sh
+# fake-ssh: stands in for ssh (a repo's core.sshCommand) to try GitBolt's askpass and fetch-error
+# handling without real keys, an ssh agent or an sshd (K96). It serves the bare repo named by the
+# URL's path with the local git-upload-pack: ssh://fake/<absolute path to a bare repo>.
+#
+#   fake-ssh --passphrase <p>   asks for a key passphrase the way OpenSSH decides (SSH_ASKPASS,
+#                               SSH_ASKPASS_REQUIRE, DISPLAY/WAYLAND_DISPLAY); the right answer
+#                               serves the repo, anything else is "Permission denied (publickey)"
+#   fake-ssh --dead-agent       fails like ssh whose agent is gone (1Password closed, no key file):
+#                               "Permission denied (publickey)", exit 255
+#   fake-ssh --hang             connects and never answers (a stuck remote): try progress and Cancel
+#
+# A leading `--delay <secs>` waits before doing any of the above (a slow ssh connect: the prompt
+# arrives after the user has opened something else).
+#
+# Use it with `git config ssh.variant simple` (or let git probe: `-G` fails here, which says the same).
+if [ "$1" = "--delay" ]; then
+  delay=$2
+  shift 2
+fi
+mode=$1
+case "$mode" in
+  --passphrase) want=$2; shift 2 ;;
+  --dead-agent | --hang) shift ;;
+  *) echo "usage: fake-ssh --passphrase <p> | --dead-agent | --hang  <ssh args...>" >&2; exit 2 ;;
+esac
+# git's variant probe (`ssh -G host`): not OpenSSH, so git passes only "host command".
+[ "$1" = "-G" ] && exit 1
+# Skip any ssh options, then the host; what's left is the command (git-upload-pack '<path>').
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o | -p | -i | -l | -F) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+host=$1
+shift
+[ -n "$delay" ] && sleep "$delay"
+
+case "$mode" in
+  --dead-agent)
+    echo "$host: Permission denied (publickey)." >&2
+    exit 255
+    ;;
+  --hang)
+    exec sleep 3600
+    ;;
+esac
+
+# OpenSSH's readpass.c: askpass is allowed with a display (or SSH_ASKPASS_REQUIRE=force); "prefer"
+# uses it only when allowed; otherwise ssh reads the terminal, which GitBolt never gives it.
+allow=0
+[ -n "$DISPLAY$WAYLAND_DISPLAY" ] && allow=1
+use=0
+case "$SSH_ASKPASS_REQUIRE" in
+  force) use=1; allow=1 ;;
+  prefer) use=$allow ;;
+  never) allow=0 ;;
+esac
+pass=
+if [ "$use" = 1 ] && [ "$allow" = 1 ] && [ -n "$SSH_ASKPASS" ]; then
+  pass=$("$SSH_ASKPASS" "Enter passphrase for key '/tmp/gb-askpass-key': ") || pass=
+else
+  echo "fake-ssh: askpass not used (SSH_ASKPASS_REQUIRE='$SSH_ASKPASS_REQUIRE', no display): real ssh would read the terminal" >&2
+fi
+if [ "$pass" != "$want" ]; then
+  echo "$host: Permission denied (publickey)." >&2
+  exit 255
+fi
+eval "exec $*"

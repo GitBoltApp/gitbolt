@@ -20,4 +20,8 @@ pub type AvatarFuture<'a> = Pin<Box<dyn Future<Output = Result<Option<AvatarPayl
 pub trait AvatarProvider: Send + Sync {
     /// `Ok(None)`: there's no avatar for this email (the UI shows initials).
     fn avatar<'a>(&'a self, email: &'a str) -> AvatarFuture<'a>;
+
+    /// The "load avatars" setting (spec §14.1): off answers every lookup with `None`, without a
+    /// request. Providers that always answer from a local source ignore it.
+    fn set_enabled(&self, _on: bool) {}
 }

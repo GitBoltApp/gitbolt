@@ -136,7 +136,7 @@ test.describe('real repository (opt-in)', () => {
 
     const wipRow = page.getByRole('row').filter({ hasText: '// WIP' }).first();
     if (await wipRow.count()) {
-      await wipRow.locator('[data-col="author"]').click();
+      await wipRow.locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
       const unstaged = page.getByRole('listbox', { name: 'Unstaged' });
       const staged = page.getByRole('listbox', { name: 'Staged', exact: true });
       const list = (await unstaged.getByRole('option').count()) > 0 ? unstaged : staged;

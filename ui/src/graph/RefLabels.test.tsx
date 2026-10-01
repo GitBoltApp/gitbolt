@@ -2,9 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
+import { chipRefs } from './membership';
 import { RefLabels } from './RefLabels';
 
-const remote = (name: string, branch: string): RemoteRefLabel => ({ fullName: `refs/remotes/${name}/${branch}`, remote: name, hostKind: 'generic' });
+const remote = (name: string, branch: string): RemoteRefLabel => ({ fullName: `refs/remotes/${name}/${branch}`, remote: name, host: null, hostKind: 'generic' });
 
 const remoteOnly = (branch: string, ...remotes: string[]): RefLabel => ({
   row: 0, name: branch, local: null, tag: false, isHead: false, worktree: null,
@@ -31,7 +32,7 @@ describe('RefLabels', () => {
   it('outline source icons (laptop, generic remote) are a step bigger than the filled brand marks, so they read the same size', () => {
     const label: RefLabel = {
       row: 0, name: 'dev', local: 'refs/heads/dev', tag: false, isHead: false, worktree: null,
-      remotes: [{ fullName: 'refs/remotes/origin/dev', remote: 'origin', hostKind: 'gitlab' }, remote('backup', 'dev')],
+      remotes: [{ fullName: 'refs/remotes/origin/dev', remote: 'origin', host: 'gitlab.example.com', hostKind: 'gitlab' }, remote('backup', 'dev')],
     };
     const { container } = render(<RefLabels labels={[label]} color={0} />);
     const chip = container.querySelector('.ref-label')!;
@@ -110,12 +111,63 @@ describe('RefLabels', () => {
     expect(container.querySelector('.ref-label-full')).toBeNull();
   });
 
-  it('gives remote-only labels their remote prefix back in the +N tooltip (every remote)', () => {
-    render(<RefLabels labels={[remoteOnly('main', 'origin'), remoteOnly('foo', 'origin', 'upstream'), remoteOnly('bar', 'fork')]} color={0} />);
-    const more = screen.getByText('+2');
-    expect(more).not.toHaveAttribute('title');
-    fireEvent.mouseEnter(more);
-    expect(screen.getByRole('tooltip').textContent).toBe('origin/foo, upstream/foo\nfork/bar');
+  describe('the hover stack (K77)', () => {
+    const three = [remoteOnly('main', 'origin'), remoteOnly('foo', 'origin', 'upstream'), remoteOnly(LONG, 'fork')];
+    const rows = (c: HTMLElement) => [...c.querySelectorAll('.ref-stack > .ref-stack-row')];
+
+    it('hovering the chip or the +N badge stacks one full row per label; nothing renders before; leaving closes it', () => {
+      const { container } = render(<RefLabels labels={three} color={0} />);
+      expect(container.querySelector('.ref-stack')).toBeNull();
+      for (const el of [container.querySelector('.ref-labels > .ref-label')!, screen.getByText('+2')]) {
+        fireEvent.mouseEnter(el);
+        expect(rows(container).map((r) => r.querySelector('.ref-name-full')!.textContent)).toEqual(['main', 'foo', LONG]);
+        expect(el.contains(container.querySelector('.ref-stack'))).toBe(true);
+        expect(container.querySelector('.ref-label-full')).toBeNull();
+        // Rows keep their source icons (and their tooltips).
+        expect(rows(container)[1].querySelectorAll('.ref-icon')).toHaveLength(2);
+        fireEvent.mouseLeave(el);
+        expect(container.querySelector('.ref-stack')).toBeNull();
+      }
+      expect(screen.queryByRole('tooltip')).toBeNull();
+    });
+
+    it('is never compact, even in a compact column', () => {
+      const { container } = render(<RefLabels labels={three} color={0} compact />);
+      fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label')!);
+      expect(rows(container)).toHaveLength(3);
+      expect(rows(container)[0].querySelector('.ref-name-full')!.textContent).toBe('main');
+    });
+
+    it("a row's hover starts that ref's branch focus, leaving or unmounting ends it", () => {
+      const calls: (readonly string[] | null)[] = [];
+      const { container, unmount } = render(<RefLabels labels={three} color={0} onBranchHover={(r) => calls.push(r)} />);
+      fireEvent.mouseEnter(screen.getByText('+2'));
+      fireEvent.mouseEnter(rows(container)[2]);
+      expect(calls.at(-1)).toEqual(chipRefs(three[2]));
+      fireEvent.mouseLeave(rows(container)[2], { relatedTarget: container.querySelector('.ref-stack') });
+      expect(calls.at(-1)).toBeNull();
+      fireEvent.mouseEnter(rows(container)[1]);
+      expect(calls.at(-1)).toEqual(chipRefs(three[1]));
+      unmount();
+      expect(calls.at(-1)).toBeNull();
+    });
+
+    it("a row's right-click opens that label's menu (once, not the first chip's)", () => {
+      const seen: string[] = [];
+      const { container } = render(<RefLabels labels={three} color={0} onContextMenu={(l) => seen.push(l.name)} />);
+      fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label')!);
+      fireEvent.contextMenu(rows(container)[1]);
+      fireEvent.contextMenu(rows(container)[0]);
+      expect(seen).toEqual(['foo', 'main']);
+    });
+
+    it('a single label keeps the one-chip copy and has no +N or stack', () => {
+      const { container } = render(<RefLabels labels={[three[0]]} color={0} />);
+      fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label')!);
+      expect(container.querySelector('.ref-label-full')).not.toBeNull();
+      expect(container.querySelector('.ref-stack')).toBeNull();
+      expect(container.querySelector('.ref-more')).toBeNull();
+    });
   });
 
   it('a membership chip goes after the real chips and the +N badge, before the connector, without changing them (F7)', () => {
@@ -161,7 +213,7 @@ describe('RefLabels', () => {
 
   it('hovering the chip floats an untruncated copy over it, and leaving collapses it', () => {
     const label: RefLabel = { row: 0, name: LONG, local: `refs/heads/${LONG}`, tag: false, isHead: false, worktree: null, remotes: [] };
-    const { container } = render(<RefLabels labels={[label, remoteOnly('x', 'origin')]} color={0} />);
+    const { container } = render(<RefLabels labels={[label]} color={0} />);
     expect(container.querySelector('.ref-label-full')).toBeNull();
     const chip = container.querySelector('.ref-labels > .ref-label')!;
     fireEvent.mouseEnter(chip);
@@ -178,9 +230,8 @@ describe('RefLabels', () => {
     expect(full.querySelector('.ref-name')).toBeNull();
     expect((name as HTMLElement).style.textOverflow).toBe('');
     expect((full as HTMLElement).style.maxWidth).toBe('');
-    // The in-flow chip, the +N badge and the connector are untouched.
+    // The in-flow chip and the connector are untouched.
     expect(chip.querySelector(':scope > .ref-name')!.textContent).toBe(LONG);
-    expect(container.querySelector('.ref-more')).toHaveTextContent('+1');
     expect(container.querySelector('.ref-connector')).not.toBeNull();
 
     fireEvent.mouseLeave(chip);

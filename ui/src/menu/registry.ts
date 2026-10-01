@@ -1,6 +1,6 @@
 import type { MenuRow } from './types';
 
-export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column';
+export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar';
 
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
@@ -13,6 +13,9 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   monaco: ['copy', 'forge', 'open'],
   tab: ['edit', 'close', 'restore', 'repo'],
   column: ['columns'],
+  // The sidebar's items that aren't a branch or a tag (remote, worktree, stash), plus the "Show in
+  // graph" row every sidebar item ends with (plan 1C Task 15b).
+  sidebar: ['copy', 'forge', 'open', 'view'],
 };
 
 export interface MenuContribution<T, E> {

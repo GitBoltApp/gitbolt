@@ -8,7 +8,7 @@ const api = vi.hoisted(() => ({
 vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () => {} }));
 vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 
-const { StatusBar } = await import('./StatusBar');
+const { StatusBar, SLOW_FETCH_MS } = await import('./StatusBar');
 const { useOps } = await import('../app/ops');
 const { useRuntime } = await import('../app/runtime');
 const { EMPTY_PROFILE, useAppState } = await import('../app/state');
@@ -20,7 +20,7 @@ const bar = () => screen.getByRole('contentinfo');
 describe('StatusBar (spec §6.5)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0 });
+    useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0, activity: [] });
     useMenu.getState().close();
     useRuntime.setState({ tabs: {} });
     useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
@@ -56,17 +56,44 @@ describe('StatusBar (spec §6.5)', () => {
     expect(api.cancelOp).toHaveBeenCalledWith(3);
   });
 
-  it('never shows a fetch, the user\'s or a background one, running or done (K30)', () => {
-    render(<StatusBar />);
-    const before = bar().textContent;
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: false }));
-    act(() => useOps.getState().apply({ type: 'opProgress', op: 4, phase: 'Receiving objects', percent: 40 }));
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 5, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: true }));
-    expect(bar().textContent).toBe(before);
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
-    act(() => useOps.getState().apply({ type: 'opFinished', op: 4, kind: 'fetch', repo: 1, outcome: 'ok', message: null }));
-    act(() => useOps.getState().apply({ type: 'opFinished', op: 5, kind: 'fetch', repo: 1, outcome: 'ok', message: null }));
-    expect(bar().textContent).toBe(before);
+  it('never shows a background fetch, nor a quick fetch of the user\'s (K30)', () => {
+    vi.useFakeTimers();
+    try {
+      render(<StatusBar />);
+      const before = bar().textContent;
+      act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: false }));
+      act(() => useOps.getState().apply({ type: 'opProgress', op: 4, phase: 'Receiving objects', percent: 40 }));
+      act(() => vi.advanceTimersByTime(SLOW_FETCH_MS * 3));
+      expect(bar().textContent).toBe(before);
+      act(() => useOps.getState().apply({ type: 'opStarted', op: 5, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: true }));
+      act(() => vi.advanceTimersByTime(SLOW_FETCH_MS - 100));
+      expect(bar().textContent).toBe(before);
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+      act(() => useOps.getState().apply({ type: 'opFinished', op: 4, kind: 'fetch', repo: 1, outcome: 'ok', message: null, command: null }));
+      act(() => useOps.getState().apply({ type: 'opFinished', op: 5, kind: 'fetch', repo: 1, outcome: 'ok', message: null, command: null }));
+      act(() => vi.advanceTimersByTime(SLOW_FETCH_MS));
+      expect(bar().textContent).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a slow fetch of the user\'s shows its progress, with Cancel (K96: a stuck one can be stopped)', () => {
+    vi.useFakeTimers();
+    try {
+      render(<StatusBar />);
+      act(() => useOps.getState().apply({ type: 'opStarted', op: 6, kind: 'fetch', repo: 1, label: 'shop', interactive: true }));
+      act(() => vi.advanceTimersByTime(SLOW_FETCH_MS));
+      expect(bar()).toHaveTextContent('Fetching shop…');
+      act(() => useOps.getState().apply({ type: 'opProgress', op: 6, phase: 'Receiving objects', percent: 45 }));
+      expect(bar()).toHaveTextContent('Fetching shop… 45%');
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(api.cancelOp).toHaveBeenCalledWith(6);
+      act(() => useOps.getState().apply({ type: 'opFinished', op: 6, kind: 'fetch', repo: 1, outcome: 'cancelled', message: 'Cancelled', command: null }));
+      expect(bar()).not.toHaveTextContent('Fetching');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a prompt shows "Waiting for authentication…", whose Cancel cancels the op', () => {
@@ -90,14 +117,14 @@ describe('StatusBar (spec §6.5)', () => {
   it('the bell counts unread background errors, and lists them newest first', () => {
     render(<StatusBar />);
     const bell = () => screen.getByRole('button', { name: /^Notifications/ });
+    const labels = () => useMenu.getState().rows!.map((r) => (r.kind === 'separator' ? '-' : r.label));
     fireEvent.click(bell());
-    expect(useMenu.getState().rows!.map((r) => r.kind === 'action' && r.label)).toEqual(['No notifications']);
+    expect(labels()).toEqual(['No notifications', '-', 'Activity log…']);
     act(() => useMenu.getState().close());
     act(() => { useOps.getState().pushError('Fetch failed (a): one'); useOps.getState().pushError('Fetch failed (b): two'); });
     expect(bell()).toHaveAccessibleName('Notifications (2 new)');
     fireEvent.click(bell());
-    const labels = useMenu.getState().rows!.map((r) => (r.kind === 'action' ? r.label : '-'));
-    expect(labels).toEqual(['Fetch failed (b): two', 'Fetch failed (a): one', '-', 'Clear notifications']);
+    expect(labels()).toEqual(['Fetch failed (b): two', 'Fetch failed (a): one', '-', 'Activity log…', 'Clear notifications']);
     expect(bell()).toHaveAccessibleName('Notifications');
   });
 });

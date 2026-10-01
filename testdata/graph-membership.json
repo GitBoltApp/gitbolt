@@ -19,6 +19,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -94,6 +95,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -160,6 +162,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -217,6 +220,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/upstream/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "upstream"
             }
@@ -232,6 +236,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -331,6 +336,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/feature/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -346,6 +352,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -394,6 +401,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -418,6 +426,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/feat",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -494,6 +503,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -551,6 +561,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -566,6 +577,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/feat",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -651,6 +663,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -699,6 +712,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/topic",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -714,6 +728,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }
@@ -762,6 +777,7 @@
           "remotes": [
             {
               "fullName": "refs/remotes/origin/main",
+              "host": null,
               "hostKind": "generic",
               "remote": "origin"
             }

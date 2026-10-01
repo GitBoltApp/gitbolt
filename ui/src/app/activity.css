@@ -1,0 +1,17 @@
+/* K101: the activity log modal. */
+.modal.activity-modal { width: 80vw; height: 80vh; max-width: none; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
+.activity-head { display: flex; align-items: center; gap: 12px; }
+.activity-head h2 { margin: 0; flex: 1; }
+.activity-filter { display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; }
+.activity-copy-all { font: inherit; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; }
+.activity-copy-all:hover:not(:disabled) { background: var(--hover-row); }
+.activity-copy-all:disabled { opacity: 0.5; cursor: default; }
+.activity-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0; list-style: none; user-select: text; }
+.activity-entry { padding: 8px 10px; border-left: 2px solid var(--section-border); margin-bottom: 8px; }
+.activity-entry.failed { border-left-color: var(--status-deleted); }
+.activity-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; user-select: text; }
+.activity-meta .icon-button { margin-left: auto; }
+.activity-time { color: var(--text-secondary); }
+.activity-result { font-weight: 600; }
+.activity-msg { margin: 6px 0 0; padding: 6px 8px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; white-space: pre-wrap; word-break: break-word; background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; }
+.activity-empty { color: var(--text-secondary); padding: 8px; }

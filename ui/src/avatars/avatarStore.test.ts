@@ -46,6 +46,31 @@ describe('avatar store', () => {
     unsubscribe();
   });
 
+  it('reset forgets images and "no avatar" answers, so every email is asked for again (the Gravatar setting changed)', async () => {
+    const fetch = vi.fn(async (email: string) => (email === 'ada@example.com' ? png : null));
+    const avatars = createAvatarStore(fetch);
+    avatars.request('ada@example.com');
+    avatars.request('nobody@example.com');
+    await flush();
+    await flush();
+    expect(avatars.get('ada@example.com')).not.toBeNull();
+    const [version, epoch] = [avatars.version(), avatars.epoch()];
+    const seen = vi.fn();
+    avatars.subscribe(seen);
+    avatars.reset();
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(avatars.version()).toBe(version + 1);
+    expect(avatars.epoch()).toBe(epoch + 1);
+    expect(avatars.get('ada@example.com')).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:avatar-1');
+    avatars.request('ada@example.com');
+    avatars.request('nobody@example.com');
+    await flush();
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(avatars.get('ada@example.com')).not.toBeNull();
+  });
+
   it('runs at most 4 requests at a time', async () => {
     const m = manual();
     const avatars = createAvatarStore(m.fetch);

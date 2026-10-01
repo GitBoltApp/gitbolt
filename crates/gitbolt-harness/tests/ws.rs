@@ -272,19 +272,26 @@ async fn folder_picks_come_from_the_queue() {
     assert_eq!(status, 403);
 }
 
-/// The harness has its own empty home (never the user's), and never fetches on its own: a fresh
-/// or reset harness has background fetch off.
+/// The harness has its own temp home (never the user's), holding only `repos/` with the one sample
+/// repo that "Your repos" lists, and never fetches on its own: a fresh or reset harness has
+/// background fetch off.
 #[tokio::test]
 async fn a_temp_home_and_background_fetch_off() {
     let harness = Harness::for_tests().await;
     assert_eq!(harness.store.state().settings.fetch_interval_secs, 0);
     let home = harness.home().to_path_buf();
-    assert!(home.is_dir() && std::fs::read_dir(&home).unwrap().next().is_none(), "an empty home");
+    let names = |dir: &std::path::Path| {
+        let mut v: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(names(&home), ["more", "repos"], "a home with only the sample and bulk repo folders");
+    assert_eq!(names(&home.join("repos")), ["sample"]);
     assert_ne!(Some(home.clone()), gitbolt_core::paths::home_dir());
     let suggest = || serde_json::from_value(json!({"method": "suggestReposFolder"})).unwrap();
-    assert!(harness.api.dispatch(suggest()).await.unwrap().is_null());
-    std::fs::create_dir(home.join("repos")).unwrap();
     assert_eq!(harness.api.dispatch(suggest()).await.unwrap(), home.join("repos").display().to_string());
+    std::fs::remove_dir_all(home.join("repos")).unwrap();
+    assert!(harness.api.dispatch(suggest()).await.unwrap().is_null(), "no repos folder: no suggestion");
     let mut s = harness.store.state().settings;
     s.fetch_interval_secs = 60;
     harness.store.save_settings(s);

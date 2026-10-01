@@ -13,3 +13,6 @@ import '../auth/feature';
 import '../tabs/features';
 import '../sidebar/actions';
 import '../find/actions';
+import '../open/feature';
+import '../settings/feature';
+import '../palette/feature';

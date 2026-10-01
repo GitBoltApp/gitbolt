@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
-import { Fragment, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
+import { Fragment, memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
@@ -10,7 +10,7 @@ import { openContextMenu, useMenu } from '../menu/menuStore';
 import { filesKey } from '../repo/services';
 import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { DENSITY_METRICS, useDensity } from '../theme/density';
-import { useHoverTooltip } from '../ui/HoverTooltip';
+import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { BUSY_DELAY_MS, useLateFlag } from '../util/lateFlag';
 import { useFileListPrefs } from './fileListPrefs';
 import { allFolderPaths, buildRows, countByStatus, matchesFilter, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
@@ -66,6 +66,9 @@ function highlightMatch(text: string, query: string): ReactNode {
   );
 }
 
+/** The keys the list handles (`onKeyDown`'s switch, besides the Shift+F10 menu). */
+const HANDLED_KEYS: ReadonlySet<string> = new Set(['ContextMenu', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', 'ArrowLeft', 'ArrowRight', 'Enter', ' ']);
+
 const COUNT_KINDS = ['modified', 'added', 'deleted', 'renamed', 'conflicted'] as const;
 
 /** "2 modified · 1 renamed": the non-zero counts, in the header's order. */
@@ -85,7 +88,13 @@ export function StatusCountsView({ counts, testId, size }: { counts: StatusCount
   );
 }
 
-interface RowProps { id: string; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; filterQuery: string; onMouseDown: (e: MouseEvent) => void; onContextMenu: (e: MouseEvent) => void }
+/** `onPress`/`onMenu` are the list's two stable handlers (they get the row and its index back), so a
+ * row's props are all primitives or the rows' own memoized objects and `memo` can skip it. */
+interface RowProps { id: string; index: number; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; filterQuery: string; onPress: (e: MouseEvent, row: FileRow, index: number) => void; onMenu: (e: MouseEvent, row: FileRow) => void }
+
+/** The role of a row: tree mode is a `tree` of `treeitem`s (`aria-level`, folders `aria-expanded`),
+ * path mode a flat `listbox` of `option`s (review M8). */
+const rowRole = (mode: FileListMode) => (mode === 'tree' ? 'treeitem' : 'option');
 
 /** The file list a row is in: its tooltip opens left of it, over the center panel, so it never
  * covers the rows above or below (feedback J18). */
@@ -94,13 +103,16 @@ const fileListOf = (row: HTMLElement) => row.closest('.file-list');
 /** A folder row, or a file row with its full path in an instant hover tooltip, left of the list (a rename: old,
  * ↓, new; feedback H22). A renamed file shows its new name (tree) or new path (path view); the
  * old one is in the tooltip and the diff header. */
-function Row({ id, row, mode, active, top, height, filterQuery, onMouseDown, onContextMenu }: RowProps) {
+const Row = memo(function Row({ id, index, row, mode, active, top, height, filterQuery, onPress, onMenu }: RowProps) {
   const style = { top, height, paddingLeft: rowIndent(row.depth), gap: TREE.gap };
   const file = row.kind === 'file' ? row : null;
+  const role = rowRole(mode);
+  const level = mode === 'tree' ? row.depth + 1 : undefined;
+  const onMouseDown = (e: MouseEvent) => onPress(e, row, index);
   const tip = useHoverTooltip({ content: file ? <PathTooltip path={file.target.path} oldPath={file.change?.oldPath ?? null} /> : null, disabled: !file, placement: 'left-of', leftOf: fileListOf });
   if (row.kind === 'folder') {
     return (
-      <div id={id} role="option" aria-selected={active} aria-expanded={row.expanded} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={onContextMenu}>
+      <div id={id} role={role} aria-selected={active} aria-level={level} aria-expanded={row.expanded} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={(e) => onMenu(e, row)}>
         <span className="file-chevron" style={{ width: TREE.chevron }}>{row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
         {row.counts && <StatusCountsView counts={row.counts} testId="folder-counts" size={10} />}
@@ -112,8 +124,9 @@ function Row({ id, row, mode, active, top, height, filterQuery, onMouseDown, onC
   return (
     <div
       id={id}
-      role="option"
+      role={role}
       aria-selected={active}
+      aria-level={level}
       data-kind="file"
       data-path={row.target.path}
       className={c ? 'file-row' : 'file-row unchanged'}
@@ -121,7 +134,7 @@ function Row({ id, row, mode, active, top, height, filterQuery, onMouseDown, onC
       onMouseDown={onMouseDown}
       onContextMenu={(e) => {
         tip.hide();
-        onContextMenu(e);
+        onMenu(e, row);
       }}
       {...tip.triggerProps}
     >
@@ -136,7 +149,7 @@ function Row({ id, row, mode, active, top, height, filterQuery, onMouseDown, onC
       {tip.tooltip}
     </div>
   );
-}
+});
 
 /**
  * The active row: the keyboard cursor while the diff it was set for is still open, else the
@@ -325,6 +338,21 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
       return next;
     });
 
+  // The rows' handlers are the same functions on every render (they reach the latest closure
+  // through a ref), so a row re-renders only when its own props change (review M2).
+  const latest = useRef({ toggleFile, place, toggle, menuFor });
+  useLayoutEffect(() => { latest.current = { toggleFile, place, toggle, menuFor }; });
+  const onRowPress = useCallback((e: MouseEvent, row: FileRow, index: number) => {
+    // Every press toggles (K2, K3), the second of a quick pair too: the browser counts
+    // it as a double-click (`detail` 2), but to the user it's just another click.
+    if (e.button !== 0) return;
+    const l = latest.current;
+    if (row.kind === 'file') return l.toggleFile(row, index);
+    l.place(row);
+    l.toggle(row.path);
+  }, []);
+  const onRowMenu = useCallback((e: MouseEvent, row: FileRow) => openContextMenu(e, latest.current.menuFor(row)), []);
+
   useImperativeHandle(ref, () => ({
     hasFiles: () => rows.some((r) => r.kind === 'file'),
     enter: (edge) => {
@@ -334,8 +362,15 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
   }));
 
   const onKeyDown = (e: KeyboardEvent) => {
-    // A stale list (the next selection is loading, feedback F12) opens nothing.
-    if (e.ctrlKey || e.altKey || e.metaKey || store.getState().panelPending) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    // A stale list (the next selection is loading, feedback F12) opens nothing; the keys it
+    // would have handled are still swallowed, or the list would scroll natively and carry that
+    // offset into the swapped-in list (review M12).
+    const pending = store.getState().panelPending;
+    if (pending) {
+      if (HANDLED_KEYS.has(e.key) || (e.key === 'F10' && e.shiftKey)) e.preventDefault();
+      return;
+    }
     const i = activeIndex;
     const row = rows[i];
     // The context menu from the keyboard (the menu key, Shift+F10), at the active file's row.
@@ -353,6 +388,8 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
     // Feedback J3: the moves land on file rows only (folder rows are skipped), and open them.
     // Feedback K4: ↓ past the last file wraps to the first, ↑ past the first wraps to the last.
     switch (e.key) {
+      // Every key handled here is in HANDLED_KEYS (above): add new ones to both, or a pending list
+      // would scroll on them.
       // `onLeave` (WIP, K36): past the list's end, the other expanded list takes over (and wraps
       // the sequence as a whole); with none to take it, this list wraps on its own.
       case 'ArrowDown': {
@@ -430,7 +467,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
               {allExpanded ? 'Collapse all' : 'Expand all'}
             </button>
           ) : (
-            <button type="button" className="toolbar-button" aria-pressed={sort === 'status'} title="Sort by status, then path" onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>Sort by status</button>
+            <HoverTooltip content="Sort by status, then path"><button type="button" className="toolbar-button" aria-pressed={sort === 'status'} aria-description="Sort by status, then path" onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>Sort by status</button></HoverTooltip>
           )}
         </div>
         <div className="file-toolbar-center">
@@ -461,7 +498,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
       <div
         ref={scrollRef}
         className="file-list-scroll"
-        role="listbox"
+        role={mode === 'tree' ? 'tree' : 'listbox'}
         aria-label={label}
         aria-activedescendant={activeIndex >= 0 && items.some((it) => it.index === activeIndex) ? rowId(activeIndex) : undefined}
         data-open-file={own || undefined}
@@ -476,21 +513,15 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
               <Row
                 key={row.id}
                 id={rowId(item.index)}
+                index={item.index}
                 row={row}
                 mode={mode}
                 active={row.id === activeId}
                 top={item.start}
                 height={rowH}
                 filterQuery={filterQuery}
-                onMouseDown={(e) => {
-                  // Every press toggles (K2, K3), the second of a quick pair too: the browser counts
-                  // it as a double-click (`detail` 2), but to the user it's just another click.
-                  if (e.button !== 0) return;
-                  if (row.kind === 'file') return toggleFile(row, item.index);
-                  place(row);
-                  toggle(row.path);
-                }}
-                onContextMenu={(e) => openContextMenu(e, menuFor(row))}
+                onPress={onRowPress}
+                onMenu={onRowMenu}
               />
             );
           })}

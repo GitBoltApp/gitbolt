@@ -39,7 +39,7 @@ function setup(spec: DiffSpec = { kind: 'commit', id: COMMIT, parent: 0 }, remot
   render(<RepoViewContext value={store}><FileList list={list} spec={spec} label="Changed files" /><ContextMenu /><TooltipHost /><Toast /></RepoViewContext>);
   return store;
 }
-const row = (path: string) => screen.getAllByRole('option').find((r) => r.dataset.path === path)!;
+const row = (path: string) => rowEls().find((r) => r.dataset.path === path)!;
 const menu = () => screen.getByTestId('context-menu');
 const item = (name: string | RegExp) => screen.getByRole('menuitem', { name });
 const topLabels = () => [...menu().querySelectorAll('[data-depth="0"] > [role="menuitem"] .ctx-label')].map((e) => e.textContent);
@@ -58,9 +58,14 @@ beforeEach(() => {
 afterEach(async () => {
   act(() => useMenu.getState().close());
   // Let each menu's after-paint work (the openers' re-detection) run inside its own test.
-  await act(() => new Promise((r) => setTimeout(r, 50)));
+  // Queued behind it: `afterPaint` is a frame, then a 0 ms timer, so this lands after it.
+  await act(() => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0))));
   cleanup();
 });
+
+/** The rows and the list, whatever their roles: tree mode is a `tree` of `treeitem`s (M8), path mode a `listbox` of `option`s. */
+const rowEls = () => [...document.querySelectorAll<HTMLElement>('[role="option"], [role="treeitem"]')];
+const listEl = () => document.querySelector<HTMLElement>('.file-list-scroll')!;
 
 describe('the file row context menu (spec §7 file menu)', () => {
   it('right-click opens the shared menu at the pointer, without opening the file', async () => {
@@ -158,7 +163,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
   it('the keyboard: Shift+F10 or the menu key opens it at the active row; Escape closes it and gives the list its focus back', async () => {
     const store = setup();
     await act(async () => {});
-    const box = screen.getByRole('listbox');
+    const box = listEl();
     box.focus();
     fireEvent.mouseDown(row('src/app.php'));
     fireEvent.keyDown(box, { key: 'F10', shiftKey: true });
@@ -179,7 +184,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
     setup({ kind: 'wip', worktree: '/wt/feature', staged: false });
     await act(async () => {});
-    const folder = screen.getAllByRole('option').find((r) => r.dataset.kind === 'folder')!;
+    const folder = rowEls().find((r) => r.dataset.kind === 'folder')!;
     const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 4, clientY: 4 });
     act(() => { folder.dispatchEvent(e); });
     expect(e.defaultPrevented).toBe(true);

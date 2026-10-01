@@ -1,4 +1,4 @@
-import { FolderPlus, X } from 'lucide-react';
+import { FolderPlus, Settings, X } from 'lucide-react';
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { TabState } from '../api/gen/TabState';
 import { runAction } from '../app/actions';
@@ -142,6 +142,11 @@ export function TabBar() {
           );
         })}
       </div>
+      <HoverTooltip content="Settings (Ctrl+,)">
+        <button type="button" className="tab-bar-btn" aria-label="Settings" onClick={() => runAction('file.settings')}>
+          <Settings size={16} aria-hidden />
+        </button>
+      </HoverTooltip>
       <ProfileSwitcher />
     </div>
   );

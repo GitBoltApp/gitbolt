@@ -28,13 +28,20 @@ beforeEach(() => {
 });
 
 describe('WipSections (K36)', () => {
+  it('K86: no +0/−0 totals for an empty side; a one-sided change shows only that side', () => {
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    const sections = [section('Unstaged', false), { ...section('Staged', true, 'a.txt'), list: { status: 'ready', data: { files: [file('a.txt')], added: 0, deleted: 3 } } } as FileSection];
+    render(<RepoViewContext value={store}><WipSections sections={sections} /></RepoViewContext>);
+    expect(screen.queryByTestId('unstaged-totals')).toBeNull();
+    expect(screen.getByTestId('staged-totals')).toHaveTextContent(/^−3$/);
+  });
   it('one shared Path/Tree toggle drives both lists; the lists have none of their own', () => {
     setup();
     expect(screen.getAllByRole('button', { name: 'Path' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Tree' })).toHaveLength(1);
     expect(screen.getAllByRole('option').every((o) => o.getAttribute('data-kind') === 'file')).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
-    expect(screen.getAllByRole('option').filter((o) => o.getAttribute('data-kind') === 'folder').map((o) => o.getAttribute('data-path'))).toEqual(['src', 'lib']);
+    expect(screen.getAllByRole('treeitem').filter((o) => o.getAttribute('data-kind') === 'folder').map((o) => o.getAttribute('data-path'))).toEqual(['src', 'lib']);
     // The same pref commit details use.
     expect(useFileListPrefs.getState().mode).toBe('tree');
   });
@@ -43,7 +50,7 @@ describe('WipSections (K36)', () => {
     setup();
     expect(screen.getByRole('heading', { name: 'Unstaged (2)' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Staged (1)' })).toBeInTheDocument();
-    expect(screen.getByTestId('unstaged-totals')).toHaveTextContent('+2 −0');
+    expect(screen.getByTestId('unstaged-totals')).toHaveTextContent(/^\+2$/);
     expect(screen.getByTestId('unstaged-counts')).toBeInTheDocument();
     expect(screen.getByTestId('unstaged-totals').parentElement).toBe(screen.getByRole('heading', { name: 'Unstaged (2)' }).parentElement);
     expect(screen.queryByTestId('file-counts')).toBeNull();
@@ -135,17 +142,17 @@ describe('WipSections (K36)', () => {
   it('collapsing a section keeps its folder state and keyboard cursor', () => {
     setup();
     fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
-    const unstaged = screen.getByRole('listbox', { name: 'Unstaged' });
-    fireEvent.mouseDown(screen.getAllByRole('option').find((o) => o.getAttribute('data-path') === 'src')!); // collapse the folder
-    expect(within(unstaged).getAllByRole('option')).toHaveLength(1);
+    const unstaged = screen.getByRole('tree', { name: 'Unstaged' });
+    fireEvent.mouseDown(screen.getAllByRole('treeitem').find((o) => o.getAttribute('data-path') === 'src')!); // collapse the folder
+    expect(within(unstaged).getAllByRole('treeitem')).toHaveLength(1);
     act(() => unstaged.focus());
     fireEvent.keyDown(unstaged, { key: 'ArrowDown' }); // only folder row: cursor stays on it
     fireEvent.click(screen.getByRole('button', { name: /Unstaged/ }));
-    expect(screen.queryByRole('listbox', { name: 'Unstaged' })).toBeNull();
+    expect(screen.queryByRole('tree', { name: 'Unstaged' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Unstaged/ }));
-    const back = screen.getByRole('listbox', { name: 'Unstaged' });
-    expect(within(back).getAllByRole('option')).toHaveLength(1);
-    expect(within(back).getByRole('option')).toHaveAttribute('aria-expanded', 'false');
+    const back = screen.getByRole('tree', { name: 'Unstaged' });
+    expect(within(back).getAllByRole('treeitem')).toHaveLength(1);
+    expect(within(back).getByRole('treeitem')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('the cursor survives too: the row it was on is still the active one', () => {

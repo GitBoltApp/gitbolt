@@ -2,7 +2,7 @@
 // registry (language.ts) and the Monaco loader, which stay out of the startup chunk (spec §10.3).
 import { X } from 'lucide-react';
 import { BUSY_DELAY_MS, useLateFlag } from '../util/lateFlag';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { errorMessage } from '../api/client';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
@@ -128,7 +128,7 @@ export function DiffHeader({ target, encoding, onClose, busy = false }: { target
         : <span className="status-spacer" style={{ width: 14 }} aria-hidden="true" />}
       <DiffPath target={target} />
       {encoding && <span className="diff-encoding" data-testid="diff-encoding">{encoding}</span>}
-      <button type="button" className="icon-button" aria-label="Close diff" title="Close (Esc)" onClick={onClose}><X size={14} /></button>
+      <HoverTooltip content="Close (Esc)"><button type="button" className="icon-button" aria-label="Close diff" onClick={onClose}><X size={14} /></button></HoverTooltip>
       {busy && <div className="diff-progress" role="progressbar" aria-label="Loading diff" />}
     </header>
   );
@@ -136,10 +136,10 @@ export function DiffHeader({ target, encoding, onClose, busy = false }: { target
 
 /** Where "Open in…" puts the cursor: the diff's first change (a plain line compare), when the
  * new side is text. */
-function openInLine(contents: Loadable<DiffContentsPayload>): number | null {
-  if (contents.status !== 'ready' || contents.data.tooLarge) return null;
-  const neu = contents.data.new?.text;
-  return neu == null ? null : firstChangedLine(contents.data.old?.text ?? '', neu);
+function openInLine(c: DiffContentsPayload | null): number | null {
+  if (!c || c.tooLarge) return null;
+  const neu = c.new?.text;
+  return neu == null ? null : firstChangedLine(c.old?.text ?? '', neu);
 }
 
 /** The backend's ceiling for a forced load (`MAX_FORCED_BYTES`, diff.rs): a side over it stays
@@ -311,6 +311,10 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
     && showsEditor(held.target, held.contents) && held.target.view === body.target.view;
   if (!waits) header.current = body;
   const { target: shown, contents } = header.current;
+  // Splits both full texts, so it is worked out once per loaded payload (the loader's cached
+  // object), not on each of a file switch's several renders (review M1).
+  const loaded = contents.status === 'ready' ? contents.data : null;
+  const openLine = useMemo(() => openInLine(loaded), [loaded]);
   // An SVG's Source toggle, per file: its text diff gets the text-diff controls (H26).
   const [sourceOf, setSourceOf] = useState<string | null>(null);
   const imageDiff = contents.status === 'ready' && isImage(shown, contents.data) && !contents.data.tooLarge;
@@ -349,7 +353,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
         canDiff={canDiff}
         canStep={textDiff}
         textTools={!imageDiff || svgSource}
-        leading={<OpenInButton target={shown} line={openInLine(contents)} />}
+        leading={<OpenInButton target={shown} line={openLine} />}
       />
       <div className="diff-body">
         <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} />

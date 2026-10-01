@@ -103,6 +103,8 @@ const GROUPS: Array<{ group: ActionGroup; icon: LucideIcon; tooltip: string }> =
   { group: 'Help', icon: CircleHelp, tooltip: 'About GitBolt' },
 ];
 
+const QUIT_ID = 'file.quit';
+
 /** The hamburger menu (spec §6.1): one submenu per group that has at least one usable action.
  * When several usable actions share a combo (Ctrl+W: `file.closeFile` while a file is open, else
  * `file.closeTab`), only the one `actionForCombo` would actually run shows the badge — never
@@ -110,13 +112,15 @@ const GROUPS: Array<{ group: ActionGroup; icon: LucideIcon; tooltip: string }> =
 export function hamburgerRows(): MenuRow[] {
   const all = availableActions();
   return GROUPS.flatMap(({ group, icon, tooltip }) => {
-    const rows: MenuRow[] = all
-      .filter((a) => a.group === group)
-      .map((a) => {
-        const combo = a.shortcuts?.[0];
-        const shortcut = combo && actionForCombo(combo) === a ? combo : undefined;
-        return { kind: 'action', id: a.id, label: a.label, icon: a.icon, tooltip: a.tooltip, shortcut, run: () => invoke(a) };
-      });
+    // Quit is always the last entry of File, after a separator (K95), wherever it registered.
+    const inGroup = all.filter((a) => a.group === group);
+    const ordered = [...inGroup.filter((a) => a.id !== QUIT_ID), ...inGroup.filter((a) => a.id === QUIT_ID)];
+    const rows: MenuRow[] = ordered.flatMap((a, i): MenuRow[] => {
+      const combo = a.shortcuts?.[0];
+      const shortcut = combo && actionForCombo(combo) === a ? combo : undefined;
+      const row: MenuRow = { kind: 'action', id: a.id, label: a.label, icon: a.icon, tooltip: a.tooltip, shortcut, run: () => invoke(a) };
+      return a.id === QUIT_ID && i > 0 ? [{ kind: 'separator' }, row] : [row];
+    });
     return rows.length ? [{ kind: 'submenu' as const, id: `menu.${group}`, label: group, icon, tooltip, rows }] : [];
   });
 }

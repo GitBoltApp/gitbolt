@@ -177,6 +177,44 @@ async fn a_clone_cancelled_at_its_prompt_leaves_nothing_behind() {
     assert!(tmp.path().is_dir());
 }
 
+/// K96: an ssh key passphrase reaches the modal (`authWaiting`, secret) even with no display
+/// (`SSH_ASKPASS_REQUIRE=force`), through the real askpass binary, and the right answer lets the
+/// fetch through. `scripts/fake-ssh` asks the way OpenSSH decides, then serves the bare origin.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ssh_passphrase_prompt_reaches_the_modal_without_a_display() {
+    // No display at all: DISPLAY and WAYLAND_DISPLAY unset (not just empty), after everything else.
+    let no_display: gitbolt_core::git::CommandHook = Arc::new(|c| {
+        c.env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
+    });
+    let api = Arc::new(Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env()).with_command_hook(no_display), None));
+    let runtime = tempfile::tempdir().unwrap();
+    api.start_askpass(runtime.path(), env!("CARGO_BIN_EXE_gitbolt-harness").into()).await.unwrap();
+    let r = gitbolt_core::testing::TestRepo::new();
+    gitbolt_core::testing::fixtures::basic(&r);
+    let origin = r.root().join("origin.git");
+    r.git(&["remote", "set-url", "origin", &format!("ssh://fake{}", origin.display())]);
+    r.git(&["config", "core.sshCommand", &format!("{}/../../scripts/fake-ssh --passphrase testpass", env!("CARGO_MANIFEST_DIR"))]);
+    r.git(&["config", "ssh.variant", "simple"]);
+    r.git_in(&origin, &["branch", "over-ssh", "main"]);
+    let opened = api.dispatch(serde_json::from_value(serde_json::json!({"method": "openRepo", "params": {"path": r.path()}})).unwrap()).await.unwrap();
+    let mut rx = api.subscribe();
+    let server = api.askpass().unwrap().clone();
+    let asked = tokio::spawn(async move {
+        loop {
+            if let AppEvent::AuthWaiting { prompt, text, secret, .. } = rx.recv().await.unwrap() {
+                server.answer(prompt, Some("testpass".into())).unwrap();
+                return (text, secret);
+            }
+        }
+    });
+    let out = api.dispatch(serde_json::from_value(serde_json::json!({"method": "fetch", "params": {"repo": opened["id"], "background": false}})).unwrap()).await.unwrap();
+    assert_eq!(out, serde_json::json!({"status": "done", "changed": true}));
+    let (text, secret) = tokio::time::timeout(Duration::from_secs(5), asked).await.unwrap().unwrap();
+    assert!(text.starts_with("Enter passphrase for key"), "{text}");
+    assert!(secret);
+    assert!(r.try_git(&["rev-parse", "--verify", "refs/remotes/origin/over-ssh"]).is_ok());
+}
+
 /// The user dismissing the credential modal cancels the fetch; it isn't a failure.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fetch_whose_prompt_the_user_cancels_reports_cancelled() {

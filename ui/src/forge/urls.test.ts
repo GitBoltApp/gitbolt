@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { branchUrl, commitUrl, fileUrl, issueUrl, mergeRequestUrl, projectRemote, type ProjectRemote } from './urls';
+import { branchUrl, commitUrl, effectiveKind, fileUrl, issueUrl, mergeRequestUrl, projectRemote, type ProjectRemote } from './urls';
 
 const gitlab: ProjectRemote = { host: 'gitlab.example.com', path: 'group/project', hostKind: 'gitlab' };
 const github: ProjectRemote = { host: 'github.example.com', path: 'owner/repo', hostKind: 'github' };
@@ -14,6 +14,23 @@ describe('projectRemote', () => {
       ]),
     ).toEqual({ host: 'github.com', path: 'o/r', hostKind: 'github' });
     expect(projectRemote([])).toBeNull();
+  });
+});
+
+describe('host-type overrides (Settings > Hosts)', () => {
+  it('effectiveKind prefers the override for the host, case-insensitively, else the detected kind', () => {
+    expect(effectiveKind('code.example.com', 'generic', { 'code.example.com': 'gitlab' })).toBe('gitlab');
+    expect(effectiveKind('Code.Example.com', 'generic', { 'code.example.com': 'github' })).toBe('github');
+    expect(effectiveKind('code.example.com', 'generic', {})).toBe('generic');
+    expect(effectiveKind('gitlab.example.com', 'gitlab', { 'other.example.com': 'github' })).toBe('gitlab');
+    expect(effectiveKind(null, 'github', { x: 'gitlab' })).toBe('github');
+  });
+  it('projectRemote applies them, so a generic remote gets forge links', () => {
+    const remotes = [{ name: 'origin', host: 'code.example.com', path: 'acme/shop', hostKind: 'generic' as const }];
+    expect(projectRemote(remotes)?.hostKind).toBe('generic');
+    const r = projectRemote(remotes, { 'code.example.com': 'gitlab' })!;
+    expect(r.hostKind).toBe('gitlab');
+    expect(commitUrl(r, 'abc')).toBe('https://code.example.com/acme/shop/-/commit/abc');
   });
 });
 

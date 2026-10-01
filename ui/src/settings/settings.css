@@ -1,0 +1,39 @@
+.settings { display: flex; flex-direction: column; width: min(820px, 94vw); height: min(640px, 88vh); background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5); color: var(--text-normal); font-size: 13px; }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--section-border); }
+.settings-head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-selected); user-select: none; }
+.settings-main { display: flex; flex: 1; min-height: 0; }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; width: 150px; flex: none; padding: 10px 8px; border-right: 1px solid var(--section-border); }
+.settings-nav button { font: inherit; text-align: left; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--text-normal); cursor: pointer; }
+.settings-nav button:hover { background: var(--hover-row); }
+.settings-nav button[aria-current="true"] { background: var(--selected-row); color: var(--text-selected); }
+.settings-body { flex: 1; min-width: 0; overflow: auto; padding: 4px 16px 16px; position: relative; }
+.settings-section h3 { margin: 16px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); user-select: none; }
+.setting-row { display: grid; grid-template-columns: 230px minmax(0, 1fr); align-items: start; gap: 12px; padding: 6px 8px; border-radius: 4px; transition: background 0.3s; }
+.setting-row.flash { background: var(--selected-row); }
+.setting-label { padding-top: 5px; color: var(--text-normal); }
+.setting-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 28px; }
+.setting-control input:not([type="checkbox"]):not([type="radio"]), .setting-control select { flex: 1; min-width: 0; font: inherit; padding: 5px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; outline: none; }
+.setting-control input:focus, .setting-control select:focus { border-color: var(--blue); }
+.setting-control input[aria-invalid="true"] { border-color: var(--status-deleted); }
+.setting-control button:not(.select), .settings-foot button { font: inherit; padding: 5px 12px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg0); color: var(--text-selected); cursor: pointer; }
+.setting-control button:hover:not(:disabled):not(.select), .settings-foot button:hover { background: var(--hover-row); }
+.setting-control button:disabled { color: var(--text-disabled); cursor: default; }
+.settings-foot button.danger { color: var(--status-deleted); }
+.radio-group { display: flex; gap: 16px; padding-top: 4px; }
+.radio { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.editor-picker { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.setting-error { color: var(--status-deleted); font-size: 12px; overflow-wrap: anywhere; }
+.setting-hint { color: var(--text-secondary); font-size: 12px; }
+.hosts-box { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+.hosts { border-collapse: collapse; width: 100%; }
+.hosts td { padding: 2px 8px 2px 0; }
+.hosts .host-name { color: var(--text-selected); overflow-wrap: anywhere; }
+.host-add { display: flex; gap: 8px; }
+.host-add input { flex: 1; min-width: 0; font: inherit; padding: 5px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; outline: none; }
+.host-add select { flex: none; font: inherit; padding: 5px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; }
+.host-add button { font: inherit; padding: 5px 12px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg0); color: var(--text-selected); cursor: pointer; }
+.host-add button:disabled { color: var(--text-disabled); cursor: default; }
+.settings-note { margin: 16px 8px 0; }
+.settings-foot { margin: 12px 8px 0; }
+.settings .dim { color: var(--text-secondary); }
+.inline-form { display: contents; }

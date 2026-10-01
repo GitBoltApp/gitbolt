@@ -10,6 +10,7 @@ import { useRuntime } from './runtime';
 import { useGlobalShortcuts } from './shortcuts';
 import { AppSlot, TabSlot } from './slots';
 import { useAppState } from './state';
+import { openBlankTab } from './tabs';
 import './shell.css';
 
 /** Closed tabs (and a previous profile's) let go of their runtime and 1B view state. */
@@ -43,6 +44,11 @@ export function AppShell({ error = null }: { error?: string | null }) {
   useEffect(() => {
     if (loaded && active !== activeTab) useAppState.getState().updateProfile((p) => ({ ...p, activeTab: active }));
   }, [loaded, active, activeTab]);
+  // No tab open: show the Open Repository screen (spec §13), once boot has opened any launch repos.
+  const booted = useAppState((s) => s.booted);
+  useEffect(() => {
+    if (booted && tabs.length === 0) useAppState.getState().updateProfile((p) => openBlankTab(p).profile);
+  }, [booted, tabs.length]);
   useEffect(() => {
     if (loaded && tabs.length === 0) document.title = 'GitBolt';
   }, [loaded, tabs.length]);
@@ -64,7 +70,6 @@ export function AppShell({ error = null }: { error?: string | null }) {
                 </div>
               </Activity>
             ))}
-            {tabs.length === 0 && <div className="center-message">No repository — run <code>just dev /path/to/repo</code></div>}
           </div>
           <AppSlot name="statusBar" />
           <AppSlot name="overlay" />

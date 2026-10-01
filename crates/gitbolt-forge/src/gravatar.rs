@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 
 pub const FOUND_TTL_SECS: i64 = 7 * 24 * 3600;
@@ -24,6 +24,11 @@ pub const DEFAULT_BASE_URL: &str = "https://gravatar.com/avatar";
 pub const USER_AGENT: &str = concat!("GitBolt/", env!("CARGO_PKG_VERSION"));
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
 const PARALLEL_REQUESTS: usize = 4;
+/// Index entries older than this are dropped (with their image) when the index loads (minor #9).
+pub const PRUNE_AFTER_SECS: i64 = 30 * 24 * 3600;
+/// After a connect or timeout error, no further requests for this long (minor #8): a dropped
+/// network would otherwise make each of the graph's avatars wait the full timeout in turn.
+pub const NETWORK_BACKOFF: Duration = Duration::from_secs(3 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct IndexEntry {
@@ -61,6 +66,24 @@ fn ext_for(content_type: &str) -> Option<&'static str> {
     }
 }
 
+/// Creates the cache directory (and parents) owner-only, and tightens one that already exists
+/// (minor #9): the index lists which hashed authors the user browsed.
+fn ensure_private_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        if std::fs::metadata(dir)?.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
+}
+
 /// Writes a temp file, then renames it, so a crash never leaves a half-written file. The temp
 /// name is unique per call (`.<name>.<pid>.<counter>.tmp`), so concurrent writers of the same
 /// path never share, truncate or steal each other's temp file.
@@ -84,6 +107,9 @@ pub struct GravatarCache {
     base_url: String,
     agent: ureq::Agent,
     index: Mutex<Option<HashMap<String, IndexEntry>>>,
+    /// While set and in the future, network requests are skipped (minor #8).
+    backoff_until: Mutex<Option<Instant>>,
+    backoff: Duration,
 }
 
 impl GravatarCache {
@@ -94,13 +120,32 @@ impl GravatarCache {
             .user_agent(USER_AGENT)
             .build()
             .into();
-        Self { dir, base_url: base_url.into(), agent, index: Mutex::new(None) }
+        Self { dir, base_url: base_url.into(), agent, index: Mutex::new(None), backoff_until: Mutex::new(None), backoff: NETWORK_BACKOFF }
+    }
+
+    /// How long a network error silences further requests (tests shorten it).
+    pub fn with_backoff(mut self, backoff: Duration) -> Self {
+        self.backoff = backoff;
+        self
     }
 
     fn with_index<T>(&self, f: impl FnOnce(&mut HashMap<String, IndexEntry>) -> T) -> T {
         let mut guard = self.index.lock().expect("avatar index poisoned");
-        let index = guard.get_or_insert_with(|| std::fs::read(self.dir.join("index.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default());
+        let index = guard.get_or_insert_with(|| self.load_pruned());
         f(index)
+    }
+
+    /// Reads the index, dropping entries (and their images) older than `PRUNE_AFTER_SECS`.
+    fn load_pruned(&self) -> HashMap<String, IndexEntry> {
+        let mut index: HashMap<String, IndexEntry> = std::fs::read(self.dir.join("index.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let cutoff = now() - PRUNE_AFTER_SECS;
+        let stale: Vec<String> = index.iter().filter(|(_, e)| e.fetched < cutoff).map(|(k, _)| k.clone()).collect();
+        for key in &stale {
+            if let Some(ext) = index.remove(key).and_then(|e| e.ext) {
+                let _ = std::fs::remove_file(self.dir.join(format!("{key}.{ext}")));
+            }
+        }
+        index
     }
 
     /// Records a fetch and saves the index. The file is written while the index lock is held,
@@ -110,7 +155,7 @@ impl GravatarCache {
         let saved = self.with_index(|index| {
             index.insert(key.to_string(), IndexEntry { ext: ext.map(str::to_string), fetched: now() });
             let json = serde_json::to_vec(index).expect("index serializes");
-            std::fs::create_dir_all(&self.dir).and_then(|_| write_atomic(&self.dir.join("index.json"), &json))
+            ensure_private_dir(&self.dir).and_then(|_| write_atomic(&self.dir.join("index.json"), &json))
         });
         if let Err(e) = saved {
             tracing::warn!("avatar index not saved: {e}");
@@ -141,13 +186,19 @@ impl GravatarCache {
 
     fn fetch(&self, key: &str) -> Result<Option<AvatarPayload>, String> {
         let url = format!("{}/{key}?s=80&d=404", self.base_url.trim_end_matches('/'));
-        let mut resp = self.agent.get(&url).call().map_err(|e| format!("avatar request failed: {e}"))?;
+        if self.backoff_until.lock().expect("backoff poisoned").is_some_and(|until| Instant::now() < until) {
+            return Err("avatar network backoff: a recent request failed".into());
+        }
+        let mut resp = self.agent.get(&url).call().map_err(|e| {
+            *self.backoff_until.lock().expect("backoff poisoned") = Some(Instant::now() + self.backoff);
+            format!("avatar request failed: {e}")
+        })?;
         match resp.status().as_u16() {
             200 => {
                 let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
                 let ext = ext_for(content_type).ok_or_else(|| format!("avatar server answered a non-image ({content_type:?})"))?;
                 let bytes = resp.body_mut().with_config().limit(MAX_AVATAR_BYTES).read_to_vec().map_err(|e| format!("avatar body: {e}"))?;
-                std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
+                ensure_private_dir(&self.dir).map_err(|e| e.to_string())?;
                 write_atomic(&self.dir.join(format!("{key}.{ext}")), &bytes).map_err(|e| e.to_string())?;
                 self.remember(key, Some(ext));
                 Ok(Some(payload(ext, &bytes)))
@@ -174,13 +225,14 @@ impl Gravatar {
         Self { cache: Arc::new(GravatarCache::new(dir, base_url)), enabled: AtomicBool::new(true), permits: Semaphore::new(PARALLEL_REQUESTS) }
     }
 
-    /// The "Gravatar on/off" setting (spec §14.1; plan 1C wires it).
-    pub fn set_enabled(&self, on: bool) {
-        self.enabled.store(on, Ordering::Relaxed);
-    }
 }
 
 impl AvatarProvider for Gravatar {
+    /// The "Gravatar on/off" setting (spec §14.1).
+    fn set_enabled(&self, on: bool) {
+        self.enabled.store(on, Ordering::Relaxed);
+    }
+
     fn avatar<'a>(&'a self, email: &'a str) -> AvatarFuture<'a> {
         Box::pin(async move {
             if !self.enabled.load(Ordering::Relaxed) {
@@ -334,6 +386,62 @@ mod tests {
         assert_eq!(agent, Some(EXPECTED_UA));
         assert_eq!(USER_AGENT, EXPECTED_UA);
         assert!(!head.contains('@') && !head.to_ascii_lowercase().contains("example.com"), "{head}");
+    }
+
+    #[test]
+    fn a_network_error_backs_off_further_requests() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = GravatarCache::new(dir.path().to_path_buf(), closed_base());
+        let first = cache.get_blocking("a@example.com").unwrap_err();
+        assert!(first.contains("request failed"), "{first}");
+        let second = cache.get_blocking("b@example.com").unwrap_err();
+        assert!(second.contains("backoff"), "no request while backing off: {second}");
+        let retry = GravatarCache::new(dir.path().to_path_buf(), closed_base()).with_backoff(Duration::ZERO);
+        assert!(retry.get_blocking("a@example.com").unwrap_err().contains("request failed"));
+        assert!(retry.get_blocking("b@example.com").unwrap_err().contains("request failed"), "a zero backoff tries again");
+    }
+
+    #[test]
+    fn a_found_avatar_is_still_served_while_backing_off() {
+        let (base, _) = server();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = GravatarCache::new(dir.path().to_path_buf(), &base);
+        assert!(cache.get_blocking("found@example.com").unwrap().is_some());
+        *cache.backoff_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(60));
+        assert!(cache.get_blocking("found@example.com").unwrap().is_some(), "from disk");
+        assert!(cache.get_blocking("nobody@example.com").is_err(), "needs the network");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cache_directory_is_owner_only_even_when_it_already_existed() {
+        use std::os::unix::fs::PermissionsExt;
+        let (base, _) = server();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("nested").join("avatars");
+        GravatarCache::new(dir.clone(), &base).get_blocking("found@example.com").unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        GravatarCache::new(dir.clone(), &base).get_blocking("nobody@example.com").unwrap();
+        assert_eq!(mode(&dir), 0o700, "an older, world-readable cache is tightened");
+    }
+
+    #[test]
+    fn index_entries_older_than_30_days_are_pruned_with_their_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let (old, fresh) = (email_key("old@example.com"), email_key("fresh@example.com"));
+        std::fs::write(dir.path().join(format!("{old}.png")), b"x").unwrap();
+        std::fs::write(dir.path().join(format!("{fresh}.png")), b"y").unwrap();
+        let index = serde_json::json!({
+            old.clone(): { "ext": "png", "fetched": now() - PRUNE_AFTER_SECS - 10 },
+            fresh.clone(): { "ext": "png", "fetched": now() - 100 },
+        });
+        std::fs::write(dir.path().join("index.json"), index.to_string()).unwrap();
+        let cache = GravatarCache::new(dir.path().to_path_buf(), closed_base());
+        cache.with_index(|i| assert_eq!(i.keys().collect::<Vec<_>>(), vec![&fresh]));
+        assert!(!dir.path().join(format!("{old}.png")).exists());
+        assert!(dir.path().join(format!("{fresh}.png")).exists());
     }
 
     #[test]

@@ -12,7 +12,7 @@ const rowsOf = (specs: Spec[]): RowPayload[] => specs.map(([id, lane, parents, k
 }));
 const rows = (...specs: Spec[]) => rowsOf(specs);
 const local = (row: number, name: string): RefLabel => ({ row, name, local: `refs/heads/${name}`, remotes: [], tag: false, isHead: false, worktree: null });
-const remoteOnly = (row: number, remote: string, name: string): RefLabel => ({ row, name, local: null, remotes: [{ fullName: `refs/remotes/${remote}/${name}`, remote, hostKind: 'generic' }], tag: false, isHead: false, worktree: null });
+const remoteOnly = (row: number, remote: string, name: string): RefLabel => ({ row, name, local: null, remotes: [{ fullName: `refs/remotes/${remote}/${name}`, remote, host: null, hostKind: 'generic' }], tag: false, isHead: false, worktree: null });
 const tag = (row: number, name: string): RefLabel => ({ row, name, local: null, remotes: [], tag: true, isHead: false, worktree: null });
 const detachedHead = (row: number): RefLabel => ({ row, name: 'HEAD', local: null, remotes: [], tag: false, isHead: true, worktree: null });
 
@@ -210,7 +210,7 @@ describe('branchRows (J22): the rows a hovered branch chip focuses', () => {
   });
 
   it("takes a chip's refs (local and remotes) together; a tag, a detached HEAD or an unknown ref focus nothing", () => {
-    const withRemote: RefLabel = { ...local(0, 'main'), remotes: [{ fullName: 'refs/remotes/origin/main', remote: 'origin', hostKind: 'generic' }] };
+    const withRemote: RefLabel = { ...local(0, 'main'), remotes: [{ fullName: 'refs/remotes/origin/main', remote: 'origin', host: null, hostKind: 'generic' }] };
     expect(chipRefs(withRemote)).toEqual(['refs/heads/main', 'refs/remotes/origin/main']);
     expect(chipRefs(tag(0, 'v1'))).toEqual([]);
     expect(chipRefs(detachedHead(0))).toEqual([]);

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { BlobPayload } from '../api/gen/BlobPayload';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
+import { svgIntrinsicSize } from './svgSize';
 
-export interface ImageSource { url: string; size: number }
+export interface ImageSource { url: string; size: number; /** An SVG's intrinsic size from its root, when it has one: a decoder reports 150×150 for a viewBox-only SVG. */ intrinsic?: { w: number; h: number } | null }
 
 export const IMAGE_MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon', svg: 'image/svg+xml',
@@ -28,7 +29,7 @@ export function useImageSources(c: DiffContentsPayload, path: string) {
     const mime = IMAGE_MIME[path.slice(path.lastIndexOf('.') + 1).toLowerCase()] ?? 'application/octet-stream';
     const make = (b: BlobPayload | null): ImageSource | null => {
       const blob = blobFor(b, mime);
-      return blob && b ? { url: URL.createObjectURL(blob), size: b.size } : null;
+      return blob && b ? { url: URL.createObjectURL(blob), size: b.size, intrinsic: mime === IMAGE_MIME.svg && b.text !== null ? svgIntrinsicSize(b.text) : null } : null;
     };
     const next = { old: make(c.old), new: make(c.new) };
     setSources(next);

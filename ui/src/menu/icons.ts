@@ -1,6 +1,6 @@
 import {
   AppWindow, ArrowRightToLine, CircleAlert, Code, Columns3, Copy, Download, ExternalLink, Eye, EyeOff, FileCode, FileDiff, FileText, FolderGit2, FolderOpen,
-  GitBranch, GitCommitHorizontal, GitCompare, GitPullRequest, Hash, LoaderCircle, MessageSquare, Pencil, RotateCcw, Settings, SquareArrowOutUpRight, SquareX, Tag, X,
+  GitBranch, GitCommitHorizontal, GitCompare, GitGraph, GitPullRequest, Hash, LoaderCircle, MessageSquare, Pencil, RotateCcw, Settings, SquareArrowOutUpRight, SquareX, Tag, X,
 } from 'lucide-react';
 
 /** One icon per action type, shared by every menu (spec §7 "Icons"), so the same action always
@@ -17,6 +17,8 @@ export const ICONS = {
   tag: Tag,
   mr: GitPullRequest,
   compare: GitCompare,
+  /** Select a commit in the graph. */
+  graph: GitGraph,
   editor: Code,
   /** An "Open in…" editor entry. */
   editorApp: FileCode,

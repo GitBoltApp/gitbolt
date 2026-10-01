@@ -7,13 +7,15 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
+import type { DateFormat } from '../api/gen/DateFormat';
+import { useAppState } from '../app/state';
 import { formatDate } from '../format/date';
 import { Avatar } from '../avatars/Avatar';
 import { avatars } from '../avatars/avatarStore';
 import { buildMenu } from '../menu/registry';
 import { openContextMenu, openMenuAt, type MenuEventLike } from '../menu/menuStore';
 import { isEditableTarget } from '../ui/keys';
-import { useHoverTooltip } from '../ui/HoverTooltip';
+import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { ColumnResizer } from './ColumnResizer';
 import './columnMenu';
@@ -22,6 +24,7 @@ import { allocateColumns, autoGraphWidth, handleShown, isCollapsed, lanesWidth, 
 import { graphLayout, LINE_W } from './draw';
 import { GraphCanvas } from './GraphCanvas';
 import { HeaderCell } from './HeaderCell';
+import { PinButton } from './PinButton';
 import { HScroll, HSCROLL_H } from './HScroll';
 import { labelsByRowOf, membershipOf } from './graphIndex';
 import { branchRows, type BranchMembership } from './membership';
@@ -77,6 +80,8 @@ function MessageCell({ row, repoId, width, messages, dim }: { row: RowPayload; r
 
 const NO_LABELS: RefLabel[] = [];
 const NO_ROWS: Set<number> = new Set();
+/** Below this Graph column width the header pin button shows only its icon (the trunk name needs room beside the GRAPH title). */
+const PIN_FULL_MIN = 130;
 /** The `column` menu's toggle (stable: the store's action). */
 const toggleHidden = (col: HideableColumn) => useColumnPrefs.getState().toggleHidden(col);
 
@@ -97,7 +102,7 @@ const NO_SELECTED: ReadonlySet<number> = new Set();
  * the row: a press on the empty space around them or on the connector stops here instead of
  * reaching the row (F6). */
 const onLabelsMouseDown = (e: MouseEvent<HTMLElement>) => {
-  if (!(e.target instanceof Element && e.target.closest('.ref-label, .ref-more'))) e.stopPropagation();
+  if (!(e.target instanceof Element && e.target.closest('.ref-label, .ref-more, .ref-stack'))) e.stopPropagation();
 };
 
 /** A row's DOM id (the keyboard commit-menu path, fix round 1, item 4: finding its element to
@@ -119,6 +124,8 @@ function AuthorAvatar({ name, email }: { name: string; email: string }) {
 
 interface GraphRowProps {
   row: RowPayload;
+  /** The Date column's preset (Settings > General). */
+  dateFormat: DateFormat;
   /** The repo's key (stable): a WIP row's draft summary is stored under it. */
   repoId: string;
   index: number;
@@ -158,10 +165,10 @@ interface GraphRowProps {
  * the view and the canvas, not every row; a hover re-renders only the rows whose membership
  * chip appears or goes, and a branch focus (J22) only the rows whose `dimmed` changes.
  */
-const GraphRow = memo(function GraphRow({ row, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu }: GraphRowProps) {
+const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu }: GraphRowProps) {
   const isWip = row.kind === 'wip';
   // A column at its minimum collapses its cells too (spec §8.4): icon-only chips, the avatar only.
-  const authorAvatar = isCollapsed('author', cols.author) && !isWip;
+  const authorAvatar = isCollapsed('author', cols.author);
   // The row-dim mechanism's classes, on the text cells only (never the chips or the graph): the
   // shared motion class plus the level's own colour class.
   const dim = dimmed ? ` ${ROW_DIM_CLASS} ${rowDimKindClass(dimmed)}` : '';
@@ -203,20 +210,20 @@ const GraphRow = memo(function GraphRow({ row, repoId, index, start, rowH, dpr, 
         </span>
       )}
       <span role="gridcell" data-col="graph" style={{ width: cols.graph }} />
-      <MessageCell row={row} repoId={repoId} width={cols.message} messages={messages} dim={dim} />
-      {cols.author > 0 && (
+      <MessageCell row={row} repoId={repoId} width={isWip ? cols.message + cols.author + cols.date : cols.message} messages={messages} dim={dim} />
+      {cols.author > 0 && !isWip && (
         <span role="gridcell" data-col="author" className={`col-author${authorAvatar ? ' col-author-avatar' : ''}${dim}`} style={{ width: cols.author }}>
           {authorAvatar ? <AuthorAvatar name={row.authorName} email={row.authorEmail} /> : row.authorName}
         </span>
       )}
-      {cols.date > 0 && <span role="gridcell" data-col="date" className={`col-date${dim}`} style={{ width: cols.date }}>{isWip ? '' : formatDate(row.committerTime)}</span>}
+      {cols.date > 0 && !isWip && <span role="gridcell" data-col="date" className={`col-date${dim}`} style={{ width: cols.date }}>{formatDate(row.committerTime, dateFormat)}</span>}
       {cols.sha > 0 && (
         <span role="gridcell" data-col="sha" className={`col-sha${dim}`} style={{ width: cols.sha }}>
           {!isWip && (
-            <button type="button" data-testid="sha" className="sha" title="Copy full SHA" onMouseDown={(e) => e.stopPropagation()} onClick={() => onCopySha(row.id)}>
+            <HoverTooltip content="Copy full SHA"><button type="button" data-testid="sha" className="sha" aria-description="Copy full SHA" onMouseDown={(e) => e.stopPropagation()} onClick={() => onCopySha(row.id)}>
               {/* The whole hash: the column shows as many whole characters as fit (graph.css). */}
               {row.id}
-            </button>
+            </button></HoverTooltip>
           )}
         </span>
       )}
@@ -260,6 +267,7 @@ export interface GraphViewProps {
 }
 
 export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = NO_SELECTED, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu }: GraphViewProps) {
+  const dateFormat = useAppState((s) => s.settings.dateFormat);
   const ownRef = useRef<HTMLDivElement>(null);
   const scrollRef = gridRef ?? ownRef;
   // The last scroll offset while visible: restored when <Activity> shows the graph again
@@ -407,18 +415,9 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
     v.scrollToIndex(clamped, { align: 'auto' });
   }, [graph.rows.length, v, onSelect]);
 
-  // A controlled selection can also move from outside (a parent SHA in the details panel):
-  // bring it into view. Only on an actual change, so re-showing the graph after a diff keeps the
-  // restored scroll offset.
+  // The selection index last scrolled to. Before the refresh anchor below, which runs first: a
+  // refresh moves the selected commit's index, and the selection effect must not scroll to it (K78).
   const shownSelection = useRef(selected);
-  // A layout effect: the scroll lands before the frame paints, so a jump (Find's next, held Enter)
-  // moves the highlight and the viewport together.
-  useLayoutEffect(() => {
-    if (selected === shownSelection.current) return;
-    shownSelection.current = selected;
-    if (selected >= 0) v.scrollToIndex(selected, { align: 'auto' });
-  }, [selected, v]);
-
   // A refresh (repo-changed / refs-updated, plan 1C) replaces the rows: what's on screen stays
   // where it was (spec §4.4 "keeps the selection and scroll position"). The selected commit is
   // the anchor while it's on screen, else the top row. The selection itself follows its commit
@@ -458,6 +457,17 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   useLayoutEffect(() => {
     laidOut.current = { rows: graph.rows, selected };
   });
+
+  // A controlled selection can also move from outside (a parent SHA in the details panel):
+  // bring it into view. Only on an actual change, so re-showing the graph after a diff keeps the
+  // restored scroll offset.
+  // A layout effect: the scroll lands before the frame paints, so a jump (Find's next, held Enter)
+  // moves the highlight and the viewport together.
+  useLayoutEffect(() => {
+    if (selected === shownSelection.current) return;
+    shownSelection.current = selected;
+    if (selected >= 0) v.scrollToIndex(selected, { align: 'auto' });
+  }, [selected, v]);
 
   // The commit menu from the keyboard (the menu key, Shift+F10), at the selected row (fix round
   // 1, item 4; `FileList.tsx`'s own pattern). A `MenuEventLike`, not a real `MouseEvent`: there's
@@ -512,7 +522,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
               A hidden column has no header cell, and a handle whose trade partner is hidden goes
               too (columns.ts handleShown). At its minimum a column's title is its icon (§8.4). */}
           {cols.labels > 0 && <span data-col="labels" style={{ width: cols.labels }}><HeaderCell col="labels" width={cols.labels} title="BRANCH / TAG" name="Branch / Tag" icon={GitBranch} /><ColumnResizer col="labels" name="Branch / Tag" cols={cols} available={viewportW} /></span>}
-          <span data-col="graph" style={{ width: cols.graph }}><HeaderCell col="graph" width={cols.graph} title="GRAPH" name="Graph" icon={GitGraph} /><ColumnResizer col="graph" name="Graph" cols={cols} available={viewportW} graphMax={graphMax} /></span>
+          <span data-col="graph" style={{ width: cols.graph }}><HeaderCell col="graph" width={cols.graph} title="GRAPH" name="Graph" icon={GitGraph} /><PinButton compact={cols.graph < PIN_FULL_MIN} /><ColumnResizer col="graph" name="Graph" cols={cols} available={viewportW} graphMax={graphMax} /></span>
           <span data-col="message" style={{ width: cols.message }}><HeaderCell col="message" width={cols.message} title="COMMIT MESSAGE" name="Commit message" icon={MessageSquare} />{handleShown('message', hidden) && <ColumnResizer col="message" name="Commit message" cols={cols} available={viewportW} />}</span>
           {cols.author > 0 && <span data-col="author" style={{ width: cols.author }}><HeaderCell col="author" width={cols.author} title="AUTHOR" name="Author" icon={User} />{handleShown('author', hidden) && <ColumnResizer col="author" name="Author" cols={cols} available={viewportW} />}</span>}
           {cols.date > 0 && <span data-col="date" style={{ width: cols.date }}><HeaderCell col="date" width={cols.date} title="COMMIT DATE / TIME" name="Commit date / time" icon={Clock} />{handleShown('date', hidden) && <ColumnResizer col="date" name="Date" cols={cols} available={viewportW} />}</span>}
@@ -533,6 +543,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
                 <GraphRow
                   key={row.id}
                   row={row}
+                  dateFormat={dateFormat}
                   repoId={repoId}
                   index={item.index}
                   start={item.start}

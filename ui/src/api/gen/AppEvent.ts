@@ -12,4 +12,9 @@ label: string,
  * User-started (`true`) or GitBolt-started (`false`, the background fetch). The UI
  * shows a background op nowhere but its activity log (K30).
  */
-interactive: boolean, } | { "type": "opProgress", op: number, phase: string, percent: number | null, } | { "type": "opFinished", op: number, kind: OpKind, repo: number | null, outcome: OpOutcome, message: string | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, };
+interactive: boolean, } | { "type": "opProgress", op: number, phase: string, percent: number | null, } | { "type": "opFinished", op: number, kind: OpKind, repo: number | null, outcome: OpOutcome, message: string | null, 
+/**
+ * The git command that ran, argv joined for display and redacted (no environment, no
+ * askpass secrets): the activity log shows it (K101).
+ */
+command: string | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, };

@@ -654,6 +654,11 @@ impl Loop {
         self.spec.worktrees.iter().map(|w| w.root.clone())
     }
 
+    /// Watched worktrees whose directory no longer exists.
+    fn vanished(&self) -> Vec<PathBuf> {
+        self.roots().filter(|r| !r.is_dir()).collect()
+    }
+
     fn own_overflow(&self, ev: &notify::Event) -> bool {
         let own = ev.need_rescan() && Instant::now() < self.quiet_until;
         if own {
@@ -669,10 +674,20 @@ impl Loop {
         let mut kinds = batch.kinds;
         let mut status = batch.status;
         let mut topology = BTreeSet::new();
-        if batch.topology || batch.overflow {
+        // A worktree whose directory was deleted without `git worktree remove` leaves
+        // `.git/worktrees/<name>` in place, so the topology watch never fires for it; its own
+        // events are all that tell. Reading its status would spawn git in a missing cwd.
+        // They are dropped here, whether or not the worktrees can be re-listed (the directory
+        // the repo was opened from may be the one that's gone), so the warning is given once.
+        let vanished = self.vanished();
+        if !vanished.is_empty() {
+            self.forget_worktrees(&vanished).await;
+            topology.extend(vanished.iter().map(|p| p.display().to_string()));
+        }
+        if batch.topology || batch.overflow || !vanished.is_empty() {
             let (added, removed) = self.respec().await;
             status.extend(added.iter().cloned());
-            topology = added.union(&removed).map(|p| p.display().to_string()).collect();
+            topology.extend(added.union(&removed).map(|p| p.display().to_string()));
         } else if kinds.contains(&ChangeKind::Head) || kinds.contains(&ChangeKind::Index) {
             // A checkout may add or remove tracked directories.
             self.replan().await;
@@ -680,6 +695,8 @@ impl Loop {
         if batch.overflow {
             status.extend(self.roots());
         }
+        // Gone worktrees (and any the re-listing couldn't drop) are never read.
+        status.retain(|r| r.is_dir());
         let mut changed = self.refresh_status(&status, false, &batch.touched, batch.overflow).await;
         let git_kinds = [ChangeKind::Refs, ChangeKind::Head, ChangeKind::Stash, ChangeKind::Config];
         if batch.overflow || git_kinds.iter().any(|k| kinds.contains(k)) {
@@ -702,8 +719,23 @@ impl Loop {
 
     /// Re-lists the worktrees (one was added or removed) and re-plans the watches. Returns the
     /// roots added and removed.
+    /// Stops watching worktrees whose directories are gone, with one warning each.
+    async fn forget_worktrees(&mut self, gone: &[PathBuf]) {
+        for v in gone {
+            // Removing a worktree is routine (`git worktree remove`), not a problem.
+            tracing::info!("the worktree directory {} was removed: no longer watching it", v.display());
+            self.digests.remove(v);
+            self.untracked.remove(v);
+        }
+        self.spec.worktrees.retain(|w| !gone.contains(&w.root));
+        self.replan().await;
+    }
+
     async fn respec(&mut self) -> (BTreeSet<PathBuf>, BTreeSet<PathBuf>) {
-        let list = match list_worktrees(&self.cli, &self.spec.workdir).await {
+        // `git worktree list` runs from the directory the repo was opened from, which may be
+        // the worktree that's gone: the common dir answers the same.
+        let cwd = if self.spec.workdir.is_dir() { self.spec.workdir.clone() } else { self.spec.common_dir.clone() };
+        let list = match list_worktrees(&self.cli, &cwd).await {
             Ok(list) => list,
             Err(e) => {
                 tracing::warn!("couldn't re-list the worktrees: {e}");
@@ -740,7 +772,7 @@ impl Loop {
     /// first read of an uncached worktree isn't a change).
     async fn refresh_status(&mut self, roots: &BTreeSet<PathBuf>, first: bool, touched: &HashMap<PathBuf, BTreeSet<String>>, relist: bool) -> BTreeSet<String> {
         let (cli, wip, handle, fail) = (&self.cli, &self.wip, &self.spec.handle, &self.tuning.fail_lists);
-        let reads = roots.iter().map(|root| async move {
+        let reads = roots.iter().filter(|root| root.is_dir()).map(|root| async move {
             let stamp = wip.stamp();
             let res = status_raw(cli, root).await;
             // `None`: not recomputed. `Some(Err)`: recomputing failed.
@@ -1436,6 +1468,64 @@ mod tests {
         std::fs::write(sub.join("later.txt"), "x\n").unwrap();
         let (_, wts) = next_change(&mut rx, Duration::from_secs(5)).await.expect("a file added in the recreated folder");
         assert_eq!(wts, vec![canonical(r.path())]);
+    }
+
+    /// A linked worktree whose directory is deleted behind git's back (`rm -rf`, no `git worktree
+    /// remove`, so `.git/worktrees/<name>` stays and the topology watch sees nothing): the watcher
+    /// stops watching it, reports it gone once, and never spawns git in the missing directory.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_deleted_worktree_directory_is_unwatched_not_polled_with_git() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, _id, mut rx) = watched(&r).await;
+        let wt = r.root().join("wt-hotfix");
+        let want = canonical(&wt);
+        std::fs::remove_dir_all(&wt).unwrap();
+        // Runs the watcher started while the removal was still under way don't count (one that
+        // began before it finished can complete after): only runs that start once it is done.
+        let removed_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let (kinds, wts) = loop {
+            let (kinds, wts) = next_change(&mut rx, Duration::from_secs(5)).await.expect("the worktree's removal is reported");
+            if wts.contains(&want) {
+                break (kinds, wts);
+            }
+        };
+        assert!(kinds.contains(&ChangeKind::Worktree) && kinds.contains(&ChangeKind::Head), "{kinds:?} {wts:?}");
+        // Edits elsewhere are still seen, and nothing ran in the missing directory.
+        r.write("after.txt", "x\n");
+        let (_, wts) = next_change(&mut rx, Duration::from_secs(5)).await.expect("the main worktree is still watched");
+        assert_eq!(wts, vec![canonical(r.path())]);
+        let missing = wt.display().to_string();
+        let ran: Vec<_> = api.command_log().entries().into_iter().filter(|e| e.started_ms > removed_ms && (e.cwd == missing || e.cwd == want)).collect();
+        assert!(ran.is_empty(), "git ran in the deleted worktree: {ran:?}");
+    }
+
+    /// The worktree the repo was opened from is the one deleted: it's dropped from the watch
+    /// directly (nothing can be re-listed from its directory), reported once, and later changes
+    /// elsewhere don't name it again.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deleting_the_opened_worktree_is_reported_once() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let wt = r.root().join("wt-hotfix");
+        let want = canonical(&wt);
+        let api = api();
+        let id = call(&api, serde_json::json!({"method": "openRepo", "params": {"path": wt}})).await["id"].as_u64().unwrap() as u32;
+        call(&api, serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}})).await;
+        call(&api, serde_json::json!({"method": "watchRepo", "params": {"repo": id}})).await;
+        let mut rx = api.subscribe();
+        std::fs::remove_dir_all(&wt).unwrap();
+        loop {
+            let (_, wts) = next_change(&mut rx, Duration::from_secs(5)).await.expect("the removal is reported");
+            if wts.contains(&want) {
+                break;
+            }
+        }
+        for n in 0..3 {
+            r.write(&format!("after-{n}.txt"), "x\n");
+            let (_, wts) = next_change(&mut rx, Duration::from_secs(5)).await.expect("the other worktree is still watched");
+            assert!(!wts.contains(&want), "{wts:?} names the deleted worktree again");
+        }
     }
 
     /// Staging in a linked worktree: `index` for that worktree.

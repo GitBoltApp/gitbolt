@@ -1,0 +1,10 @@
+---
+source: crates/gitbolt-core/src/graph/tests.rs
+expression: "render(&l, &nodes, spec)"
+---
+*      z
+| *    f
+* |    y
+M-|-\  m out:2
+| | *  x
+\-*-/  t in:0,2

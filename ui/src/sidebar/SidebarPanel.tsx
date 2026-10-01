@@ -4,6 +4,9 @@ import { memo, useCallback, useEffect, useState, type KeyboardEvent, type ReactN
 import { selectCommit } from '../app/graphNav';
 import { useAppState } from '../app/state';
 import { RemoteIcon } from '../icons/brands';
+import { sidebarItemMenu, sidebarRemoteMenu } from '../menu/menuEnv';
+import { openContextMenu, type MenuEventLike } from '../menu/menuStore';
+import { useRepoViewStore } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { HoverCard } from './HoverCard';
@@ -43,6 +46,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
 }) {
   const { section, rows, collapsed } = panel;
   const updateRepo = useAppState((s) => s.updateRepo);
+  const store = useRepoViewStore();
   const [cursor, setCursor] = useState(0);
   const [hover, setHover] = useState<{ item: SideItem; top: number; left: number } | null>(null);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
@@ -69,8 +73,28 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
     setCursor(c);
     v.scrollToIndex(c, { align: 'auto' });
   };
+  /** The row's context menu (spec §7): a branch, tag, stash or worktree item, or a remote's folder. */
+  const menuOf = (row: FlatRow | undefined) => {
+    if (!row) return null;
+    if (row.type === 'item') return sidebarItemMenu(store, row.item);
+    return row.remote && section.kind === 'remote' ? sidebarRemoteMenu(store, row.remote) : null;
+  };
+  const onRowMenu = (e: MenuEventLike, row: FlatRow, index: number) => {
+    setCursor(index);
+    const build = menuOf(row);
+    if (build) openContextMenu(e, build);
+    else e.preventDefault();
+  };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const row = rows[cursor];
+    // The menu key and Shift+F10: the active row's menu, below that row.
+    if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const build = menuOf(row);
+      if (!build) return;
+      const at = (body?.querySelector('[data-active="true"]') ?? body)?.getBoundingClientRect();
+      openContextMenu({ preventDefault: () => e.preventDefault(), stopPropagation: () => e.stopPropagation(), clientX: at?.left ?? 0, clientY: at?.bottom ?? 0, timeStamp: performance.now() }, build);
+      return;
+    }
     const page = Math.max(1, Math.floor((body?.clientHeight ?? 240) / ROW_H) - 1);
     const handled = (() => {
       switch (e.key) {
@@ -132,8 +156,8 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
               const style = { transform: `translateY(${vi.start}px)`, height: ROW_H, ...indent };
               if (row.type === 'folder') {
                 return (
-                  <div key={row.key} role="treeitem" aria-level={row.depth} aria-expanded={!row.collapsed} data-active={active} className="sb-row sb-folder" style={style} onClick={() => { setCursor(vi.index); activate(row); }}>
-                    {row.remote ? <RemoteIcon kind={row.hostKind ?? 'generic'} remote={row.remote} size={13} /> : row.collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
+                  <div key={row.key} role="treeitem" aria-level={row.depth} aria-expanded={!row.collapsed} data-active={active} className="sb-row sb-folder" style={style} onClick={() => { setCursor(vi.index); activate(row); }} onContextMenu={(e) => onRowMenu(e, row, vi.index)}>
+                    {row.remote ? <RemoteIcon kind={row.hostKind ?? 'generic'} host={row.host} remote={row.remote} size={13} /> : row.collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
                     <span className="sb-label">{row.name}</span>
                   </div>
                 );
@@ -153,8 +177,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   onClick={() => { setCursor(vi.index); jump(it); }}
                   onPointerEnter={(e) => onItemEnter(it, e.currentTarget)}
                   onPointerLeave={() => setHover(null)}
-                  // Sidebar item context menus (Task 15b): commitMenu/labelMenu wire an
-                  // onContextMenu here, keyed off `it` (its kind and payload), next to onClick.
+                  onContextMenu={(e) => { setHover(null); onRowMenu(e, row, vi.index); }}
                 >
                   <ItemIcon item={it} />
                   <span className="sb-label">{it.kind === 'stash' ? `stash@{${it.stash.index}}: ${row.label}` : row.label}</span>

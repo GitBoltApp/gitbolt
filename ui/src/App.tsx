@@ -33,6 +33,7 @@ function boot(): Promise<void> {
     const fromUrl = new URLSearchParams(location.search).getAll('repo');
     const paths = fromUrl.length ? fromUrl : [await api.launchRepo()].filter((p): p is string => !!p);
     for (const p of paths) await openPathInTab(p);
+    useAppState.getState().setBooted();
   })();
   return booted;
 }

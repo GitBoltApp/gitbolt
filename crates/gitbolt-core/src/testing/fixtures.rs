@@ -231,6 +231,37 @@ pub fn diff_view(r: &TestRepo) {
     r.commit_all_as("Edit far down", "Grace Hopper", "grace@example.com");
 }
 
+/// A `dev` trunk whose merge is newer than the branches forked under it (K79, the merge
+/// lock). Newest first, with the lanes the layout gives them:
+///   WIP (main worktree, dirty)         lane 0, dashed down to "Initial commit"
+///   spike:       "Spike: streaming"    lane 1
+///   dev:         "Merge branch 'feature/parser' into dev"   lane 2, merging lane 3
+///   spike:       "Spike: tokens"       lane 1, curving right into "Parser"
+///   feature/parser: "Parser"           lane 3 (locked by the merge)
+///   feature/retry:  "Retry policy"     lane 1, curving right into "Config loader"
+///   dev:         "Config loader"       lane 2 (locked by the merge)
+///   main:        "Initial commit"      lane 0
+/// No remote, so nothing is pinned. Before K79 "Parser" and "Config loader" took the left-most
+/// lane waiting for them (1), so every merge-in curve came from the right.
+pub fn merge_lock(r: &TestRepo) {
+    r.commit("Initial commit");
+    r.switch_new("dev");
+    r.commit_as("Config loader", "Grace Hopper", "grace@example.com");
+    r.switch_new("feature/retry");
+    r.commit_as("Retry policy", "Linus Torvalds", "linus@example.com");
+    r.switch("dev");
+    r.switch_new("feature/parser");
+    r.commit_as("Parser", "Ada Lovelace", "ada@example.com");
+    r.switch_new("spike");
+    r.commit_as("Spike: tokens", "Margaret Hamilton", "margaret@example.com");
+    r.switch("dev");
+    r.merge("feature/parser", "Merge branch 'feature/parser' into dev");
+    r.switch("spike");
+    r.commit_as("Spike: streaming", "Margaret Hamilton", "margaret@example.com");
+    r.switch("main");
+    r.write("file_0.txt", "main change\n");
+}
+
 /// 60 linear commits ("Commit 00" … "Commit 59"): enough rows for the graph to scroll (plan 1B's
 /// "Esc keeps the scroll position" e2e).
 pub fn long_history(r: &TestRepo) {
