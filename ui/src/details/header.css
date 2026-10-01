@@ -15,7 +15,7 @@
 .hovercard { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
 .hovercard-title { color: var(--text-selected); font-weight: 600; }
 /* An explicit pointer: WebKit leaves a link at `auto` until it is hovered (H5). */
-.msg-link { color: #40c5ec; text-decoration: none; cursor: pointer; }
+.msg-link { color: var(--link); text-decoration: none; cursor: pointer; }
 .msg-link:hover { text-decoration: underline; }
 .mr-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .mr-button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--section-border); color: var(--text-normal); transition: background-color var(--motion-fast); }

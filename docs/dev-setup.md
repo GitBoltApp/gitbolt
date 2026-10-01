@@ -6,9 +6,14 @@ Ubuntu restricts unprivileged user namespaces, so without it Chromium's sandbox 
 the app either won't launch or (never do this) has to run with the sandbox disabled.
 
 Packages: the `.deb` payload itself ships `chrome-sandbox` as root:root, mode 4755 (the Tauri
-bundler writes the tar entry that way; there is no post-install script involved). The `.rpm`
-bundler also marks the file setuid (`0o104755`), but that path is **unverified**: nobody has
-installed a GitBolt `.rpm` and checked the helper yet.
+bundler writes the tar entry that way; there is no post-install script involved), so a packaged
+`.deb` needs no setup. Only the `.deb` is built for now (`.rpm` and AppImage are deferred). The
+app uses `SandboxPolicy::Required` on Linux: it refuses to start rather than run unsandboxed.
+
+**Symptom:** an unbundled run without a usable setuid helper opens no window and exits with code 133.
+The only message is Chromium's `FATAL:...] No usable sandbox!`, and GitBolt itself prints nothing
+more useful. **Fix:** install the helper once (see "Recommended" below), or fix the copy next to the
+binary (see "Fallback").
 
 A local dev build is different: **every time the CEF build script runs (first build, clean
 build, CEF upgrade) it copies a fresh, non-setuid `chrome-sandbox` from the CEF distribution next
@@ -52,9 +57,9 @@ sudo chown root:root target/debug/chrome-sandbox && sudo chmod 4755 target/debug
 
 ## Never disable the sandbox in committed code
 
-Never set the runtime's sandbox policy to `Disabled` as a default or in committed code
-(`crates/gitbolt-app/src/main.rs` leaves it at `Cef::default()`, i.e. `SandboxPolicy::Auto` —
-sandboxed wherever the runtime can). If you need a one-off unsandboxed run for a specific
+Never set the runtime's sandbox policy to `Disabled` as a default or in committed code.
+`crates/gitbolt-app/src/main.rs` sets `SandboxPolicy::Required` on Linux, so a missing helper
+stops the app instead of silently dropping the sandbox, which `Auto` would do. If you need a one-off unsandboxed run for a specific
 measurement (e.g. reading `/proc/<pid>/smaps_rollup` for PSS, which is unreadable for a sandboxed,
 non-dumpable renderer), that's a manual, temporary override you make yourself, not something to
 land in the repo.
@@ -90,7 +95,8 @@ just uninstall-desktop   # removes them again
 
 Both honour `XDG_DATA_HOME` (default `~/.local/share`). The entry runs `just run-app` in this
 checkout. Re-run `just install-desktop` after regenerating the icons; GNOME may need you to log
-out and back in before it picks up a changed icon. The `.deb`/`.rpm` install their own entry.
+out and back in before it picks up a changed icon. The `.deb` installs its own entry (`GitBolt.desktop`);
+run `just uninstall-desktop` before installing it so the local entry can't shadow it.
 
 ## Running `just e2e` from parallel worktrees
 
@@ -133,6 +139,12 @@ and the packaged app are unaffected and always use 1420.
   `$XDG_CACHE_HOME/dev.gitbolt.desktop/cef`, avatars and "open old version" copies are under
   `$XDG_CACHE_HOME/gitbolt`. To run a second instance without touching your own, point
   `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` at throwaway dirs.
+- **Single instance:** one GitBolt runs per config dir (a lock and a socket,
+  `$XDG_RUNTIME_DIR/gitbolt-instance-<hash of the config dir>.{lock,sock}`). A second launch on
+  the same config dir hands its path (argv or `GITBOLT_OPEN`) to the running one, which opens it
+  in a tab and comes to the front, and exits 0. So `just dev` or `just run-app` with your own config
+  while an installed GitBolt runs only focuses that one: use throwaway XDG dirs, or
+  `GITBOLT_MULTI_INSTANCE=1` (both then write the same settings files, the last write wins).
 - **Command palette:** Ctrl+P. Prefixes narrow it to one group: `>` actions, `@` branches and
   tags, `/` files at HEAD, `#` settings (opens the Settings dialog on that setting).
 - **Askpass:** git and ssh run the `gitbolt` binary itself as `GIT_ASKPASS`/`SSH_ASKPASS`
@@ -158,9 +170,15 @@ and the packaged app are unaffected and always use 1420.
 - **Worktrees:** the sidebar's Worktrees panel lists the main and linked worktrees (the current
   one marked); a change in any of them refreshes the tab.
 - **Activity log:** every finished fetch and clone, background ones included (newest first, at
-  most 200), with git's message; open it from the bell's "Activity log" submenu or Help →
-  Activity log (devtools: `window.__gb.activity()`). Git's own command log (the last 1000
-  commands) is the `commandLog` request. Background fetch errors go to the status bar's bell. A
+  most 200), with git's message. Open it from the bell's "Activity log" submenu or Help →
+  Activity log (devtools, dev builds only: `window.__gb.activity()`). Since 1D, the same modal
+  is the Debug modal: Help → Debug… opens it on the **Commands** tab (git's command log, the last
+  1000) or the **Actions** tab (the actions you ran). Its header has Copy diagnostics, Open logs
+  folder and the Perf overlay toggle.
+- **Log files (1D):** `~/.cache/gitbolt/logs/gitbolt.YYYY-MM-DD.log` (`$XDG_CACHE_HOME`
+  honoured; 7 days, 50 MB total). The level is `info`; Settings → Advanced switches on `debug`
+  live. `RUST_LOG` works until debug is switched on. A release build writes nothing to the
+  console unless `RUST_LOG` is set. Background fetch errors go to the status bar's bell. A
   user's Fetch always says how it went: a short "Fetched: …" toast, or an 8 s "Fetch failed: …"
   toast with git's message and an "Activity log" link. A user's fetch still running after 2 s
   shows "Fetching <repo>… N%" with Cancel in the status bar.
@@ -283,3 +301,49 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
 - With such a helper, git still calls it to `get` and, after a 401, to `erase`; `store` rewrites
   `~/.git-credentials` on erase.
 - A fresh profile has no extra gitconfig, and `/dev/null` has no helper.
+
+## Packaging (`just package`)
+
+- Builds the `.deb` into `target/release/bundle/deb/`. `scripts/fix-deb.sh` then rewrites its
+  `Depends`: dpkg-shlibdeps results plus `libgtk-4-1` and `git (>= 1:2.30)`, without the
+  `libgtk-3-0` the alpha CLI always adds (upstream draft: `docs/upstream/tauri-cli-cef-gtk-depends.md`).
+  `scripts/check-deb.sh` verifies that, that `chrome-sandbox` is root:root 4755, and that the
+  package carries the hicolor PNGs, the scalable SVG and a desktop entry with
+  `Categories=...Development;` and `StartupWMClass=gitbolt`.
+- `scripts/test-fix-deb.sh` (part of `just test`) checks `fix-deb.sh` on a synthetic package.
+  It needs `dpkg-dev`; without it, it skips and exits 0.
+- The package is `git-bolt` (about 146 MiB). It installs `/usr/share/GitBolt/` (the binary and
+  CEF, `chrome-sandbox` root:root 4755) and `/usr/bin/gitbolt` as a symlink to it.
+- **Install and check:**
+  1. Quit any running GitBolt that uses your config. With the single-instance guard, a running
+     one would just be focused instead of the installed app starting.
+  2. Run `just uninstall-desktop`, so the dev entry doesn't duplicate or shadow the `.deb`'s
+     `GitBolt.desktop`.
+  3. Run `sudo apt install ./target/release/bundle/deb/GitBolt_0.1.0_amd64.deb`, then launch
+     GitBolt from the app menu.
+  4. Run `GITBOLT_PID=<browser pid> scripts/check-sandbox.sh`, which checks that every renderer has
+     seccomp and its own PID namespace. Then `GITBOLT_PID=<browser pid> just bench`. The browser
+     process is the `/usr/share/GitBolt/gitbolt` process without a `--type=` argument.
+- **Remove it:** `sudo apt remove git-bolt`. Then `just install-desktop` brings the dev entry back.
+
+## `just bench` (idle CPU and memory smoke)
+
+A small, non-gating check of the two spec §17.3 rows that need a live app. It runs
+`scripts/measure-idle.sh 60` and `scripts/measure-mem.sh` against a running instance and prints
+each next to its budget (idle CPU < 1.5%, memory with 12 tabs < 650 MB). It never fails on a
+number.
+
+```
+# the browser process: a gitbolt process without --type= (CEF's helpers re-run the same binary)
+GITBOLT_PID=$(for p in $(pgrep -x gitbolt); do grep -qa -- --type= /proc/$p/cmdline || echo $p; done | head -1)
+echo "$GITBOLT_PID"; GITBOLT_PID=$GITBOLT_PID just bench
+```
+
+`pgrep -nx gitbolt` alone isn't enough: it returns the newest `gitbolt` process, which is usually a
+renderer.
+
+- `GITBOLT_PID` is the instance's browser (main) process; it scopes the scripts to that instance
+  and its CEF children. Start the instance yourself (`just run-app`, with any throwaway XDG dirs
+  you like), open the tabs to measure, and leave the window focused and idle for the 60 s.
+- The other §17.3 rows are asserted by `just e2e` (`menu-perf.spec`, the `tabs.spec` switch) and
+  the opt-in, read-only `real-repo.spec` timings. There's no generator or statistics.

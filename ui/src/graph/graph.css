@@ -45,7 +45,6 @@
 .wip-summary { display: flex; align-items: center; height: var(--graph-row-h); gap: 8px; min-width: 0; }
 /* The WIP box (K51 round 2): darker than the row, a faint 1px edge, ~116px wide at
    rest; it grows with what's typed (field-sizing), up to the cell. */
-.wip-summary { --wip-input-bg: #16181c; --wip-input-border: #282a2d; --wip-input-placeholder: #6e6f71; }
 .wip-draft { flex: 0 1 auto; min-width: 116px; display: flex; align-items: center; gap: 6px; }
 .wip-input { all: unset; box-sizing: border-box; flex: 0 1 auto; field-sizing: content; width: auto; min-width: 116px; max-width: 100%; height: calc(var(--graph-row-h) - 6px); padding: 0 8px; font: inherit; color: var(--text-normal); background: var(--wip-input-bg); border: 1px solid var(--wip-input-border); border-radius: 4px; text-overflow: ellipsis; cursor: text; }
 .wip-input::placeholder { color: var(--wip-input-placeholder); opacity: 1; }
@@ -132,13 +131,13 @@
    lines don't show through it. It takes the pointer (F4): being a DOM child of the chip, the
    chip stays expanded while the pointer is anywhere over it, including the revealed part and
    its source icons' tooltips; it collapses when the pointer leaves the copy's bounds. */
-.ref-label.ref-label-full { position: absolute; z-index: 3; margin-left: -5px; max-width: none; width: max-content; background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); }
+.ref-label.ref-label-full { position: absolute; z-index: 3; margin-left: -5px; max-width: none; width: max-content; background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); box-shadow: 0 1px 4px var(--shadow-popup); }
 .ref-name-full { white-space: nowrap; }
 /* The label stack (K77, RefLabels.tsx LabelStack): a row with several labels floats one full chip
    per label over the rows below, no gaps, all as wide as the widest (grid). Positioned like the
    single copy (containing block: the row; left/top set on mount). The first (HEAD) row is the lit
    chip, the others the dimmer lane tint; all opaque. */
-.ref-stack { position: absolute; z-index: 3; display: grid; width: max-content; color: var(--text-selected); box-shadow: 0 1px 4px rgb(0 0 0 / 0.45); border-radius: 3px; overflow: hidden; cursor: pointer; }
+.ref-stack { position: absolute; z-index: 3; display: grid; width: max-content; color: var(--text-selected); box-shadow: 0 1px 4px var(--shadow-popup); border-radius: 3px; overflow: hidden; cursor: pointer; }
 .ref-stack-row { display: flex; gap: 3px; align-items: center; box-sizing: border-box; padding: 0 5px; height: var(--graph-chip-h); white-space: nowrap; background: color-mix(in srgb, var(--lane-color) 25%, var(--panel-bg0)); }
 .ref-stack-row:first-child { background: color-mix(in srgb, var(--lane-color) 45%, var(--panel-bg0)); }
 .ref-stack-row:not(:first-child):hover { background: color-mix(in srgb, var(--lane-color) 35%, var(--panel-bg0)); }
@@ -161,7 +160,13 @@
 /* The filler's line, on the connector's rows (the slot is centred in the row-high .ref-labels). */
 .ref-dim-fill::before { content: ""; position: absolute; left: 0; right: 0; top: calc(var(--conn-top) - (var(--graph-row-h) - var(--graph-chip-h)) / 2); height: var(--conn-h); background: color-mix(in srgb, var(--lane-color) 25%, transparent); }
 .ref-dim-slot > .ref-label-dim { flex: none; margin-left: 4px; }
-.ref-more { margin-left: 4px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--panel-bg1); flex: none; cursor: pointer; }
+.ref-more { margin-left: 4px; font-size: 11px; padding: 0 4px; border-radius: 3px; --chip-mix: 25%; background: color-mix(in srgb, var(--lane-color) var(--chip-mix), transparent); color: var(--text-normal); flex: none; cursor: pointer; }
+/* K104: the badge is a chip in the lane colour, as lit as the checked-out chip when the row's first
+   chip is the active branch, otherwise dimmed like the other chips. */
+.graph-row:hover .ref-more, .graph-row[aria-selected="true"] .ref-more { --chip-mix: 45%; color: var(--text-selected); }
+.ref-more.ref-more-head { --chip-mix: 45%; color: var(--text-selected); }
+/* Chips after the first (K104): a 4 px gap. */
+.ref-label.ref-label-next { margin-left: 4px; }
 /* Continues the label connector drawn on the canvas (see draw.ts) from the chip to the canvas
    edge. No gap in .ref-labels and no margin here: it must touch the chip (or the "+N" badge)
    with zero space, so the DOM and canvas segments read as one unbroken line. `flex-shrink: 0`
@@ -183,7 +188,7 @@
 .hover-tooltip.msg-tooltip[data-clipped]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 32px; background: linear-gradient(transparent, var(--panel-bg1)); pointer-events: none; }
 .msg-tooltip-summary { font-weight: 600; }
 .msg-tooltip-body { margin-top: 8px; color: var(--text-normal); }
-.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100vw - 32px)); overflow-wrap: anywhere; background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
+.toast { position: fixed; z-index: 802; /* above a modal's backdrop (800), below the auth prompt (805) and status bar (810) */ bottom: 24px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100vw - 32px)); overflow-wrap: anywhere; background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
 .toast-action { all: unset; margin-left: 10px; color: var(--blue); cursor: pointer; white-space: nowrap; }
 .toast-action:hover { text-decoration: underline; }
 .toast-action:focus-visible { outline: 1px solid var(--blue); }

@@ -204,6 +204,7 @@ const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start,
             membership={membership}
             onBranchHover={onBranchHover}
             compact={isCollapsed('labels', cols.labels)}
+            width={cols.labels}
             line={line && { top: line.top - start, height: line.height }}
             onContextMenu={onLabelContextMenu && ((label, e) => onLabelContextMenu(e, row, label))}
           />

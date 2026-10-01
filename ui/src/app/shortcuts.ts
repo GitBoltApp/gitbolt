@@ -46,7 +46,8 @@ export const shortcutKeys: KeyHandler = (e) => {
   const action = actionForCombo(comboOf(e));
   if (!action) return;
   e.preventDefault();
-  invoke(action);
+  // A held combo repeats the action but logs only its first press (no log line per repeat).
+  invoke(action, { quiet: e.repeat });
   return 'handled';
 };
 

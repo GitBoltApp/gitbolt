@@ -68,6 +68,12 @@ pub struct AppSettings {
     pub commit_limit: u32,
     pub date_format: DateFormat,
     pub gravatar: bool,
+    /// Writes `debug`-level lines to the log file (spec §16.2).
+    pub debug_logging: bool,
+    /// Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
+    /// the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
+    #[ts(type = "Record<string, (string | null)[]>")]
+    pub graph_color_overrides: BTreeMap<String, Vec<Option<String>>>,
     /// The main window's last normal geometry (K46). Owned by the app shell, not the UI: it's
     /// left out of the TypeScript bindings, and `save_settings` keeps the store's own value
     /// whatever the UI sends back. Absent in files written before it existed.
@@ -118,6 +124,8 @@ impl Default for AppSettings {
             commit_limit: 2000,
             date_format: DateFormat::Ymd12h,
             gravatar: true,
+            debug_logging: false,
+            graph_color_overrides: BTreeMap::new(),
             window: None,
         }
     }
@@ -749,6 +757,13 @@ impl SettingsStore {
 mod tests {
     use super::*;
 
+    #[test]
+    fn debug_logging_defaults_off_for_older_files() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("debugLogging");
+        assert!(!serde_json::from_value::<AppSettings>(v).unwrap().debug_logging);
+    }
+
     fn read(p: &Path) -> serde_json::Value {
         serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap()
     }
@@ -1069,6 +1084,20 @@ mod tests {
         let st = SettingsStore::open(dir.path()).state();
         assert_eq!(st.settings.commit_limit, 500);
         assert_eq!(st.settings.theme, "default-dark");
+    }
+
+    #[test]
+    fn graph_color_overrides_default_empty_and_round_trip() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("graphColorOverrides");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert!(s.graph_color_overrides.is_empty());
+        assert_eq!(s.theme, "default-dark");
+
+        let mut s = AppSettings::default();
+        s.graph_color_overrides.insert("nord".into(), vec![Some("#123456".into()), None]);
+        let back: AppSettings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.graph_color_overrides["nord"], vec![Some("#123456".to_string()), None]);
     }
 
     #[test]

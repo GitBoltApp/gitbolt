@@ -1,0 +1,6 @@
+.git-too-old { max-width: 36rem; margin: 15vh auto; padding: 1.5rem; background: var(--panel-bg0); border: 1px solid var(--section-border); border-radius: 0.375rem; color: var(--text-normal); }
+.git-too-old pre { background: var(--panel-bg1); padding: 0.5rem; border-radius: 0.25rem; }
+.git-too-old-retry, .panel-crash-retry { font: inherit; padding: 0.25rem 0.75rem; border-radius: 0.25rem; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; }
+.git-too-old-retry:hover:not(:disabled), .panel-crash-retry:hover { background: var(--hover-row); }
+.panel-crash { padding: 0.75rem; color: var(--text-normal); display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; overflow: auto; }
+.panel-crash p { margin: 0; overflow-wrap: anywhere; }

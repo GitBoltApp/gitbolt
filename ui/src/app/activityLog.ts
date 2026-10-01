@@ -1,15 +1,54 @@
 import { create } from 'zustand';
+import { copyText } from '../api/transport';
 import { useMenu } from '../menu/menuStore';
+import { useToast } from '../ui/toast';
 import type { ActivityEntry } from './ops';
 
+/** The Debug modal's tabs (R9): the activity log, the backend's git command log, the action log. */
+export type DebugView = 'activity' | 'commands' | 'actions';
+
+interface ActivityUi {
+  open: boolean;
+  view: DebugView;
+  /** The command the Commands tab scrolls to and highlights (an error toast's Details, R10). */
+  focusCommandId: number | null;
+  /** The perf overlay (fps and backend call timings) is shown; it outlives the modal. */
+  perfOverlay: boolean;
+  setOpen(v: boolean): void;
+  /** Opens the modal on `view`, focused on `focusCommandId` (Commands). */
+  show(view: DebugView, focusCommandId?: number | null): void;
+  setView(view: DebugView): void;
+  togglePerfOverlay(): void;
+}
+
 /** The activity log (K30, K96, K101): every finished fetch and clone, background ones included. It
- * is a modal panel (`ActivityModal`), opened from the bell, Help → Activity log and the failed-fetch toast. */
-export const useActivityUi = create<{ open: boolean; setOpen(v: boolean): void }>((set) => ({ open: false, setOpen: (open) => set({ open }) }));
+ * is a modal panel (`ActivityModal`), opened from the bell, Help → Activity log and the failed-fetch
+ * toast. 1D (R9) makes it the one Debug modal: Activity | Commands | Actions. */
+export const useActivityUi = create<ActivityUi>((set) => ({
+  open: false,
+  view: 'activity',
+  focusCommandId: null,
+  perfOverlay: false,
+  setOpen: (open) => set(open ? { open } : { open, focusCommandId: null }),
+  show: (view, focusCommandId = null) => set({ open: true, view, focusCommandId }),
+  setView: (view) => set({ view }),
+  togglePerfOverlay: () => set((s) => ({ perfOverlay: !s.perfOverlay })),
+}));
+
+/** Opens the Debug modal on `view` (Help → Debug…, an error toast's Details). */
+export function openDebug(view: DebugView, focusCommandId: number | null = null): void {
+  useMenu.getState().close();
+  useActivityUi.getState().show(view, focusCommandId);
+}
 
 /** Opens the activity log (a failed fetch's toast links here, the bell, and Help → Activity log). */
 export function openActivityLog(): void {
-  useMenu.getState().close();
-  useActivityUi.getState().setOpen(true);
+  openDebug('activity');
+}
+
+/** Copies `text`, saying so in a toast (the Debug modal's Copy all / Copy entry, an error's Copy). */
+export function copyAndSay(text: string): Promise<void> {
+  return copyText(text).then(() => useToast.getState().show('Copied'), () => useToast.getState().show('Copy failed'));
 }
 
 export const seconds = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);

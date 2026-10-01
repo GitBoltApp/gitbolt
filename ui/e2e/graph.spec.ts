@@ -8,7 +8,7 @@ import { laneX } from '../src/graph/geometry';
 import { METRICS } from '../src/graph/metrics';
 import { DENSITIES, DENSITY_METRICS, DENSITY_STORAGE_KEY } from '../src/theme/density';
 import { GRAPH_COLORS } from '../src/theme/graphColors';
-import { fixtures, openUrl } from './fixtures';
+import { fixtures, freshFixture, git, openUrl } from './fixtures';
 
 test.describe('commit graph', () => {
   test.beforeEach(async ({ page }) => {
@@ -1548,4 +1548,25 @@ test.describe('merge-locked lanes', () => {
     expect(px[1].a, 'no node and no line under the curve in lane 1').toBe(0);
     expect(px[2].a, 'the node sits in lane 2').toBe(255);
   });
+});
+
+test('K104: two branches on one commit both show at the default width; +1 once Branch/Tag is narrowed', async ({ page }) => {
+  const repo = freshFixture('basic');
+  git(repo, 'branch', 'dev');
+  await page.goto(openUrl(repo));
+  await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+  const row = page.getByRole('row').filter({ hasText: "Merge branch 'feature/login'" });
+  const chips = row.locator('.ref-labels > .ref-label:not(.ref-label-dim)');
+  await expect(chips).toHaveCount(2);
+  await expect(row.locator('.ref-labels')).toContainText('dev');
+  await expect(row.locator('.ref-labels')).toContainText('main');
+  await expect(row.locator('.ref-more')).toHaveCount(0);
+  const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+  await handle.focus();
+  for (let i = 0; i < 40 && (await row.locator('.ref-more').count()) === 0; i++) await page.keyboard.press('ArrowLeft');
+  await expect(row.locator('.ref-more')).toHaveText('+1');
+  await expect(chips).toHaveCount(1);
+  // The badge is a chip in the lane colour, not transparent.
+  expect(await row.locator('.ref-more').evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+  await expectConnectorMeetsCanvas(page, row);
 });

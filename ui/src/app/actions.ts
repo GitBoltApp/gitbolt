@@ -1,6 +1,9 @@
 import { CircleHelp, FileText, FolderGit2, LayoutPanelLeft, Pencil, type LucideIcon } from 'lucide-react';
 import type { TabState } from '../api/gen/TabState';
 import type { MenuRow } from '../menu/types';
+import { track } from '../debug/actionLog';
+import { toastActionError } from '../debug/errorToast';
+import type { ErrorContext } from '../errors/describe';
 import { useRuntime, type TabRuntime } from './runtime';
 import { useAppState } from './state';
 import { tabStore } from './tabStores';
@@ -24,7 +27,12 @@ export interface Action {
   shortcuts?: string[];
   /** Usable now (hidden from menus and the palette, and its shortcut passes through, when not). */
   when?: () => boolean;
+  /** `false`: left out of the hamburger menu, still in the palette and on its shortcuts (the ten
+   * "Theme: <Name>" actions, which the menu reaches through one "Theme…" row; ruling R4). */
+  menu?: false;
   run: () => void | Promise<void>;
+  /** What a failure's toast may offer besides Copy and Details (R12): Retry, Refresh, Remove from recent. */
+  errorContext?: () => ErrorContext;
 }
 
 const registry = new Map<string, Action>();
@@ -58,15 +66,14 @@ const usable = (a: Action) => !a.when || a.when();
 /** Usable actions, in registration order. */
 export const availableActions = () => [...registry.values()].filter(usable);
 
-/** Runs `a` now, in the caller's task (a key press's effects land before the next paint);
- * errors are logged, not thrown. */
-export function invoke(a: Action): void {
-  const failed = (e: unknown) => console.warn(`[gitbolt] action ${a.id} failed`, e);
-  try {
-    void Promise.resolve(a.run()).catch(failed);
-  } catch (e) {
-    failed(e);
-  }
+/** Runs `a` now, in the caller's task (a key press's effects land before the next paint), and
+ * records it in the action log (R11). A failure is never thrown: it's logged, and shown in the
+ * error toast with Copy/Retry and Details (R12; a cancel stays quiet). */
+export function invoke(a: Action, opts: { quiet?: boolean } = {}): void {
+  track(a.id, a.label, a.run, (e) => {
+    console.warn(`[gitbolt] action ${a.id} failed`, e);
+    toastActionError(e, a.errorContext?.());
+  }, opts.quiet);
 }
 
 /** Runs the action if it's usable; false if not (or unknown). */
@@ -113,7 +120,7 @@ export function hamburgerRows(): MenuRow[] {
   const all = availableActions();
   return GROUPS.flatMap(({ group, icon, tooltip }) => {
     // Quit is always the last entry of File, after a separator (K95), wherever it registered.
-    const inGroup = all.filter((a) => a.group === group);
+    const inGroup = all.filter((a) => a.group === group && a.menu !== false);
     const ordered = [...inGroup.filter((a) => a.id !== QUIT_ID), ...inGroup.filter((a) => a.id === QUIT_ID)];
     const rows: MenuRow[] = ordered.flatMap((a, i): MenuRow[] => {
       const combo = a.shortcuts?.[0];

@@ -2,8 +2,9 @@
 //! Tauri event `gb:event`, and `gitbolt-harness` forwards it on every WebSocket.
 //!
 //! Deviation (spec §4.3): `repoChanged` also carries `worktrees` (the canonical paths whose
-//! status changed), and there are three extra events: `opStarted` (an op's id and label),
-//! `authResolved` (closes the prompt), and `opProgress`, which carries only the op id.
+//! status changed), and there are extra events: `opStarted` (an op's id and label),
+//! `authResolved` (closes the prompt), `opProgress`, which carries only the op id, and
+//! `openRequested` (a second launch's path, 1D R19).
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -103,6 +104,9 @@ pub enum AppEvent {
         #[ts(type = "number")]
         prompt: u64,
     },
+    /// Another launch on this config dir handed over its launch path (absolute) and exited
+    /// (the single-instance guard, `instance.rs`): the UI opens it in a tab.
+    OpenRequested { path: String },
 }
 
 #[derive(Clone)]
@@ -163,6 +167,7 @@ mod tests {
             serde_json::to_value(&ev).unwrap(),
             serde_json::json!({"type": "authWaiting", "prompt": 2, "op": 5, "repo": null, "text": "Password: ", "secret": true})
         );
+        assert_eq!(serde_json::to_value(AppEvent::OpenRequested { path: "/r".into() }).unwrap(), serde_json::json!({"type": "openRequested", "path": "/r"}));
         let back: AppEvent = serde_json::from_value(serde_json::json!({"type": "refsUpdated", "repo": 4})).unwrap();
         assert_eq!(back, AppEvent::RefsUpdated { repo: 4 });
     }

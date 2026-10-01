@@ -1,5 +1,5 @@
 import { initials } from '../format/initials';
-import { GRAPH_COLORS } from '../theme/graphColors';
+import { useTheme } from '../theme/store';
 import { avatarKey, useAvatar } from './avatarStore';
 import './avatar.css';
 
@@ -18,9 +18,10 @@ const hash = (s: string) => {
  * `request: false`: never asks for the image itself (useAvatar). */
 export function Avatar({ name, email, size = 24, request = true }: { name: string; email: string; size?: number; request?: boolean }) {
   const img = useAvatar(email, request);
-  const color = GRAPH_COLORS[hash(avatarKey(email) || name) % GRAPH_COLORS.length];
+  const colors = useTheme((s) => s.colors);
+  const lane = hash(avatarKey(email) || name) % colors.graph.length;
   return (
-    <span className="avatar" data-testid="avatar" aria-hidden style={{ width: size, height: size, fontSize: Math.round(size * 0.42), background: color }}>
+    <span className="avatar" data-testid="avatar" aria-hidden style={{ width: size, height: size, fontSize: Math.round(size * 0.42), background: colors.graph[lane], color: colors.laneText[lane] }}>
       {img ? <img src={img.url} alt="" width={size} height={size} /> : initials(name)}
     </span>
   );

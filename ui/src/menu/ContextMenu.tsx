@@ -2,7 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { registerKeys } from '../ui/keyRouter';
 import { hideTooltip, showTooltip } from '../ui/tooltipStore';
-import { pressedAnchor, useMenu } from './menuStore';
+import { pressedAnchor, runMenuRowHook, useMenu } from './menuStore';
 import { placeMenu, placeSubmenu } from './position';
 import type { MenuRow, Variant } from './types';
 import './menu.css';
@@ -250,8 +250,9 @@ export function ContextMenu() {
     useMenu.getState().close();
   }
   const finish = (run: () => void) => { dismiss(true); run(); };
-  const runRow = (r: Action) => { if (!r.disabledReason) finish(r.run); };
-  const runVariant = (v: Variant) => { if (!v.disabledReason) finish(v.run); };
+  // Through the row-run hook (R11): the action log records each row run.
+  const runRow = (r: Action) => { if (!r.disabledReason) finish(() => runMenuRowHook(r.id, r.label, r.run)); };
+  const runVariant = (r: Action, v: Variant) => { if (!v.disabledReason) finish(() => runMenuRowHook(v.id, `${r.label}: ${v.label ?? v.tooltip}`, v.run)); };
 
   const rowId = (depth: number, index: number) => `${uid}-${depth}-${index}`;
   const levelId = (depth: number) => `${uid}-level-${depth}`;
@@ -388,7 +389,7 @@ export function ContextMenu() {
           if (el) openSub(depth, lv.active, el);
         } else if (row?.kind === 'action') {
           const v = variantsOf(row)[lv.variant];
-          if (v) runVariant(v);
+          if (v) runVariant(row, v);
           else runRow(row);
         }
         break;
@@ -474,7 +475,7 @@ export function ContextMenu() {
                         if (next instanceof Element && next.classList.contains('ctx-variant') && next.parentElement === e.currentTarget.parentElement) return;
                         tipRow(e.currentTarget.closest('.ctx-row')!, r);
                       }}
-                      onClick={(e) => { e.stopPropagation(); runVariant(v); }}
+                      onClick={(e) => { e.stopPropagation(); runVariant(r, v); }}
                     >
                       {VIcon ? <VIcon size={13} aria-hidden /> : v.label}
                     </button>

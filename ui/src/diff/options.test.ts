@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffEditorOptions, EDITOR_SCROLLBAR, fileViewOptions, HUNK_REGIONS, INLINE_BREAKPOINT_PX } from './options';
+import { clampEditorFont, diffEditorOptions, EDITOR_SCROLLBAR, fileViewOptions, HUNK_REGIONS, INLINE_BREAKPOINT_PX } from './options';
 
 describe('Monaco options', () => {
   it('keeps every diff feature on but sticky scroll, which is off by default (H7)', () => {
@@ -34,5 +34,14 @@ describe('Monaco options', () => {
     expect(EDITOR_SCROLLBAR).toEqual({ verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false });
     expect(diffEditorOptions({ mode: 'inline', ignoreWhitespace: false, wordWrap: false }, true).scrollbar).toEqual(EDITOR_SCROLLBAR);
     expect(fileViewOptions(false, true).scrollbar).toEqual(EDITOR_SCROLLBAR);
+  });
+});
+
+describe('editor font size', () => {
+  it('clamps to 8-32 whole px, 13 for a non-number, and reaches both editors', () => {
+    expect([clampEditorFont(4), clampEditorFont(13.4), clampEditorFont(99), clampEditorFont(Number.NaN)]).toEqual([8, 13, 32, 13]);
+    expect(diffEditorOptions({ mode: 'split', ignoreWhitespace: false, wordWrap: false }, true, false, 16).fontSize).toBe(16);
+    expect(fileViewOptions(false, true, false, 99).fontSize).toBe(32);
+    expect(fileViewOptions(false, true).fontSize).toBe(13);
   });
 });

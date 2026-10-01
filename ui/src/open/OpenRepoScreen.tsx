@@ -106,6 +106,8 @@ export function OpenRepoScreen({ tab }: { tab: TabState }) {
   const focusClone = useOpenUi((s) => s.focusClone === tab.id);
   const [filter, setFilter] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The recent entry whose open just failed: the error offers to drop it.
+  const [failedRecent, setFailedRecent] = useState<string | null>(null);
   useEffect(() => { if (focusClone) useOpenUi.getState().consume(); }, [focusClone]);
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -115,16 +117,25 @@ export function OpenRepoScreen({ tab }: { tab: TabState }) {
   const update = useAppState((s) => s.updateProfile);
   const open = async (path: string) => {
     setError(null);
+    setFailedRecent(null);
     await openPathInTab(path, tab.id);
     // A folder that isn't in a repository leaves this tab on the Open screen with the error.
     const err = useRuntime.getState().tabs[tab.id]?.error;
-    if (err) setError(err);
+    if (err) {
+      setError(err);
+      setFailedRecent(useAppState.getState().profile.recent.some((r) => r.path === path) ? path : null);
+    }
   };
 
   return (
     <div className="open-screen">
       {!reposFolder && <ReposFolderBanner />}
-      {error && <p className="open-error" role="alert">{error}</p>}
+      {error && (
+        <p className="open-error" role="alert">
+          {error}
+          {failedRecent && <button type="button" className="open-btn" onClick={() => { update((p) => removeRecent(p, failedRecent)); setError(null); setFailedRecent(null); }}>Remove from recent</button>}
+        </p>
+      )}
       <div className="open-grid">
         <section className="open-section" aria-labelledby="open-recent">
           <h2 id="open-recent">Recent</h2>

@@ -47,6 +47,19 @@ export const useMenu = create<MenuState>((set, get) => ({
   close: () => { if (get().rows) set({ rows: null, build: null, anchor: null }); },
 }));
 
+/** Runs one chosen menu row (`id`, `label`) by calling `run`. */
+export type MenuRowRunner = (id: string, label: string, run: () => void) => void;
+const plainRun: MenuRowRunner = (_id, _label, run) => run();
+let rowRunner: MenuRowRunner = plainRun;
+
+/** The row-run hook (R11): the context menu runs every chosen row and variant through it, so the
+ * action log can record it. One runner at a time; returns its removal. */
+export function setMenuRowRunner(r: MenuRowRunner): () => void {
+  rowRunner = r;
+  return () => { if (rowRunner === r) rowRunner = plainRun; };
+}
+export const runMenuRowHook: MenuRowRunner = (id, label, run) => rowRunner(id, label, run);
+
 /** Rebuilds the open menu (`refresh`) whenever `subscribe`'s source changes: data a builder
  * reads that can arrive after the menu opened (the openers, the remotes). */
 export function refreshMenuOn(subscribe: (fn: () => void) => () => void): () => void {

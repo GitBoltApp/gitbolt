@@ -37,6 +37,15 @@ use ts_rs::TS;
 #[ts(export)]
 pub enum Request {
     OpenRepo { path: String },
+    /// A frontend error or notice for the log file (spec §16.2).
+    LogFrontend { level: crate::logging::FrontendLevel, message: String, stack: Option<String> },
+    SetDebugLogging { debug: bool },
+    /// The log directory, or `null` where there is no file logging (the harness).
+    LogsDir,
+    /// Plain-text diagnostics for "Copy diagnostics" (secrets scrubbed).
+    Diagnostics { ui: crate::diagnostics::UiDiagnostics },
+    /// Shows the log directory in the file manager.
+    OpenLogsFolder,
     /// The graph snapshot. `pin` (the repo's pin setting): `auto` or absent is the default
     /// trunk, `off` no trunk, `ref` that ref (spec §8.3).
     /// `rescan`: run status for every worktree instead of reusing the cached counts (tab
@@ -54,6 +63,9 @@ pub enum Request {
     },
     CommandLog,
     LaunchRepo,
+    /// Takes (and clears) the paths later launches forwarded (the single-instance guard, R19) that
+    /// the UI hasn't opened yet: each one is returned once, by whichever call comes first.
+    TakeOpenRequests,
     /// The full message of one commit (read-only, via gix): loaded lazily by the graph's
     /// full-message tooltip and the details panel, instead of shipping every body with the graph.
     CommitMessage { repo: u32, id: String },
@@ -221,7 +233,16 @@ pub struct Api {
     pub(crate) scans: Mutex<HashMap<String, Vec<ScannedRepo>>>,
     /// The live file watchers by repo id: only the active tab's (spec §4.4).
     pub(crate) watchers: Mutex<HashMap<u32, crate::watch::RepoWatcher>>,
+    /// The file-logging handle (`None` in the harness and in tests).
+    pub(crate) log: Option<crate::logging::LogHandle>,
+    /// The runtime versions shown in diagnostics.
+    pub(crate) runtime_info: String,
+    /// Paths later launches forwarded (`request_open`), until `takeOpenRequests` takes them.
+    pub(crate) open_requests: Mutex<Vec<String>>,
 }
+
+/// The most forwarded paths kept for a UI that never takes them (the oldest go first).
+const MAX_OPEN_REQUESTS: usize = 64;
 
 /// "Open in…": how to find the openers and how to launch one (the app spawns; the harness and
 /// tests record). `found` is the last successful detection and when it ran: a failed one (a
@@ -261,6 +282,28 @@ fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, GbError> {
     serde_json::to_value(v).map_err(|e| GbError::other(format!("serialize: {e}")))
 }
 
+/// The request's variant name only: its Debug text up to the first non-identifier character, so
+/// parameters (paths, an askpass answer) never reach a log line.
+fn variant_name(req: &Request) -> String {
+    let text = format!("{req:?}");
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("?").to_string()
+}
+
+pub async fn catch_panics<F>(method: &str, fut: F) -> Result<serde_json::Value, GbError>
+where
+    F: std::future::Future<Output = Result<serde_json::Value, GbError>>,
+{
+    use futures_util::FutureExt;
+    match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+        Ok(result) => result,
+        Err(payload) => {
+            let msg = crate::redact::redact(&crate::logging::panic_text(payload.as_ref()));
+            tracing::error!(target: "gitbolt_core::api", method, "request panicked: {msg}");
+            Err(GbError::other(format!("Internal error in {method}: {msg}")))
+        }
+    }
+}
+
 /// Runs gix work on the blocking pool. A `gix::Repository` is `!Sync`, so it must never be held
 /// across an `.await` in `dispatch` (whose future has to be `Send`).
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, GbError> + Send + 'static) -> Result<T, GbError> {
@@ -290,7 +333,29 @@ impl Api {
             home: crate::paths::home_dir(),
             scans: Mutex::new(HashMap::new()),
             watchers: Mutex::new(HashMap::new()),
+            log: None,
+            runtime_info: "harness".into(),
+            open_requests: Mutex::new(Vec::new()),
         }
+    }
+
+    /// A later launch's path (the single-instance guard, R19): queued for `takeOpenRequests`,
+    /// then announced as `openRequested`. The UI takes the queue on that event and once at boot,
+    /// so a path forwarded before the page listened (startup, a reload) still opens, and once.
+    pub fn request_open(&self, path: String) {
+        {
+            let mut queue = self.open_requests.lock().expect("open requests poisoned");
+            if queue.len() >= MAX_OPEN_REQUESTS {
+                queue.remove(0);
+            }
+            queue.push(path.clone());
+        }
+        self.bus.emit(AppEvent::OpenRequested { path });
+    }
+
+    /// Takes (and clears) the queued `request_open` paths, oldest first.
+    pub fn take_open_requests(&self) -> Vec<String> {
+        std::mem::take(&mut *self.open_requests.lock().expect("open requests poisoned"))
     }
 
     pub fn with_folder_picker(mut self, picker: FolderPicker) -> Self {
@@ -467,8 +532,59 @@ impl Api {
         self.cli.log()
     }
 
+    pub fn with_log_handle(mut self, handle: crate::logging::LogHandle) -> Self {
+        self.log = Some(handle);
+        self
+    }
+
+    pub fn with_runtime_info(mut self, info: impl Into<String>) -> Self {
+        self.runtime_info = info.into();
+        self
+    }
+
+    /// Every request, with panics turned into `GbError::Other` (spec §16.1); the panic hook
+    /// (logging::install_panic_hook) has already logged it with a backtrace.
     pub async fn dispatch(&self, req: Request) -> Result<serde_json::Value, GbError> {
+        let method = variant_name(&req);
+        catch_panics(&method, self.dispatch_inner(req)).await
+    }
+
+    async fn dispatch_inner(&self, req: Request) -> Result<serde_json::Value, GbError> {
         match req {
+            Request::LogFrontend { level, message, stack } => {
+                crate::logging::log_frontend(level, &message, stack.as_deref());
+                to_json(())
+            }
+            Request::SetDebugLogging { debug } => {
+                if let Some(h) = &self.log {
+                    h.set_debug(debug)?;
+                }
+                to_json(())
+            }
+            Request::LogsDir => to_json(self.log.as_ref().map(|h| h.dir().display().to_string())),
+            Request::Diagnostics { ui } => {
+                let git_version = self.cli.check_version().await.ok();
+                to_json(crate::diagnostics::format(&crate::diagnostics::DiagnosticsInput {
+                    app_version: env!("CARGO_PKG_VERSION"),
+                    runtime: &self.runtime_info,
+                    git_version,
+                    os: crate::diagnostics::os_description(),
+                    session: crate::diagnostics::session_description(),
+                    ui: &ui,
+                }))
+            }
+            Request::OpenLogsFolder => {
+                let dir = self.log.as_ref().map(|h| h.dir().to_path_buf()).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "no log folder in this build"))?;
+                let launcher = self.openers.as_ref().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "opening folders isn't available here"))?.launcher.clone();
+                let find = |list: &[Opener]| list.iter().find(|o| o.kind == OpenerKind::FileManager).cloned();
+                let manager = match find(&self.openers(false).await?) {
+                    Some(o) => o,
+                    None => find(&self.openers(true).await?).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "no file manager on this machine"))?,
+                };
+                let cmd = manager.command(&dir, None);
+                blocking(move || launcher(&cmd)).await?;
+                to_json(())
+            }
             Request::OpenRepo { path } => to_json(self.open_repo(&path).await?),
             Request::Graph { repo, limit, pin, rescan } => {
                 let h = self.handle(repo)?;
@@ -499,6 +615,7 @@ impl Api {
             Request::SearchHistory { repo, query } => to_json(self.search_history(repo, &query).await?),
             Request::CommandLog => to_json(self.cli.log().entries()),
             Request::LaunchRepo => to_json(&self.launch_repo),
+            Request::TakeOpenRequests => to_json(self.take_open_requests()),
             Request::CommitMessage { repo, id } => {
                 let h = self.handle(repo)?;
                 to_json(blocking(move || read_commit_message(&h.repo.to_thread_local(), &id)).await?)
@@ -893,6 +1010,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn logging_requests_are_harmless_without_a_log_handle() {
+        let api = api();
+        assert_eq!(api.dispatch(req(serde_json::json!({"method": "logsDir"}))).await.unwrap(), serde_json::Value::Null);
+        assert_eq!(api.dispatch(req(serde_json::json!({"method": "setDebugLogging", "params": {"debug": true}}))).await.unwrap(), serde_json::Value::Null);
+        let logged = api.dispatch(req(serde_json::json!({"method": "logFrontend", "params": {"level": "error", "message": "boom", "stack": null}}))).await;
+        assert_eq!(logged.unwrap(), serde_json::Value::Null);
+    }
+
+    #[tokio::test]
+    async fn logs_dir_comes_from_the_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_sub, logging) = crate::logging::build(dir.path(), false, false).unwrap();
+        let api = api().with_log_handle(logging.handle.clone());
+        let got = api.dispatch(req(serde_json::json!({"method": "logsDir"}))).await.unwrap();
+        assert_eq!(got, dir.path().display().to_string());
+    }
+
+    #[tokio::test]
+    async fn a_panicking_request_becomes_an_error() {
+        let err = catch_panics("graph", async { panic!("boom") }).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Other);
+        assert!(err.message.contains("graph") && err.message.contains("boom"), "{}", err.message);
+    }
+
+    #[tokio::test]
+    async fn a_panic_message_is_redacted_before_it_reaches_the_ui() {
+        let token = format!("glpat-{}", "d".repeat(24));
+        let err = catch_panics("fetch", async move { panic!("clone https://u:{token}@h.example.com/r.git failed") }).await.unwrap_err();
+        assert!(err.message.contains("h.example.com") && !err.message.contains("glpat-"), "{}", err.message);
+    }
+
+    #[test]
+    fn variant_names_never_include_parameters() {
+        assert_eq!(variant_name(&Request::LogsDir), "LogsDir");
+        assert_eq!(variant_name(&Request::OpenRepo { path: "/secret/path".into() }), "OpenRepo");
+    }
+
+    #[tokio::test]
+    async fn diagnostics_reports_versions_and_scrubbed_settings() {
+        let text = api()
+            .dispatch(req(serde_json::json!({"method": "diagnostics", "params": {"ui": {"userAgent": "Chrome/152.0.7977.83", "settings": {"token": "abc"}}}})))
+            .await
+            .unwrap();
+        let text = text.as_str().unwrap();
+        assert!(text.starts_with("GitBolt "));
+        assert!(text.contains("Runtime: harness") && text.contains("Chromium: 152.0.7977.83") && text.contains("git: 2."));
+        assert!(!text.contains("abc"));
+    }
+
+    #[tokio::test]
+    async fn open_logs_folder_launches_the_file_manager_on_the_log_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_sub, logging) = crate::logging::build(dir.path(), false, false).unwrap();
+        let (with_log, launches) = with_openers(api());
+        let with_log = with_log.with_log_handle(logging.handle.clone());
+        assert_eq!(with_log.dispatch(req(serde_json::json!({"method": "openLogsFolder"}))).await.unwrap(), serde_json::Value::Null);
+        {
+            let launched = launches.lock().unwrap();
+            assert_eq!(launched.len(), 1, "{launched:?}");
+            assert!(launched[0].args.iter().any(|a| a == dir.path().as_os_str()), "{launched:?}");
+        }
+        let bare = with_openers(api()).0.dispatch(req(serde_json::json!({"method": "openLogsFolder"}))).await.unwrap_err();
+        assert_eq!(bare.kind, GbErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
     async fn open_then_graph() {
         let r = TestRepo::new();
         fixtures::basic(&r);
@@ -942,6 +1125,26 @@ mod tests {
         let api = api();
         assert_eq!(api.dispatch(req(serde_json::json!({"method": "launchRepo"}))).await.unwrap(), "/launch/path");
         assert!(api.dispatch(req(serde_json::json!({"method": "commandLog"}))).await.unwrap().is_array());
+    }
+
+    /// R19: a path forwarded before anyone listens is still there for the UI's boot-time take,
+    /// and each one is taken once.
+    #[tokio::test]
+    async fn forwarded_paths_wait_for_take_open_requests_and_are_taken_once() {
+        let api = api();
+        api.request_open("/a".into());
+        let mut events = api.subscribe();
+        api.request_open("/b".into());
+        assert_eq!(events.recv().await.unwrap(), AppEvent::OpenRequested { path: "/b".into() });
+        let take = || api.dispatch(req(serde_json::json!({"method": "takeOpenRequests"})));
+        assert_eq!(take().await.unwrap(), serde_json::json!(["/a", "/b"]));
+        assert_eq!(take().await.unwrap(), serde_json::json!([]));
+        for i in 0..MAX_OPEN_REQUESTS + 2 {
+            api.request_open(format!("/r{i}"));
+        }
+        let kept = take().await.unwrap();
+        assert_eq!(kept.as_array().unwrap().len(), MAX_OPEN_REQUESTS);
+        assert_eq!(kept[0], "/r2", "the oldest go first");
     }
 
     #[tokio::test]

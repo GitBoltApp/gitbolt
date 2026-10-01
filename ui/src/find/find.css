@@ -1,9 +1,9 @@
 /* The find box (spec §8.7): over the graph panel's top-right corner, just below the column
    header (24px) and clear of the grid's vertical scrollbar. */
-.find-box { position: absolute; top: 30px; right: 16px; z-index: 20; width: 380px; max-width: calc(100% - 32px); box-sizing: border-box; padding: 6px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+.find-box { position: absolute; top: 30px; right: 16px; z-index: 20; width: 380px; max-width: calc(100% - 32px); box-sizing: border-box; padding: 6px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); }
 .find-row { display: flex; align-items: center; gap: 4px; }
 .find-row input { flex: 1; min-width: 0; font: inherit; padding: 4px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; outline: none; }
-.find-row input:focus { border-color: rgba(77, 136, 255, 0.6); }
+.find-row input:focus { border-color: var(--focus-outline); }
 .find-row .icon-button:disabled { opacity: 0.4; cursor: default; background: none; }
 .find-count { min-width: 48px; text-align: right; font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .find-spin { flex: none; color: var(--text-secondary); animation: find-spin 1s linear infinite; }

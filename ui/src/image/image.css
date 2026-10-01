@@ -1,6 +1,6 @@
-/* --image-frame-border (J11): the theme's --section-border (8% white) is all but invisible against
-   the neutral viewport, so the frame uses a stronger white. */
-.image-diff { display: flex; flex-direction: column; flex: 1; min-height: 0; --image-frame-border: rgba(255, 255, 255, 0.22); }
+/* --image-frame-border (J11) is a theme token: the theme's --section-border (8% white) is all but
+   invisible against the neutral viewport, so the frame uses a stronger white. */
+.image-diff { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .image-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); flex: none; }
 .image-toolbar .segmented > button, .image-toolbar .toggle { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
 .image-toolbar .toggle { border: 1px solid var(--section-border); border-radius: 4px; }
@@ -28,18 +28,18 @@
 .image-frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-shadow: 0 0 0 1px var(--image-frame-border); pointer-events: none; }
 .image-viewport:active { cursor: grabbing; }
 /* The background behind transparent pixels (H30; background.ts): image frames and their toolbar swatches. */
-.bg-checker { background-color: #2a2a2a; background-image: linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%), linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
-.bg-black { background: #000; }
-.bg-white { background: #fff; }
-.bg-grey { background: #808080; }
+.bg-checker { /* theme-ok: the transparency checkerboard is the same in every theme */ background-color: #2a2a2a; /* theme-ok */ background-image: linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%), linear-gradient(45deg, #3a3a3a 25%, transparent 25%, transparent 75%, #3a3a3a 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.bg-black { /* theme-ok: a fixed backdrop the user picks */ background: #000; }
+.bg-white { /* theme-ok */ background: #fff; }
+.bg-grey { /* theme-ok */ background: #808080; }
 .image-backgrounds { display: flex; gap: 2px; margin-left: auto; }
 .image-backgrounds .icon-button[aria-pressed="true"] { background: var(--selected-row); }
-.bg-swatch { display: block; width: 12px; height: 12px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.35); }
+.bg-swatch { display: block; width: 12px; height: 12px; border-radius: 2px; /* theme-ok: the swatches show fixed backdrops */ box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.35); }
 /* The checkerboard toggle's own SVG (J12): big 4 px cells, a 3×3 board; clipped to the swatch's
    rounded box, with the same edge as the flat swatches. */
-.checker-icon { overflow: hidden; box-shadow: none; outline: 1px solid rgb(255 255 255 / 0.35); outline-offset: -1px; }
-.checker-icon .checker-dark { fill: #4a4a4a; }
-.checker-icon .checker-light { fill: #cfcfcf; }
+.checker-icon { overflow: hidden; box-shadow: none; /* theme-ok */ outline: 1px solid rgb(255 255 255 / 0.35); outline-offset: -1px; }
+.checker-icon .checker-dark { /* theme-ok */ fill: #4a4a4a; }
+.checker-icon .checker-light { /* theme-ok */ fill: #cfcfcf; }
 /* K11: a bit more room between the zoom slider and the meta block (dims/size). */
 .image-meta { white-space: nowrap; margin-left: 6px; }
 .image-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; user-select: none; }
@@ -59,8 +59,8 @@
 .swipe-divider:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 2px; }
 .image-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); pointer-events: none; }
 /* K9: subtle Old/New chips — never in the way of a drag or the swipe handle. */
-.image-label { pointer-events: none; font-size: 10px; line-height: 1.5; letter-spacing: 0.03em; text-transform: uppercase; color: rgba(255, 255, 255, 0.85); }
-.image-viewport > .image-label { position: absolute; bottom: 6px; background: rgba(0, 0, 0, 0.55); padding: 1px 6px; border-radius: 3px; }
+.image-label { pointer-events: none; font-size: 10px; line-height: 1.5; letter-spacing: 0.03em; text-transform: uppercase; /* theme-ok: a chip over the image itself, light on dark in every theme */ color: rgba(255, 255, 255, 0.85); }
+.image-viewport > .image-label { position: absolute; bottom: 6px; /* theme-ok */ background: rgba(0, 0, 0, 0.55); padding: 1px 6px; border-radius: 3px; }
 .image-viewport > .image-label.label-bl { left: 6px; }
 .image-viewport > .image-label.label-br { right: 6px; }
 /* K22: side-by-side's own Old/New chips are bigger and centred horizontally in each half, near the

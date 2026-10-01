@@ -2,33 +2,36 @@ import { shikiToMonaco } from '@shikijs/monaco';
 import { createHighlighterCore } from 'shiki/core';
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma';
 import { bundledLanguages } from 'shiki/langs';
-import { bundledThemes } from 'shiki/themes';
+import { currentEditorTheme, editorThemeRegistrations } from '../../theme/editorThemes';
 import { memoizeUntilRejected } from './memo';
 import type { Monaco } from './setup';
-import { withEditorColors } from './theme';
-
-/** Default Dark's editor theme (spec §12.1). Plan 1D pairs one with every app theme. */
-export const EDITOR_THEME = 'dark-plus';
 
 // The Oniguruma WASM (inlined as base64 by shiki/wasm) loads with the first diff (spec §10.3).
-// The theme carries GitBolt's editor colours (theme.ts): `shikiToMonaco` redefines it from Shiki's
+// Every theme carries its GitBolt editor colours (theme.ts): `shikiToMonaco` redefines them from Shiki's
 // copy on every grammar load, so that copy is where they must live.
 const getHighlighter = memoizeUntilRejected(() =>
   createHighlighterCore({
-    themes: [bundledThemes[EDITOR_THEME]().then((m) => withEditorColors(m.default))],
+    themes: editorThemeRegistrations(),
     langs: [],
     engine: createOnigurumaEngine(import('shiki/wasm')),
   }),
 );
 
+/** `shikiToMonaco` ends every call by selecting the first loaded theme, which would throw the app
+ * theme away on each grammar load: select the current one again. */
+function defineThemes(h: Parameters<typeof shikiToMonaco>[0], monaco: Monaco): void {
+  shikiToMonaco(h, monaco);
+  monaco.editor.setTheme(currentEditorTheme());
+}
+
 let themed: Promise<void> | undefined;
 
-/** Defines and applies EDITOR_THEME in Monaco. It must resolve before the first editor is created:
+/** Defines the editor themes and applies the app's. It must resolve before the first editor is created:
  * Monaco falls back to its light `vs` theme for an unknown theme name, and a later defineTheme
  * doesn't re-apply it (so a plain-text-only session would stay light). */
 export function ensureTheme(monaco: Monaco): Promise<void> {
   return (themed ??= getHighlighter().then(
-    (h) => shikiToMonaco(h, monaco),
+    (h) => defineThemes(h, monaco),
     (e: unknown) => {
       themed = undefined;
       throw e;
@@ -46,7 +49,7 @@ async function load(monaco: Monaco, lang: keyof typeof bundledLanguages): Promis
   // Registers a TextMate tokenizer for every loaded language (including embedded ones, like
   // the html/css/js inside php) and defines the theme. Called once per newly loaded grammar: this
   // is @shikijs/monaco's documented way of adding languages.
-  shikiToMonaco(h, monaco);
+  defineThemes(h, monaco);
   return lang;
 }
 

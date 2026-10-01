@@ -5,6 +5,7 @@ use gitbolt_core::avatar::AvatarProvider;
 use gitbolt_core::error::GbError;
 use gitbolt_core::events::TAURI_EVENT;
 use gitbolt_core::git::GitCli;
+use gitbolt_core::instance::{self, Claim};
 use gitbolt_core::log::CommandLog;
 use gitbolt_core::openers::chooser::system_chooser;
 use gitbolt_core::openers::folder_picker::system_folder_picker;
@@ -98,24 +99,86 @@ fn portal_parent<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>) -> String
 /// Where the folder picker finds its parent window: set once the window exists.
 type ParentWindow = Arc<OnceLock<Box<dyn Fn() -> String + Send + Sync>>>;
 
+/// The process's early exits, in order (the CEF `--type=` helpers have already been sent away by
+/// `main`'s attribute): git or ssh running this binary as askpass (`askpass`, `Some(exit code)`)
+/// never reaches the single-instance check; then `claim` (R19): a later launch on the same
+/// config dir has forwarded its path and exits 0. `Ok`: run, as the guarded first instance
+/// (`Primary`), or unguarded (`GITBOLT_MULTI_INSTANCE`, or the guard couldn't be set up: the
+/// reason, logged once logging is up).
+fn startup(askpass: impl FnOnce() -> Option<i32>, claim: impl FnOnce() -> Claim) -> Result<Claim, i32> {
+    if let Some(code) = askpass() {
+        return Err(code);
+    }
+    match claim() {
+        Claim::Forwarded => Err(0),
+        run => Ok(run),
+    }
+}
+
+/// A later launch's request (R19), after its path went to the UI (`openRequested`,
+/// `ui/src/app/instance.ts`): the window comes back from the taskbar and to the front.
+/// `set_focus` asks the window manager the way a pager does (the CEF runtime's `activate`), which
+/// focus-stealing prevention lets through.
+fn bring_to_front<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+    for (what, done) in [("unminimize", window.unminimize()), ("show", window.show()), ("focus", window.set_focus())] {
+        if let Err(e) = done {
+            tracing::warn!("couldn't {what} the window for another launch: {e}");
+        }
+    }
+}
+
 /// Every CEF app is also its own renderer/GPU/utility process: this attribute runs the helper
 /// side for any process Chromium launched with `--type=` and returns before the Tauri app is
 /// built (required by `tauri-runtime-cef`; see its `examples/cef/src-tauri/src/main.rs`).
+/// The CEF runtime, minus the per-profile tweaks documented where it is built in `main`.
+fn cef_runtime() -> Cef {
+    let cef = Cef::default()
+        .profile_preference("settings.a11y.caretbrowsing.enabled", false)
+        .component_updates(false);
+    // Never run Chromium unsandboxed (spec §18). `Auto` drops the sandbox, with only a warning,
+    // in an AppImage on a system with neither the setuid helper nor unprivileged user
+    // namespaces; `Required` refuses to start there instead. This runtime can't sandbox Windows
+    // at all yet (SandboxPolicy docs), hence Linux only.
+    #[cfg(target_os = "linux")]
+    let cef = cef.sandbox(tauri_runtime_cef::SandboxPolicy::Required);
+    cef
+}
+
 #[tauri_runtime_cef::cef_entry_point]
 fn main() {
     // Very first (the attribute above has already sent CEF's own `--type=` helpers away): when
     // git or ssh runs this binary as GIT_ASKPASS/SSH_ASKPASS (spec §5.4), it only asks the
     // running app over the askpass socket and exits. Git passes the prompt, never `--type=`.
-    if let Some(code) = gitbolt_core::askpass::run_client_from_env() {
-        std::process::exit(code);
-    }
+    // Then the single-instance guard (R19, keyed by the config dir): if GitBolt already runs on
+    // it, this launch hands it its path and exits 0, before any thread, GTK or CEF.
+    let launch = std::env::args().nth(1).or_else(|| std::env::var("GITBOLT_OPEN").ok());
+    let (instance, unguarded) = match startup(gitbolt_core::askpass::run_client_from_env, || instance::claim_from_env(launch.as_deref())) {
+        Ok(Claim::Primary(p)) => (Some(Arc::new(p)), None),
+        Ok(Claim::Unguarded(why)) => (None, why),
+        Ok(Claim::Forwarded) => unreachable!("startup exits on Forwarded"),
+        Err(code) => std::process::exit(code),
+    };
+    let exit_instance = instance.clone();
     // First, before any thread and before GTK: the window's desktop identity (dock icon) and
     // the input method's key handling (Ctrl+C and friends reach the page). See desktop.rs.
     desktop::init();
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()))
-        .init();
-    let launch = std::env::args().nth(1).or_else(|| std::env::var("GITBOLT_OPEN").ok());
+    // Log files (spec §16.2): `~/.cache/gitbolt/logs`, daily, newest 7 kept; stderr too in debug builds.
+    // A redacted copy on stdout in debug builds, and in any build run with RUST_LOG set.
+    let console = cfg!(debug_assertions) || std::env::var_os("RUST_LOG").is_some_and(|v| !v.is_empty());
+    let logging = gitbolt_core::logging::init(&gitbolt_core::logging::default_log_dir(), false, console);
+    if let Err(e) = &logging {
+        eprintln!("GitBolt: file logging unavailable: {e}");
+        gitbolt_core::logging::init_console_fallback();
+    }
+    let (log_handle, log_guard) = match logging {
+        Ok(l) => (Some(l.handle), Some(l.guard)),
+        Err(_) => (None, None),
+    };
+    // Dropped on RunEvent::Exit so the last buffered lines reach the file.
+    let log_guard = std::sync::Mutex::new(log_guard);
+    if let Some(why) = unguarded {
+        tracing::warn!("running without the single-instance guard: {why}");
+    }
     // Every child (git, the editors, the file manager, xdg-open) gets the session's own
     // IBUS_ENABLE_SYNC_MODE / GDK_BACKEND, not the app's (desktop.rs).
     let child_env: ChildEnvHook = Arc::new(desktop::restore_child_env);
@@ -131,7 +194,10 @@ fn main() {
     // "Open Repository" (spec §13): the folder-picker portal, parented to the main window once
     // it exists (R2: no picker on a portal-less desktop; the UI falls back to a typed path).
     let parent: ParentWindow = Arc::default();
-    let built = build_api(cli, launch, child_env);
+    let mut built = build_api(cli, launch, child_env).with_runtime_info("tauri 3.0.0-alpha.3 · tauri-runtime-cef 3.0.0-alpha.4 (GitBolt patch: CEF #3002)");
+    if let Some(h) = log_handle {
+        built = built.with_log_handle(h);
+    }
     let picker_parent = parent.clone();
     let built = match system_folder_picker(move || picker_parent.get().map(|f| f()).unwrap_or_default()) {
         Some(picker) => built.with_folder_picker(picker),
@@ -156,11 +222,7 @@ fn main() {
         // Operation not permitted`). `component_updates(false)` only adds
         // `--disable-component-update`; it doesn't touch any Chromium feature GitBolt's webview
         // uses (vendor/tauri-runtime-cef/GITBOLT-PATCH.md).
-        .runtime(
-            Cef::default()
-                .profile_preference("settings.a11y.caretbrowsing.enabled", false)
-                .component_updates(false),
-        )
+        .runtime(cef_runtime())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(backend)
         .invoke_handler(tauri::generate_handler![api])
@@ -220,6 +282,28 @@ fn main() {
                 tracing::warn!("couldn't maximize the restored window: {e}");
             }
             window_state::track(&window, window_store.clone(), can_position, (cfg.width, cfg.height));
+            // R19: answer later launches now that there's a window to focus. One that came while
+            // this instance was starting has been waiting in the socket, and is answered now
+            // (and queued until the page takes it).
+            if let Some(instance) = &instance {
+                let (api, front) = (forward.clone(), window.clone());
+                let serving = tauri::async_runtime::block_on(async move {
+                    instance.serve(move |path| {
+                        // Queued as well as announced, so a path forwarded before the page
+                        // listens still opens (`takeOpenRequests` at boot). Only a folder: a
+                        // stale or mistyped path just focuses the window.
+                        match path {
+                            Some(path) if std::path::Path::new(&path).is_dir() => api.request_open(path),
+                            Some(path) => tracing::warn!("another launch asked to open {path:?}, which isn't a folder"),
+                            None => {}
+                        }
+                        bring_to_front(&front);
+                    })
+                });
+                if let Err(e) = serving {
+                    tracing::warn!("single-instance socket unavailable: {e}; a later launch will wait, then start on its own");
+                }
+            }
             let _ = parent.set(Box::new(move || portal_parent(&window)));
             // Here, after the runtime's `set_var` (its SAFETY note: no other thread may read the
             // environment before it): capture the login shell's environment (spec §5.3), detect
@@ -245,6 +329,11 @@ fn main() {
                 if let Some(askpass) = exit_api.askpass() {
                     askpass.close();
                 }
+                drop(log_guard.lock().expect("log guard poisoned").take());
+                // Likewise the instance socket; the lock goes with the process.
+                if let Some(instance) = &exit_instance {
+                    instance.close();
+                }
             }
         });
 }
@@ -254,6 +343,30 @@ mod tests {
     use super::*;
     use std::ffi::OsString;
     use std::os::unix::fs::PermissionsExt;
+
+    /// R19's order: an askpass invocation exits with the client's code and never reaches the
+    /// instance check; a forwarding launch exits 0; unguarded (the escape hatch, or no guard
+    /// possible) runs; the first instance runs guarded.
+    #[test]
+    fn askpass_comes_before_the_instance_check_and_a_forwarded_launch_exits_0() {
+        let claimed = std::cell::Cell::new(false);
+        let claim = || {
+            claimed.set(true);
+            Claim::Forwarded
+        };
+        assert_eq!(startup(|| Some(1), claim).err(), Some(1));
+        assert!(!claimed.get(), "askpass mode never takes the instance check");
+        assert_eq!(startup(|| None, claim).err(), Some(0));
+        assert!(claimed.get());
+        assert!(matches!(startup(|| None, || Claim::Unguarded(None)), Ok(Claim::Unguarded(None))));
+        assert!(matches!(startup(|| None, || Claim::Unguarded(Some("no runtime dir".into()))), Ok(Claim::Unguarded(Some(_)))));
+        let rt = std::env::temp_dir().join(format!("gitbolt-app-instance-{}", std::process::id()));
+        std::fs::create_dir_all(&rt).unwrap();
+        let first = startup(|| None, || instance::claim(&rt, &rt.join("cfg"), None));
+        assert!(matches!(first, Ok(Claim::Primary(_))));
+        drop(first);
+        let _ = std::fs::remove_dir_all(&rt);
+    }
 
     /// I2 regression: `OpenUrl` must go through `child_env`, the same hook an opener launch
     /// uses — not bypass it via `tauri_plugin_opener::open_url`, which left the browser with the

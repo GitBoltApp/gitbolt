@@ -57,6 +57,28 @@ describe('runtime', () => {
     expect(useRuntime.getState().tabs.t.status).toBe('ready');
   });
 
+  it('graphOnly skips the sidebar and repo info; a coalesced full refresh wins (1C review M5)', async () => {
+    gate = false;
+    await useRuntime.getState().refresh('t');
+    api.sidebar.mockClear();
+    api.repoInfo.mockClear();
+    await useRuntime.getState().refresh('t', { graphOnly: true });
+    expect(api.sidebar).not.toHaveBeenCalled();
+    expect(api.repoInfo).not.toHaveBeenCalled();
+    gate = true;
+    const first = useRuntime.getState().refresh('t', { graphOnly: true });
+    await vi.waitFor(() => expect(graphCalls.length).toBeGreaterThan(0));
+    void useRuntime.getState().refresh('t', { graphOnly: true });
+    void useRuntime.getState().refresh('t');
+    release();
+    await vi.waitFor(() => expect(graphCalls.length).toBeGreaterThan(1));
+    gate = false;
+    release();
+    await first;
+    expect(api.sidebar).toHaveBeenCalledTimes(1);
+    expect(api.repoInfo).toHaveBeenCalledTimes(1);
+  });
+
   it('a failed sidebar or repo-info read keeps the graph (and the previous sidebar)', async () => {
     gate = false;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

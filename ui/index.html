@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GitBolt</title>
+    <!-- Plan 1D R3 / review I1: the saved theme's background and colour scheme, from its
+         localStorage mirror (theme/apply.ts writeThemeMirror), before any CSS paints. The module
+         script then applies the whole theme (theme/bind.ts). Kept tiny; theme/firstPaint.test.ts. -->
+    <script id="theme-first-paint">
+      (function () {
+        try {
+          var m = JSON.parse(localStorage.getItem('gitbolt.theme.v1') || 'null');
+          if (!m || typeof m.id !== 'string') return;
+          var r = document.documentElement;
+          r.dataset.theme = m.id;
+          if (m.kind === 'light' || m.kind === 'dark') r.style.colorScheme = m.kind;
+          if (/^#[0-9a-f]{6}$/i.test(m.bg)) r.style.setProperty('--app-bg0', m.bg);
+        } catch (e) {
+          // Blocked storage or a corrupt mirror: tokens.css's Default Dark paints.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

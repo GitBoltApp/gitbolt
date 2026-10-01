@@ -3,9 +3,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type Rea
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
 import { RemoteIcon } from '../icons/brands';
-import { GRAPH_COLORS } from '../theme/graphColors';
+import { useTheme } from '../theme/store';
 import { chipRefs, type BranchMembership } from './membership';
 import { useHoverTooltip } from '../ui/HoverTooltip';
+import { chipFont, chipWidth, fitCount } from './chipFit';
 
 
 /** J22's branch-hover focus: a chip entered (the refs it stands for) or left (null). */
@@ -168,10 +169,10 @@ function LabelStack({ labels, onBranchHover, onContextMenu }: { labels: RefLabel
   );
 }
 
-function More({ count, stack }: { count: number; stack: () => ReactNode }) {
+function More({ count, stack, head }: { count: number; stack: () => ReactNode; head: boolean }) {
   const [open, setOpen] = useState(false);
   return (
-    <span className="ref-more" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span className={head ? 'ref-more ref-more-head' : 'ref-more'} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       +{count}
       {open && stack()}
     </span>
@@ -182,12 +183,13 @@ function More({ count, stack }: { count: number; stack: () => ReactNode }) {
  * (J6): hovered, it lights up to full strength and floats its untruncated copy, and a press on
  * it selects the row. */
 function DimChip({ membership, onBranchHover }: { membership: BranchMembership; onBranchHover?: BranchHover }) {
+  const lanes = useTheme((s) => s.colors.graph);
   return (
     <Chip
       className="ref-label ref-label-dim"
       refs={[membership.ref]}
       onBranchHover={onBranchHover}
-      color={GRAPH_COLORS[membership.color % GRAPH_COLORS.length]}
+      color={lanes[membership.color % lanes.length]}
       content={(full) => <span className={full ? 'ref-name-full' : 'ref-name'}>{membership.name}</span>}
     />
   );
@@ -201,12 +203,15 @@ function DimChip({ membership, onBranchHover }: { membership: BranchMembership; 
  * `.ref-dim-slot`, which gives up its width before the real chip does and drops the dimmed chip
  * whole when it doesn't fit (graph.css), so it never truncates or displaces a real chip.
  */
-export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, onContextMenu, line }: {
+export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, width, onContextMenu, line }: {
   labels: RefLabel[];
   color: number;
   membership?: BranchMembership | null;
   onBranchHover?: BranchHover;
   compact?: boolean;
+  /** The Branch/Tag column's width (K104): every label shows as a chip while they fit it, the
+   * overflow collapsing into `+N`. Omitted: only the first chip, the rest in `+N`. */
+  width?: number;
   /** Right-clicking the row's own (first) label chip: the commit or tag menu for that branch or
    * tag (plan 1C Task 15). or any row of the hover stack (K77). Not on the `+N` badge or the dimmed membership chip. */
   onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void;
@@ -214,27 +219,37 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
    * draws its half on (K57, pixels.ts connectorLine). Omitted: centred, 1 px (2 px for HEAD). */
   line?: { top: number; height: number } | null;
 }) {
+  // The theme's lanes (overrides applied): a theme switch recolours the chips in place.
+  const lanes = useTheme((s) => s.colors.graph);
   if (labels.length === 0) return membership ? <span className="ref-labels"><DimChip membership={membership} onBranchHover={onBranchHover} /></span> : null;
-  const c = GRAPH_COLORS[color % GRAPH_COLORS.length];
-  const rest = labels.slice(1);
+  const c = lanes[color % lanes.length];
+  // K104: the chips that fit whole (estimated from canvas text widths: no layout per row), the
+  // rest in `+N`. The first (the checked-out branch's, if any) is always shown.
+  const shown = width === undefined || compact || labels.length === 1
+    ? 1
+    : fitCount(labels.map((l) => chipWidth(l, chipFont())), width);
+  const hidden = labels.length - shown;
   // The checked-out branch (HEAD's label always sorts first): its chip is always lit and its
   // connector is the graph line's width and colour (J21, graph.css; draw.ts `headRow`).
   const head = labels[0].isHead;
-  const stack = rest.length > 0 ? () => <LabelStack labels={labels} onBranchHover={onBranchHover} onContextMenu={onContextMenu} /> : undefined;
+  const stack = hidden > 0 ? () => <LabelStack labels={labels} onBranchHover={onBranchHover} onContextMenu={onContextMenu} /> : undefined;
   return (
     // `--lane-color` is set here (not just on the chip) so `.ref-connector`, a sibling of the
     // chip, can read it too: it continues the connector drawn in the canvas (see draw.ts).
     <span className={head ? 'ref-labels ref-labels-head' : 'ref-labels'} style={{ ['--lane-color' as string]: c, ...(line && { ['--conn-top' as string]: `${line.top}px`, ['--conn-h' as string]: `${line.height}px` }) }}>
-      <Chip
-        color={c}
-        className={`ref-label${head ? ' ref-label-head' : ''}${compact ? ' compact' : ''}`}
-        refs={chipRefs(labels[0])}
-        onBranchHover={onBranchHover}
-        onContextMenu={onContextMenu && ((e) => onContextMenu(labels[0], e))}
-        stack={stack}
-        content={(full) => <ChipContent label={labels[0]} full={full} compact={compact} />}
-      />
-      {stack && <More count={rest.length} stack={stack} />}
+      {labels.slice(0, shown).map((l, i) => (
+        <Chip
+          key={`${i}:${l.name}`}
+          color={c}
+          className={`ref-label${l.isHead ? ' ref-label-head' : ''}${compact ? ' compact' : ''}${i > 0 ? ' ref-label-next' : ''}`}
+          refs={chipRefs(l)}
+          onBranchHover={onBranchHover}
+          onContextMenu={onContextMenu && ((e) => onContextMenu(l, e))}
+          stack={i === 0 ? stack : undefined}
+          content={(full) => <ChipContent label={l} full={full} compact={compact} />}
+        />
+      ))}
+      {stack && <More count={hidden} stack={stack} head={head} />}
       {membership && (
         <span className="ref-dim-slot">
           <span className="ref-dim-fill" />

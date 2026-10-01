@@ -21,7 +21,13 @@ import { installShortcuts } from '../app/shortcuts';
 import { useAppState } from '../app/state';
 import { activeTabWith } from '../app/testShell';
 
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
+// No backend here: a call rejects (the action log's best-effort file log catches it) instead of
+// throwing outside the test because the mock has no `createTransport`.
+vi.mock('../api/transport', () => ({
+  copyText: vi.fn(async () => {}),
+  inTauri: () => false,
+  createTransport: () => ({ call: () => Promise.reject(new Error('no backend in this test')), subscribe: () => () => {} }),
+}));
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);

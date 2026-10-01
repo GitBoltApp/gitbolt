@@ -156,6 +156,12 @@ fn plan_capped(common_dir: &Path, worktrees: &[WatchedWorktree], cap: usize) -> 
         p.flat.insert(linked);
     }
     p.recursive.insert(common_dir.join("refs"));
+    // The stash reflog: dropping an older stash (`stash@{1}`) rewrites only `logs/refs/stash`.
+    // Flat, so `logs/refs/heads` churn isn't watched (classify ignores every other reflog).
+    let reflogs = common_dir.join("logs").join("refs");
+    if reflogs.is_dir() {
+        p.flat.insert(reflogs);
+    }
     for w in worktrees {
         if w.git_dir != common_dir {
             p.flat.insert(w.git_dir.clone());
@@ -1378,6 +1384,23 @@ mod tests {
         assert_eq!(wakeups(&api, id), after, "the self-inflicted overflows were dropped");
     }
 
+    /// Dropping an older stash (`stash@{1}`) rewrites only `logs/refs/stash`, and `refs/stash`
+    /// stays put: the flat watch on `logs/refs` is what reports it (1C review M1).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropping_an_older_stash_is_reported() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let file = r.git(&["ls-files"]).lines().next().unwrap().to_string();
+        r.write(&file, "second stash\n");
+        r.git(&["stash", "push", "-q"]);
+        assert!(r.git(&["stash", "list"]).lines().count() >= 2);
+        let (_api, _id, mut rx) = watched(&r).await;
+        tokio::time::sleep(DEBOUNCE * 2).await;
+        r.git(&["stash", "drop", "-q", "stash@{1}"]);
+        let (kinds, _) = next_change(&mut rx, Duration::from_secs(5)).await.expect("an event");
+        assert!(kinds.contains(&ChangeKind::Stash), "{kinds:?}");
+    }
+
     #[test]
     fn the_git_snapshot_tells_which_kinds_changed() {
         let r = TestRepo::new();
@@ -1421,8 +1444,8 @@ mod tests {
         fixtures::basic(&r);
         let common = r.path().join(".git").canonicalize().unwrap();
         let root = r.path().canonicalize().unwrap();
-        let p = plan_capped(&common, &[WatchedWorktree { root: root.clone(), git_dir: common.clone() }], 2);
-        assert!(p.truncated && p.flat.len() == 2);
+        let p = plan_capped(&common, &[WatchedWorktree { root: root.clone(), git_dir: common.clone() }], 3);
+        assert!(p.truncated && p.flat.len() == 3);
         assert_eq!(p.recursive, BTreeSet::from([common.join("refs")]));
         let (api, id, _rx) = watched_tuned(&r, Tuning { max_flat: 3, ..Default::default() }).await;
         assert!(with_watcher(&api, id, RepoWatcher::degraded));

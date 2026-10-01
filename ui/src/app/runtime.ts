@@ -32,14 +32,15 @@ interface RuntimeState {
   /** Forgets a closed tab: its runtime and its 1B view state. */
   drop(tabId: string): void;
   open(tabId: string, path: string): Promise<void>;
-  refresh(tabId: string, opts?: { rescan?: boolean }): Promise<void>;
+  /** `graphOnly` skips the sidebar and repo-info reads (a worktree/index-only change). */
+  refresh(tabId: string, opts?: { rescan?: boolean; graphOnly?: boolean }): Promise<void>;
 }
 
 /** The tab is (still) in the active profile. */
 const tabOpen = (tabId: string) => useAppState.getState().profile.tabs.some((t) => t.id === tabId);
 
 const inflight = new Map<string, Promise<void>>();
-const queued = new Map<string, boolean>();
+const queued = new Map<string, { rescan: boolean; side: boolean }>();
 const opening = new Map<string, Promise<void>>();
 
 const warned = new Set<string>();
@@ -56,7 +57,7 @@ function sideRead<T>(what: string, p: Promise<T>): Promise<T | undefined> {
   });
 }
 
-async function load(tabId: string, rescan: boolean): Promise<void> {
+async function load(tabId: string, rescan: boolean, side: boolean): Promise<void> {
   const rt = useRuntime.getState().tabs[tabId];
   if (!rt?.repo) return;
   const repo = rt.repo;
@@ -68,8 +69,9 @@ async function load(tabId: string, rescan: boolean): Promise<void> {
     const [graph, sidebar, info] = await Promise.all([
       // `rescan` only when asked: a watched repo's status cache is kept fresh (W2-B).
       api.graph(repo.id, rt.limit ?? settings.commitLimit, rescan ? { pin, rescan } : { pin }),
-      sideRead('sidebar', api.sidebar(repo.id)),
-      sideRead('repo info', api.repoInfo(repo.id)),
+      // A worktree/index-only change can't alter refs, stashes or config: keep what's shown.
+      side ? sideRead('sidebar', api.sidebar(repo.id)) : Promise.resolve(undefined),
+      side ? sideRead('repo info', api.repoInfo(repo.id)) : Promise.resolve(undefined),
     ]);
     if (!current()) return;
     feedTabView(tabId, repo, graph);
@@ -129,15 +131,16 @@ export const useRuntime = create<RuntimeState>((set, get) => ({
   refresh(tabId, opts = {}) {
     const running = inflight.get(tabId);
     if (running) {
-      queued.set(tabId, (queued.get(tabId) ?? false) || !!opts.rescan);
+      const q = queued.get(tabId);
+      queued.set(tabId, { rescan: (q?.rescan ?? false) || !!opts.rescan, side: (q?.side ?? false) || !opts.graphOnly });
       return running;
     }
     const run = (async () => {
-      let rescan: boolean | undefined = !!opts.rescan;
-      while (rescan !== undefined) {
+      let next: { rescan: boolean; side: boolean } | undefined = { rescan: !!opts.rescan, side: !opts.graphOnly };
+      while (next !== undefined) {
         queued.delete(tabId);
-        await load(tabId, rescan);
-        rescan = queued.get(tabId);
+        await load(tabId, next.rescan, next.side);
+        next = queued.get(tabId);
       }
     })().finally(() => inflight.delete(tabId));
     inflight.set(tabId, run);

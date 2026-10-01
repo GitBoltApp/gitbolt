@@ -7,6 +7,10 @@ export const HUNK_REGIONS = { enabled: true, contextLineCount: 3, minimumLineCou
  * normal window, because the center panel sits beside the details panel. */
 export const INLINE_BREAKPOINT_PX = 600;
 export const EDITOR_FONT_SIZE = 13;
+export const EDITOR_FONT_MIN = 8;
+export const EDITOR_FONT_MAX = 32;
+/** The saved editor font size, whole px within 8-32 (13 for anything that isn't a number). */
+export const clampEditorFont = (px: number): number => (Number.isFinite(px) ? Math.min(EDITOR_FONT_MAX, Math.max(EDITOR_FONT_MIN, Math.round(px))) : EDITOR_FONT_SIZE);
 /** The app's slim scrollbars (tokens.css; F31), in Monaco's own: 10 px, no shadow. Monaco draws
  * no arrow buttons unless asked, and its colours come from the theme (monaco/theme.ts). */
 export const EDITOR_SCROLLBAR = { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false } as const;
@@ -18,13 +22,13 @@ export const EDITOR_SCROLLBAR = { verticalScrollbarSize: 10, horizontalScrollbar
  * editorSettings.ts). The only fixed settings are the spec'd read-only and
  * no-language-service ones. It returns plain data (no Monaco import), so it's unit-testable.
  */
-export function diffEditorOptions(p: DiffPrefs, contextMenu: boolean, stickyScroll = DEFAULT_EDITOR_SETTINGS.stickyScroll) {
+export function diffEditorOptions(p: DiffPrefs, contextMenu: boolean, stickyScroll = DEFAULT_EDITOR_SETTINGS.stickyScroll, fontSize = EDITOR_FONT_SIZE) {
   return {
     readOnly: true,
     automaticLayout: false,
     renderValidationDecorations: 'off' as const,
     contextmenu: contextMenu,
-    fontSize: EDITOR_FONT_SIZE,
+    fontSize: clampEditorFont(fontSize),
     scrollbar: { ...EDITOR_SCROLLBAR },
     minimap: { enabled: true },
     renderOverviewRuler: true,
@@ -48,13 +52,13 @@ export function diffEditorOptions(p: DiffPrefs, contextMenu: boolean, stickyScro
 }
 
 /** Options for File View's read-only editor (spec §10.1). */
-export function fileViewOptions(wordWrap: boolean, contextMenu: boolean, stickyScroll = DEFAULT_EDITOR_SETTINGS.stickyScroll) {
+export function fileViewOptions(wordWrap: boolean, contextMenu: boolean, stickyScroll = DEFAULT_EDITOR_SETTINGS.stickyScroll, fontSize = EDITOR_FONT_SIZE) {
   return {
     readOnly: true,
     automaticLayout: false,
     renderValidationDecorations: 'off' as const,
     contextmenu: contextMenu,
-    fontSize: EDITOR_FONT_SIZE,
+    fontSize: clampEditorFont(fontSize),
     scrollbar: { ...EDITOR_SCROLLBAR },
     minimap: { enabled: true },
     stickyScroll: { enabled: stickyScroll },

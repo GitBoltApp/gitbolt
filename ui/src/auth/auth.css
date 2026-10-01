@@ -1,16 +1,16 @@
 /* The askpass prompt (spec §5.4). The backdrop stops the pointer reaching the app behind it; the
    status bar stays above it (statusbar.css), so its "Waiting for authentication… Cancel" works. */
-.modal-backdrop { position: fixed; inset: 0; z-index: 800; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); }
-.modal { display: flex; flex-direction: column; gap: 10px; width: 420px; max-width: calc(100vw - 32px); padding: 16px 18px; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5); color: var(--text-normal); font-size: 13px; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 800; display: flex; align-items: center; justify-content: center; background: var(--backdrop); }
+.modal { display: flex; flex-direction: column; gap: 10px; width: 420px; max-width: calc(100vw - 32px); padding: 16px 18px; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 10px 32px var(--shadow-modal); color: var(--text-normal); font-size: 13px; }
 .modal h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; color: var(--text-selected); user-select: none; }
 .modal input { padding: 6px 8px; font: inherit; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; outline: none; }
 .modal input:focus { border-color: var(--blue); }
 .auth-prompt { margin: 0; word-break: break-all; }
 .auth-note { margin: 0; color: var(--text-secondary); font-size: 11px; user-select: none; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.modal-actions button { padding: 5px 14px; font: inherit; color: var(--text-normal); background: rgba(255, 255, 255, 0.06); border: 1px solid var(--section-border); border-radius: 4px; cursor: pointer; }
+.modal-actions button { padding: 5px 14px; font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; cursor: pointer; }
 .modal-actions button:hover { color: var(--text-selected); background: var(--hover-row); }
-.modal-actions button.primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+.modal-actions button.primary { color: var(--text-on-accent); background: var(--blue); border-color: var(--blue); }
 .modal-actions button:focus-visible { outline: 1px solid var(--text-selected); }
 /* Above every other dialog (800) but under the status bar (810), whose Cancel stays reachable. */
 .modal-backdrop.auth-backdrop { z-index: 805; }

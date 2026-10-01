@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TooltipHost } from '../ui/TooltipHost';
 import { useTooltip } from '../ui/tooltipStore';
 import { BLUR_SETTLE_MS, ContextMenu, inTriangle, remap, SUBMENU_GRACE_MS } from './ContextMenu';
-import { openContextMenu, openMenuAt, useMenu } from './menuStore';
+import { openContextMenu, openMenuAt, setMenuRowRunner, useMenu } from './menuStore';
 import type { MenuRow } from './types';
 
 function open(rows: MenuRow[], build?: () => MenuRow[]) {
@@ -30,6 +30,21 @@ describe('ContextMenu', () => {
     expect(short).toHaveBeenCalledOnce();
     expect(full).not.toHaveBeenCalled();
     expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
+  });
+
+  it('runs rows and variants through the row-run hook, with their id and label (R11)', () => {
+    const seen: string[] = [];
+    const off = setMenuRowRunner((id, label, run) => { seen.push(`${id}:${label}`); run(); });
+    const row = vi.fn();
+    const variant = vi.fn();
+    open([action('copy', row, { variants: [{ id: 'rel', label: 'Rel', tooltip: 'rel tip', run: variant }, { id: 'abs', tooltip: 'Absolute path', run: () => {} }] })]);
+    fireEvent.click(screen.getByText('COPY'));
+    act(() => useMenu.getState().show([action('copy', row, { variants: [{ id: 'abs', tooltip: 'Absolute path', run: variant }] })], 10, 10));
+    fireEvent.click(screen.getByRole('button', { name: 'Absolute path' }));
+    off();
+    expect(seen).toEqual(['copy:COPY', 'abs:COPY: Absolute path']);
+    expect(row).toHaveBeenCalledOnce();
+    expect(variant).toHaveBeenCalledOnce();
   });
 
   it('shows row and variant tooltips immediately; a disabled variant shows its reason and does nothing', () => {

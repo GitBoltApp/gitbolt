@@ -3,6 +3,7 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { loadMonacoHost } from '../diff/monaco/load';
+import { PanelErrorBoundary } from '../errors/PanelErrorBoundary';
 import { DetailsPanel } from '../details/DetailsPanel';
 import { releaseDetachedEditors } from '../diff/editorRelease';
 import { displayedOrder } from '../files/fileListPrefs';
@@ -123,6 +124,14 @@ function ConnectedGraph() {
   );
 }
 
+/** The details panel in its error boundary, reset by the selection. Its own component, so only it
+ * subscribes to the selection: RepoLayout re-rendering on every move would re-render the hidden,
+ * kept diff panel too (J16 zero work). */
+function DetailsBoundary() {
+  const selection = useRepoView((s) => s.panel?.selection);
+  return <PanelErrorBoundary name="Details" resetKey={selection}><DetailsPanel /></PanelErrorBoundary>;
+}
+
 function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
   const store = useRepoViewStore();
   const diff = useRepoView((s) => s.diff);
@@ -184,7 +193,7 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
     <div ref={viewRef} className="repo-view" data-testid="repo-view">
       <main className="center-panel">
         <Activity mode={diffOpen ? 'hidden' : 'visible'}>
-          <ConnectedGraph />
+          <PanelErrorBoundary name="Graph"><ConnectedGraph /></PanelErrorBoundary>
           {graphOverlay}
         </Activity>
         {/* J16: once opened, the diff panel stays mounted, hidden while no file is open, so a
@@ -192,7 +201,7 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
             it runs no effects: no keys, observers, timers or focus. */}
         {kept && (
           <Activity mode={diffOpen ? 'visible' : 'hidden'}>
-            <LazyDiffPanel target={diff ?? kept.target} session={kept.session} />
+            <PanelErrorBoundary name="Diff" resetKey={diff?.key ?? kept.target.key}><LazyDiffPanel target={diff ?? kept.target} session={kept.session} /></PanelErrorBoundary>
           </Activity>
         )}
       </main>
@@ -205,7 +214,7 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
             {/* The next selection is loading: the previous one stays, and past ~150 ms (CSS
                 delay) a thin progress line shows (feedback F12). */}
             {pending && <div className="panel-busy" data-testid="panel-busy" aria-hidden="true" />}
-            <DetailsPanel />
+            <DetailsBoundary />
           </aside>
         </>
       )}

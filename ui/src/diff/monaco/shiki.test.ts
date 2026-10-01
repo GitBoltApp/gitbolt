@@ -7,7 +7,7 @@ vi.mock('shiki/engine/oniguruma', () => ({ createOnigurumaEngine: () => ({}) }))
 vi.mock('shiki/wasm', () => ({ default: {} }));
 vi.mock('@shikijs/monaco', () => ({ shikiToMonaco: vi.fn() }));
 
-const monaco = { languages: { getLanguages: () => [], register: vi.fn() } } as unknown as Monaco;
+const monaco = { editor: { setTheme: vi.fn() }, languages: { getLanguages: () => [], register: vi.fn() } } as unknown as Monaco;
 const highlighter = { loadLanguage: vi.fn(async () => {}), getLoadedLanguages: () => ['php'] };
 
 describe('Shiki highlighter', () => {
@@ -20,15 +20,15 @@ describe('Shiki highlighter', () => {
     await expect(ensureLanguage(monaco, 'not-a-shiki-language')).resolves.toBe('plaintext');
   });
 
-  it("creates the highlighter with GitBolt's editor colours in dark-plus, so every theme definition has them", async () => {
+  it("creates the highlighter with every theme carrying its editor colours, so every theme definition has them", async () => {
     vi.resetModules();
     createHighlighterCore.mockReset().mockResolvedValue(highlighter);
-    const { ensureLanguage, EDITOR_THEME } = await import('./shiki');
+    const { ensureLanguage } = await import('./shiki');
     const { EDITOR_COLORS } = await import('./theme');
     await ensureLanguage(monaco, 'php');
     const [{ themes }] = createHighlighterCore.mock.calls[0] as [{ themes: unknown[] }];
     const theme = (await themes[0]) as { name: string; colors: Record<string, string> };
-    expect(theme.name).toBe(EDITOR_THEME);
+    expect(theme.name).toBe('dark-plus');
     expect(theme.colors).toMatchObject(EDITOR_COLORS);
     expect(theme.colors['editor.background']).toBeDefined();
   });

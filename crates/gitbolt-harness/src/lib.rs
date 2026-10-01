@@ -197,7 +197,7 @@ impl Harness {
 
     /// `POST /test/reset`: the state a fresh app launch would see (default settings, with
     /// background fetch off, and one default profile), no recorded launches, no queued picks, no
-    /// cached repo scans and no file watchers.
+    /// cached repo scans, no file watchers and no forwarded paths waiting.
     pub fn reset(&self) {
         self.api.unwatch_all();
         self.store.reset();
@@ -205,11 +205,13 @@ impl Harness {
         self.launches.clear();
         self.picks.clear();
         self.api.forget_scans();
+        self.api.take_open_requests();
     }
 }
 
 /// Routes: `GET /health`, `GET /launches`, `GET /ws` (requests, replies and event frames),
-/// `POST /test/emit` (a JSON `AppEvent`, put on the bus), `POST /test/reset`,
+/// `POST /test/emit` (a JSON `AppEvent`, put on the bus; `openRequested` is also queued for
+/// `takeOpenRequests`, as the app's single-instance guard does), `POST /test/reset`,
 /// `POST /test/next-pick` (`{"path": string | null}`: the folder picker's next answer),
 /// `GET /test/watched` (the ids of the repos with a live file watcher, sorted), and
 /// `ANY /test/auth/*` (a git remote that always answers 401).
@@ -290,7 +292,11 @@ async fn test_emit(State(h): State<Arc<Harness>>, headers: HeaderMap, Json(ev): 
     if foreign_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    h.api.events().emit(ev);
+    match ev {
+        // As the app's single-instance guard does it (R19): queued for `takeOpenRequests`, then announced.
+        AppEvent::OpenRequested { path } => h.api.request_open(path),
+        ev => h.api.events().emit(ev),
+    }
     "ok".into_response()
 }
 

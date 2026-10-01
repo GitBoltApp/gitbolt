@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message?: string }).message ?? e) }));
 
+import { useRuntime } from '../app/runtime';
 import { EMPTY_PROFILE, useAppState } from '../app/state';
 import { OpenRepoScreen } from './OpenRepoScreen';
 
@@ -33,6 +34,15 @@ describe('OpenRepoScreen', () => {
     expect(useAppState.getState().profile.reposFolder).toBe('/home/u/repos');
     expect(screen.queryByRole('region', { name: 'Default repos folder' })).toBeNull();
     await waitFor(() => expect(api.scanFolders).toHaveBeenCalledWith(['/home/u/repos'], false));
+  });
+
+  it('a recent repository that fails to open offers Remove from recent inline, which drops it', async () => {
+    useAppState.setState({ profile: { ...EMPTY_PROFILE, id: 'p', reposFolder: '/x', recent: [recent('gone', false, 1)] } });
+    rt.openPathInTab.mockImplementationOnce(async () => { useRuntime.setState({ tabs: { t1: { error: 'not a repository' } } as never }); });
+    render(<OpenRepoScreen tab={tab} />);
+    fireEvent.click(screen.getByTitle('/r/gone'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from recent' }));
+    expect(useAppState.getState().profile.recent).toEqual([]);
   });
 
   it('recent: pinned first, then newest; the filter narrows it', () => {

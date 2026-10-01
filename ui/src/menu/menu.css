@@ -1,7 +1,7 @@
 /* The context menu (spec §7): one element, filled and placed on open. */
-.ctx-menu { position: fixed; z-index: 900; min-width: 220px; padding: 4px 0; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); color: var(--text-normal); font-size: 13px; outline: none; user-select: none; }
+.ctx-menu { position: fixed; z-index: 900; min-width: 220px; padding: 4px 0; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); color: var(--text-normal); font-size: 13px; outline: none; user-select: none; }
 .ctx-menu[hidden] { display: none; }
-.ctx-level:not([data-depth="0"]) { position: fixed; z-index: 901; min-width: 200px; padding: 4px 0; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+.ctx-level:not([data-depth="0"]) { position: fixed; z-index: 901; min-width: 200px; padding: 4px 0; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); }
 /* Hover/active background fades at the fast token (50ms ease-in, J19). */
 .ctx-row { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 10px; cursor: default; white-space: nowrap; transition: background-color var(--motion-fast); }
 .ctx-row[data-active="true"] { background: var(--selected-row); color: var(--text-selected); }
@@ -14,8 +14,8 @@
    during which the tooltip briefly falls back to the row's — see ContextMenu.tsx's variant
    pointerLeave). The group is rounded as one; adjacent buttons share a 1px divider instead. */
 .ctx-variants { display: flex; margin-left: 12px; border-radius: 3px; overflow: hidden; }
-.ctx-variant { all: unset; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 5px; box-sizing: border-box; font-size: 11px; color: var(--text-secondary); background: rgba(255, 255, 255, 0.06); cursor: pointer; }
+.ctx-variant { all: unset; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 5px; box-sizing: border-box; font-size: 11px; color: var(--text-secondary); background: var(--control-bg); cursor: pointer; }
 .ctx-variant + .ctx-variant { border-left: 1px solid var(--section-border); }
-.ctx-variant:hover, .ctx-variant[data-active="true"] { background: var(--blue); color: #fff; }
+.ctx-variant:hover, .ctx-variant[data-active="true"] { background: var(--blue); color: var(--text-on-accent); }
 .ctx-variant[aria-disabled="true"] { opacity: 0.35; background: transparent; cursor: default; }
 .ctx-sep { height: 1px; margin: 4px 0; background: var(--section-border); }

@@ -16,6 +16,8 @@ import type { SignaturePayload } from './gen/SignaturePayload';
 import type { AppEvent } from './gen/AppEvent';
 import type { AppInfoPayload } from './gen/AppInfoPayload';
 import type { AppSettings } from './gen/AppSettings';
+import type { FrontendLevel } from './gen/FrontendLevel';
+import type { UiDiagnostics } from './gen/UiDiagnostics';
 import type { FetchOutcome } from './gen/FetchOutcome';
 import type { LastPushPayload } from './gen/LastPushPayload';
 import type { PinSetting } from './gen/PinSetting';
@@ -67,6 +69,8 @@ export const api = {
     call<GraphPayload>({ method: 'graph', params: { repo, limit, ...extra } }),
   commandLog: () => t().call({ method: 'commandLog' }) as Promise<CommandLogEntry[]>,
   launchRepo: () => t().call({ method: 'launchRepo' }) as Promise<string | null>,
+  /** Paths later launches forwarded (the single-instance guard) not yet taken: each returned once. */
+  takeOpenRequests: () => call<string[]>({ method: 'takeOpenRequests' }),
   /** One commit's full message (summary + body), loaded on demand: see `commitMessages.ts`. */
   commitMessage: (repo: number, id: string) => t().call({ method: 'commitMessage', params: { repo, id } }) as Promise<CommitMessage>,
   /** The details panel's header (§9.1); the message comes from `commitMessage`. */
@@ -119,6 +123,13 @@ export const api = {
   findPaths: (repo: number, query: string) => call<string[]>({ method: 'findPaths', params: { repo, query } }),
   locateCommit: (repo: number, sha: string) => call<LocateResult>({ method: 'locateCommit', params: { repo, sha } }),
   searchHistory: (repo: number, query: string) => call<HistoryHit[]>({ method: 'searchHistory', params: { repo, query } }),
+  // Plan 1D Task 7/9: log files, frontend errors, diagnostics.
+  logFrontend: (level: FrontendLevel, message: string, stack: string | null) => call<null>({ method: 'logFrontend', params: { level, message, stack } }),
+  setDebugLogging: (debug: boolean) => call<null>({ method: 'setDebugLogging', params: { debug } }),
+  /** The log directory, or `null` where there is no file logging (the harness). */
+  logsDir: () => call<string | null>({ method: 'logsDir' }),
+  diagnostics: (ui: UiDiagnostics) => call<string>({ method: 'diagnostics', params: { ui } }),
+  openLogsFolder: () => call<null>({ method: 'openLogsFolder' }),
 };
 
 export function errorMessage(e: unknown): string {

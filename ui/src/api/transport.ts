@@ -1,3 +1,4 @@
+import { recordCall } from '../debug/calls';
 import type { AppEvent } from './gen/AppEvent';
 import type { GbError } from './gen/GbError';
 import type { Request } from './gen/Request';
@@ -100,9 +101,21 @@ function tauriTransport(): Transport {
 
 export const inTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+/** `inner`, timing every call into the perf overlay's ring (T9, `debug/calls.ts`). */
+export function timed(inner: Transport): Transport {
+  return {
+    call(req) {
+      const t0 = performance.now();
+      const done = (ok: boolean) => recordCall({ method: req.method, ms: performance.now() - t0, ok, at: Date.now() });
+      return inner.call(req).then((v) => { done(true); return v; }, (e: unknown) => { done(false); throw e; });
+    },
+    subscribe: (h) => inner.subscribe(h),
+  };
+}
+
 export function createTransport(onClosed?: () => void): Transport {
-  if (inTauri()) return tauriTransport();
-  return wsTransport(import.meta.env.VITE_GITBOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws', undefined, onClosed);
+  if (inTauri()) return timed(tauriTransport());
+  return timed(wsTransport(import.meta.env.VITE_GITBOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws', undefined, onClosed));
 }
 
 /**

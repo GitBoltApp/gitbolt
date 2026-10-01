@@ -1,11 +1,13 @@
 import type * as MonacoNs from 'monaco-editor/editor/editor.api';
 import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../diffPrefs';
 import { useEditorSettings } from '../editorSettings';
-import { diffEditorOptions, fileViewOptions } from '../options';
+import { clampEditorFont, diffEditorOptions, fileViewOptions } from '../options';
 import { enableDeletedLineCopy } from './deletedCopy';
 import { captureAnchor, restoreAnchor, type ScrollAnchor } from './scrollAnchor';
 import { monaco } from './setup';
-import { EDITOR_THEME, ensureLanguage, ensureTheme } from './shiki';
+import { useAppState } from '../../app/state';
+import { bindEditorTheme, currentEditorTheme } from '../../theme/editorThemes';
+import { ensureLanguage, ensureTheme } from './shiki';
 
 export interface DiffShowRequest { path: string; original: string; modified: string; language: string; prefs: DiffPrefs }
 export interface FileShowRequest { path: string; text: string; language: string; wordWrap: boolean }
@@ -99,6 +101,7 @@ function withBackstop(p: Promise<void>, ms: number): Promise<void> {
 }
 
 const sticky = () => useEditorSettings.getState().settings.stickyScroll;
+const fontSize = () => useAppState.getState().settings.editorFontSize;
 
 const sameDiff = (a: DiffContent, b: DiffContent) => a.path === b.path && a.original === b.original && a.modified === b.modified;
 const sameFile = (a: FileContent, b: FileContent) => a.path === b.path && a.text === b.text;
@@ -181,6 +184,13 @@ class Host implements MonacoHost {
       this.diff?.updateOptions({ stickyScroll });
       this.file?.updateOptions({ stickyScroll });
     });
+    // The editor font size (Settings > Editor) applies in place too.
+    useAppState.subscribe((s, prev) => {
+      if (s.settings.editorFontSize === prev.settings.editorFontSize) return;
+      const fontSize = clampEditorFont(s.settings.editorFontSize);
+      this.diff?.updateOptions({ fontSize });
+      this.file?.updateOptions({ fontSize });
+    });
   }
 
   attachDiff(el: HTMLElement, next?: DiffContent): void {
@@ -191,7 +201,7 @@ class Host implements MonacoHost {
     el.appendChild(this.diffEl);
     this.ro.observe(el);
     if (!this.diff) {
-      this.diff = monaco.editor.createDiffEditor(this.diffEl, { ...diffEditorOptions(this.prefs, this.menu === null, sticky()), theme: EDITOR_THEME });
+      this.diff = monaco.editor.createDiffEditor(this.diffEl, { ...diffEditorOptions(this.prefs, this.menu === null, sticky(), fontSize()), theme: currentEditorTheme() });
       // A plain DOM signal that a diff (or a prefs recompute) is done, for e2e waits.
       this.diff.onDidUpdateDiff(() => {
         this.diffEl.dataset.diffComputed = String(++this.computedCount);
@@ -351,7 +361,7 @@ class Host implements MonacoHost {
 
   private applyDiffPrefs(prefs: DiffPrefs): void {
     this.prefs = prefs;
-    this.diff?.updateOptions(diffEditorOptions(prefs, this.menu === null, sticky()));
+    this.diff?.updateOptions(diffEditorOptions(prefs, this.menu === null, sticky(), fontSize()));
   }
 
   private dropAnchor(): void {
@@ -373,7 +383,7 @@ class Host implements MonacoHost {
     el.appendChild(this.fileEl);
     this.ro.observe(el);
     if (!this.file) {
-      this.file = monaco.editor.create(this.fileEl, { ...fileViewOptions(this.fileWrap, this.menu === null, sticky()), theme: EDITOR_THEME });
+      this.file = monaco.editor.create(this.fileEl, { ...fileViewOptions(this.fileWrap, this.menu === null, sticky(), fontSize()), theme: currentEditorTheme() });
       this.wireMenu(this.file, 'file');
     }
     this.layout();
@@ -412,7 +422,7 @@ class Host implements MonacoHost {
     const ed = this.file;
     if (seq !== this.fileSeq || !ed) return;
     this.filePath = req.path;
-    ed.updateOptions(fileViewOptions(this.fileWrap, this.menu === null, sticky()));
+    ed.updateOptions(fileViewOptions(this.fileWrap, this.menu === null, sticky(), fontSize()));
     const model = monaco.editor.createModel(req.text, lang);
     ed.setModel(model);
     this.fileShown = { path: req.path, text: req.text };
@@ -505,10 +515,18 @@ class Host implements MonacoHost {
 }
 
 let host: Host | undefined;
+let themeBound = false;
+function bindEditorThemeOnce(): void {
+  if (themeBound) return;
+  themeBound = true;
+  bindEditorTheme((name) => monaco.editor.setTheme(name));
+}
 
 /** The app's one host. The editor theme is defined before it's handed out, so the first editor
  * is created in it (see `ensureTheme`). Reached only through `loadMonacoHost`. */
 export async function createHost(): Promise<MonacoHost> {
   await ensureTheme(monaco);
+  // Monaco's setTheme is global: the shared editors all follow the app theme, no re-creation.
+  bindEditorThemeOnce();
   return (host ??= new Host());
 }

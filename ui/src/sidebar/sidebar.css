@@ -27,7 +27,7 @@
 .sb-row > svg[data-host-kind="generic"] { margin: 0 -1px; }
 .sn-item svg { color: var(--sidebar-icon); }
 .sn-item:hover svg { color: var(--text-normal); }
-.co-check { margin: 0 -1px; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; border-radius: 3px; background: var(--checked-out); color: #fff; }
+.co-check { margin: 0 -1px; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; border-radius: 3px; background: var(--checked-out); color: var(--text-on-accent); }
 /* Ahead/behind (K67): the counts with real arrow icons; the text glyphs were too small to read. */
 .sb-ab { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); }
 .sb-ab > span { display: inline-flex; align-items: center; gap: 1px; }
@@ -37,7 +37,7 @@
 .sn-item { all: unset; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 0; width: 36px; color: var(--text-secondary); border-radius: 4px; cursor: pointer; }
 .sn-item:hover { background: var(--hover-row); color: var(--text-selected); }
 .sn-count { font-size: 10px; font-weight: 700; color: var(--count-blue); }
-.hover-card { position: fixed; z-index: 700; width: 300px; padding: 10px 12px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); pointer-events: none; }
+.hover-card { position: fixed; z-index: 700; width: 300px; padding: 10px 12px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); pointer-events: none; }
 .hc-name { color: var(--text-selected); font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
 .hc-summary { margin-bottom: 4px; }
 .hc-meta { font-size: 11px; color: var(--text-secondary); }

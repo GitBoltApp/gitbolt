@@ -26,7 +26,7 @@ const tauriPlatform: Platform = {
 };
 
 const browserPlatform: Platform = {
-  isMinimized: async () => window.__gbTestMinimized === true || document.visibilityState === 'hidden',
+  isMinimized: async () => (import.meta.env.DEV && window.__gbTestMinimized === true) || document.visibilityState === 'hidden',
   onFocusChanged(cb) {
     const on = () => cb(true);
     const offFocus = () => cb(false);

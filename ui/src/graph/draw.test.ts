@@ -72,6 +72,21 @@ describe('drawGraph', () => {
     }
   });
 
+  it('paints initials and the collapse shade in the theme colours it is given', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', []), row(5, 'commit', [])];
+    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#fff', nodeText: '#0b0d10', stripColor: 'rgba(0, 0, 0, 0.15)', labeledRows: new Set(), dpr: 1, clipped: true });
+    const text = calls.findIndex((c) => c.startsWith('fillText('));
+    expect(calls.slice(0, text).findLast((x) => x.startsWith('fillStyle='))).toBe('fillStyle=#0b0d10');
+    expect(calls).toContain('addColorStop(1,rgba(0, 0, 0, 0.15))');
+    // Without them: white initials and the black shade, as before themes.
+    const plain = recorder();
+    drawGraph(plain.ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, clipped: true });
+    const t2 = plain.calls.findIndex((c) => c.startsWith('fillText('));
+    expect(plain.calls.slice(0, t2).findLast((x) => x.startsWith('fillStyle='))).toBe('fillStyle=#fff');
+    expect(plain.calls).toContain(`addColorStop(1,rgba(0,0,0,${SHADE_ALPHA}))`);
+  });
+
   it('keeps the rail flush with the canvas edge and a whole number of device pixels wide at DPR 1.5', () => {
     const { ctx, calls } = recorder();
     // width 101 CSS px -> backing store round(151.5) = 152 device px; the rail is round(2 * 1.5) =

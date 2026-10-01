@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { RowPayload } from '../api/gen/RowPayload';
-import { GRAPH_COLORS } from '../theme/graphColors';
+import { useTheme } from '../theme/store';
 import { drawGraph, graphLayout } from './draw';
 import type { Metrics } from './geometry';
 import { useDevicePixelRatio } from './pixels';
@@ -33,8 +33,10 @@ interface Props {
 
 export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion, clipped = false, scrollX = 0, id, selected = -1, alsoSelected, headRow = -1 }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const nodeFillRef = useRef<string | undefined>(undefined);
   const dpr = useDevicePixelRatio();
+  // The theme's canvas colours: a new object on every theme or lane-override change, so the draw
+  // effect reruns on a switch (it used to read --app-bg0 once and cache it).
+  const colors = useTheme((s) => s.colors);
 
   useLayoutEffect(() => {
     const canvas = ref.current;
@@ -46,13 +48,8 @@ export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, lab
     if (!ctx) return;
     const first = Math.max(0, Math.floor(scrollTop / metrics.rowH));
     const last = Math.min(rows.length, Math.ceil((scrollTop + height) / metrics.rowH) + 1);
-    // `--app-bg0` doesn't change over a component's lifetime, so read it once and cache it
-    // instead of calling getComputedStyle on every draw.
-    if (nodeFillRef.current === undefined) {
-      nodeFillRef.current = getComputedStyle(document.documentElement).getPropertyValue('--app-bg0').trim() || '#1c1e23';
-    }
-    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: GRAPH_COLORS, nodeFill: nodeFillRef.current, labeledRows, dpr, avatar, clipped, scrollX, selected, alsoSelected, headRow });
-  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion, clipped, scrollX, selected, alsoSelected, headRow]);
+    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: colors.graph, nodeFill: colors.nodeFill, nodeText: colors.nodeText, stripColor: colors.collapseStrip, labeledRows, dpr, avatar, clipped, scrollX, selected, alsoSelected, headRow });
+  }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion, clipped, scrollX, selected, alsoSelected, headRow, colors]);
 
   // `data-strip`: no lane fits, the column is a strip of nodes (F11); for tests and e2e.
   const strip = graphLayout(width, metrics, clipped || scrollX > 0).strip;

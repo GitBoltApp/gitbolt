@@ -148,6 +148,9 @@ impl LayoutState {
     /// Load more: parents that were outside the window are now loaded rows. Lanes waiting for
     /// them keep their home, lock, stash flag and chain time, so the takeover and lock rules
     /// carry on across the boundary.
+    ///
+    /// Test-only for now (1C review M9): its owner is the deferred "load more" plan, which will
+    /// extend a built layout instead of rebuilding it; the code and its tests are kept for that.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn resolve_outside(&mut self, row_of: impl Fn(&ObjectId) -> Option<u32>) {
         for l in self.lanes.iter_mut().flatten() {

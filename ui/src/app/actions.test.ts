@@ -48,6 +48,30 @@ describe('action registry', () => {
     warn.mockRestore();
   });
 
+  it('every run goes to the action log; a failure toasts with its context action and Details (R11, R12)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { useActionLog } = await import('../debug/actionLog');
+    const { useToast } = await import('../ui/toast');
+    useActionLog.getState().clear();
+    const retry = vi.fn();
+    offs.push(registerActions([
+      { id: 'x.ok', label: 'Fine', group: 'Help', icon: Info, tooltip: 'Works', run: () => {} },
+      { id: 'x.auth', label: 'Push', group: 'Help', icon: Info, tooltip: 'Fails', errorContext: () => ({ retry }), run: () => Promise.reject({ kind: 'AuthFailed', message: 'denied', commandId: 9, stderr: null }) },
+      { id: 'x.cancel', label: 'Cancel', group: 'Help', icon: Info, tooltip: 'Cancelled', run: () => Promise.reject({ kind: 'Cancelled', message: 'cancelled', commandId: null, stderr: null }) },
+    ]));
+    runAction('x.ok');
+    expect(useActionLog.getState().entries.at(-1)).toMatchObject({ id: 'x.ok', label: 'Fine', ok: true });
+    runAction('x.auth');
+    await vi.waitFor(() => expect(useToast.getState().message).toBe('Authentication failed: denied'));
+    expect(useToast.getState().actions.map((a) => a.label)).toEqual(['Retry', 'Details']);
+    expect(useActionLog.getState().entries.at(-1)).toMatchObject({ id: 'x.auth', ok: false, error: 'denied' });
+    useToast.getState().dismiss();
+    runAction('x.cancel');
+    await vi.waitFor(() => expect(useActionLog.getState().entries.at(-1)?.id).toBe('x.cancel'));
+    expect(useToast.getState().message).toBeNull();
+    vi.mocked(console.warn).mockRestore();
+  });
+
   it('hamburger: one submenu per non-empty group, in menu order', () => {
     offs.push(registerActions([
       { id: 'h.about', label: 'About GitBolt', group: 'Help', icon: Info, tooltip: 'About', run: () => {} },
@@ -72,6 +96,19 @@ describe('action registry', () => {
     fileOpen = false;
     expect(label('x.closeFile', fileRows())).toBeUndefined();
     expect(label('x.closeTab', fileRows())?.shortcut).toBe('Ctrl+W');
+  });
+
+  it('hamburger: an action with `menu: false` is left out of the menu, but stays usable (palette, shortcuts)', () => {
+    const run = vi.fn();
+    offs.push(registerActions([
+      { id: 'v.pick', label: 'Pick…', group: 'View', icon: Info, tooltip: 'Pick', run: () => {} },
+      { id: 'v.one', label: 'Pick: one', group: 'View', icon: Info, tooltip: 'One', menu: false, run },
+    ]));
+    const view = hamburgerRows().find((r) => r.kind === 'submenu' && r.label === 'View');
+    expect(view?.kind === 'submenu' && view.rows.map((r) => (r.kind === 'action' ? r.id : '-'))).toEqual(['v.pick']);
+    expect(availableActions().map((a) => a.id)).toContain('v.one');
+    expect(runAction('v.one')).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it('hamburger: Quit is the last entry of File, after a separator, even when registered before others (K95)', () => {

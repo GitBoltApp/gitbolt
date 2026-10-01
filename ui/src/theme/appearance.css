@@ -1,0 +1,7 @@
+/* Settings → Appearance (AppearanceSection.tsx): the lane colour boxes, five to a line, each a
+   colour bar over its hex box. The inputs and the Reset button take the settings dialog's own
+   control look (settings.css). */
+.lane-colors { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; flex: 1 1 100%; min-width: 0; }
+.lane-color { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lane-swatch { height: 6px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--section-border); }
+.setting-control .lane-colors .lane-color input.lane-hex { width: 100%; box-sizing: border-box; padding: 3px 4px; font-family: var(--font-mono); font-size: 12px; text-align: center; }

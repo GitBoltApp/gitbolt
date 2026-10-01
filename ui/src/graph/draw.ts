@@ -12,8 +12,13 @@ export interface DrawOptions {
   width: number;
   height: number;
   metrics: Metrics;
-  colors: string[];
+  colors: readonly string[];
   nodeFill: string;
+  /** Initials color inside commit nodes (theme `node-text`); white when omitted. */
+  nodeText?: string;
+  /** The collapse zone's shade at its darkest (theme `collapse-strip`), a black at some alpha so
+   * the gradient fades it to transparent black; `rgba(0,0,0,SHADE_ALPHA)` when omitted. */
+  stripColor?: string;
   labeledRows: Set<number>;
   dpr: number;
   /** A loaded avatar for an author, drawn inside the node instead of initials (spec §8.3). */
@@ -238,7 +243,7 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
   if (clipping && !strip) {
     const shade = ctx.createLinearGradient(area - SHADE_W, 0, area, 0);
     shade.addColorStop(0, 'rgba(0,0,0,0)');
-    shade.addColorStop(1, `rgba(0,0,0,${SHADE_ALPHA})`);
+    shade.addColorStop(1, o.stripColor ?? `rgba(0,0,0,${SHADE_ALPHA})`);
     ctx.fillStyle = shade;
     ctx.fillRect(area - SHADE_W, 0, SHADE_W, o.height);
   }
@@ -317,7 +322,7 @@ function drawNode(ctx: CanvasRenderingContext2D, o: DrawOptions, row: RowPayload
       ctx.drawImage(bitmap, x - ir, y - ir, 2 * ir, 2 * ir);
       ctx.restore();
     } else {
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = o.nodeText ?? '#fff';
       ctx.font = `600 ${Math.round(m.rowH * 0.32)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

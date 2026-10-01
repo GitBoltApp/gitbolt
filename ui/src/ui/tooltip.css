@@ -19,7 +19,7 @@
      than the box. */
   overflow-wrap: break-word;
   word-break: normal;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
+  box-shadow: 0 2px 8px var(--shadow-tooltip);
   pointer-events: none;
   /* motion (J19): a short fade-in only. `delayMs` (the "show immediately" rule) is unaffected: this only fades
      the opacity of an already-mounted tooltip via `@starting-style`, it never delays showing it.

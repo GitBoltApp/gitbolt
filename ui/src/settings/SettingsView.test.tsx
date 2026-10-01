@@ -66,7 +66,7 @@ describe('SettingsView', () => {
     expect(container.innerHTML).toBe('');
     act(() => useSettingsUi.getState().show());
     const dialog = screen.getByRole('dialog', { name: 'Settings' });
-    for (const sec of ['General', 'Fetch', 'Editor', 'Profile', 'Hosts', 'Repository']) {
+    for (const sec of ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Hosts', 'Repository']) {
       tabTo(sec);
       for (const s of SETTINGS.filter((d) => d.section === sec)) expect(dialog.querySelector(`[data-setting-id="${s.id}"]`), s.id).not.toBeNull();
     }

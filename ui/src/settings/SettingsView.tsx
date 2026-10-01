@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { DateFormat } from '../api/gen/DateFormat';
 import type { HostKind } from '../api/gen/HostKind';
@@ -8,16 +8,19 @@ import { useRuntime } from '../app/runtime';
 import { EMPTY_REPO_SETTINGS, flushSaves, useAppState } from '../app/state';
 import { avatars } from '../avatars/avatarStore';
 import { DEFAULT_EDITOR_SETTINGS, useEditorSettings } from '../diff/editorSettings';
+import { clampEditorFont, EDITOR_FONT_MAX, EDITOR_FONT_MIN } from '../diff/options';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { DEFAULT_DENSITY, DENSITIES, useDensity, type Density } from '../theme/density';
 import { Select } from '../ui/Select';
+import { AppearanceSection } from '../theme/AppearanceSection';
 import { EditorPicker } from './EditorPicker';
-import { clampFetchInterval, SETTINGS, useSettingsUi, type SettingsSection } from './schema';
+import { Row } from './Row';
+import { clampFetchInterval, useSettingsUi, type SettingsSection } from './schema';
 import './settings.css';
 
-const SECTIONS: SettingsSection[] = ['General', 'Fetch', 'Editor', 'Profile', 'Hosts', 'Repository'];
+const SECTIONS: SettingsSection[] = ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Hosts', 'Advanced', 'Repository'];
 const FETCH_CHOICES: Array<[number, string]> = [[0, 'Off'], [60, 'Every minute'], [300, 'Every 5 minutes'], [600, 'Every 10 minutes'], [1800, 'Every 30 minutes']];
 const DATE_CHOICES: Array<[DateFormat, string]> = [['ymd12h', '2026-09-26 @ 3:14 PM'], ['ymd24h', '2026-09-26 15:14'], ['dmy24h', '26/09/2026 15:14'], ['mdy12h', '09/26/2026 3:14 PM']];
 const DENSITY_LABELS: Record<Density, [string, string]> = {
@@ -29,20 +32,6 @@ const COMMIT_LIMIT_MAX = 50_000;
 const DEFAULT_COMMIT_LIMIT = 2000;
 const HOST_KINDS: Array<[HostKind, string]> = [['gitlab', 'GitLab'], ['github', 'GitHub'], ['generic', 'Generic (no forge links)']];
 const KIND_NAMES: Record<HostKind, string> = { gitlab: 'GitLab', github: 'GitHub', generic: 'Generic' };
-
-/** A setting's row: its label (instant tooltip with the explanation) and its control. */
-function Row({ id, children, group = false }: { id: string; children: ReactNode; group?: boolean }) {
-  const def = SETTINGS.find((s) => s.id === id)!;
-  const label = group
-    ? <span className="setting-label" id={`label-${id}`}>{def.label}</span>
-    : <label className="setting-label" htmlFor={`input-${id}`}>{def.label}</label>;
-  return (
-    <div className="setting-row" data-setting-id={id} id={`setting-${id}`}>
-      {def.help ? <HoverTooltip content={def.help}>{label}</HoverTooltip> : label}
-      <div className="setting-control">{children}</div>
-    </div>
-  );
-}
 
 // Enter applies through the form (implicit submission): the dialog's key claim (`useModalKeys`)
 // stops the keydown before React's handlers, so an `onKeyDown` here would never see it.
@@ -233,6 +222,7 @@ function SettingsDialog() {
                   </Row>
                   <Row id="gravatar"><input id="input-gravatar" type="checkbox" checked={settings.gravatar} onChange={(e) => changeGravatar(e.target.checked)} /></Row>
                 </>}
+                {s === 'Appearance' && <AppearanceSection />}
                 {s === 'Fetch' && <>
                   <Row id="fetchInterval" group>
                     <Select<number> id="input-fetchInterval" aria-labelledby="label-fetchInterval" value={fetchSecs} onChange={(v) => setSettings({ fetchIntervalSecs: v })} options={FETCH_CHOICES.some(([v]) => v === fetchSecs) ? FETCH_CHOICES : [...FETCH_CHOICES, [fetchSecs, `Every ${Math.round(fetchSecs / 60)} min`]]} />
@@ -242,6 +232,7 @@ function SettingsDialog() {
                 {s === 'Editor' && <>
                   <Row id="editor"><EditorPicker id="editor" value={profile.editor} inherit={false} onChange={(v) => updateProfile((p) => ({ ...p, editor: v }))} /></Row>
                   <Row id="stickyScroll"><input id="input-stickyScroll" type="checkbox" checked={stickyScroll} onChange={(e) => useEditorSettings.getState().set({ stickyScroll: e.target.checked })} /></Row>
+                  <Row id="editorFontSize"><NumberField id="editorFontSize" value={clampEditorFont(settings.editorFontSize)} min={EDITOR_FONT_MIN} max={EDITOR_FONT_MAX} step={1} onCommit={(n) => setSettings({ editorFontSize: n })} /></Row>
                 </>}
                 {s === 'Profile' && (
                   <Row id="extraGitconfig">
@@ -249,6 +240,9 @@ function SettingsDialog() {
                   </Row>
                 )}
                 {s === 'Hosts' && <Row id="hostOverrides" group><HostRows detected={detected} /></Row>}
+                {s === 'Advanced' && (
+                  <Row id="debugLogging"><input id="input-debugLogging" type="checkbox" checked={settings.debugLogging} onChange={(e) => setSettings({ debugLogging: e.target.checked })} /></Row>
+                )}
                 {s === 'Repository' && repoPath && repoSettings && (
                   <Row id="repoEditor"><EditorPicker id="repoEditor" value={repoSettings.editor} inherit onChange={(v) => updateRepo(repoPath, (r) => ({ ...r, editor: v }))} /></Row>
                 )}

@@ -34,8 +34,8 @@
 .diff-toolbar .segmented > button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
 .diff-toolbar button:disabled { opacity: 0.4; cursor: default; }
 .diff-toolbar .icon-button:disabled:hover { background: none; color: var(--text-secondary); }
-.diff-banner { padding: 4px 12px; background: color-mix(in srgb, #ecb91c 18%, transparent); color: var(--text-selected); flex: none; }
-.text-button { all: unset; cursor: pointer; padding: 3px 10px; border-radius: 4px; background: var(--blue); color: #fff; }
+.diff-banner { padding: 4px 12px; background: color-mix(in srgb, var(--yellow) 18%, transparent); color: var(--text-selected); flex: none; }
+.text-button { all: unset; cursor: pointer; padding: 3px 10px; border-radius: 4px; background: var(--blue); color: var(--text-on-accent); }
 .text-button:focus-visible { outline: 2px solid var(--text-selected); outline-offset: 1px; }
 /* The editor's scrollbars: the app's 10 px lane and grey thumb (tokens.css, F31; colours from the
    editor theme, monaco/theme.ts), but square and flush in the lane (H18): the vertical one sits
@@ -45,5 +45,5 @@
 .monaco-editor .view-zones .line-delete { cursor: copy; }
 /* The gutter's +/- indicators in the diff colours (monaco/theme.ts, F30), so a
    changed line's number carries its colour too. */
-.monaco-diff-editor .insert-sign, .monaco-editor .inline-added-margin-view-zone .insert-sign { color: #5cb85c; }
-.monaco-diff-editor .delete-sign, .monaco-editor .inline-deleted-margin-view-zone .delete-sign { color: #d9413d; }
+.monaco-diff-editor .insert-sign, .monaco-editor .inline-added-margin-view-zone .insert-sign { color: var(--green); }
+.monaco-diff-editor .delete-sign, .monaco-editor .inline-deleted-margin-view-zone .delete-sign { color: var(--red); }

@@ -1,0 +1,7 @@
+/* The perf overlay (T9): top right, above everything, and clicks pass through it. */
+.perf-overlay { position: fixed; top: 8px; right: 8px; z-index: 900; width: 260px; max-height: 50vh; overflow: hidden; padding: 6px 8px; box-sizing: border-box; font: 11px/1.4 var(--font-mono, ui-monospace, monospace); color: var(--text-normal); background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 4px; opacity: 0.92; pointer-events: none; }
+.perf-overlay table { width: 100%; border-collapse: collapse; }
+.perf-overlay td { padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.perf-overlay td:last-child { text-align: right; padding-left: 8px; }
+.perf-overlay tr.failed td { color: var(--status-deleted); }
+.perf-fps { color: var(--text-selected); margin-bottom: 4px; }

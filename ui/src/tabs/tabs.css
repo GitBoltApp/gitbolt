@@ -16,11 +16,11 @@
 .tab:not([aria-selected="true"]):hover { background: var(--hover-row); box-shadow: inset 0 -1px var(--section-border); }
 /* The dragged tab's own snapshot stays warm (spec §6.2): on top, offset by the pointer, no
    transition fighting the per-frame `transform`. */
-.tab.dragging { z-index: 2; opacity: 0.9; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); transition: none; }
+.tab.dragging { z-index: 2; opacity: 0.9; box-shadow: 0 2px 10px var(--shadow-modal); transition: none; }
 .tab.drop-target::before { content: ''; position: absolute; left: -1px; top: 4px; bottom: 4px; width: 2px; background: var(--blue); }
 .tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-close { all: unset; display: inline-flex; padding: 3px; border-radius: 3px; opacity: 0.6; cursor: pointer; transition: opacity var(--motion-fast), background-color var(--motion-fast); }
-.tab-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.12); }
+.tab-close:hover { opacity: 1; background: var(--control-hover-bg); }
 .tab-rename { width: 100%; font: inherit; color: inherit; background: var(--panel-bg1); border: 1px solid var(--blue); border-radius: 3px; padding: 1px 4px; cursor: text; }
 
 .profile-switcher { all: unset; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
@@ -28,8 +28,8 @@
 .profile-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
 /* About, New/Rename profile: the app's one modal pattern. */
-.modal-backdrop { position: fixed; inset: 0; z-index: 800; display: grid; place-items: center; background: rgba(0, 0, 0, 0.45); }
-.modal { min-width: 320px; max-width: 520px; padding: 16px 20px; background: var(--panel-bg0); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); color: var(--text-normal); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 800; display: grid; place-items: center; background: var(--backdrop); }
+.modal { min-width: 320px; max-width: 520px; padding: 16px 20px; background: var(--panel-bg0); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 10px 30px var(--shadow-modal); color: var(--text-normal); }
 .modal h2 { margin: 0 0 12px; font-size: 15px; color: var(--text-selected); }
 .modal label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .modal input { font: inherit; padding: 5px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; }
@@ -37,7 +37,7 @@
 .modal-actions button { font: inherit; padding: 5px 14px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; transition: background-color var(--motion-fast); }
 .modal-actions button:hover { background: var(--hover-row); }
 .modal-actions button[type="submit"] { background: var(--blue); border-color: var(--blue); }
-.modal-actions button.danger { background: var(--red, #d9413d); border-color: var(--red, #d9413d); }
+.modal-actions button.danger { background: var(--red); border-color: var(--red); }
 .modal p { margin: 4px 0 0; color: var(--text-secondary); max-width: 420px; }
 .modal-actions button[type="submit"]:disabled { opacity: 0.5; cursor: default; background: var(--panel-bg1); border-color: var(--section-border); }
 .swatches { display: flex; gap: 6px; margin-bottom: 4px; }

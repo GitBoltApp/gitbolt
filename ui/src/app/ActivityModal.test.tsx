@@ -2,11 +2,18 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const copyText = vi.hoisted(() => vi.fn(async (_t: string) => {}));
-vi.mock('../api/client', () => ({ api: {}, errorMessage: String, onEvent: () => () => {} }));
+const api = vi.hoisted(() => ({
+  commandLog: vi.fn(async () => [{ id: 5, args: ['fetch', '--all'], cwd: '/r', startedMs: 1, durationMs: 9, exitCode: 128, stderr: 'fatal: nope' }]),
+  logsDir: vi.fn(async (): Promise<string | null> => null),
+  diagnostics: vi.fn(async () => 'GitBolt 0.1.0'),
+  openLogsFolder: vi.fn(async () => null),
+}));
+vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () => {} }));
 vi.mock('../api/transport', () => ({ copyText, inTauri: () => false }));
 
 const { ActivityModal } = await import('./ActivityModal');
-const { openActivityLog } = await import('./activityLog');
+const { openActivityLog, openDebug, useActivityUi } = await import('./activityLog');
+const { useActionLog } = await import('../debug/actionLog');
 const { useOps } = await import('./ops');
 
 const finish = (op: number, label: string, interactive: boolean, outcome: 'ok' | 'failed', message: string | null, command: string | null = null) => {
@@ -18,6 +25,8 @@ describe('ActivityModal (K101)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0, activity: [] });
+    useActivityUi.setState({ open: false, view: 'activity', focusCommandId: null, perfOverlay: false });
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   it('lists entries newest first, copies all as text, filters, and Esc closes', () => {
@@ -44,5 +53,53 @@ describe('ActivityModal (K101)', () => {
     expect(dialog.querySelectorAll('li.activity-entry')).toHaveLength(1);
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('R9: one modal, named Activity, with Activity | Commands | Actions tabs', async () => {
+    render(<ActivityModal />);
+    act(() => openDebug('commands', 5));
+    const dialog = screen.getByRole('dialog', { name: 'Activity' });
+    expect(screen.getByRole('tab', { name: 'Commands' })).toHaveAttribute('aria-selected', 'true');
+    await act(async () => { await Promise.resolve(); });
+    expect(dialog.querySelector('li.debug-entry[aria-current="true"]')).toHaveTextContent('$ git fetch --all');
+    useActionLog.getState().record({ at: Date.now(), id: 'repo.fetch', label: 'Fetch all', ok: true, ms: 3, error: null, source: 'action' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Actions' }));
+    expect(useActivityUi.getState().view).toBe('actions');
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Fetch all');
+    fireEvent.click(screen.getByRole('tab', { name: 'Activity' }));
+    expect(screen.getByLabelText('Errors only')).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(useActivityUi.getState().focusCommandId).toBeNull();
+  });
+
+  it('Help → Activity log always opens on the Activity tab', () => {
+    render(<ActivityModal />);
+    act(() => openDebug('actions'));
+    act(() => useActivityUi.getState().setOpen(false));
+    act(() => openActivityLog());
+    expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('header: Copy diagnostics, Open logs folder (off without a log folder), Perf overlay toggle', async () => {
+    render(<ActivityModal />);
+    act(() => openActivityLog());
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByRole('button', { name: 'Open logs folder' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy diagnostics' }));
+    await vi.waitFor(() => expect(copyText).toHaveBeenCalledWith('GitBolt 0.1.0'));
+    const perf = screen.getByRole('button', { name: 'Perf overlay' });
+    expect(perf).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(perf);
+    expect(useActivityUi.getState().perfOverlay).toBe(true);
+    expect(perf).toHaveAttribute('aria-pressed', 'true');
+    act(() => useActivityUi.getState().setOpen(false));
+    api.logsDir.mockResolvedValueOnce('/home/u/.cache/gitbolt/logs');
+    act(() => openActivityLog());
+    await act(async () => { await Promise.resolve(); });
+    const logs = screen.getByRole('button', { name: 'Open logs folder' });
+    expect(logs).toBeEnabled();
+    fireEvent.click(logs);
+    expect(api.openLogsFolder).toHaveBeenCalledOnce();
   });
 });

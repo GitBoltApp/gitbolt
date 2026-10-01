@@ -1,17 +1,31 @@
-/* K101: the activity log modal. */
+/* K101 + 1D R9: the Debug modal (the activity log, with its Commands and Actions tabs). */
 .modal.activity-modal { width: 80vw; height: 80vh; max-width: none; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
-.activity-head { display: flex; align-items: center; gap: 12px; }
-.activity-head h2 { margin: 0; flex: 1; }
+.activity-head { display: flex; align-items: center; gap: 8px; }
+.activity-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
+.activity-tab { font: inherit; padding: 4px 12px; border: none; border-radius: 4px; background: none; color: var(--text-secondary); cursor: pointer; }
+.activity-tab:hover { background: var(--hover-row); color: var(--text-normal); }
+.activity-tab[aria-selected='true'] { background: var(--selected-row); color: var(--text-selected); }
+.activity-tab:focus-visible, .activity-tool:focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
+.activity-tool { display: inline-flex; align-items: center; gap: 6px; font: inherit; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--section-border); background: none; color: var(--text-normal); cursor: pointer; white-space: nowrap; }
+.activity-tool:hover:not(:disabled) { background: var(--hover-row); }
+.activity-tool:disabled { opacity: 0.5; cursor: default; }
+.activity-tool[aria-pressed='true'] { background: var(--selected-row); color: var(--text-selected); border-color: var(--blue); }
+.activity-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.debug-toolbar { display: flex; align-items: center; gap: 12px; }
+.debug-search { flex: 0 1 320px; min-width: 120px; }
+.debug-count { flex: 1; color: var(--text-secondary); }
 .activity-filter { display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; }
 .activity-copy-all { font: inherit; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; }
 .activity-copy-all:hover:not(:disabled) { background: var(--hover-row); }
 .activity-copy-all:disabled { opacity: 0.5; cursor: default; }
 .activity-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0; list-style: none; user-select: text; }
-.activity-entry { padding: 8px 10px; border-left: 2px solid var(--section-border); margin-bottom: 8px; }
-.activity-entry.failed { border-left-color: var(--status-deleted); }
+.activity-entry, .debug-entry { padding: 8px 10px; border-left: 2px solid var(--section-border); margin-bottom: 8px; }
+.activity-entry.failed, .debug-entry.failed { border-left-color: var(--status-deleted); }
+.debug-entry[aria-current='true'] { border-left-color: var(--blue); background: var(--selected-row); }
 .activity-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; user-select: text; }
 .activity-meta .icon-button { margin-left: auto; }
-.activity-time { color: var(--text-secondary); }
+.activity-time, .debug-id, .debug-cwd { color: var(--text-secondary); }
+.debug-id, .debug-cwd { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
 .activity-result { font-weight: 600; }
 .activity-msg { margin: 6px 0 0; padding: 6px 8px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; white-space: pre-wrap; word-break: break-word; background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; }
 .activity-empty { color: var(--text-secondary); padding: 8px; }

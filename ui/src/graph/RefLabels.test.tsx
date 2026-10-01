@@ -1,9 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
 import { chipRefs } from './membership';
 import { RefLabels } from './RefLabels';
+import { useTheme } from '../theme/store';
+import { THEMES } from '../theme/themes';
 
 const remote = (name: string, branch: string): RemoteRefLabel => ({ fullName: `refs/remotes/${name}/${branch}`, remote: name, host: null, hostKind: 'generic' });
 
@@ -236,5 +238,50 @@ describe('RefLabels', () => {
 
     fireEvent.mouseLeave(chip);
     expect(container.querySelector('.ref-label-full')).toBeNull();
+  });
+});
+
+describe('RefLabels and the theme', () => {
+  it("colours the chip, its connector and the dimmed membership chip in the theme's lanes, overrides included", () => {
+    act(() => useTheme.getState().set('default-dark', {}));
+    const { container } = render(<RefLabels labels={[remoteOnly('topic', 'origin')]} color={2} membership={{ name: 'x', color: 3, ref: 'refs/heads/x' }} />);
+    const lane = () => (container.querySelector('.ref-labels') as HTMLElement).style.getPropertyValue('--lane-color');
+    const dim = () => (container.querySelector('.ref-label-dim') as HTMLElement).style.getPropertyValue('--lane-color');
+    expect(lane()).toBe(THEMES['default-dark'].graph[2]);
+    act(() => useTheme.getState().set('dracula', { dracula: [null, null, '#123456'] }));
+    expect(lane()).toBe('#123456');
+    expect(dim()).toBe(THEMES.dracula.graph[3]);
+    act(() => useTheme.getState().set('default-dark', {}));
+  });
+});
+
+describe('RefLabels, several labels (K104)', () => {
+  const local = (name: string, isHead = false): RefLabel => ({ row: 0, name, local: `refs/heads/${name}`, tag: false, isHead, worktree: null, remotes: [] });
+  const labels = [local('dev', true), local('prod'), local('staging')];
+
+  it('shows every chip side by side when the column has room, with no +N', () => {
+    const { container } = render(<RefLabels labels={labels} color={0} width={600} />);
+    const chips = container.querySelectorAll('.ref-labels > .ref-label');
+    expect([...chips].map((c) => c.textContent)).toEqual(['dev', 'prod', 'staging']);
+    expect(chips[0]).toHaveClass('ref-label-head');
+    expect(chips[1]).not.toHaveClass('ref-label-head');
+    expect(container.querySelector('.ref-more')).toBeNull();
+  });
+
+  it('shows what fits and collapses the rest into a lane-coloured +N (lit when the first chip is HEAD)', () => {
+    const { container } = render(<RefLabels labels={labels} color={0} width={160} />);
+    expect(container.querySelectorAll('.ref-labels > .ref-label')).toHaveLength(2);
+    const more = container.querySelector('.ref-more')!;
+    expect(more).toHaveTextContent('+1');
+    expect(more).toHaveClass('ref-more-head');
+  });
+
+  it('compact, or no width: the first chip and +N; the badge is not lit off the active branch', () => {
+    const { container, rerender } = render(<RefLabels labels={labels} color={0} width={600} compact />);
+    expect(container.querySelectorAll('.ref-labels > .ref-label')).toHaveLength(1);
+    expect(container.querySelector('.ref-more')).toHaveTextContent('+2');
+    rerender(<RefLabels labels={[local('prod'), local('dev')]} color={0} />);
+    expect(container.querySelector('.ref-more')).toHaveTextContent('+1');
+    expect(container.querySelector('.ref-more')).not.toHaveClass('ref-more-head');
   });
 });

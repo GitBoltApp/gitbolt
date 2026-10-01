@@ -34,7 +34,53 @@
      sidebar: a muted green row tint and the green of its check box (K35). */
   --checked-out-row: #37563e;
   --checked-out: #457c4a;
+  /* ---- Plan 1D themes. These and every colour token in this file are the first-paint values:
+     exactly THEMES['default-dark'] (theme/themes.ts; themes.test.ts enforces it). A theme switch
+     overrides them as inline styles on <html> (theme/apply.ts). The ones below were literals in
+     the component stylesheets, or are new with the theme set. ---- */
+  --red: #d9413d;
+  --orange: #de9b43;
+  --yellow: #ecb91c;
+  --link: #40c5ec;
+  --focus-outline: rgba(77, 136, 255, 0.6);
+  --conflict-ours: #15a0bf;
+  --conflict-theirs: #f2ca33;
+  --conflict-base: #c517b6;
+  /* Text on a saturated fill: the blue buttons, the bell's badge, the check box, avatar initials. */
+  --text-on-accent: #ffffff;
+  /* Quiet button fills (the context menu's variant chips, dialog buttons, a tab's close hover). */
+  --control-bg: rgba(255, 255, 255, 0.06);
+  --control-hover-bg: rgba(255, 255, 255, 0.12);
+  /* Shadows: dialogs, popups (menus, pickers, cards, floating chips), tooltips; the modal backdrop. */
+  --shadow-modal: rgba(0, 0, 0, 0.5);
+  --shadow-popup: rgba(0, 0, 0, 0.45);
+  --shadow-tooltip: rgba(0, 0, 0, 0.4);
+  --backdrop: rgba(0, 0, 0, 0.45);
+  /* The WIP row's summary box (graph.css). */
+  --wip-input-bg: #16181c;
+  --wip-input-border: #282a2d;
+  --wip-input-placeholder: #6e6f71;
+  /* J11: the image's frame. --section-border is all but invisible against the neutral viewport. */
+  --image-frame-border: rgba(255, 255, 255, 0.22);
+  /* The graph canvas (draw.ts): a commit node's fill and initials, the collapse zone's shade. */
+  --node-fill: #1c1e23;
+  --node-text: #ffffff;
+  --collapse-strip: rgba(0, 0, 0, 0.4);
+  /* Lane colours 0-9 (also the app icon's palette). The canvas reads them from
+     theme/store.ts, not from here. */
+  --graph-0: #15a0bf;
+  --graph-1: #0669f7;
+  --graph-2: #8e00c2;
+  --graph-3: #c517b6;
+  --graph-4: #d90171;
+  --graph-5: #cd0101;
+  --graph-6: #f25d2e;
+  --graph-7: #f2ca33;
+  --graph-8: #7bd938;
+  --graph-9: #2ece9d;
+  /* ---- end plan 1D themes ---- */
   --font-ui: system-ui, "Segoe UI", Ubuntu, Cantarell, sans-serif;
+  --font-mono: ui-monospace, monospace;
   color-scheme: dark;
 }
 /* Motion tokens: a graph row's text colour eases in

@@ -19,6 +19,39 @@ test.describe('tabs', () => {
     await expect.poll(async () => { const w = await watched(); return w.length === 1 && w[0] !== first; }).toBe(true);
   });
 
+  test('a later launch\'s path (openRequested) opens in a new tab, or focuses the one showing it', async ({ page }) => {
+    const a = freshFixture('basic');
+    const b = freshFixture('long_labels');
+    await page.goto(`/?repo=${encodeURIComponent(a)}`);
+    const tabs = page.getByRole('tab');
+    await expect(tabs).toHaveCount(1);
+    await expect(page.locator('.tab-page:visible .graph-row').first()).toBeVisible();
+    const emit = async (path: string) => expect((await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'openRequested', path } })).ok()).toBe(true);
+    await emit(b);
+    await expect(tabs).toHaveCount(2);
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await emit(a);
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs).toHaveCount(2);
+    await page.waitForTimeout(300); // nothing left in the queue to open again
+    await expect(tabs).toHaveCount(2);
+  });
+
+  test('a path forwarded before the page listened opens at boot, once', async ({ page }) => {
+    const a = freshFixture('basic');
+    const b = freshFixture('long_labels');
+    // App startup: the backend queues the forward; no page is listening for the event yet.
+    expect((await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'openRequested', path: b } })).ok()).toBe(true);
+    await page.goto(`/?repo=${encodeURIComponent(a)}`);
+    const tabs = page.getByRole('tab');
+    await expect(tabs).toHaveCount(2);
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await page.evaluate(() => window.__gb!.flush());
+    await page.reload();
+    await expect(page.locator('.tab-page:visible .graph-row').first()).toBeVisible();
+    await expect(tabs).toHaveCount(2);
+  });
+
   test('rename via the tab menu persists across reload', async ({ page }) => {
     const a = freshFixture('basic');
     await page.goto(`/?repo=${encodeURIComponent(a)}`);

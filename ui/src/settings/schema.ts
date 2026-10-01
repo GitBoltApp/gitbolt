@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { STICKY_SCROLL_NOTE } from '../diff/editorSettings';
 
-export type SettingsSection = 'General' | 'Fetch' | 'Editor' | 'Profile' | 'Hosts' | 'Repository';
+export type SettingsSection = 'General' | 'Appearance' | 'Fetch' | 'Editor' | 'Profile' | 'Hosts' | 'Advanced' | 'Repository';
 export interface SettingDef {
   id: string;
   label: string;
@@ -18,12 +18,16 @@ export const SETTINGS: readonly SettingDef[] = [
   { id: 'commitLimit', label: 'Commits loaded in the graph', section: 'General', keywords: 'window history limit', help: 'How many commits the graph loads, newest first. More is slower on a big history.' },
   { id: 'density', label: 'Density', section: 'General', keywords: 'compact standard comfortable row height spacing padding', help: 'Row height and padding of the graph and the file list.' },
   { id: 'gravatar', label: 'Load avatars from Gravatar', section: 'General', keywords: 'avatar privacy images', help: 'Looks authors up on Gravatar by a hash of their email (never the email itself). Off shows initials and makes no request.' },
+  { id: 'theme', label: 'Theme', section: 'Appearance', keywords: 'colour color scheme dark light default monokai darcula dracula one dark solarized github nord', help: 'The colours of the app and the commit graph.' },
+  { id: 'graphColors', label: 'Graph lane colors', section: 'Appearance', keywords: 'colour branch lane graph palette override', help: "The commit graph's ten lane colours, for the current theme only. Clear a box to use the theme's own colour." },
   { id: 'fetchInterval', label: 'Background fetch interval', section: 'Fetch', keywords: 'auto fetch timer minutes off', help: 'Fetches the shown repository on this schedule. Off turns background fetch off.' },
   { id: 'prune', label: 'Prune deleted remote branches on fetch', section: 'Fetch', keywords: 'prune --prune remote tracking', help: 'Fetch with --prune: remote-tracking branches the remote deleted are removed.' },
   { id: 'editor', label: 'Default editor', section: 'Editor', keywords: 'vscode phpstorm jetbrains zed sublime open in custom command template', help: 'What Open in uses by default. Custom runs your own command; {file}, {line} and {repo} are filled in per open.' },
   { id: 'stickyScroll', label: 'Sticky scroll in the diff viewer', section: 'Editor', keywords: 'monaco pin scope header', help: STICKY_SCROLL_NOTE },
+  { id: 'editorFontSize', label: 'Editor font size', section: 'Editor', keywords: 'monaco diff text size px zoom', help: 'The text size in the diff viewer and file view, 8 to 32 px. Separate from the zoom in the status bar.' },
   { id: 'extraGitconfig', label: 'Extra git config for this profile', section: 'Profile', keywords: 'include.path identity account signing', help: 'A gitconfig file added to every git command of this profile as -c include.path=… (your identity, signing key).' },
   { id: 'hostOverrides', label: 'Forge type per host', section: 'Hosts', keywords: 'gitlab github self-hosted icon links', help: 'Tells GitBolt which forge a self-hosted host runs, for its remote icons and web links.' },
+  { id: 'debugLogging', label: 'Debug logging', section: 'Advanced', keywords: 'log file verbose diagnostics troubleshooting', help: 'Writes more detail (debug level) to the log files. Takes effect immediately, no restart. Replaces a RUST_LOG set at launch.' },
   { id: 'repoEditor', label: 'Editor for this repository', section: 'Repository', keywords: 'override open in', help: "Overrides the profile's default editor for this repository only." },
 ];
 

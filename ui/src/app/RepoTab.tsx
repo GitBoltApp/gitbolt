@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo } from 'react';
 import { onEvent } from '../api/client';
+import { PanelErrorBoundary } from '../errors/PanelErrorBoundary';
 import type { TabState } from '../api/gen/TabState';
 import { useFetchScheduler } from './fetchSchedule';
 import { RepoContext } from './repoContext';
@@ -75,7 +76,12 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
     if (repoId === undefined) return;
     return onEvent((ev) => {
       if (ev.type === 'repoChanged' && ev.repo === repoId) tabView(tab.id)?.services.wip.changed(ev.worktrees, ev.versions);
-      if ((ev.type === 'repoChanged' || ev.type === 'refsUpdated') && ev.repo === repoId) void refresh(tab.id);
+      if (ev.type !== 'repoChanged' && ev.type !== 'refsUpdated') return;
+      if (ev.repo !== repoId) return;
+      if (ev.type === 'refsUpdated') void refresh(tab.id);
+      // Only refs, HEAD, stashes and config show in the sidebar and repo info; a worktree/index
+      // change reloads the graph alone (1C review M5).
+      else void refresh(tab.id, ev.kinds.some((k) => k === 'refs' || k === 'head' || k === 'stash' || k === 'config') ? {} : { graphOnly: true });
     });
   }, [repoId, tab.id, refresh]);
 
@@ -101,7 +107,7 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
         <div className="repo-tab" data-testid="repo-tab">
           <TabSlot name="toolbar" tab={tab} />
           <div className="repo-body">
-            <TabSlot name="sidebar" tab={tab} />
+            <PanelErrorBoundary name="Sidebar"><TabSlot name="sidebar" tab={tab} /></PanelErrorBoundary>
             <div className="center-slot">
               {graph.rows.length === 0 && graph.head.unborn
                 ? <div className="center-message">No commits yet</div>

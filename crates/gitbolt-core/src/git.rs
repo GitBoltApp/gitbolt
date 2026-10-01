@@ -339,6 +339,11 @@ fn wait_failed(id: u64, e: &std::io::Error) -> GbError {
     GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Io, redact(&format!("git failed: {e}"))) }
 }
 
+/// SIGKILLs the child's process group (the child leads its own group). Accepted risk (1C review
+/// M7): if the leader was already reaped, its pid could in theory be reused and `killpg` would hit
+/// a stranger's group. The window is tiny (we kill on timeout/cancel while the child is still
+/// ours, before `wait` reaps it, and a zombie leader keeps its pid and group alive), so no extra
+/// guard is added.
 fn kill_group(pid: Option<u32>) {
     if let Some(pid) = pid {
         let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGKILL);

@@ -29,5 +29,5 @@
 .open-btn { font: inherit; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; }
 .open-btn:hover:not(:disabled) { background: var(--hover-row); }
 .open-btn:disabled { opacity: 0.5; cursor: default; }
-.open-btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.open-btn.primary { background: var(--blue); border-color: var(--blue); color: var(--text-on-accent); }
 .open-btn.primary:hover:not(:disabled) { background: var(--blue); filter: brightness(1.1); }

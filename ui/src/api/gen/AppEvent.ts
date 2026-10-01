@@ -17,4 +17,4 @@ interactive: boolean, } | { "type": "opProgress", op: number, phase: string, per
  * The git command that ran, argv joined for display and redacted (no environment, no
  * askpass secrets): the activity log shows it (K101).
  */
-command: string | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, };
+command: string | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, } | { "type": "openRequested", path: string, };

@@ -2,7 +2,10 @@ set shell := ["bash", "-cu"]
 
 default: test
 
-test: test-rust test-ui
+test: test-rust test-ui test-scripts
+
+test-scripts:
+    scripts/test-fix-deb.sh
 
 test-rust:
     cargo test --workspace
@@ -19,6 +22,12 @@ gen-types:
 e2e:
     cargo build -p gitbolt-harness
     cd ui && npx playwright test
+
+# The theme and zoom pixel baselines (Chromium, recorded on the dev machine): opt-in, since fonts
+# and antialiasing differ between machines. Add `-- --update-snapshots` to re-record them.
+e2e-shots *args:
+    cargo build -p gitbolt-harness
+    cd ui && GITBOLT_E2E_SHOTS=1 npx playwright test --project=chromium e2e/themes.spec.ts e2e/zoom.spec.ts {{args}}
 
 # The CEF app needs the v3-alpha `cargo tauri` CLI, pinned to match the vendored/patched
 # tauri-runtime-cef and the other Tauri crates (root Cargo.toml, vendor/tauri-runtime-cef/
@@ -47,6 +56,15 @@ dev repo="": check-tauri-cli
 # See docs/dev-setup.md and docs/decisions/cef-over-webkitgtk.md.
 build-app: check-tauri-cli
     cd crates/gitbolt-app && CARGO_BUILD_JOBS=4 cargo tauri build --no-bundle
+
+# The .deb (AppImage and .rpm are deferred) with the GTK 4 dependency fix (spec §18): the .deb's
+# control member is rewritten by scripts/fix-deb.sh and checked by scripts/check-deb.sh.
+package: check-tauri-cli
+    # Old packages first: the globs below must match only the .deb this build makes.
+    rm -f target/release/bundle/deb/GitBolt_*_amd64.deb
+    cd crates/gitbolt-app && CARGO_BUILD_JOBS=4 cargo tauri build --bundles deb
+    scripts/fix-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
+    scripts/check-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
 
 # Runs the release binary from `just build-app`, with the installed sandbox helper if present.
 run-app repo="":
@@ -103,3 +121,22 @@ uninstall-desktop:
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
     cd ui && npx tsc --noEmit
+
+# A smoke check of the two §17.3 rows that need a live app (idle CPU, memory). Non-gating: it
+# prints numbers next to the budgets and never fails on them. Point GITBOLT_PID at the browser
+# process of a running instance (open the tabs you want measured first): the gitbolt process
+# without `--type=` (not `pgrep -nx`, which finds a renderer; docs/dev-setup.md has a
+# one-liner). The other rows are asserted by `just e2e`
+# (menu-perf, tabs) and the opt-in real-repo spec. See docs/dev-setup.md.
+bench:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    : "${GITBOLT_PID:?set GITBOLT_PID to a running GitBolt browser process (see docs/dev-setup.md)}"
+    export GITBOLT_PID
+    echo "== idle CPU, 60 s (budget < 1.5%; keep the window focused and idle) =="
+    scripts/measure-idle.sh 60 || echo "(measure-idle failed)"
+    echo
+    echo "== memory (budget < 650 MB with 12 tabs open) =="
+    scripts/measure-mem.sh || echo "(measure-mem failed)"
+    echo
+    echo "Budgets: idle CPU < 1.5%, memory (12 tabs) < 650 MB (spec §17.3). Informational only."

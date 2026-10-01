@@ -1,4 +1,6 @@
 import { Activity, useEffect } from 'react';
+import { GitTooOldScreen } from '../errors/GitTooOldScreen';
+import { useGitCheck } from '../errors/gitCheck';
 import { ContextMenu } from '../menu/ContextMenu';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Toast } from '../ui/Toast';
@@ -34,6 +36,7 @@ export function AppShell({ error = null }: { error?: string | null }) {
   // modal: app-wide, whichever tab is showing.
   useGlobalEvents();
   useDropClosedTabs();
+  const gitProblem = useGitCheck((s) => s.problem);
   const loaded = useAppState((s) => s.loaded);
   const tabs = useAppState((s) => s.profile.tabs);
   const activeTab = useAppState((s) => s.profile.activeTab);
@@ -54,7 +57,9 @@ export function AppShell({ error = null }: { error?: string | null }) {
   }, [loaded, tabs.length]);
   return (
     <div className="app-shell">
-      {error ? (
+      {gitProblem ? (
+        <GitTooOldScreen error={gitProblem} />
+      ) : error ? (
         <div className="center-message" role="alert">{error}</div>
       ) : !loaded ? (
         <div className="center-message">Loading…</div>

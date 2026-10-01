@@ -17,4 +17,13 @@ fetchIntervalSecs: number, prune: boolean,
 /**
  * Commits loaded per graph (`snapshot::DEFAULT_COMMIT_LIMIT` by default).
  */
-commitLimit: number, dateFormat: DateFormat, gravatar: boolean, };
+commitLimit: number, dateFormat: DateFormat, gravatar: boolean, 
+/**
+ * Writes `debug`-level lines to the log file (spec §16.2).
+ */
+debugLogging: boolean, 
+/**
+ * Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
+ * the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
+ */
+graphColorOverrides: Record<string, (string | null)[]>, };

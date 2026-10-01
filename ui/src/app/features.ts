@@ -9,10 +9,12 @@
 import './coreActions';
 import '../toolbar/feature';
 import '../statusbar/feature';
+import '../debug/feature';
 import '../auth/feature';
 import '../tabs/features';
 import '../sidebar/actions';
 import '../find/actions';
 import '../open/feature';
 import '../settings/feature';
+import '../theme/feature';
 import '../palette/feature';

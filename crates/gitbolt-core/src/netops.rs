@@ -173,7 +173,11 @@ impl Api {
             let before = ref_state_async(h.repo.clone()).await?;
             let prune = if self.store.state().settings.prune { "--prune" } else { "--no-prune" };
             let (tx, progress) = forward_progress(self.bus.clone(), op.id);
-            let args: Vec<&str> = ["fetch", "--all", prune, "--no-prune-tags"].into_iter().chain(NO_UPKEEP).chain(["--progress"]).collect();
+            // A background fetch leaves FETCH_HEAD alone: a `git fetch <remote> <branch>` the user
+            // ran by hand (then `git merge FETCH_HEAD`) isn't replaced behind their back, and a
+            // failed background fetch doesn't empty it (git ≥ 2.29; spec minimum 2.30).
+            let fetch_head = background.then_some("--no-write-fetch-head");
+            let args: Vec<&str> = ["fetch", "--all", prune, "--no-prune-tags"].into_iter().chain(fetch_head).chain(NO_UPKEEP).chain(["--progress"]).collect();
             command = Some(display_command(&args));
             let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(args))
                 .timeout(None)
@@ -369,6 +373,8 @@ mod tests {
         assert!(!spawned_maintenance(), "GitBolt's fetch started maintenance");
         let args = api.cli.log().entries().into_iter().find(|e| e.args.iter().any(|a| a == "fetch")).unwrap().args;
         assert!(args.contains(&"--no-auto-maintenance".to_string()) && args.contains(&"--no-write-commit-graph".to_string()), "{args:?}");
+        assert!(args.contains(&"--no-write-fetch-head".to_string()), "a background fetch leaves FETCH_HEAD alone: {args:?}");
+        assert!(!r.path().join(".git/FETCH_HEAD").exists(), "no FETCH_HEAD written by a background fetch");
         // The check can see it: the same fetch without the flags does start it.
         let _ = std::fs::remove_file(&trace);
         let mut cmd = std::process::Command::new("git");
