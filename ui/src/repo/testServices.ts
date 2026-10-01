@@ -6,6 +6,7 @@ import type { RemotePayload } from '../api/gen/RemotePayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
 import type { RepoServices } from './services';
+import { WipLists } from './wipLists';
 
 /** A loader whose loads never settle. */
 export const idle = <V,>(): Loader<V> => new Loader<V>(() => new Promise<V>(() => {}), new Lru<string, V>(1));
@@ -29,6 +30,13 @@ function wireRemotes(fetch: () => Promise<RemotePayload[]>): Pick<RepoServices, 
   };
 }
 
+/** A test that gives `files:` but no `wip:` reads its WIP lists through that `files` loader too
+ * (as a fetcher: `WipLists` decides what's held). */
+function wipFromFiles(overrides: Partial<RepoServices>): Partial<RepoServices> {
+  const files = overrides.files;
+  return files && !overrides.wip ? { wip: new WipLists((spec) => files.get(JSON.stringify(spec))) } : {};
+}
+
 /** `RepoServices` whose loads never settle, with any member replaced by `overrides`. */
 export function fakeServices(overrides: Partial<RepoServices> = {}): RepoServices {
   return {
@@ -37,10 +45,12 @@ export function fakeServices(overrides: Partial<RepoServices> = {}): RepoService
     contents: idle(),
     signature: idle(),
     treeFiles: idle(),
+    wip: new WipLists(() => new Promise(() => {})),
     messages: idleMessages(),
     ...wireRemotes(async () => []),
     ...overrides,
     ...(overrides.remotes && !overrides.remotesSnapshot ? wireRemotes(overrides.remotes) : {}),
+    ...wipFromFiles(overrides),
   };
 }
 
@@ -65,10 +75,13 @@ export function recordingServices(overrides: Partial<RepoServices> = {}) {
     contents: mk('contents'),
     signature: mk('signature'),
     treeFiles: mk('tree'),
+    // Recorded as `files <key>`, like the `files` loader's (WIP lists are `fileList` reads too).
+    wip: new WipLists((spec) => fetch('files', JSON.stringify(spec))),
     messages,
     ...wireRemotes(async () => []),
     ...overrides,
     ...(overrides.remotes && !overrides.remotesSnapshot ? wireRemotes(overrides.remotes) : {}),
+    ...wipFromFiles(overrides),
   };
   const settle = (call: string) => {
     const p = pending.get(call);

@@ -1,5 +1,18 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { EDITOR_COLORS, withEditorColors } from './theme';
+
+describe('editor background (K34)', () => {
+  it("is the app's --app-bg0 (no reddish dark-plus #1e1e1e), gutter and minimap included", () => {
+    const tokens = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'theme', 'tokens.css'), 'utf8');
+    const appBg = tokens.match(/--app-bg0:\s*(#[0-9a-f]{6})/i)![1].toLowerCase();
+    expect(EDITOR_COLORS['editor.background']).toBe(appBg);
+    expect(EDITOR_COLORS['editorGutter.background']).toBe(appBg);
+    expect(EDITOR_COLORS['minimap.background']).toBe(appBg);
+  });
+});
 
 describe('editor theme colours', () => {
   it("one selection colour, focused or not, matching the app's ::selection (--selection-bg)", () => {
@@ -34,7 +47,7 @@ describe('editor theme colours', () => {
     const t = withEditorColors(base);
     expect(t.name).toBe('dark-plus');
     expect(t.tokenColors).toBe(base.tokenColors);
-    expect(t.colors['editor.background']).toBe('#1E1E1E');
+    expect(t.colors['editor.background']).toBe('#1c1e23');
     expect(t.colors['editor.inactiveSelectionBackground']).toBe('#264f78');
     expect(base.colors['editor.inactiveSelectionBackground']).toBe('#3A3D41');
   });

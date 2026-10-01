@@ -1,5 +1,6 @@
 import { Activity, useEffect } from 'react';
 import { ContextMenu } from '../menu/ContextMenu';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Toast } from '../ui/Toast';
 import { TooltipHost } from '../ui/TooltipHost';
 import './features';
@@ -73,6 +74,8 @@ export function AppShell({ error = null }: { error?: string | null }) {
       {/* The one context menu and its tooltip (spec §7). */}
       <ContextMenu />
       <TooltipHost />
+      {/* Yes/no for destructive actions (K68). */}
+      <ConfirmDialog />
     </div>
   );
 }

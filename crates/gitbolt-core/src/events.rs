@@ -49,8 +49,16 @@ pub enum OpOutcome {
 #[ts(export)]
 pub enum AppEvent {
     /// Debounced file-system change in the watched (active) repo. `worktrees`: canonical paths
-    /// whose status actually changed.
-    RepoChanged { repo: u32, kinds: Vec<ChangeKind>, worktrees: Vec<String> },
+    /// whose status (or WIP file lists) actually changed. `versions`: for those of them whose WIP
+    /// lists the watcher keeps (K44), the lists' new version (`FileListPayload::version`).
+    RepoChanged {
+        repo: u32,
+        kinds: Vec<ChangeKind>,
+        worktrees: Vec<String>,
+        #[ts(type = "Record<string, string>")]
+        #[serde(default)]
+        versions: std::collections::BTreeMap<String, String>,
+    },
     /// A fetch moved at least one ref.
     RefsUpdated { repo: u32 },
     OpStarted {
@@ -60,6 +68,9 @@ pub enum AppEvent {
         repo: Option<u32>,
         /// Fetch: the repo name. Clone: the destination path.
         label: String,
+        /// User-started (`true`) or GitBolt-started (`false`, the background fetch). The UI
+        /// shows a background op nowhere but its activity log (K30).
+        interactive: bool,
     },
     OpProgress {
         #[ts(type = "number")]
@@ -139,10 +150,10 @@ mod tests {
 
     #[test]
     fn serializes_tagged_camel_case_and_round_trips() {
-        let ev = AppEvent::RepoChanged { repo: 1, kinds: vec![ChangeKind::Refs, ChangeKind::Worktree], worktrees: vec!["/r".into()] };
+        let ev = AppEvent::RepoChanged { repo: 1, kinds: vec![ChangeKind::Refs, ChangeKind::Worktree], worktrees: vec!["/r".into()], versions: [("/r".to_string(), "00ff".to_string())].into() };
         assert_eq!(
             serde_json::to_value(&ev).unwrap(),
-            serde_json::json!({"type": "repoChanged", "repo": 1, "kinds": ["refs", "worktree"], "worktrees": ["/r"]})
+            serde_json::json!({"type": "repoChanged", "repo": 1, "kinds": ["refs", "worktree"], "worktrees": ["/r"], "versions": {"/r": "00ff"}})
         );
         let ev = AppEvent::AuthWaiting { prompt: 2, op: 5, repo: None, text: "Password: ".into(), secret: true };
         assert_eq!(

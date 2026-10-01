@@ -22,3 +22,12 @@ const editorKeys = new WeakSet<Event>();
  * handlers further up that would otherwise act on it too. */
 export const markEditorKey = (e: Event) => void editorKeys.add(e);
 export const isEditorKey = (e: Event) => editorKeys.has(e);
+
+const TEXT_ENTRY = 'input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"], input[type="number"], textarea, select';
+/** Whether `t` is an editable element (a text input, a textarea, a select or contenteditable
+ * text) that owns the caret keys (arrows, Home/End, Space, Backspace) and pointer presses
+ * inside it. App-level key and pointer handlers that act on bare keys ignore such targets. */
+export function isEditableTarget(t: EventTarget | null): boolean {
+  if (!(t instanceof Element)) return false;
+  return t.matches(TEXT_ENTRY) || (t instanceof HTMLElement && t.isContentEditable === true);
+}

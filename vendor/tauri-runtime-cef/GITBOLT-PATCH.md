@@ -107,6 +107,10 @@ says.
   the application has no logger installed (or filters this crate's logs out). It runs in the
   browser process only: helper processes return from `cef_entry_point` before reaching this
   code. Off by default; never read by `gitbolt-app` itself.
+  - Also (K31, unrelated to #3002): `configuration_tests` gains
+    `disabling_component_updates_appends_the_switch`, covering the pre-existing, otherwise
+    untested `Cef::component_updates` builder method. No production code in this file changed
+    for K31 — see "Chromium's component updater" below.
 
 - `src/cef_impl/client/command.rs` (Chrome accelerators, above): added
   `GITBOLT_BLOCKED_COMMANDS` (always blocked: `IDC_CARET_BROWSING_TOGGLE`,
@@ -222,5 +226,34 @@ on its own D-Bus session and XDG dirs), with real compositor input through mutte
     sends the window manager's `WM_TAKE_FOCUS`, and checks that the X focus ends up on the
     browser.
   - Without the redirect, the focus stays on GDK's focus window.
+
+## Chromium's component updater (K31)
+
+**Problem:** the browser process logged
+`third_party/puffin/src/puffpatch.cc:122 Failed to create a temporary file for
+memory-mapping: Operation not permitted` on every run. That is Chromium's component updater
+(`update.googleapis.com`'s client) trying to apply a differential ("puffin") patch to a
+downloaded component by memory-mapping a temp file — something a sandboxed or otherwise
+restricted process can be denied. GitBolt is a git client with no component (cert revocation
+sets, the Certificate Transparency log list, download file-type policies, …) that matters to it,
+so the updater has nothing useful to do and the failure is just noise.
+
+**Fix:** `gitbolt-app`'s `main.rs` now calls the crate's existing (stock, unmodified)
+`Cef::component_updates(false)` builder method on the runtime it hands to `tauri::Builder`,
+which appends the single conservative switch `--disable-component-update`
+(`src/runtime.rs`'s `command_line_args`, applied in `on_before_command_line_processing`). This
+method already shipped in the vendored crate — nothing in `runtime.rs`'s *behaviour* changed —
+it was simply never called. The switch only turns off the background updater's own download/
+patch/apply cycle; it does not touch any Chromium feature, API or rendering behaviour GitBolt's
+webview relies on. See `Cef::component_updates`'s doc comment for when an application would
+want to leave it on (one with a real route to `update.googleapis.com` whose security posture
+depends on that data staying fresh).
+
+**Tests:** `disabling_component_updates_appends_the_switch` in `src/runtime.rs`'s
+`configuration_tests` (new) — `component_updates(false)` appends exactly
+`("--disable-component-update", None)`, `component_updates(true)` and the default both append
+nothing. `cargo test -p tauri-runtime-cef`. The application-level wiring is exercised by
+`cargo build -p gitbolt-app` (the `.component_updates(false)` call in `main.rs` only compiles if
+the method still exists with this signature).
 
 No other files differ from the published 3.0.0-alpha.4 crate.

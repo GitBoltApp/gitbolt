@@ -12,7 +12,7 @@ import { projectRemote, type ProjectRemote } from '../forge/urls';
 import { labelsByRowOf, membershipOf } from '../graph/graphIndex';
 import { loadOpeners, openersSnapshot, openVersion, openWith, parseListSpec, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
 import type { RepoServices } from '../repo/services';
-import type { DiffTarget, RepoViewState, RepoViewStore } from '../repo/store';
+import { openWorktree, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
 import { useToast } from '../ui/toast';
 import './builders';
 import { refreshMenuOn } from './menuStore';
@@ -159,20 +159,16 @@ export function copyMessage(store: RepoViewStore, sha: string): void {
 }
 
 /** "Compare with HEAD" / "Compare with working tree" (the commit menu's `view` group): drives
- * the same selection primitives K15's Ctrl+click does, so the compare direction (older first,
- * K16) comes out the same either way. Exported (fix round 1, item 7) for a direct unit test. */
+ * the right-clicked commit `from` is FROM, HEAD (or the working tree) TO, and the anchor and the
+ * keyboard stay on `from` (K27), so Esc returns there and the graph doesn't jump to HEAD.
+ * Exported (fix round 1, item 7) for a direct unit test. */
 export function compare(store: RepoViewStore, from: string, to: string | 'worktree'): void {
   const s = store.getState();
   if (to === 'worktree') {
-    const wip = s.graph.rows.find((r) => r.kind === 'wip');
-    s.compareWithWorktree(from, wip?.wip?.worktreePath ?? s.repoPath);
+    s.compareWithWorktree(from, openWorktree(s));
     return;
   }
-  const i = s.indexById.get(from);
-  const j = s.indexById.get(to);
-  if (i === undefined || j === undefined) return;
-  s.selectRow(i);
-  s.selectRow(j, { ctrl: true });
+  s.compareCommits(from, to);
 }
 
 /** The menu env, from the store's current state: file and folder (1B), commit, tag and Monaco

@@ -40,6 +40,21 @@
 .msg-body { margin-left: 10px; }
 .wip-tag { color: var(--text-secondary); font-style: italic; }
 .wip-counts { color: var(--text-secondary); }
+/* K47/K48: the WIP row's message cell is a flex line: the draft box (italic placeholder, like the
+   old "// WIP" tag) takes the room, the worktree name and the per-type counts sit at the right. */
+.wip-summary { display: flex; align-items: center; height: var(--graph-row-h); gap: 8px; min-width: 0; }
+/* The WIP box (K51 round 2): darker than the row, a faint 1px edge, ~116px wide at
+   rest; it grows with what's typed (field-sizing), up to the cell. */
+.wip-summary { --wip-input-bg: #16181c; --wip-input-border: #282a2d; --wip-input-placeholder: #6e6f71; }
+.wip-draft { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.wip-input { all: unset; box-sizing: border-box; flex: 0 1 auto; field-sizing: content; width: auto; min-width: 116px; max-width: 100%; height: calc(var(--graph-row-h) - 6px); padding: 0 8px; font: inherit; color: var(--text-normal); background: var(--wip-input-bg); border: 1px solid var(--wip-input-border); border-radius: 4px; text-overflow: ellipsis; cursor: text; }
+.wip-input::placeholder { color: var(--wip-input-placeholder); opacity: 1; }
+.wip-input:focus, .wip-input:focus-visible { border-color: var(--blue); outline: 1px solid var(--blue); outline-offset: -1px; }
+.wip-counter { flex: none; font-size: 11px; color: var(--text-secondary); }
+.wip-worktree, .wip-summary .wip-counts { flex: none; }
+.wip-summary .status-counts { gap: 8px; font-size: 11px; }
+/* The accessible/searchable "// WIP" name of the row; the placeholder is what's seen. */
+.wip-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .sha { all: unset; cursor: pointer; font-family: ui-monospace, monospace; color: var(--text-secondary); }
 /* Author, date and SHA are dimmed exactly like the rest of the commit message (.dim): one token
    for all of them, the user's explicit choice over a separate secondary colour (F10). The SHA
@@ -80,12 +95,18 @@
    cursor here and the pointer on .ref-label / .ref-more. Stretched to the full row height, so
    the space above and below a chip is this cell's too, not the (clickable) row's. */
 .graph-row > .col-labels { padding-right: 0; cursor: default; align-self: stretch; }
-.ref-labels { display: flex; flex: 1; align-items: center; min-width: 0; max-width: 100%; }
+/* Stretched to the full row height, so the connector's line (--conn-top, from the row's top) is
+   placed from the row's top. --conn-top and --conn-h come inline from the row (K57: the device
+   pixel rows the canvas half is drawn on, pixels.ts connectorLine); these are the fallbacks. */
+.ref-labels { display: flex; flex: 1; align-items: center; align-self: stretch; min-width: 0; max-width: 100%; --conn-h: 1px; --conn-top: calc((var(--graph-row-h) - var(--conn-h)) / 2); }
+.ref-labels-head { --conn-h: 2px; }
 /* min-width: 0 (overriding the flex default of `auto`, which would floor the item at its
    content's width) lets a long ref name shrink and ellipsize instead of overflowing
    `.col-labels` and pushing the connector out of view; the browser default `flex-shrink: 1`
-   (no longer overridden to 0) is what lets it actually give up that space. */
-.ref-label { display: inline-flex; gap: 3px; align-items: center; padding: 0 5px; height: var(--graph-chip-h); border-radius: 3px; --chip-mix: 25%; background: color-mix(in srgb, var(--lane-color) var(--chip-mix), transparent); color: var(--text-normal); max-width: 170px; min-width: 0; cursor: pointer; }
+   (no longer overridden to 0) is what lets it actually give up that space. No max-width (K63):
+   a chip takes the room its name needs, and only a column too narrow for it ellipsizes it, so
+   widening Branch/Tag shows a long name whole. */
+.ref-label { display: inline-flex; gap: 3px; align-items: center; padding: 0 5px; height: var(--graph-chip-h); border-radius: 3px; --chip-mix: 25%; background: color-mix(in srgb, var(--lane-color) var(--chip-mix), transparent); color: var(--text-normal); min-width: 0; cursor: pointer; }
 .ref-name { overflow: hidden; text-overflow: ellipsis; }
 /* Chips rest subdued, the lane colour at 25% (--graph-color-N-bg25), and light up
    to 45% with white text while their row is hovered or selected (H3). */
@@ -126,7 +147,9 @@
    filler then spans the slot and carries the connector line (25% lane colour, like
    .ref-connector), so the line from the chip to the canvas stays unbroken. */
 .ref-dim-slot { flex: 0 100000 auto; min-width: 0; display: flex; flex-wrap: wrap; align-content: flex-start; height: var(--graph-chip-h); overflow: hidden; }
-.ref-dim-fill { flex: 1 0 0; height: var(--graph-chip-h); background: linear-gradient(color-mix(in srgb, var(--lane-color) 25%, transparent), color-mix(in srgb, var(--lane-color) 25%, transparent)) center / 100% 1px no-repeat; }
+.ref-dim-fill { flex: 1 0 0; height: var(--graph-chip-h); position: relative; }
+/* The filler's line, on the connector's rows (the slot is centred in the row-high .ref-labels). */
+.ref-dim-fill::before { content: ""; position: absolute; left: 0; right: 0; top: calc(var(--conn-top) - (var(--graph-row-h) - var(--graph-chip-h)) / 2); height: var(--conn-h); background: color-mix(in srgb, var(--lane-color) 25%, transparent); }
 .ref-dim-slot > .ref-label-dim { flex: none; margin-left: 4px; }
 .ref-more { margin-left: 4px; font-size: 11px; padding: 0 4px; border-radius: 3px; background: var(--panel-bg1); flex: none; cursor: pointer; }
 /* Continues the label connector drawn on the canvas (see draw.ts) from the chip to the canvas
@@ -136,16 +159,16 @@
    together would otherwise overflow the column; `.ref-label` gives up space instead. Lane colour
    at 25% (F8), exactly like the canvas part (draw.ts CONNECTOR_ALPHA),
    so the two still read as one line. */
-.ref-connector { flex: 1 0 8px; height: 1px; background: var(--lane-color); opacity: 0.25; }
+.ref-connector { flex: 1 0 8px; align-self: flex-start; margin-top: var(--conn-top); height: var(--conn-h); background: var(--lane-color); opacity: 0.25; }
 /* The checked-out branch's connector (J21) is a graph line: 2 px, the full lane colour, as the
    canvas part (draw.ts `headRow`); the dimmed chip's slot filler carries the same line. */
-.ref-labels-head > .ref-connector { height: 2px; opacity: 1; }
-.ref-labels-head .ref-dim-fill { background: linear-gradient(var(--lane-color), var(--lane-color)) center / 100% 2px no-repeat; }
+.ref-labels-head > .ref-connector { opacity: 1; }
+.ref-labels-head .ref-dim-fill::before { background: var(--lane-color); }
 /* Full commit-message tooltip (GraphView MessageCell); .hover-tooltip (ui/tooltip.css) keeps the
    line breaks (pre-wrap) and caps it at 600px wide. It never takes the pointer (F1), so a very
    long message is cut at this height rather than scrolled (overflow hidden: no dead scrollbar);
    the details panel has all of it. */
-.hover-tooltip.msg-tooltip { max-height: min(400px, calc(100vh - 16px)); overflow: hidden; }
+.hover-tooltip.msg-tooltip { max-width: min(600px, calc(100vw - 16px)); max-height: min(400px, calc(100vh - 16px)); overflow: hidden; }
 /* HoverTooltip sets data-clipped when the message is cut: fade its last lines out. */
 .hover-tooltip.msg-tooltip[data-clipped]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 32px; background: linear-gradient(transparent, var(--panel-bg1)); pointer-events: none; }
 .msg-tooltip-summary { font-weight: 600; }

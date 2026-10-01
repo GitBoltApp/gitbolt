@@ -47,21 +47,31 @@ describe('StatusBar (spec §6.5)', () => {
     await waitFor(() => expect(bar()).toHaveTextContent('git 2.47.1'));
   });
 
-  it('shows a running fetch or clone with its progress, and cancels it', () => {
+  it('shows a running clone with its progress, and cancels it', () => {
     render(<StatusBar />);
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 3, kind: 'clone', repo: null, label: '/r/x' }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 3, kind: 'clone', repo: null, label: '/r/x', interactive: true }));
     act(() => useOps.getState().apply({ type: 'opProgress', op: 3, phase: 'Receiving objects', percent: 40 }));
     expect(bar()).toHaveTextContent('Cloning… 40%');
-    act(() => useOps.getState().apply({ type: 'opFinished', op: 3, kind: 'clone', repo: null, outcome: 'ok', message: null }));
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt' }));
-    expect(bar()).toHaveTextContent('Fetching…');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(api.cancelOp).toHaveBeenCalledWith(4);
+    expect(api.cancelOp).toHaveBeenCalledWith(3);
+  });
+
+  it('never shows a fetch, the user\'s or a background one, running or done (K30)', () => {
+    render(<StatusBar />);
+    const before = bar().textContent;
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: false }));
+    act(() => useOps.getState().apply({ type: 'opProgress', op: 4, phase: 'Receiving objects', percent: 40 }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 5, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: true }));
+    expect(bar().textContent).toBe(before);
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    act(() => useOps.getState().apply({ type: 'opFinished', op: 4, kind: 'fetch', repo: 1, outcome: 'ok', message: null }));
+    act(() => useOps.getState().apply({ type: 'opFinished', op: 5, kind: 'fetch', repo: 1, outcome: 'ok', message: null }));
+    expect(bar().textContent).toBe(before);
   });
 
   it('a prompt shows "Waiting for authentication…", whose Cancel cancels the op', () => {
     render(<StatusBar />);
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt' }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: true }));
     act(() => useOps.getState().apply({ type: 'authWaiting', prompt: 2, op: 4, repo: 1, text: 'Username: ', secret: false }));
     expect(bar()).toHaveTextContent('Waiting for authentication…');
     expect(bar()).not.toHaveTextContent('Fetching…');

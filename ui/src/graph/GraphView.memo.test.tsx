@@ -86,10 +86,30 @@ describe('GraphView virtual rows, controlled selection', () => {
     fireEvent.mouseDown(screen.getAllByRole('row')[3], { ctrlKey: true });
     expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'true']);
     expect(renders.n - before).toBe(1);
-    // A plain click on row 2: rows 1, 2 and 3 change.
+    // A third row, Ctrl+clicked (a multi-selection, K27): only it re-renders.
+    before = renders.n;
+    fireEvent.mouseDown(screen.getAllByRole('row')[0], { ctrlKey: true });
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'true', 'false', 'true']);
+    expect(renders.n - before).toBe(1);
+    // Ctrl+click on a selected row removes it: only it re-renders.
+    before = renders.n;
+    fireEvent.mouseDown(screen.getAllByRole('row')[3], { ctrlKey: true });
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'true', 'false', 'false']);
+    expect(renders.n - before).toBe(1);
+    // A plain click on row 2: rows 0, 1 and 2 change.
     before = renders.n;
     fireEvent.mouseDown(screen.getAllByRole('row')[2]);
     expect(renders.n - before).toBe(3);
+    // Shift+click row 0: a range from the anchor (row 2): rows 0 and 1 join, row 2 stays.
+    before = renders.n;
+    fireEvent.mouseDown(screen.getAllByRole('row')[0], { shiftKey: true });
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'true', 'true', 'false']);
+    expect(renders.n - before).toBe(2);
+    // Shift+↓ from the keyboard position (row 0) shrinks the range: only row 0 leaves.
+    before = renders.n;
+    fireEvent.keyDown(grid, { key: 'ArrowDown', shiftKey: true });
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['false', 'true', 'true', 'false']);
+    expect(renders.n - before).toBe(1);
   });
 });
 

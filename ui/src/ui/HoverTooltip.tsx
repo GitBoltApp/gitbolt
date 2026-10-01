@@ -78,6 +78,17 @@ type Size = { width: number; height: number };
 
 /** Below `anchor` (flipped above when it doesn't fit), kept inside the window. Shared with
  * `TooltipHost`, so every tooltip in the app sits the same way. */
+/** The tooltip's size at its natural width. A fixed box shrinks to fit the room between its
+ * `left` and the window's right edge, so a tooltip first laid out near that edge wraps one word
+ * per line; parking it at the origin first gives it the room its `max-width` allows, and the
+ * placement then shifts it, never shrinks it (K52). */
+export function measureNatural(el: HTMLElement): Size {
+  el.style.left = '0px';
+  el.style.top = '0px';
+  const { width, height } = el.getBoundingClientRect();
+  return { width, height };
+}
+
 export function placeBelow(anchor: Anchor, { width, height }: Size, gap = GAP) {
   const left = Math.max(EDGE, Math.min(anchor.left, window.innerWidth - EDGE - width));
   let top = anchor.bottom + gap;
@@ -190,8 +201,7 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
   useLayoutEffect(() => {
     const tip = tipEl.current;
     if (!shown || !tip) return;
-    const { width, height } = tip.getBoundingClientRect();
-    const size = { width, height };
+    const size = measureNatural(tip);
     tipSize.current = size;
     // Content cut at the max height gets `data-clipped`, for a visible cue (e.g. a fade).
     tip.toggleAttribute('data-clipped', tip.scrollHeight > tip.clientHeight);

@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from './api/client';
 import { AppShell } from './app/AppShell';
 import { installColumnPersistence } from './app/columnsPersistence';
+import { type ActivityEntry, useOps } from './app/ops';
 import { openPathInTab } from './app/runtime';
 import { flushSaves, useAppState } from './app/state';
 import './graph/graph.css';
 
 declare global {
-  /** A test hook (harmless in production): e2e flushes the debounced saves before a reload. */
-  interface Window { __gb?: { flush: () => Promise<void>; setSettings: (patch: object) => void } }
+  /** A test hook (harmless in production): e2e flushes the debounced saves before a reload, and
+   * reads the activity log (K30: background fetches show nowhere else). */
+  interface Window { __gb?: { flush: () => Promise<void>; setSettings: (patch: object) => void; activity: () => ActivityEntry[] } }
 }
 
 let booted: Promise<void> | null = null;
@@ -22,7 +24,7 @@ let booted: Promise<void> | null = null;
 function boot(): Promise<void> {
   booted ??= (async () => {
     installColumnPersistence();
-    window.__gb = { flush: flushSaves, setSettings: (patch) => useAppState.getState().setSettings(patch) };
+    window.__gb = { flush: flushSaves, setSettings: (patch) => useAppState.getState().setSettings(patch), activity: () => useOps.getState().activity };
     window.addEventListener('pagehide', () => { void flushSaves(); });
     // The backend outlives a webview reload: forget what the previous page watched, before this
     // one watches its active tab (spec §4.4: only the active tab is watched).

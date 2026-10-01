@@ -73,3 +73,20 @@ describe('PanelResizer', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith(800);
   });
 });
+
+describe('PanelResizer double-click (K73)', () => {
+  it('resets to the default width, with no drag left running', () => {
+    const onChange = vi.fn();
+    render(<PanelResizer width={600} min={100} max={800} defaultWidth={400} onChange={onChange} panelRef={createRef<HTMLDivElement>()} />);
+    const sep = document.querySelector('[role="separator"]')!;
+    expect(sep).toHaveAttribute('title', 'Drag to resize, double-click to reset');
+    fireEvent.pointerDown(sep, { clientX: 800, pointerId: 1, button: 0 });
+    fireEvent.pointerUp(sep, { clientX: 800, pointerId: 1 });
+    fireEvent.doubleClick(sep);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(400);
+    fireEvent.pointerMove(sep, { clientX: 700, pointerId: 1 });
+    fireEvent.keyDown(sep, { key: 'Enter' });
+    expect(onChange).toHaveBeenLastCalledWith(400);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { letterOf, matchesLetter } from './keys';
+import { isEditableTarget, letterOf, matchesLetter } from './keys';
 
 const ev = (key: string, code: string, mods: Partial<{ ctrlKey: boolean; altKey: boolean; metaKey: boolean; shiftKey: boolean }> = {}) => ({ key, code, ctrlKey: true, altKey: false, metaKey: false, shiftKey: false, ...mods });
 
@@ -25,5 +25,17 @@ describe('letterOf', () => {
     expect(letterOf(ev('ц', 'KeyW'))).toBe('w');
     expect(letterOf(ev('1', 'Digit1'))).toBeNull();
     expect(letterOf(ev('Tab', 'Tab'))).toBeNull();
+  });
+});
+
+describe('isEditableTarget', () => {
+  it('is true for text inputs, textareas, selects and contenteditable; false otherwise', () => {
+    const mk = (html: string) => { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild as HTMLElement; };
+    expect(isEditableTarget(mk('<input>'))).toBe(true);
+    expect(isEditableTarget(mk('<input type="text">'))).toBe(true);
+    expect(isEditableTarget(mk('<textarea></textarea>'))).toBe(true);
+    expect(isEditableTarget(mk('<input type="checkbox">'))).toBe(false);
+    expect(isEditableTarget(mk('<button></button>'))).toBe(false);
+    expect(isEditableTarget(null)).toBe(false);
   });
 });

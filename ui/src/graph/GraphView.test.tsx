@@ -77,16 +77,54 @@ describe('GraphView', () => {
     expect(summary.nextSibling).toBe(body);
   });
 
-  it('controlled selection reports Ctrl+clicks; a compare\'s two rows are both selected, with no A/B marks (K15, K16)', () => {
+  it('controlled selection reports Ctrl+ and Shift+clicks; every selected row shows as selected, with no A/B marks (K27)', () => {
     const onSelect = vi.fn();
-    render(<GraphView graph={graph} repoId="/r" selected={1} alsoSelected={0} onSelect={onSelect} />);
+    render(<GraphView graph={graph} repoId="/r" selected={1} alsoSelected={new Set([0, 1])} onSelect={onSelect} />);
     const rows = screen.getAllByRole('row');
     expect(rows[1]).toHaveAttribute('aria-selected', 'true');
     expect(rows[0]).toHaveAttribute('aria-selected', 'true');
     fireEvent.mouseDown(rows[0], { ctrlKey: true });
-    expect(onSelect).toHaveBeenCalledWith(0, { ctrl: true });
+    expect(onSelect).toHaveBeenCalledWith(0, { ctrl: true, shift: false });
+    fireEvent.mouseDown(rows[1], { shiftKey: true });
+    expect(onSelect).toHaveBeenLastCalledWith(1, { ctrl: false, shift: true });
+    fireEvent.mouseDown(rows[1], { shiftKey: true, metaKey: true });
+    expect(onSelect).toHaveBeenLastCalledWith(1, { ctrl: true, shift: true });
     expect(document.querySelector('.compare-marker')).toBeNull();
     expect(rows[0]).not.toHaveTextContent(/^A/);
+  });
+
+  it('a right-click on a selected row keeps the whole selection; on another row it selects that row alone, modifiers ignored (K27)', () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(<GraphView graph={graph} repoId="/r" selected={0} alsoSelected={new Set([0])} onSelect={onSelect} />);
+    const rows = screen.getAllByRole('row');
+    fireEvent.mouseDown(rows[0], { button: 2 });
+    fireEvent.mouseDown(rows[0], { button: 2, ctrlKey: true });
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.mouseDown(rows[1], { button: 2, ctrlKey: true, shiftKey: true });
+    expect(onSelect).toHaveBeenCalledWith(1, { ctrl: false, shift: false });
+    // A middle press is no Ctrl+ or Shift+click either.
+    onSelect.mockClear();
+    rerender(<GraphView graph={graph} repoId="/r" selected={1} onSelect={onSelect} />);
+    fireEvent.mouseDown(rows[0], { button: 1, shiftKey: true });
+    expect(onSelect).toHaveBeenCalledWith(0, { ctrl: false, shift: false });
+  });
+
+  it('Shift+↑/↓ extend the range: a Shift move from the keyboard position (K27)', () => {
+    const onSelect = vi.fn();
+    render(<GraphView graph={graph} repoId="/r" selected={0} onSelect={onSelect} />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown', shiftKey: true });
+    expect(onSelect).toHaveBeenLastCalledWith(1, { ctrl: false, shift: true });
+    fireEvent.keyDown(grid, { key: 'ArrowUp', shiftKey: true });
+    expect(onSelect).toHaveBeenLastCalledWith(0, { ctrl: false, shift: true });
+    // Without Shift, a plain move; a key some other layer already took is left alone.
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(onSelect).toHaveBeenLastCalledWith(1, { ctrl: false, shift: false });
+    onSelect.mockClear();
+    const e = new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true, cancelable: true });
+    e.preventDefault();
+    grid.dispatchEvent(e);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it('in the Branch/Tag column only the chips select the row: empty space and the connector do nothing (F6)', () => {
@@ -99,12 +137,12 @@ describe('GraphView', () => {
     fireEvent.mouseDown(labelsCell(0).querySelector('.ref-connector')!);
     expect(onSelect).not.toHaveBeenCalled();
     fireEvent.mouseDown(within(labelsCell(0)).getByText('main'));
-    expect(onSelect).toHaveBeenLastCalledWith(0, { ctrl: false });
+    expect(onSelect).toHaveBeenLastCalledWith(0, { ctrl: false, shift: false });
     // The other columns still select their row.
     for (const col of ['graph', 'message', 'author', 'date']) {
       onSelect.mockClear();
       fireEvent.mouseDown(rows[1].querySelector(`[data-col="${col}"]`)!);
-      expect(onSelect, col).toHaveBeenCalledWith(1, { ctrl: false });
+      expect(onSelect, col).toHaveBeenCalledWith(1, { ctrl: false, shift: false });
     }
   });
 
@@ -118,7 +156,7 @@ describe('GraphView', () => {
     expect(dim(1)).toHaveTextContent('main');
     // A press on it selects the row, as on any chip (J6); it has no tooltip.
     fireEvent.mouseDown(dim(1)!);
-    expect(onSelect).toHaveBeenCalledWith(1, { ctrl: false });
+    expect(onSelect).toHaveBeenCalledWith(1, { ctrl: false, shift: false });
     fireEvent.mouseEnter(dim(1)!);
     expect(screen.queryByRole('tooltip')).toBeNull();
     fireEvent.mouseLeave(rows()[1]);
@@ -209,7 +247,7 @@ describe('GraphView', () => {
   it('the keyboard commit menu skips a WIP row, and does nothing with no onContextMenu', () => {
     const wipGraph: GraphPayload = {
       ...graph,
-      rows: [{ id: 'wip', kind: 'wip', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: { worktreePath: '/repo', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 } }, ...graph.rows],
+      rows: [{ id: 'wip', kind: 'wip', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: { worktreePath: '/repo', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } }, ...graph.rows],
     };
     const onContextMenu = vi.fn();
     render(<GraphView graph={wipGraph} repoId="/r" selected={0} onContextMenu={onContextMenu} />);
@@ -337,7 +375,7 @@ describe('GraphView full-message tooltip (lazy-loaded)', () => {
 
   it('WIP rows get no message tooltip', () => {
     const load = loader();
-    const wip: GraphPayload = { ...graph, rows: [{ ...graph.rows[0], id: 'wip:/repo', kind: 'wip', summary: '// WIP', bodyFirstLine: '', wip: { worktreePath: '/repo', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 } }, graph.rows[1]] };
+    const wip: GraphPayload = { ...graph, rows: [{ ...graph.rows[0], id: 'wip:/repo', kind: 'wip', summary: '// WIP', bodyFirstLine: '', wip: { worktreePath: '/repo', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } }, graph.rows[1]] };
     render(<GraphView graph={wip} repoId="/repo" messages={createCommitMessageCache(load)} />);
     fireEvent.mouseEnter(msgCell(0));
     act(() => vi.advanceTimersByTime(1000));

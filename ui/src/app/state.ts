@@ -19,7 +19,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 /** Mirrors `Profile::default()` (Rust). */
 export const EMPTY_PROFILE: Profile = {
   version: 1, id: '', name: '', color: '#4d88ff', tabs: [], activeTab: null, closedTabs: [], recent: [], reposFolder: null,
-  editor: null, extraGitconfig: null, hostOverrides: {}, sidebarWidth: 240, sidebarNarrow: false, rightPanelWidth: null, repos: {},
+  editor: null, extraGitconfig: null, hostOverrides: {}, sidebarWidth: 240, sidebarNarrow: false, sidebarPanels: {}, rightPanelWidth: null, repos: {},
 };
 export const EMPTY_REPO_SETTINGS: RepoSettings = { pin: null, columns: null, hiddenColumns: [], sidebarSort: {}, collapsed: [], editor: null };
 

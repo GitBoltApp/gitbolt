@@ -11,7 +11,7 @@ export const useProfileDialog = create<{ mode: 'new' | 'rename' | null; open(mod
   close: () => set({ mode: null }),
 }));
 
-/** New profile… / Rename profile… (the profile switcher's menu), spec §14.1. */
+/** New profile… / Edit profile… (the profile switcher's menu), spec §14.1. */
 export function ProfileDialog() {
   const mode = useProfileDialog((s) => s.mode);
   if (!mode) return null;
@@ -40,11 +40,11 @@ function ProfileForm({ mode }: { mode: 'new' | 'rename' }) {
         ref={ref}
         className="modal"
         role="dialog"
-        aria-label={mode === 'new' ? 'New profile' : 'Rename profile'}
+        aria-label={mode === 'new' ? 'New profile' : 'Edit profile'}
         onPointerDown={(e) => e.stopPropagation()}
         onSubmit={(e) => { e.preventDefault(); void submit(); }}
       >
-        <h2>{mode === 'new' ? 'New profile' : 'Rename profile'}</h2>
+        <h2>{mode === 'new' ? 'New profile' : 'Edit profile'}</h2>
         <label>
           Name
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} aria-label="Profile name" />

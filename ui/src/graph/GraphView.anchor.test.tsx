@@ -93,6 +93,24 @@ describe('GraphView across refreshes (spec §4.4: keeps the selection and scroll
     expect(selectedSummary()).toEqual([expect.stringContaining('c12')]);
   });
 
+  it('at the very top, rows arriving above stay in view: the scroll stays at 0, the selection follows its commit (K37)', () => {
+    const g = graphOf(names(100));
+    const { store, grid, refresh } = mount(g);
+    act(() => { store.getState().selectCommitById(row('c0').id); });
+    expect(grid.scrollTop).toBe(0);
+    refresh(graphOf(['wip', ...names(100)]));
+    expect(grid.scrollTop).toBe(0);
+    expect(screen.getAllByRole('row')[0].textContent).toContain('wip');
+    expect(selectedSummary()).toEqual([expect.stringContaining('c0')]);
+  });
+
+  it('at the very top without a selection, rows arriving above stay in view too', () => {
+    const { grid, refresh } = mount(graphOf(names(100)));
+    refresh(graphOf(['n0', 'wip', ...names(100)]));
+    expect(grid.scrollTop).toBe(0);
+    expect(screen.getAllByRole('row')[0].textContent).toContain('n0');
+  });
+
   it('a refresh that changes nothing above leaves the scroll alone', () => {
     const g = graphOf(names(100));
     const { grid, refresh } = mount(g);

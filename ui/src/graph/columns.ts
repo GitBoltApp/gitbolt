@@ -198,6 +198,8 @@ interface ColumnPrefsState {
   /** Ends the gesture: hands the prefs to the persistence seam if the gesture changed them. */
   endResize(): void;
   /** Sets a column's preferred width, clamped to its minimum and rounded to a whole pixel. */
+  /** Double-click on a handle (K73): that column back to its default (Graph: auto), persisted. */
+  resetWidth(col: ResizableColumn): void;
   setWidth(col: PrefColumn, width: number): void;
   /** Hides a shown column or shows a hidden one, and hands the new set to its seam. */
   toggleHidden(col: HideableColumn): void;
@@ -239,6 +241,13 @@ export const useColumnPrefs = create<ColumnPrefsState>((set, get) => ({
     }
     const { repoId, prefs } = get();
     if (g?.changed && repoId !== null) columnPrefsPersistence.save(repoId, prefs);
+  },
+  resetWidth: (col) => {
+    // Message is the flexing column: its handle trades with Author, so its default is Author's.
+    const patch: Partial<ColumnPrefs> = col === 'message' ? { author: DEFAULT_COLUMN_PREFS.author } : { [col]: DEFAULT_COLUMN_PREFS[col] };
+    set((s) => ({ prefs: { ...s.prefs, ...patch } }));
+    const { repoId, prefs } = get();
+    if (repoId !== null) columnPrefsPersistence.save(repoId, prefs);
   },
   setWidth: (col, width) => set((s) => ({ prefs: { ...s.prefs, [col]: Math.min(col === 'sha' ? SHA_MAX : Infinity, Math.max(COLUMN_MIN[col], Math.round(width))) } })),
   toggleHidden: (col) => {

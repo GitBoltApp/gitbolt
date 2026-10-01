@@ -57,6 +57,20 @@ describe('AppShell: tabs inside <Activity> (spec §4.4, Review Focus 1)', () => 
   });
   afterEach(() => { document.title = ''; });
 
+  it('K44: the shown tab holds its WIP lists once watched, hands them repoChanged, and drops them when hidden', async () => {
+    render(<AppShell />);
+    expect(await screen.findByText('commit r1c1')).toBeInTheDocument();
+    const wip = () => useTabViews.getState().views.a!.services.wip;
+    await waitFor(() => expect(wip().isWatched()).toBe(true));
+    const changed = vi.spyOn(wip(), 'changed');
+    emit({ type: 'repoChanged', repo: 1, kinds: ['worktree'], worktrees: ['/a'], versions: { '/a': 'v2' } });
+    expect(changed).toHaveBeenCalledWith(['/a'], { '/a': 'v2' });
+    emit({ type: 'repoChanged', repo: 2, kinds: ['worktree'], worktrees: ['/b'], versions: {} });
+    expect(changed).toHaveBeenCalledTimes(1);
+    activate('b');
+    await waitFor(() => expect(wip().isWatched()).toBe(false));
+  });
+
   it('only the active tab loads, watches and listens; switching moves all three', async () => {
     render(<AppShell />);
     expect(await screen.findByText('commit r1c1')).toBeInTheDocument();
@@ -74,7 +88,7 @@ describe('AppShell: tabs inside <Activity> (spec §4.4, Review Focus 1)', () => 
     // The hidden tab ignores its repo's events; the shown one refreshes on them.
     const before = graphCalls(1).length;
     emit({ type: 'refsUpdated', repo: 1 });
-    emit({ type: 'repoChanged', repo: 2, kinds: [], worktrees: [] });
+    emit({ type: 'repoChanged', repo: 2, kinds: [], worktrees: [], versions: {} });
     await waitFor(() => expect(graphCalls(2).length).toBe(2));
     expect(graphCalls(1).length).toBe(before);
     // The hidden tab's DOM and state survive.

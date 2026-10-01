@@ -300,3 +300,32 @@ describe('HoverTooltip with async content', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 });
+
+describe('placement near the window edge (K52)', () => {
+  it('placeBelow shifts a wide tooltip left instead of shrinking it, and flips above at the bottom', async () => {
+    const { placeBelow } = await import('./HoverTooltip');
+    const size = { width: 300, height: 40 };
+    const { left, top } = placeBelow({ left: window.innerWidth - 20, top: 10, bottom: 34 }, size);
+    expect(left).toBe(window.innerWidth - 8 - 300);
+    expect(top).toBe(38);
+    const flipped = placeBelow({ left: 100, top: window.innerHeight - 30, bottom: window.innerHeight - 6 }, size);
+    expect(flipped.top).toBe(window.innerHeight - 30 - 4 - 40);
+  });
+
+  it('measures the tooltip parked at the origin, so near-edge anchors do not squeeze it', async () => {
+    const { measureNatural } = await import('./HoverTooltip');
+    const el = document.createElement('div');
+    el.style.left = '990px';
+    let leftWhenMeasured = '';
+    el.getBoundingClientRect = () => { leftWhenMeasured = el.style.left; return new DOMRect(0, 0, 250, 30); };
+    expect(measureNatural(el)).toEqual({ width: 250, height: 30 });
+    expect(leftWhenMeasured).toBe('0px');
+  });
+
+  it('the css never breaks inside words and caps the width at ~320px', () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'tooltip.css'), 'utf8');
+    expect(css).toMatch(/max-width:\s*min\(320px/);
+    expect(css).toMatch(/overflow-wrap:\s*break-word/);
+    expect(css).not.toMatch(/overflow-wrap:\s*anywhere/);
+  });
+});

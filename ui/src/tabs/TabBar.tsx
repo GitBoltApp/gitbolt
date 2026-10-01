@@ -8,19 +8,26 @@ import { activateTab, closeTab, moveTab, renameTab, tabLabel } from '../app/tabs
 import { openContextMenu } from '../menu/menuStore';
 import { buildMenu } from '../menu/registry';
 import { HoverTooltip } from '../ui/HoverTooltip';
+import { isEditableTarget } from '../ui/keys';
 import { HamburgerMenu } from './HamburgerMenu';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { nextTabFocus } from './tabKeyboard';
 // The tab menu's contributions (`registerMenu`) register at import time.
 import { useTabUi, type TabEnv, type TabTarget } from './tabMenu';
 import { useTabDrag } from './useTabDrag';
+import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import './tabs.css';
 
 function RenameInput({ tab }: { tab: TabState }) {
   const stop = useTabUi((s) => s.stopRename);
   const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
   useEffect(() => { ref.current?.select(); }, []);
+  // Enter commits, Esc cancels, a blur (a click outside) commits; only the first of them counts
+  // (unmounting the focused input can blur it once more).
   const commit = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
     if (value !== null) useAppState.getState().updateProfile((p) => renameTab(p, tab.id, value));
     stop();
   };
@@ -30,13 +37,23 @@ function RenameInput({ tab }: { tab: TabState }) {
       className="tab-rename"
       aria-label="Tab name"
       defaultValue={tab.alias ?? ''}
+      // The input is the tab's child: its presses and clicks are the caret's, not the tab's
+      // (no tab switch, no drag start, no rename restart on a double-click to select a word).
       onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
+        e.stopPropagation(); // the tab strip's roving keys (arrows, Home/End, Space) aren't for the text
         if (e.key === 'Enter') commit(e.currentTarget.value);
         if (e.key === 'Escape') commit(null);
       }}
-      onBlur={(e) => commit(e.currentTarget.value)}
+      onBlur={(e) => {
+        // The window losing focus (the WM's focus bounce on every press under GNOME) isn't a click
+        // outside: keep editing, caret back once the window returns (K41).
+        if (isWindowBlur()) return refocusWhenWindowReturns(e.currentTarget, () => !done.current);
+        commit(e.currentTarget.value);
+      }}
     />
   );
 }
@@ -58,6 +75,7 @@ export function TabBar() {
    * Ctrl+Tab/Ctrl+Shift+Tab/Ctrl+PageUp/PageDown (global, `coreActions.ts`) are unaffected: they
    * aren't claimed here. */
   const onTabKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>, i: number, id: string) => {
+    if (isEditableTarget(e.target)) return; // typing in the rename field
     const next = nextTabFocus(tabs.length, i, e.key);
     if (next !== null) {
       e.preventDefault();
@@ -91,7 +109,7 @@ export function TabBar() {
               data-tab-id={t.id}
               className={`tab${dragging ? ' dragging' : ''}${drag && drag.to === i && !dragging ? ' drop-target' : ''}`}
               style={dragging ? { transform: `translateX(${drag.dx}px)` } : undefined}
-              onPointerDown={(e) => onPointerDown(e, i)}
+              onPointerDown={(e) => { if (!isEditableTarget(e.target)) onPointerDown(e, i); }}
               onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
               onClick={() => { if (!consumeClick()) update((p) => activateTab(p, t.id)); }}
               onAuxClick={(e) => { if (e.button === 1) update((p) => closeTab(p, t.id)); }}

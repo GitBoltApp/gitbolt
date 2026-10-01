@@ -3,8 +3,13 @@ import type { ChangeKind } from "./ChangeKind";
 import type { OpKind } from "./OpKind";
 import type { OpOutcome } from "./OpOutcome";
 
-export type AppEvent = { "type": "repoChanged", repo: number, kinds: Array<ChangeKind>, worktrees: Array<string>, } | { "type": "refsUpdated", repo: number, } | { "type": "opStarted", op: number, kind: OpKind, repo: number | null, 
+export type AppEvent = { "type": "repoChanged", repo: number, kinds: Array<ChangeKind>, worktrees: Array<string>, versions: Record<string, string>, } | { "type": "refsUpdated", repo: number, } | { "type": "opStarted", op: number, kind: OpKind, repo: number | null, 
 /**
  * Fetch: the repo name. Clone: the destination path.
  */
-label: string, } | { "type": "opProgress", op: number, phase: string, percent: number | null, } | { "type": "opFinished", op: number, kind: OpKind, repo: number | null, outcome: OpOutcome, message: string | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, };
+label: string, 
+/**
+ * User-started (`true`) or GitBolt-started (`false`, the background fetch). The UI
+ * shows a background op nowhere but its activity log (K30).
+ */
+interactive: boolean, } | { "type": "opProgress", op: number, phase: string, percent: number | null, } | { "type": "opFinished", op: number, kind: OpKind, repo: number | null, outcome: OpOutcome, message: string | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, };

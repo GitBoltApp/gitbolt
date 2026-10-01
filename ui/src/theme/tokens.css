@@ -3,6 +3,12 @@
   --panel-bg0: #262930;
   --panel-bg1: #30343c;
   --toolbar-bg0: #2a2e36;
+  /* K32-K34: the action bar (repo/branch/Fetch/Push) is the brightest bar, #33373f; the open
+     file's name bar is #272a31; the File View/Diff View bar and the code area are #1c1e23
+     (= --app-bg0). Monaco's background is --app-bg0 too. */
+  --action-bar-bg: #33373f;
+  --tab-bar-bg: #1f2228;           /* K65: darker than the action bar; the selected tab is --action-bar-bg */
+  --file-bar-bg: #272a31;
   --text-selected: #ffffff;
   --text-normal: rgba(255, 255, 255, 0.75);
   --text-secondary: rgba(255, 255, 255, 0.6);
@@ -19,7 +25,15 @@
   --stats-added: #347d39;
   --stats-deleted: #c93c37;
   --blue: #4d88ff;
+  /* K62: sidebar row and strip icons, dimmer than the item text so they don't read as text. */
+  --sidebar-icon: rgba(255, 255, 255, 0.62);
+  /* K55: the sidebar section counts, in bold light blue. */
+  --count-blue: #6d9deb;
   --green: #5cb85c;
+  /* The checked-out branch / current worktree row in the sidebar, sampled from the reference
+     sidebar: a muted green row tint and the green of its check box (K35). */
+  --checked-out-row: #37563e;
+  --checked-out: #457c4a;
   --font-ui: system-ui, "Segoe UI", Ubuntu, Cantarell, sans-serif;
   color-scheme: dark;
 }

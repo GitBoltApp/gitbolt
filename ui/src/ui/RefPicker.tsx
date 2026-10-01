@@ -17,6 +17,8 @@ interface Props {
   /** The element that opened it: a press on it doesn't count as "outside" (so its own click can
    * toggle the picker closed instead of closing and reopening it). */
   ignore?: Element | null;
+  /** An optional toggle right of the search box (K72: the branch picker's alphabetical/recent). */
+  toggle?: { icon: LucideIcon; label: string; onToggle(): void };
 }
 
 const WIDTH = 300;
@@ -37,19 +39,32 @@ export function closePickers(): void {
  * R6), so no key reaches the app behind it. Esc closes the picker and nothing else, never the open
  * file too (J4), and Ctrl+W or F7 do nothing behind it. Every other key goes on to the search box.
  */
-export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore }: Props) {
+export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore, toggle }: Props) {
   const [q, setQ] = useState('');
-  const [cursor, setCursor] = useState(0);
+  // The current item is active from the very first render (no effect after mount, K53): the
+  // cursor starts there, and a filter change re-aims it in the change handler itself.
+  const [cursor, setCursor] = useState(() => Math.max(0, items.findIndex((i) => i.current)));
   const ref = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const uid = useId();
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return needle ? items.filter((i) => i.label.toLowerCase().includes(needle)) : items;
   }, [items, q]);
-  // Before paint: the first frame already shows the current item selected, not the first one.
-  useLayoutEffect(() => { setCursor(Math.max(0, shown.findIndex((i) => i.current))); }, [shown]);
-  useEffect(() => {
-    document.getElementById(`${uid}-${cursor}`)?.scrollIntoView?.({ block: 'nearest' });
+  // A re-sort (the toggle) or new items: the cursor follows the current item again. Not on the
+  // first render — the cursor's initial state already aims there (K53).
+  const lastItems = useRef(items);
+  useLayoutEffect(() => {
+    if (lastItems.current === items) return;
+    lastItems.current = items;
+    setCursor(Math.max(0, shown.findIndex((i) => i.current)));
+  }, [items, shown]);
+  const placed = useRef(false);
+  // Before paint, so the first frame already has the active row in view: centred on the first
+  // placement, the nearest edge after (arrow keys).
+  useLayoutEffect(() => {
+    document.getElementById(`${uid}-${cursor}`)?.scrollIntoView?.({ block: placed.current ? 'nearest' : 'center' });
+    placed.current = true;
   }, [uid, cursor]);
   useEffect(() => {
     const entry = { close: onClose };
@@ -79,7 +94,9 @@ export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore 
   const left = Math.max(4, Math.min(anchor.left, window.innerWidth - WIDTH - 4));
   return createPortal(
     <div ref={ref} className="picker" style={{ left, top: anchor.bottom + 4 }}>
+      <div className="picker-head">
       <input
+        ref={input}
         autoFocus
         className="picker-input"
         placeholder={placeholder}
@@ -91,8 +108,28 @@ export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore 
         spellCheck={false}
         autoComplete="off"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => {
+          const needle = e.target.value.trim().toLowerCase();
+          const next = needle ? items.filter((i) => i.label.toLowerCase().includes(needle)) : items;
+          setQ(e.target.value);
+          setCursor(Math.max(0, next.findIndex((i) => i.current)));
+        }}
       />
+      {toggle && (
+        <HoverTooltip content={toggle.label}>
+          <button
+            type="button"
+            className="icon-button picker-toggle"
+            aria-label={toggle.label}
+            // The search box keeps the keyboard: the toggle never takes the focus.
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => { toggle.onToggle(); input.current?.focus({ preventScroll: true }); }}
+          >
+            <toggle.icon size={14} aria-hidden />
+          </button>
+        </HoverTooltip>
+      )}
+      </div>
       <div className="picker-list" role="listbox" id={`${uid}-list`} aria-label={placeholder}>
         {shown.map((item, i) => {
           const Icon = item.icon;

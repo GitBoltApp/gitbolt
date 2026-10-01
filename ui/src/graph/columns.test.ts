@@ -459,3 +459,20 @@ describe('hidden and collapsed columns (T16a, spec §8.4)', () => {
     expect(useColumnPrefs.getState().hidden.size).toBe(0);
   });
 });
+
+describe('resetWidth (K73)', () => {
+  it('puts one column back to its default and persists; Graph goes back to auto, Message resets Author', () => {
+    const save = vi.spyOn(columnPrefsPersistence, 'save');
+    useColumnPrefs.setState({ repoId: '/r', prefs: { labels: 333, graph: 99, author: 222, date: 111, sha: SHA_W } });
+    useColumnPrefs.getState().resetWidth('labels');
+    expect(useColumnPrefs.getState().prefs).toEqual({ labels: 200, graph: 99, author: 222, date: 111, sha: SHA_W });
+    useColumnPrefs.getState().resetWidth('graph');
+    expect(useColumnPrefs.getState().prefs.graph).toBeNull();
+    useColumnPrefs.getState().resetWidth('message');
+    expect(useColumnPrefs.getState().prefs.author).toBe(160);
+    expect(save).toHaveBeenCalledTimes(3);
+    expect(save).toHaveBeenLastCalledWith('/r', useColumnPrefs.getState().prefs);
+    save.mockRestore();
+    useColumnPrefs.getState().reset();
+  });
+});

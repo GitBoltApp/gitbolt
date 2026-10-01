@@ -25,12 +25,25 @@ describe('graph.css label-connector contract', () => {
 
   it('gives the connector no leading margin, so it touches the preceding chip/badge', () => {
     const connectorRule = css.match(/\.ref-connector\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(connectorRule).not.toMatch(/margin/);
+    // Only a top margin: its line's place in the row (K57).
+    expect(connectorRule.replace(/margin-top:[^;]*;/, '')).not.toMatch(/margin/);
+  });
+
+  it('places the connector at the row\'s line (K57): stretched labels, the top and height from --conn-top / --conn-h', () => {
+    const connectorRule = css.match(/\.ref-connector\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(connectorRule).toMatch(/align-self:\s*flex-start/);
+    expect(connectorRule).toMatch(/margin-top:\s*var\(--conn-top\)/);
+    expect(connectorRule).toMatch(/height:\s*var\(--conn-h\)/);
+    const labels = css.match(/\.ref-labels\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(labels).toMatch(/align-self:\s*stretch/);
+    expect(labels).toMatch(/--conn-h:\s*1px/);
   });
 
   it('lets the ref chip shrink (and ellipsize) instead of overflowing the label column', () => {
     const refLabelRule = css.match(/\.ref-label\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(refLabelRule).toMatch(/min-width:\s*0/);
+    // No cap of its own (K63): only the column's width truncates it.
+    expect(refLabelRule).not.toMatch(/max-width/);
     // `flex: none` (equivalently `flex-shrink: 0`) would defeat min-width: 0 by refusing to
     // shrink at all, so the chip must not fall back to it.
     expect(refLabelRule).not.toMatch(/flex:\s*none/);
@@ -66,11 +79,11 @@ describe("graph.css checked-out branch (J21)", () => {
     expect(r).toMatch(/height:/);
   });
   it('its connector is the graph line: 2 px, the full lane colour', () => {
+    expect(rule(/\.ref-labels-head/)).toMatch(/--conn-h:\s*2px/);
     const r = rule(/\.ref-labels-head\s*>\s*\.ref-connector/);
-    expect(r).toMatch(/height:\s*2px/);
     expect(r).toMatch(/opacity:\s*1\b/);
-    const fill = rule(/\.ref-labels-head\s+\.ref-dim-fill/);
-    expect(fill).toMatch(/100%\s+2px/);
+    const fill = rule(/\.ref-labels-head\s+\.ref-dim-fill::before/);
+    expect(fill).toMatch(/background:\s*var\(--lane-color\)/);
     expect(fill).not.toMatch(/25%/);
   });
 });
@@ -203,7 +216,11 @@ describe('graph.css membership chip after real chips (F7)', () => {
   it('draws the connector line through the space it leaves (same 25% lane colour as .ref-connector)', () => {
     const fill = css.match(/\.ref-dim-fill\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(fill).toMatch(/flex:\s*1\s+0\s+0/);
-    expect(fill).toMatch(/color-mix\(in srgb,\s*var\(--lane-color\)\s*25%,\s*transparent\)/);
+    // The line itself, on the connector's rows (K57).
+    const line = css.match(/\.ref-dim-fill::before\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(line).toMatch(/color-mix\(in srgb,\s*var\(--lane-color\)\s*25%,\s*transparent\)/);
+    expect(line).toMatch(/top:\s*calc\(var\(--conn-top\)/);
+    expect(line).toMatch(/height:\s*var\(--conn-h\)/);
   });
 });
 

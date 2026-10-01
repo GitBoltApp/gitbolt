@@ -15,6 +15,12 @@ pub struct GraphPayload {
     pub pinned_ref: Option<String>,
     pub head: HeadPayload,
     pub truncated: bool,
+    /// The open worktree (the one this tab opened), spelled as its WIP row's
+    /// `WipPayload::worktree_path` would be, dirty or not: what "Compare with working tree"
+    /// targets. Absent if it isn't among `git worktree list`'s usable ones.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub open_worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -67,6 +73,7 @@ pub struct WipPayload {
     pub modified: u32,
     pub added: u32,
     pub deleted: u32,
+    pub renamed: u32,
     pub conflicted: u32,
 }
 
@@ -197,6 +204,12 @@ pub struct FileListPayload {
     /// Line totals over the text files (spec §9.3 header).
     pub added: u32,
     pub deleted: u32,
+    /// A WIP list kept by the active tab's watcher (K44): the version of that worktree's lists,
+    /// which a `repoChanged` naming the worktree replaces. The UI may hold such a list until
+    /// then. Absent for every other list, and for WIP lists read without a trusted watcher.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub version: Option<String>,
 }
 
 /// The signature badge (spec §9.1).

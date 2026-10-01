@@ -40,7 +40,7 @@ const file = (t: FileTarget, env: MenuEnv) => buildMenu<FileTarget, MenuEnv>('fi
 describe('the file menu (spec §7; plan 1C Task 15, file kind)', () => {
   it('rows in group order; every row, variant and submenu row has an icon and a tooltip', () => {
     const rows = file(target(), envOf());
-    expect(labels(rows)).toEqual(['Copy path', '---', 'Forge link', '---', 'Open in', '---', 'Open diff', 'View file at this commit']);
+    expect(labels(rows)).toEqual(['Copy path', '---', 'Forge link', '---', 'Open in', '---', 'View']);
     const all = (rs: MenuRow[]): Array<Exclude<MenuRow, { kind: 'separator' }>> => rs.flatMap((r) => (r.kind === 'separator' ? [] : r.kind === 'submenu' ? [r, ...all(r.rows)] : [r]));
     for (const r of all(rows)) {
       expect(r.icon, r.id).toBeTruthy();
@@ -130,24 +130,32 @@ describe('the file menu (spec §7; plan 1C Task 15, file kind)', () => {
     expect(labels(none.rows)).toEqual(['No editor or file manager found']);
   });
 
-  it('Open diff and View file open the row in the center panel', () => {
+  it('View is one row: the label and Diff open the diff, File opens the whole file (K58)', () => {
     const env = envOf();
-    const rows = file(target(), env);
-    find(rows, 'Open diff').run();
+    const view = find(file(target(), env), 'View');
+    expect(view.variants?.map((v) => [v.id, v.label])).toEqual([['diff', 'Diff'], ['file', 'File']]);
+    view.run();
     expect(env.act.openDiff).toHaveBeenLastCalledWith(diff);
-    find(rows, 'View file at this commit').run();
+    view.variants![1].run();
     expect(env.act.viewFile).toHaveBeenLastCalledWith(diff);
+    expect(env.act.viewFile).toHaveBeenCalledTimes(1);
+    view.variants![0].run();
+    expect(env.act.openDiff).toHaveBeenCalledTimes(2);
   });
 
-  it('an unchanged file has no diff; a working-tree file is "View file"', () => {
-    expect(find(file(target({ changed: false }), envOf()), 'Open diff').disabledReason).toBe('Unchanged in this commit');
-    const wip = file(target({ sha: null }), envOf());
-    expect(labels(wip)).toContain('View file');
-    expect(labels(wip)).not.toContain('View file at this commit');
-    expect(find(file(target({ deleted: true }), envOf()), 'View file at this commit').tooltip).toBe('Show the whole file as it was before this commit deleted it');
+  it('an unchanged file: the Diff variant is disabled and the label opens the file; tooltips say what the file is', () => {
+    const env = envOf();
+    const unchanged = find(file(target({ changed: false }), env), 'View');
+    expect(unchanged.variants![0].disabledReason).toBe('Unchanged in this commit');
+    expect(unchanged.disabledReason).toBeUndefined();
+    unchanged.run();
+    expect(env.act.viewFile).toHaveBeenCalledWith(diff);
+    expect(env.act.openDiff).not.toHaveBeenCalled();
+    const fileTip = (t: Partial<ReturnType<typeof target>>) => find(file(target(t), envOf()), 'View').variants![1].tooltip;
+    expect(fileTip({ deleted: true })).toBe('Show the whole file as it was before this commit deleted it');
     // Compared with the working tree, the file is gone from disk, not deleted by the commit.
-    expect(find(file(target({ deleted: true, list: 'worktree' }), envOf()), 'View file at this commit').tooltip).toBe(`Show the whole file as it was at ${shortSha(sha)}, before it was deleted from the working tree`);
-    expect(find(file(target({ deleted: true, list: 'compare' }), envOf()), 'View file at this commit').tooltip).toBe(`Show the whole file as it was at ${shortSha(sha)}, before it was deleted`);
+    expect(fileTip({ deleted: true, list: 'worktree' })).toBe(`Show the whole file as it was at ${shortSha(sha)}, before it was deleted from the working tree`);
+    expect(fileTip({ deleted: true, list: 'compare' })).toBe(`Show the whole file as it was at ${shortSha(sha)}, before it was deleted`);
   });
 
   it('the folder menu: Copy path | Rel | Abs |, and Open in ▸ with the file managers only', () => {

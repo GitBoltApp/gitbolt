@@ -68,6 +68,42 @@ pub struct AppSettings {
     pub commit_limit: u32,
     pub date_format: DateFormat,
     pub gravatar: bool,
+    /// The main window's last normal geometry (K46). Owned by the app shell, not the UI: it's
+    /// left out of the TypeScript bindings, and `save_settings` keeps the store's own value
+    /// whatever the UI sends back. Absent in files written before it existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub window: Option<WindowGeometry>,
+}
+
+/// Where the main window was, in logical (DPI-independent) pixels: its last normal (not
+/// maximized, not minimized) rect, whether it was maximized on top of that, and the monitor it
+/// was on. `x`/`y` are the outer (frame) position and are absent where the platform doesn't
+/// report one (Wayland); `width`/`height` are the inner (content) size.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WindowGeometry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    pub width: f64,
+    pub height: f64,
+    pub maximized: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monitor: Option<MonitorIdentity>,
+}
+
+/// A monitor as the window saw it: its name (connector, maker, model) and its logical rect.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MonitorIdentity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 impl Default for AppSettings {
@@ -82,6 +118,7 @@ impl Default for AppSettings {
             commit_limit: 2000,
             date_format: DateFormat::Ymd12h,
             gravatar: true,
+            window: None,
         }
     }
 }
@@ -209,6 +246,8 @@ pub struct Profile {
     pub host_overrides: BTreeMap<String, HostKind>,
     pub sidebar_width: u32,
     pub sidebar_narrow: bool,
+    /// Sidebar panel id → its height in px when last resized (the weights the expanded panels share).
+    pub sidebar_panels: BTreeMap<String, u32>,
     /// The details panel's width; `None` is the UI's default.
     pub right_panel_width: Option<u32>,
     /// Keyed by canonical repo path.
@@ -232,6 +271,7 @@ impl Default for Profile {
             host_overrides: BTreeMap::new(),
             sidebar_width: 240,
             sidebar_narrow: false,
+            sidebar_panels: BTreeMap::new(),
             right_panel_width: None,
             repos: BTreeMap::new(),
         }
@@ -468,6 +508,8 @@ impl SettingsStore {
     }
 
     /// An unknown `active_profile` keeps the current one: switching goes through `switch_profile`.
+    /// The window geometry is the store's own (see [`Self::save_window`]): the UI's copy is
+    /// whatever it loaded at startup, so it never replaces the one saved since.
     pub fn save_settings(self: &Arc<Self>, mut settings: AppSettings) {
         settings.version = SETTINGS_VERSION;
         {
@@ -475,7 +517,27 @@ impl SettingsStore {
             if !g.profiles.contains_key(&settings.active_profile) {
                 settings.active_profile = g.settings.active_profile.clone();
             }
+            settings.window = g.settings.window.clone();
             g.settings = settings;
+            g.dirty_settings = true;
+        }
+        self.schedule();
+    }
+
+    /// The main window's last saved geometry (K46).
+    pub fn window(&self) -> Option<WindowGeometry> {
+        self.lock().settings.window.clone()
+    }
+
+    /// The main window's geometry (K46), saved debounced like any other change. An unchanged
+    /// value doesn't dirty the file.
+    pub fn save_window(self: &Arc<Self>, window: WindowGeometry) {
+        {
+            let mut g = self.lock();
+            if g.settings.window.as_ref() == Some(&window) {
+                return;
+            }
+            g.settings.window = Some(window);
             g.dirty_settings = true;
         }
         self.schedule();
@@ -683,6 +745,58 @@ mod tests {
         assert_eq!(st.settings.commit_limit, 2000);
         assert_eq!(st.settings.commit_limit as usize, crate::snapshot::DEFAULT_COMMIT_LIMIT);
         assert!(st.settings.prune);
+    }
+
+    fn geometry() -> WindowGeometry {
+        WindowGeometry {
+            x: Some(1940.0),
+            y: Some(32.0),
+            width: 1400.0,
+            height: 860.0,
+            maximized: true,
+            monitor: Some(MonitorIdentity { name: Some("DP-1".into()), x: 1920.0, y: 0.0, width: 2560.0, height: 1440.0 }),
+        }
+    }
+
+    /// K46: a settings file from before the window field loads with none, and writes none back.
+    #[test]
+    fn an_old_settings_file_without_the_window_loads() {
+        let old = r#"{"version":1,"activeProfile":"default","theme":"default-dark","editorFontSize":13,"fetchIntervalSecs":60,"prune":true,"commitLimit":2000,"dateFormat":"ymd12h","gravatar":true}"#;
+        let s: AppSettings = serde_json::from_str(old).unwrap();
+        assert_eq!(s.window, None);
+        assert_eq!(s, AppSettings::default());
+        assert!(serde_json::to_value(&s).unwrap().get("window").is_none());
+    }
+
+    #[test]
+    fn the_window_geometry_round_trips_through_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SettingsStore::open(dir.path());
+        store.save_window(geometry());
+        store.flush_now().unwrap();
+        let json = read(&dir.path().join("settings.json"));
+        assert_eq!(json["window"]["width"], 1400.0);
+        assert_eq!(json["window"]["monitor"]["name"], "DP-1");
+        assert_eq!(SettingsStore::open(dir.path()).state().settings.window, Some(geometry()));
+
+        // Wayland: no position, no monitor name; partial objects fill in from defaults.
+        let partial: WindowGeometry = serde_json::from_str(r#"{"width":900,"height":600}"#).unwrap();
+        assert_eq!(partial, WindowGeometry { width: 900.0, height: 600.0, ..Default::default() });
+    }
+
+    /// The UI's settings carry the geometry it loaded at startup; saving them must not undo a
+    /// geometry the app saved since.
+    #[test]
+    fn saving_the_uis_settings_keeps_the_stores_window() {
+        let store = SettingsStore::in_memory();
+        let from_ui = store.state().settings;
+        store.save_window(geometry());
+        let mut changed = from_ui.clone();
+        changed.theme = "light".into();
+        store.save_settings(changed);
+        let s = store.state().settings;
+        assert_eq!(s.theme, "light");
+        assert_eq!(s.window, Some(geometry()));
     }
 
     #[test]

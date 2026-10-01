@@ -17,7 +17,7 @@ vi.mock('../api/transport', () => ({ copyText }));
 
 const row = (id: string, parents: string[], wip: string | null = null): RowPayload => ({
   id, kind: wip ? 'wip' : 'commit', lane: 0, color: 0, segments: [], summary: id, bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents, mrRefs: [],
-  wip: wip ? { worktreePath: wip, worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 } : null,
+  wip: wip ? { worktreePath: wip, worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } : null,
 });
 const remote = (remote: string, branch: string) => ({ fullName: `refs/remotes/${remote}/${branch}`, remote, hostKind: 'gitlab' as const });
 const label = (r: number, name: string, local: boolean, remotes: ReturnType<typeof remote>[], extra: Partial<RefLabel> = {}): RefLabel => ({ row: r, name, local: local ? `refs/heads/${name}` : null, remotes, tag: false, isHead: false, worktree: null, ...extra });
@@ -99,19 +99,39 @@ describe('fileTargetOf', () => {
 describe('compare (the commit menu\'s Compare with HEAD / Compare with working tree)', () => {
   afterEach(() => copyText.mockClear());
 
-  it('two commits: selects both (K15), the older one first regardless of call order (K16)', () => {
+  it('two commits (Compare with HEAD): selects both, from → to; the anchor and the keyboard stay on `from` (K27)', () => {
     const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices());
     compare(store, 'c1', 'c2');
     const s = store.getState();
-    // c1 and c2 tie on committerTime in this fixture: the tie-break (the lower row index, i.e.
-    // the newer commit in the list) decides, same as a real Ctrl+click pairing would.
-    expect(s.selection).toMatchObject({ kind: 'compare', from: 'c2', to: 'c1' });
+    expect(s.selection).toMatchObject({ kind: 'compare', from: 'c1', to: 'c2' });
+    const i = s.indexById.get('c1')!;
+    expect([s.picks.anchor, s.picks.cursor]).toEqual([i, i]);
+    s.exitCompare();
+    expect(store.getState().selection).toMatchObject({ kind: 'commit', id: 'c1' });
   });
 
-  it("with the working tree: the WIP row's own worktree", () => {
+  it('with the working tree: the open worktree, its WIP row picked too', () => {
+    const store = createRepoViewStore(1, '/repo', { ...graphOf(labels), openWorktree: '/wt/main' }, fakeServices());
+    compare(store, 'c0', 'worktree');
+    const s = store.getState();
+    expect(s.selection).toMatchObject({ kind: 'compareWorktree', from: 'c0', worktree: '/wt/main' });
+    expect(s.picks.rows).toEqual([s.indexById.get('c0'), 0]);
+  });
+
+  it("with the working tree: the open worktree even when it's clean and another worktree's WIP row is the only one (K37)", () => {
+    const g = graphOf(labels);
+    const linked = { ...g.rows[0], id: 'wip:/wt/linked', wip: { ...g.rows[0].wip!, worktreePath: '/wt/linked', worktreeName: 'linked' } };
+    const store = createRepoViewStore(1, '/repo', { ...g, rows: [linked, ...g.rows.slice(1)], openWorktree: '/wt/main' }, fakeServices());
+    compare(store, 'c0', 'worktree');
+    const s = store.getState();
+    expect(s.selection).toMatchObject({ kind: 'compareWorktree', from: 'c0', worktree: '/wt/main' });
+    expect(s.picks.rows).toEqual([s.indexById.get('c0')]);
+  });
+
+  it('with the working tree, no open worktree reported: the tab\'s own path', () => {
     const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices());
     compare(store, 'c0', 'worktree');
-    expect(store.getState().selection).toMatchObject({ kind: 'compareWorktree', from: 'c0', worktree: '/wt/main' });
+    expect(store.getState().selection).toMatchObject({ kind: 'compareWorktree', from: 'c0', worktree: '/repo' });
   });
 
   it('an id outside the loaded history: does nothing', () => {

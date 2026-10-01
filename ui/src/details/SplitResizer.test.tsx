@@ -59,3 +59,21 @@ describe('SplitResizer', () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 });
+
+describe('SplitResizer double-click (K73)', () => {
+  it('resets to the default ratio and persists it', () => {
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+    render(<SplitResizer ratio={0.6} bounds={[0.1, 0.75]} height={1000} onChange={onChange} onCommit={onCommit} targetRef={createRef<HTMLDivElement>()} />);
+    fireEvent.doubleClick(document.querySelector('[role="separator"]')!);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(0.25);
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(0.25);
+  });
+
+  it('uses the given default (the WIP split resets to 50%)', () => {
+    const onCommit = vi.fn();
+    render(<SplitResizer ratio={0.7} bounds={[0.1, 0.9]} height={1000} defaultRatio={0.5} onChange={() => {}} onCommit={onCommit} targetRef={createRef<HTMLDivElement>()} />);
+    fireEvent.doubleClick(document.querySelector('[role="separator"]')!);
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(0.5);
+  });
+});

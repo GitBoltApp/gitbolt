@@ -20,6 +20,7 @@ use tauri_runtime_cef::Cef;
 use tokio::sync::broadcast::error::RecvError;
 
 mod desktop;
+mod window_state;
 
 #[tauri::command]
 async fn api(state: tauri::State<'_, Arc<Api>>, req: Request) -> Result<serde_json::Value, GbError> {
@@ -136,6 +137,7 @@ fn main() {
         Some(picker) => built.with_folder_picker(picker),
         None => built,
     };
+    let window_store = store.clone();
     let backend = Arc::new(built.with_store(store));
     let warm = backend.clone();
     let forward = backend.clone();
@@ -145,7 +147,20 @@ fn main() {
         // dialog (Chrome keeps it in the profile). The F7 command itself is blocked in the
         // vendored runtime (vendor/tauri-runtime-cef/GITBOLT-PATCH.md). Not `show_dialog=false`:
         // without the dialog, F7 would silently turn caret browsing on.
-        .runtime(Cef::default().profile_preference("settings.a11y.caretbrowsing.enabled", false))
+        //
+        // K31: GitBolt never ships or checks for Chromium's own components (cert revocation
+        // sets, CT log lists, download file-type policies) — it is a git client, not a browser,
+        // and has no route to `update.googleapis.com` that matters to it. Left on, the updater
+        // tries to memory-map a temp file every run and fails loudly under sandboxing
+        // (`puffin/src/puffpatch.cc: Failed to create a temporary file for memory-mapping:
+        // Operation not permitted`). `component_updates(false)` only adds
+        // `--disable-component-update`; it doesn't touch any Chromium feature GitBolt's webview
+        // uses (vendor/tauri-runtime-cef/GITBOLT-PATCH.md).
+        .runtime(
+            Cef::default()
+                .profile_preference("settings.a11y.caretbrowsing.enabled", false)
+                .component_updates(false),
+        )
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(backend)
         .invoke_handler(tauri::generate_handler![api])
@@ -182,7 +197,29 @@ fn main() {
                 Err(e) => tracing::warn!("askpass unavailable: {e}; credential prompts will fail"),
             }
             let cfg = app.config().app.windows[0].clone();
-            let window = WebviewWindowBuilder::from_config(app.handle(), &cfg)?.build()?;
+            // K46: the window opens where it was last (window_state.rs). The builder's position
+            // and size are applied before the window is first mapped, so it never shows at the
+            // default place first; maximizing waits until it's on screen, on the right monitor.
+            let can_position = window_state::can_self_position_now();
+            let saved = window_store.window();
+            let available = app.available_monitors().unwrap_or_default();
+            let primary = app.primary_monitor().ok().flatten();
+            let (screens, primary) = window_state::screens(&available, primary.as_ref());
+            let place = saved.as_ref().and_then(|g| window_state::placement(g, &screens, primary, can_position));
+            let mut builder = WebviewWindowBuilder::from_config(app.handle(), &cfg)?;
+            if let Some(p) = &place {
+                builder = builder.inner_size(p.size.0, p.size.1);
+                if let Some((x, y)) = p.position {
+                    builder = builder.position(x, y);
+                }
+            }
+            let window = builder.build()?;
+            if place.as_ref().is_some_and(|p| p.maximized)
+                && let Err(e) = window.maximize()
+            {
+                tracing::warn!("couldn't maximize the restored window: {e}");
+            }
+            window_state::track(&window, window_store.clone(), can_position, (cfg.width, cfg.height));
             let _ = parent.set(Box::new(move || portal_parent(&window)));
             // Here, after the runtime's `set_var` (its SAFETY note: no other thread may read the
             // environment before it): capture the login shell's environment (spec §5.3), detect

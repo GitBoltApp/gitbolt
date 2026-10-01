@@ -292,6 +292,53 @@ describe('FileList', () => {
     expect(new Set(screen.getAllByRole('option').map((o) => o.id)).size).toBe(3);
   });
 
+  describe('View all files loading (K54)', () => {
+    const gates = new Map<string, (paths: string[]) => void>();
+    const deferred = () => fakeServices({ treeFiles: new Loader((c: string) => new Promise<string[]>((r) => { gates.set(c, r); }), new Lru(4)) });
+    const filter = () => screen.queryByRole('textbox', { name: 'Filter files' });
+
+    it('keeps the previous list, without the filter bar, under a late progress line until the tree is here, then swaps once', async () => {
+      vi.useFakeTimers();
+      try {
+        useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
+        setup(deferred());
+        const before = screen.getAllByRole('option').map((o) => o.dataset.path);
+        act(() => { fireEvent.click(screen.getByRole('button', { name: 'View all files' })); });
+        // Asked for, but not switched: same rows, no filter bar, and no progress line yet.
+        expect(screen.getByRole('button', { name: 'View all files' })).toHaveAttribute('aria-pressed', 'true');
+        expect(filter()).toBeNull();
+        expect(screen.queryByRole('progressbar')).toBeNull();
+        act(() => { vi.advanceTimersByTime(149); });
+        expect(screen.queryByRole('progressbar')).toBeNull();
+        act(() => { vi.advanceTimersByTime(1); });
+        expect(screen.getByRole('progressbar', { name: 'Loading all files' })).toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((o) => o.dataset.path)).toEqual(before);
+        expect(filter()).toBeNull();
+        // The data arrives: the layout and rows switch together.
+        await act(async () => { gates.get(spec.id)!(['docs/manual.txt', 'logo.png', 'src/app.php', 'zzz.txt']); });
+        expect(screen.queryByRole('progressbar')).toBeNull();
+        expect(filter()).not.toBeNull();
+        expect(screen.getAllByRole('option')).toHaveLength(4);
+        // Turning it off is immediate.
+        act(() => { fireEvent.click(screen.getByRole('button', { name: 'View all files' })); });
+        expect(filter()).toBeNull();
+        expect(screen.getAllByRole('option')).toHaveLength(3);
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('a load for a commit that was moved off is dropped', async () => {
+      useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: true });
+      const store = createRepoViewStore(1, '/r', graph, deferred());
+      const el = (commit: string) => <RepoViewContext value={store}><FileList list={list} spec={{ ...spec, id: commit }} label="Changed files" allFilesCommit={commit} /></RepoViewContext>;
+      const { rerender } = render(el('a'.repeat(40)));
+      rerender(el('b'.repeat(40)));
+      await act(async () => { gates.get('b'.repeat(40))!(['docs/manual.txt', 'logo.png', 'src/app.php', 'from-b.txt']); });
+      await act(async () => { gates.get('a'.repeat(40))!(['docs/manual.txt', 'logo.png', 'src/app.php', 'from-a.txt']); });
+      expect(screen.getByText('from-b.txt')).toBeInTheDocument();
+      expect(screen.queryByText('from-a.txt')).toBeNull();
+    });
+  });
+
   it('a failed View all files load shows an error row with a retry', async () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: true });
     let fail = true;
@@ -498,13 +545,13 @@ describe('FileList', () => {
       return setup();
     }
 
-    it('is only shown in View all files mode', () => {
+    it('is only shown in View all files mode', async () => {
       useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
       setup();
       expect(screen.queryByLabelText('Filter files')).toBeNull();
       cleanup();
       setupAllFiles();
-      expect(screen.getByLabelText('Filter files')).toBeInTheDocument();
+      expect(await screen.findByLabelText('Filter files')).toBeInTheDocument();
     });
 
     it('narrows the list by a case-insensitive path substring and highlights the match', async () => {

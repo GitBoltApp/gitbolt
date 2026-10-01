@@ -16,7 +16,9 @@ import { useHoverTooltip } from '../ui/HoverTooltip';
 import { CoAuthors, personLabel } from './CoAuthors';
 import { CompareHeader } from './CompareHeader';
 import { loadSplit, saveSplit, splitBounds } from './detailsSplit';
+import { MultiSummary } from './MultiSummary';
 import { WipHeader } from './WipHeader';
+import { WipSections } from './WipSections';
 import { Message, useProjectRemote } from './Message';
 import { SignatureBadge } from './SignatureBadge';
 import { SplitResizer } from './SplitResizer';
@@ -164,9 +166,9 @@ function FileSectionView({ section }: { section: FileSection }) {
 /** The list the files zone focuses: the one holding the open file, else the first with rows
  * (a WIP row may have only staged changes), else the first. */
 function pickFileList(zone: HTMLElement): HTMLElement | null {
-  return zone.querySelector<HTMLElement>('[role="listbox"][data-open-file]')
-    ?? zone.querySelector<HTMLElement>('[role="listbox"]:not([data-empty])')
-    ?? zone.querySelector<HTMLElement>('[role="listbox"]');
+  // A collapsed WIP section's list is mounted but hidden: never the one to focus.
+  const lists = Array.from(zone.querySelectorAll<HTMLElement>('[role="listbox"]')).filter((l) => !l.closest('[hidden]'));
+  return lists.find((l) => l.hasAttribute('data-open-file')) ?? lists.find((l) => !l.hasAttribute('data-empty')) ?? lists[0] ?? null;
 }
 
 /**
@@ -197,7 +199,9 @@ function FileSections({ panel }: { panel: PanelContent }) {
   return (
     <div ref={ref} className="file-sections" tabIndex={-1} {...zone}>
       <ParentPicker panel={panel} />
-      {sections.map((s) => <FileSectionView key={filesKey(s.spec)} section={s} />)}
+      {panel.selection.kind === 'wip' && sections.length === 2
+        ? <WipSections sections={sections} />
+        : sections.map((s) => <FileSectionView key={filesKey(s.spec)} section={s} />)}
     </div>
   );
 }
@@ -224,7 +228,7 @@ function usePanelSize(ref: RefObject<HTMLDivElement | null>, panel: PanelContent
 }
 
 /** The right panel: a commit's details, a compare's header, or the read-only WIP header, each
- * above the file lists (spec §9). It renders the store's settled `panel` only (feedback F12):
+ * above the file lists, or a multi-selection's summary (spec §9). It renders the store's settled `panel` only (feedback F12):
  * the previous selection's content stays, unchanged, until the new one's has all arrived. A
  * commit's header+message and its file list are split by a draggable, persisted divider (F13). */
 export function DetailsPanel() {
@@ -251,7 +255,8 @@ export function DetailsPanel() {
       )}
       {(kind === 'compare' || kind === 'compareWorktree') && <CompareHeader />}
       {kind === 'wip' && <WipHeader />}
-      <FileSections panel={panel} />
+      {/* A multi-selection (K27) has no diff, so no file lists. */}
+      {kind === 'multi' ? <MultiSummary /> : <FileSections panel={panel} />}
     </div>
   );
 }

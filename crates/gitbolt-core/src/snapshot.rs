@@ -3,7 +3,7 @@
 use crate::error::GbError;
 use crate::git::GitCli;
 use crate::graph::{layout, LayoutNode, NodeKind, Parent};
-use crate::payload::{GraphPayload, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
+use crate::payload::{FileListPayload, GraphPayload, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
 use crate::refs::{read_refs, RefKind, RepoRefs};
 use crate::remotes::HostKind;
 use crate::status::{parse_porcelain_v2, status_raw, summarize, WipCounts};
@@ -65,9 +65,41 @@ pub struct WipCache {
     inner: Mutex<WipInner>,
 }
 
+/// One worktree's WIP file lists, computed by the active tab's watcher (K44) from the status
+/// read whose digest is `digest`, so selecting the WIP row needs no git process.
+#[derive(Debug, Clone)]
+pub struct WipLists {
+    /// The `WipCache::stamp` taken before the status read they come from: an older computation
+    /// never replaces a newer one.
+    pub stamp: u64,
+    /// The status digest they were computed with: they're served only while the cached status
+    /// still has it.
+    pub digest: u64,
+    /// A digest of both lists, which `FileListPayload::version` and `repoChanged` carry.
+    pub version: String,
+    pub staged: Arc<FileListPayload>,
+    pub unstaged: Arc<FileListPayload>,
+}
+
+impl WipLists {
+    /// Stamps both lists with a version derived from their content.
+    pub fn new(stamp: u64, digest: u64, mut staged: FileListPayload, mut unstaged: FileListPayload) -> Self {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for l in [&staged, &unstaged] {
+            serde_json::to_vec(l).unwrap_or_default().hash(&mut h);
+        }
+        let version = format!("{:016x}", h.finish());
+        staged.version = Some(version.clone());
+        unstaged.version = Some(version.clone());
+        Self { stamp, digest, version, staged: Arc::new(staged), unstaged: Arc::new(unstaged) }
+    }
+}
+
 #[derive(Debug, Default)]
 struct WipInner {
     entries: HashMap<PathBuf, (u64, WipEntry)>,
+    /// The watcher's WIP lists per covered worktree; dropped with the coverage.
+    lists: HashMap<PathBuf, WipLists>,
     /// `None`: every entry is reusable. `Some`: only the covered worktrees', and whose watcher
     /// (by serial) covers them.
     coverage: Option<(Option<u64>, HashSet<PathBuf>)>,
@@ -76,7 +108,7 @@ struct WipInner {
 impl WipCache {
     /// A cache whose entries are reused only for worktrees a watcher covers.
     pub fn watched_only() -> Self {
-        Self { seq: AtomicU64::new(0), inner: Mutex::new(WipInner { entries: HashMap::new(), coverage: Some((None, HashSet::new())) }) }
+        Self { seq: AtomicU64::new(0), inner: Mutex::new(WipInner { entries: HashMap::new(), lists: HashMap::new(), coverage: Some((None, HashSet::new())) }) }
     }
 
     fn key(path: &Path) -> PathBuf {
@@ -118,19 +150,61 @@ impl WipCache {
         }
     }
 
+    /// The watcher's lists for this worktree, whatever their status digest (the watcher compares
+    /// versions with them).
+    pub fn lists(&self, path: &Path) -> Option<WipLists> {
+        let key = Self::key(path);
+        self.lock().lists.get(&key).cloned()
+    }
+
+    /// Keeps `lists` unless newer ones (by stamp) are held.
+    pub fn put_lists(&self, path: &Path, lists: WipLists) {
+        let key = Self::key(path);
+        let mut inner = self.lock();
+        if inner.lists.get(&key).is_none_or(|held| held.stamp <= lists.stamp) {
+            inner.lists.insert(key, lists);
+        }
+    }
+
+    pub fn drop_lists(&self, path: &Path) {
+        let key = Self::key(path);
+        self.lock().lists.remove(&key);
+    }
+
+    /// Whether a watcher covers this worktree.
+    pub fn covered(&self, path: &Path) -> bool {
+        let key = Self::key(path);
+        matches!(&self.lock().coverage, Some((Some(_), roots)) if roots.contains(&key))
+    }
+
+    /// The watcher's lists for this worktree, if they may stand in for a `fileList`: a watcher
+    /// covers it, and they were computed from the status the cache holds now.
+    pub fn fresh_lists(&self, path: &Path) -> Option<WipLists> {
+        let key = Self::key(path);
+        let inner = self.lock();
+        let covered = matches!(&inner.coverage, Some((Some(_), roots)) if roots.contains(&key));
+        let lists = inner.lists.get(&key)?;
+        let current = inner.entries.get(&key).is_some_and(|(_, e)| e.digest == lists.digest);
+        (covered && current).then(|| lists.clone())
+    }
+
     /// The watcher `owner` keeps these (canonical) worktrees fresh.
     pub fn cover(&self, owner: u64, roots: HashSet<PathBuf>) {
-        self.lock().coverage = Some((Some(owner), roots));
+        let mut inner = self.lock();
+        inner.lists.retain(|k, _| roots.contains(k));
+        inner.coverage = Some((Some(owner), roots));
     }
 
     /// The watcher `owner` stopped (or can't keep up): nothing is covered, unless another
-    /// watcher took over meanwhile.
+    /// watcher took over meanwhile, and its lists are dropped.
     pub fn uncover(&self, owner: u64) {
-        if let Some((who, roots)) = &mut self.lock().coverage
+        let inner = &mut *self.lock();
+        if let Some((who, roots)) = &mut inner.coverage
             && *who == Some(owner)
         {
             *who = None;
             roots.clear();
+            inner.lists.clear();
         }
     }
 }
@@ -251,13 +325,29 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         cur = commits[i].parents.first().copied();
     }
 
+    // WIP placement (spec §8.6): the open worktree's WIP is "now", row 0, whatever the dates of
+    // the commits below it; every other worktree's WIP docks directly above its HEAD commit,
+    // several on one commit stacked by worktree name.
+    let here = canonical(workdir);
+    let mut current_wip = None;
     let mut wip_by_head: HashMap<usize, Vec<usize>> = HashMap::new();
     for (k, (wt, _)) in wip.iter().enumerate() {
-        if let Some(&ci) = worktrees[*wt].head.and_then(|h| index.get(&h)) {
+        let w = &worktrees[*wt];
+        let Some(&ci) = w.head.and_then(|h| index.get(&h)) else { continue };
+        if current_wip.is_none() && canonical(&w.path) == here {
+            current_wip = Some(k);
+        } else {
             wip_by_head.entry(ci).or_default().push(k);
         }
     }
+    for stack in wip_by_head.values_mut() {
+        stack.sort_by_cached_key(|&k| {
+            let p = &worktrees[wip[k].0].path;
+            (p.file_name().map(|f| f.to_os_string()), p.clone())
+        });
+    }
     let mut entries = Vec::with_capacity(commits.len() + wip.len());
+    entries.extend(current_wip.map(Entry::Wip));
     let mut row_of_commit = vec![0u32; commits.len()];
     for (ci, slot) in row_of_commit.iter_mut().enumerate() {
         for &k in wip_by_head.get(&ci).map(Vec::as_slice).unwrap_or(&[]) {
@@ -267,10 +357,17 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         entries.push(Entry::Commit(ci));
     }
 
+    // The topmost WIP on the pinned tip rides the trunk's lane 0: nothing else is pinned above
+    // the tip, so its dashed line runs down lane 0 into the tip (any other WIP on that commit
+    // takes its own lane).
+    let head_of = |k: usize| index[&worktrees[wip[k].0].head.expect("filtered")];
+    let pinned_wip = entries.iter().find_map(|e| match *e {
+        Entry::Wip(k) if Some(commits[head_of(k)].id) == pinned_tip && pinned.contains(&head_of(k)) => Some(k),
+        _ => None,
+    });
     let nodes: Vec<LayoutNode> = entries
         .iter()
-        .enumerate()
-        .map(|(row, e)| match e {
+        .map(|e| match e {
             Entry::Commit(ci) => {
                 let c = &commits[*ci];
                 LayoutNode {
@@ -279,15 +376,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                     pinned: pinned.contains(ci),
                 }
             }
-            Entry::Wip(k) => {
-                let head_ci = index[&worktrees[wip[*k].0].head.expect("filtered")];
-                let directly_above = row_of_commit[head_ci] as usize == row + 1;
-                LayoutNode {
-                    parents: vec![Parent::Row(row_of_commit[head_ci])],
-                    kind: NodeKind::Wip,
-                    pinned: directly_above && Some(commits[head_ci].id) == pinned_tip && pinned.contains(&head_ci),
-                }
-            }
+            Entry::Wip(k) => LayoutNode { parents: vec![Parent::Row(row_of_commit[head_of(*k)])], kind: NodeKind::Wip, pinned: pinned_wip == Some(*k) },
         })
         .collect();
     let lay = layout(&nodes);
@@ -348,6 +437,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                             modified: counts.modified,
                             added: counts.added,
                             deleted: counts.deleted,
+                            renamed: counts.renamed,
                             conflicted: counts.conflicted,
                         }),
                     }
@@ -369,6 +459,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
             unborn: refs.head.unborn,
         },
         truncated: walked.truncated,
+        open_worktree: worktrees.iter().find(|w| !w.bare && !w.prunable && canonical(&w.path) == here).map(|w| w.path.display().to_string()),
     };
     Ok((payload, texts))
 }
@@ -508,6 +599,29 @@ mod tests {
 
     /// A watched-only cache (a repo handle's) reuses an entry only for a worktree its watcher
     /// covers, and only while that watcher's coverage stands.
+    /// K44: kept lists stand in for a `fileList` only while covered and computed from the status
+    /// held now; uncovering drops them.
+    #[test]
+    fn kept_wip_lists_are_fresh_only_while_covered_and_current() {
+        let c = WipCache::watched_only();
+        let a = tempfile::tempdir().unwrap();
+        let root = a.path().canonicalize().unwrap();
+        let empty = || FileListPayload { files: vec![], added: 0, deleted: 0, version: None };
+        let e = WipEntry::from_raw(b"? a\0");
+        c.put(&root, c.stamp(), e);
+        c.put_lists(&root, WipLists::new(1, e.digest, empty(), empty()));
+        assert!(c.fresh_lists(&root).is_none(), "not covered");
+        c.cover(1, HashSet::from([root.clone()]));
+        let l = c.fresh_lists(&root).expect("covered and current");
+        assert_eq!(l.staged.version.as_deref(), Some(l.version.as_str()));
+        c.put(&root, c.stamp(), WipEntry::from_raw(b""));
+        assert!(c.fresh_lists(&root).is_none(), "computed from an older status");
+        c.put(&root, c.stamp(), e);
+        assert!(c.fresh_lists(&root).is_some());
+        c.uncover(1);
+        assert!(c.fresh_lists(&root).is_none() && c.lists(&root).is_none(), "dropped with the coverage");
+    }
+
     #[test]
     fn a_watched_only_cache_reuses_covered_worktrees_only() {
         let c = WipCache::watched_only();
@@ -534,10 +648,10 @@ mod tests {
 
         let kinds: Vec<NodeKind> = g.rows.iter().map(|x| x.kind).collect();
         use NodeKind::*;
-        assert_eq!(kinds, vec![Stash, Wip, Commit, Wip, Merge, Commit, Commit, Commit, Commit, Commit]);
+        assert_eq!(kinds, vec![Wip, Stash, Wip, Commit, Merge, Commit, Commit, Commit, Commit, Commit]);
         let summaries: Vec<&str> = g.rows.iter().map(|x| x.summary.as_str()).collect();
-        assert_eq!(summaries[0], "On main: Experiment");
-        assert_eq!(summaries[2], "Hotfix: null check");
+        assert_eq!(summaries[1], "On main: Experiment");
+        assert_eq!(summaries[3], "Hotfix: null check");
         assert_eq!(summaries[4], "Merge branch 'feature/login'");
         assert_eq!(g.pinned_ref.as_deref(), Some("refs/remotes/origin/main"));
 
@@ -548,7 +662,7 @@ mod tests {
         for s in ["Login form", "Login validation", "Hotfix: null check", "On main: Experiment"] {
             assert_ne!(lane(s), 0, "{s} is off-trunk");
         }
-        assert_eq!(g.rows[3].lane, 0, "main's WIP row sits directly above the pinned tip");
+        assert_eq!(g.rows[0].lane, 0, "main's WIP row is row 0, on the pinned trunk lane down to its HEAD (the pinned tip)");
         assert!(!g.truncated);
         assert!(g.head.branch.as_deref() == Some("refs/heads/main") && !g.head.unborn);
     }
@@ -558,15 +672,15 @@ mod tests {
         let r = TestRepo::new();
         fixtures::basic(&r);
         let g = build(&r, BuildOptions::default()).await;
-        let hotfix = g.rows[1].wip.as_ref().unwrap();
+        let hotfix = g.rows[2].wip.as_ref().unwrap();
         assert_eq!(hotfix.worktree_name.as_deref(), Some("wt-hotfix"));
         assert_eq!(hotfix.modified, 1);
-        assert!(g.rows[1].id.starts_with("wip:"));
-        assert_eq!(g.rows[1].parents, vec![g.rows[2].id.clone()]);
-        let main = g.rows[3].wip.as_ref().unwrap();
+        assert!(g.rows[2].id.starts_with("wip:"));
+        assert_eq!(g.rows[2].parents, vec![g.rows[3].id.clone()]);
+        let main = g.rows[0].wip.as_ref().unwrap();
         assert_eq!(main.worktree_name, None);
         assert_eq!(main.modified, 1);
-        let out: Vec<_> = g.rows[1].segments.iter().map(|&s| crate::graph::Segment::unpack(s)).filter(|s| s.half == crate::graph::Half::Bottom).collect();
+        let out: Vec<_> = g.rows[2].segments.iter().map(|&s| crate::graph::Segment::unpack(s)).filter(|s| s.half == crate::graph::Half::Bottom).collect();
         assert!(!out.is_empty() && out.iter().all(|s| s.dashed), "WIP outgoing segments are dashed");
     }
 
@@ -672,52 +786,148 @@ mod tests {
         insta::assert_snapshot!(build(&r, BuildOptions::default()).await.ascii());
     }
 
-    /// A second worktree, detached at main's HEAD (the pinned tip), with an uncommitted change.
-    fn add_second_worktree_at_main_head(r: &TestRepo) -> std::path::PathBuf {
-        let p = r.root().join("wt-second");
+    /// A linked worktree `name`, detached at main's HEAD (the pinned tip), with an uncommitted change.
+    fn add_worktree_at_main_head(r: &TestRepo, name: &str) -> std::path::PathBuf {
+        let p = r.root().join(name);
         r.git(&["worktree", "add", "-q", "--detach", p.to_str().unwrap(), "main"]);
-        std::fs::write(p.join("file_2.txt"), "second worktree change\n").expect("write worktree file");
+        std::fs::write(p.join("file_2.txt"), "linked worktree change\n").expect("write worktree file");
         p
     }
 
+    fn wip_name(row: &RowPayload) -> Option<&str> {
+        row.wip.as_ref().expect("a WIP row").worktree_name.as_deref()
+    }
+
+    fn unpacked(row: &RowPayload) -> Vec<crate::graph::Segment> {
+        row.segments.iter().map(|&s| crate::graph::Segment::unpack(s)).collect()
+    }
+
+    /// The WIP's dashed line runs unbroken from its row down into `head`'s row: a dashed Full
+    /// segment on one lane through every row between (the layout's continuity check covers the
+    /// rest).
+    fn assert_dashed_line(g: &GraphPayload, wip: usize, head: usize) {
+        use crate::graph::Half;
+        let out = unpacked(&g.rows[wip]);
+        let start = out.iter().find(|s| s.half == Half::Bottom).expect("the WIP's outgoing segment");
+        assert!(start.dashed);
+        let lane = start.to_lane;
+        for r in wip + 1..head {
+            assert!(unpacked(&g.rows[r]).iter().any(|s| s.half == Half::Full && s.from_lane == lane && s.dashed), "row {r}: the WIP's dashed lane {lane} passes through");
+        }
+        assert!(unpacked(&g.rows[head]).iter().any(|s| s.half == Half::Top && s.from_lane == lane && s.dashed), "the dashed lane ends in the HEAD commit");
+    }
+
     #[tokio::test]
-    async fn stacked_wip_rows_only_the_lowest_is_pinned() {
+    async fn current_worktree_wip_is_row_0_when_head_is_not_the_newest_commit() {
+        // HEAD (`feature`, F) is older than main's three commits and the stash: its WIP is still
+        // row 0, "now", with a dashed line down to F.
+        let r = TestRepo::new();
+        r.commit("base");
+        r.switch_new("feature");
+        r.commit("F");
+        r.switch("main");
+        r.commit("M1");
+        r.commit("M2");
+        r.stash("newer stash");
+        r.commit("M3");
+        r.switch("feature");
+        r.write("file_1.txt", "dirty\n");
+        let g = build(&r, BuildOptions::default()).await;
+        let summaries: Vec<&str> = g.rows.iter().map(|x| x.summary.as_str()).collect();
+        assert_eq!(summaries, ["// WIP", "M3", "On main: newer stash", "M2", "M1", "F", "base"]);
+        assert_eq!(wip_name(&g.rows[0]), None);
+        assert_eq!(g.rows[0].parents, [g.rows[5].id.clone()]);
+        assert_dashed_line(&g, 0, 5);
+    }
+
+    #[tokio::test]
+    async fn current_worktree_wip_is_row_0_above_a_newer_remote_tip() {
+        // origin/main is ahead of the checked-out main: the WIP is row 0 anyway, and not pinned
+        // (its HEAD isn't the pinned tip), so the trunk keeps lane 0.
+        let r = TestRepo::new();
+        r.commit("base");
+        r.add_origin();
+        r.commit("M");
+        r.push("main");
+        r.git(&["remote", "set-head", "origin", "main"]);
+        r.commit("O");
+        r.push("main");
+        r.git(&["reset", "-q", "--hard", "HEAD~1"]);
+        r.write("file_0.txt", "dirty\n");
+        let g = build(&r, BuildOptions::default()).await;
+        let summaries: Vec<&str> = g.rows.iter().map(|x| x.summary.as_str()).collect();
+        assert_eq!(summaries, ["// WIP", "O", "M", "base"]);
+        assert_eq!(g.rows[1].lane, 0, "origin/main's tip is on the pinned lane");
+        assert_ne!(g.rows[0].lane, 0, "the WIP isn't on the trunk lane: its HEAD isn't the pinned tip");
+        assert_dashed_line(&g, 0, 2);
+    }
+
+    #[tokio::test]
+    async fn linked_worktree_wip_docks_above_its_head_and_the_opened_worktree_is_row_0() {
+        // basic: wt-hotfix's WIP sits directly above `Hotfix: null check`, main's WIP is row 0.
         let r = TestRepo::new();
         fixtures::basic(&r);
-        add_second_worktree_at_main_head(&r);
+        let g = build(&r, BuildOptions::default()).await;
+        let hotfix = g.rows.iter().position(|x| x.summary == "Hotfix: null check").unwrap();
+        assert_eq!(wip_name(&g.rows[hotfix - 1]), Some("wt-hotfix"));
+        assert_eq!(wip_name(&g.rows[0]), None);
+        assert_dashed_line(&g, hotfix - 1, hotfix);
+
+        // Opened from the linked worktree, the roles swap: its WIP is row 0, main's docks above
+        // main's HEAD (the merge, where it is the topmost WIP on the pinned tip: lane 0).
+        let wt = r.root().join("wt-hotfix");
+        let repo = gix::ThreadSafeRepository::open(&wt).unwrap();
+        let g = build_graph(repo, wt.clone(), cli(), BuildOptions::default()).await.unwrap();
+        let summaries: Vec<&str> = g.rows.iter().take(5).map(|x| x.summary.as_str()).collect();
+        assert_eq!(summaries, ["// WIP", "On main: Experiment", "Hotfix: null check", "// WIP", "Merge branch 'feature/login'"]);
+        assert_eq!(wip_name(&g.rows[0]), Some("wt-hotfix"));
+        assert_eq!(wip_name(&g.rows[3]), None);
+        assert_eq!(g.rows[3].lane, 0);
+        assert_dashed_line(&g, 0, 2);
+        assert_eq!(g.open_worktree.as_deref(), Some(g.rows[0].wip.as_ref().unwrap().worktree_path.as_str()), "the open worktree, spelled as its WIP row's");
+    }
+
+    #[tokio::test]
+    async fn open_worktree_is_reported_clean_or_dirty() {
+        let r = TestRepo::new();
+        r.commit("base");
+        let g = build(&r, BuildOptions::default()).await;
+        assert!(g.rows.iter().all(|x| x.kind != NodeKind::Wip), "clean");
+        assert_eq!(g.open_worktree.as_deref().map(|p| canonical(Path::new(p))), Some(canonical(r.path())));
+        r.write("file_0.txt", "dirty\n");
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!(g.open_worktree.as_deref(), Some(g.rows[0].wip.as_ref().unwrap().worktree_path.as_str()));
+    }
+
+    #[tokio::test]
+    async fn worktrees_on_one_commit_current_on_top_others_stacked_by_name() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        // Created out of name order: the stack is by name all the same.
+        add_worktree_at_main_head(&r, "wt-zeta");
+        add_worktree_at_main_head(&r, "wt-alpha");
 
         let g = build(&r, BuildOptions::default()).await;
-        let merge_idx = g.rows.iter().position(|x| x.summary == "Merge branch 'feature/login'").unwrap();
-        assert!(merge_idx >= 2, "two WIP rows must stack above the merge");
+        let merge = g.rows.iter().position(|x| x.summary == "Merge branch 'feature/login'").unwrap();
+        assert_eq!(wip_name(&g.rows[0]), None, "the open worktree's WIP is row 0");
+        assert_eq!([wip_name(&g.rows[merge - 2]), wip_name(&g.rows[merge - 1])], [Some("wt-alpha"), Some("wt-zeta")]);
+        assert_eq!(g.rows.iter().filter(|x| x.kind == NodeKind::Wip).count(), 4, "plus wt-hotfix's");
 
-        let upper = &g.rows[merge_idx - 2];
-        let lower = &g.rows[merge_idx - 1];
-        assert_eq!(upper.kind, NodeKind::Wip, "row directly above the lower WIP must also be a WIP");
-        assert_eq!(lower.kind, NodeKind::Wip, "row directly above the merge must be a WIP");
-
-        // One of the two stacked rows belongs to the new worktree, the other to the main one.
-        let names = [upper.wip.as_ref().unwrap().worktree_name.as_deref(), lower.wip.as_ref().unwrap().worktree_name.as_deref()];
-        assert!(names.contains(&Some("wt-second")));
-        assert!(names.contains(&None));
-
-        assert_eq!(lower.lane, 0, "the WIP directly above the pinned merge is pinned to lane 0");
-        assert_ne!(upper.lane, 0, "the WIP one row further up is not directly above the pinned tip, so it isn't pinned");
-
-        // The upper WIP's own dashed lane must pass through the lower WIP row as a continuous
-        // (Full, dashed) segment: this is the ':' the ascii renderer draws.
-        let passes_through = lower
-            .segments
-            .iter()
-            .map(|&s| crate::graph::Segment::unpack(s))
-            .any(|s| s.half == crate::graph::Half::Full && s.from_lane == upper.lane && s.dashed);
-        assert!(passes_through, "the upper WIP's dashed lane must pass through the lower WIP row");
+        // The topmost WIP on the pinned tip (row 0) rides lane 0 down to it; the docked ones
+        // take their own lanes, which converge on the merge.
+        assert_eq!(g.rows[0].lane, 0);
+        assert_dashed_line(&g, 0, merge);
+        for w in [merge - 2, merge - 1] {
+            assert_ne!(g.rows[w].lane, 0);
+            assert_dashed_line(&g, w, merge);
+        }
     }
 
     #[tokio::test]
     async fn snapshot_stacked_wip_rows() {
         let r = TestRepo::new();
         fixtures::basic(&r);
-        add_second_worktree_at_main_head(&r);
+        add_worktree_at_main_head(&r, "wt-second");
         insta::assert_snapshot!(build(&r, BuildOptions::default()).await.ascii());
     }
 
@@ -895,7 +1105,7 @@ mod tests {
             r.git(&["remote", "set-head", "origin", "main"]);
         }
         type Build = fn(&TestRepo);
-        let cases: [(&'static str, Build); 11] = [
+        let cases: [(&'static str, Build); 12] = [
             ("main behind origin/main, feature off origin/main", |r| {
                 with_origin(r);
                 r.commit("M");
@@ -1000,6 +1210,17 @@ mod tests {
                 r.push("topic");
                 r.switch("main");
                 r.git(&["branch", "-q", "-D", "topic"]);
+            }),
+            ("dirty feature checked out, older than pinned main", |r| {
+                // The WIP is row 0 ("now") above the newer M, its dashed lane down to F.
+                with_origin(r);
+                r.switch_new("feature");
+                r.commit("F");
+                r.switch("main");
+                r.commit("M");
+                publish_main(r);
+                r.switch("feature");
+                r.write("file_0.txt", "dirty\n");
             }),
         ];
         let mut out = Vec::new();

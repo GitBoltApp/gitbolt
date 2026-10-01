@@ -1,4 +1,4 @@
-import { Check, FolderOpen, Laptop, Tag } from 'lucide-react';
+import { Check, Laptop, Tag, TreePine } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
@@ -47,6 +47,11 @@ function SourceIcon({ tip, children }: { tip: ReactNode; children: ReactNode }) 
 
 /** A chip's inside. `compact` (Branch/Tag at its minimum, spec §8.4): icons only, no name; the
  * hover copy (`full`) is never compact, so hovering names the ref. */
+// Lucide's outline icons leave ~2/24 padding inside their box, while the brand marks fill theirs
+// edge to edge: at the same nominal size the laptop reads smaller than the GitLab mark. Outline
+// source icons go one step up so all source icons look the same size.
+export const SOURCE_OUTLINE = 14;
+
 function ChipContent({ label, full = false, compact = false }: { label: RefLabel; full?: boolean; compact?: boolean }) {
   return (
     <>
@@ -55,9 +60,9 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
       {label.tag && <Tag size={12} aria-label="tag" />}
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}
       {!(compact && !full) && <span className={full ? 'ref-name-full' : 'ref-name'}>{label.name}</span>}
-      {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={12} aria-label="local" /></SourceIcon>}
+      {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>}
       {label.remotes.map((r) => <SourceIcon key={r.fullName} tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} remote={r.remote} size={12} /></SourceIcon>)}
-      {label.worktree && <SourceIcon tip={`Checked out in ${label.worktree}`}><FolderOpen size={12} aria-label="checked out in another worktree" /></SourceIcon>}
+      {label.worktree && <SourceIcon tip={`Checked out in ${label.worktree}`}><TreePine size={SOURCE_OUTLINE} aria-label="checked out in another worktree" /></SourceIcon>}
     </>
   );
 }
@@ -140,7 +145,7 @@ function DimChip({ membership, onBranchHover }: { membership: BranchMembership; 
  * `.ref-dim-slot`, which gives up its width before the real chip does and drops the dimmed chip
  * whole when it doesn't fit (graph.css), so it never truncates or displaces a real chip.
  */
-export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, onContextMenu }: {
+export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, onContextMenu, line }: {
   labels: RefLabel[];
   color: number;
   membership?: BranchMembership | null;
@@ -149,6 +154,9 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   /** Right-clicking the row's own (first) label chip: the commit or tag menu for that branch or
    * tag (plan 1C Task 15). Not on the `+N` overflow badge or the dimmed membership chip. */
   onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void;
+  /** The connector's line, CSS px from the row's top: placed on the device pixel rows the canvas
+   * draws its half on (K57, pixels.ts connectorLine). Omitted: centred, 1 px (2 px for HEAD). */
+  line?: { top: number; height: number } | null;
 }) {
   if (labels.length === 0) return membership ? <span className="ref-labels"><DimChip membership={membership} onBranchHover={onBranchHover} /></span> : null;
   const c = GRAPH_COLORS[color % GRAPH_COLORS.length];
@@ -159,7 +167,7 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   return (
     // `--lane-color` is set here (not just on the chip) so `.ref-connector`, a sibling of the
     // chip, can read it too: it continues the connector drawn in the canvas (see draw.ts).
-    <span className={head ? 'ref-labels ref-labels-head' : 'ref-labels'} style={{ ['--lane-color' as string]: c }}>
+    <span className={head ? 'ref-labels ref-labels-head' : 'ref-labels'} style={{ ['--lane-color' as string]: c, ...(line && { ['--conn-top' as string]: `${line.top}px`, ['--conn-h' as string]: `${line.height}px` }) }}>
       <Chip
         color={c}
         className={`ref-label${head ? ' ref-label-head' : ''}${compact ? ' compact' : ''}`}

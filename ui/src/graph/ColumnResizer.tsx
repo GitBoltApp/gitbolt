@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
+import { onResetDoubleClick } from '../ui/resetHandle';
 import { handleRange, useColumnPrefs, type ColumnWidths, type ResizableColumn } from './columns';
 
 /** Keyboard step, CSS px. */
@@ -48,6 +49,7 @@ export function ColumnResizer({ col, name, cols, available, graphMax }: Props) {
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (e.key === 'Enter') { e.preventDefault(); store().resetWidth(col); return; }
     if (!dir) return;
     e.preventDefault();
     const s = store();
@@ -67,6 +69,7 @@ export function ColumnResizer({ col, name, cols, available, graphMax }: Props) {
       tabIndex={0}
       className="col-resizer end"
       data-testid={`resize-${col}`}
+      {...onResetDoubleClick(() => { drag.current = null; store().endResize(); store().resetWidth(col); })}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={end}

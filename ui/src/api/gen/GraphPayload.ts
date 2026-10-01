@@ -3,4 +3,10 @@ import type { HeadPayload } from "./HeadPayload";
 import type { RefLabel } from "./RefLabel";
 import type { RowPayload } from "./RowPayload";
 
-export type GraphPayload = { rows: Array<RowPayload>, labels: Array<RefLabel>, maxLanes: number, pinnedRef: string | null, head: HeadPayload, truncated: boolean, };
+export type GraphPayload = { rows: Array<RowPayload>, labels: Array<RefLabel>, maxLanes: number, pinnedRef: string | null, head: HeadPayload, truncated: boolean, 
+/**
+ * The open worktree (the one this tab opened), spelled as its WIP row's
+ * `WipPayload::worktree_path` would be, dirty or not: what "Compare with working tree"
+ * targets. Absent if it isn't among `git worktree list`'s usable ones.
+ */
+openWorktree?: string, };

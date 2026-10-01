@@ -17,6 +17,8 @@ export interface FindState {
   query: string;
   /** Matching commit ids, in graph order. */
   matches: string[];
+  /** `matches`' row indexes in the graph, parallel to it (ascending): a jump is `rowIndexes[i]`, no lookup. */
+  rowIndexes: number[];
   /** The current match (`matches[index]`, the selected row); -1 for none. */
   index: number;
   /** The path search is still running: its matches merge in when it answers. */
@@ -29,7 +31,7 @@ export interface FindState {
   focusRequest: number;
 }
 
-const CLOSED: FindState = { open: false, query: '', matches: [], index: -1, pathPending: false, older: null, olderLoading: false, message: null, focusRequest: 0 };
+const CLOSED: FindState = { open: false, query: '', matches: [], rowIndexes: [], index: -1, pathPending: false, older: null, olderLoading: false, message: null, focusRequest: 0 };
 /** Spec §8.7 / plan constants. */
 export const DEBOUNCE_MS = 50;
 export const PATH_MIN_CHARS = 2;
@@ -75,22 +77,25 @@ export function closeFind(tabId: string): void {
 }
 
 /** `ids` in the tab's graph order (one pass over the rows). */
-function ordered(tabId: string, ids: Iterable<string>): string[] {
+function ordered(tabId: string, ids: Iterable<string>): { matches: string[]; rowIndexes: number[] } {
   const rows = tabStore(tabId)?.getState().graph.rows ?? [];
   const want = new Set(ids);
-  return rows.filter((r) => want.has(r.id)).map((r) => r.id);
+  const matches: string[] = [];
+  const rowIndexes: number[] = [];
+  for (let i = 0; i < rows.length; i++) if (want.has(rows[i].id)) { matches.push(rows[i].id); rowIndexes.push(i); }
+  return { matches, rowIndexes };
 }
 
 /**
  * Shows `matches`: the current match stays current if it's still one; otherwise the first match
  * becomes current and, when `select`, is selected (scrolled to). Their dimming goes to the store.
  */
-function show(tabId: string, matches: string[], select: boolean): void {
+function show(tabId: string, { matches, rowIndexes }: { matches: string[]; rowIndexes: number[] }, select: boolean): void {
   const cur = get(tabId);
   const was = cur.index >= 0 ? cur.matches[cur.index] : undefined;
   const keep = was === undefined ? -1 : matches.indexOf(was);
   const index = matches.length ? (keep >= 0 ? keep : 0) : -1;
-  patch(tabId, { matches, index });
+  patch(tabId, { matches, rowIndexes, index });
   tabStore(tabId)?.getState().setFilterKeep(new Set(matches));
   if (select && index >= 0 && index !== keep) selectCommit(tabId, matches[index]);
 }
@@ -127,7 +132,7 @@ async function run(tabId: string, q: string, seq: number, select: boolean): Prom
   const live = () => seqs.get(tabId) === seq;
   if (repo === undefined || !q) {
     if (live()) {
-      patch(tabId, { matches: [], index: -1, pathPending: false });
+      patch(tabId, { matches: [], rowIndexes: [], index: -1, pathPending: false });
       tabStore(tabId)?.getState().setFilterKeep(null);
     }
     return;
@@ -156,9 +161,9 @@ async function run(tabId: string, q: string, seq: number, select: boolean): Prom
       if (!(await deepen(tabId, loc.limit, live))) return;
       const again = await api.findText(repo, q);
       if (!live()) return;
-      const matches = ordered(tabId, [...again, sha]);
+      const { matches, rowIndexes } = ordered(tabId, [...again, sha]);
       const index = matches.indexOf(sha);
-      patch(tabId, { matches, index });
+      patch(tabId, { matches, rowIndexes, index });
       tabStore(tabId)?.getState().setFilterKeep(new Set(matches));
       if (index >= 0) selectCommit(tabId, sha);
     }
@@ -174,12 +179,22 @@ async function deepen(tabId: string, limit: number, live: () => boolean = () => 
   return live();
 }
 
+/**
+ * Next / previous match: O(1). The position moves first (the counter), then the selection to the
+ * precomputed row index: no row scan, no id lookup. If the rows were replaced and the rerun hasn't
+ * answered yet, the index may be stale: the id (a map lookup) is the fallback.
+ */
 export function stepFind(tabId: string, delta: 1 | -1): void {
   const s = get(tabId);
-  if (!s.matches.length) return;
-  const index = (s.index + delta + s.matches.length) % s.matches.length;
+  const n = s.matches.length;
+  if (!n) return;
+  const index = (s.index + delta + n) % n;
   patch(tabId, { index });
-  selectCommit(tabId, s.matches[index]);
+  const store = tabStore(tabId)?.getState();
+  if (!store) return;
+  const row = s.rowIndexes[index];
+  if (store.graph.rows[row]?.id === s.matches[index]) store.selectRow(row);
+  else selectCommit(tabId, s.matches[index]);
 }
 
 /** Spec §8.7 "Search older history": commits outside the window. */

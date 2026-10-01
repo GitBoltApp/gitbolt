@@ -2,7 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { registerKeys } from '../ui/keyRouter';
 import { hideTooltip, showTooltip } from '../ui/tooltipStore';
-import { useMenu } from './menuStore';
+import { pressedAnchor, useMenu } from './menuStore';
 import { placeMenu, placeSubmenu } from './position';
 import type { MenuRow, Variant } from './types';
 import './menu.css';
@@ -21,9 +21,9 @@ interface Level { rows: MenuRow[]; active: number; variant: number; left: number
 const ROW_H = 26;
 const PAD = 8;
 const SUB_W = 220;
-/** Hover intent: a submenu row opens its submenu after the pointer rests on it this long, so
- * brushing past doesn't flash it open. */
-export const SUBMENU_OPEN_MS = 100;
+/** Submenus open at once, on the same pointerenter/pointermove that reaches their row: no
+ * hover-intent timer (K29). The safe triangle below is for switching away from an open submenu,
+ * never for the first open. */
 /** Hover intent, the safe triangle: leaving a submenu's row, the pointer may cross the rows of
  * the parent level (a diagonal move into the submenu) while it stays inside the triangle from
  * where it left to the submenu's near edge. Resting that long inside it (no move) hands over to
@@ -93,8 +93,9 @@ export function remap(old: Level[], rows: MenuRow[]): Level[] {
 /**
  * Spec §7: the one menu element, always in the page, filled and positioned on open (at the
  * pointer, flipped at the screen edges).
- * - Submenus open on →, Enter or a click at once, and on hover with hover intent
- *   (SUBMENU_OPEN_MS, and the safe triangle, SUBMENU_GRACE_MS).
+ * - Submenus open on →, Enter, a click, or a hover — all at once, synchronously, positioned
+ *   before paint (K29). The safe triangle (SUBMENU_GRACE_MS) only delays switching away from an
+ *   already-open submenu, never the first open.
  * - Every row and variant shows its tooltip at once (`disabledReason` wins). A submenu row's
  *   own tooltip goes away while its submenu is open (it would cover it).
  * - Keys, taken at the window while the menu is open so no app shortcut (F7, Shift+↑/↓, Esc…)
@@ -122,11 +123,6 @@ export function ContextMenu() {
   const [levels, setLevels] = useState<Level[]>([]);
   const placedSeq = useRef(-1);
   const returnTo = useRef<HTMLElement | null>(null);
-  const intent = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const cancelIntent = () => {
-    clearTimeout(intent.current);
-    intent.current = undefined;
-  };
   // The safe triangle while the pointer heads for the open submenu below level `depth`, and
   // what to do once it's over (`pending`: the row the pointer crossed onto meanwhile).
   const grace = useRef<{ depth: number; tri: [Pt, Pt, Pt]; timer?: ReturnType<typeof setTimeout>; pending: (() => void) | null } | null>(null);
@@ -143,19 +139,11 @@ export function ContextMenu() {
     clearTimeout(g.timer);
     g.timer = setTimeout(() => endGrace(true), SUBMENU_GRACE_MS);
   };
-  const later = (ms: number, fn: () => void) => {
-    cancelIntent();
-    intent.current = setTimeout(() => {
-      intent.current = undefined;
-      fn();
-    }, ms);
-  };
 
   useLayoutEffect(() => {
     const el = rootRef.current;
     if (!rows || !el) {
       placedSeq.current = -1;
-      cancelIntent();
       setLevels([]);
       return;
     }
@@ -164,10 +152,10 @@ export function ContextMenu() {
       return;
     }
     placedSeq.current = seq;
-    cancelIntent();
     const focused = document.activeElement;
     if (!(focused instanceof HTMLElement && el.contains(focused))) returnTo.current = focused instanceof HTMLElement ? focused : null;
-    const { left, top } = placeMenu(x, y, { w: el.offsetWidth, h: el.offsetHeight }, viewport());
+    const anchor = useMenu.getState().anchor;
+    const { left, top } = placeMenu(x, y, { w: el.offsetWidth, h: el.offsetHeight }, viewport(), anchor?.isConnected ? anchor.getBoundingClientRect() : null);
     setLevels([{ rows, active: startIndex(rows, initialRow ?? undefined), variant: -1, left, top }]);
     el.focus({ preventScroll: true });
     window.__gbMenuLatency = performance.now() - useMenu.getState().openedAt;
@@ -187,8 +175,6 @@ export function ContextMenu() {
     });
   }, [levels]);
 
-  useEffect(() => () => cancelIntent(), []);
-
   // The latest key handler, for the window listener below.
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
 
@@ -200,7 +186,7 @@ export function ContextMenu() {
     // focuses whatever it hit) — so restore it, but only when it's still on the menu (not, say, a
     // pick's own focus move already in flight).
     const stillFocused = () => !!rootRef.current && rootRef.current.contains(document.activeElement);
-    const onDown = (e: PointerEvent) => { if (!inside(e.target)) dismiss(false); };
+    const onDown = (e: PointerEvent) => { if (!inside(e.target)) { pressedAnchor(e.target); dismiss(false); } };
     const onAway = () => dismiss(stillFocused());
     // K24: a window blur closes it only if the window stays unfocused (BLUR_SETTLE_MS): a press
     // under GNOME's window manager bounces the window focus (blur, then focus a few ms later).
@@ -256,7 +242,6 @@ export function ContextMenu() {
   }, [open]);
 
   function dismiss(restore: boolean) {
-    cancelIntent();
     endGrace(false);
     hideTooltip();
     const back = returnTo.current;
@@ -285,7 +270,6 @@ export function ContextMenu() {
   /** Opens the submenu of row `index` at `depth` now (kept as it is if it's already open). Its
    * row's tooltip goes: it would cover the submenu. */
   const openSub = (depth: number, index: number, anchor: HTMLElement) => {
-    cancelIntent();
     hideTooltip();
     setLevels((ls) => {
       const r = ls[depth]?.rows[index];
@@ -303,16 +287,14 @@ export function ContextMenu() {
     if (r.kind === 'submenu') {
       if (subOpenAt(depth, i)) {
         // Back on the open submenu's own row: keep it; no tooltip over it.
-        cancelIntent();
         hideTooltip();
         return;
       }
       tipRow(el, r);
-      later(SUBMENU_OPEN_MS, () => openSub(depth, i, el));
+      openSub(depth, i, el);
       return;
     }
     tipRow(el, r);
-    cancelIntent();
     if (levels.length > depth + 1) setLevels((ls) => ls.slice(0, depth + 1));
   };
 
@@ -346,7 +328,6 @@ export function ContextMenu() {
   /** The pointer reached submenu level `depth`: it stays open, its row active again. */
   const onLevelEnter = (depth: number) => {
     if (depth === 0) return;
-    cancelIntent();
     endGrace(false);
     setLevels((ls) => ls.slice(0, depth + 1).map((l, k) => (k === depth - 1 && ls[depth]?.parent !== undefined ? { ...l, active: ls[depth].parent!, variant: -1 } : l)));
   };
@@ -355,7 +336,6 @@ export function ContextMenu() {
     const depth = levels.length - 1;
     const lv = levels[depth];
     if (!lv) return;
-    cancelIntent();
     const row = lv.rows[lv.active];
     const set = (patch: Partial<Level>) => setLevels((ls) => ls.map((l, i) => (i === depth ? { ...l, ...patch } : l)));
     const moveTo = (active: number) => {

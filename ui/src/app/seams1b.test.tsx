@@ -43,10 +43,10 @@ describe('the 1B seams, through the tab\'s store (ruling R3)', () => {
     expect(result.current).toBe(false);
   });
 
-  it('startCompare: two commits (older = base), or a commit with the tab\'s worktree', () => {
+  it('startCompare: two commits (from → to, as a click then a Ctrl+click, K27), or a commit with the tab\'s worktree', () => {
     const store = register('t');
     expect(startCompare('t', 'c2', 'c1')).toBe(true);
-    expect(store.getState().selection).toEqual({ kind: 'compare', from: 'c1', to: 'c2' });
+    expect(store.getState().selection).toEqual({ kind: 'compare', from: 'c2', to: 'c1' });
     expect(startCompare('t', 'c1', 'worktree')).toBe(true);
     expect(store.getState().selection).toEqual({ kind: 'compareWorktree', from: 'c1', worktree: '/r' });
     expect(startCompare('t', 'nope', 'c1')).toBe(false);

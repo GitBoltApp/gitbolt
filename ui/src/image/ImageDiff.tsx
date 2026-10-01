@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { formatBytes } from '../diff/format';
 import { HoverTooltip } from '../ui/HoverTooltip';
+import { onResetDoubleClick } from '../ui/resetHandle';
 import { IMAGE_BACKGROUNDS, useImageBackground } from './background';
 import { drawDifference } from './difference';
 import type { ImageSource } from './sources';
 import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
+import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import './image.css';
 
 export type ImageMode = 'side' | 'swipe' | 'onion' | 'difference';
@@ -399,7 +401,11 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
                 if (e.key === 'Enter') { e.preventDefault(); commitZoom(); }
                 else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelZoom(); }
               }}
-              onBlur={commitZoom}
+              onBlur={(e) => {
+                // The WM's focus bounce on a press inside the field isn't leaving it (K41).
+                if (isWindowBlur()) return refocusWhenWindowReturns(e.currentTarget);
+                commitZoom();
+              }}
             />
           ) : (
             // K13: click to edit an exact %.
@@ -464,6 +470,7 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
                 aria-valuemax={100}
                 tabIndex={0}
                 className="swipe-divider"
+                {...onResetDoubleClick(() => setSwipe(MODE_START_PCT))}
                 style={{ left: `${swipePct}%` }}
                 // Never a pan (H27): the handle's own drag, and nothing reaches the viewport.
                 onPointerDown={(e) => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); }}
@@ -473,7 +480,8 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
                   moveSwipe(((e.clientX - r.left) / r.width) * 100);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'ArrowLeft') moveSwipe(Math.round(swipePct) - SWIPE_KEY_STEP);
+                  if (e.key === 'Enter') setSwipe(MODE_START_PCT);
+                  else if (e.key === 'ArrowLeft') moveSwipe(Math.round(swipePct) - SWIPE_KEY_STEP);
                   else if (e.key === 'ArrowRight') moveSwipe(Math.round(swipePct) + SWIPE_KEY_STEP);
                   else return;
                   e.preventDefault();

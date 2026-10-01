@@ -299,7 +299,60 @@ fn totals(files: Vec<FileChange>) -> FileListPayload {
     let deleted: u64 = files.iter().filter_map(|f| f.deletions).map(u64::from).sum();
     let added = u32::try_from(added).unwrap_or(u32::MAX);
     let deleted = u32::try_from(deleted).unwrap_or(u32::MAX);
-    FileListPayload { files, added, deleted }
+    FileListPayload { files, added, deleted, version: None }
+}
+
+/// A worktree's staged changes: index vs HEAD.
+async fn wip_staged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path) -> Result<Vec<FileChange>, GbError> {
+    let raw = run(cli, wt, diff_porcelain(&["-M", "--cached"])).await?;
+    changes(repo, raw, None).await
+}
+
+/// A worktree's unstaged changes (worktree vs index, minus stat-dirty phantoms) plus its
+/// untracked files, given that worktree's `git status` (`entries`). An untracked file in `reuse`
+/// takes that line count instead of being read.
+async fn wip_unstaged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path, entries: Vec<StatusEntry>, reuse: &HashMap<String, Option<u32>>) -> Result<Vec<FileChange>, GbError> {
+    let name = wt.to_string_lossy().into_owned();
+    let dirty = dirty_paths(&entries);
+    let raw = drop_phantom_stat_dirty(collapse_unmerged(run(cli, wt, diff_porcelain(&[])).await?), &dirty);
+    let mut files = changes(repo, raw, Some((wt.to_path_buf(), name.clone()))).await?;
+    let untracked: Vec<(StatusEntry, Option<Option<u32>>)> = entries.into_iter().filter(|e| e.kind == EntryKind::Untracked).map(|e| {
+        let known = reuse.get(&e.path).copied();
+        (e, known)
+    }).collect();
+    let wt = wt.to_path_buf();
+    files.extend(
+        off_runtime(move || {
+            untracked
+                .into_iter()
+                .map(|(e, known)| {
+                    let additions = known.unwrap_or_else(|| count_lines(&wt.join(&e.path)));
+                    FileChange {
+                        path: e.path,
+                        old_path: None,
+                        status: "A".into(),
+                        additions,
+                        deletions: additions.map(|_| 0),
+                        old: BlobSource::Absent,
+                        new: BlobSource::Worktree { worktree: name.clone() },
+                        submodule: false,
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .await?,
+    );
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+/// Both of a worktree's WIP lists, `(staged, unstaged)`, exactly as `file_list` gives them, from
+/// a status read already made (`entries`, the phantom filter's ground truth): what the watcher
+/// keeps for the active tab (K44). `reuse`: line counts already known for untracked files not
+/// written to since (by path). Read-only, like `file_list` (C1).
+pub async fn wip_lists(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path, entries: Vec<StatusEntry>, reuse: &HashMap<String, Option<u32>>) -> Result<(FileListPayload, FileListPayload), GbError> {
+    let (staged, unstaged) = futures_util::future::join(wip_staged(repo, cli, wt), wip_unstaged(repo, cli, wt, entries, reuse)).await;
+    Ok((totals(staged?), totals(unstaged?)))
 }
 
 pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: &Path, spec: &DiffSpec, worktree: Option<&Path>) -> Result<FileListPayload, GbError> {
@@ -338,43 +391,10 @@ pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: 
             let raw = drop_phantom_stat_dirty(raw, &dirty);
             changes(repo, raw, Some((wt.to_path_buf(), name))).await?
         }
-        DiffSpec::Wip { staged: true, .. } => {
-            let wt = resolved(worktree)?;
-            let raw = run(cli, wt, diff_porcelain(&["-M", "--cached"])).await?;
-            changes(repo, raw, None).await?
-        }
+        DiffSpec::Wip { staged: true, .. } => wip_staged(repo, cli, resolved(worktree)?).await?,
         DiffSpec::Wip { staged: false, .. } => {
             let wt = resolved(worktree)?;
-            let name = wt.to_string_lossy().into_owned();
-            let entries = status(cli, wt).await?;
-            let dirty = dirty_paths(&entries);
-            let raw = drop_phantom_stat_dirty(collapse_unmerged(run(cli, wt, diff_porcelain(&[])).await?), &dirty);
-            let mut files = changes(repo, raw, Some((wt.to_path_buf(), name.clone()))).await?;
-            let untracked: Vec<StatusEntry> = entries.into_iter().filter(|e| e.kind == EntryKind::Untracked).collect();
-            let wt = wt.to_path_buf();
-            files.extend(
-                off_runtime(move || {
-                    untracked
-                        .into_iter()
-                        .map(|e| {
-                            let additions = count_lines(&wt.join(&e.path));
-                            FileChange {
-                                path: e.path,
-                                old_path: None,
-                                status: "A".into(),
-                                additions,
-                                deletions: additions.map(|_| 0),
-                                old: BlobSource::Absent,
-                                new: BlobSource::Worktree { worktree: name.clone() },
-                                submodule: false,
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .await?,
-            );
-            files.sort_by(|a, b| a.path.cmp(&b.path));
-            files
+            wip_unstaged(repo, cli, wt, status(cli, wt).await?, &HashMap::new()).await?
         }
     };
     Ok(totals(files))
@@ -499,6 +519,21 @@ mod tests {
         assert_eq!(unstaged.files[0].new, worktree);
         assert!(matches!(unstaged.files[0].old, BlobSource::Object { .. }), "the unstaged old side is the index blob");
         assert_eq!((unstaged.files[1].status.as_str(), unstaged.files[1].additions, &unstaged.files[1].new), ("A", Some(1), &worktree));
+    }
+
+    /// The watcher passes the line counts it already has for untracked files nobody wrote to
+    /// since: those files aren't read again (a bogus count proves it); the others are.
+    #[tokio::test]
+    async fn wip_lists_reuse_the_given_untracked_counts() {
+        let (r, repo) = setup();
+        r.write("fresh.txt", "a\nb\nc\n");
+        let wt = r.path().canonicalize().unwrap();
+        let entries = status(&cli(), &wt).await.unwrap();
+        let reuse = HashMap::from([("notes.txt".to_string(), Some(99))]);
+        let (_, unstaged) = wip_lists(&repo, &cli(), &wt, entries, &reuse).await.unwrap();
+        let f = by_path(&unstaged);
+        assert_eq!(f["notes.txt"].additions, Some(99), "reused, not re-read");
+        assert_eq!(f["fresh.txt"].additions, Some(3), "counted");
     }
 
     #[tokio::test]

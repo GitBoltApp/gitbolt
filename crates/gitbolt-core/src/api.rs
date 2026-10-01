@@ -457,6 +457,19 @@ impl Api {
             }
             Request::FileList { repo, spec } => {
                 let h = self.handle(repo)?;
+                // The active tab's watcher keeps its worktrees' WIP lists (K44): no git process,
+                // and no worktree lookup either (only a watched worktree's lists are kept). A
+                // covered worktree's first read computes and keeps them.
+                if let DiffSpec::Wip { worktree, staged } = &spec
+                    && self.status_is_watched(repo)
+                    && h.wip.covered(Path::new(worktree))
+                {
+                    let lists = match h.wip.fresh_lists(Path::new(worktree)) {
+                        Some(l) => l,
+                        None => crate::watch::read_and_keep_lists(&h.repo, &self.cli, &h.wip, &Path::new(worktree).canonicalize()?).await?,
+                    };
+                    return to_json(if *staged { &*lists.staged } else { &*lists.unstaged });
+                }
                 let wt = match &spec {
                     DiffSpec::Worktree { worktree, .. } | DiffSpec::Wip { worktree, .. } => Some(self.worktree_dir(&h, worktree).await?),
                     DiffSpec::Commit { .. } | DiffSpec::Compare { .. } => None,
@@ -810,7 +823,7 @@ mod tests {
         assert_eq!(again["id"].as_u64().unwrap(), id, "same repo reuses its id");
         let graph = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}))).await.unwrap();
         assert_eq!(graph["rows"].as_array().unwrap().len(), 10);
-        assert_eq!(graph["rows"][0]["kind"], "stash");
+        assert_eq!(graph["rows"][0]["kind"], "wip", "the open worktree's WIP is row 0");
     }
 
     #[tokio::test]

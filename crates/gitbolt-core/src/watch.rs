@@ -23,7 +23,9 @@ use crate::api::{Api, RepoHandle};
 use crate::error::{GbError, GbErrorKind};
 use crate::events::{AppEvent, ChangeKind, EventBus};
 use crate::git::GitCli;
-use crate::snapshot::{WipCache, WipEntry};
+use crate::payload::BlobSource;
+use crate::diff::wip_lists;
+use crate::snapshot::{WipCache, WipEntry, WipLists};
 use crate::status::{parse_porcelain_v2, status_raw, EntryKind};
 use crate::worktree::{list_worktrees, Worktree};
 use notify::event::{AccessKind, AccessMode, EventKind, ModifyKind, RemoveKind, RenameMode};
@@ -234,19 +236,48 @@ fn changed_kinds(old: &GitState, new: &GitState) -> BTreeSet<ChangeKind> {
 }
 
 /// Test knobs (the defaults are production's).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Tuning {
     max_flat: usize,
     /// Act as if inotify's watch limit (ENOSPC) were this many watches.
     max_watches: Option<usize>,
     /// Queue an overflow after every status read, as a huge repo's own reads would.
     overflow_after_status: bool,
+    /// While set, the watcher's WIP-list computations fail.
+    fail_lists: Option<Arc<AtomicBool>>,
 }
 
 impl Default for Tuning {
     fn default() -> Self {
-        Self { max_flat: MAX_FLAT_DIRS, max_watches: None, overflow_after_status: false }
+        Self { max_flat: MAX_FLAT_DIRS, max_watches: None, overflow_after_status: false, fail_lists: None }
     }
+}
+
+/// Reads a watched worktree's status and WIP file lists and keeps them (K44): a `fileList` for a
+/// covered worktree whose lists aren't kept yet (they're computed lazily: `ready` never waits
+/// for numstat). Stamped before the status read, so it never replaces newer lists.
+pub(crate) async fn read_and_keep_lists(handle: &gix::ThreadSafeRepository, cli: &GitCli, wip: &WipCache, root: &Path) -> Result<WipLists, GbError> {
+    let stamp = wip.stamp();
+    let raw = status_raw(cli, root).await?;
+    let entry = WipEntry::from_raw(&raw);
+    wip.put(root, stamp, entry);
+    let (staged, unstaged) = wip_lists(handle, cli, root, parse_porcelain_v2(&raw), &HashMap::new()).await?;
+    let lists = WipLists::new(stamp, entry.digest, staged, unstaged);
+    wip.put_lists(root, lists.clone());
+    Ok(lists)
+}
+
+/// The line counts of `lists`' untracked files (unstaged additions with no old side, read from
+/// the worktree) not in `written`: `wip_lists` reuses them.
+fn untracked_counts(lists: &WipLists, written: Option<&BTreeSet<String>>) -> HashMap<String, Option<u32>> {
+    lists
+        .unstaged
+        .files
+        .iter()
+        .filter(|f| f.status == "A" && f.old == BlobSource::Absent && matches!(f.new, BlobSource::Worktree { .. }))
+        .filter(|f| written.is_none_or(|w| !w.contains(&f.path)))
+        .map(|f| (f.path.clone(), f.additions))
+        .collect()
 }
 
 /// The inotify watches actually in place.
@@ -330,9 +361,11 @@ fn relevant(kind: &EventKind) -> bool {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WatchSpec {
     pub repo: u32,
+    /// The repository, for the WIP file lists the watcher keeps (K44).
+    pub handle: gix::ThreadSafeRepository,
     /// Where `git worktree list` runs when the worktrees change.
     pub workdir: PathBuf,
     pub common_dir: PathBuf,
@@ -344,6 +377,9 @@ struct Batch {
     kinds: BTreeSet<ChangeKind>,
     /// Roots of the worktrees whose status must be re-read.
     status: BTreeSet<PathBuf>,
+    /// Per worktree root: the paths (relative, as status prints them) written in it. A write to
+    /// a path status already lists can change its WIP lists' line counts without changing status.
+    touched: HashMap<PathBuf, BTreeSet<String>>,
     /// The kernel queue overflowed: events were lost.
     overflow: bool,
     /// A linked worktree was added or removed (`<common>/worktrees/<name>`).
@@ -381,7 +417,13 @@ impl Batch {
                 if matches!(c.kind, ChangeKind::Worktree | ChangeKind::Index | ChangeKind::Head)
                     && let Some(i) = c.worktree
                 {
-                    self.status.insert(spec.worktrees[i].root.clone());
+                    let root = &spec.worktrees[i].root;
+                    self.status.insert(root.clone());
+                    if c.kind == ChangeKind::Worktree
+                        && let Ok(rel) = p.strip_prefix(root)
+                    {
+                        self.touched.entry(root.clone()).or_default().insert(rel.to_string_lossy().into_owned());
+                    }
                 }
             }
         }
@@ -539,6 +581,7 @@ fn launch(spec: WatchSpec, cli: GitCli, wip: Arc<WipCache>, bus: EventBus, h: Ha
         tuning,
         inject: h.tx,
         quiet_until: Instant::now(),
+        trusted: false,
     };
     tokio::spawn(state.run(h.rx, h.ready));
     Ok(())
@@ -566,6 +609,8 @@ struct Loop {
     inject: mpsc::UnboundedSender<notify::Event>,
     /// An overflow before this is the watcher's own doing (its status reads open every file).
     quiet_until: Instant,
+    /// The last `update_trust` covered the worktrees.
+    trusted: bool,
 }
 
 impl Loop {
@@ -577,7 +622,7 @@ impl Loop {
         // changed since the graph last read it (between that build and this watch starting).
         // Which of its files or index changed is unknown, so it reports both kinds.
         let all: BTreeSet<PathBuf> = self.roots().collect();
-        let changed = self.refresh_status(&all, true).await;
+        let changed = self.refresh_status(&all, true, &HashMap::new(), true).await;
         self.emit(BTreeSet::from([ChangeKind::Worktree, ChangeKind::Index]), changed);
         self.update_trust();
         self.quiet_until = Instant::now() + DEBOUNCE;
@@ -635,7 +680,7 @@ impl Loop {
         if batch.overflow {
             status.extend(self.roots());
         }
-        let mut changed = self.refresh_status(&status, false).await;
+        let mut changed = self.refresh_status(&status, false, &batch.touched, batch.overflow).await;
         let git_kinds = [ChangeKind::Refs, ChangeKind::Head, ChangeKind::Stash, ChangeKind::Config];
         if batch.overflow || git_kinds.iter().any(|k| kinds.contains(k)) {
             let (c, w) = (self.spec.common_dir.clone(), self.spec.worktrees.clone());
@@ -686,23 +731,67 @@ impl Loop {
     }
 
     /// Runs status for the worktrees `roots`, refreshing the cache and the untracked-directory
-    /// watches. Returns the canonical roots whose status changed: against this watcher's own last
-    /// read, or on the `first` pass, against the cache (what the graph last showed; a first read
-    /// of an uncached worktree isn't a change).
-    async fn refresh_status(&mut self, roots: &BTreeSet<PathBuf>, first: bool) -> BTreeSet<String> {
-        let (cli, wip) = (&self.cli, &self.wip);
+    /// watches, and their WIP file lists (K44) where they may have changed: none kept yet, the
+    /// status changed, a path status lists was written (`touched`), or `relist` (an overflow).
+    /// The `first` pass computes no lists (`ready` doesn't wait for numstat; the first read
+    /// does, `read_and_keep_lists`). Lists that can't be recomputed are dropped, never kept
+    /// stale. Returns the canonical roots whose status or lists changed: against this watcher's
+    /// own last read, or on the `first` pass, against the cache (what the graph last showed; a
+    /// first read of an uncached worktree isn't a change).
+    async fn refresh_status(&mut self, roots: &BTreeSet<PathBuf>, first: bool, touched: &HashMap<PathBuf, BTreeSet<String>>, relist: bool) -> BTreeSet<String> {
+        let (cli, wip, handle, fail) = (&self.cli, &self.wip, &self.spec.handle, &self.tuning.fail_lists);
         let reads = roots.iter().map(|root| async move {
             let stamp = wip.stamp();
-            (root, stamp, status_raw(cli, root).await)
+            let res = status_raw(cli, root).await;
+            // `None`: not recomputed. `Some(Err)`: recomputing failed.
+            let mut lists = None;
+            if let Ok(raw) = &res
+                && !first
+            {
+                let digest = WipEntry::from_raw(raw).digest;
+                let entries = parse_porcelain_v2(raw);
+                let prev = wip.lists(root);
+                let touched = touched.get(root);
+                let written = touched.is_some_and(|t| entries.iter().any(|e| t.contains(&e.path) || e.orig_path.as_ref().is_some_and(|o| t.contains(o))));
+                if relist || written || prev.as_ref().is_none_or(|p| p.digest != digest) {
+                    // After an overflow, which files were written is unknown: count them all.
+                    let reuse = match &prev {
+                        Some(p) if !relist => untracked_counts(p, touched),
+                        _ => HashMap::new(),
+                    };
+                    let res = if fail.as_ref().is_some_and(|f| f.load(Ordering::SeqCst)) {
+                        Err(GbError::other("test: WIP lists fail"))
+                    } else {
+                        wip_lists(handle, cli, root, entries, &reuse).await
+                    };
+                    lists = Some(res.map(|(staged, unstaged)| (prev.map(|p| p.version), WipLists::new(stamp, digest, staged, unstaged))));
+                }
+            }
+            (root, stamp, res, lists)
         });
         let mut changed = BTreeSet::new();
-        for (root, stamp, res) in futures_util::future::join_all(reads).await {
+        for (root, stamp, res, lists) in futures_util::future::join_all(reads).await {
             match res {
                 Ok(raw) => {
                     let entry = WipEntry::from_raw(&raw);
                     let before = self.wip.put(root, stamp, entry);
                     let differs = if first { before.is_some_and(|b| b.digest != entry.digest) } else { self.digests.get(root) != Some(&entry.digest) };
-                    if differs {
+                    let relisted = match lists {
+                        Some(Ok((prev, next))) => {
+                            let moved = prev.is_some_and(|v| v != next.version);
+                            self.wip.put_lists(root, next);
+                            moved
+                        }
+                        Some(Err(e)) => {
+                            tracing::warn!("WIP file lists failed for {}: {e}", root.display());
+                            // Kept, they could still match the (unchanged) status: drop them.
+                            let held = self.wip.lists(root).is_some();
+                            self.wip.drop_lists(root);
+                            held
+                        }
+                        None => false,
+                    };
+                    if differs || (relisted && !first) {
                         changed.insert(root.display().to_string());
                     }
                     self.digests.insert(root.clone(), entry.digest);
@@ -744,15 +833,21 @@ impl Loop {
     }
 
     /// Covers the current worktrees in the status cache, or withdraws coverage while degraded
-    /// (or stopped).
-    fn update_trust(&self) {
+    /// (or stopped). Becoming degraded reports every worktree changed, so the UI drops the WIP
+    /// lists it held (K44): changes may now go unseen.
+    fn update_trust(&mut self) {
         let degraded = self.watches.full || self.truncated;
         self.shared.degraded.store(degraded, Ordering::SeqCst);
-        if degraded || self.stop.is_cancelled() {
-            self.wip.uncover(self.shared.serial);
-        } else {
+        let trusted = !degraded && !self.stop.is_cancelled();
+        if trusted {
             self.wip.cover(self.shared.serial, self.roots().collect());
+        } else {
+            self.wip.uncover(self.shared.serial);
+            if self.trusted {
+                self.emit(BTreeSet::from([ChangeKind::Worktree, ChangeKind::Index]), self.roots().map(|r| r.display().to_string()).collect());
+            }
         }
+        self.trusted = trusted;
     }
 
     /// `repoChanged`, minus `worktree`/`index` unless some worktree's status changed. Nothing is
@@ -765,7 +860,9 @@ impl Loop {
         if kinds.is_empty() || self.stop.is_cancelled() {
             return;
         }
-        self.bus.emit(AppEvent::RepoChanged { repo: self.spec.repo, kinds: kinds.into_iter().collect(), worktrees: changed.into_iter().collect() });
+        // The lists' versions, where they're current and covered (a degraded watch has none).
+        let versions = changed.iter().filter_map(|w| Some((w.clone(), self.wip.fresh_lists(Path::new(w))?.version))).collect();
+        self.bus.emit(AppEvent::RepoChanged { repo: self.spec.repo, kinds: kinds.into_iter().collect(), worktrees: changed.into_iter().collect(), versions });
     }
 }
 
@@ -776,7 +873,7 @@ impl Api {
         let (repo, workdir) = (h.repo.clone(), h.workdir.clone());
         tokio::task::spawn_blocking(move || {
             let common_dir = repo.to_thread_local().common_dir().canonicalize()?;
-            Ok(WatchSpec { repo: id, workdir, common_dir, worktrees: watched_worktrees(&list) })
+            Ok(WatchSpec { repo: id, handle: repo, workdir, common_dir, worktrees: watched_worktrees(&list) })
         })
         .await
         .map_err(|e| GbError::other(format!("watcher setup failed: {e}")))?
@@ -1396,5 +1493,229 @@ mod tests {
         gather(notify::Event::new(EventKind::Any), &mut rx, &CancellationToken::new()).await.unwrap();
         assert_eq!(start.elapsed(), DEBOUNCE);
         drop(tx);
+    }
+
+    async fn file_list(api: &Api, id: u32, wt: &str, staged: bool) -> serde_json::Value {
+        call(api, serde_json::json!({"method": "fileList", "params": {"repo": id, "spec": {"kind": "wip", "worktree": wt, "staged": staged}}})).await
+    }
+
+    fn paths(list: &serde_json::Value) -> Vec<String> {
+        list["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_string()).collect()
+    }
+
+    /// The id of the last git process run (the command log's), to tell whether a call ran any.
+    fn last_git(api: &Api) -> Option<u64> {
+        api.cli.log().entries().last().map(|e| e.id)
+    }
+
+    /// The index's bytes and mtime: what C1 says no read may change.
+    fn index_state(r: &TestRepo) -> (Vec<u8>, std::time::SystemTime) {
+        let p = r.path().join(".git/index");
+        (std::fs::read(&p).unwrap(), std::fs::metadata(&p).unwrap().modified().unwrap())
+    }
+
+    async fn change_naming(rx: &mut broadcast::Receiver<AppEvent>, wt: &str) -> std::collections::BTreeMap<String, String> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(AppEvent::RepoChanged { worktrees, versions, .. }) = rx.recv().await
+                    && worktrees.iter().any(|w| w == wt)
+                {
+                    return versions;
+                }
+            }
+        })
+        .await
+        .expect("a repoChanged naming the worktree")
+    }
+
+    /// K44: once watched, the WIP lists come from the watcher's cache (no git process, and a
+    /// version the UI may hold), and are recomputed when the worktree changes: the event carries
+    /// the new version, the next read has it and the new file, and the index is never written.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_watcher_keeps_the_wip_lists_and_refreshes_them_on_change() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let index = index_state(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let wt = canonical(r.path());
+        // The first read (the UI's read-ahead) computes and keeps them; the next ones are served.
+        file_list(&api, id, &wt, false).await;
+        let before = last_git(&api);
+        let unstaged = file_list(&api, id, &wt, false).await;
+        let staged = file_list(&api, id, &wt, true).await;
+        assert_eq!(last_git(&api), before, "served from the kept lists: no git process");
+        assert_eq!(paths(&unstaged), vec!["file_1.txt"]);
+        assert!(paths(&staged).is_empty());
+        let v1 = unstaged["version"].as_str().expect("a version").to_string();
+        assert_eq!(staged["version"], unstaged["version"], "both lists share their version");
+
+        r.write("brand-new.txt", "a\nb\n");
+        let versions = change_naming(&mut rx, &wt).await;
+        let v2 = versions.get(&wt).expect("the event carries the lists' version").clone();
+        assert_ne!(v1, v2);
+        let before = last_git(&api);
+        let unstaged = file_list(&api, id, &wt, false).await;
+        assert_eq!(last_git(&api), before, "refreshed before the event: still no git process");
+        assert_eq!(paths(&unstaged), vec!["brand-new.txt", "file_1.txt"]);
+        assert_eq!(unstaged["version"], v2.as_str());
+        assert_eq!(index_state(&r), index, "the watcher's lists never write the index (C1)");
+    }
+
+    /// Writing again to a file that's already modified leaves status alone but changes its line
+    /// counts: the lists are recomputed and reported.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rewriting_a_modified_file_refreshes_its_counts() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let wt = canonical(r.path());
+        let count = |l: &serde_json::Value| l["files"][0]["additions"].as_u64().unwrap();
+        let first = file_list(&api, id, &wt, false).await;
+        r.write("file_1.txt", "main change\nmore\nand more\n");
+        let versions = change_naming(&mut rx, &wt).await;
+        let next = file_list(&api, id, &wt, false).await;
+        assert_eq!(next["version"].as_str(), versions.get(&wt).map(String::as_str));
+        assert!(count(&next) > count(&first), "{first} → {next}");
+    }
+
+    /// A stat-dirty but unchanged tracked file (mtime bumped) while watched: no event, never
+    /// listed, and the index untouched (C1).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_stat_dirty_file_is_not_listed_by_the_kept_lists() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let index = index_state(&r);
+        let wt = canonical(r.path());
+        let f = std::fs::File::open(r.path().join("file_0.txt")).unwrap();
+        f.set_modified(f.metadata().unwrap().modified().unwrap() + Duration::from_secs(120)).unwrap();
+        r.write("other.txt", "x\n"); // a real change, so a refresh certainly runs
+        change_naming(&mut rx, &wt).await;
+        let unstaged = file_list(&api, id, &wt, false).await;
+        assert_eq!(paths(&unstaged), vec!["file_1.txt", "other.txt"]);
+        assert_eq!(index_state(&r), index);
+    }
+
+    /// Linked worktrees' lists are kept too.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn linked_worktree_lists_are_kept_while_watched() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, _rx) = watched(&r).await;
+        let wt = canonical(&r.root().join("wt-hotfix"));
+        let first = file_list(&api, id, &wt, false).await;
+        assert!(first["version"].is_string(), "a watched worktree's lists are kept from the first read");
+        let before = last_git(&api);
+        let list = file_list(&api, id, &wt, false).await;
+        assert_eq!(last_git(&api), before);
+        assert_eq!(paths(&list), vec!["file_0.txt"]);
+        assert_eq!(list["version"], first["version"]);
+    }
+
+    /// An edit in a linked worktree: a new version for it, in the event and the next read.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_linked_worktree_edit_bumps_its_version() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let dir = r.root().join("wt-hotfix");
+        let wt = canonical(&dir);
+        let v1 = file_list(&api, id, &wt, false).await["version"].as_str().unwrap().to_string();
+        std::fs::write(dir.join("added.txt"), "x\n").unwrap();
+        let versions = change_naming(&mut rx, &wt).await;
+        let v2 = versions.get(&wt).expect("the linked worktree's new version").clone();
+        assert_ne!(v1, v2);
+        let before = last_git(&api);
+        let list = file_list(&api, id, &wt, false).await;
+        assert_eq!(last_git(&api), before);
+        assert_eq!(list["version"], v2.as_str());
+        assert_eq!(paths(&list), vec!["added.txt", "file_0.txt"]);
+    }
+
+    /// `ready` doesn't wait for any worktree's file lists (numstat on a big repo): they're
+    /// computed on the first read, or by the watcher once a worktree changes.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ready_does_not_wait_for_the_wip_lists() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, _rx) = watched(&r).await;
+        let h = api.handle(id).unwrap();
+        assert!(h.wip.lists(r.path()).is_none() && h.wip.lists(&r.root().join("wt-hotfix")).is_none());
+    }
+
+    /// The lists can't be recomputed after a write to a file status already lists (so status,
+    /// and the digest the old lists match, didn't change): they're dropped and the worktree is
+    /// reported, never served stale.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_relist_drops_the_lists_and_reports_the_worktree() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let fail = Arc::new(AtomicBool::new(false));
+        let (api, id, mut rx) = watched_tuned(&r, Tuning { fail_lists: Some(fail.clone()), ..Default::default() }).await;
+        let wt = canonical(r.path());
+        let first = file_list(&api, id, &wt, false).await;
+        assert!(first["version"].is_string());
+        fail.store(true, Ordering::SeqCst);
+        r.write("file_1.txt", "main change\nmore\nand more\n");
+        let versions = change_naming(&mut rx, &wt).await;
+        assert!(!versions.contains_key(&wt), "no lists kept, so no version: {versions:?}");
+        assert!(api.handle(id).unwrap().wip.lists(r.path()).is_none(), "the stale lists are dropped");
+        let next = file_list(&api, id, &wt, false).await;
+        assert!(next["files"][0]["additions"].as_u64().unwrap() > first["files"][0]["additions"].as_u64().unwrap(), "read anew: {next}");
+    }
+
+    /// Unwatched, or watched but degraded: the lists are read on request, with no version (the
+    /// UI must not hold them).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unwatched_or_degraded_lists_are_read_on_request_without_a_version() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, _rx) = watched(&r).await;
+        let wt = canonical(r.path());
+        call(&api, serde_json::json!({"method": "unwatchRepo", "params": {"repo": id}})).await;
+        let before = last_git(&api);
+        let list = file_list(&api, id, &wt, false).await;
+        assert_ne!(last_git(&api), before, "read on request");
+        assert_eq!(paths(&list), vec!["file_1.txt"]);
+        assert!(list.get("version").is_none());
+
+        let (api, id, _rx) = watched_tuned(&r, Tuning { max_watches: Some(3), ..Default::default() }).await;
+        let list = file_list(&api, id, &wt, false).await;
+        assert_eq!(paths(&list), vec!["file_1.txt"]);
+        assert!(list.get("version").is_none(), "degraded: no version");
+    }
+
+    /// A watch that becomes degraded (here: new untracked folders past the flat-watch cap)
+    /// reports every worktree changed, with no versions, so the UI drops what it held.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn becoming_degraded_reports_every_worktree() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let roots = [canonical(r.path()), canonical(&r.root().join("wt-hotfix"))];
+        let cap = {
+            let api = api();
+            let id = call(&api, serde_json::json!({"method": "openRepo", "params": {"path": r.path()}})).await["id"].as_u64().unwrap() as u32;
+            let spec = api.watch_spec(id, &api.handle(id).unwrap()).await.unwrap();
+            plan(&spec.common_dir, &spec.worktrees).flat.len() + 2
+        };
+        let (api, id, mut rx) = watched_tuned(&r, Tuning { max_flat: cap, ..Default::default() }).await;
+        assert!(api.status_is_watched(id));
+        for i in 0..5 {
+            r.write(&format!("new{i}/x.txt"), "x\n");
+        }
+        let (worktrees, versions) = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(AppEvent::RepoChanged { worktrees, versions, .. }) = rx.recv().await
+                    && worktrees.len() == 2
+                {
+                    return (worktrees, versions);
+                }
+            }
+        })
+        .await
+        .expect("every worktree reported");
+        assert!(!api.status_is_watched(id));
+        assert_eq!(worktrees.into_iter().collect::<BTreeSet<_>>(), roots.into_iter().collect());
+        assert!(versions.is_empty());
     }
 }

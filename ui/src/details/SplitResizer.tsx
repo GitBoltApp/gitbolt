@@ -1,5 +1,6 @@
 import { useRef, type RefObject } from 'react';
 import { SPLIT } from './detailsSplit';
+import { onResetDoubleClick } from '../ui/resetHandle';
 
 /**
  * The horizontal drag handle between the commit's header+message and its file list (feedback
@@ -14,13 +15,16 @@ import { SPLIT } from './detailsSplit';
  * run once, at the end of the gesture; a key press is a single discrete step, so it goes straight
  * through both.
  */
-export function SplitResizer({ ratio, bounds, height, onChange, onCommit, targetRef }: {
+export function SplitResizer({ ratio, bounds, height, onChange, onCommit, targetRef, defaultRatio = SPLIT.default, label = 'Resize commit details', step = SPLIT.step }: {
   ratio: number;
   bounds: [number, number];
   height: number;
   onChange: (r: number) => void;
   onCommit: (r: number) => void;
   targetRef: RefObject<HTMLElement | null>;
+  defaultRatio?: number;
+  label?: string;
+  step?: number;
 }) {
   const drag = useRef<{ id: number; y: number; live: number; raf: number | null } | null>(null);
   const clamp = (r: number) => Math.max(bounds[0], Math.min(bounds[1], r));
@@ -43,12 +47,13 @@ export function SplitResizer({ ratio, bounds, height, onChange, onCommit, target
     <div
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Resize commit details"
+      aria-label={label}
       aria-valuenow={Math.round(ratio * 100)}
       aria-valuemin={Math.round(bounds[0] * 100)}
       aria-valuemax={Math.round(bounds[1] * 100)}
       tabIndex={0}
       className="split-resizer"
+      {...onResetDoubleClick(() => { drag.current = null; key(clamp(defaultRatio)); })}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault(); // no text selection while dragging
@@ -70,10 +75,11 @@ export function SplitResizer({ ratio, bounds, height, onChange, onCommit, target
       onPointerCancel={(e) => { if (drag.current?.id === e.pointerId) end(true); }}
       onLostPointerCapture={(e) => { if (drag.current?.id === e.pointerId) end(true); }}
       onKeyDown={(e) => {
-        if (e.key === 'ArrowDown') key(clamp(ratio + SPLIT.step));
-        else if (e.key === 'ArrowUp') key(clamp(ratio - SPLIT.step));
+        if (e.key === 'ArrowDown') key(clamp(ratio + step));
+        else if (e.key === 'ArrowUp') key(clamp(ratio - step));
         else if (e.key === 'Home') key(bounds[0]);
         else if (e.key === 'End') key(bounds[1]);
+        else if (e.key === 'Enter') key(clamp(defaultRatio));
         else return;
         e.preventDefault();
       }}

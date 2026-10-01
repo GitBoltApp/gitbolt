@@ -1,4 +1,6 @@
 import { expect, test, type Page } from './test';
+import type { Browser } from '@playwright/test';
+import { devicePx } from '../src/graph/pixels';
 import { SHORT_SHA_LEN } from '../src/format/sha';
 import { allocateColumns, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_MAX } from '../src/graph/columns';
 import { graphLayout, RAIL_W, SHADE_W } from '../src/graph/draw';
@@ -15,12 +17,21 @@ test.describe('commit graph', () => {
 
   test('renders every row of the basic fixture with labels and WIP rows', async ({ page }) => {
     const rows = page.getByRole('row');
+    // In the graph: the sidebar lists the same branches, worktrees and tags.
+    const grid = page.getByRole('grid', { name: 'Commit graph' });
     await expect(rows).toHaveCount(10);
-    await expect(page.getByText("Merge branch 'feature/login'")).toBeVisible();
-    await expect(page.getByText('// WIP')).toHaveCount(2);
-    await expect(page.getByText('wt-hotfix')).toBeVisible();
+    await expect(grid.getByText("Merge branch 'feature/login'")).toBeVisible();
+    await expect(grid.getByText('// WIP')).toHaveCount(2);
+    await expect(grid.getByText('wt-hotfix')).toBeVisible();
+    // The open worktree's WIP is row 0 ("now"), though the stash and the hotfix are newer than
+    // its HEAD; wt-hotfix's docks right above its HEAD (K37).
+    const gridRows = grid.getByRole('row');
+    await expect(gridRows.nth(0)).toContainText('// WIP');
+    await expect(gridRows.nth(0)).not.toContainText('wt-hotfix');
+    await expect(gridRows.nth(2)).toContainText('wt-hotfix');
+    await expect(gridRows.nth(3)).toContainText('Hotfix: null check');
     await expect(rows.nth(4).getByText('main', { exact: true })).toBeVisible();
-    await expect(page.getByText('v1.0')).toBeVisible();
+    await expect(grid.getByText('v1.0')).toBeVisible();
     await expect(page).toHaveTitle('GitBolt — repo');
   });
 
@@ -150,11 +161,12 @@ test.describe('commit graph', () => {
     await head.click();
     await page.mouse.move(5, 5);
     expect(await style()).toEqual(rest);
-    // The check: ~1.4x the 12 px icons.
+    // The check: ~1.4x the 12 px icons. The laptop is an outline icon, one step up (14 px, K45)
+    // so it reads the same size as the filled brand marks.
     const check = (await head.locator('[aria-label="HEAD"]').boundingBox())!;
     expect(check.width).toBe(17);
     expect(check.height).toBe(17);
-    expect((await head.locator('[aria-label="local"]').boundingBox())!.width).toBe(12);
+    expect((await head.locator('[aria-label="local"]').boundingBox())!.width).toBe(14);
     // The connector, DOM and canvas: 2 px, the full lane colour.
     const connector = head.locator('.ref-connector');
     expect(await connector.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
@@ -170,13 +182,48 @@ test.describe('commit graph', () => {
 
   test('keyboard navigation moves the selection', async ({ page }) => {
     const rows = page.getByRole('row');
-    await rows.nth(0).click();
+    await rows.nth(0).locator('[data-col="author"]').click();
     await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('ArrowDown');
     await expect(rows.nth(2)).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('Home');
     await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('multi-select (K27): Shift+click and Shift+↑/↓ select a range from the anchor, Ctrl+click toggles rows, all highlighted', async ({ page }) => {
+    const grid = page.getByRole('grid', { name: 'Commit graph' });
+    const rows = grid.getByRole('row');
+    const selected = grid.locator('[role="row"][aria-selected="true"]');
+    const indexes = async () => Promise.all((await selected.all()).map(async (r) => Number(await r.getAttribute('aria-rowindex')) - 1));
+    await rows.nth(3).click();
+    await rows.nth(6).click({ modifiers: ['Shift'] });
+    await expect(selected).toHaveCount(4);
+    expect(await indexes()).toEqual([3, 4, 5, 6]);
+    await expect(page.getByTestId('multi-count')).toHaveText('4 commits selected');
+    // Shift+↑ from the keyboard position (row 6) shrinks the range toward the anchor (row 3).
+    await page.keyboard.press('Shift+ArrowUp');
+    await page.keyboard.press('Shift+ArrowUp');
+    expect(await indexes()).toEqual([3, 4]);
+    await expect(page.getByTestId('compare-header')).toBeVisible();
+    // Past the anchor, the range turns around it.
+    await page.keyboard.press('Shift+ArrowUp');
+    await page.keyboard.press('Shift+ArrowUp');
+    await expect(selected).toHaveCount(2);
+    expect(await indexes()).toEqual([2, 3]);
+    // Ctrl+click adds rows, and removes a selected one.
+    await rows.nth(8).click({ modifiers: ['Control'] });
+    await expect(selected).toHaveCount(3);
+    await rows.nth(2).locator('[data-col="author"]').click({ modifiers: ['Control'] });
+    expect(await indexes()).toEqual([3, 8]);
+    // Shift+Ctrl+click adds a range from the anchor (row 8, Ctrl+clicked last).
+    await rows.nth(6).click({ modifiers: ['Control', 'Shift'] });
+    await expect(selected).toHaveCount(4);
+    expect(await indexes()).toEqual([3, 6, 7, 8]);
+    // A plain arrow goes back to a single selection.
+    await page.keyboard.press('ArrowDown');
+    await expect(selected).toHaveCount(1);
+    expect(await indexes()).toEqual([7]);
   });
 
   test('a chip stays expanded over its forge (remote) icon, whose tooltip names the remote and branch (F4, F9, H12)', async ({ page }) => {
@@ -387,6 +434,33 @@ test('label connector survives a very long branch name and a second label', asyn
   if (!connBox || !canvasBox) throw new Error('missing bounding box for connector or canvas');
   expect(connBox.width).toBeGreaterThanOrEqual(8);
   expect(Math.abs(connBox.x + connBox.width - canvasBox.x)).toBeLessThanOrEqual(0.5);
+});
+
+test('K63: a chip takes the room its name needs: whole in a wide enough Branch/Tag column, ellipsized in a narrow one', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 800 });
+  await page.goto(openUrl(fixtures.longLabels));
+  await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+  const chip = page.locator('.ref-labels > .ref-label').first();
+  const name = chip.locator('.ref-name');
+  const truncated = () => name.evaluate((el) => el.scrollWidth > el.clientWidth);
+  const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+  // The default width (200): the long name is cut, with an ellipsis.
+  expect(await truncated()).toBe(true);
+  expect(await name.evaluate((el) => getComputedStyle(el).textOverflow)).toBe('ellipsis');
+  // Widened: the chip grows past the old 170 px cap until the whole name shows.
+  await handle.focus();
+  for (let i = 0; i < 120 && (await truncated()); i++) await page.keyboard.press('ArrowRight');
+  expect(await truncated()).toBe(false);
+  expect((await chip.boundingBox())!.width).toBeGreaterThan(400);
+  await expect(name).toHaveText(/extremely-long-branch-name.*commit-graph-ui$/);
+  // The "+1" badge and the connector keep their places, the connector still meets the canvas.
+  await expect(page.locator('.ref-more')).toHaveText('+1');
+  const [conn, canvas] = await Promise.all([page.locator('.ref-connector').first().boundingBox(), page.getByTestId('graph-canvas').boundingBox()]);
+  expect(conn!.width).toBeGreaterThanOrEqual(8);
+  expect(Math.abs(conn!.x + conn!.width - canvas!.x)).toBeLessThanOrEqual(0.5);
+  // Narrowed again: ellipsized again.
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
+  expect(await truncated()).toBe(true);
 });
 
 test.describe('hover polish', () => {
@@ -784,6 +858,17 @@ async function columnWidths(page: Page) {
   }, [...COLS]);
 }
 
+/** Sizes the window so the graph's own scroll viewport (the grid's clientWidth, what the smart
+ * fit allocates) is `width` px wide: the sidebar and the rest of the shell keep their widths. */
+async function sizeGrid(page: Page, width: number) {
+  const grid = page.getByRole('grid', { name: 'Commit graph' });
+  await expect(grid).toBeVisible();
+  const vp = page.viewportSize()!;
+  const shell = vp.width - (await grid.evaluate((el) => el.clientWidth));
+  await page.setViewportSize({ width: shell + width, height: vp.height });
+  await expect.poll(() => grid.evaluate((el) => el.clientWidth)).toBe(width);
+}
+
 test.describe('resizable columns', () => {
   test('label connector still meets the canvas at a non-default Branch/Tag width (drag and keyboard)', async ({ page }) => {
     await page.goto(openUrl(fixtures.basic));
@@ -830,12 +915,12 @@ test.describe('resizable columns', () => {
     expect(w).toBeCloseTo(before - 16, 0);
   });
 
-  for (const viewport of [{ width: 1400, height: 700 }, { width: 800, height: 700 }]) {
-    test(`smart fit at ${viewport.width}px: header and rows share the allocated widths`, async ({ page }) => {
-      await page.setViewportSize(viewport);
+  for (const width of [1400, 800]) {
+    test(`smart fit in a ${width}px graph: header and rows share the allocated widths`, async ({ page }) => {
+      await page.setViewportSize({ width: 1400, height: 700 });
       await page.goto(openUrl(fixtures.basic));
       const grid = page.getByRole('grid', { name: 'Commit graph' });
-      await expect(grid).toBeVisible();
+      await sizeGrid(page, width);
       const clientWidth = await grid.evaluate((el) => el.clientWidth);
       const graphW = (await page.getByTestId('graph-canvas').boundingBox())!.width;
       const expected = allocateColumns({ ...DEFAULT_COLUMN_PREFS, graph: graphW }, clientWidth);
@@ -845,7 +930,7 @@ test.describe('resizable columns', () => {
         expect(got[c].cell, `${c} cell`).toBeCloseTo(expected[c], 0);
         expect(got[c].headerX, `${c} x`).toBeCloseTo(got[c].cellX, 0);
       }
-      if (viewport.width === 1400) {
+      if (width === 1400) {
         // Plenty of room: Author and Date keep their preferred widths and Message flexes.
         expect(expected.author).toBe(DEFAULT_COLUMN_PREFS.author);
         expect(expected.date).toBe(DEFAULT_COLUMN_PREFS.date);
@@ -882,7 +967,8 @@ test.describe('resizable columns', () => {
     await grid.evaluate((el) => { el.scrollLeft = 90; });
     // Wait for the scroll to reach the header (React re-renders from the scroll event).
     await expect.poll(async () => { const w = await columnWidths(page); return Math.round(w.message.headerX - w.message.cellX); }).toBe(0);
-    expect((await columnWidths(page)).labels.cellX).toBeLessThan(0);
+    // Branch/Tag has scrolled out past the grid's left edge (the sidebar sits left of it).
+    expect((await columnWidths(page)).labels.cellX).toBeLessThan((await grid.boundingBox())!.x);
     const got = await columnWidths(page);
     for (const c of COLS) expect(got[c].headerX, `${c} x after scroll`).toBeCloseTo(got[c].cellX, 0);
     const [canvasBox, graphCell] = await Promise.all([page.getByTestId('graph-canvas').boundingBox(), page.getByRole('row').nth(4).locator('[data-col="graph"]').boundingBox()]);
@@ -979,10 +1065,10 @@ test.describe('resizable columns', () => {
   });
 
   test('squeezed Author/Date: the handle under the pointer moves 1:1, and walls hold', async ({ page }) => {
-    // At 800 px Message is at its minimum and Author/Date are squeezed below their preferences.
-    await page.setViewportSize({ width: 800, height: 700 });
+    // In an 800 px graph Message is at its minimum and Author/Date are squeezed below their preferences.
+    await page.setViewportSize({ width: 1400, height: 700 });
     await page.goto(openUrl(fixtures.basic));
-    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+    await sizeGrid(page, 800);
     const w = async () => columnWidths(page);
     const start = await w();
     expect(start.message.cell).toBeCloseTo(COLUMN_MIN.message, 0);
@@ -1294,5 +1380,117 @@ test.describe('branch-hover focus (J22)', () => {
     await expect(cell).not.toHaveClass(/row-dim/);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     expect(await timing()).toBe('color 0s ease-in 0s');
+  });
+
+  test('double-clicking a column handle resets that column to its default width (K73)', async ({ page }) => {
+    const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+    await handle.focus();
+    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowLeft');
+    const narrowed = Number(await handle.getAttribute('aria-valuenow'));
+    expect(narrowed).toBeLessThan(DEFAULT_COLUMN_PREFS.labels);
+    await handle.dblclick();
+    await expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_COLUMN_PREFS.labels));
+  });
+});
+
+// K50/K57, on the painted pixels at the zooms the app runs at. The app zoom is CEF's page zoom:
+// layout in zoomed px (snapped to device px) and window.devicePixelRatio = the zoom (on a 1x
+// screen). Root CSS zoom with devicePixelRatio set to match reproduces that here (a context's
+// deviceScaleFactor doesn't: it snaps boxes to CSS px and resamples them). Under it, client rects
+// and screenshots are both in device px.
+test.describe('device-pixel precision at every zoom and density (K50, K57)', () => {
+  const ZOOMS = [1, 1.1, 1.2, 1.25];
+  const openAt = async (browser: Browser, zoom: number, density: string) => {
+    const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+    const page = await context.newPage();
+    await page.addInitScript(([k, v, z]) => {
+      localStorage.setItem(k, v);
+      Object.defineProperty(window, 'devicePixelRatio', { get: () => Number(z) });
+    }, [DENSITY_STORAGE_KEY, density, String(zoom)] as const);
+    await page.goto(openUrl(fixtures.basic));
+    await expect(page.locator('.graph-row .ref-connector').first()).toBeVisible();
+    await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, zoom);
+    // The canvas redrawn at the zoomed size: its backing store is its zoomed width in device px.
+    await expect.poll(() => page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement) => Math.abs(c.width - c.getBoundingClientRect().width))).toBeLessThan(1);
+    await page.mouse.move(1, 1);
+    return { context, page };
+  };
+
+  test('K50: the WIP lane\'s dashes and gaps are all the same whole number of device px, row after row', async ({ browser, browserName }) => {
+    test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
+    test.setTimeout(120_000);
+    for (const zoom of ZOOMS) {
+      for (const d of DENSITIES) {
+        const { context, page } = await openAt(browser, zoom, d);
+        const { rowH, laneW } = DENSITY_METRICS[d];
+        // Row 0 is the open worktree's WIP (lane 0); its dashed line runs down lane 0 into HEAD
+        // (main's row). Sampled down the line's middle device column, clear of both nodes.
+        const headRow = await page.getByRole('row').evaluateAll((rows) => rows.findIndex((r) => r.querySelector('.ref-labels-head')));
+        expect(headRow).toBeGreaterThan(1);
+        const runs = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, laneW, headRow, dpr]: number[]) => {
+          const r = rowH * 0.36;
+          const x = Math.floor(laneW * dpr);
+          const y0 = Math.ceil((rowH / 2 + r + 1) * dpr), y1 = Math.floor((headRow * rowH + rowH / 2 - r - 1) * dpr);
+          const col = c.getContext('2d')!.getImageData(x, y0, 1, y1 - y0).data;
+          const out: [boolean, number][] = [];
+          for (let i = 3; i < col.length; i += 4) {
+            const on = col[i] > 200;
+            if (out.length && out[out.length - 1][0] === on) out[out.length - 1][1]++;
+            else out.push([on, 1]);
+          }
+          // The first and last runs are cut by the sampled range.
+          return out.slice(1, -1);
+        }, [rowH, laneW, headRow, zoom]);
+        const label = `${d} at ${Math.round(zoom * 100)}%: ${JSON.stringify(runs)}`;
+        expect(runs.length, label).toBeGreaterThanOrEqual(6);
+        expect(runs.every(([, n]) => n === devicePx(3, zoom)), label).toBe(true);
+        await context.close();
+      }
+    }
+  });
+
+  test('K57: a connector covers the same device rows on both sides of the Branch/Tag and Graph boundary', async ({ browser, browserName }) => {
+    test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
+    test.setTimeout(120_000);
+    for (const zoom of ZOOMS) {
+      for (const d of DENSITIES) {
+        const { context, page } = await openAt(browser, zoom, d);
+        // Device px: the boundary's x, and each labelled row's span and whether it's HEAD's.
+        const { x, rows } = await page.evaluate(() => ({
+          x: Math.round(document.querySelector('canvas.graph-canvas')!.getBoundingClientRect().left),
+          rows: [...document.querySelectorAll('.graph-row')].filter((r) => r.querySelector('.ref-connector')).map((r) => {
+            const b = r.getBoundingClientRect();
+            return { y0: Math.ceil(b.top) + 1, y1: Math.floor(b.bottom) - 1, head: !!r.querySelector('.ref-labels-head') };
+          }),
+        }));
+        expect(rows.length).toBeGreaterThanOrEqual(3);
+        expect(rows.filter((r) => r.head)).toHaveLength(1);
+        const png = (await page.screenshot()).toString('base64');
+        // Per row, the inked device rows (over half the line's strength off the background) of a
+        // column 2 px left of the boundary (the DOM connector) and of one 2 px right of it (the
+        // canvas's), decoded in the page.
+        const ink = await page.evaluate(async ({ png, x, rows, m }) => {
+          const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+          const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!;
+          ctx.drawImage(img, 0, 0);
+          const { data, width } = ctx.getImageData(0, 0, img.width, img.height);
+          const px = (x: number, y: number) => data.subarray((y * width + x) * 4, (y * width + x) * 4 + 3);
+          const inked = (x: number, y0: number, y1: number) => {
+            const bg = px(x, y0);
+            const dist: number[] = [];
+            for (let y = y0; y < y1; y++) { const p = px(x, y); dist.push(Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2])); }
+            const max = Math.max(...dist);
+            return max < 20 ? [] : dist.map((v, i) => [y0 + i, v] as const).filter(([, v]) => v > max / 2).map(([y]) => y);
+          };
+          return rows.map((r) => ({ dom: inked(x - m, r.y0, r.y1), canvas: inked(x + m, r.y0, r.y1) }));
+        }, { png, x, rows, m: Math.round(2 * zoom) });
+        rows.forEach((r, i) => {
+          const label = `${d} at ${Math.round(zoom * 100)}%, row ${i}${r.head ? ' (HEAD)' : ''}: ${JSON.stringify(ink[i])}`;
+          expect(ink[i].dom, label).toHaveLength(devicePx(r.head ? 2 : 1, zoom));
+          expect(ink[i].canvas, label).toEqual(ink[i].dom);
+        });
+        await context.close();
+      }
+    }
   });
 });

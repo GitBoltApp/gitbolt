@@ -8,18 +8,18 @@ import type { RefLabel } from '../api/gen/RefLabel';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
 import { formatDate } from '../format/date';
-import { wipCountsText } from '../format/wip';
 import { Avatar } from '../avatars/Avatar';
 import { avatars } from '../avatars/avatarStore';
 import { buildMenu } from '../menu/registry';
 import { openContextMenu, openMenuAt, type MenuEventLike } from '../menu/menuStore';
+import { isEditableTarget } from '../ui/keys';
 import { useHoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { ColumnResizer } from './ColumnResizer';
 import './columnMenu';
 import type { ColumnTarget } from './columnMenu';
 import { allocateColumns, autoGraphWidth, handleShown, isCollapsed, lanesWidth, useColumnPrefs, type ColumnWidths, type HideableColumn } from './columns';
-import { graphLayout } from './draw';
+import { graphLayout, LINE_W } from './draw';
 import { GraphCanvas } from './GraphCanvas';
 import { HeaderCell } from './HeaderCell';
 import { HScroll, HSCROLL_H } from './HScroll';
@@ -27,21 +27,12 @@ import { labelsByRowOf, membershipOf } from './graphIndex';
 import { branchRows, type BranchMembership } from './membership';
 import { anchoredScrollTop } from './anchor';
 import { useGraphMetrics } from './metrics';
+import { connectorLine, useDevicePixelRatio } from './pixels';
 import { RefLabels } from './RefLabels';
+import { WipSummary } from './WipSummary';
 import { dimAllBut, ROW_DIM_CLASS, rowDimKindClass, strongerDim, useBranchFocus, type DimKind, type RowDim } from './rowDim';
 import './graph.css';
 import './extras.css';
-
-function WipSummary({ row }: { row: RowPayload }) {
-  const w = row.wip!;
-  return (
-    <>
-      <span className="wip-tag">// WIP</span>
-      {w.worktreeName && <span className="dim"> {w.worktreeName}</span>}
-      <span className="wip-counts"> {wipCountsText(w)}</span>
-    </>
-  );
-}
 
 /** The full commit message tooltip's rest delay: the one deliberately delayed tooltip (§8.4). */
 export const MESSAGE_TOOLTIP_DELAY_MS = 500;
@@ -64,7 +55,7 @@ const renderMessage = (m: CommitMessage) => (
  * themselves), and keyboard users read the selected commit's full message in the details panel
  * (§9.2).
  */
-function MessageCell({ row, width, messages, dim }: { row: RowPayload; width: number; messages?: CommitMessageCache; dim: string }) {
+function MessageCell({ row, repoId, width, messages, dim }: { row: RowPayload; repoId: string; width: number; messages?: CommitMessageCache; dim: string }) {
   const isWip = row.kind === 'wip';
   const { triggerProps, tooltip } = useHoverTooltip({
     delayMs: MESSAGE_TOOLTIP_DELAY_MS,
@@ -78,7 +69,7 @@ function MessageCell({ row, width, messages, dim }: { row: RowPayload; width: nu
   });
   return (
     <span role="gridcell" data-col="message" className={`col-msg${dim}`} style={{ width }} {...triggerProps}>
-      {isWip ? <WipSummary row={row} /> : <><span className="msg-summary">{row.summary}</span>{row.bodyFirstLine && <span className="dim msg-body">{row.bodyFirstLine}</span>}</>}
+      {isWip ? <WipSummary row={row} repoId={repoId} /> : <><span className="msg-summary">{row.summary}</span>{row.bodyFirstLine && <span className="dim msg-body">{row.bodyFirstLine}</span>}</>}
       {tooltip}
     </span>
   );
@@ -96,7 +87,11 @@ export const AVATAR_OVERSCAN = 5;
 /** Graph nodes draw from the shared avatar cache (keyed by email). Module-level, so stable. */
 const avatarBitmap = (email: string) => avatars.get(email)?.bitmap ?? null;
 
-export type SelectMods = { ctrl: boolean };
+/** Row-click modifiers (K27): `ctrl` (Ctrl or ⌘) toggles the row, `shift` selects a range. */
+export type SelectMods = { ctrl: boolean; shift: boolean };
+
+const PLAIN: SelectMods = { ctrl: false, shift: false };
+const NO_SELECTED: ReadonlySet<number> = new Set();
 
 /** In the Branch/Tag cell only the chips (the membership chip too, J6) and the +N badge select
  * the row: a press on the empty space around them or on the connector stops here instead of
@@ -124,11 +119,15 @@ function AuthorAvatar({ name, email }: { name: string; email: string }) {
 
 interface GraphRowProps {
   row: RowPayload;
+  /** The repo's key (stable): a WIP row's draft summary is stored under it. */
+  repoId: string;
   index: number;
   start: number;
   /** The density's row height (H1). */
   rowH: number;
-  /** Selected, or one of a compare's two selected rows (K15). */
+  /** The device pixel ratio (the app zoom included): the connector is snapped to it (K57). */
+  dpr: number;
+  /** Selected: the keyboard's row, or any other row of a compare or multi-selection (K27). */
   selected: boolean;
   cols: ColumnWidths;
   labels: RefLabel[];
@@ -159,13 +158,16 @@ interface GraphRowProps {
  * the view and the canvas, not every row; a hover re-renders only the rows whose membership
  * chip appears or goes, and a branch focus (J22) only the rows whose `dimmed` changes.
  */
-const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu }: GraphRowProps) {
+const GraphRow = memo(function GraphRow({ row, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu }: GraphRowProps) {
   const isWip = row.kind === 'wip';
   // A column at its minimum collapses its cells too (spec §8.4): icon-only chips, the avatar only.
   const authorAvatar = isCollapsed('author', cols.author) && !isWip;
   // The row-dim mechanism's classes, on the text cells only (never the chips or the graph): the
   // shared motion class plus the level's own colour class.
   const dim = dimmed ? ` ${ROW_DIM_CLASS} ${rowDimKindClass(dimmed)}` : '';
+  // The chip-to-node connector's line, on the device pixel rows the canvas strokes it on (K57):
+  // the checked-out branch's is a graph line (J21), 2 px.
+  const line = labels.length > 0 ? connectorLine(start, rowH, labels[0].isHead ? LINE_W : 1, dpr) : null;
   return (
     <div
       id={graphRowId(row.id)}
@@ -176,7 +178,12 @@ const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, col
       // `top`, not `transform: translateY`: a transform would make each row its own
       // stacking context and trap the hover-expanded label chip under the canvas.
       style={{ top: start, height: rowH }}
-      onMouseDown={(e) => onSelect(index, { ctrl: e.ctrlKey || e.metaKey })}
+      // Modifiers apply to the primary button only (K27). Any other press (a right-click for the
+      // commit menu) keeps a selection this row is part of, else selects the row alone.
+      onMouseDown={(e) => {
+        if (e.button === 0) onSelect(index, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+        else if (!selected) onSelect(index, PLAIN);
+      }}
       onMouseEnter={() => onHover(row.id, index, true)}
       onMouseLeave={() => onHover(row.id, index, false)}
       onContextMenu={isWip ? undefined : (e) => onContextMenu?.(e, row)}
@@ -190,12 +197,13 @@ const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, col
             membership={membership}
             onBranchHover={onBranchHover}
             compact={isCollapsed('labels', cols.labels)}
+            line={line && { top: line.top - start, height: line.height }}
             onContextMenu={onLabelContextMenu && ((label, e) => onLabelContextMenu(e, row, label))}
           />
         </span>
       )}
       <span role="gridcell" data-col="graph" style={{ width: cols.graph }} />
-      <MessageCell row={row} width={cols.message} messages={messages} dim={dim} />
+      <MessageCell row={row} repoId={repoId} width={cols.message} messages={messages} dim={dim} />
       {cols.author > 0 && (
         <span role="gridcell" data-col="author" className={`col-author${authorAvatar ? ' col-author-avatar' : ''}${dim}`} style={{ width: cols.author }}>
           {authorAvatar ? <AuthorAvatar name={row.authorName} email={row.authorEmail} /> : row.authorName}
@@ -228,11 +236,12 @@ export interface GraphViewProps {
   messages?: CommitMessageCache;
   /** Controlled selection (plan 1B). Omitted: GraphView keeps its own, as in 1A. */
   selected?: number;
-  /** Called on a click (`ctrl`: Ctrl or ⌘ held) or a keyboard move. Keep it stable (rows are memoized). */
+  /** Called on a click (`ctrl`: Ctrl or ⌘ held; `shift`: Shift held) or a keyboard move (Shift+↑/↓:
+   * `shift`). Keep it stable (rows are memoized). */
   onSelect?: (index: number, mods: SelectMods) => void;
-  /** A second selected row, shown like `selected`: a compare's other commit (spec §9.4, K15).
-   * `selected` is the keyboard's position. -1 or omitted: none. */
-  alsoSelected?: number;
+  /** More selected rows, shown like `selected`: a compare's or multi-selection's (spec §9.4,
+   * K27). `selected` is the keyboard's position. Omitted: none. */
+  alsoSelected?: ReadonlySet<number>;
   /** Keys GraphView doesn't handle itself (→, Enter, …). Return true if handled. */
   onUnhandledKey?: (key: string) => boolean;
   /** The grid element, for focus-zone registration. */
@@ -250,7 +259,7 @@ export interface GraphViewProps {
   onLabelContextMenu?: (e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => void;
 }
 
-export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = -1, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu }: GraphViewProps) {
+export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = NO_SELECTED, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu }: GraphViewProps) {
   const ownRef = useRef<HTMLDivElement>(null);
   const scrollRef = gridRef ?? ownRef;
   // The last scroll offset while visible: restored when <Activity> shows the graph again
@@ -270,6 +279,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   // Display density (H1): row geometry for the rows, the virtualizer and the canvas. The cell
   // paddings and chip height are CSS variables on :root (theme/density.ts, read by graph.css).
   const metrics = useGraphMetrics();
+  const dpr = useDevicePixelRatio();
 
   // Shared with the file menu (graphIndex.ts): computed once per payload.
   const labelsByRow = useMemo(() => labelsByRowOf(graph.labels), [graph.labels]);
@@ -390,7 +400,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
     if (el && el.scrollTop !== lastScroll.current) el.scrollTop = lastScroll.current;
   }, [scrollRef]);
 
-  const select = useCallback((i: number, mods: SelectMods = { ctrl: false }) => {
+  const select = useCallback((i: number, mods: SelectMods = PLAIN) => {
     const clamped = Math.max(0, Math.min(graph.rows.length - 1, i));
     if (onSelect) onSelect(clamped, mods);
     else setOwnSelected(clamped);
@@ -401,7 +411,9 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   // bring it into view. Only on an actual change, so re-showing the graph after a diff keeps the
   // restored scroll offset.
   const shownSelection = useRef(selected);
-  useEffect(() => {
+  // A layout effect: the scroll lands before the frame paints, so a jump (Find's next, held Enter)
+  // moves the highlight and the viewport together.
+  useLayoutEffect(() => {
     if (selected === shownSelection.current) return;
     shownSelection.current = selected;
     if (selected >= 0) v.scrollToIndex(selected, { align: 'auto' });
@@ -462,6 +474,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // A WIP row's draft box (K48) owns its keys; the grid's shortcuts never see them.
+    if (isEditableTarget(e.target)) return;
     if (onGraphKeyDown(e)) {
       e.preventDefault();
       return;
@@ -469,8 +483,12 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
     const page = Math.max(1, Math.floor(viewportH / metrics.rowH) - 1);
     const moves: Record<string, number> = { ArrowDown: selected + 1, ArrowUp: selected - 1, PageDown: selected + page, PageUp: selected - page, Home: 0, End: graph.rows.length - 1 };
     if (e.key in moves) {
+      // Shift+↑/↓ extend the range from the anchor (K27). With a diff open the change keys
+      // (J14) take them first, app-wide, and the graph is hidden anyway.
+      const shift = e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp');
+      if (shift && e.defaultPrevented) return;
       e.preventDefault();
-      select(moves[e.key]);
+      select(moves[e.key], shift ? { ctrl: false, shift: true } : PLAIN);
     } else if (
       // Only keys aimed at the grid itself: Enter on a Tab-focused SHA button must still click
       // (copy), and keys typed in the portaled tooltip bubble here through React. Chords are
@@ -510,17 +528,20 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
           <div style={{ height: v.getTotalSize(), width: cols.total, position: 'relative' }}>
             {v.getVirtualItems().map((item) => {
               const row = graph.rows[item.index];
+              const isSelected = item.index === selected || alsoSelected.has(item.index);
               return (
                 <GraphRow
                   key={row.id}
                   row={row}
+                  repoId={repoId}
                   index={item.index}
                   start={item.start}
                   rowH={metrics.rowH}
-                  selected={item.index === selected || item.index === alsoSelected}
+                  dpr={dpr}
+                  selected={isSelected}
                   cols={cols}
                   labels={labelsByRow.get(item.index) ?? NO_LABELS}
-                  membership={row.id === hoverChip || item.index === selected || item.index === alsoSelected ? membership[item.index] : null}
+                  membership={row.id === hoverChip || isSelected ? membership[item.index] : null}
                   messages={messages}
                   onSelect={select}
                   onHover={hover}

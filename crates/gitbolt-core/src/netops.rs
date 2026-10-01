@@ -146,8 +146,13 @@ fn user_cancelled(e: GbError, op: &OpEntry) -> GbError {
 /// Never the `ext::` transport (it runs an arbitrary command), whatever the config says.
 const NO_EXT: [&str; 2] = ["-c", "protocol.ext.allow=never"];
 
+/// K28: a fetch never starts upkeep in the user's repo. Without these, every fetch spawns
+/// `git maintenance run --auto` (which may gc or repack) and, with `fetch.writeCommitGraph`,
+/// rewrites the commit-graph: that's the user's own git's job, not a viewer's.
+const NO_UPKEEP: [&str; 2] = ["--no-auto-maintenance", "--no-write-commit-graph"];
+
 impl Api {
-    /// `git fetch --all` for repo `id` (spec §15). `background` fetches are GitBolt-started: they
+    /// `git fetch --all` for repo `id` (spec §15), with no upkeep after it (`NO_UPKEEP`). `background` fetches are GitBolt-started: they
     /// never prompt, and a credential prompt makes them `skipped: authRequired`.
     pub(crate) async fn fetch(&self, id: u32, background: bool) -> Result<FetchOutcome, GbError> {
         let h = self.handle(id)?;
@@ -155,12 +160,12 @@ impl Api {
             return Ok(FetchOutcome::Skipped { reason: SkipReason::Busy });
         };
         let op = self.ops.begin(OpKind::Fetch, Some(id), !background);
-        self.bus.emit(AppEvent::OpStarted { op: op.id, kind: OpKind::Fetch, repo: Some(id), label: h.name.clone() });
+        self.bus.emit(AppEvent::OpStarted { op: op.id, kind: OpKind::Fetch, repo: Some(id), label: h.name.clone(), interactive: op.interactive });
         let res = async {
             let before = ref_state_async(h.repo.clone()).await?;
             let prune = if self.store.state().settings.prune { "--prune" } else { "--no-prune" };
             let (tx, progress) = forward_progress(self.bus.clone(), op.id);
-            let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(["fetch", "--all", prune, "--no-prune-tags", "--progress"]))
+            let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(["fetch", "--all", prune, "--no-prune-tags"]).chain(NO_UPKEEP).chain(["--progress"]))
                 .timeout(None)
                 .cancel(op.cancel.clone())
                 .stream_stderr(tx)
@@ -202,7 +207,7 @@ impl Api {
         let parent = dest_path.parent().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "The destination has no parent folder"))?;
         std::fs::create_dir_all(parent)?;
         let op = self.ops.begin(OpKind::Clone, None, true);
-        self.bus.emit(AppEvent::OpStarted { op: op.id, kind: OpKind::Clone, repo: None, label: dest.clone() });
+        self.bus.emit(AppEvent::OpStarted { op: op.id, kind: OpKind::Clone, repo: None, label: dest.clone(), interactive: op.interactive });
         let (tx, progress) = forward_progress(self.bus.clone(), op.id);
         let inv = GitInvocation::new(parent, NO_EXT.into_iter().chain(["clone", "--progress", "--", url.as_str(), dest.as_str()]))
             .timeout(None)
@@ -322,6 +327,48 @@ mod tests {
         let before = snapshot();
         assert_eq!(api.fetch(id, true).await.unwrap(), FetchOutcome::Done { changed: true });
         assert_eq!(snapshot(), before);
+    }
+
+    /// K28: GitBolt's fetch never starts upkeep in the user's repo (`git maintenance run --auto`,
+    /// which may gc). Seen through git's own trace: a plain fetch does spawn it.
+    #[tokio::test]
+    async fn fetch_never_starts_maintenance_or_gc() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        r.git(&["config", "gc.auto", "1"]);
+        let trace = r.root().join("trace2.json");
+        let mut env = isolated_git_env();
+        env.push(("GIT_TRACE2_EVENT".into(), trace.clone().into_os_string()));
+        let api = Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(env), None);
+        let id = open(&api, &r).await;
+        push_from_elsewhere(&r, "lands");
+        let spawned_maintenance = || std::fs::read_to_string(&trace).unwrap_or_default().lines().any(|l| l.contains("\"child_start\"") && l.contains("\"maintenance\""));
+        let _ = std::fs::remove_file(&trace);
+        assert_eq!(api.fetch(id, true).await.unwrap(), FetchOutcome::Done { changed: true });
+        assert!(!spawned_maintenance(), "GitBolt's fetch started maintenance");
+        let args = api.cli.log().entries().into_iter().find(|e| e.args.iter().any(|a| a == "fetch")).unwrap().args;
+        assert!(args.contains(&"--no-auto-maintenance".to_string()) && args.contains(&"--no-write-commit-graph".to_string()), "{args:?}");
+        // The check can see it: the same fetch without the flags does start it.
+        let _ = std::fs::remove_file(&trace);
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(r.path()).args(["fetch", "-q", "origin"]).envs(isolated_git_env()).env("GIT_TRACE2_EVENT", &trace);
+        assert!(cmd.status().unwrap().success());
+        assert!(spawned_maintenance(), "a plain fetch starts maintenance, so the check above means something");
+    }
+
+    /// K30: `opStarted` says whether the op is the user's, so the UI can keep background ops out
+    /// of sight (activity log only).
+    #[tokio::test]
+    async fn op_started_says_whether_the_op_is_interactive() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        let mut rx = api.subscribe();
+        api.fetch(id, true).await.unwrap();
+        api.fetch(id, false).await.unwrap();
+        let flags: Vec<bool> = drain(&mut rx).into_iter().filter_map(|e| match e { AppEvent::OpStarted { interactive, .. } => Some(interactive), _ => None }).collect();
+        assert_eq!(flags, vec![false, true]);
     }
 
     #[tokio::test]

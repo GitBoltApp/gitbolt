@@ -6,7 +6,7 @@ import { RepoContext } from './repoContext';
 import { useRuntime } from './runtime';
 import { RepoView, RepoViewContext } from './seams1b';
 import { TabSlot } from './slots';
-import { useTabView } from './tabStores';
+import { tabView, useTabView } from './tabStores';
 import { setWatched } from './watch';
 
 /**
@@ -18,6 +18,7 @@ import { setWatched } from './watch';
  * - runs the background fetch timer (spec §15; `fetchSchedule.ts`);
  * - watches its repo, and once re-shown and watched, updates in place (spec §4.4 "Activating a
  *   tab"); refreshes on `repoChanged` / `refsUpdated` for it;
+ * - while watched, holds its WIP rows' file lists in memory, kept current by `repoChanged` (K44);
  * - provides `RepoContext`, and the tab's `RepoViewStore` as 1B's `RepoViewContext`, to its slots.
  *
  * Memoized: the profile's tab objects are stable across a switch (only `activeTab` changes), and so
@@ -55,9 +56,25 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
     };
   }, [repoId, tab.id, refresh]);
 
+  // K44: the view holds its WIP rows' lists while the watch is up (the coalesced `setWatched`
+  // resolves once it is), and drops them as soon as it's hidden.
+  const store = view?.store;
+  useEffect(() => {
+    if (repoId === undefined || !store) return;
+    let live = true;
+    void setWatched(repoId, true).then(() => {
+      if (live) store.getState().setWatched(true);
+    });
+    return () => {
+      live = false;
+      store.getState().setWatched(false);
+    };
+  }, [repoId, store]);
+
   useEffect(() => {
     if (repoId === undefined) return;
     return onEvent((ev) => {
+      if (ev.type === 'repoChanged' && ev.repo === repoId) tabView(tab.id)?.services.wip.changed(ev.worktrees, ev.versions);
       if ((ev.type === 'repoChanged' || ev.type === 'refsUpdated') && ev.repo === repoId) void refresh(tab.id);
     });
   }, [repoId, tab.id, refresh]);

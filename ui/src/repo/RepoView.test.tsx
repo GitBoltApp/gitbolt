@@ -14,6 +14,7 @@ import { useFileListPrefs } from '../files/fileListPrefs';
 import { RepoView, RIGHT_PANEL } from './RepoView';
 import type { RepoServices } from './services';
 import { fakeServices } from './testServices';
+import { WipLists } from './wipLists';
 import { createRepoViewStore } from './store';
 import '../app/coreActions';
 import { installShortcuts } from '../app/shortcuts';
@@ -157,15 +158,39 @@ describe('RepoView', () => {
   });
 
   it('labels the right panel by what it shows', async () => {
-    const wipRow: RowPayload = { ...row('wip:/r', '', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 } };
+    const wipRow: RowPayload = { ...row('wip:/r', '', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } };
     render(<RepoView repo={1} repoPath="/r" graph={{ ...graph, rows: [wipRow, ...graph.rows] }} services={services()} />);
     const rows = screen.getAllByRole('row');
     fireEvent.mouseDown(rows[1]);
     expect(await screen.findByRole('complementary', { name: 'Commit details' })).toBeInTheDocument();
     fireEvent.mouseDown(rows[2], { ctrlKey: true });
     expect(await screen.findByRole('complementary', { name: 'Compare' })).toBeInTheDocument();
+    fireEvent.mouseDown(rows[0], { ctrlKey: true });
+    expect(await screen.findByRole('complementary', { name: 'Selected commits' })).toBeInTheDocument();
     fireEvent.mouseDown(rows[0]);
     expect(await screen.findByRole('complementary', { name: 'Working tree changes' })).toBeInTheDocument();
+  });
+
+  it('Escape, in the grid or on the summary\'s ×, leaves a multi-selection for the anchor row (K27)', async () => {
+    const C = 'c'.repeat(40);
+    render(<RepoView repo={1} repoPath="/r" graph={{ ...graph, rows: [...graph.rows, row(C, 'Zeroth', [])] }} services={services()} />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    const selected = () => screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'));
+    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    fireEvent.mouseDown(screen.getAllByRole('row')[2], { shiftKey: true });
+    expect(await screen.findByTestId('multi-count')).toHaveTextContent('3 commits selected');
+    expect(selected()).toEqual(['true', 'true', 'true']);
+    fireEvent.keyDown(grid, { key: 'Escape' });
+    expect(selected()).toEqual(['true', 'false', 'false']);
+    expect(await screen.findByTestId('details-summary')).toHaveTextContent('Second');
+    // Ctrl+clicks: the anchor is the row Ctrl+clicked last.
+    fireEvent.mouseDown(screen.getAllByRole('row')[2], { ctrlKey: true });
+    fireEvent.mouseDown(screen.getAllByRole('row')[1], { ctrlKey: true });
+    const exit = await screen.findByRole('button', { name: 'Exit multi-selection' });
+    exit.focus();
+    fireEvent.click(exit);
+    expect(selected()).toEqual(['false', 'true', 'false']);
+    expect(document.activeElement).toBe(grid);
   });
 
   // Review fix: a focus request while the panel is pending must not land in the stale list,
@@ -615,11 +640,30 @@ describe('RepoView', () => {
     expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('K44: a watched tab renders the WIP row\'s held lists in the same render as the click, with no request', async () => {
+    const wipRow: RowPayload = { ...row('wip:/r', 'Uncommitted changes', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } };
+    const g: GraphPayload = { ...graph, rows: [wipRow, ...graph.rows] };
+    const file = (path: string): FileListPayload => ({ files: [{ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object', oid: B }, new: { kind: 'worktree', worktree: '/r' }, submodule: false }], added: 1, deleted: 0, version: 'v1' });
+    const reads: string[] = [];
+    const svc = services({ wip: new WipLists(async (spec) => (reads.push(JSON.stringify(spec)), file(spec.staged ? 'held-staged.txt' : 'held-unstaged.txt'))) });
+    const store = createRepoViewStore(1, '/r', g, svc);
+    store.getState().setWatched(true);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(reads).toHaveLength(2);
+    render(<RepoView repo={1} repoPath="/r" graph={g} store={store} />);
+    act(() => { fireEvent.mouseDown(screen.getAllByRole('row')[0]); });
+    // Synchronously: no `find*`, no waiting.
+    expect(screen.getByTestId('wip-header')).toHaveTextContent('2 file changes on main');
+    expect(screen.getByRole('listbox', { name: 'Unstaged' })).toHaveTextContent('held-unstaged.txt');
+    expect(screen.getByRole('listbox', { name: 'Staged' })).toHaveTextContent('held-staged.txt');
+    expect(reads).toHaveLength(2);
+  });
+
   it('a WIP row with only staged changes: → and Enter focus the Staged list, never the empty Unstaged one', async () => {
-    const wipRow: RowPayload = { ...row('wip:/r', 'Uncommitted changes', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 0, added: 1, deleted: 0, conflicted: 0 } };
+    const wipRow: RowPayload = { ...row('wip:/r', 'Uncommitted changes', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 0, added: 1, deleted: 0, renamed: 0, conflicted: 0 } };
     const g: GraphPayload = { ...graph, rows: [wipRow, ...graph.rows] };
     const staged: FileListPayload = { files: [{ path: 's.txt', oldPath: null, status: 'A', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'object', oid: B }, submodule: false }], added: 1, deleted: 0 };
-    const files = new Loader(async (k: string) => (k.includes('"staged":true') ? staged : { files: [], added: 0, deleted: 0 }), new Lru<string, FileListPayload>(10));
+    const files = new Loader<FileListPayload>(async (k: string) => (k.includes('"staged":true') ? staged : { files: [], added: 0, deleted: 0 }), new Lru<string, FileListPayload>(10));
     render(<RepoView repo={1} repoPath="/r" graph={g} services={services({ files })} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
@@ -650,10 +694,10 @@ describe('RepoView', () => {
   });
 
   it('WIP with both lists non-empty: ← from the diff focuses the list holding the open file', async () => {
-    const wipRow: RowPayload = { ...row('wip:/r', 'Uncommitted changes', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 1, deleted: 0, conflicted: 0 } };
+    const wipRow: RowPayload = { ...row('wip:/r', 'Uncommitted changes', []), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 1, deleted: 0, renamed: 0, conflicted: 0 } };
     const g: GraphPayload = { ...graph, rows: [wipRow, ...graph.rows] };
     const f = (path: string, staged: boolean) => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object' as const, oid: B }, new: staged ? { kind: 'object' as const, oid: A } : { kind: 'worktree' as const, worktree: '/r' }, submodule: false });
-    const files = new Loader(async (k: string) => (k.includes('"staged":true') ? { files: [f('s.txt', true)], added: 1, deleted: 0 } : { files: [f('u.txt', false)], added: 1, deleted: 0 }), new Lru<string, FileListPayload>(10));
+    const files = new Loader<FileListPayload>(async (k: string) => (k.includes('"staged":true') ? { files: [f('s.txt', true)], added: 1, deleted: 0 } : { files: [f('u.txt', false)], added: 1, deleted: 0 }), new Lru<string, FileListPayload>(10));
     render(<RepoView repo={1} repoPath="/r" graph={g} services={services({ files })} />);
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
     const unstagedBox = await screen.findByRole('listbox', { name: 'Unstaged' });

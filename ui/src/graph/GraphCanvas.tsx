@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { GRAPH_COLORS } from '../theme/graphColors';
 import { drawGraph, graphLayout } from './draw';
 import type { Metrics } from './geometry';
+import { useDevicePixelRatio } from './pixels';
 
 interface Props {
   rows: RowPayload[];
@@ -24,28 +25,16 @@ interface Props {
   id?: string;
   /** The selected row, drawn with a brighter band (H14); -1 or omitted: none. */
   selected?: number;
-  /** A second selected row (a compare's other side, K15), drawn the same; -1 or omitted: none. */
-  alsoSelected?: number;
+  /** More selected rows (a compare's or multi-selection's, K27), drawn the same. */
+  alsoSelected?: ReadonlySet<number>;
   /** The checked-out branch's row, whose connector is a graph line (J21); -1 or omitted: none. */
   headRow?: number;
 }
 
-export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion, clipped = false, scrollX = 0, id, selected = -1, alsoSelected = -1, headRow = -1 }: Props) {
+export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, labeledRows, avatar, avatarVersion, clipped = false, scrollX = 0, id, selected = -1, alsoSelected, headRow = -1 }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const nodeFillRef = useRef<string | undefined>(undefined);
-  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
-
-  // Moving the window to a monitor with a different scale factor (or the OS changing zoom)
-  // doesn't resize anything, so nothing else here would notice a stale backing-store size.
-  // `matchMedia`'s query only matches at the dpr it was created with, so each firing re-arms
-  // a fresh query at the new dpr rather than listening once.
-  useLayoutEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const mql = window.matchMedia(`(resolution: ${dpr}dppx)`);
-    const onChange = () => setDpr(window.devicePixelRatio || 1);
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, [dpr]);
+  const dpr = useDevicePixelRatio();
 
   useLayoutEffect(() => {
     const canvas = ref.current;
@@ -67,5 +56,8 @@ export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, lab
 
   // `data-strip`: no lane fits, the column is a strip of nodes (F11); for tests and e2e.
   const strip = graphLayout(width, metrics, clipped || scrollX > 0).strip;
-  return <canvas ref={ref} id={id} className="graph-canvas" data-testid="graph-canvas" data-clipped={clipped} data-strip={strip} style={{ left, width, height }} />;
+  // Sized to its backing store exactly (whole device px), so it's never resampled on screen: a
+  // fraction of a pixel's stretch would blur its lines off the rows draw.ts snaps them to, and
+  // off the DOM connectors they continue (K57).
+  return <canvas ref={ref} id={id} className="graph-canvas" data-testid="graph-canvas" data-clipped={clipped} data-strip={strip} style={{ left, width: Math.round(width * dpr) / dpr, height: Math.round(height * dpr) / dpr }} />;
 }

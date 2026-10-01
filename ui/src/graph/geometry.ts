@@ -34,3 +34,29 @@ export function segmentPath(seg: Seg, rowTop: number, m: Metrics): PathOp[] {
   }
   return [{ op: 'M', x: xa, y: yc }, { op: 'L', x: xa, y: yb }];
 }
+
+/** Traces `path` into the context's current path (after a `beginPath`). */
+export function tracePath(ctx: CanvasRenderingContext2D, path: PathOp[]): void {
+  for (const p of path) {
+    if (p.op === 'Q') ctx.quadraticCurveTo(p.cx, p.cy, p.x, p.y);
+    else if (p.op === 'M') ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+}
+
+/** A path's length, CSS px: its curves are measured as 16 chords, near enough to phase a dash. */
+export function pathLength(path: PathOp[]): number {
+  let len = 0, x = 0, y = 0;
+  for (const p of path) {
+    if (p.op === 'Q') {
+      for (let k = 1; k <= 16; k++) {
+        const t = k / 16, u = 1 - t;
+        const qx = u * u * x + 2 * u * t * p.cx + t * t * p.x, qy = u * u * y + 2 * u * t * p.cy + t * t * p.y;
+        len += Math.hypot(qx - x, qy - y);
+        x = qx; y = qy;
+      }
+    } else if (p.op === 'L') len += Math.hypot(p.x - x, p.y - y);
+    x = p.x; y = p.y;
+  }
+  return len;
+}

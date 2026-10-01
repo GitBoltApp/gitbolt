@@ -314,8 +314,8 @@ impl Lcg {
 /// A random history shaped like the ones `snapshot::assemble` builds: commits in display order
 /// (every parent below its children) with merges, octopus merges, stashes (one parent, no
 /// children), parents outside the window (a few shared ids, so lanes can share them), a pinned
-/// first-parent chain from a random tip, and WIP rows stacked directly above their HEAD commit
-/// (the lowest one pinned when its HEAD is the pinned tip).
+/// first-parent chain from a random tip, the open worktree's WIP at row 0, and other WIP rows
+/// stacked directly above their HEAD commit (the topmost WIP on the pinned tip pinned).
 fn random_dag(seed: u64) -> Vec<LayoutNode> {
     let mut rng = Lcg(seed);
     let n = 1 + rng.below(40) as usize;
@@ -359,19 +359,31 @@ fn random_dag(seed: u64) -> Vec<LayoutNode> {
         };
     }
 
+    // The open worktree's WIP (sometimes) at row 0 on any commit, however far down; the other
+    // worktrees' WIP rows docked directly above their HEAD commit. The topmost WIP on the pinned
+    // tip is pinned.
+    let current = (!tips.is_empty() && rng.chance(30)).then(|| tips[rng.below(tips.len() as u32) as usize]);
     let wips: Vec<usize> = (0..n).map(|i| if !stash[i] && rng.chance(8) { 1 + rng.below(2) as usize } else { 0 }).collect();
     let mut row_of = vec![0u32; n];
-    let mut row = 0u32;
+    let mut row = u32::from(current.is_some());
     for i in 0..n {
         row += wips[i] as u32;
         row_of[i] = row;
         row += 1;
     }
     let mut nodes = Vec::with_capacity(row as usize);
+    let mut tip_wip_pinned = false;
+    let mut wip_on = |i: usize, nodes: &mut Vec<LayoutNode>| {
+        let pin = tip == Some(i) && !tip_wip_pinned;
+        tip_wip_pinned |= pin;
+        nodes.push(LayoutNode { parents: vec![Parent::Row(row_of[i])], kind: NodeKind::Wip, pinned: pin });
+    };
+    if let Some(c) = current {
+        wip_on(c, &mut nodes);
+    }
     for i in 0..n {
-        for w in 0..wips[i] {
-            let lowest = w + 1 == wips[i];
-            nodes.push(LayoutNode { parents: vec![Parent::Row(row_of[i])], kind: NodeKind::Wip, pinned: lowest && tip == Some(i) });
+        for _ in 0..wips[i] {
+            wip_on(i, &mut nodes);
         }
         let ps: Vec<Parent> = parents[i].iter().map(|p| match *p {
             Parent::Row(j) => Parent::Row(row_of[j as usize]),

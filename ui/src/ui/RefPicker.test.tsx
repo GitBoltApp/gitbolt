@@ -1,4 +1,9 @@
+import { Clock } from 'lucide-react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { Profiler } from 'react';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { registerKeys } from './keyRouter';
 import { RefPicker, type PickItem } from './RefPicker';
@@ -10,6 +15,27 @@ const picker = (over: Partial<Parameters<typeof RefPicker>[0]> = {}) =>
   render(<RefPicker anchor={new DOMRect(0, 0, 100, 20)} placeholder="Find a branch" items={ITEMS} onPick={vi.fn()} onClose={vi.fn()} {...over} />);
 const input = () => screen.getByPlaceholderText('Find a branch');
 const selected = () => screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true').map((o) => o.textContent);
+
+describe('RefPicker toggle (K72)', () => {
+  it('shows the toggle right of the search box; clicking it keeps the focus in the box', () => {
+    const onToggle = vi.fn();
+    picker({ toggle: { icon: Clock, label: 'Sorted A–Z: switch to most recent first', onToggle } });
+    const btn = screen.getByRole('button', { name: 'Sorted A–Z: switch to most recent first' });
+    expect(btn.closest('.picker-head')).toBe(input().closest('.picker-head'));
+    fireEvent.pointerDown(btn);
+    fireEvent.click(btn);
+    expect(onToggle).toHaveBeenCalledOnce();
+    expect(input()).toHaveFocus();
+  });
+
+  it('after a re-sort the cursor follows the current item, not the old index', () => {
+    const { rerender } = picker();
+    expect(selected()).toEqual(['main']);
+    const resorted: PickItem[] = [ITEMS[2], ITEMS[1], ITEMS[0]];
+    rerender(<RefPicker anchor={new DOMRect(0, 0, 100, 20)} placeholder="Find a branch" items={resorted} onPick={vi.fn()} onClose={vi.fn()} />);
+    expect(selected()).toEqual(['main']);
+  });
+});
 
 describe('RefPicker', () => {
   it('filters by substring and picks with the keyboard', () => {
@@ -73,5 +99,32 @@ describe('RefPicker', () => {
     fireEvent.click(screen.getByText('hotfix'));
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'hotfix' }));
     opener.remove();
+  });
+
+  it('paints the current item active on the first commit, with no intermediate state (K53)', () => {
+    const seen: (string | null)[][] = [];
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.textContent ?? ''); };
+    render(
+      <Profiler id="p" onRender={() => seen.push(screen.getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true').map((o) => o.textContent))}>
+        <RefPicker anchor={new DOMRect(0, 0, 100, 20)} placeholder="Find a branch" items={[ITEMS[1], ITEMS[2], ITEMS[0]]} onPick={vi.fn()} onClose={vi.fn()} />
+      </Profiler>,
+    );
+    expect(seen).toEqual([['main']]);
+    expect(scrolled).toEqual(['main']);
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it('filtering re-aims the active row in the same commit as the new list', () => {
+    picker();
+    fireEvent.change(input(), { target: { value: 'i' } });
+    expect(selected()).toEqual(['main']);
+    fireEvent.change(input(), { target: { value: 'ho' } });
+    expect(selected()).toEqual(['hotfix']);
+  });
+
+  it('has no background transition on the rows', () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'picker.css'), 'utf8');
+    expect(css.match(/\.picker-item \{[^}]*\}/)?.[0]).not.toMatch(/transition/);
   });
 });

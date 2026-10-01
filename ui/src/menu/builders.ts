@@ -87,10 +87,20 @@ function viewTooltip(t: FileTarget): string {
 
 registerMenu<FileTarget, MenuEnv>({
   id: 'file.view', kind: 'file', group: 'view', order: 0,
-  rows: (t, env) => [
-    row({ id: 'file.diff', label: 'Open diff', icon: ICONS.diff, tooltip: "Show this file's changes in the center panel", run: () => env.act.openDiff(t.diff), disabledReason: t.changed ? undefined : 'Unchanged in this commit' }),
-    row({ id: 'file.view', label: t.sha ? 'View file at this commit' : 'View file', icon: ICONS.file, tooltip: viewTooltip(t), run: () => env.act.viewFile(t.diff) }),
-  ],
+  // One row, `View | Diff | File |` (K58): the label opens the diff (the default; the file when
+  // it's unchanged, which has no diff), Diff and File are the variants.
+  rows: (t, env) => {
+    const diffReason = t.changed ? undefined : 'Unchanged in this commit';
+    const variants: Variant[] = [
+      { id: 'diff', label: 'Diff', icon: ICONS.diff, tooltip: "Show this file's changes in the center panel", run: () => env.act.openDiff(t.diff), disabledReason: diffReason },
+      { id: 'file', label: 'File', icon: ICONS.file, tooltip: viewTooltip(t), run: () => env.act.viewFile(t.diff) },
+    ];
+    return [row({
+      id: 'file.view', label: 'View', icon: diffReason ? ICONS.file : ICONS.diff,
+      tooltip: diffReason ? viewTooltip(t) : "Show this file's changes in the center panel",
+      run: () => (diffReason ? env.act.viewFile(t.diff) : env.act.openDiff(t.diff)), variants,
+    })];
+  },
 });
 
 // The folder menu (tree mode's folder rows): its path, and the file manager.

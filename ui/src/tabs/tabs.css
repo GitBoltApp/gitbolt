@@ -1,13 +1,19 @@
 /* The tab bar (spec §6.2) and the modal dialogs it owns (About, New/Rename profile). J19/J20/F5:
    the motion tokens, no text selection, pointer cursors. */
-.tab-bar { display: flex; align-items: stretch; height: 34px; background: var(--toolbar-bg0); border-bottom: 1px solid var(--section-border); flex: none; user-select: none; }
+/* Darker than the action bar below (K65), so the selected tab (the action bar's colour) reads as
+   its tab. The bar draws its own bottom edge as a background line rather than a border, so the
+   selected tab's background covers it: no line between the selected tab and the action bar. */
+.tab-bar { display: flex; align-items: stretch; height: 34px; background: linear-gradient(to top, var(--section-border) 1px, transparent 1px), var(--tab-bar-bg); flex: none; user-select: none; }
 .tab-bar-btn { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 34px; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
 .tab-bar-btn:hover, .tab-bar-btn:focus-visible { color: var(--text-selected); background: var(--hover-row); }
 
 .tabs { display: flex; flex: 1; min-width: 0; overflow: hidden; }
 .tab { position: relative; display: flex; align-items: center; gap: 6px; max-width: 220px; min-width: 90px; padding: 0 6px 0 12px; border-right: 1px solid var(--section-border); color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
-.tab[aria-selected="true"] { background: var(--app-bg0); color: var(--text-selected); }
-.tab:not([aria-selected="true"]):hover { background: var(--hover-row); }
+.tab[aria-selected="true"] { background: var(--action-bar-bg); color: var(--text-selected); }
+/* K71: borders only between two unselected tabs; the selected tab's colour is its edge. Kept
+   transparent (not removed) so widths don't shift as the selection moves. */
+.tab[aria-selected="true"], .tab:has(+ .tab[aria-selected="true"]) { border-right-color: transparent; }
+.tab:not([aria-selected="true"]):hover { background: var(--hover-row); box-shadow: inset 0 -1px var(--section-border); }
 /* The dragged tab's own snapshot stays warm (spec §6.2): on top, offset by the pointer, no
    transition fighting the per-frame `transform`. */
 .tab.dragging { z-index: 2; opacity: 0.9; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); transition: none; }
@@ -31,6 +37,8 @@
 .modal-actions button { font: inherit; padding: 5px 14px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; transition: background-color var(--motion-fast); }
 .modal-actions button:hover { background: var(--hover-row); }
 .modal-actions button[type="submit"] { background: var(--blue); border-color: var(--blue); }
+.modal-actions button.danger { background: var(--red, #d9413d); border-color: var(--red, #d9413d); }
+.modal p { margin: 4px 0 0; color: var(--text-secondary); max-width: 420px; }
 .modal-actions button[type="submit"]:disabled { opacity: 0.5; cursor: default; background: var(--panel-bg1); border-color: var(--section-border); }
 .swatches { display: flex; gap: 6px; margin-bottom: 4px; }
 .swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }

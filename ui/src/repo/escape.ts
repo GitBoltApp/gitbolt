@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from 'react';
 import { registerKeys } from '../ui/keyRouter';
-import { markEditorKey } from '../ui/keys';
+import { isEditableTarget, markEditorKey } from '../ui/keys';
 import type { RepoViewStore } from './store';
 
 /** Whether `e` (an Esc) belongs to something before the app: an editor overlay (Monaco's find
@@ -30,14 +30,13 @@ const within = (t: Element | null, selector: string) => t?.closest(selector) != 
 /** A text box of the app's own (plan 1C's search box, …, or any editable text:
  * `isContentEditable`), whose Esc is its own. Monaco's input textarea isn't one: its Esc goes
  * through the editor's owner. */
-const TEXT_INPUT = 'input:not([type]), input[type="text"], input[type="search"], textarea';
-const isTextInput = (t: Element | null) => !!t && (t.matches(TEXT_INPUT) || (t instanceof HTMLElement && t.isContentEditable)) && !within(t, '.monaco-editor, .monaco-host');
+const isTextInput = (t: Element | null) => isEditableTarget(t) && !within(t, '.monaco-editor, .monaco-host');
 
 /**
  * The view's Esc (spec §11.1, feedback J4), from wherever the focus is: the file list, the diff,
  * the details header, the message, the graph, or nothing (`<body>`, after a click on a blank
  * area). With a file open it closes it, back to the graph with the selection kept; in the file
- * list it returns to the graph; otherwise it leaves compare mode.
+ * list it returns to the graph; otherwise it leaves a compare or multi-selection (K27).
  *
  * Ctrl+W isn't here: since plan 1C it's the app's one binding (`app/coreActions.ts`, through the
  * same router's `app` layer), which closes the open file if there is one, else the tab (ruling R6:
@@ -77,7 +76,7 @@ export function useAppEscape(store: RepoViewStore, root?: RefObject<HTMLElement 
       if (isTextInput(target)) return;
       const s = store.getState();
       if (s.diff || within(target, '[data-focus-zone="files"]')) s.closeDiff();
-      else if (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree') {
+      else if (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree' || s.selection.kind === 'multi') {
         s.exitCompare();
         // From the compare header (its ×, which unmounts), focus would drop to <body>.
         if (!within(target, '[data-focus-zone="graph"]')) s.setFocus('graph');

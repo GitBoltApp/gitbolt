@@ -72,6 +72,9 @@ test.describe('fetch', () => {
     const dialog = authDialog(page);
     await expect(dialog).toContainText(`Username for '${harnessHttp}'`);
     await expect(statusBar(page)).toContainText('Waiting for authentication…');
+    // K30: the user's fetch shows on its button, never as "Fetching…" in the status bar.
+    await expect(fetchButton(page)).toHaveAttribute('aria-busy', 'true');
+    await expect(statusBar(page)).not.toContainText('Fetching');
     await expect(dialog.getByLabel('Answer')).toBeFocused();
     await dialog.getByLabel('Answer').fill('ada');
     await dialog.getByRole('button', { name: 'OK' }).click();
@@ -140,6 +143,33 @@ test.describe('fetch', () => {
     // 30 s away, so only the replay can fetch within the wait below.
     await page.evaluate(() => { window.__gbTestMinimized = false; window.dispatchEvent(new Event('focus')); });
     await expect(page.getByText('Fetched in the background')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('a background fetch shows nowhere but the activity log (K30)', async ({ page }) => {
+    const repo = freshFixture('basic');
+    await page.goto(openUrl(repo));
+    await expect(graph(page)).toBeVisible();
+    pushFromElsewhere(repo, 'Fetched quietly');
+    // Record every state of the status bar and the Fetch button while the background fetch runs.
+    await page.evaluate(() => {
+      const w = window as unknown as { seen: string[] };
+      w.seen = [];
+      const bar = document.querySelector('.status-bar')!;
+      const record = () => {
+        const btn = document.querySelector('button[aria-label="Fetch"]');
+        w.seen.push(`${bar.textContent ?? ''}|busy=${btn?.getAttribute('aria-busy') ?? ''}`);
+      };
+      record();
+      new MutationObserver(record).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-busy'] });
+    });
+    await page.evaluate(() => window.__gb!.setSettings({ fetchIntervalSecs: 30 }));
+    await expect(page.getByText('Fetched quietly')).toBeVisible({ timeout: 10_000 });
+    const seen = await page.evaluate(() => (window as unknown as { seen: string[] }).seen);
+    expect(seen.filter((s) => s.includes('Fetching') || s.includes('busy=true'))).toEqual([]);
+    await expect(page.getByRole('status')).toHaveCount(0);
+    const activity = await page.evaluate(() => window.__gb!.activity());
+    expect(activity[0]).toMatchObject({ kind: 'fetch', background: true, outcome: 'ok' });
+    expect(activity[0].durationMs).toBeGreaterThanOrEqual(0);
   });
 
   test('a fetch that moves refs while a diff is open neither closes it nor flashes it (K7)', async ({ page }) => {

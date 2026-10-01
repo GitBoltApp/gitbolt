@@ -62,6 +62,16 @@ describe('ImageDiff', () => {
     changed.unmount();
   });
 
+  it('double-clicking the swipe handle puts it back at 50% (K73)', () => {
+    render(<ImageDiff old={{ url: 'blob:old', size: 60 }} new={{ url: 'blob:new', size: 70 }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Swipe' }));
+    const s = screen.getByRole('slider', { name: 'Swipe position' });
+    fireEvent.keyDown(s, { key: 'ArrowLeft' });
+    expect(s).toHaveAttribute('aria-valuenow', '45');
+    fireEvent.doubleClick(s);
+    expect(s).toHaveAttribute('aria-valuenow', '50');
+  });
+
   it('offers every mode for a changed one', () => {
     render(<ImageDiff old={{ url: 'blob:old', size: 60 }} new={{ url: 'blob:new', size: 70 }} source={<div>svg source</div>} />);
     fireEvent.click(screen.getByRole('button', { name: 'Swipe' }));

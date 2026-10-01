@@ -1,5 +1,5 @@
 /* The repo tab's toolbar (spec §6.3). */
-.toolbar { display: flex; align-items: stretch; gap: 4px; height: 44px; padding: 0 8px; box-sizing: border-box; background: var(--toolbar-bg0); border-bottom: 1px solid var(--section-border); flex: none; user-select: none; }
+.toolbar { display: flex; align-items: stretch; gap: 4px; height: 44px; padding: 0 8px; box-sizing: border-box; background: var(--action-bar-bg); border-bottom: 1px solid var(--section-border); flex: none; user-select: none; }
 .tb-field { all: unset; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; min-width: 0; max-width: 260px; }
 .tb-picker { cursor: pointer; border-radius: 4px; transition: background-color var(--motion-fast); }
 .tb-picker:hover, .tb-picker[aria-expanded="true"] { background: var(--hover-row); }

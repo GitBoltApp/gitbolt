@@ -29,7 +29,7 @@ vi.mock('../api/client', async (importOriginal) => ({ ...await importOriginal<ty
 const A = 'a'.repeat(40), B = 'b'.repeat(40);
 const never = () => new Promise<never>(() => {});
 const commit = (id: string, summary: string): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: 'grace@example.com', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
-const wipRow: RowPayload = { ...commit('wip:/r', ''), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 1, deleted: 0, conflicted: 0 } };
+const wipRow: RowPayload = { ...commit('wip:/r', ''), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 1, deleted: 0, renamed: 0, conflicted: 0 } };
 const graph: GraphPayload = { rows: [wipRow, commit(A, 'Second'), commit(B, 'First')], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false };
 const file = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object', oid: B }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...paths: string[]): FileListPayload => ({ files: paths.map(file), added: paths.length, deleted: 0 });
@@ -132,13 +132,13 @@ describe('DetailsPanel', () => {
     const store = createRepoViewStore(1, '/r', graph, createServices(1));
     renderPanel(store);
     act(() => store.getState().selectRow(0));
-    expect(await screen.findByTestId('wip-header')).toHaveTextContent('// WIP Working tree ✎1 +1');
+    expect(await screen.findByTestId('wip-header')).toHaveTextContent('2 file changes on main');
     expect(await screen.findByRole('heading', { name: 'Unstaged (1)' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Staged (1)' })).toBeInTheDocument();
     expect(screen.getByRole('listbox', { name: 'Unstaged' })).toBeInTheDocument();
     expect(screen.getByRole('listbox', { name: 'Staged' })).toBeInTheDocument();
     expect(screen.queryByTestId('details-summary')).toBeNull();
-    expect(screen.queryAllByRole('button', { name: /stage|discard/i })).toHaveLength(0);
+    expect(screen.queryAllByRole('button', { name: /^(stage|unstage|discard|commit)\b/i })).toHaveLength(0);
     expect(api.fileList.mock.calls.map(([, spec]) => spec)).toEqual([
       { kind: 'wip', worktree: '/r', staged: false },
       { kind: 'wip', worktree: '/r', staged: true },

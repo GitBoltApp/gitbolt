@@ -30,6 +30,43 @@ async function setCommitLimit(page: Page, limit: number) {
 }
 
 test.describe('find', () => {
+  test('the toolbar Search tooltip keeps its natural width at the right edge: no mid-word wrap, fully on screen (K52)', async ({ page }) => {
+    await page.goto(openUrl(fixtures.basic));
+    await expect(grid(page)).toBeVisible();
+    await page.getByRole('button', { name: 'Search' }).hover();
+    const tip = page.getByRole('tooltip');
+    await expect(tip).toBeVisible();
+    const m = await tip.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      // Natural width: the same content with no horizontal limit but the css max-width.
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;';
+      document.body.append(clone);
+      const natural = clone.getBoundingClientRect().width;
+      clone.remove();
+      // A word that wraps would make scrollWidth exceed the box, or a line hold part of a word.
+      const words = (el.textContent ?? '').split(/\s+/).filter(Boolean);
+      const range = document.createRange();
+      const lines = new Map<number, string>();
+      const text = el.firstChild as Text;
+      let pos = 0;
+      let broken = false;
+      for (const w of words) {
+        const at = (text.data as string).indexOf(w, pos);
+        pos = at + w.length;
+        range.setStart(text, at);
+        range.setEnd(text, at + w.length);
+        if (new Set([...range.getClientRects()].map((q) => Math.round(q.top))).size > 1) broken = true;
+        lines.set(at, w);
+      }
+      return { width: r.width, natural, right: r.right, left: r.left, vw: window.innerWidth, broken };
+    });
+    expect(m.broken).toBe(false);
+    expect(m.width).toBeGreaterThanOrEqual(m.natural - 1);
+    expect(m.left).toBeGreaterThanOrEqual(0);
+    expect(m.right).toBeLessThanOrEqual(m.vw);
+  });
+
   test('Ctrl+F opens the box at the graph panel\'s top right; typing dims the non-matches; Enter / Shift+Enter step; Esc closes and clears', async ({ page }) => {
     await page.goto(openUrl(fixtures.basic));
     await expect(grid(page)).toBeVisible();
@@ -59,6 +96,32 @@ test.describe('find', () => {
     // Reopened, it's empty.
     await page.keyboard.press('Control+f');
     await expect(input(page)).toHaveValue('');
+  });
+
+  test('repeated Enter / Shift+Enter jumps move the selection and the counter every time (K40)', async ({ page }) => {
+    await page.goto(openUrl(fixtures.basic));
+    await expect(grid(page)).toBeVisible();
+    await grid(page).click({ position: { x: 300, y: 60 } });
+    await page.keyboard.press('Control+f');
+    await input(page).fill('e');
+    await expect(count(page)).toHaveText(/^1 \/ [1-9]/);
+    const total = Number((await count(page).textContent())!.split('/')[1]);
+    expect(total).toBeGreaterThan(2);
+    const selected = page.locator('.graph-row[aria-selected="true"]');
+    const seen: string[] = [];
+    for (let i = 0; i < total + 1; i++) {
+      await expect(count(page)).toHaveText(`${(i % total) + 1} / ${total}`);
+      await expect(selected).toHaveCount(1);
+      seen.push((await selected.textContent()) ?? '');
+      await page.keyboard.press('Enter');
+    }
+    // Every match was visited once, then it wrapped to the first.
+    expect(new Set(seen.slice(0, total)).size).toBe(total);
+    expect(seen[total]).toBe(seen[0]);
+    // Now on the 2nd match: back twice wraps to the last.
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Shift+Enter');
+    await expect(count(page)).toHaveText(`${total} / ${total}`);
   });
 
   test('path search finds the commits that touched a file', async ({ page }) => {

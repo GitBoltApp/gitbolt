@@ -10,6 +10,11 @@ export const EDITOR_COLORS: Record<string, string> = {
   // One selection colour, focused or not (F22). dark-plus leaves the focused one to Monaco's
   // default (#264f78) and sets the unfocused one to a near-black #3a3d41, so a selection flipped
   // between blue and black as focus moved. Same as `--selection-bg`, the app's ::selection.
+  // K34: the editor's background is the app's --app-bg0, not dark-plus's
+  // reddish #1e1e1e; the gutter and minimap follow it.
+  'editor.background': '#1c1e23',
+  'editorGutter.background': '#1c1e23',
+  'minimap.background': '#1c1e23',
   'editor.selectionBackground': '#264f78',
   'editor.inactiveSelectionBackground': '#264f78',
   // Scrollbars (F31): a grey thumb only, as the app's (`--scroll-thumb-bg`,

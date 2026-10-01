@@ -27,6 +27,9 @@ pub struct WipCounts {
     pub modified: u32,
     pub added: u32,
     pub deleted: u32,
+    /// Renamed in the index (`R`); one per path, so a staged and unstaged edit of the same path
+    /// is one file, as in the WIP panel's "N file changes".
+    pub renamed: u32,
     pub conflicted: u32,
 }
 
@@ -102,6 +105,7 @@ pub fn summarize(entries: &[StatusEntry]) -> WipCounts {
             EntryKind::Untracked => c.added += 1,
             _ if e.index == 'D' || e.worktree == 'D' => c.deleted += 1,
             _ if e.index == 'A' => c.added += 1,
+            EntryKind::Renamed if e.index == 'R' => c.renamed += 1,
             _ => c.modified += 1,
         }
     }
@@ -144,7 +148,7 @@ mod tests {
         let untracked = entries.iter().find(|e| e.path == "a\nb.txt").unwrap();
         assert_eq!(untracked.kind, super::EntryKind::Untracked);
 
-        assert_eq!(super::summarize(&entries), super::WipCounts { modified: 2, added: 2, deleted: 1, conflicted: 0 });
+        assert_eq!(super::summarize(&entries), super::WipCounts { modified: 1, added: 2, deleted: 1, renamed: 1, conflicted: 0 });
     }
 
     #[tokio::test]

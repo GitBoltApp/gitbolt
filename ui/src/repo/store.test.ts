@@ -4,15 +4,17 @@ import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { FileChange } from '../api/gen/FileChange';
 import type { RowPayload } from '../api/gen/RowPayload';
-import { createRepoViewStore, otherSelectedIndex, selectedIndex, targetFor } from './store';
+import { createRepoViewStore, selectedIndex, targetFor } from './store';
 import { recordingServices as fakeServices } from './testServices';
+import { WipLists } from './wipLists';
+import type { FileListPayload } from '../api/gen/FileListPayload';
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40), C = 'c'.repeat(40);
 const row = (id: string, kind: RowPayload['kind'] = 'commit', wip: RowPayload['wip'] = null): RowPayload => ({
   id, kind, lane: 0, color: 0, segments: [], summary: id.slice(0, 1), bodyFirstLine: '', authorName: 'Ada', authorEmail: 'ada@example.com', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip,
 });
 const graph: GraphPayload = {
-  rows: [row('wip:/r', 'wip', { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 }), row(A), row(B), row(C)],
+  rows: [row('wip:/r', 'wip', { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 }), row(A), row(B), row(C)],
   labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false,
 };
 const details = (id: string): CommitDetailsPayload => ({ id, parents: [], author: { name: 'Ada', email: 'ada@example.com', time: 0 }, committer: { name: 'Ada', email: 'ada@example.com', time: 0 }, coAuthors: [], signed: false });
@@ -87,118 +89,6 @@ describe('repo view store', () => {
     expect(calls.some((c) => c.startsWith('details ') || c.startsWith('message '))).toBe(false);
   });
 
-  // K15/K16: one Ctrl+click adds a second commit to the selection; the pair is the compare,
-  // older → newer by commit date, with no A/B marks.
-  it('with one commit selected, a Ctrl+click on a second selects both and compares them', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(1);
-    s.getState().selectRow(3, { ctrl: true });
-    // Same commit date: the lower row (graph order) is the older one, the base.
-    expect(s.getState().selection).toEqual({ kind: 'compare', from: C, to: A });
-    expect(s.getState().sections[0].spec).toEqual({ kind: 'compare', from: C, to: A });
-    expect(s.getState().compareRows).toEqual({ cursor: 3, other: 1 });
-    expect([selectedIndex(s.getState()), otherSelectedIndex(s.getState())]).toEqual([3, 1]);
-  });
-
-  it('orders the pair by commit date (older = base), whatever the click or row order', () => {
-    const { services } = fakeServices();
-    const timed = { ...graph, rows: [graph.rows[0], { ...row(A), committerTime: 100 }, { ...row(B), committerTime: 300 }, { ...row(C), committerTime: 200 }] };
-    const s = createRepoViewStore(1, '/r', timed, services);
-    s.getState().selectRow(1);
-    s.getState().selectRow(3, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'compare', from: A, to: C });
-    s.getState().selectRow(3);
-    s.getState().selectRow(1, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'compare', from: A, to: C });
-    s.getState().selectRow(2);
-    s.getState().selectRow(3, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'compare', from: C, to: B });
-  });
-
-  it('a Ctrl+click on one of the pair drops it, back to the other alone', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(1);
-    s.getState().selectRow(3, { ctrl: true });
-    s.getState().selectRow(3, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'commit', index: 1, id: A });
-    expect(s.getState().compareRows).toEqual({ cursor: null, other: null });
-    s.getState().selectRow(3, { ctrl: true });
-    s.getState().selectRow(1, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'commit', index: 3, id: C });
-  });
-
-  it('a plain click leaves the pair for that one commit', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(1);
-    s.getState().selectRow(3, { ctrl: true });
-    s.getState().selectRow(3);
-    expect(s.getState().selection).toEqual({ kind: 'commit', index: 3, id: C });
-    expect([selectedIndex(s.getState()), otherSelectedIndex(s.getState())]).toEqual([3, -1]);
-  });
-
-  it('a Ctrl+click on a third commit pairs it with the one Ctrl+clicked last', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(1);
-    s.getState().selectRow(3, { ctrl: true });
-    s.getState().selectRow(2, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'compare', from: C, to: B });
-    expect(s.getState().compareRows).toEqual({ cursor: 2, other: 3 });
-  });
-
-  it('a Ctrl+click with nothing selected selects that commit; on the selected commit it changes nothing', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(2, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'commit', index: 2, id: B });
-    const open = targetFor(change('a.txt', 'M'), { kind: 'commit', id: B, parent: 0 });
-    s.getState().openFile(open);
-    const before = s.getState().selection;
-    s.getState().selectRow(2, { ctrl: true });
-    expect(s.getState().selection).toBe(before);
-    expect(s.getState().diff).toBe(open);
-  });
-
-  it('the WIP row and a commit, Ctrl+clicked together, compare that commit with the working tree', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(0);
-    s.getState().selectRow(2, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'compareWorktree', from: B, worktree: '/r' });
-    expect(s.getState().sections[0].spec).toEqual({ kind: 'worktree', from: B, worktree: '/r' });
-    expect(s.getState().compareRows).toEqual({ cursor: 2, other: 0 });
-    s.getState().selectRow(2);
-    s.getState().selectRow(0, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'compareWorktree', from: B, worktree: '/r' });
-    expect(s.getState().compareRows).toEqual({ cursor: 0, other: 2 });
-    // Dropping the WIP row leaves the commit.
-    s.getState().selectRow(0, { ctrl: true });
-    expect(s.getState().selection).toEqual({ kind: 'commit', index: 2, id: B });
-  });
-
-  it('exitCompare returns to the commit Ctrl+clicked last', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(3);
-    s.getState().selectRow(1, { ctrl: true });
-    s.getState().exitCompare();
-    expect(s.getState().selection).toEqual({ kind: 'commit', index: 1, id: A });
-    expect(s.getState().compareRows).toEqual({ cursor: null, other: null });
-  });
-
-  it('a new graph keeps both compared rows by commit id', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().selectRow(1);
-    s.getState().selectRow(3, { ctrl: true });
-    s.getState().setGraph({ ...graph, rows: [row(C), row(B), row(A)] });
-    expect(s.getState().compareRows).toEqual({ cursor: 0, other: 2 });
-    expect(s.getState().selection).toEqual({ kind: 'compare', from: C, to: A });
-  });
-
   it('the merge parent picker reloads the file list against that parent', () => {
     const { services, calls } = fakeServices();
     const s = createRepoViewStore(1, '/r', graph, services);
@@ -230,16 +120,6 @@ describe('repo view store', () => {
     s.getState().setGraph({ ...graph, rows: [row(C), row(B), row(A)] });
     expect(s.getState().selection).toEqual({ kind: 'commit', index: 1, id: B });
     expect(s.getState().selectCommitById('f'.repeat(40))).toBe(false);
-  });
-
-  it('compare with working tree uses the worktree spec', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().compareWithWorktree(B, '/r');
-    expect(s.getState().selection).toEqual({ kind: 'compareWorktree', from: B, worktree: '/r' });
-    expect(s.getState().sections[0].spec).toEqual({ kind: 'worktree', from: B, worktree: '/r' });
-    // The commit and the worktree's WIP row are both selected; the keyboard is on the commit.
-    expect(s.getState().compareRows).toEqual({ cursor: 2, other: 0 });
   });
 
   // Review fix 1: the parent picker renders from the row's parents, so it can be used before
@@ -283,19 +163,6 @@ describe('repo view store', () => {
     resolve(`files {"kind":"commit","id":"${B}","parent":0}`, { files: [], added: 0, deleted: 0 });
     await flush();
     expect(pick()).toEqual(cleared);
-  });
-
-  it('exitCompare from a compare-with-working-tree whose commit has no row goes to the WIP row, or clears', () => {
-    const { services } = fakeServices();
-    const s = createRepoViewStore(1, '/r', graph, services);
-    s.getState().compareWithWorktree('f'.repeat(40), '/r');
-    expect(s.getState().compareRows).toEqual({ cursor: null, other: 0 });
-    s.getState().exitCompare();
-    expect(s.getState().selection).toEqual({ kind: 'wip', index: 0, worktree: '/r', name: null });
-    s.getState().compareWithWorktree('f'.repeat(40), '/elsewhere');
-    expect(s.getState().compareRows).toEqual({ cursor: null, other: null });
-    s.getState().exitCompare();
-    expect([s.getState().selection, s.getState().sections]).toEqual([{ kind: 'none' }, []]);
   });
 
   it('openFirstFile opens the first non-empty section (a WIP row with only staged changes)', async () => {
@@ -443,6 +310,126 @@ describe('repo view store', () => {
       expect(rec.calls).toContain(`message ${A}`);
       expect(rec.calls).toContain(`message ${C}`);
     });
+  });
+});
+
+describe('WIP lists held while watched (K44)', () => {
+  const U = 'files {"kind":"wip","worktree":"/r","staged":false}';
+  const S = 'files {"kind":"wip","worktree":"/r","staged":true}';
+  const lists = (version: string | undefined, path: string) => ({ files: [change(path, 'M')], added: 1, deleted: 0, ...(version ? { version } : {}) });
+  const settle = async () => { await flush(); await flush(); };
+  const wipCalls = (calls: string[]) => calls.filter((c) => c.includes('"kind":"wip"'));
+  const shown = (s: ReturnType<typeof createRepoViewStore>) => s.getState().panel?.sections.map((x) => (x.list.status === 'ready' ? x.list.data.files[0].path : x.list.status));
+
+  async function watchedStore() {
+    const rec = fakeServices();
+    const s = createRepoViewStore(1, '/r', graph, rec.services);
+    s.getState().setWatched(true);
+    // The WIP row's lists are loaded ahead as soon as the tab is watched.
+    expect(wipCalls(rec.calls)).toEqual([U, S]);
+    rec.resolve(U, lists('v1', 'u1.txt'));
+    rec.resolve(S, lists('v1', 's1.txt'));
+    await settle();
+    return { ...rec, s };
+  }
+
+  it('selecting the WIP row renders its held lists synchronously, with no request', async () => {
+    const { s, calls } = await watchedStore();
+    const before = calls.length;
+    s.getState().selectRow(0);
+    expect(calls.length).toBe(before);
+    expect(s.getState().panelPending).toBe(false);
+    expect(s.getState().panel?.selection.kind).toBe('wip');
+    expect(shown(s)).toEqual(['u1.txt', 's1.txt']);
+    // And again after a commit: still nothing read for the WIP row.
+    s.getState().selectRow(1);
+    s.getState().selectRow(0);
+    expect(wipCalls(calls)).toHaveLength(2);
+    expect(s.getState().panelPending).toBe(false);
+    expect(shown(s)).toEqual(['u1.txt', 's1.txt']);
+  });
+
+  it('a watcher change re-reads the lists and updates the selected WIP panel in place', async () => {
+    const { s, calls, resolve, services } = await watchedStore();
+    s.getState().selectRow(0);
+    services.wip.changed(['/r'], { '/r': 'v2' });
+    expect(wipCalls(calls)).toEqual([U, S, U, S]);
+    // The lists shown stay until the new ones arrive (no loading state).
+    expect(shown(s)).toEqual(['u1.txt', 's1.txt']);
+    expect(s.getState().panelPending).toBe(false);
+    resolve(U, lists('v2', 'u2.txt'));
+    resolve(S, lists('v2', 's2.txt'));
+    await settle();
+    expect(shown(s)).toEqual(['u2.txt', 's2.txt']);
+    // Held again: re-selecting reads nothing.
+    s.getState().selectRow(1);
+    s.getState().selectRow(0);
+    expect(wipCalls(calls)).toHaveLength(4);
+    expect(shown(s)).toEqual(['u2.txt', 's2.txt']);
+  });
+
+  it('a change while another row is selected re-reads ahead, so the next WIP selection is instant', async () => {
+    const { s, calls, resolve, services } = await watchedStore();
+    s.getState().selectRow(1);
+    services.wip.changed(['/r'], { '/r': 'v2' });
+    expect(wipCalls(calls)).toHaveLength(4);
+    resolve(U, lists('v2', 'u2.txt'));
+    resolve(S, lists('v2', 's2.txt'));
+    await settle();
+    s.getState().selectRow(0);
+    expect(s.getState().panelPending).toBe(false);
+    expect(shown(s)).toEqual(['u2.txt', 's2.txt']);
+  });
+
+  it('unwatched (or once the watch stops), every WIP selection reads its lists, as before', async () => {
+    const { s, calls, resolve } = await watchedStore();
+    s.getState().setWatched(false);
+    s.getState().selectRow(0);
+    expect(wipCalls(calls)).toEqual([U, S, U, S]);
+    expect(s.getState().panelPending).toBe(true);
+    resolve(U, lists('v1', 'u1.txt'));
+    resolve(S, lists('v1', 's1.txt'));
+    await settle();
+    expect(shown(s)).toEqual(['u1.txt', 's1.txt']);
+    s.getState().selectRow(1);
+    s.getState().selectRow(0);
+    expect(wipCalls(calls)).toHaveLength(6);
+  });
+
+  it('a degraded watch (lists and events with no version) stops the read-ahead on events and refreshes', async () => {
+    const rec = fakeServices();
+    const s = createRepoViewStore(1, '/r', graph, rec.services);
+    s.getState().setWatched(true);
+    rec.resolve(U, lists(undefined, 'u1.txt'));
+    rec.resolve(S, lists(undefined, 's1.txt'));
+    await settle();
+    rec.services.wip.changed(['/r'], {});
+    s.getState().setGraph({ ...graph, rows: [...graph.rows] });
+    expect(wipCalls(rec.calls)).toHaveLength(2);
+    // Selecting the WIP row still reads it.
+    s.getState().selectRow(0);
+    expect(wipCalls(rec.calls)).toHaveLength(4);
+  });
+
+  it('an older refresh landing after a newer one is dropped', async () => {
+    const reads: { answer: (l: FileListPayload) => void }[] = [];
+    const rec = fakeServices();
+    const wip = new WipLists(() => new Promise<FileListPayload>((answer) => reads.push({ answer })));
+    const s = createRepoViewStore(1, '/r', graph, { ...rec.services, wip });
+    s.getState().setWatched(true);
+    reads.splice(0).forEach((r, i) => r.answer(lists('v1', i === 0 ? 'u1.txt' : 's1.txt')));
+    await settle();
+    s.getState().selectRow(0);
+    wip.changed(['/r'], { '/r': 'v2' });
+    const older = reads.splice(0);
+    wip.changed(['/r'], { '/r': 'v3' });
+    const newer = reads.splice(0);
+    newer.forEach((r, i) => r.answer(lists('v3', i === 0 ? 'u3.txt' : 's3.txt')));
+    await settle();
+    older.forEach((r, i) => r.answer(lists('v2', i === 0 ? 'u2.txt' : 's2.txt')));
+    await settle();
+    expect(shown(s)).toEqual(['u3.txt', 's3.txt']);
+    expect(wip.peek(U.slice('files '.length))?.version).toBe('v3');
   });
 });
 

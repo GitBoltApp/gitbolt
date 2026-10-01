@@ -80,11 +80,17 @@ export class FetchScheduler {
   }
 }
 
+/** Repos (by id) whose last fetch failed: a background failure reaches the bell only when it
+ * starts, not on every tick of an outage (K30). */
+const failing = new Set<number>();
+
 /**
  * One fetch of the tab's repo (spec §15). `background`: the scheduler's, which never prompts
- * (§5.4); a fetch that would need credentials comes back skipped and shows as a status-bar warning
- * until a fetch succeeds. Errors: a background one goes to the bell's history, a user's to a toast
- * (§16.1). A cancel (the status bar's Cancel) is quiet.
+ * (§5.4) and shows nothing while it runs or when it succeeds: it's only in the activity log (K30,
+ * `useOps().activity`). A fetch that would need credentials comes back skipped and shows as a
+ * status-bar warning until a fetch succeeds. Errors: a background one goes to the bell's history
+ * (once, when the failures start), a user's to a toast (§16.1). A cancel is quiet. A user's fetch
+ * that finds a background one running waits on that one: the Fetch button shows it as busy.
  */
 export async function runFetch(tabId: string, background: boolean): Promise<void> {
   const rt = useRuntime.getState().tabs[tabId];
@@ -96,9 +102,14 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
   };
   try {
     const out = await api.fetch(repo.id, background);
+    if (out.status === 'done' || out.reason === 'authRequired') failing.delete(repo.id);
     if (out.status === 'done') patch({ lastFetchAt: Date.now(), fetchSkipped: null });
     else if (out.reason === 'authRequired') patch({ lastFetchAt: Date.now(), fetchSkipped: FETCH_SKIPPED_AUTH });
-    else if (!background) useToast.getState().show('A fetch is already running');
+    else if (!background) {
+      const running = Object.values(useOps.getState().ops).find((o) => o.kind === 'fetch' && o.repo === repo.id);
+      if (running) useOps.getState().showOp(running.op);
+      else useToast.getState().show('A fetch is already running');
+    }
   } catch (e) {
     patch({ lastFetchAt: Date.now() });
     const kind = (e as GbError | null)?.kind;
@@ -106,8 +117,10 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
     // git's own first line for a rejected credential is the server's ("remote: authentication
     // required"); the kind says what happened.
     const text = kind === 'AuthFailed' ? `Authentication failed (${errorMessage(e)})` : errorMessage(e);
-    if (background) useOps.getState().pushError(`Fetch failed (${repo.name}): ${text}`);
-    else useToast.getState().show(`Fetch failed: ${text}`);
+    const started = !failing.has(repo.id);
+    failing.add(repo.id);
+    if (!background) useToast.getState().show(`Fetch failed: ${text}`);
+    else if (started) useOps.getState().pushError(`Fetch failed (${repo.name}): ${text}`);
   }
 }
 

@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, List, ListTree } from 'lucide-react';
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { Fragment, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
@@ -11,10 +11,12 @@ import { filesKey } from '../repo/services';
 import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { DENSITY_METRICS, useDensity } from '../theme/density';
 import { useHoverTooltip } from '../ui/HoverTooltip';
+import { BUSY_DELAY_MS, useLateFlag } from '../util/lateFlag';
 import { useFileListPrefs } from './fileListPrefs';
 import { allFolderPaths, buildRows, countByStatus, matchesFilter, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
 import { FilesFilter } from './FilesFilter';
 import { PathTooltip } from './RenamePaths';
+import { PathTreeToggle } from './PathTreeToggle';
 import { StatusIcon } from './StatusIcon';
 import './files.css';
 
@@ -71,7 +73,7 @@ export const countsText = (c: StatusCounts, sep = ' · ') => COUNT_KINDS.filter(
 
 /** Coloured status icons with their numbers, non-zero kinds only (feedback F19/F20). Named as
  * one image ("2 modified · 1 renamed"); the icons themselves are decorative. */
-function StatusCountsView({ counts, testId, size }: { counts: StatusCounts; testId: string; size: number }) {
+export function StatusCountsView({ counts, testId, size }: { counts: StatusCounts; testId: string; size: number }) {
   const text = countsText(counts);
   if (!text) return null;
   return (
@@ -162,29 +164,40 @@ interface Cursor { id: string; diffKey: string | null }
  * moved past are dropped before they're requested (plan 1B deviation 2).
  *
  * The listbox carries `data-open-file` when it holds the open file and `data-empty` when it has
- * no rows, so the files zone can focus the right list (WIP has two).
+ * no rows, so the files zone can focus the right list (WIP has two). `sharedMode` (WIP, K36):
+ * Path/Tree is the panel's one shared toggle, and the counts and totals are on its section header.
  */
-export function FileList({ list, spec, label, allFilesCommit = null }: { list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null }) {
+/** What a WIP panel asks of a list (K36): whether it has files, and to take the keyboard at its
+ * first or last file (opening it), when up/down crosses over from the other list. */
+export interface FileListHandle { hasFiles(): boolean; enter(edge: 'first' | 'last'): void }
+
+export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, onLeave, ref }: { list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
   const store = useRepoViewStore();
   const openFile = useRepoView((s) => s.openFile);
   const closeDiffTo = useRepoView((s) => s.closeDiffTo);
   const closeDiff = useRepoView((s) => s.closeDiff);
   const openKey = useRepoView((s) => s.diff?.key ?? null);
   const openPath = useRepoView((s) => s.diff?.path ?? null);
-  const { mode, sort, allFiles, set: setPrefs } = useFileListPrefs();
+  const { mode, sort, allFiles: allFilesWanted, set: setPrefs } = useFileListPrefs();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [cursor, setCursor] = useState<Cursor | null>(null);
   // "View all files"' filter (feedback K18-K20): transient, never persisted, and only shown (or
   // applied) while View all files is on — cleared when it's turned off.
   const [filterText, setFilterText] = useState('');
-  useEffect(() => { if (!allFiles) setFilterText(''); }, [allFiles]);
-  const filterQuery = allFiles ? filterText.trim().toLowerCase() : '';
+  useEffect(() => { if (!allFilesWanted) setFilterText(''); }, [allFilesWanted]);
   // The file menu's openers and remotes, loaded ahead so it opens fully drawn (spec §7).
   const services = useRepoView((s) => s.services);
   const graph = useRepoView((s) => s.graph);
   useEffect(() => warmFileMenu(services, graph), [services, graph]);
-  const tree = useTreePaths(allFiles ? allFilesCommit : null);
+  const tree = useTreePaths(allFilesWanted ? allFilesCommit : null);
   const paths = tree.paths;
+  // The layout switches only once the full tree is here (K54): until then the previous list stays
+  // as it was, under a thin progress line, so there's never a half-switched list. A failed load
+  // is settled too (its error row shows). Turning it off is instant.
+  const allFilesLoading = allFilesWanted && !!allFilesCommit && paths === null && tree.error === null;
+  const allFiles = allFilesWanted && !allFilesLoading;
+  const slow = useLateFlag(allFilesLoading, BUSY_DELAY_MS, allFilesCommit ?? '');
+  const filterQuery = allFiles ? filterText.trim().toLowerCase() : '';
   const unchanged = useMemo(() => (allFiles && allFilesCommit && paths ? { commit: allFilesCommit, paths } : null), [allFiles, allFilesCommit, paths]);
   // The filter narrows both the changed and the unchanged files it's built from; a folder with no
   // surviving descendant just isn't in the tree `buildRows` builds from what's left.
@@ -312,6 +325,14 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
       return next;
     });
 
+  useImperativeHandle(ref, () => ({
+    hasFiles: () => rows.some((r) => r.kind === 'file'),
+    enter: (edge) => {
+      scrollRef.current?.focus({ preventScroll: true });
+      moveToFile(edge === 'first' ? fileAt(0, 1) : fileAt(rows.length - 1, -1));
+    },
+  }));
+
   const onKeyDown = (e: KeyboardEvent) => {
     // A stale list (the next selection is loading, feedback F12) opens nothing.
     if (e.ctrlKey || e.altKey || e.metaKey || store.getState().panelPending) return;
@@ -332,8 +353,20 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     // Feedback J3: the moves land on file rows only (folder rows are skipped), and open them.
     // Feedback K4: ↓ past the last file wraps to the first, ↑ past the first wraps to the last.
     switch (e.key) {
-      case 'ArrowDown': moveToFile(i < 0 ? fileAt(0, 1) : orWrap(fileAt(i + 1, 1), () => fileAt(0, 1))); break;
-      case 'ArrowUp': moveToFile(i < 0 ? fileAt(0, 1) : orWrap(fileAt(i - 1, -1), () => fileAt(last, -1))); break;
+      // `onLeave` (WIP, K36): past the list's end, the other expanded list takes over (and wraps
+      // the sequence as a whole); with none to take it, this list wraps on its own.
+      case 'ArrowDown': {
+        const n = i < 0 ? fileAt(0, 1) : fileAt(i + 1, 1);
+        if (n === -1 && onLeave?.(1)) break;
+        moveToFile(n === -1 ? fileAt(0, 1) : n);
+        break;
+      }
+      case 'ArrowUp': {
+        const n = i < 0 ? fileAt(0, 1) : fileAt(i - 1, -1);
+        if (n === -1 && onLeave?.(-1)) break;
+        moveToFile(n === -1 ? fileAt(last, -1) : n);
+        break;
+      }
       case 'PageDown': { const t = Math.min(last, i + page); moveToFile(fileAt(t, 1, -1)); break; }
       case 'PageUp': { const t = Math.max(0, i - page); moveToFile(fileAt(t, -1, 1)); break; }
       case 'Home': moveToFile(fileAt(0, 1)); break;
@@ -380,13 +413,13 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
 
   return (
     <div className="file-list">
-      <div className="file-list-header">
+      {!sharedMode && <div className="file-list-header">
         {countsText(counts) ? <StatusCountsView counts={counts} testId="file-counts" size={12} /> : <span className="file-counts" data-testid="file-counts">No changes</span>}
         <span className="file-totals" data-testid="file-totals"><span className="added">+{list.added}</span> <span className="deleted">−{list.deleted}</span></span>
-      </div>
+      </div>}
       {/* Justified: the mode's action on the left, Path/Tree in the centre, View all files on
           the right (feedback F18). */}
-      <div className="file-toolbar" role="toolbar" aria-label="File list options">
+      <div className="file-toolbar" role="toolbar" aria-label="File list options" aria-busy={allFilesLoading || undefined}>
         <div className="file-toolbar-start">
           {mode === 'tree' ? (
             // One smart button: expands everything unless everything already is (then collapses).
@@ -401,14 +434,12 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
           )}
         </div>
         <div className="file-toolbar-center">
-          <div className="segmented">
-            <button type="button" aria-pressed={mode === 'path'} onClick={() => setPrefs({ mode: 'path' })}><List size={12} aria-hidden />Path</button>
-            <button type="button" aria-pressed={mode === 'tree'} onClick={() => setPrefs({ mode: 'tree' })}><ListTree size={12} aria-hidden />Tree</button>
-          </div>
+          {!sharedMode && <PathTreeToggle />}
         </div>
         <div className="file-toolbar-end">
-          {allFilesCommit && <button type="button" className="toolbar-button" aria-pressed={allFiles} onClick={() => setPrefs({ allFiles: !allFiles })}>View all files</button>}
+          {allFilesCommit && <button type="button" className="toolbar-button" aria-pressed={allFilesWanted} onClick={() => setPrefs({ allFiles: !allFilesWanted })}>View all files</button>}
         </div>
+        {slow && <div className="diff-progress" role="progressbar" aria-label="Loading all files" />}
       </div>
       {allFiles && (
         <FilesFilter

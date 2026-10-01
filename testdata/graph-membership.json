@@ -752,6 +752,72 @@
           "parents": []
         }
       ]
+    },
+    {
+      "labels": [
+        {
+          "isHead": false,
+          "local": "refs/heads/main",
+          "name": "main",
+          "remotes": [
+            {
+              "fullName": "refs/remotes/origin/main",
+              "hostKind": "generic",
+              "remote": "origin"
+            }
+          ],
+          "row": 1,
+          "tag": false,
+          "worktree": null
+        },
+        {
+          "isHead": true,
+          "local": "refs/heads/feature",
+          "name": "feature",
+          "remotes": [],
+          "row": 2,
+          "tag": false,
+          "worktree": null
+        }
+      ],
+      "name": "dirty feature checked out, older than pinned main",
+      "pinnedRef": "refs/remotes/origin/main",
+      "rows": [
+        {
+          "color": 1,
+          "id": "// WIP",
+          "kind": "wip",
+          "lane": 1,
+          "parents": [
+            "F"
+          ]
+        },
+        {
+          "color": 0,
+          "id": "M",
+          "kind": "commit",
+          "lane": 0,
+          "parents": [
+            "base"
+          ]
+        },
+        {
+          "color": 1,
+          "id": "F",
+          "kind": "commit",
+          "lane": 1,
+          "parents": [
+            "base"
+          ]
+        },
+        {
+          "color": 0,
+          "id": "base",
+          "kind": "commit",
+          "lane": 0,
+          "parents": []
+        }
+      ]
     }
   ]
 }

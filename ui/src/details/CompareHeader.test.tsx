@@ -16,19 +16,19 @@ const loaded = () => fakeServices({ files: new Loader(async (): Promise<FileList
 const A = 'a1b2c3'.padEnd(40, '0'), B = 'e4f5a6'.padEnd(40, '0');
 const OLD = 1_767_225_600, NEW = OLD + 3600;
 const row = (id: string, summary: string, authorName: string, committerTime: number): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName, authorEmail: `${authorName.toLowerCase()}@example.com`, authorTime: committerTime, committerTime, parents: [], mrRefs: [], wip: null });
-const wipRow: RowPayload = { ...row('wip:/r', '', '', 0), kind: 'wip', wip: { worktreePath: '/r', worktreeName: 'main-tree', modified: 2, added: 0, deleted: 0, conflicted: 0 } };
+const wipRow: RowPayload = { ...row('wip:/r', '', '', 0), kind: 'wip', wip: { worktreePath: '/r', worktreeName: 'main-tree', modified: 2, added: 0, deleted: 0, renamed: 0, conflicted: 0 } };
 const graph: GraphPayload = { rows: [wipRow, row(B, 'Newer change with a long summary', 'Grace', NEW), row(A, 'Older change', 'Ada', OLD)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: B, detached: false, unborn: false }, truncated: false };
 
-describe('CompareHeader (K16, K17)', () => {
-  it('shows base → target by commit date, then each commit: avatar, one-line summary and date; no swap', async () => {
+describe('CompareHeader (K17, K27)', () => {
+  it('shows FROM → TO in click order, then each commit: avatar, one-line summary and date; the swap reverses them', async () => {
     const store = createRepoViewStore(1, '/r', graph, loaded());
-    // Clicked newer first: the order is still older → newer.
+    // Clicked the newer first: it is FROM.
     await act(async () => {
       store.getState().selectRow(1);
       store.getState().selectRow(2, { ctrl: true });
     });
     render(<RepoViewContext value={store}><CompareHeader /></RepoViewContext>);
-    expect(screen.getByTestId('compare-header')).toHaveTextContent('Comparing a1b2c3 → e4f5a6');
+    expect(screen.getByTestId('compare-header')).toHaveTextContent('Comparing e4f5a6 → a1b2c3');
     // In the open file's bar box (K5/K6).
     expect(screen.getByTestId('compare-header').closest('.compare-bar')).toHaveClass('panel-bar');
     // Screen readers hear "to", not an arrow.
@@ -36,12 +36,18 @@ describe('CompareHeader (K16, K17)', () => {
     const commits = screen.getAllByTestId('compare-commit');
     expect(commits).toHaveLength(2);
     expect(within(commits[0]).getByTestId('avatar')).toBeInTheDocument();
-    expect(within(commits[0]).getByTestId('compare-summary')).toHaveTextContent('Older change');
-    expect(within(commits[0]).getByTestId('compare-date')).toHaveTextContent(formatDate(OLD));
-    expect(within(commits[1]).getByTestId('compare-summary')).toHaveTextContent('Newer change with a long summary');
-    expect(within(commits[1]).getByTestId('compare-date')).toHaveTextContent(formatDate(NEW));
-    // No A/B labels and no swap: the direction is the commit dates' (K16).
-    expect(screen.queryByRole('button', { name: 'Swap' })).toBeNull();
+    expect(within(commits[0]).getByTestId('compare-summary')).toHaveTextContent('Newer change with a long summary');
+    expect(within(commits[0]).getByTestId('compare-date')).toHaveTextContent(formatDate(NEW));
+    expect(within(commits[1]).getByTestId('compare-summary')).toHaveTextContent('Older change');
+    expect(within(commits[1]).getByTestId('compare-date')).toHaveTextContent(formatDate(OLD));
+    // No A/B labels: the order is the clicks'.
+    expect(document.querySelector('.compare-marker')).toBeNull();
+    // The swap, in the bar: TO becomes FROM, and the summaries follow.
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Swap' })));
+    expect(screen.getByTestId('compare-header')).toHaveTextContent('Comparing a1b2c3 → e4f5a6');
+    expect(screen.getAllByTestId('compare-summary').map((e) => e.textContent)).toEqual(['Older change', 'Newer change with a long summary']);
+    expect(store.getState().sections[0].spec).toEqual({ kind: 'compare', from: A, to: B });
+    // × goes back to the anchor: the row Ctrl+clicked.
     fireEvent.click(screen.getByRole('button', { name: 'Exit compare' }));
     expect(store.getState().selection).toEqual({ kind: 'commit', index: 2, id: A });
   });

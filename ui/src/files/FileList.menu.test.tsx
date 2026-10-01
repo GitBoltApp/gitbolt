@@ -71,7 +71,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     expect(useMenu.getState()).toMatchObject({ x: 30, y: 40 });
     expect(store.getState().diff).toBeNull();
     // No forge row: the repo has no GitLab/GitHub remote.
-    expect(topLabels()).toEqual(['Copy path', 'Open in', 'Open diff', 'View file at this commit']);
+    expect(topLabels()).toEqual(['Copy path', 'Open in', 'View']);
     // H32: every opening re-detects (the backend caches briefly).
     await waitFor(() => expect(listOpeners).toHaveBeenCalledTimes(2));
   });
@@ -93,7 +93,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     setup(undefined, GITLAB);
     await act(async () => {});
     fireEvent.contextMenu(row('src/app.php'));
-    expect(topLabels()).toEqual(['Copy path', 'Forge link', 'Open in', 'Open diff', 'View file at this commit']);
+    expect(topLabels()).toEqual(['Copy path', 'Forge link', 'Open in', 'View']);
     const permalink = `https://gitlab.example.com/acme/shop/-/blob/${COMMIT}/src/app.php`;
     fireEvent.click(screen.getByText('Forge link'));
     await waitFor(() => expect(copyText).toHaveBeenLastCalledWith(permalink));
@@ -131,7 +131,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     setup({ kind: 'wip', worktree: '/wt/feature', staged: false });
     await act(async () => {});
     fireEvent.contextMenu(row('README.md'));
-    expect(topLabels()).toEqual(['Copy path', 'Open in', 'Open diff', 'View file']);
+    expect(topLabels()).toEqual(['Copy path', 'Open in', 'View']);
     fireEvent.click(screen.getByRole('button', { name: /absolute path/ }));
     await waitFor(() => expect(copyText).toHaveBeenLastCalledWith('/wt/feature/README.md'));
     fireEvent.contextMenu(row('README.md'));
@@ -140,15 +140,19 @@ describe('the file row context menu (spec §7 file menu)', () => {
     await waitFor(() => expect(openIn).toHaveBeenCalledExactlyOnceWith(3, { worktree: '/wt/feature', path: 'README.md', line: null, opener: 'vscode', source: { kind: 'worktree', worktree: '/wt/feature' }, fallback: { kind: 'object', oid: 'b'.repeat(40) } }));
   });
 
-  it('Open diff and View file at this commit open the file in the center', async () => {
+  it('View: the label opens the diff, the File variant the whole file (K58)', async () => {
     const store = setup();
     await act(async () => {});
+    const variant = (id: string) => menu().querySelector(`[data-depth="0"] .ctx-variant[data-variant-id="${id}"]`)!;
     fireEvent.contextMenu(row('src/app.php'));
-    fireEvent.click(item('Open diff'));
+    fireEvent.click(item('View'));
     expect(store.getState().diff).toMatchObject({ path: 'src/app.php', view: 'diff' });
     fireEvent.contextMenu(row('README.md'));
-    fireEvent.click(item('View file at this commit'));
+    fireEvent.click(variant('file'));
     expect(store.getState().diff).toMatchObject({ path: 'README.md', view: 'file' });
+    fireEvent.contextMenu(row('src/app.php'));
+    fireEvent.click(variant('diff'));
+    expect(store.getState().diff).toMatchObject({ path: 'src/app.php', view: 'diff' });
   });
 
   it('the keyboard: Shift+F10 or the menu key opens it at the active row; Escape closes it and gives the list its focus back', async () => {

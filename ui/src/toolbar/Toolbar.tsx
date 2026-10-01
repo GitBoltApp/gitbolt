@@ -61,6 +61,9 @@ export function Toolbar() {
   const ctx = useRepoContext();
   const name = useRuntime((s) => s.tabs[ctx.tabId]?.repo?.name);
   const buttons = useToolbarButtons((s) => s.buttons);
+  // DOM order is the visual order: the centre group, then the end group at the far right.
+  const center = buttons.filter((b) => (b.placement ?? 'center') === 'center');
+  const end = buttons.filter((b) => b.placement === 'end');
   // Re-render when actions register or go: a button's action may arrive after the toolbar mounted.
   useSyncExternalStore(subscribeActions, actionsVersion);
   return (
@@ -71,8 +74,9 @@ export function Toolbar() {
       </div>
       <BranchPicker />
       <div className="tb-spacer" />
-      {buttons.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}
+      {center.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}
       <div className="tb-spacer" />
+      {end.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 .hover-tooltip {
   position: fixed;
   z-index: 1000;
-  max-width: min(600px, calc(100vw - 16px));
+  max-width: min(320px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);
   overflow: auto;
   box-sizing: border-box;
@@ -14,7 +14,11 @@
   font-size: 12px;
   line-height: 1.4;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* break-word, not anywhere: `anywhere` shrinks the min-content width, which lets a fixed box
+     squeeze to a word per line near the window edge (K52). Words never break unless longer
+     than the box. */
+  overflow-wrap: break-word;
+  word-break: normal;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
   pointer-events: none;
   /* motion (J19): a short fade-in only. `delayMs` (the "show immediately" rule) is unaffected: this only fades

@@ -78,10 +78,10 @@ test.describe('shell', () => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
     const mainWip = page.getByRole('row').filter({ hasText: '// WIP' }).filter({ hasNotText: 'wt-hotfix' });
-    await expect(mainWip).toContainText('✎1');
+    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified');
     writeFileSync(join(repo, 'e2e-new-file.txt'), 'hello\n');
     await emit(page, { type: 'repoChanged', repo: await repoIdOf(page, repo), kinds: ['worktree'], worktrees: [repo] });
-    await expect(mainWip).toContainText('+1', { timeout: 5000 });
+    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified · 1 added', { timeout: 5000 });
   });
 
   // Needs the watcher (plan 1C Task 6, lane W2-B): passes once it has merged.
@@ -89,9 +89,9 @@ test.describe('shell', () => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
     const mainWip = page.getByRole('row').filter({ hasText: '// WIP' }).filter({ hasNotText: 'wt-hotfix' });
-    await expect(mainWip).toContainText('✎1');
+    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified');
     writeFileSync(join(repo, 'e2e-new-file.txt'), 'hello\n');
-    await expect(mainWip).toContainText('+1', { timeout: 5000 });
+    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified · 1 added', { timeout: 5000 });
   });
 
   test('files open in two tabs share the one diff editor across switches; Ctrl+W closes the file, then the tab', async ({ page }) => {

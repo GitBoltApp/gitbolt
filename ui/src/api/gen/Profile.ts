@@ -24,6 +24,10 @@ extraGitconfig: string | null,
  */
 hostOverrides: { [key in string]: HostKind }, sidebarWidth: number, sidebarNarrow: boolean, 
 /**
+ * Sidebar panel id → its height in px when last resized (the weights the expanded panels share).
+ */
+sidebarPanels: { [key in string]: number }, 
+/**
  * The details panel's width; `None` is the UI's default.
  */
 rightPanelWidth: number | null, 

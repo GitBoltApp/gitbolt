@@ -37,13 +37,14 @@ function zoomRows(current: number): MenuRow[] {
   }));
 }
 
-/** The running network op the bar shows: the first one (rarely more than one runs). */
-const firstOp = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops)[0];
+/** The running network op the bar shows: the first clone (rarely more than one runs). A fetch
+ * never shows here (K30): a user's spins the Fetch button, a background one is only logged. */
+const firstOp = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops).find((o) => o.kind !== 'fetch');
 
 /**
- * The status bar (spec §6.5), in the app's `statusBar` slot: zoom, the running fetch or clone
- * (or the auth prompt it waits on) with Cancel, the active tab's fetch-skipped warning, the
- * notification bell (background errors), and the git version.
+ * The status bar (spec §6.5), in the app's `statusBar` slot: zoom, a running clone (or the auth
+ * prompt a user's fetch or clone waits on) with Cancel, the active tab's fetch-skipped warning,
+ * the notification bell (background errors), and the git version.
  */
 export function StatusBar() {
   const zoom = useZoom((s) => s.zoom);
@@ -70,7 +71,7 @@ export function StatusBar() {
       ) : task ? (
         <span className="sb-item sb-task">
           <LoaderCircle size={12} className="sb-spin" aria-hidden />
-          {task.kind === 'fetch' ? 'Fetching…' : `Cloning…${task.percent !== null ? ` ${task.percent}%` : ''}`}
+          {`Cloning…${task.percent !== null ? ` ${task.percent}%` : ''}`}
           <button type="button" className="sb-link" onClick={() => cancel(task.op)}>Cancel</button>
         </span>
       ) : null}

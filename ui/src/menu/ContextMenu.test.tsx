@@ -3,7 +3,7 @@ import { Copy, ExternalLink, GitCommit, GitBranch } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TooltipHost } from '../ui/TooltipHost';
 import { useTooltip } from '../ui/tooltipStore';
-import { BLUR_SETTLE_MS, ContextMenu, inTriangle, remap, SUBMENU_GRACE_MS, SUBMENU_OPEN_MS } from './ContextMenu';
+import { BLUR_SETTLE_MS, ContextMenu, inTriangle, remap, SUBMENU_GRACE_MS } from './ContextMenu';
 import { openContextMenu, openMenuAt, useMenu } from './menuStore';
 import type { MenuRow } from './types';
 
@@ -148,13 +148,11 @@ describe('ContextMenu', () => {
     const tick = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
     afterEach(() => vi.useRealTimers());
 
-    it(`a resting pointer opens the submenu after ${SUBMENU_OPEN_MS} ms; its row's tooltip goes then`, () => {
+    it("a pointerenter opens the submenu synchronously (K29): no timer runs; its row's tooltip goes at once", () => {
+      // Fake timers and no advance: if anything still depended on a timer, the submenu would stay closed.
       vi.useFakeTimers();
       open([more, action('b')]);
       hoverMore();
-      expect(sub()).toBeNull();
-      expect(screen.getByRole('tooltip')).toHaveTextContent('more tip');
-      tick(SUBMENU_OPEN_MS);
       expect(sub()).toBeVisible();
       // The tooltip beside the row would cover the submenu.
       expect(screen.queryByRole('tooltip')).toBeNull();
@@ -162,16 +160,6 @@ describe('ContextMenu', () => {
       fireEvent.pointerEnter(screen.getByRole('menuitem', { name: 'IN' }));
       hoverMore();
       expect(screen.queryByRole('tooltip')).toBeNull();
-    });
-
-    it('brushing past the submenu row does not open it', () => {
-      vi.useFakeTimers();
-      open([more, action('b')]);
-      hoverMore();
-      tick(SUBMENU_OPEN_MS / 2);
-      fireEvent.pointerEnter(screen.getByRole('menuitem', { name: 'B' }));
-      tick(1000);
-      expect(sub()).toBeNull();
     });
 
     describe('the safe triangle', () => {
@@ -188,7 +176,6 @@ describe('ContextMenu', () => {
         vi.useFakeTimers();
         const menu = open([more, action('b'), action('c')]);
         hoverMore();
-        tick(SUBMENU_OPEN_MS);
         expect(sub()).toBeVisible();
         fireEvent.pointerLeave(screen.getByRole('menuitem', { name: 'More' }), { clientX: 100, clientY: 13 });
         return menu;
@@ -465,5 +452,63 @@ describe('ContextMenu', () => {
     act(() => useMenu.getState().close());
     act(() => openMenuAt(el, [action('b')]));
     expect(screen.getByRole('menu', { name: 'Context menu' })).toBeVisible();
+  });
+});
+
+describe('ContextMenu: the anchor toggles it', () => {
+  afterEach(() => act(() => useMenu.getState().close()));
+
+  const setup = () => {
+    const opened = vi.fn();
+    const rows = [action('one', opened)];
+    render(
+      <>
+        <button type="button" onClick={(e) => openMenuAt(e.currentTarget, rows)}>toggle</button>
+        <button type="button">elsewhere</button>
+        <ContextMenu />
+      </>,
+    );
+    return screen.getByRole('button', { name: 'toggle' });
+  };
+  const press = (el: Element) => {
+    fireEvent.pointerDown(el);
+    fireEvent.pointerUp(el);
+    fireEvent.click(el);
+  };
+
+  it('a second press on the opening button closes the menu and does not reopen it', () => {
+    const toggle = setup();
+    press(toggle);
+    expect(useMenu.getState().rows).not.toBeNull();
+    press(toggle);
+    expect(useMenu.getState().rows).toBeNull();
+  });
+
+  it('opens again on the press after that', async () => {
+    const toggle = setup();
+    press(toggle);
+    press(toggle);
+    await new Promise((r) => setTimeout(r, 5));
+    press(toggle);
+    expect(useMenu.getState().rows).not.toBeNull();
+  });
+
+  it('a press elsewhere closes it, and the anchor opens it normally afterwards', async () => {
+    const toggle = setup();
+    press(toggle);
+    press(screen.getByRole('button', { name: 'elsewhere' }));
+    expect(useMenu.getState().rows).toBeNull();
+    press(toggle);
+    expect(useMenu.getState().rows).not.toBeNull();
+  });
+
+  it('a press on the anchor that is never clicked does not swallow a later keyboard open', async () => {
+    const toggle = setup();
+    press(toggle);
+    fireEvent.pointerDown(toggle);
+    fireEvent.pointerUp(toggle); // dragged off: no click
+    await new Promise((r) => setTimeout(r, 5));
+    fireEvent.click(toggle); // e.g. Enter on the focused button
+    expect(useMenu.getState().rows).not.toBeNull();
   });
 });

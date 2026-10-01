@@ -28,6 +28,19 @@ describe('RefLabels', () => {
     expect(container.querySelector('.ref-label-head')).toBeNull();
   });
 
+  it('outline source icons (laptop, generic remote) are a step bigger than the filled brand marks, so they read the same size', () => {
+    const label: RefLabel = {
+      row: 0, name: 'dev', local: 'refs/heads/dev', tag: false, isHead: false, worktree: null,
+      remotes: [{ fullName: 'refs/remotes/origin/dev', remote: 'origin', hostKind: 'gitlab' }, remote('backup', 'dev')],
+    };
+    const { container } = render(<RefLabels labels={[label]} color={0} />);
+    const chip = container.querySelector('.ref-label')!;
+    const sizeOf = (sel: string) => chip.querySelector(sel)!.getAttribute('width');
+    expect(sizeOf('[aria-label="local"]')).toBe('14');
+    expect(sizeOf('[data-host-kind="generic"]')).toBe('14');
+    expect(sizeOf('[data-host-kind="gitlab"]')).toBe('12');
+  });
+
   /** A source icon's hover target in the expanded (hovered) copy, the one the pointer can reach. */
   const fullIcon = (container: HTMLElement, aria: string) => container.querySelector('.ref-label-full')!.querySelector(`[aria-label="${aria}"]`)!.closest('.ref-icon')!;
 

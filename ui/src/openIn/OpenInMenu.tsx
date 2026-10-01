@@ -42,12 +42,8 @@ export function OpenInButton({ target, line = null, worktree: given }: { target:
   const [expanded, setExpanded] = useState(false);
   const group = useRef<HTMLSpanElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
-  // Fix round 1, item 3: a press on the toggle while its own dropdown is open must close it, not
-  // reopen it at the same place (`ContextMenu`'s own outside-press dismiss already closes it by
-  // the time the `click` fires; without this, `show()` would just reshow it). `pointerdown` runs
-  // before that dismiss's state update is applied (React 18 batches it), so `expanded` here is
-  // still last render's value — the one from just before this press.
-  const wasOpen = useRef(false);
+  // A press on the toggle while its dropdown is open closes it and the click doesn't reopen it:
+  // generic in the menu store (`openMenuAt` / `pressedAnchor`).
   const current = openers ? defaultOpener(openers, last) : null;
   useEffect(() => useMenu.subscribe((s) => { if (s.rows === null) setExpanded(false); }), []);
   if (!openers || !current) return null;
@@ -57,10 +53,9 @@ export function OpenInButton({ target, line = null, worktree: given }: { target:
   const build = () => openInSubmenuRows(openersSnapshot().list, openersSnapshot().error, (o) => open(o, t), { copy });
   const show = () => {
     refreshOpeners().catch(() => {});
-    setExpanded(true);
     // From the toggle's own rect, not the whole group: `placeMenu`'s flip-above (no room below)
     // must clear the toggle, not just the group's (here, same) bottom edge.
-    openMenuAt(toggle.current!, build(), openerRowId(current), build, 'Open in');
+    setExpanded(openMenuAt(toggle.current!, build(), openerRowId(current), build, 'Open in'));
   };
   return (
     <span ref={group} className="open-in-button" role="group" aria-label="Open in">
@@ -75,8 +70,7 @@ export function OpenInButton({ target, line = null, worktree: given }: { target:
         aria-label="More ways to open"
         aria-haspopup="menu"
         aria-expanded={expanded}
-        onPointerDown={() => { wasOpen.current = expanded; }}
-        onClick={() => { if (!wasOpen.current) show(); }}
+        onClick={show}
         onKeyDown={(e) => {
           if (e.key !== 'ArrowDown' || expanded) return;
           e.preventDefault();

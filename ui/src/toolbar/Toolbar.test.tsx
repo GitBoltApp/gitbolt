@@ -58,13 +58,24 @@ describe('Toolbar (spec §6.3)', () => {
     expect(api.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('Fetch is busy while a fetch runs for this repo, not another repo', () => {
+  it('Fetch is busy while the user\'s fetch runs for this repo, not another repo', () => {
     renderToolbar();
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 1, kind: 'fetch', repo: 9, label: 'other' }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 1, kind: 'fetch', repo: 9, label: 'other', interactive: true }));
     expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 2, kind: 'fetch', repo: 4, label: 'gitbolt' }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 2, kind: 'fetch', repo: 4, label: 'gitbolt', interactive: true }));
     expect(screen.getByRole('button', { name: 'Fetch' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Fetch' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('a background fetch leaves Fetch alone, until a user\'s Fetch waits on it (K30)', () => {
+    renderToolbar();
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 3, kind: 'fetch', repo: 4, label: 'gitbolt', interactive: false }));
+    expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Fetch' })).not.toHaveAttribute('aria-busy');
+    act(() => useOps.getState().showOp(3));
+    expect(screen.getByRole('button', { name: 'Fetch' })).toHaveAttribute('aria-busy', 'true');
+    act(() => useOps.getState().apply({ type: 'opFinished', op: 3, kind: 'fetch', repo: 4, outcome: 'ok', message: null }));
+    expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
   });
 
   it('renders buttons from registered action ids, and none for an action that does not exist', () => {
@@ -81,6 +92,23 @@ describe('Toolbar (spec §6.3)', () => {
     offA(); offB(); offC();
   });
 
+  it('end-placed buttons sit after the second spacer, centre ones before it, in DOM order', () => {
+    const run = vi.fn();
+    const offA = registerActions([{ id: 'test.end', label: 'End thing', group: 'Edit', icon: Search, tooltip: 'x', run }, { id: 'test.mid', label: 'Mid thing', group: 'Edit', icon: Search, tooltip: 'y', run }]);
+    const offB = registerToolbarButton({ action: 'test.end', label: 'EndBtn', placement: 'end', order: 1 });
+    const offC = registerToolbarButton({ action: 'test.mid', label: 'MidBtn', order: 99 });
+    const { container } = renderToolbar();
+    const kids = [...container.querySelector('.toolbar')!.children];
+    const spacers = kids.filter((k) => k.classList.contains('tb-spacer'));
+    expect(spacers).toHaveLength(2);
+    const at = (name: string) => kids.findIndex((k) => k.querySelector(`[aria-label="${name}"]`) || k.getAttribute('aria-label') === name);
+    expect(at('Fetch')).toBeLessThan(at('MidBtn'));
+    expect(at('MidBtn')).toBeLessThan(kids.indexOf(spacers[1]));
+    expect(at('EndBtn')).toBeGreaterThan(kids.indexOf(spacers[1]));
+    expect(kids.indexOf(spacers[1]) + 1).toBe(at('EndBtn'));
+    offA(); offB(); offC();
+  });
+
   it('Search appears once find registers edit.find, and runs it', () => {
     const first = renderToolbar();
     expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
@@ -90,6 +118,9 @@ describe('Toolbar (spec §6.3)', () => {
     renderToolbar();
     const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
     expect(names.indexOf('Search')).toBe(names.indexOf('Fetch options') + 1);
+    const kids = [...document.querySelector('.toolbar')!.children];
+    expect(kids.at(-1)!.getAttribute('aria-label')).toBe('Search');
+    expect(kids.at(-2)!.classList.contains('tb-spacer')).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(run).toHaveBeenCalledTimes(1);
     off();
@@ -109,7 +140,8 @@ describe('Toolbar (spec §6.3)', () => {
     renderToolbar();
     fireEvent.click(screen.getByRole('button', { name: 'Branch: main' }));
     const options = screen.getAllByRole('option');
-    expect(options.map((o) => o.textContent)).toEqual(['main', 'feature/login2↑ 1↓']);
+    // Alphabetical by default (K72).
+    expect(options.map((o) => o.textContent)).toEqual(['feature/login2↑ 1↓', 'main']);
     fireEvent.click(screen.getByText('feature/login'));
     expect(selectCommit).toHaveBeenCalledWith('t', 'bbbbbbbbbb', { focus: true });
     expect(screen.queryByRole('listbox')).toBeNull();

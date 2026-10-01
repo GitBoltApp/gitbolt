@@ -1,6 +1,7 @@
 // Reached only through RepoView's React.lazy import: this module pulls in Shiki's language
 // registry (language.ts) and the Monaco loader, which stay out of the startup chunk (spec §10.3).
 import { X } from 'lucide-react';
+import { BUSY_DELAY_MS, useLateFlag } from '../util/lateFlag';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { errorMessage } from '../api/client';
@@ -81,19 +82,7 @@ export function usePresented(target: DiffTarget, contents: Loadable<DiffContents
   return { target, contents, session };
 }
 
-/** How long a diff may take to load or compute before the header's progress line shows. */
-export const BUSY_DELAY_MS = 150;
-
-/** True once `on` has held for `ms` for the same `key`; false again as soon as it drops. */
-function useLateFlag(on: boolean, ms: number, key: string): boolean {
-  const [late, setLate] = useState<string | null>(null);
-  useEffect(() => {
-    if (!on) return;
-    const timer = setTimeout(() => setLate(key), ms);
-    return () => clearTimeout(timer);
-  }, [on, ms, key]);
-  return on && late === key;
-}
+export { BUSY_DELAY_MS };
 
 /** The path: its directories dim and the file name highlighted. A rename (H21):
  * the directories both paths share, then `old ⇒ new` with only the new file name highlighted;

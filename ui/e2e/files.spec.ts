@@ -11,6 +11,8 @@ async function selectRow(page: Page, text: string) {
   await page.getByRole('row').filter({ hasText: text }).click();
 }
 const fileRow = (page: Page, path: string) => page.getByRole('option').and(page.locator(`[data-path="${path}"]`));
+/** The file list's own Path/Tree buttons: the sidebar's "Sort …: tree" buttons share the name. */
+const listMode = (page: Page, mode: 'Path' | 'Tree') => page.getByRole('toolbar', { name: 'File list options' }).getByRole('button', { name: mode });
 
 test.describe('file list and diff takeover', () => {
   test.beforeEach(async ({ page }) => {
@@ -32,7 +34,7 @@ test.describe('file list and diff takeover', () => {
 
   test('tree mode shows a rename by its new name; every row\'s tooltip has its full path, a rename old ↓ new (H22)', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     const renamed = fileRow(page, 'docs/manual.txt');
     await expect(renamed.locator('.file-name')).toHaveText('manual.txt');
     await expect(renamed.locator('.file-dir')).toHaveCount(0);
@@ -72,6 +74,9 @@ test.describe('file list and diff takeover', () => {
   test('J18: in a window too narrow for it on the left, a row\'s tooltip goes below the row', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
     // The details panel keeps its 280 px minimum: 80 px are left of it, too few for the tooltip.
+    // The sidebar goes to its 40 px icon strip (Ctrl+B) so that's the center's room, not its own.
+    await page.keyboard.press('Control+b');
+    await expect(page.getByRole('complementary', { name: 'Sidebar (collapsed)' })).toBeVisible();
     await page.setViewportSize({ width: 360, height: 700 });
     const list = (await page.locator('.file-list').boundingBox())!;
     expect(list.x).toBeLessThan(90);
@@ -85,7 +90,7 @@ test.describe('file list and diff takeover', () => {
 
   test('J9: a double-click or a drag in the file panel selects no text; tooltips still show', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     const selection = () => page.evaluate(() => window.getSelection()?.toString() ?? '');
     for (const el of [fileRow(page, 'src/app.php').locator('.file-name'), fileRow(page, 'docs').locator('.file-name'), page.getByTestId('file-totals')]) {
       await el.dblclick();
@@ -141,7 +146,7 @@ test.describe('file list and diff takeover', () => {
   test('rows and folders show a pointer cursor; clicking the open file closes it (H5, H5b)', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
     await expect(fileRow(page, 'src/app.php')).toHaveCSS('cursor', 'pointer');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     await expect(fileRow(page, 'docs')).toHaveCSS('cursor', 'pointer');
     await fileRow(page, 'src/app.php').click();
     await expect(page.getByRole('region', { name: 'Diff' })).toBeVisible();
@@ -167,7 +172,7 @@ test.describe('file list and diff takeover', () => {
     // Three: open, close, open.
     await fileRow(page, 'crlf.txt').click({ clickCount: 3 });
     await expect(page.getByTestId('diff-path')).toContainText('crlf.txt');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     const docs = fileRow(page, 'docs');
     await expect(docs).toHaveAttribute('aria-expanded', 'true');
     await docs.dblclick();
@@ -180,7 +185,7 @@ test.describe('file list and diff takeover', () => {
 
   test('a collapsed folder\'s counts follow its name; Expand/Collapse\'s icon ink sits 8 px in (H16, H17)', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     await fileRow(page, 'docs').click();
     const [name, counts, row] = await Promise.all([
       fileRow(page, 'docs').locator('.file-name').boundingBox(),
@@ -229,7 +234,7 @@ test.describe('file list and diff takeover', () => {
     // zones). Up to ~95 ms seen on a heavily loaded machine. A tripwire for regressions (~3x
     // typical), not the budget: that's asserted on the warm opening below.
     expect(await page.evaluate(() => window.__gbMenuLatency!)).toBeLessThan(75);
-    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Copy path', 'Forge link', 'Open in', 'Open diff', 'View file at this commit']);
+    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Copy path', 'Forge link', 'Open in', 'View']);
     await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
     // Every row's tooltip shows at once.
     await menu.getByRole('menuitem', { name: /^Copy path/ }).hover();
@@ -313,7 +318,7 @@ test.describe('file list and diff takeover', () => {
     await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
     expect((await launches()).length).toBe(before + 3);
     // A WIP file opens the working-tree file itself.
-    await page.getByRole('row').filter({ hasText: '// WIP' }).click();
+    await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
     const unstaged = page.getByRole('listbox', { name: 'Unstaged' });
     await unstaged.getByRole('option').and(page.locator('[data-path="notes.txt"]')).click({ button: 'right' });
     await openIn.hover();
@@ -327,10 +332,14 @@ test.describe('file list and diff takeover', () => {
     await sub.getByRole('menuitem', { name: 'Open in VS Code' }).click();
     await expect.poll(async () => (await launches()).length).toBe(before + 5);
     expect((await launches()).at(-1)).toEqual({ program: '/fake/bin/code', args: [`${fixtures.details}/src/app.php`] });
-    // Open diff opens the file in the center.
+    // View (K58) opens the diff in the center; its File variant opens the whole file.
     await unstaged.getByRole('option').and(page.locator('[data-path="docs/manual.txt"]')).click({ button: 'right' });
-    await menu.getByRole('menuitem', { name: 'Open diff' }).click();
+    await menu.getByRole('menuitem', { name: 'View' }).click();
     await expect(page.getByRole('region', { name: 'Diff' }).getByTestId('diff-path')).toContainText('manual.txt');
+    await expect(page.getByTestId('file-view')).toHaveCount(0);
+    await unstaged.getByRole('option').and(page.locator('[data-path="docs/manual.txt"]')).click({ button: 'right' });
+    await menu.locator('.ctx-variant[data-variant-id="file"]').click();
+    await expect(page.getByTestId('file-view')).toBeVisible();
   });
 
   test('K1: a right-click always opens the file menu: just after a wheel scroll, again and again, on other rows, over a tooltip', async ({ page }) => {
@@ -373,7 +382,9 @@ test.describe('file list and diff takeover', () => {
     await page.keyboard.press('Escape');
     // Off the list first: the checks above leave the pointer on whichever row sits mid-list (the
     // layout decides which; it can be src/app.php), and a row's tooltip opens only on entering it.
-    await page.mouse.move(1, 1);
+    // The status bar's empty middle: the window's corner is the hamburger, which has a tooltip.
+    const off = (await page.locator('.sb-spacer').boundingBox())!;
+    await page.mouse.move(off.x + off.width / 2, off.y + off.height / 2);
     await expect(page.getByRole('tooltip')).toHaveCount(0);
     // Again on the same row, then on others, each with the previous menu still open, and each
     // other row with its tooltip showing. Each step lands left of the menu before (which opened
@@ -407,12 +418,12 @@ test.describe('file list and diff takeover', () => {
     await expect(sub).toBeVisible();
     // The row's own tooltip would cover the submenu: it's gone once the submenu is open.
     await expect(page.getByRole('tooltip')).toHaveCount(0);
-    // To the submenu's last row, in steps, diagonally: across "Open diff" and "View file".
+    // To the submenu's last row, in steps, diagonally: across the "Open in" and "View" rows.
     const last = sub.getByRole('menuitem').last();
     const b = (await last.boundingBox())!;
     const to = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-    const openDiff = (await menu.getByRole('menuitem', { name: 'Open diff' }).boundingBox())!;
-    expect(to.y).toBeGreaterThan(openDiff.y + openDiff.height);
+    const viewRow = (await menu.getByRole('menuitem', { name: 'View' }).boundingBox())!;
+    expect(to.y).toBeGreaterThan(viewRow.y);
     await page.mouse.move(to.x, to.y, { steps: 12 });
     // Longer than the safe triangle's rest timer: it stayed open, on the row the pointer reached.
     await page.waitForTimeout(400);
@@ -420,7 +431,7 @@ test.describe('file list and diff takeover', () => {
     await expect(sub.locator('[data-active="true"]')).toHaveAttribute('data-row-id', 'opener.other');
     await expect(menu.locator('[data-depth="0"] > [data-active="true"]')).toHaveAttribute('data-row-id', 'file.openIn');
     // Onto a sibling from the submenu (no triangle): it closes.
-    const view = menu.getByRole('menuitem', { name: 'View file at this commit' });
+    const view = menu.getByRole('menuitem', { name: 'View' });
     const v = (await view.boundingBox())!;
     await page.mouse.move(v.x + v.width - 10, v.y + v.height / 2);
     await expect(sub).toHaveCount(0);
@@ -439,7 +450,7 @@ test.describe('file list and diff takeover', () => {
   test("the diff toolbar's Open in…, at its far left, opens the working-tree file at the first change (H9, J1)", async ({ page, request }) => {
     const launches = async () => (await (await request.get(`${harnessHttp}/launches`)).json()) as { program: string; args: string[] }[];
     const before = (await launches()).length;
-    await page.getByRole('row').filter({ hasText: '// WIP' }).click();
+    await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="author"]').click();
     await page.getByRole('listbox', { name: 'Unstaged' }).getByRole('option').and(page.locator('[data-path="docs/manual.txt"]')).click();
     const d = page.getByRole('region', { name: 'Diff' });
     const bar = d.getByRole('toolbar', { name: 'Diff options' });
@@ -523,7 +534,7 @@ test.describe('file list and diff takeover', () => {
   test('J2, J3: the arrows walk the files from the graph and back, skipping folder rows (Tree mode)', async ({ page }) => {
     const commit = page.getByRole('row').filter({ hasText: 'Rename guide and update assets' });
     await commit.click();
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     const grid = page.getByRole('grid', { name: 'Commit graph' });
     const list = page.getByRole('listbox', { name: 'Changed files' });
     const path = page.getByTestId('diff-path');
@@ -561,7 +572,7 @@ test.describe('file list and diff takeover', () => {
 
   test('after Esc, Enter opens the first file as displayed (Tree mode) and the list highlights it', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     await fileRow(page, 'src/app.php').click();
     await expect(page.getByTestId('diff-path')).toContainText('app.php');
     await page.keyboard.press('Escape');
@@ -576,7 +587,7 @@ test.describe('file list and diff takeover', () => {
 
   test('tree mode nests folders and ←/→ collapse and expand them', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     const docs = fileRow(page, 'docs');
     await expect(docs).toHaveAttribute('aria-expanded', 'true');
     await docs.click();
@@ -600,7 +611,7 @@ test.describe('file list and diff takeover', () => {
 
   test('tree mode: one smart Expand/Collapse button, and file icons line up under their folder\'s name', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     const toolbar = page.getByRole('toolbar', { name: 'File list options' });
     // Justified: smart button left, Path/Tree centred, View all files right.
     const [smart, tree, all, bar] = await Promise.all([
@@ -634,12 +645,12 @@ test.describe('file list and diff takeover', () => {
     await selectRow(page, 'Rename guide and update assets');
     await page.getByRole('button', { name: 'Sort by status' }).click();
     await page.getByRole('button', { name: 'View all files' }).click();
-    await page.getByRole('button', { name: 'Tree' }).click();
+    await listMode(page, 'Tree').click();
     await page.reload();
     await selectRow(page, 'Rename guide and update assets');
-    await expect(page.getByRole('button', { name: 'Tree' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(listMode(page, 'Tree')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('button', { name: 'View all files' })).toHaveAttribute('aria-pressed', 'false');
-    await page.getByRole('button', { name: 'Path' }).click();
+    await listMode(page, 'Path').click();
     await expect(page.getByRole('button', { name: 'Sort by status' })).toHaveAttribute('aria-pressed', 'true');
   });
 

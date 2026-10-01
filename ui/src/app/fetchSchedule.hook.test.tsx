@@ -49,6 +49,8 @@ describe('runFetch', () => {
   });
 
   it('background errors go to the bell, user errors to a toast; a cancel is quiet', async () => {
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: false });
+    await runFetch('t', true);
     api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'boom' });
     await runFetch('t', true);
     expect(useOps.getState().errors[0].message).toBe('Fetch failed (r): boom');
@@ -69,6 +71,36 @@ describe('runFetch', () => {
     expect(useToast.getState().message).toBeNull();
     await runFetch('t', false);
     expect(useToast.getState().message).toBe('A fetch is already running');
+  });
+
+  it('a user fetch that finds a background one running waits on it: the button shows it (K30)', async () => {
+    useOps.getState().apply({ type: 'opStarted', op: 7, kind: 'fetch', repo: 4, label: 'r', interactive: false });
+    expect(useOps.getState().ops[7].shown).toBe(false);
+    api.fetch.mockResolvedValue({ status: 'skipped', reason: 'busy' });
+    await runFetch('t', false);
+    expect(useOps.getState().ops[7].shown).toBe(true);
+    expect(useToast.getState().message).toBeNull();
+  });
+
+  it('an outage reaches the bell once, not on every background tick (K30)', async () => {
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: false });
+    await runFetch('t', true);
+    for (let i = 0; i < 3; i++) {
+      api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'Could not resolve host: h' });
+      await runFetch('t', true);
+    }
+    expect(useOps.getState().errors.map((e) => e.message)).toEqual(['Fetch failed (r): Could not resolve host: h']);
+    expect(useOps.getState().unread).toBe(1);
+    // Back, then down again: that's news.
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true });
+    await runFetch('t', true);
+    api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'boom' });
+    await runFetch('t', true);
+    expect(useOps.getState().errors).toHaveLength(2);
+    // A user's fetch always says how it went.
+    api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'boom' });
+    await runFetch('t', false);
+    expect(useToast.getState().message).toBe('Fetch failed: boom');
   });
 });
 

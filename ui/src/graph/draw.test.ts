@@ -100,12 +100,12 @@ describe('drawGraph', () => {
     expect(alphaFor('fillRect(16,52,84,21)')).toBe(`globalAlpha=${BAND_ALPHA}`);
   });
 
-  it('a compare\'s second selected row gets the selected band too (K15)', () => {
+  it('every selected row gets the selected band (K15, K27)', () => {
     const { ctx, calls } = recorder();
     const rows = [row(0, 'commit', []), row(1, 'commit', []), row(0, 'commit', [])];
-    drawGraph(ctx, { rows, first: 0, last: 3, scrollTop: 0, width: 100, height: 75, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, selected: 1, alsoSelected: 2 });
+    drawGraph(ctx, { rows, first: 0, last: 3, scrollTop: 0, width: 100, height: 75, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, selected: 1, alsoSelected: new Set([0, 2]) });
     const alphaFor = (rect: string) => calls.slice(0, calls.indexOf(rect)).findLast((c) => c.startsWith('globalAlpha='));
-    expect(alphaFor('fillRect(16,2,84,21)')).toBe(`globalAlpha=${BAND_ALPHA}`);
+    expect(alphaFor('fillRect(16,2,84,21)')).toBe(`globalAlpha=${SELECTED_BAND_ALPHA}`);
     expect(alphaFor('fillRect(32,27,68,21)')).toBe(`globalAlpha=${SELECTED_BAND_ALPHA}`);
     expect(alphaFor('fillRect(16,52,84,21)')).toBe(`globalAlpha=${SELECTED_BAND_ALPHA}`);
   });
@@ -189,16 +189,43 @@ describe('drawGraph', () => {
     }
   });
 
-  it('still snaps to a device pixel boundary with a fractional scrollTop', () => {
-    const { ctx, calls } = recorder();
+  it('places the connector against the device-snapped scroll, so it stays on the DOM half\'s device rows (K57)', () => {
     const rows = [row(0, 'commit', [])];
-    // scrollTop 0.3 makes `top` (and so the unsnapped center) fractional in CSS px, but the
-    // device-space snap must still land the stroke on a clean device pixel boundary.
-    drawGraph(ctx, { rows, first: 0, last: 1, scrollTop: 0.3, width: 100, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set([0]), dpr: 1 });
-    // top = 0 - 0.3 = -0.3; center = -0.3 + 11 = 10.7 device px at dpr 1 -> floor(10.7)+0.5 = 10.5.
-    expect(calls).toContain('moveTo(0,10.5)');
-    expect(calls).toContain('lineWidth=1');
+    const at = (scrollTop: number, dpr: number) => {
+      const { ctx, calls } = recorder();
+      drawGraph(ctx, { rows, first: 0, last: 1, scrollTop, width: 100, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set([0]), dpr });
+      return calls.find((c) => c.startsWith('moveTo(0,'));
+    };
+    // Float noise in the scroll (0.3 at dpr 1 is no whole device px): the snapped scroll is 0,
+    // the line's top edge device row 11 (centre 11 - 0.5, rounded), its centre a half pixel.
+    expect(at(0.3, 1)).toBe('moveTo(0,11.5)');
+    // At 125% Chromium scrolls by device px: 0.8 CSS px is one. Content: top edge round(11 *
+    // 1.25 - 0.5) = 13 device px; less the one scrolled: 12, centre 12.5 device px.
+    expect(at(0.8, 1.25)).toBe(`moveTo(0,${12.5 / 1.25})`);
   });
+  it('draws a dashed lane as one run with whole-device-px dashes phased by its content y, and the WIP ring evenly dotted (K50)', () => {
+    const { ctx, calls } = recorder();
+    const dashedBottom = 0 | (0 << 10) | (1 << 20) | (1 << 26);
+    const dashedFull = 0 | (0 << 10) | (2 << 20) | (1 << 26);
+    const dashedTop = 0 | (0 << 10) | (0 << 20) | (1 << 26);
+    const rows = [row(0, 'wip', [dashedBottom]), row(1, 'commit', [dashedFull]), row(1, 'commit', [dashedFull]), row(0, 'commit', [dashedTop])];
+    const dpr = 1.25;
+    drawGraph(ctx, { rows, first: 0, last: 4, scrollTop: 0.8, width: 100, height: 112, metrics: { rowH: 28, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr });
+    // round(3 * 1.25) = 4 device px: 3.2 CSS px dash and gap.
+    const dash = 4 / dpr;
+    const dashCalls = calls.filter((c) => c === `setLineDash(object)`);
+    expect(dashCalls.length).toBeGreaterThan(0);
+    // One run: from the WIP node's centre (14 - 0.8) down to the HEAD's (3 * 28 + 14 - 0.8).
+    const strokesAfterDash = calls.map((c, i) => [c, i] as const).filter(([c]) => c.startsWith('lineDashOffset=') && c !== 'lineDashOffset=0');
+    expect(strokesAfterDash).toHaveLength(1);
+    const i = strokesAfterDash[0][1];
+    expect(calls.slice(i, i + 4)).toEqual([`lineDashOffset=${(14 % (2 * dash) + 2 * dash) % (2 * dash)}`, 'beginPath()', `moveTo(16,${14 - 0.8})`, `lineTo(16,${98 - 0.8})`]);
+    expect(calls.slice(0, i).reverse().find((c) => c.startsWith('lineCap='))).toBe('lineCap=butt');
+    // The ring: butt caps too, and a whole number of dash+gap pairs.
+    const ringCap = calls.lastIndexOf('lineCap=butt');
+    expect(ringCap).toBeGreaterThan(i);
+  });
+
   it('draws a loaded avatar bitmap clipped to the node instead of initials', () => {
     const { ctx, calls } = recorder();
     const bitmap = {} as ImageBitmap;

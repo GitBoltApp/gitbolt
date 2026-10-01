@@ -7,12 +7,16 @@ import type { RepoCtx } from '../app/repoContext';
  * with find, Actions with the palette) and nobody edits `Toolbar.tsx`. A button whose action isn't
  * registered doesn't render (no placeholder UI).
  */
+export type ToolbarPlacement = 'center' | 'end';
+
 export interface ToolbarButton {
   /** The action it runs. */
   action: string;
   /** The short caption under its icon; the action's label otherwise. */
   label?: string;
-  /** Left to right, lower first. */
+  /** Where it sits: 'center' (the default, between the two spacers) or 'end' (the far right edge). */
+  placement?: ToolbarPlacement;
+  /** Left to right within its placement, lower first. */
   order: number;
   /** A split button: these action ids are its dropdown, as menu rows. */
   menu?: string[];

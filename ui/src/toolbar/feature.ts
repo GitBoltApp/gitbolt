@@ -1,6 +1,6 @@
 import { activeTab, registerActions } from '../app/actions';
 import { runFetch } from '../app/fetchSchedule';
-import { useOps } from '../app/ops';
+import { isShownFetch, useOps } from '../app/ops';
 import type { RepoCtx } from '../app/repoContext';
 import { registerTabSlot } from '../app/slots';
 import { ICONS } from '../menu/icons';
@@ -13,8 +13,9 @@ const repoTab = () => {
   return t?.kind === 'repo' && t.path ? t : null;
 };
 
-/** A fetch is running for the tab's repo (the user's or the background one). */
-const useFetching = ({ repoId }: RepoCtx) => useOps((s) => Object.values(s.ops).some((o) => o.kind === 'fetch' && o.repo === repoId));
+/** The user's fetch is running for the tab's repo: the button is the only place it shows (K30). A
+ * background fetch shows nowhere, unless a user's Fetch found it running and waits on it. */
+const useFetching = ({ repoId }: RepoCtx) => useOps((s) => Object.values(s.ops).some((o) => isShownFetch(o, repoId)));
 
 const offs = [
   registerActions([
@@ -30,7 +31,7 @@ const offs = [
   registerToolbarButton({ action: 'repo.fetch', label: 'Fetch', order: 10, menu: ['repo.fetch'], useBusy: useFetching }),
   // Search (spec §6.3) runs find's `edit.find` (W3-D: the graph's FindBox, or Monaco's find while
   // a diff is open). Until that action is registered, no button renders (no placeholder UI).
-  registerToolbarButton({ action: 'edit.find', label: 'Search', order: 20 }),
+  registerToolbarButton({ action: 'edit.find', label: 'Search', placement: 'end', order: 20 }),
   registerTabSlot('toolbar', 'toolbar', Toolbar),
 ];
 // A dev-server hot update re-runs this module: release the old registrations first.

@@ -12,7 +12,7 @@
  */
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
-import { fileViewTarget, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
+import { fileViewTarget, openWorktree, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
 import { tabView, useTabView } from './tabStores';
 
 export { Avatar as AuthorAvatar } from '../avatars/Avatar';
@@ -43,8 +43,8 @@ export function openFileView(tabId: string, sha: string, path: string): boolean 
 }
 
 /**
- * Compare mode (spec §9.4): two commits (1B orders them by date, K16), or a commit with a
- * working tree (`'worktree'`: the tab's own). As a Ctrl+click pair would (K15). False when a
+ * Compare mode (spec §9.4): `from` → `to` (two commits, FROM then TO, K27), or a commit with a
+ * working tree (`'worktree'`: the tab's own). As a click then a Ctrl+click would. False when a
  * commit isn't in the loaded graph.
  */
 export function startCompare(tabId: string, from: string, to: string | 'worktree' | { worktree: string }): boolean {
@@ -54,7 +54,7 @@ export function startCompare(tabId: string, from: string, to: string | 'worktree
   const i = s.indexById.get(from);
   if (i === undefined) return false;
   if (to === 'worktree' || typeof to === 'object') {
-    s.compareWithWorktree(from, typeof to === 'object' ? to.worktree : s.repoPath);
+    s.compareWithWorktree(from, typeof to === 'object' ? to.worktree : openWorktree(s));
     return true;
   }
   const j = s.indexById.get(to);

@@ -15,7 +15,7 @@ import { useFocusZone } from './focus';
 import { LazyDiffPanel } from './LazyDiffPanel';
 import { PanelResizer } from './PanelResizer';
 import { createServices, type RepoServices } from './services';
-import { createRepoViewStore, otherSelectedIndex, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore, type DiffTarget, type RepoViewStore } from './store';
+import { createRepoViewStore, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore, type DiffTarget, type RepoViewStore } from './store';
 import './repo.css';
 
 export const RIGHT_PANEL = { min: 280, max: 720, default: 400 } as const;
@@ -64,7 +64,10 @@ function ConnectedGraph() {
   const repoPath = useRepoView((s) => s.repoPath);
   const messages = useRepoView((s) => s.services.messages);
   const selected = useRepoView(selectedIndex);
-  const alsoSelected = useRepoView(otherSelectedIndex);
+  // A compare's or multi-selection's rows (K27); GraphView hands each row only its own boolean,
+  // so a change re-renders just the rows that join or leave.
+  const pickedRows = useRepoView((s) => s.picks.rows);
+  const alsoSelected = useMemo(() => new Set(pickedRows), [pickedRows]);
   const selectRow = useRepoView((s) => s.selectRow);
   const store = useRepoViewStore();
   // Find's matches (plan 1C): the rest dim at the 'filter' level (rowDim.ts). One O(1) lookup per
@@ -123,7 +126,7 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
   // The right panel's landmark name follows what it shows.
   const panelLabel = useRepoView((s) => {
     const kind = s.panel?.selection.kind;
-    return kind === 'compare' || kind === 'compareWorktree' ? 'Compare' : kind === 'wip' ? 'Working tree changes' : 'Commit details';
+    return kind === 'compare' || kind === 'compareWorktree' ? 'Compare' : kind === 'multi' ? 'Selected commits' : kind === 'wip' ? 'Working tree changes' : 'Commit details';
   });
   const [prefW, setRightW] = useState<number>(RIGHT_PANEL.default);
   const maxW = useRightPanelMax();
@@ -185,7 +188,7 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
           (plan 1B deviation 8). */}
       {hasPanel && (
         <>
-          <PanelResizer width={rightW} min={RIGHT_PANEL.min} max={maxW} onChange={setRightW} panelRef={rightPanelRef} />
+          <PanelResizer defaultWidth={RIGHT_PANEL.default} width={rightW} min={RIGHT_PANEL.min} max={maxW} onChange={setRightW} panelRef={rightPanelRef} />
           <aside ref={rightPanelRef} className="right-panel" aria-label={panelLabel} aria-busy={pending} style={{ width: rightW }}>
             {/* The next selection is loading: the previous one stays, and past ~150 ms (CSS
                 delay) a thin progress line shows (feedback F12). */}

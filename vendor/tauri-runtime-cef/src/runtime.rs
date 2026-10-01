@@ -3737,6 +3737,27 @@ mod configuration_tests {
   }
 
   #[test]
+  fn disabling_component_updates_appends_the_switch() {
+    // K31: GitBolt is a git client with no route to `update.googleapis.com` that matters to
+    // it; left on, the component updater (cert revocation sets, the CT log list, download
+    // file-type policies) tries to memory-map a temp file every run and, under a
+    // restrictive sandbox, fails loudly (`puffin/src/puffpatch.cc`). The switch is only
+    // appended when turned off, never enabled by itself.
+    assert_eq!(Cef::default().command_line_args, Vec::new());
+    assert_eq!(
+      Cef::default().component_updates(false).command_line_args,
+      vec![("--disable-component-update".to_string(), None)]
+    );
+    assert!(
+      Cef::default()
+        .component_updates(true)
+        .command_line_args
+        .is_empty(),
+      "component_updates(true) is the already-on default: nothing to append"
+    );
+  }
+
+  #[test]
   fn a_later_preference_wins_over_an_earlier_one() {
     // They are applied in order, so the last one written is the one that sticks.
     let cef = Cef::default()

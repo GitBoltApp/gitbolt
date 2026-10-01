@@ -17,6 +17,9 @@ interface MenuState {
   /** The root menu's accessible name: a dropdown's purpose (`openMenuAt`'s `label`, e.g. the diff
    * header's "Open in"), else null for the generic "Context menu". */
   label: string | null;
+  /** The element `openMenuAt` opened the menu below (null for a context menu): a press on it while
+   * the menu is open toggles the menu closed (`pressedAnchor`). */
+  anchor: Element | null;
   show(rows: MenuRow[], x: number, y: number, openedAt?: number, build?: () => MenuRow[], initialRow?: string, label?: string): void;
   /** Re-runs the open menu's builder in place (e.g. the openers arrived): the rows update,
    * the open submenus and the active rows stay. */
@@ -33,14 +36,15 @@ export const useMenu = create<MenuState>((set, get) => ({
   build: null,
   initialRow: null,
   label: null,
-  show: (rows, x, y, openedAt = performance.now(), build, initialRow, label) => set((s) => ({ rows, x, y, openedAt, build: build ?? null, initialRow: initialRow ?? null, label: label ?? null, seq: s.seq + 1 })),
+  anchor: null,
+  show: (rows, x, y, openedAt = performance.now(), build, initialRow, label) => set((s) => ({ anchor: null, rows, x, y, openedAt, build: build ?? null, initialRow: initialRow ?? null, label: label ?? null, seq: s.seq + 1 })),
   refresh: () => {
     const { rows, build } = get();
     if (!rows || !build) return;
     const next = build();
     if (next.length > 0) set({ rows: next });
   },
-  close: () => { if (get().rows) set({ rows: null, build: null }); },
+  close: () => { if (get().rows) set({ rows: null, build: null, anchor: null }); },
 }));
 
 /** Rebuilds the open menu (`refresh`) whenever `subscribe`'s source changes: data a builder
@@ -67,7 +71,29 @@ export function openContextMenu(e: MenuEventLike, build: () => MenuRow[]): void 
  * in dropdown needs this too, for H32's live re-detection, not only the file menu's submenu).
  * `label`: the menu's accessible name, what the dropdown is for (the diff header's "Open in", as
  * 1B's own popup was named); omitted, it's the generic "Context menu". */
-export function openMenuAt(el: Element, rows: MenuRow[], initial?: string, build?: () => MenuRow[], label?: string): void {
+export function openMenuAt(el: Element, rows: MenuRow[], initial?: string, build?: () => MenuRow[], label?: string): boolean {
+  // A press on `el` just closed this menu (toggle): the click that follows must not reopen it.
+  if (swallowed === el) return false;
+  if (rows.length === 0) return false;
   const r = el.getBoundingClientRect();
-  if (rows.length > 0) useMenu.getState().show(rows, r.left, r.bottom, performance.now(), build, initial, label);
+  useMenu.getState().show(rows, r.left, r.bottom, performance.now(), build, initial, label);
+  useMenu.setState({ anchor: el });
+  return true;
+}
+
+let swallowed: Element | null = null;
+
+/** Called by the open menu's outside-press dismiss: a press on the element that opened it (the
+ * toggle) closes the menu and the click that follows is swallowed, so clicking the button again
+ * is a toggle, not close-then-reopen. Returns whether the press was on the anchor. */
+export function pressedAnchor(target: EventTarget | null): boolean {
+  const a = useMenu.getState().anchor;
+  if (!a || !(target instanceof Node) || !a.contains(target)) return false;
+  swallowed = a;
+  // The click follows the press within the same gesture; a press that never clicks (dragged off)
+  // must not swallow a later open, so the mark expires with the gesture's pointerup.
+  const clear = () => { setTimeout(() => { if (swallowed === a) swallowed = null; }, 0); };
+  window.addEventListener('pointerup', clear, { once: true, capture: true });
+  window.addEventListener('pointercancel', clear, { once: true, capture: true });
+  return true;
 }

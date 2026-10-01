@@ -9,6 +9,7 @@ vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: (
 
 const { useAppState, EMPTY_PROFILE } = await import('../app/state');
 const { TabBar } = await import('./TabBar');
+const { useTabUi } = await import('./tabMenu');
 
 const tab = (id: string) => ({ id, kind: 'repo' as const, path: `/${id}`, alias: null });
 
@@ -56,5 +57,64 @@ describe('TabBar: roving tabindex (spec §6.2)', () => {
     expect(useAppState.getState().profile.activeTab).toBe('a');
     fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
     expect(useAppState.getState().profile.activeTab).toBe('b');
+  });
+});
+
+describe('TabBar: rename field', () => {
+  afterEach(() => {
+    useTabUi.getState().stopRename();
+    useAppState.setState({ profile: EMPTY_PROFILE });
+  });
+  const start = () => {
+    setTabs(['a', 'b'], 'a');
+    render(<TabBar />);
+    act(() => useTabUi.getState().startRename('b'));
+    return screen.getByLabelText('Tab name') as HTMLInputElement;
+  };
+
+  it('clicking inside the field keeps editing and does not switch tabs', () => {
+    const input = start();
+    fireEvent.pointerDown(input, { button: 0 });
+    fireEvent.mouseDown(input, { button: 0 });
+    fireEvent.click(input);
+    fireEvent.doubleClick(input);
+    expect(screen.getByLabelText('Tab name')).toBe(input);
+    expect(useAppState.getState().profile.activeTab).toBe('a');
+  });
+
+  it('Shift+Arrow, Home/End and Space stay in the field (focus stays, default not prevented)', () => {
+    const input = start();
+    input.focus();
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End', ' ']) {
+      const notPrevented = fireEvent.keyDown(input, { key, shiftKey: key.startsWith('Arrow') });
+      expect(notPrevented).toBe(true);
+      expect(screen.getByLabelText('Tab name')).toBe(input);
+      expect(document.activeElement).toBe(input);
+    }
+    expect(useAppState.getState().profile.activeTab).toBe('a');
+  });
+
+  it('Enter commits the alias', () => {
+    const input = start();
+    fireEvent.change(input, { target: { value: 'Backend' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.queryByLabelText('Tab name')).toBeNull();
+    expect(useAppState.getState().profile.tabs[1].alias).toBe('Backend');
+  });
+
+  it('Esc cancels without renaming (and a later blur does not commit)', () => {
+    const input = start();
+    fireEvent.change(input, { target: { value: 'Nope' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.blur(input);
+    expect(screen.queryByLabelText('Tab name')).toBeNull();
+    expect(useAppState.getState().profile.tabs[1].alias).toBeNull();
+  });
+
+  it('a blur (click outside) commits', () => {
+    const input = start();
+    fireEvent.change(input, { target: { value: 'Blurred' } });
+    fireEvent.blur(input);
+    expect(useAppState.getState().profile.tabs[1].alias).toBe('Blurred');
   });
 });

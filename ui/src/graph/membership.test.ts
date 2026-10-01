@@ -178,6 +178,8 @@ describe('branchMembership on real layouts', () => {
     // Local main is 2 behind the pinned origin/main, and feature forks off origin/main's tip:
     // the pinned ref claims its own commits before any other local branch can.
     'main behind origin/main, feature off origin/main': { F: null, O2: null, O1: 'origin/main', M: null, base: 'main' },
+    // The checked-out feature's WIP is row 0 above the newer main (K37): a WIP row has none.
+    'dirty feature checked out, older than pinned main': { '// WIP': null, M: null, F: null, base: 'main' },
   };
 
   it('covers every generated case', () => {

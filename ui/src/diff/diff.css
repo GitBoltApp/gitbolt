@@ -1,5 +1,5 @@
 .diff-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; background: var(--app-bg0); container: diff-panel / inline-size; }
-.diff-header { display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px; background: var(--panel-bg0); position: relative; }
+.diff-header { display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px; background: var(--file-bar-bg); position: relative; }
 /* A diff taking a moment to load or compute: a thin line sweeping along the header's bottom. */
 .diff-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; pointer-events: none; }
 /* J19: colour/opacity only, never a layout property — the sweep is a `transform: translateX`
@@ -18,7 +18,7 @@
 .monaco-host { position: absolute; inset: 0; }
 .diff-message { display: grid; place-items: center; align-content: center; gap: 8px; flex: 1; color: var(--text-secondary); }
 .diff-message p { margin: 0; }
-.diff-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); background: var(--toolbar-bg0); flex: none; }
+.diff-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); background: var(--app-bg0); flex: none; }
 .diff-toolbar-start, .diff-toolbar-end { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .diff-toolbar-end { justify-self: end; gap: 10px; }
 .diff-toolbar-group { display: flex; align-items: center; gap: 2px; }

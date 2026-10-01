@@ -8,7 +8,11 @@ describe('anchoredScrollTop', () => {
     expect(anchoredScrollTop(rows('a', 'b', 'c'), rows('x', 'y', 'a', 'b', 'c'), 'b', 100, 25)).toBe(150);
   });
   it('uses the density row height it is given', () => {
-    expect(anchoredScrollTop(rows('a', 'b'), rows('x', 'a', 'b'), 'b', 0, 28)).toBe(28);
+    expect(anchoredScrollTop(rows('a', 'b'), rows('x', 'a', 'b'), 'b', 10, 28)).toBe(38);
+  });
+  it('at the very top, stays at the top: rows inserted above (a new row-0 WIP, K37) show', () => {
+    expect(anchoredScrollTop(rows('a', 'b'), rows('x', 'a', 'b'), 'a', 0, 28)).toBe(0);
+    expect(anchoredScrollTop(rows('a', 'b'), rows('x', 'y', 'a', 'b'), 'b', 0.5, 25)).toBe(0.5);
   });
   it('leaves the scroll alone without an anchor, or when the anchor disappeared', () => {
     expect(anchoredScrollTop(rows('a'), rows('b', 'a'), null, 40, 25)).toBe(40);

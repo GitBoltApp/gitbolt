@@ -22,5 +22,7 @@ export function RemoteIcon({ kind, remote, size = 12 }: { kind: HostKind; remote
   const label = `remote ${remote}`;
   if (kind === 'gitlab') return <GitLabMark size={size} label={label} />;
   if (kind === 'github') return <GitHubMark size={size} label={label} />;
-  return <Cloud size={size} aria-label={label} data-host-kind="generic" />;
+  // An outline icon: one step up, to read the same size as the filled brand marks (RefLabels'
+  // SOURCE_OUTLINE).
+  return <Cloud size={size + 2} aria-label={label} data-host-kind="generic" />;
 }

@@ -8,6 +8,7 @@ import type { RemotePayload } from '../api/gen/RemotePayload';
 import type { SignaturePayload } from '../api/gen/SignaturePayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
+import { WipLists } from './wipLists';
 
 /** The diff contents cache: 64 entries or 64 MiB (spec §4.4). */
 export const CONTENT_CACHE_ENTRIES = 64;
@@ -17,8 +18,10 @@ export const CONTENT_CACHE_BYTES = 64 * 1024 * 1024;
 export interface RepoServices {
   /** The details header (§9.1). Keyed by commit id. */
   details: Loader<CommitDetailsPayload>;
-  /** Keyed by `filesKey(spec)`. */
+  /** Keyed by `filesKey(spec)`. WIP lists are read through `wip`. */
   files: Loader<FileListPayload>;
+  /** The WIP rows' lists (keyed by `filesKey(spec)` too), held while the tab is watched (K44). */
+  wip: WipLists;
   /** Keyed by `contentKey(request)`. */
   contents: Loader<DiffContentsPayload>;
   signature: Loader<SignaturePayload>;
@@ -41,8 +44,9 @@ export interface RepoServices {
 export const filesKey = (spec: DiffSpec) => JSON.stringify(spec);
 export const contentKey = (r: ContentsRequest) => JSON.stringify({ path: r.path, old: r.old, new: r.new, force: r.force });
 
-/** WIP and worktree reads change under us (there's no watcher until 1C), so they're never
- * cached (plan 1B deviation 9). Object-id-addressed contents are immutable. */
+/** WIP and worktree reads change under us, so the `Loader`s never cache them (plan 1B deviation
+ * 9); WIP lists are held by `WipLists` instead, only while a watcher keeps them current (K44).
+ * Object-id-addressed contents are immutable. */
 export const isMutableKey = (key: string) => key.includes('"kind":"worktree"') || key.includes('"kind":"wip"');
 
 /** Approximate bytes held: decoded text as UTF-16, plus base64 image bytes. */
@@ -55,6 +59,7 @@ export function createServices(repo: number): RepoServices {
   return {
     details: new Loader((id) => api.commitDetails(repo, id), new Lru(256)),
     files: new Loader((k) => api.fileList(repo, JSON.parse(k) as DiffSpec), new Lru(128), 4, (k) => !isMutableKey(k)),
+    wip: new WipLists((spec) => api.fileList(repo, spec)),
     contents: new Loader((k) => api.diffContents(repo, JSON.parse(k) as ContentsRequest), new Lru(CONTENT_CACHE_ENTRIES, CONTENT_CACHE_BYTES, contentSize), 4, (k) => !isMutableKey(k)),
     signature: new Loader((id) => api.signature(repo, id), new Lru(512), 2),
     treeFiles: new Loader((id) => api.treeFiles(repo, id), new Lru(4), 1),

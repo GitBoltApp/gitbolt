@@ -1,4 +1,5 @@
 import { useRef, type RefObject } from 'react';
+import { onResetDoubleClick } from '../ui/resetHandle';
 
 /**
  * The drag handle between the center and right panels. Dragging left widens the panel.
@@ -10,7 +11,7 @@ import { useRef, type RefObject } from 'react';
  * that tree) runs once, at the end of the gesture; a key press is a single discrete step, so it
  * goes straight through.
  */
-export function PanelResizer({ width, min, max, onChange, panelRef }: { width: number; min: number; max: number; onChange: (w: number) => void; panelRef: RefObject<HTMLElement | null> }) {
+export function PanelResizer({ width, min, max, defaultWidth = width, onChange, panelRef }: { width: number; defaultWidth?: number; min: number; max: number; onChange: (w: number) => void; panelRef: RefObject<HTMLElement | null> }) {
   const drag = useRef<{ x: number; live: number; raf: number | null } | null>(null);
   const clamp = (w: number) => Math.max(min, Math.min(max, Math.round(w)));
   const applyLive = (w: number) => {
@@ -34,6 +35,7 @@ export function PanelResizer({ width, min, max, onChange, panelRef }: { width: n
       aria-valuemax={max}
       tabIndex={0}
       className="panel-resizer"
+      {...onResetDoubleClick(() => { drag.current = null; onChange(clamp(defaultWidth)); })}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault(); // no text selection while dragging
@@ -59,6 +61,7 @@ export function PanelResizer({ width, min, max, onChange, panelRef }: { width: n
         else if (e.key === 'ArrowRight') onChange(clamp(width - 16));
         else if (e.key === 'Home') onChange(min);
         else if (e.key === 'End') onChange(max);
+        else if (e.key === 'Enter') onChange(clamp(defaultWidth));
         else return;
         e.preventDefault();
       }}

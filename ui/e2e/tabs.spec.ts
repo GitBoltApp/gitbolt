@@ -33,6 +33,30 @@ test.describe('tabs', () => {
     await expect(page.getByRole('tab').first()).toContainText('Backend');
   });
 
+  test('rename field: click inside, Shift+arrows, type, Enter', async ({ page }) => {
+    const a = freshFixture('basic');
+    await page.goto(`/?repo=${encodeURIComponent(a)}`);
+    const tab = page.getByRole('tab').first();
+    await tab.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /Rename/ }).click();
+    const input = page.getByLabel('Tab name');
+    await input.fill('Backend');
+    await input.click(); // a click inside keeps editing
+    await expect(input).toBeFocused();
+    await input.dblclick(); // selects a word, still editing
+    await expect(input).toBeFocused();
+    await input.press('End');
+    await page.keyboard.press('Shift+ArrowLeft');
+    await page.keyboard.press('Shift+ArrowLeft');
+    await expect(input).toBeFocused();
+    expect(await input.evaluate((el: HTMLInputElement) => el.value.slice(el.selectionStart!, el.selectionEnd!))).toBe('nd');
+    await page.keyboard.type('X');
+    await expect(input).toHaveValue('BackeX');
+    await page.keyboard.press('Enter');
+    await expect(tab).toContainText('BackeX');
+    await expect(page.getByLabel('Tab name')).toHaveCount(0);
+  });
+
   test('middle-click closes, Ctrl+Shift+T reopens at the same place, Ctrl+W closes', async ({ page }) => {
     const a = freshFixture('basic');
     const b = freshFixture('long_labels');
@@ -80,6 +104,21 @@ test.describe('tabs', () => {
     await page.getByRole('button', { name: /Profile: Work/ }).click();
     await page.getByRole('menuitem', { name: 'Default' }).click();
     await expect(page.getByRole('tab')).toHaveCount(1);
+  });
+
+  test('the profile picker toggles on a second click; Edit profile is offered', async ({ page }) => {
+    const a = freshFixture('basic');
+    await page.goto(`/?repo=${encodeURIComponent(a)}`);
+    const picker = page.getByRole('button', { name: /Profile: Default/ });
+    const menu = page.getByTestId('context-menu');
+    await picker.click();
+    await expect(page.getByRole('menuitem', { name: 'Edit profile…' })).toBeVisible();
+    await picker.click();
+    await expect(menu).toBeHidden();
+    await picker.click();
+    await expect(page.getByRole('menuitem', { name: 'Edit profile…' })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Edit profile…' }).click();
+    await expect(page.getByRole('dialog', { name: 'Edit profile' })).toBeVisible();
   });
 
   test('the hamburger lists only working actions, with shortcuts', async ({ page }) => {

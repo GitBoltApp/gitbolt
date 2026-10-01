@@ -361,3 +361,23 @@ test('switching commits never renders an empty or partial panel', async ({ page 
   expect(seen).toContain('Commit 42');
   expect(seen).toContain('Commit 48');
 });
+
+test.describe('details panel resizer', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(openUrl(fixtures.details));
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+  });
+
+  test('double-clicking the panel resizer restores the default width (K73)', async ({ page }) => {
+    await page.getByRole('row').filter({ hasText: 'Rename guide and update assets' }).click();
+    const panel = page.getByRole('complementary', { name: 'Commit details' });
+    const sep = page.getByRole('separator', { name: 'Resize details panel' });
+    const width = async () => Math.round((await panel.boundingBox())!.width);
+    await sep.focus();
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowLeft');
+    expect(await width()).toBeGreaterThan(400);
+    await sep.dblclick();
+    await expect.poll(width).toBeLessThanOrEqual(401); // 1px of border
+    expect(await width()).toBeGreaterThanOrEqual(400);
+  });
+});

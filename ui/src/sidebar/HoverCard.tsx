@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { LastPushPayload } from '../api/gen/LastPushPayload';
 import { relativeTime } from '../format/relative';
+import { shortSha } from '../format/sha';
 import { getLastPush } from './lastPushCache';
 import type { SideItem } from './model';
 
@@ -36,6 +37,18 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
   }, [repoId, remoteRef]);
   const summary = item.kind === 'local' || item.kind === 'remote' ? item.branch.summary : item.kind === 'stash' ? item.stash.message : '';
   const author = item.kind === 'local' || item.kind === 'remote' ? item.branch.author : '';
+  if (item.kind === 'worktree') {
+    const w = item.worktree;
+    return (
+      <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
+        <div className="hc-name">{w.name}</div>
+        <div className="hc-summary" style={{ wordBreak: 'break-all' }}>{w.path}</div>
+        <div className="hc-meta">{w.branch ? `Branch: ${w.branch}` : `Detached${w.head ? ` at ${shortSha(w.head)}` : ''}`}</div>
+        {w.head && w.branch && <div className="hc-meta">HEAD {shortSha(w.head)}</div>}
+        <div className="hc-meta">{[w.isMain ? 'Main checkout' : 'Linked worktree', w.isCurrent ? 'current' : ''].filter(Boolean).join(' · ')}</div>
+      </div>
+    );
+  }
   return (
     <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
       <div className="hc-name">{item.name}</div>

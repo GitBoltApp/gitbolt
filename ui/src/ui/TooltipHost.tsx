@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { isDismissKey, placeBelow, placeBeside } from './HoverTooltip';
+import { isDismissKey, measureNatural, placeBelow, placeBeside } from './HoverTooltip';
 import { useKeys } from './keyRouter';
 import { hideTooltip, useTooltip } from './tooltipStore';
 import './tooltip.css';
@@ -16,8 +16,8 @@ export function TooltipHost() {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!tip || !el) return;
-    const { width, height } = el.getBoundingClientRect();
-    const { left, top } = tip.placement === 'below' ? placeBelow(tip.rect, { width, height }) : placeBeside(tip.rect, { width, height }, tip.placement);
+    const size = measureNatural(el);
+    const { left, top } = tip.placement === 'below' ? placeBelow(tip.rect, size) : placeBeside(tip.rect, size, tip.placement);
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
   }, [tip]);

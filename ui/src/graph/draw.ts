@@ -1,6 +1,7 @@
 import type { RowPayload } from '../api/gen/RowPayload';
 import { initials } from '../format/initials';
-import { laneX, segmentPath, type Metrics } from './geometry';
+import { laneX, pathLength, segmentPath, tracePath, type Metrics, type PathOp } from './geometry';
+import { connectorLine, dashLength, dashOffset, ringDash, snapScroll } from './pixels';
 import { decodeSegment } from './segments';
 
 export interface DrawOptions {
@@ -25,8 +26,8 @@ export interface DrawOptions {
   scrollX?: number;
   /** The selected row's index: its band is drawn brighter (H14). */
   selected?: number;
-  /** A second selected row (a compare's other side, K15): the same brighter band. */
-  alsoSelected?: number;
+  /** More selected rows (a compare's or multi-selection's, K27): the same brighter band. */
+  alsoSelected?: ReadonlySet<number>;
   /** The checked-out branch's row (HEAD's label): its label connector is a graph line, the
    * lines' width in the full lane colour, not the quiet 1 px at 25% (J21). */
   headRow?: number;
@@ -44,6 +45,10 @@ export const RAIL_W = 2;
 export const CONNECTOR_ALPHA = 0.25;
 /** The graph lines' width, in CSS px; also the checked-out branch's connector (J21). */
 export const LINE_W = 2;
+/** A dashed (WIP) line's dash and gap, CSS px, before rounding to whole device px (K50). */
+export const WIP_DASH = 3;
+/** The WIP node's dotted ring: its dash and gap, CSS px, before fitting the circumference (K50). */
+export const WIP_RING_DASH = 2;
 
 /**
  * The collapse zone (spec §8.3, F11; ruling R11). While the lanes need more width than the
@@ -99,6 +104,9 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
   const railW = railDev / o.dpr;
   // The band's and rail's vertical inset: the density's (H1), 2 px by default.
   const inset = m.bandInset ?? 2;
+  // The scroll offset on the device grid: what the connectors and the dash phase are placed
+  // against (pixels.ts).
+  const scroll = snapScroll(o.scrollTop, o.dpr);
 
   const scrollX = o.scrollX ?? 0;
   const clipping = !!o.clipped || scrollX > 0;
@@ -128,26 +136,22 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
     if (!strip) {
       // A packed row's band fills the zone (from the lane area's edge).
       const x = nx ?? area;
-      ctx.globalAlpha = i === o.selected || i === o.alsoSelected ? SELECTED_BAND_ALPHA : BAND_ALPHA;
+      ctx.globalAlpha = i === o.selected || o.alsoSelected?.has(i) ? SELECTED_BAND_ALPHA : BAND_ALPHA;
       ctx.fillStyle = c;
       ctx.fillRect(x, top + inset, o.width - x, m.rowH - 2 * inset);
       ctx.globalAlpha = 1;
     }
 
     if (o.labeledRows.has(i)) {
-      // `ctx.lineWidth = 1` under `setTransform(dpr, ...)` is `dpr` *device* pixels wide, which
-      // blurs unless dpr is a whole number. Draw a stroke that's a whole number of device
-      // pixels wide instead (rounded, minimum 1), and snap its center to a device pixel
-      // boundary: an odd device width centers on a half device pixel, an even one on a whole
-      // one. All of this happens in device space (`* o.dpr` / `/ o.dpr`) so it's correct at any
-      // dpr, and independent of whether `top` itself is a whole CSS pixel.
-      // The checked-out branch's (J21): the graph lines' width, as a whole number of device
-      // pixels, at full alpha.
+      // A whole number of device pixels thick, its top edge on a device pixel row: the same
+      // line (connectorLine, content coordinates) the row's DOM connector covers, so the two
+      // halves meet on the same device rows at any dpr (zoom) and density (K57). Under
+      // `setTransform(dpr, ...)`, an odd device width is centred on a half device pixel.
+      // The checked-out branch's (J21): the graph lines' width, at full alpha.
       const head = i === o.headRow;
-      const lwDev = Math.max(1, Math.round((head ? LINE_W : 1) * o.dpr));
-      ctx.lineWidth = lwDev / o.dpr;
-      const cDev = (top + m.rowH / 2) * o.dpr;
-      const y = (lwDev % 2 ? Math.floor(cDev) + 0.5 : Math.round(cDev)) / o.dpr;
+      const line = connectorLine(i * m.rowH, m.rowH, head ? LINE_W : 1, o.dpr);
+      ctx.lineWidth = line.height;
+      const y = line.centre - scroll;
       ctx.strokeStyle = c;
       ctx.lineCap = 'butt';
       ctx.setLineDash([]);
@@ -174,23 +178,53 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
       ctx.clip();
       if (scrollX) ctx.translate(-scrollX, 0);
     }
+    // Dashed (WIP) lines (K50): butt caps, a dash and gap of whole device pixels, phased by the
+    // absolute content y (pixels.ts dashOffset), so the dashes run on unbroken from row to row.
+    // A lane's straight dashed pieces in consecutive rows are joined into one path (a run), so
+    // no dash is drawn as two abutting halves, whose antialiased seam would show.
+    const dash = dashLength(WIP_DASH, o.dpr);
+    const runs: { x: number; y0: number; y1: number; color: string }[] = [];
+    const dashed = (color: string, path: PathOp[], offset: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineCap = 'butt';
+      ctx.setLineDash([dash, dash]);
+      ctx.lineDashOffset = offset;
+      ctx.beginPath();
+      tracePath(ctx, path);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.lineCap = 'round';
+    };
     for (let i = o.first; i < o.last; i++) {
       const row = o.rows[i];
       const top = i * m.rowH - o.scrollTop;
       for (const packed of row.segments) {
         const seg = decodeSegment(packed);
-        ctx.strokeStyle = color(seg.color);
-        ctx.setLineDash(seg.dashed ? [3, 3] : []);
-        ctx.beginPath();
-        for (const p of segmentPath(seg, top, m)) {
-          if (p.op === 'Q') ctx.quadraticCurveTo(p.cx, p.cy, p.x, p.y);
-          else if (p.op === 'M') ctx.moveTo(p.x, p.y);
-          else ctx.lineTo(p.x, p.y);
+        const path = segmentPath(seg, top, m);
+        if (seg.dashed) {
+          const [a, b] = path;
+          if (path.length === 2 && b.op !== 'Q' && a.x === b.x) {
+            const c = color(seg.color);
+            const run = runs.find((r) => r.x === a.x && r.color === c && Math.abs(r.y1 - a.y) < 1e-6);
+            if (run) run.y1 = b.y;
+            else runs.push({ x: a.x, y0: a.y, y1: b.y, color: c });
+          } else {
+            // A curve, phased on its vertical part: its start (a top half, from the row above), or
+            // its end (a bottom half, into the row below), where its lane's dashes continue.
+            const startsVertical = b.op !== 'Q' && a.x === b.x;
+            const end = path[path.length - 1];
+            dashed(color(seg.color), path, dashOffset(startsVertical ? a.y + scroll : end.y + scroll - pathLength(path), dash));
+          }
+          continue;
         }
+        ctx.strokeStyle = color(seg.color);
+        ctx.beginPath();
+        tracePath(ctx, path);
         ctx.stroke();
       }
-      ctx.setLineDash([]);
     }
+    for (const r of runs) dashed(r.color, [{ op: 'M', x: r.x, y: r.y0 }, { op: 'L', x: r.x, y: r.y1 }], dashOffset(r.y0 + scroll, dash));
     if (clipping) ctx.restore();
   }
 
@@ -257,9 +291,17 @@ function drawNode(ctx: CanvasRenderingContext2D, o: DrawOptions, row: RowPayload
   ctx.fillStyle = o.nodeFill;
   ctx.fill();
   ctx.strokeStyle = c;
-  ctx.setLineDash(kind === 'wip' ? [2, 2] : []);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  if (kind === 'wip') {
+    // The dotted ring (K50): butt caps (round ones would swell each dash over its gap) and a
+    // dash that divides the circumference evenly, so every dash and gap is the same length,
+    // with none cut short where the arc starts and ends.
+    const d = ringDash(r, WIP_RING_DASH);
+    ctx.lineCap = 'butt';
+    ctx.setLineDash([d, d]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'round';
+  } else ctx.stroke();
   if (kind === 'commit') {
     const bitmap = o.avatar?.(row.authorEmail) ?? null;
     if (bitmap) {
