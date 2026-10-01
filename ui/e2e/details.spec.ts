@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 test.describe('commit details', () => {
@@ -102,9 +102,11 @@ test.describe('commit details', () => {
       panel.locator('.parents').boundingBox(),
       panel.locator('.commit-ids').boundingBox(),
     ]);
-    expect(sig!.x - row!.x).toBeLessThan(2);
+    // The row spans the panel (K5), its content inset by the panel's 12 px padding.
+    const pad = 12;
+    expect(sig!.x - (row!.x + pad)).toBeLessThan(2);
     expect(Math.abs(sha!.x + sha!.width / 2 - (row!.x + row!.width / 2))).toBeLessThan(2);
-    expect(row!.x + row!.width - (parents!.x + parents!.width)).toBeLessThan(2);
+    expect(row!.x + row!.width - pad - (parents!.x + parents!.width)).toBeLessThan(2);
     await expect(panel.getByTestId('signature-badge')).toHaveAccessibleName('Not signed');
     await panel.getByTestId('signature-badge').hover();
     await expect(page.getByRole('tooltip')).toHaveText('Not signed');
@@ -216,7 +218,9 @@ test.describe('commit details', () => {
   });
 
   test('the header stays put, only the message scrolls, and the split resizes and persists (F13)', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    // Tall enough that the default 25 % top clears the header's minimum (`splitBounds`) under the
+    // shell's toolbar and status bar.
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole('row').filter({ hasText: 'Rename guide and update assets' }).click();
     const panel = page.getByRole('complementary', { name: 'Commit details' });
     const top = panel.locator('.commit-details');
@@ -252,6 +256,32 @@ test.describe('commit details', () => {
     await expect(page.getByRole('separator', { name: 'Resize commit details' })).toHaveAttribute('aria-valuenow', kept!);
   });
 
+  test('K5/K6: the details header\'s divider lines up with the open file\'s bar, for a commit and a compare', async ({ page }) => {
+    const rename = page.getByRole('row').filter({ hasText: 'Rename guide and update assets' });
+    const panel = page.getByRole('complementary', { name: /Commit details|Compare/ });
+    const diffBar = page.getByRole('region', { name: 'Diff' }).locator('.diff-header');
+    const check = async (bar: string) => {
+      await page.getByRole('option').first().click();
+      await expect(diffBar).toBeVisible();
+      const [d, b] = await Promise.all([diffBar.boundingBox(), panel.locator(bar).boundingBox()]);
+      // The density's height (standard: 37 px, 20% over 1B's 30 + 1), divider included (K6).
+      expect(d!.height, bar).toBe(37);
+      expect([b!.y, b!.height], bar).toEqual([d!.y, d!.height]);
+      const border = (sel: string) => page.locator(sel).first().evaluate((e) => { const c = getComputedStyle(e); return `${c.borderBottomWidth} ${c.borderBottomStyle} ${c.borderBottomColor}`; });
+      expect(await border(`aside ${bar}`), bar).toBe(await border('.diff-header'));
+      expect(await border('.diff-header')).toBe('1px solid rgba(255, 255, 255, 0.08)');
+    };
+    await rename.click();
+    await check('.commit-ids');
+    // Nothing above the bar: it starts at the panel's top.
+    const [aside, ids] = await Promise.all([page.locator('aside.right-panel').boundingBox(), panel.locator('.commit-ids').boundingBox()]);
+    expect(ids!.y).toBe(aside!.y);
+    await page.keyboard.press('Escape');
+    await page.getByRole('row').filter({ hasText: 'Initial commit' }).click({ modifiers: ['Control'] });
+    await expect(page.getByTestId('compare-header')).toBeVisible();
+    await check('.compare-bar');
+  });
+
   test('message links and MR buttons point at the GitLab project', async ({ page }) => {
     await page.getByRole('row').filter({ hasText: 'Rename guide and update assets' }).click();
     const panel = page.getByRole('complementary', { name: 'Commit details' });
@@ -265,15 +295,16 @@ test.describe('commit details', () => {
     await expect(buttons.last()).toHaveAttribute('data-url', 'https://gitlab.example.com/group/sub/project/-/merge_requests/7');
   });
 
-  test('Ctrl+click marks A and B, and Escape leaves compare mode', async ({ page }) => {
+  test('Ctrl+click selects both commits (no A/B marks), and Escape leaves compare mode', async ({ page }) => {
     const initial = page.getByRole('row').filter({ hasText: 'Initial commit' });
     const merge = page.getByRole('row').filter({ hasText: "Merge branch 'feature/x'" });
-    await initial.click({ modifiers: ['Control'] });
+    await initial.click();
     await merge.click({ modifiers: ['Control'] });
-    await expect(initial.getByTestId('compare-a')).toHaveText('A');
-    await expect(merge.getByTestId('compare-b')).toHaveText('B');
-    await page.keyboard.press('Escape');
+    await expect(initial).toHaveAttribute('aria-selected', 'true');
+    await expect(merge).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('compare-a')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(initial).toHaveAttribute('aria-selected', 'false');
     await expect(merge).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('details-summary')).toHaveText("Merge branch 'feature/x'");
   });

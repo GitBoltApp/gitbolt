@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileChange } from '../api/gen/FileChange';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { Loader } from '../data/loader';
@@ -179,13 +179,13 @@ describe('FileList', () => {
     expect(opt('src/app.php')).toHaveAttribute('aria-selected', 'true');
     key('ArrowDown');
     expect(open()).toBe('logo.png');
-    key('ArrowDown'); // the last file: stays
+    key('ArrowDown'); // K4: the last file wraps to the first
+    expect(open()).toBe('docs/manual.txt');
+    key('ArrowUp'); // K4: the first file wraps to the last
     expect(open()).toBe('logo.png');
     key('ArrowUp');
     expect(open()).toBe('src/app.php');
     key('ArrowUp');
-    expect(open()).toBe('docs/manual.txt');
-    key('ArrowUp'); // the first file: stays, never on the folder above it
     expect(open()).toBe('docs/manual.txt');
     expect(opt('docs')).toHaveAttribute('aria-selected', 'false');
     key('End');
@@ -394,13 +394,29 @@ describe('FileList', () => {
     expect(store.getState().diff?.path).toBe('src/app.php');
   });
 
-  it('a double-click doesn\'t toggle the file straight back (fix round 1)', () => {
+  // K2, K3: the browser counts quick presses as one multi-click (`detail` 2, 3, …, within the
+  // OS double-click time). Every one of them is a toggle: none is dropped as a "double-click".
+  it('every press toggles, however quick: a file opens and closes, a folder collapses and expands (K2, K3)', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();
     const row = () => screen.getAllByRole('option')[2];
     fireEvent.mouseDown(row(), { detail: 1 });
-    fireEvent.mouseDown(row(), { detail: 2 });
     expect(store.getState().diff?.path).toBe('src/app.php');
+    fireEvent.mouseDown(row(), { detail: 2 });
+    expect(store.getState().diff).toBeNull();
+    fireEvent.mouseDown(row(), { detail: 3 });
+    expect(store.getState().diff?.path).toBe('src/app.php');
+    cleanup();
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    setup();
+    const docs = () => screen.getAllByRole('option').find((r) => r.dataset.path === 'docs')!;
+    expect(docs()).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.mouseDown(docs(), { detail: 1 });
+    expect(docs()).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.mouseDown(docs(), { detail: 2 });
+    expect(docs()).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.mouseDown(docs(), { detail: 3 });
+    expect(docs()).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('with two lists (WIP), only the list that closed its file keeps a highlighted row (fix round 1)', () => {
@@ -460,5 +476,124 @@ describe('FileList', () => {
       fireEvent.mouseLeave(opt('docs/manual.txt'));
       cleanup();
     }
+  });
+
+  it('K4: ↓ wraps from the last file to the first, and ↑ from the first to the last, in path mode too', () => {
+    useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
+    const store = setup();
+    const box = screen.getByRole('listbox');
+    const key = (k: string) => fireEvent.keyDown(box, { key: k });
+    const open = () => store.getState().diff?.path;
+    key('End');
+    expect(open()).toBe('src/app.php'); // the last file, path order
+    key('ArrowDown');
+    expect(open()).toBe('docs/manual.txt'); // wraps to the first
+    key('ArrowUp');
+    expect(open()).toBe('src/app.php'); // wraps back to the last
+  });
+
+  describe('K18-K20: the "View all files" filter', () => {
+    function setupAllFiles() {
+      useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: true });
+      return setup();
+    }
+
+    it('is only shown in View all files mode', () => {
+      useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
+      setup();
+      expect(screen.queryByLabelText('Filter files')).toBeNull();
+      cleanup();
+      setupAllFiles();
+      expect(screen.getByLabelText('Filter files')).toBeInTheDocument();
+    });
+
+    it('narrows the list by a case-insensitive path substring and highlights the match', async () => {
+      setupAllFiles();
+      await screen.findByText('zzz.txt'); // docs/manual.txt, logo.png, src/app.php, zzz.txt
+      expect(screen.getAllByRole('option')).toHaveLength(4);
+      fireEvent.change(screen.getByLabelText('Filter files'), { target: { value: 'APP' } });
+      const rows = screen.getAllByRole('option');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].dataset.path).toBe('src/app.php');
+      expect(rows[0].querySelector('mark.filter-match')).toHaveTextContent('app');
+    });
+
+    it('keeps the selection while the selected file still matches, and drops it once it stops matching', async () => {
+      setupAllFiles();
+      await screen.findByText('zzz.txt');
+      fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'src/app.php')!);
+      const filter = screen.getByLabelText('Filter files');
+      fireEvent.change(filter, { target: { value: 'app' } });
+      expect(screen.getByRole('option')).toHaveAttribute('aria-selected', 'true');
+      fireEvent.change(filter, { target: { value: 'zzz' } });
+      expect(screen.queryByRole('option', { selected: true })).toBeNull();
+    });
+
+    it('Esc clears the filter first; with the filter already empty, Esc goes to the app\'s Esc (closes the file)', async () => {
+      const store = setupAllFiles();
+      await screen.findByText('zzz.txt');
+      fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'src/app.php')!);
+      expect(store.getState().diff?.path).toBe('src/app.php');
+      const filter = screen.getByLabelText('Filter files');
+      fireEvent.change(filter, { target: { value: 'app' } });
+      fireEvent.keyDown(filter, { key: 'Escape' });
+      expect(filter).toHaveValue('');
+      expect(store.getState().diff?.path).toBe('src/app.php'); // the first Esc only cleared the filter
+      fireEvent.keyDown(filter, { key: 'Escape' });
+      expect(store.getState().diff).toBeNull(); // the second, with nothing to clear, is the app's Esc
+    });
+
+    it('X clears the filter and re-centres the selected row; the clear and step buttons disable appropriately', async () => {
+      setupAllFiles();
+      await screen.findByText('zzz.txt');
+      const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+      const clear = screen.getByRole('button', { name: 'Clear filter' });
+      expect(clear).toBeDisabled();
+      fireEvent.mouseDown(screen.getAllByRole('option').find((r) => r.dataset.path === 'src/app.php')!);
+      const filter = screen.getByLabelText('Filter files');
+      fireEvent.change(filter, { target: { value: 'app' } });
+      expect(clear).not.toBeDisabled();
+      scrollTo.mockClear();
+      fireEvent.click(clear);
+      expect(filter).toHaveValue('');
+      expect(screen.getAllByRole('option')).toHaveLength(4);
+      expect(scrollTo).toHaveBeenCalled(); // K20: centres the still-selected row
+    });
+
+    it('K19: Previous/Next changed file jump to and open the nearest changed file, skipping unchanged rows, and wrap', async () => {
+      const store = setupAllFiles();
+      await screen.findByText('zzz.txt'); // docs/manual.txt, logo.png, src/app.php (changed), zzz.txt (unchanged)
+      const prev = screen.getByRole('button', { name: 'Previous changed file' });
+      const next = screen.getByRole('button', { name: 'Next changed file' });
+      expect(prev).not.toBeDisabled();
+      fireEvent.click(next);
+      expect(store.getState().diff?.path).toBe('docs/manual.txt');
+      fireEvent.click(next);
+      expect(store.getState().diff?.path).toBe('logo.png');
+      fireEvent.click(next);
+      expect(store.getState().diff?.path).toBe('src/app.php');
+      fireEvent.click(next); // wraps, skipping zzz.txt (unchanged)
+      expect(store.getState().diff?.path).toBe('docs/manual.txt');
+      fireEvent.click(prev); // wraps the other way, skipping zzz.txt
+      expect(store.getState().diff?.path).toBe('src/app.php');
+    });
+
+    it('K19: Previous/Next are disabled with no changed file visible', async () => {
+      setupAllFiles();
+      await screen.findByText('zzz.txt');
+      fireEvent.change(screen.getByLabelText('Filter files'), { target: { value: 'zzz' } });
+      expect(screen.getByRole('button', { name: 'Previous changed file' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Next changed file' })).toBeDisabled();
+    });
+
+    it('turning View all files off clears the filter (it is never persisted)', async () => {
+      setupAllFiles();
+      await screen.findByText('zzz.txt');
+      fireEvent.change(screen.getByLabelText('Filter files'), { target: { value: 'app' } });
+      fireEvent.click(screen.getByRole('button', { name: 'View all files' }));
+      expect(screen.queryByLabelText('Filter files')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'View all files' }));
+      expect(screen.getByLabelText('Filter files')).toHaveValue('');
+    });
   });
 });

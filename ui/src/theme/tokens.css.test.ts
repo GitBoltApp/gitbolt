@@ -40,3 +40,12 @@ describe('tokens.css motion (J19)', () => {
     expect(css).not.toMatch(/transition:\s*all/);
   });
 });
+
+describe('tokens.css panel bar (K5, K6)', () => {
+  it('one shared bar box: the density\'s height, border included, and a 1 px divider in the border colour', () => {
+    const bar = rule('.panel-bar');
+    expect(bar).toMatch(/box-sizing:\s*border-box/);
+    expect(bar).toMatch(/height:\s*var\(--panel-bar-h\)/);
+    expect(bar).toMatch(/border-bottom:\s*1px solid var\(--section-border\)/);
+  });
+});

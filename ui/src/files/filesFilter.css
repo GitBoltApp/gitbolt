@@ -1,0 +1,11 @@
+/* View all files' filter row (feedback K18-K20): the input (with its inline clear button at its
+   right edge) then the prev/next changed-file buttons. */
+.files-filter { display: flex; align-items: center; gap: 4px; padding: 0 12px 6px; }
+.files-filter-box { position: relative; flex: 1; min-width: 0; display: flex; }
+.files-filter-input { all: unset; box-sizing: border-box; width: 100%; padding: 3px 24px 3px 8px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--app-bg0); color: var(--text-normal); font: inherit; }
+.files-filter-input::placeholder { color: var(--text-disabled); }
+.files-filter-input:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.files-filter-clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; }
+.files-filter-step { display: flex; align-items: center; gap: 2px; flex: none; }
+/* The filter's matched substring, in a row's name or (path mode) its directory (feedback K18). */
+.filter-match { background: color-mix(in srgb, var(--blue) 35%, transparent); color: inherit; border-radius: 2px; }

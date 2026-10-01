@@ -2,7 +2,7 @@
 //! `-z --raw --numstat`. Each `FileChange` carries the exact blob source of both sides, so the
 //! diff viewer never re-derives them.
 
-use crate::blob::safe_join;
+use crate::blob::{read_bounded, safe_join};
 use crate::commit::{parse_commit, parse_oid};
 use crate::details::read_commit;
 use crate::error::{GbError, GbErrorKind};
@@ -11,7 +11,7 @@ use crate::payload::{BlobSource, FileChange, FileListPayload};
 use crate::status::{status, EntryKind, StatusEntry};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
 /// Above this size (either side), the diff viewer asks before loading (spec §10.2).
@@ -262,12 +262,32 @@ fn count_lines(path: &Path) -> Option<u32> {
     if !meta.is_file() || meta.len() > LARGE_FILE_BYTES {
         return None;
     }
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = read_bounded(path, LARGE_FILE_BYTES).ok()??;
     if bytes[..bytes.len().min(BINARY_SNIFF_BYTES)].contains(&0) {
         return None;
     }
     let lines = bytes.iter().filter(|&&b| b == b'\n').count() + usize::from(!bytes.is_empty() && !bytes.ends_with(b"\n"));
     Some(lines as u32)
+}
+
+/// The gix lookups (`to_changes`, dirty submodules) and untracked-file reads of a file list, on
+/// the blocking pool: with `--untracked-files=all` and a large un-ignored folder they're a lot
+/// of disk I/O (Rust minor #14).
+async fn off_runtime<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, GbError> {
+    tokio::task::spawn_blocking(f).await.map_err(|e| GbError::other(format!("file list task failed: {e}")))
+}
+
+/// `raw` as `FileChange`s, off the runtime; for a worktree side, with dirty submodules resolved.
+async fn changes(repo: &gix::ThreadSafeRepository, raw: Vec<RawChange>, worktree: Option<(PathBuf, String)>) -> Result<Vec<FileChange>, GbError> {
+    let repo = repo.clone();
+    off_runtime(move || {
+        let mut files = to_changes(&repo.to_thread_local(), raw, worktree.as_ref().map(|(_, name)| name.as_str()));
+        if let Some((wt, _)) = &worktree {
+            resolve_dirty_submodules(wt, &mut files);
+        }
+        files
+    })
+    .await
 }
 
 fn resolved(worktree: Option<&Path>) -> Result<&Path, GbError> {
@@ -299,12 +319,12 @@ pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: 
                 }
             };
             let raw = run(cli, workdir, diff_tree(&tail)).await?;
-            to_changes(&repo.to_thread_local(), raw, None)
+            changes(repo, raw, None).await?
         }
         DiffSpec::Compare { from, to } => {
             let tail = vec![parse_oid(from)?.to_string(), parse_oid(to)?.to_string()];
             let raw = run(cli, workdir, diff_tree(&tail)).await?;
-            to_changes(&repo.to_thread_local(), raw, None)
+            changes(repo, raw, None).await?
         }
         DiffSpec::Worktree { from, .. } => {
             let wt = resolved(worktree)?;
@@ -316,14 +336,12 @@ pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: 
             // but otherwise clean (uninformative numstat, clean `status`) would be dropped too.
             let dirty = dirty_paths(&status(cli, wt).await?);
             let raw = drop_phantom_stat_dirty(raw, &dirty);
-            let mut files = to_changes(&repo.to_thread_local(), raw, Some(&name));
-            resolve_dirty_submodules(wt, &mut files);
-            files
+            changes(repo, raw, Some((wt.to_path_buf(), name))).await?
         }
         DiffSpec::Wip { staged: true, .. } => {
             let wt = resolved(worktree)?;
             let raw = run(cli, wt, diff_porcelain(&["-M", "--cached"])).await?;
-            to_changes(&repo.to_thread_local(), raw, None)
+            changes(repo, raw, None).await?
         }
         DiffSpec::Wip { staged: false, .. } => {
             let wt = resolved(worktree)?;
@@ -331,21 +349,30 @@ pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: 
             let entries = status(cli, wt).await?;
             let dirty = dirty_paths(&entries);
             let raw = drop_phantom_stat_dirty(collapse_unmerged(run(cli, wt, diff_porcelain(&[])).await?), &dirty);
-            let mut files = to_changes(&repo.to_thread_local(), raw, Some(&name));
-            resolve_dirty_submodules(wt, &mut files);
-            for e in entries.into_iter().filter(|e| e.kind == EntryKind::Untracked) {
-                let additions = count_lines(&wt.join(&e.path));
-                files.push(FileChange {
-                    path: e.path,
-                    old_path: None,
-                    status: "A".into(),
-                    additions,
-                    deletions: additions.map(|_| 0),
-                    old: BlobSource::Absent,
-                    new: BlobSource::Worktree { worktree: name.clone() },
-                    submodule: false,
-                });
-            }
+            let mut files = changes(repo, raw, Some((wt.to_path_buf(), name.clone()))).await?;
+            let untracked: Vec<StatusEntry> = entries.into_iter().filter(|e| e.kind == EntryKind::Untracked).collect();
+            let wt = wt.to_path_buf();
+            files.extend(
+                off_runtime(move || {
+                    untracked
+                        .into_iter()
+                        .map(|e| {
+                            let additions = count_lines(&wt.join(&e.path));
+                            FileChange {
+                                path: e.path,
+                                old_path: None,
+                                status: "A".into(),
+                                additions,
+                                deletions: additions.map(|_| 0),
+                                old: BlobSource::Absent,
+                                new: BlobSource::Worktree { worktree: name.clone() },
+                                submodule: false,
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await?,
+            );
             files.sort_by(|a, b| a.path.cmp(&b.path));
             files
         }

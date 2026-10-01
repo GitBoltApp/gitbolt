@@ -52,6 +52,26 @@ const MIN_TOTAL = COLUMN_MIN.labels + COLUMN_MIN.graph + COLUMN_MIN.message + CO
 export const columnMax = (col: 'labels' | 'graph', available: number) =>
   Math.max(COLUMN_MIN[col], available - (MIN_TOTAL - COLUMN_MIN[col]));
 
+/** The columns that can be hidden, per repo (spec §8.4: every one but Graph and Message). */
+export type HideableColumn = 'labels' | 'author' | 'date' | 'sha';
+export const HIDEABLE_COLUMNS: readonly HideableColumn[] = ['labels', 'author', 'date', 'sha'];
+const NONE_HIDDEN: ReadonlySet<HideableColumn> = new Set();
+
+/** Spec §8.4: a column shrunk to its minimum shows an icon instead of its header text (and its
+ * cells collapse: icon-only chips, the avatar only). SHA is a preference column: never collapsed. */
+export function isCollapsed(col: 'labels' | 'graph' | 'message' | 'author' | 'date', width: number): boolean {
+  return width <= COLUMN_MIN[col];
+}
+
+/** The column each handle trades width with (resizeColumn): Branch/Tag and Graph with the
+ * flexing Message, which is never hidden. */
+const TRADES_WITH: Record<ResizableColumn, HideableColumn | null> = { labels: null, graph: null, message: 'author', author: 'date', date: 'sha' };
+
+/** Whether `col`'s right-edge handle is shown: only while that column and the one it trades with
+ * are both shown. A hidden neighbour leaves the boundary without a handle (Message flexes). */
+export const handleShown = (col: ResizableColumn, hidden: ReadonlySet<HideableColumn>): boolean =>
+  !hidden.has(col as HideableColumn) && !hidden.has(TRADES_WITH[col] as HideableColumn);
+
 /**
  * Smart fit (spec §8.4): turns preferred widths into the widths actually rendered for a table
  * `available` px wide. Pure, whole pixels in and out.
@@ -62,23 +82,27 @@ export const columnMax = (col: 'labels' | 'graph', available: number) =>
  * 3. Once Message is at its minimum, Author and Date shrink toward their minimums, each in
  *    proportion to its room above its minimum (so both reach their minimums together).
  * 4. Below the sum of the minimums, `total` exceeds `available` and the table scrolls.
+ * `hidden` columns (spec §8.4) get width 0, give their space to Message and have no room to give
+ * when squeezing.
  */
-export function allocateColumns(prefs: { labels: number; graph: number; author: number; date: number; sha?: number }, available: number): ColumnWidths {
-  const labels = Math.max(COLUMN_MIN.labels, prefs.labels);
+export function allocateColumns(prefs: { labels: number; graph: number; author: number; date: number; sha?: number }, available: number, hidden: ReadonlySet<HideableColumn> = NONE_HIDDEN): ColumnWidths {
+  const labels = hidden.has('labels') ? 0 : Math.max(COLUMN_MIN.labels, prefs.labels);
   const graph = Math.max(COLUMN_MIN.graph, prefs.graph);
-  const sha = Math.min(SHA_MAX, Math.max(COLUMN_MIN.sha, prefs.sha ?? SHA_W));
-  let author = Math.max(COLUMN_MIN.author, prefs.author);
-  let date = Math.max(COLUMN_MIN.date, prefs.date);
+  const sha = hidden.has('sha') ? 0 : Math.min(SHA_MAX, Math.max(COLUMN_MIN.sha, prefs.sha ?? SHA_W));
+  const hideA = hidden.has('author');
+  const hideD = hidden.has('date');
+  let author = hideA ? 0 : Math.max(COLUMN_MIN.author, prefs.author);
+  let date = hideD ? 0 : Math.max(COLUMN_MIN.date, prefs.date);
   const leftover = available - (labels + graph + author + date + sha);
   if (leftover >= COLUMN_MIN.message) {
     return { labels, graph, message: leftover, author, date, sha, total: available };
   }
   const deficit = COLUMN_MIN.message - leftover;
-  const roomA = author - COLUMN_MIN.author;
-  const roomD = date - COLUMN_MIN.date;
+  const roomA = hideA ? 0 : author - COLUMN_MIN.author;
+  const roomD = hideD ? 0 : date - COLUMN_MIN.date;
   if (deficit >= roomA + roomD) {
-    author = COLUMN_MIN.author;
-    date = COLUMN_MIN.date;
+    if (!hideA) author = COLUMN_MIN.author;
+    if (!hideD) date = COLUMN_MIN.date;
   } else {
     const fromA = Math.round((deficit * roomA) / (roomA + roomD));
     author -= fromA;
@@ -141,12 +165,26 @@ export function resizeColumn(col: ResizableColumn, start: ColumnWidths, dx: numb
 export interface ColumnPrefsPersistence { load(repoId: string): ColumnPrefs | null; save(repoId: string, prefs: ColumnPrefs): void }
 export const columnPrefsPersistence: ColumnPrefsPersistence = { load: () => null, save: () => {} };
 
+/**
+ * THE persistence seam for the hidden columns (spec §8.4, "all except Graph and Message can be
+ * hidden"), keyed by repo like the widths. Session-only for now; plan 1C Task 16b points it at
+ * the per-repo settings (`RepoSettings.hiddenColumns`). `save` is called once per toggle. Unknown
+ * names from storage are dropped on load.
+ */
+export interface HiddenColumnsPersistence { load(repoId: string): readonly string[] | null; save(repoId: string, hidden: readonly HideableColumn[]): void }
+export const hiddenColumnsPersistence: HiddenColumnsPersistence = { load: () => null, save: () => {} };
+
+const loadHidden = (repoId: string): ReadonlySet<HideableColumn> =>
+  new Set((hiddenColumnsPersistence.load(repoId) ?? []).filter((c): c is HideableColumn => (HIDEABLE_COLUMNS as readonly string[]).includes(c)));
+
 interface Gesture { col: ResizableColumn; start: ColumnWidths; available: number; graphMax: number; changed: boolean }
 
 interface ColumnPrefsState {
   repoId: string | null;
   prefs: ColumnPrefs;
-  /** Switches to `repoId`'s saved widths (or the defaults). */
+  /** The repo's hidden columns (spec §8.4). */
+  hidden: ReadonlySet<HideableColumn>;
+  /** Switches to `repoId`'s saved widths and hidden columns (or the defaults). */
   loadFor(repoId: string): void;
   /** Starts a resize gesture on `col` from the widths currently rendered in an `available`-px
    * table. `graphMax`: the widest the Graph column may get (every lane plus padding, F2). */
@@ -161,6 +199,8 @@ interface ColumnPrefsState {
   endResize(): void;
   /** Sets a column's preferred width, clamped to its minimum and rounded to a whole pixel. */
   setWidth(col: PrefColumn, width: number): void;
+  /** Hides a shown column or shows a hidden one, and hands the new set to its seam. */
+  toggleHidden(col: HideableColumn): void;
   reset(): void;
 }
 
@@ -170,11 +210,12 @@ let gesture: Gesture | null = null;
 export const useColumnPrefs = create<ColumnPrefsState>((set, get) => ({
   repoId: null,
   prefs: DEFAULT_COLUMN_PREFS,
+  hidden: NONE_HIDDEN,
   loadFor: (repoId) => {
     // Re-mounting the same repo's view keeps the session's widths (the seam loads nothing yet).
     if (get().repoId === repoId) return;
     // Merged over the defaults: a stored set from before a column became resizable (SHA) still loads.
-    set({ repoId, prefs: { ...DEFAULT_COLUMN_PREFS, ...columnPrefsPersistence.load(repoId) } });
+    set({ repoId, prefs: { ...DEFAULT_COLUMN_PREFS, ...columnPrefsPersistence.load(repoId) }, hidden: loadHidden(repoId) });
   },
   beginResize: (col, start, available, graphMax = Infinity) => {
     gesture = { col, start, available, graphMax, changed: false };
@@ -200,8 +241,16 @@ export const useColumnPrefs = create<ColumnPrefsState>((set, get) => ({
     if (g?.changed && repoId !== null) columnPrefsPersistence.save(repoId, prefs);
   },
   setWidth: (col, width) => set((s) => ({ prefs: { ...s.prefs, [col]: Math.min(col === 'sha' ? SHA_MAX : Infinity, Math.max(COLUMN_MIN[col], Math.round(width))) } })),
+  toggleHidden: (col) => {
+    const next = new Set(get().hidden);
+    if (!next.delete(col)) next.add(col);
+    set({ hidden: next });
+    const { repoId } = get();
+    // In the canonical column order, whatever order they were toggled in.
+    if (repoId !== null) hiddenColumnsPersistence.save(repoId, HIDEABLE_COLUMNS.filter((c) => next.has(c)));
+  },
   reset: () => {
     gesture = null;
-    set({ repoId: null, prefs: DEFAULT_COLUMN_PREFS });
+    set({ repoId: null, prefs: DEFAULT_COLUMN_PREFS, hidden: NONE_HIDDEN });
   },
 }));

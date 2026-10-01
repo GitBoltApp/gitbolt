@@ -89,13 +89,54 @@ describe('ImageDiff', () => {
     expect(screen.getByTestId('zoom-label')).toHaveTextContent('400%');
   });
 
-  it('opens at 100%; Fit is still the first step (H23)', async () => {
+  it("opens at 100%; the slider's minimum is the ladder's own first rung, not Fit (H23, K12)", async () => {
     vi.stubGlobal('Image', FakeImage);
     render(<ImageDiff old={{ url: 'blob:4x4', size: 60 }} new={{ url: 'blob:6x4', size: 70 }} />);
     await waitFor(() => expect(screen.getByTestId('image-dims')).toHaveTextContent('4×4 → 6×4'));
     expect(screen.getByTestId('zoom-label')).toHaveTextContent('100%');
     fireEvent.change(screen.getByRole('slider', { name: 'Zoom' }), { target: { value: '0' } });
-    expect(screen.getByTestId('zoom-label')).toHaveTextContent('Fit');
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('10%');
+  });
+
+  it('Fit is a dedicated button (K12), the zoom % is editable (K13), and the slider double-click resets to 100% (K14)', async () => {
+    vi.stubGlobal('Image', FakeImage);
+    render(<ImageDiff old={{ url: 'blob:4x4', size: 60 }} new={{ url: 'blob:6x4', size: 70 }} />);
+    await waitFor(() => expect(screen.getByTestId('image-dims')).toHaveTextContent('4×4 → 6×4'));
+    fireEvent.change(screen.getByRole('slider', { name: 'Zoom' }), { target: { value: stepOf(4) } });
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('400%');
+    // K13: click to edit, Enter applies (clamped to the zoom range).
+    fireEvent.click(screen.getByTestId('zoom-label'));
+    const input = screen.getByTestId('zoom-input');
+    expect(input).toHaveValue('400');
+    fireEvent.change(input, { target: { value: '250' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.queryByTestId('zoom-input')).toBeNull();
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('250%');
+    // Clamped to the zoom range (1000% max).
+    fireEvent.click(screen.getByTestId('zoom-label'));
+    fireEvent.change(screen.getByTestId('zoom-input'), { target: { value: '99999' } });
+    fireEvent.keyDown(screen.getByTestId('zoom-input'), { key: 'Enter' });
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('1000%');
+    // Esc cancels, discarding the edit, and doesn't close the file.
+    fireEvent.click(screen.getByTestId('zoom-label'));
+    fireEvent.change(screen.getByTestId('zoom-input'), { target: { value: '12' } });
+    fireEvent.keyDown(screen.getByTestId('zoom-input'), { key: 'Escape' });
+    expect(screen.queryByTestId('zoom-input')).toBeNull();
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('1000%');
+    // Blur applies.
+    fireEvent.click(screen.getByTestId('zoom-label'));
+    fireEvent.change(screen.getByTestId('zoom-input'), { target: { value: '50' } });
+    fireEvent.blur(screen.getByTestId('zoom-input'));
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('50%');
+    // K14: double-click the slider resets to 100%.
+    fireEvent.doubleClick(screen.getByRole('slider', { name: 'Zoom' }));
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('100%');
+    // K12: Fit is a button, always present, distinct from the slider/value. jsdom has no real
+    // layout (the box measures 0), so `fitScale` degrades to 1×; the real percentage is an e2e
+    // concern (image.spec.ts) — this just proves the wiring runs without throwing.
+    expect(screen.getByRole('button', { name: 'Fit' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('100%');
   });
 
   it('Ctrl+wheel zooms along the fine ladder, is prevented, accumulates small deltas and ignores deltaY 0 (H24)', async () => {
@@ -134,6 +175,98 @@ describe('ImageDiff', () => {
     expect(handle()).toHaveAttribute('aria-valuenow', '50');
     fireEvent.click(screen.getByRole('button', { name: 'Onion skin' }));
     expect(screen.getByRole('slider', { name: 'Opacity' })).toHaveValue('50');
+  });
+
+  it('a mouse-down anywhere on the image in Swipe mode jumps the handle to the pointer and keeps dragging it (K8)', () => {
+    const { container } = render(<ImageDiff old={{ url: 'blob:old', size: 60 }} new={{ url: 'blob:new', size: 70 }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Swipe' }));
+    const handle = () => screen.getByRole('slider', { name: 'Swipe position' });
+    expect(handle()).toHaveAttribute('aria-valuenow', '50');
+    const viewport = container.querySelector('.image-viewport')!;
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100, top: 0, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
+    // A plain click (no capture, jsdom doesn't implement setPointerCapture's real semantics) jumps it.
+    fireEvent.pointerDown(viewport, { button: 0, clientX: 80, pointerId: 1 });
+    expect(handle()).toHaveAttribute('aria-valuenow', '80');
+    // The drag continues: a move with the button held keeps following the pointer.
+    fireEvent.pointerMove(viewport, { buttons: 1, clientX: 20, pointerId: 1 });
+    expect(handle()).toHaveAttribute('aria-valuenow', '20');
+    // Released (or the button let go elsewhere): further moves don't.
+    fireEvent.pointerUp(viewport, { pointerId: 1 });
+    fireEvent.pointerMove(viewport, { buttons: 1, clientX: 90, pointerId: 1 });
+    expect(handle()).toHaveAttribute('aria-valuenow', '20');
+  });
+
+  it('shows subtle, non-interactive Old/New labels in side-by-side, swipe and onion skin, never for a single added/deleted image (K9)', () => {
+    vi.stubGlobal('Image', FakeImage);
+    const { container, rerender } = render(<ImageDiff old={{ url: 'blob:old', size: 60 }} new={{ url: 'blob:new', size: 70 }} />);
+    // pointer-events: none is asserted from the stylesheet itself (image.css.test.ts): jsdom
+    // doesn't apply an imported CSS file's rules, so `getComputedStyle` here wouldn't see it.
+    const labels = () => [...container.querySelectorAll('.image-label')];
+    expect(labels().map((l) => l.textContent)).toEqual(['Old', 'New']);
+    fireEvent.click(screen.getByRole('button', { name: 'Swipe' }));
+    expect(labels().map((l) => l.textContent)).toEqual(['Old', 'New']);
+    fireEvent.click(screen.getByRole('button', { name: 'Onion skin' }));
+    expect(labels().map((l) => l.textContent)).toEqual(['Old', 'New']);
+    fireEvent.click(screen.getByRole('button', { name: 'Difference' }));
+    // No Old/New chips in Difference (K9 doesn't list it) — only K10's Amplify label, which shares
+    // the same subtle-chip class.
+    expect(labels().map((l) => l.textContent)).toEqual(['Amplify']);
+    // A single added/deleted image (H25) never gets a label: nothing to compare against.
+    rerender(<ImageDiff old={null} new={{ url: 'blob:new', size: 70 }} single="added" />);
+    expect(container.querySelectorAll('.image-label')).toHaveLength(0);
+  });
+
+  it('side-by-side gets a divider between the two halves only when both images exist (K21)', () => {
+    vi.stubGlobal('Image', FakeImage);
+    const { container, rerender } = render(<ImageDiff old={{ url: 'blob:old', size: 60 }} new={{ url: 'blob:new', size: 70 }} />);
+    expect(container.querySelectorAll('.side-divider')).toHaveLength(1);
+    // A single added/deleted image (H25) has only one half: no divider to draw.
+    rerender(<ImageDiff old={null} new={{ url: 'blob:new', size: 70 }} single="added" />);
+    expect(container.querySelectorAll('.side-divider')).toHaveLength(0);
+  });
+
+  /** Waits a frame — long enough for a `requestAnimationFrame`-coalesced repaint to run. */
+  const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+  it("Difference mode's Amplify slider is the TRUE multiplier, defaults to 4× (the old fixed brighten's look), ranges 1×–16×, and repaints without reloading the images (K10)", async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const draw = vi.spyOn(await import('./difference'), 'drawDifference');
+    render(<ImageDiff old={{ url: 'blob:4x4', size: 60 }} new={{ url: 'blob:6x4', size: 70 }} />);
+    await waitFor(() => expect(screen.getByTestId('image-dims')).toHaveTextContent('4×4 → 6×4'));
+    fireEvent.click(screen.getByRole('button', { name: 'Difference' }));
+    const amplify = () => screen.getByRole('slider', { name: 'Amplify' });
+    await waitFor(() => expect(amplify()).toHaveValue('4'));
+    expect(amplify()).toHaveAttribute('min', '1');
+    expect(amplify()).toHaveAttribute('max', '16');
+    expect(screen.getByTestId('amplify-value')).toHaveTextContent('4×');
+    // The initial draw (on entering Difference) already used the true multiplier, 4, not 4*1.
+    expect(draw.mock.calls.at(-1)![5]).toBe(4);
+    const calls = draw.mock.calls.length;
+    fireEvent.change(amplify(), { target: { value: '8' } });
+    expect(screen.getByTestId('amplify-value')).toHaveTextContent('8×');
+    // Coalesced to the next animation frame (fix round 1): not drawn synchronously on `change`.
+    expect(draw.mock.calls.length).toBe(calls);
+    await nextFrame();
+    expect(draw.mock.calls.length).toBe(calls + 1);
+    expect(draw.mock.calls.at(-1)![5]).toBe(8);
+  });
+
+  it('several rapid Amplify changes coalesce into a single repaint per animation frame, using the latest value (fix round 1)', async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const draw = vi.spyOn(await import('./difference'), 'drawDifference');
+    render(<ImageDiff old={{ url: 'blob:4x4', size: 60 }} new={{ url: 'blob:6x4', size: 70 }} />);
+    await waitFor(() => expect(screen.getByTestId('image-dims')).toHaveTextContent('4×4 → 6×4'));
+    fireEvent.click(screen.getByRole('button', { name: 'Difference' }));
+    const amplify = () => screen.getByRole('slider', { name: 'Amplify' });
+    await waitFor(() => expect(amplify()).toHaveValue('4'));
+    const calls = draw.mock.calls.length;
+    // Several rapid ticks, as a drag would fire, all before the next frame paints.
+    for (const v of [5, 9, 13, 16]) fireEvent.change(amplify(), { target: { value: String(v) } });
+    expect(draw.mock.calls.length).toBe(calls); // nothing drawn synchronously
+    await nextFrame();
+    // Exactly one repaint for the whole burst, at the last value.
+    expect(draw.mock.calls.length).toBe(calls + 1);
+    expect(draw.mock.calls.at(-1)![5]).toBe(16);
   });
 
   it('background toggles at the far right: checkerboard by default, black, white, grey; remembered (H30)', async () => {

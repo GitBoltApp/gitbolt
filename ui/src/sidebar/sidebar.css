@@ -1,0 +1,24 @@
+.sidebar { position: relative; display: flex; flex-direction: column; flex: none; min-width: 160px; background: var(--panel-bg0); border-right: 1px solid var(--section-border); }
+.sb-filter { padding: 6px; }
+.sb-filter input { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; }
+.sb-list { position: relative; flex: 1; min-height: 0; overflow: auto; outline: none; }
+.sb-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px; white-space: nowrap; cursor: default; box-sizing: border-box; user-select: none; }
+.sb-row:hover { background: var(--hover-row); }
+.sb-list:focus .sb-row[data-active="true"] { outline: 1px solid var(--blue); outline-offset: -1px; }
+.sb-section { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); }
+.sb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sb-count { font-weight: 400; color: var(--text-disabled); }
+.sb-item.is-head { background: var(--selected-row); color: var(--text-selected); font-weight: 600; }
+.sb-ab { font-size: 11px; color: var(--text-secondary); }
+.sb-sort { width: 18px; height: 18px; }
+.wt-dot { width: 7px; height: 7px; margin: 0 3px; border-radius: 50%; border: 1px solid var(--text-secondary); flex: none; }
+.wt-dot.current { background: var(--green); border-color: var(--green); }
+.sb-resize { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 2; }
+.sidebar-narrow { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 40px; padding-top: 6px; flex: none; background: var(--panel-bg0); border-right: 1px solid var(--section-border); }
+.sn-item { all: unset; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 0; width: 36px; color: var(--text-secondary); border-radius: 4px; cursor: pointer; }
+.sn-item:hover { background: var(--hover-row); color: var(--text-selected); }
+.sn-count { font-size: 10px; }
+.hover-card { position: fixed; z-index: 700; width: 300px; padding: 10px 12px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); pointer-events: none; }
+.hc-name { color: var(--text-selected); font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
+.hc-summary { margin-bottom: 4px; }
+.hc-meta { font-size: 11px; color: var(--text-secondary); }

@@ -6,6 +6,10 @@ import { statusKind } from './StatusIcon';
 export type FileListMode = 'path' | 'tree';
 export type FileSort = 'path' | 'status';
 
+/** "View all files"' filter (feedback K18): `query` (already trimmed and lowercased) is a
+ * path substring, case-insensitive; empty matches everything. */
+export const matchesFilter = (path: string, query: string) => query === '' || path.toLowerCase().includes(query);
+
 /** Changed files per `StatusIcon` kind (`conflicted`: unmerged or unknown, U/X). */
 export type StatusCounts = { modified: number; added: number; deleted: number; renamed: number; conflicted: number };
 

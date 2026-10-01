@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Copy, ExternalLink, GitCommit, GitBranch } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TooltipHost } from '../ui/TooltipHost';
-import { ContextMenu, inTriangle, remap, SUBMENU_GRACE_MS, SUBMENU_OPEN_MS } from './ContextMenu';
+import { useTooltip } from '../ui/tooltipStore';
+import { BLUR_SETTLE_MS, ContextMenu, inTriangle, remap, SUBMENU_GRACE_MS, SUBMENU_OPEN_MS } from './ContextMenu';
 import { openContextMenu, openMenuAt, useMenu } from './menuStore';
 import type { MenuRow } from './types';
 
@@ -45,6 +46,33 @@ describe('ContextMenu', () => {
     fireEvent.click(disabled);
     expect(branch).not.toHaveBeenCalled();
     expect(screen.getByRole('menu')).toBeVisible();
+  });
+
+  // K25: the inline variants (e.g. Copy path's Rel/Abs) are a gapless button group; moving the
+  // pointer from one straight into its neighbour must swap the tooltip directly, never hiding it
+  // and never showing the row's tooltip in between (the store update a render could batch away).
+  it('moving between variant siblings swaps the tooltip directly, never hidden or showing the row tooltip in between', () => {
+    open([{ kind: 'action', id: 'copy', label: 'Copy path', icon: Copy, tooltip: 'row tip', run: () => {}, variants: [
+      { id: 'rel', label: 'Rel', tooltip: 'rel tip', run: () => {} },
+      { id: 'abs', label: 'Abs', tooltip: 'abs tip', run: () => {} },
+    ] }]);
+    const rel = screen.getByRole('button', { name: 'rel tip' });
+    const abs = screen.getByRole('button', { name: 'abs tip' });
+    fireEvent.pointerEnter(rel);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('rel tip');
+    // Every tooltip-store transition the sibling-to-sibling crossing produces, recorded as it
+    // happens (zustand notifies synchronously, independent of React's render batching).
+    const seen: (string | null)[] = [];
+    const unsub = useTooltip.subscribe((s) => seen.push(s.tip?.text ?? null));
+    fireEvent.pointerLeave(rel, { relatedTarget: abs });
+    unsub();
+    expect(screen.getByRole('tooltip')).toHaveTextContent('abs tip');
+    expect(seen).not.toContain(null); // never hidden
+    expect(seen).not.toContain('row tip'); // never falls back to the row's tooltip mid-crossing
+    expect(seen.at(-1)).toBe('abs tip');
+    // Leaving the group entirely (not into a sibling) still falls back to the row's tooltip.
+    fireEvent.pointerLeave(abs, { relatedTarget: screen.getByText('Copy path') });
+    expect(screen.getByRole('tooltip')).toHaveTextContent('row tip');
   });
 
   it('a disabled row shows its reason, is skipped by the arrows and does nothing when clicked', () => {
@@ -283,26 +311,95 @@ describe('ContextMenu', () => {
     expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
   });
 
-  it('restores focus (I2) after a scroll, a window blur or a resize, but leaves it alone after a press outside', () => {
+  it('restores focus (I2) after a window blur or a resize, but leaves it alone after a press outside', () => {
     render(<><button type="button">before</button><ContextMenu /><TooltipHost /></>);
     const before = screen.getByRole('button', { name: 'before' });
 
+    vi.useFakeTimers();
     before.focus();
     act(() => useMenu.getState().show([action('a')], 0, 0));
     expect(screen.getByRole('menu')).toHaveFocus();
-    fireEvent.scroll(window);
-    expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
-    expect(before).toHaveFocus();
-
-    before.focus();
-    act(() => useMenu.getState().show([action('a')], 0, 0));
     fireEvent(window, new Event('blur'));
+    act(() => { vi.advanceTimersByTime(BLUR_SETTLE_MS); });
+    vi.useRealTimers();
+    expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
     expect(before).toHaveFocus();
 
     before.focus();
     act(() => useMenu.getState().show([action('a')], 0, 0));
     fireEvent.resize(window);
     expect(before).toHaveFocus();
+  });
+
+  // K24: under GNOME (mutter on Xwayland), every button press in the window refocuses it
+  // (WM_TAKE_FOCUS; vendor/tauri-runtime-cef/GITBOLT-PATCH.md), so the page gets a window blur and
+  // then a focus a few ms after the right-click that opened the menu. Closing on that blur closed
+  // every menu at once. Only a blur the window doesn't come back from closes it.
+  it('a window focus bounce (a press under the window manager) keeps it open (K24); a real blur closes it', () => {
+    vi.useFakeTimers();
+    try {
+      const menu = open([action('a')]);
+      fireEvent(window, new Event('blur'));
+      act(() => { vi.advanceTimersByTime(5); });
+      fireEvent(window, new Event('focus'));
+      act(() => { vi.advanceTimersByTime(BLUR_SETTLE_MS * 2); });
+      expect(menu).toBeVisible();
+      // Twice, as on a second press.
+      fireEvent(window, new Event('blur'));
+      fireEvent(window, new Event('focus'));
+      act(() => { vi.advanceTimersByTime(BLUR_SETTLE_MS * 2); });
+      expect(menu).toBeVisible();
+      // Away for good (another window was activated): closed once the settle time is up.
+      fireEvent(window, new Event('blur'));
+      act(() => { vi.advanceTimersByTime(BLUR_SETTLE_MS - 1); });
+      expect(menu).toBeVisible();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a blur pending when the menu closes does not close the next one', () => {
+    vi.useFakeTimers();
+    try {
+      open([action('a')]);
+      fireEvent(window, new Event('blur'));
+      act(() => useMenu.getState().close());
+      act(() => useMenu.getState().show([action('b')], 10, 10));
+      act(() => { vi.advanceTimersByTime(BLUR_SETTLE_MS * 2); });
+      expect(screen.getByRole('menu')).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // K1: a scroll event is dispatched in the frame after the scroll, so the tail of one the user
+  // started before the right-click (a wheel notch, a smooth or kinetic scroll, the app putting a
+  // list back) arrived after the menu opened, and closed it at once. As a native menu does, it
+  // stays open; and the wheel outside it moves nothing behind it while it's open.
+  it('a scroll does not close it (K1); the wheel outside it is swallowed while it is open', () => {
+    const menu = open([action('a')]);
+    const before = screen.getByRole('button', { name: 'before' });
+    fireEvent.scroll(window);
+    fireEvent.scroll(before);
+    expect(menu).toBeVisible();
+    const behind = vi.fn();
+    before.addEventListener('wheel', behind);
+    const outside = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
+    before.dispatchEvent(outside);
+    expect(outside.defaultPrevented).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+    expect(menu).toBeVisible();
+    const inside = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
+    screen.getByRole('menuitem', { name: 'A' }).dispatchEvent(inside);
+    expect(inside.defaultPrevented).toBe(false);
+    // Closed, the wheel is the page's again.
+    act(() => useMenu.getState().close());
+    const after = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
+    before.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
+    expect(behind).toHaveBeenCalledOnce();
   });
 
   it('gives focus back to where it was on Escape and after a pick', () => {
@@ -354,5 +451,19 @@ describe('ContextMenu', () => {
     el.getBoundingClientRect = () => ({ left: 40, right: 80, top: 10, bottom: 30, width: 40, height: 20, x: 40, y: 10, toJSON() {} });
     act(() => openMenuAt(el, [action('a')]));
     expect(useMenu.getState()).toMatchObject({ x: 40, y: 30 });
+    expect(screen.getByRole('menu', { name: 'Context menu' })).toBeVisible();
+  });
+
+  it("openMenuAt's label names the root menu (a dropdown's purpose); the next menu without one is generic again", () => {
+    render(<><button type="button">anchor</button><ContextMenu /></>);
+    const el = screen.getByRole('button');
+    act(() => openMenuAt(el, [action('a')], undefined, undefined, 'Open in'));
+    expect(screen.getByRole('menu', { name: 'Open in' })).toBeVisible();
+    // A refresh (same menu, rebuilt rows) keeps it.
+    act(() => useMenu.getState().refresh());
+    expect(screen.getByRole('menu', { name: 'Open in' })).toBeVisible();
+    act(() => useMenu.getState().close());
+    act(() => openMenuAt(el, [action('b')]));
+    expect(screen.getByRole('menu', { name: 'Context menu' })).toBeVisible();
   });
 });

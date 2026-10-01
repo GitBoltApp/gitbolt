@@ -2,8 +2,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
 import type { GraphPayload } from '../api/gen/GraphPayload';
+import { ContextMenu } from '../menu/ContextMenu';
 import { createRepoViewStore, RepoViewContext, type DiffTarget } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
+import { TooltipHost } from '../ui/TooltipHost';
 import { useToast } from '../ui/toast';
 
 const OPENERS: OpenerPayload[] = [
@@ -16,7 +18,7 @@ const listOpeners = vi.hoisted(() => vi.fn(async (): Promise<OpenerPayload[]> =>
 const openIn = vi.hoisted(() => vi.fn(async (_repo: number, _r: unknown): Promise<null> => null));
 vi.mock('../api/client', () => ({ api: { listOpeners, openIn }, errorMessage: (e: { message: string }) => e.message }));
 
-const { OpenInButton, OpenInMenu } = await import('./OpenInMenu');
+const { OpenInButton } = await import('./OpenInMenu');
 const { resetOpenersForTests, defaultOpener, worktreeOf, openVersion, listWorktree } = await import('./openers');
 const { filesKey } = await import('../repo/services');
 const { OPEN_IN_KEY, loadLastOpener } = await import('./openInPrefs');
@@ -26,7 +28,7 @@ const commitTarget: DiffTarget = { key: 'k|src/app.php', path: 'src/app.php', ol
 
 function renderButton(target: DiffTarget = commitTarget, line: number | null = null) {
   const store = createRepoViewStore(7, '/repo', graph, fakeServices());
-  return render(<RepoViewContext value={store}><OpenInButton target={target} line={line} /></RepoViewContext>);
+  return render(<RepoViewContext value={store}><OpenInButton target={target} line={line} /><ContextMenu /><TooltipHost /></RepoViewContext>);
 }
 
 beforeEach(() => {
@@ -93,29 +95,31 @@ describe('OpenInButton', () => {
     expect(loadLastOpener()).toBe('vscode');
   });
 
-  it('the dropdown lists every opener, is keyboard driven, and remembers the one picked', async () => {
+  it('the dropdown lists every opener, through the shared context menu, and remembers the one picked', async () => {
     renderButton({ ...commitTarget, new: { kind: 'worktree', worktree: '/wt' } });
     const toggle = await screen.findByRole('button', { name: 'More ways to open' });
     expect(toggle).toHaveAttribute('aria-haspopup', 'menu');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(toggle);
-    const menu = screen.getByRole('menu', { name: 'Open in' });
+    const menu = screen.getByTestId('context-menu');
+    // Named for what it is (1B's popup was too), not the shared menu's generic "Context menu".
+    expect(screen.getByRole('menu', { name: 'Open in' })).toBe(menu);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const items = screen.getAllByRole('menuitem');
     expect(items.map((i) => i.textContent)).toEqual(['Open in PhpStorm', 'Open in VS Code', 'Show in Files', 'Other…']);
-    // Focus starts on the current default; arrows move and wrap.
-    expect(items[1]).toHaveFocus();
+    // Focus starts on the current default (`openMenuAt`'s `initial`); arrows move and wrap.
+    expect(menu.querySelector('[data-active="true"]')).toHaveTextContent('Open in VS Code');
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
-    expect(items[2]).toHaveFocus();
+    expect(menu.querySelector('[data-active="true"]')).toHaveTextContent('Show in Files');
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
-    expect(items[0]).toHaveFocus();
+    expect(menu.querySelector('[data-active="true"]')).toHaveTextContent('Open in PhpStorm');
     fireEvent.keyDown(menu, { key: 'End' });
-    expect(items[3]).toHaveFocus();
+    expect(menu.querySelector('[data-active="true"]')).toHaveTextContent('Other…');
     fireEvent.keyDown(menu, { key: 'Home' });
-    expect(items[0]).toHaveFocus();
-    fireEvent.click(items[0]);
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(menu.querySelector('[data-active="true"]')).toHaveTextContent('Open in PhpStorm');
+    fireEvent.keyDown(menu, { key: 'Enter' });
+    expect(screen.queryByTestId('context-menu')).not.toBeVisible();
     await waitFor(() => expect(openIn).toHaveBeenCalledExactlyOnceWith(7, { worktree: '/wt', path: 'src/app.php', line: null, opener: 'jetbrains-phpstorm', source: { kind: 'worktree', worktree: '/wt' }, fallback: { kind: 'object', oid: 'a'.repeat(40) } }));
     expect(JSON.parse(localStorage.getItem(OPEN_IN_KEY)!)).toEqual({ last: 'jetbrains-phpstorm' });
     // The main button now shows the last used.
@@ -125,41 +129,57 @@ describe('OpenInButton', () => {
   it('Escape closes the dropdown and returns focus to its toggle; a click outside closes it', async () => {
     renderButton();
     const toggle = await screen.findByRole('button', { name: 'More ways to open' });
+    // A real click focuses a button first (jsdom's `fireEvent.click` doesn't emulate that default
+    // action): the menu's own focus-restore (`ContextMenu`'s `returnTo`) reads whatever had focus
+    // when it opened.
+    act(() => toggle.focus());
     fireEvent.click(toggle);
-    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
-    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.keyDown(screen.getByTestId('context-menu'), { key: 'Escape' });
+    expect(screen.getByTestId('context-menu')).not.toBeVisible();
     expect(toggle).toHaveFocus();
-    fireEvent.keyDown(toggle, { key: 'ArrowDown' });
-    expect(screen.getByRole('menu')).toBeInTheDocument();
-    fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('context-menu')).toBeVisible();
+    fireEvent.pointerDown(document.body);
+    expect(screen.getByTestId('context-menu')).not.toBeVisible();
     expect(openIn).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('a scroll or a resize that dismisses the dropdown restores focus to its toggle (I2); a stray one after a pick moved focus does not steal it back', async () => {
+  // K1: a scroll doesn't close the shared context menu (menu/ContextMenu.tsx), so the dropdown
+  // keeps that guarantee too now that it's the same menu.
+  it('a scroll does not close the dropdown; the wheel outside it is swallowed only while it is open (K1)', async () => {
     renderButton();
     const toggle = await screen.findByRole('button', { name: 'More ways to open' });
     fireEvent.click(toggle);
-    expect(screen.getByRole('menu')).toBeInTheDocument();
     fireEvent.scroll(window);
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(toggle).toHaveFocus();
+    fireEvent.scroll(document.body);
+    expect(screen.getByTestId('context-menu')).toBeVisible();
+    const behind = vi.fn();
+    document.body.addEventListener('wheel', behind);
+    const wheel = (target: EventTarget) => {
+      const e = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
+      target.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(wheel(document.body)).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByTestId('context-menu'), { key: 'Escape' });
+    expect(screen.getByTestId('context-menu')).not.toBeVisible();
+    behind.mockClear();
+    expect(wheel(document.body)).toBe(false);
+    expect(behind).toHaveBeenCalledOnce();
+    document.body.removeEventListener('wheel', behind);
+  });
 
+  it('a resize closes the dropdown and restores focus to its toggle (I2)', async () => {
+    renderButton();
+    const toggle = await screen.findByRole('button', { name: 'More ways to open' });
+    act(() => toggle.focus());
     fireEvent.click(toggle);
-    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByTestId('context-menu')).toBeVisible();
     fireEvent.resize(window);
-    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByTestId('context-menu')).not.toBeVisible();
     expect(toggle).toHaveFocus();
-
-    // Focus already moved elsewhere (not a press: e.g. a pick's own focus move already ran) by
-    // the time a stray resize/scroll arrives: it's left alone, not yanked back to the toggle.
-    fireEvent.click(toggle);
-    const elsewhere = document.createElement('button');
-    document.body.append(elsewhere);
-    elsewhere.focus();
-    fireEvent.resize(window);
-    expect(elsewhere).toHaveFocus();
-    elsewhere.remove();
   });
 
   it('a staged WIP file opens its working-tree file in the list\'s worktree, and Show in Files uses it too (fix round 2)', async () => {
@@ -179,59 +199,38 @@ describe('OpenInButton', () => {
     await waitFor(() => expect(useToast.getState().message).toBe('src/app.php isn\'t in the working tree'));
   });
 
-  it('opening the dropdown re-detects, so an editor installed since shows up (H32)', async () => {
+  it('opening the dropdown re-detects, so an editor installed since shows up live, with no close/reopen (H32; fix round 1, item 2)', async () => {
     renderButton();
     const toggle = await screen.findByRole('button', { name: 'More ways to open' });
     expect(listOpeners).toHaveBeenCalledTimes(1);
     listOpeners.mockResolvedValueOnce([...OPENERS.slice(0, 2), { id: 'zed', name: 'Zed', kind: 'editor' }, ...OPENERS.slice(2)]);
     fireEvent.click(toggle);
+    expect(screen.getByTestId('context-menu')).toBeVisible();
     await waitFor(() => expect(listOpeners).toHaveBeenCalledTimes(2));
+    // The re-detection's result appears in the still-open dropdown (`openMenuAt`'s `build`
+    // rebuilds from the live `openersSnapshot()`, same as the file menu's Open in ▸ submenu).
     expect(await screen.findByRole('menuitem', { name: 'Open in Zed' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('menuitem', { name: 'Other…' }));
     await waitFor(() => expect(openIn).toHaveBeenCalledExactlyOnceWith(7, { worktree: '/repo', path: 'src/app.php', line: null, opener: 'other', source: { kind: 'object', oid: 'b'.repeat(40) }, fallback: null }));
   });
 
+  it('a press on the toggle while its dropdown is open closes it, instead of reopening it (fix round 1, item 3)', async () => {
+    renderButton();
+    const toggle = await screen.findByRole('button', { name: 'More ways to open' });
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('context-menu')).toBeVisible();
+    // A real press: pointerdown (which the menu's own outside-press handling already closes the
+    // menu from) then click — `wasOpen` must still say "it was open" despite that.
+    fireEvent.pointerDown(toggle);
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('context-menu')).not.toBeVisible();
+  });
+
   it('renders nothing when no opener was found', async () => {
     listOpeners.mockResolvedValue([]);
-    const { container } = renderButton();
+    renderButton();
     await act(async () => {});
     expect(listOpeners).toHaveBeenCalled();
-    expect(container).toBeEmptyDOMElement();
-  });
-});
-
-describe('OpenInMenu', () => {
-  it('flips above its anchor\'s top when it doesn\'t fit below, so it never covers the button (fix round 1)', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 120, width: 100, height: 120, toJSON: () => ({}) });
-    render(<OpenInMenu openers={OPENERS} at={{ x: 40, y: 700 }} above={678} onPick={() => {}} onClose={() => {}} />);
-    expect(screen.getByRole('menu').style.top).toBe(`${678 - 120}px`);
-    vi.restoreAllMocks();
-  });
-
-  it('shows a loading row, then the openers, keeping focus inside; or an error row (fix round 1)', () => {
-    const { rerender } = render(<OpenInMenu openers={null} at={{ x: 1, y: 1 }} onPick={() => {}} onClose={() => {}} />);
-    const menu = screen.getByRole('menu');
-    expect(menu).toHaveTextContent('Looking for editors…');
-    expect(menu).toHaveFocus();
-    rerender(<OpenInMenu openers={OPENERS} current="vscode" at={{ x: 1, y: 1 }} onPick={() => {}} onClose={() => {}} />);
-    expect(screen.getByRole('menuitem', { name: 'Open in VS Code' })).toHaveFocus();
-    rerender(<OpenInMenu openers={null} error="no session bus" at={{ x: 1, y: 1 }} onPick={() => {}} onClose={() => {}} />);
-    expect(screen.getByRole('menu')).toHaveTextContent('Couldn\'t list editors: no session bus');
-  });
-
-  it('sits at the given point and reports the pick', () => {
-    const onPick = vi.fn();
-    const onClose = vi.fn();
-    render(<OpenInMenu openers={OPENERS} current="file-manager" at={{ x: 40, y: 50 }} onPick={onPick} onClose={onClose} />);
-    const menu = screen.getByRole('menu');
-    expect(menu.style.left).toBe('40px');
-    expect(menu.style.top).toBe('50px');
-    expect(screen.getByRole('menuitem', { name: 'Show in Files' })).toHaveFocus();
-    expect(screen.getByRole('menuitem', { name: 'Other…' }).querySelector('svg')).not.toBeNull();
-    fireEvent.keyDown(menu, { key: 'ArrowUp' });
-    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Open in VS Code' }), { key: 'Enter' });
-    expect(onPick).toHaveBeenCalledExactlyOnceWith(OPENERS[1]);
-    fireEvent.keyDown(menu, { key: 'Tab' });
-    expect(onClose).toHaveBeenCalled();
+    expect(screen.queryByRole('group', { name: 'Open in' })).toBeNull();
   });
 });

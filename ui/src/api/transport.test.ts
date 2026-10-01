@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyText, wsTransport } from './transport';
+import { copyText, createTransport, TAURI_EVENT, wsTransport } from './transport';
 
 class FakeSocket {
   static last: FakeSocket;
@@ -64,6 +64,76 @@ describe('wsTransport', () => {
     expect(s.sent).toHaveLength(1);
     s.reply({ id: 1, ok: 'result' });
     await expect(p).resolves.toBe('result');
+  });
+  it('routes event frames to subscribers, not to pending calls', async () => {
+    const t = wsTransport('ws://x', () => new FakeSocket() as unknown as WebSocket);
+    const seen: unknown[] = [];
+    const off = t.subscribe((ev) => seen.push(ev));
+    const call = t.call({ method: 'commandLog' });
+    const s = FakeSocket.last;
+    s.open();
+    s.reply({ event: { type: 'refsUpdated', repo: 3 } });
+    s.reply({ id: 1, ok: [] });
+    await expect(call).resolves.toEqual([]);
+    expect(seen).toEqual([{ type: 'refsUpdated', repo: 3 }]);
+    off();
+    s.reply({ event: { type: 'refsUpdated', repo: 4 } });
+    expect(seen).toHaveLength(1);
+  });
+  it('a subscriber that throws is logged and the others still get the event', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const t = wsTransport('ws://x', () => new FakeSocket() as unknown as WebSocket);
+    const seen: unknown[] = [];
+    t.subscribe(() => { throw new Error('bad subscriber'); });
+    t.subscribe((ev) => seen.push(ev));
+    FakeSocket.last.open();
+    FakeSocket.last.reply({ event: { type: 'refsUpdated', repo: 3 } });
+    expect(seen).toEqual([{ type: 'refsUpdated', repo: 3 }]);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+});
+
+const events = vi.hoisted(() => ({
+  listen: vi.fn(),
+  emit: undefined as undefined | ((payload: unknown) => void),
+}));
+vi.mock('@tauri-apps/api/event', () => ({ listen: events.listen }));
+
+describe('tauri transport', () => {
+  const inApp = () => { (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}; };
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    events.listen.mockReset();
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it('listens once for gb:event, isolates a throwing handler, and retries a failed listen', async () => {
+    inApp();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    events.listen.mockRejectedValueOnce(new Error('not allowed'));
+    events.listen.mockImplementation(async (name: string, cb: (e: { payload: unknown }) => void) => {
+      expect(name).toBe(TAURI_EVENT);
+      events.emit = (payload) => cb({ payload });
+      return () => {};
+    });
+    const t = createTransport();
+    t.subscribe(() => {});
+    await settle();
+    expect(events.listen).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalled();
+    // The failed listen isn't cached: the next subscribe tries again.
+    const seen: unknown[] = [];
+    t.subscribe(() => { throw new Error('bad subscriber'); });
+    t.subscribe((ev) => seen.push(ev));
+    await settle();
+    expect(events.listen).toHaveBeenCalledTimes(2);
+    events.emit!({ type: 'refsUpdated', repo: 5 });
+    expect(seen).toEqual([{ type: 'refsUpdated', repo: 5 }]);
+    t.subscribe(() => {});
+    await settle();
+    expect(events.listen).toHaveBeenCalledTimes(2);
+    error.mockRestore();
   });
 });
 

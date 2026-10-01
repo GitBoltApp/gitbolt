@@ -1,0 +1,125 @@
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { Search } from 'lucide-react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LocalBranch } from '../api/gen/LocalBranch';
+
+const api = vi.hoisted(() => ({ fetch: vi.fn(async () => ({ status: 'done', changed: false })) }));
+vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () => {} }));
+const selectCommit = vi.hoisted(() => vi.fn(() => true));
+vi.mock('../app/graphNav', () => ({ selectCommit }));
+
+await import('./feature');
+const { Toolbar } = await import('./Toolbar');
+const { registerToolbarButton } = await import('./registry');
+const { registerActions } = await import('../app/actions');
+const { RepoContext } = await import('../app/repoContext');
+const { useRuntime } = await import('../app/runtime');
+const { EMPTY_PROFILE, useAppState } = await import('../app/state');
+const { useOps } = await import('../app/ops');
+const { useMenu } = await import('../menu/menuStore');
+const { useToast } = await import('../ui/toast');
+
+const branch = (name: string, target: string, over: Partial<LocalBranch> = {}): LocalBranch => ({
+  name, fullName: `refs/heads/${name}`, target, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, ...over,
+});
+
+const ctx = { tabId: 't', repoId: 4, path: '/r', info: null };
+const renderToolbar = () => render(<RepoContext value={ctx}><Toolbar /></RepoContext>);
+
+describe('Toolbar (spec §6.3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0 });
+    useMenu.getState().close();
+    useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
+    useRuntime.setState({ tabs: {} });
+    useRuntime.getState().patch('t', {
+      status: 'ready',
+      repo: { id: 4, path: '/r', name: 'gitbolt' },
+      graph: { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'aaaaaaaaaa', detached: false, unborn: false }, truncated: false },
+      sidebar: { locals: [branch('main', 'aaaaaaaaaa', { isHead: true }), branch('feature/login', 'bbbbbbbbbb', { ahead: 2, behind: 1 })], remotes: [], worktrees: [], stashes: [], tags: [] },
+    });
+  });
+
+  it('shows the repository and its current branch', () => {
+    renderToolbar();
+    expect(screen.getByRole('toolbar', { name: 'Repository toolbar' })).toHaveTextContent('gitbolt');
+    expect(screen.getByRole('button', { name: 'Branch: main' })).toBeInTheDocument();
+  });
+
+  it('Fetch runs the repo.fetch action (a user fetch), and its dropdown lists Fetch all', () => {
+    renderToolbar();
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+    expect(api.fetch).toHaveBeenCalledWith(4, false);
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch options' }));
+    const rows = useMenu.getState().rows!;
+    expect(rows.map((r) => r.kind === 'action' && r.label)).toEqual(['Fetch all']);
+    if (rows[0].kind === 'action') rows[0].run();
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('Fetch is busy while a fetch runs for this repo, not another repo', () => {
+    renderToolbar();
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 1, kind: 'fetch', repo: 9, label: 'other' }));
+    expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 2, kind: 'fetch', repo: 4, label: 'gitbolt' }));
+    expect(screen.getByRole('button', { name: 'Fetch' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Fetch' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('renders buttons from registered action ids, and none for an action that does not exist', () => {
+    const run = vi.fn();
+    const offA = registerActions([{ id: 'test.search', label: 'Find commits', group: 'Edit', icon: Search, tooltip: 'Find in the graph', shortcuts: ['Ctrl+F'], run }]);
+    const offB = registerToolbarButton({ action: 'test.search', label: 'Search', order: 30 });
+    const offC = registerToolbarButton({ action: 'test.missing', label: 'Ghost', order: 40 });
+    renderToolbar();
+    expect(screen.queryByRole('button', { name: 'Ghost' })).toBeNull();
+    const buttons = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    expect(buttons.indexOf('Search')).toBeGreaterThan(buttons.indexOf('Fetch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(run).toHaveBeenCalledTimes(1);
+    offA(); offB(); offC();
+  });
+
+  it('Search appears once find registers edit.find, and runs it', () => {
+    const first = renderToolbar();
+    expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
+    first.unmount();
+    const run = vi.fn();
+    const off = registerActions([{ id: 'edit.find', label: 'Find', group: 'Edit', icon: Search, tooltip: 'Find commits', shortcuts: ['Ctrl+F'], run }]);
+    renderToolbar();
+    const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    expect(names.indexOf('Search')).toBe(names.indexOf('Fetch options') + 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(run).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it('a button\'s action registered after the toolbar mounted still appears, and goes when released', () => {
+    renderToolbar();
+    expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
+    let off: () => void = () => {};
+    act(() => { off = registerActions([{ id: 'edit.find', label: 'Find', group: 'Edit', icon: Search, tooltip: 'Find commits', run: vi.fn() }]); });
+    expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument();
+    act(() => off());
+    expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
+  });
+
+  it('the branch picker lists the local branches and jumps to the picked one\'s tip', () => {
+    renderToolbar();
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: main' }));
+    const options = screen.getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['main', 'feature/login2↑ 1↓']);
+    fireEvent.click(screen.getByText('feature/login'));
+    expect(selectCommit).toHaveBeenCalledWith('t', 'bbbbbbbbbb', { focus: true });
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('a branch whose tip is not loaded says so', () => {
+    selectCommit.mockReturnValueOnce(false);
+    renderToolbar();
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: main' }));
+    fireEvent.click(screen.getByText('feature/login'));
+    expect(useToast.getState().message).toBe('Not in the loaded history');
+  });
+});

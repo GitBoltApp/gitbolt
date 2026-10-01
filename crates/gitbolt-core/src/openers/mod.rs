@@ -23,6 +23,7 @@ use ts_rs::TS;
 pub mod chooser;
 #[cfg(unix)]
 mod desktop;
+pub mod folder_picker;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +38,10 @@ pub enum OpenerKind {
 
 /// The id of the "Other…" entry, listed when the API has a `Chooser`.
 pub const CHOOSER_ID: &str = "other";
+
+/// The opener id that means "the custom editor command" (R5: the profile's, or the repo's own,
+/// `EditorChoice::Custom`), built per open by `template_opener`. Never a detected opener's id.
+pub const CUSTOM_ID: &str = "custom";
 
 /// One entry of the "Open in…" menu.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -53,6 +58,11 @@ pub struct OpenerPayload {
 pub enum ExecArg {
     Literal(OsString),
     File,
+    /// The file, as a `file://` URI rather than a plain path: Flatpak's `@@u … @@` forwarding
+    /// marks the wrapped field code this way (deferred Rust minor #4). Without it, a sandboxed
+    /// app that can't see the host path at all (no `--filesystem=home`) gets a path the document
+    /// portal never exported, and can't open it.
+    FileUri,
 }
 
 /// How a known IDE's CLI takes a line (only these get one; spec §14.5).
@@ -79,6 +89,12 @@ pub enum ArgStyle {
     Exec(Vec<ExecArg>),
     /// A known IDE's desktop entry: its `Exec` arguments, the file's place taking the line form.
     ExecWithLine(Vec<ExecArg>, LineArgs),
+    /// A user-configured command template (the custom editor setting): each word, already split
+    /// like a shell command line, with `{file}`, `{line}` and `{repo}` substituted per open. The
+    /// repository is baked in at construction (`template_opener`) rather than threaded through
+    /// `command()`, since every other `ArgStyle` opens a file with no repository context at all.
+    /// Never runs through a shell.
+    Template { words: Vec<String>, repo: PathBuf },
 }
 
 /// A detected opener: what the UI sees (`payload`) and what runs (`program`, `style`).
@@ -117,6 +133,15 @@ impl Opener {
     /// file manager), at `line` when the opener supports one.
     pub fn command(&self, target: &Path, line: Option<u32>) -> LaunchCommand {
         let file = target.as_os_str().to_owned();
+        if let ArgStyle::Template { words, repo } = &self.style {
+            // `{line}` is `1` when none is given, like the working-tree file with no selection:
+            // simpler than dropping the whole token, and every template editor accepts line 1.
+            let line = line.unwrap_or(1).to_string();
+            let file_str = file.to_string_lossy();
+            let repo_str = repo.to_string_lossy();
+            let args = words.iter().map(|w| OsString::from(substitute_template_word(w, &file_str, &line, &repo_str))).collect();
+            return LaunchCommand { program: self.program.clone(), args };
+        }
         let only_file = [ExecArg::File];
         let (parts, style): (&[ExecArg], Option<LineArgs>) = match &self.style {
             ArgStyle::VsCode => (&only_file, Some(LineArgs::VsCode)),
@@ -124,6 +149,7 @@ impl Opener {
             ArgStyle::PathColonLine => (&only_file, Some(LineArgs::PathColonLine)),
             ArgStyle::Exec(parts) => (parts, None),
             ArgStyle::ExecWithLine(parts, l) => (parts, Some(*l)),
+            ArgStyle::Template { .. } => unreachable!("handled by the early return above"),
         };
         let mut args = Vec::new();
         for p in parts {
@@ -136,6 +162,8 @@ impl Opener {
                     (Some(LineArgs::PathColonLine), Some(n)) => args.push(at_line(&file, n)),
                     _ => args.push(file.clone()),
                 },
+                // Flatpak's `@@u … @@` forwarding (minor #4): no line form, and never a bare path.
+                ExecArg::FileUri => args.push(to_file_uri(&file)),
             }
         }
         LaunchCommand { program: self.program.clone(), args }
@@ -217,6 +245,149 @@ fn has_file_code(t: &str) -> bool {
         }
     }
     false
+}
+
+/// Splits a custom editor command template into words: whitespace-separated, with `'…'`, `"…"`
+/// and backslash escapes (a permissive shell-like quoting — this is the user's own command line,
+/// not a desktop entry's `%`-code `Exec` syntax). Each word keeps its `{file}`/`{line}`/`{repo}`
+/// placeholders literally; `Opener::command` substitutes them per open, never through a shell.
+fn tokenize_template(template: &str) -> Result<Vec<String>, GbError> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_word = false;
+    let mut chars = template.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' | '"' => {
+                in_word = true;
+                let mut closed = false;
+                while let Some(d) = chars.next() {
+                    if d == c {
+                        closed = true;
+                        break;
+                    }
+                    if d == '\\' && c == '"' {
+                        if let Some(e) = chars.next() {
+                            cur.push(e);
+                        }
+                    } else {
+                        cur.push(d);
+                    }
+                }
+                if !closed {
+                    return Err(GbError::new(GbErrorKind::InvalidInput, "unterminated quote in the editor command"));
+                }
+            }
+            '\\' => {
+                in_word = true;
+                if let Some(e) = chars.next() {
+                    cur.push(e);
+                }
+            }
+            c if c.is_whitespace() => {
+                if in_word {
+                    out.push(std::mem::take(&mut cur));
+                    in_word = false;
+                }
+            }
+            c => {
+                in_word = true;
+                cur.push(c);
+            }
+        }
+    }
+    if in_word {
+        out.push(cur);
+    }
+    Ok(out)
+}
+
+/// Substitutes `{file}`, `{line}` and `{repo}` in `word` in one left-to-right pass (fix round 1,
+/// item 4): each placeholder is replaced as it's found in the *original* word, and the cursor
+/// moves past the inserted text without ever re-scanning it. Chained `.replace()` calls don't have
+/// this property — replacing `{file}` first, then `{repo}`, would re-scan the just-inserted file
+/// text and (wrongly) substitute a `{repo}` that happened to appear inside the file's own name.
+fn substitute_template_word(word: &str, file: &str, line: &str, repo: &str) -> String {
+    let mut out = String::with_capacity(word.len());
+    let mut rest = word;
+    'outer: while !rest.is_empty() {
+        for (placeholder, value) in [("{file}", file), ("{line}", line), ("{repo}", repo)] {
+            if let Some(after) = rest.strip_prefix(placeholder) {
+                out.push_str(value);
+                rest = after;
+                continue 'outer;
+            }
+        }
+        let mut chars = rest.chars();
+        out.push(chars.next().expect("rest is non-empty"));
+        rest = chars.as_str();
+    }
+    out
+}
+
+/// Builds the custom editor opener (R5: the settings' "Custom" editor choice) for one repository.
+/// `template`'s first word is the program (resolved exactly as a detected editor's `TryExec` is:
+/// an absolute, executable path, or a bare name on `env`'s `PATH`); the rest keeps its
+/// placeholders for `Opener::command` to fill in per open. `repo` is baked in now because
+/// `ArgStyle::Template` carries it (see its docs).
+pub fn template_opener(id: impl Into<String>, name: impl Into<String>, template: &str, repo: impl Into<PathBuf>, env: &DetectEnv) -> Result<Opener, GbError> {
+    let mut words = tokenize_template(template)?;
+    if words.is_empty() {
+        return Err(GbError::new(GbErrorKind::InvalidInput, "empty editor command"));
+    }
+    let program_word = words.remove(0);
+    if is_shell_program(&program_word) && shell_c_script_has_placeholder(&words) {
+        return Err(GbError::new(
+            GbErrorKind::InvalidInput,
+            "a shell or interpreter's code argument can't contain {file}, {line} or {repo}: pass them as separate arguments after the code instead",
+        ));
+    }
+    let program = resolve_program(env, &program_word).ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("editor command not found: {program_word}")))?;
+    Ok(Opener::new(id, name, OpenerKind::Editor, program, ArgStyle::Template { words, repo: repo.into() }))
+}
+
+/// Programs that run a code argument (`sh -c <script>`, `python -c`, `perl -e`, `node --eval`…).
+/// `env` is included since `env [VAR=…] sh -c …` is a common way to invoke one indirectly; the
+/// check below finds the code flag whichever of these named it.
+const SHELL_PROGRAMS: &[&str] = &[
+    "sh", "bash", "zsh", "dash", "fish", "ksh", "mksh", "csh", "tcsh", "ash", "busybox", "env", "perl", "ruby", "node", "nodejs",
+    "php", "lua", "tclsh", "pwsh", "osascript",
+];
+
+fn is_shell_program(word: &str) -> bool {
+    let base = word.rsplit(['/', '\\']).next().unwrap_or(word);
+    SHELL_PROGRAMS.contains(&base) || base.starts_with("python")
+}
+
+const TEMPLATE_PLACEHOLDERS: [&str; 3] = ["{file}", "{line}", "{repo}"];
+
+/// An option word that makes the next argument (or its own attached value) code: a short
+/// cluster holding `c`/`e`/`E`/`r` (`-c`, `-lc`, `-ec`, `-e`, `-r` for php) or a long form
+/// (`--command`, `--eval`, `--exec`, `--execute`, with or without `=value`).
+fn is_code_flag(word: &str) -> bool {
+    if let Some(long) = word.strip_prefix("--") {
+        let name = long.split('=').next().unwrap_or(long);
+        return matches!(name, "command" | "eval" | "exec" | "execute");
+    }
+    match word.strip_prefix('-') {
+        Some(short) if !short.is_empty() => {
+            let letters: String = short.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+            letters.chars().any(|c| matches!(c, 'c' | 'e' | 'E' | 'r'))
+        }
+        _ => false,
+    }
+}
+
+/// I1's rule (desktop entries), adapted to the custom template, for a program that runs code
+/// (`SHELL_PROGRAMS`): a placeholder is safe only as its own whole word that isn't code. It's
+/// refused when it's embedded in a larger word (`"vim {file}"`, `-c{file}`, `--eval={file}`), or
+/// when it's the word right after a code flag (`-c {file}`, `-lc {file}`, `--command {file}`),
+/// since either way a crafted file name or repository path could run arbitrary commands.
+/// `sh -c 'ed "$1"' sh {file}` stays allowed: the path is a positional argument, not code.
+fn shell_c_script_has_placeholder(words: &[String]) -> bool {
+    let has = |w: &str| TEMPLATE_PLACEHOLDERS.iter().any(|p| w.contains(p));
+    let whole = |w: &str| TEMPLATE_PLACEHOLDERS.contains(&w);
+    words.iter().any(|w| has(w) && !whole(w)) || words.windows(2).any(|w| is_code_flag(&w[0]) && has(&w[1]))
 }
 
 /// The desktop entry id that handles a MIME type (`xdg-mime query default`).
@@ -466,6 +637,39 @@ fn at_line(file: &OsStr, n: u32) -> OsString {
     s
 }
 
+/// `file://` plus a percent-encoded path (minor #4): what Flatpak's `@@u … @@` forwarding needs,
+/// since the document portal (which exports the file into the sandbox) takes a URI, not a path.
+/// On unix this operates on the path's raw bytes (fix round 1, item 9), so a non-UTF-8 name's
+/// exact bytes reach the URI instead of a lossy `to_string_lossy()` replacement pointing at the
+/// wrong path.
+#[cfg(unix)]
+fn to_file_uri(file: &OsStr) -> OsString {
+    use std::os::unix::ffi::OsStrExt;
+    percent_encode_file_uri(file.as_bytes())
+}
+
+/// Without direct byte access to `OsStr` (non-unix), this falls back to a lossy conversion: a
+/// worse but still-functional URI for the rare non-UTF-8 name, on a platform Flatpak (the only
+/// caller of `ExecArg::FileUri`) doesn't target anyway.
+#[cfg(not(unix))]
+fn to_file_uri(file: &OsStr) -> OsString {
+    percent_encode_file_uri(file.to_string_lossy().as_bytes())
+}
+
+/// `file://` plus `bytes`, percent-encoded exactly (fix round 1, item 9): operating on the raw
+/// bytes, not a lossy UTF-8 string, so a non-UTF-8 file name's exact bytes reach the URI instead
+/// of the U+FFFD replacement character silently pointing at the wrong path.
+fn percent_encode_file_uri(bytes: &[u8]) -> OsString {
+    let mut out = String::from("file://");
+    for &b in bytes {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    OsString::from(out)
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
@@ -509,6 +713,128 @@ pub(super) mod tests {
         assert_eq!(args(&text.command(f, Some(3))), ["--standalone", "/repo/src/a b.php", "-x"], "an Exec opener takes no line");
         let files = Opener::new("file-manager", "Files", OpenerKind::FileManager, "/usr/bin/nautilus", ArgStyle::Exec(vec![lit("--new-window"), ExecArg::File]));
         assert_eq!(args(&files.command(Path::new("/repo/src"), Some(3))), ["--new-window", "/repo/src"]);
+    }
+
+    /// Minor #4: a `FileUri` field code becomes a percent-encoded `file://` URI, not a path.
+    #[test]
+    fn file_uri_args_are_percent_encoded_uris() {
+        let flatpak = Opener::new(
+            "jetbrains-idea",
+            "IntelliJ IDEA",
+            OpenerKind::Editor,
+            "/usr/bin/flatpak",
+            ArgStyle::Exec(vec![lit("run"), lit("--command=idea"), lit("@@u"), ExecArg::FileUri, lit("@@")]),
+        );
+        assert_eq!(args(&flatpak.command(Path::new("/repo/src/a b.php"), Some(5))), ["run", "--command=idea", "@@u", "file:///repo/src/a%20b.php", "@@"], "no line form for a URI code either");
+    }
+
+    /// Fix round 1, item 9: a non-UTF-8 file name's exact bytes must reach the URI, not the
+    /// U+FFFD replacement `to_string_lossy()` would substitute (which would point at the wrong
+    /// path entirely).
+    #[test]
+    fn file_uri_preserves_non_utf8_bytes_exactly() {
+        use std::os::unix::ffi::OsStringExt;
+        let raw = std::ffi::OsString::from_vec(vec![b'/', b'a', 0xFF, b'.', b't', b'x', b't']);
+        let opener = Opener::new("x", "X", OpenerKind::Editor, "/usr/bin/x", ArgStyle::Exec(vec![ExecArg::FileUri]));
+        let c = opener.command(Path::new(&raw), None);
+        assert_eq!(args(&c), ["file:///a%FF.txt"]);
+    }
+
+    #[test]
+    fn a_custom_template_substitutes_file_line_and_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        executable(&tmp.path().join("bin/zz"));
+        let env = DetectEnv { path: vec![tmp.path().join("bin")], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
+        let o = template_opener("custom", "Custom", r#"zz --repo="{repo}" "{file}:{line}""#, tmp.path().join("work/repo"), &env).unwrap();
+        assert_eq!(o.program(), tmp.path().join("bin/zz"));
+        let c = o.command(Path::new("/w/a b.php"), Some(9));
+        assert_eq!(c.program, tmp.path().join("bin/zz"));
+        assert_eq!(args(&c), [format!("--repo={}", tmp.path().join("work/repo").display()), "/w/a b.php:9".into()]);
+        // No line: the template's `{line}` becomes `1`, like opening at the top of the file.
+        assert_eq!(args(&o.command(Path::new("/w/a b.php"), None)).last().unwrap(), "/w/a b.php:1");
+    }
+
+    /// Minor #4 (fix round 1, item 4): chained `.replace()` calls re-scan already-substituted
+    /// text, so a file whose name literally contains `{repo}` would get double-substituted. One
+    /// left-to-right pass must never look at text it just inserted.
+    #[test]
+    fn template_substitution_never_rescans_inserted_text() {
+        let tmp = tempfile::tempdir().unwrap();
+        executable(&tmp.path().join("zz"));
+        let env = DetectEnv { path: vec![tmp.path().to_path_buf()], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
+        let o = template_opener("custom", "Custom", "zz {file} {repo}", "/r{file}", &env).unwrap();
+        let c = o.command(Path::new("/w/x{repo}.txt"), Some(3));
+        assert_eq!(args(&c), ["/w/x{repo}.txt", "/r{file}"], "neither substitution re-triggers on the other's output");
+    }
+
+    #[test]
+    fn a_custom_template_with_no_such_program_is_not_found() {
+        let env = DetectEnv { path: vec![], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
+        let err = template_opener("custom", "Custom", "nope {file}", "/repo", &env).unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::NotFound);
+        let err = template_opener("custom", "Custom", "  ", "/repo", &env).unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::InvalidInput);
+        let err = template_opener("custom", "Custom", r#"ed "unterminated {file}"#, "/repo", &env).unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::InvalidInput);
+    }
+
+    /// I1's rule, applied to the custom template: a placeholder can never sit inside a shell's
+    /// `-c` script, whole-word or embedded, since that argument is parsed as shell code.
+    #[test]
+    fn a_shell_c_script_holding_a_placeholder_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        for name in ["sh", "bash"] {
+            executable(&tmp.path().join(name));
+        }
+        let env = DetectEnv { path: vec![tmp.path().to_path_buf()], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
+        let embedded = template_opener("custom", "Custom", r#"sh -c "geany {file}""#, "/repo", &env).unwrap_err();
+        assert_eq!(embedded.kind, GbErrorKind::InvalidInput);
+        let whole_word = template_opener("custom", "Custom", r#"sh -c "{file}""#, "/repo", &env).unwrap_err();
+        assert_eq!(whole_word.kind, GbErrorKind::InvalidInput);
+        let other_shell = template_opener("custom", "Custom", r#"bash -c "echo {line}""#, "/repo", &env).unwrap_err();
+        assert_eq!(other_shell.kind, GbErrorKind::InvalidInput);
+        // A placeholder outside the -c script (its own argument, becoming a positional parameter)
+        // is still safe and accepted, exactly like the desktop-entry precedent.
+        template_opener("custom", "Custom", r#"sh -c 'ed "$1"' sh {file}"#, "/repo", &env).unwrap();
+        // A non-shell program is never checked at all.
+        executable(&tmp.path().join("zz"));
+        template_opener("custom", "Custom", "zz -c {file}", "/repo", &env).unwrap();
+    }
+
+    /// The code flag isn't always a bare `-c`: option clusters, long forms, attached values and
+    /// other interpreters (python, perl, node…), reached directly or through `env`, are refused too.
+    #[test]
+    fn every_code_flag_form_holding_a_placeholder_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        for name in ["sh", "bash", "fish", "env", "python3", "perl", "node", "php"] {
+            executable(&tmp.path().join(name));
+        }
+        let env = DetectEnv { path: vec![tmp.path().to_path_buf()], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
+        for template in [
+            r#"bash -lc "vim {file}""#,
+            r#"bash -ec {file}"#,
+            r#"fish --command "vim {file}""#,
+            r#"sh -c{file}"#,
+            r#"env FOO=1 bash -lc "vim {file}""#,
+            r#"python3 -c "import os; os.system('vim {file}')""#,
+            r#"perl -e "system('vim', '{file}')""#,
+            r#"node --eval={file}"#,
+            r#"php -r "{file}""#,
+        ] {
+            let err = template_opener("custom", "Custom", template, "/repo", &env).expect_err(template);
+            assert_eq!(err.kind, GbErrorKind::InvalidInput, "{template}");
+        }
+        // Positional arguments after the code stay allowed.
+        template_opener("custom", "Custom", r#"bash -lc 'vim "$1"' bash {file}"#, "/repo", &env).unwrap();
+        template_opener("custom", "Custom", r#"python3 -c 'import sys; print(sys.argv[1])' {file}"#, "/repo", &env).unwrap();
+    }
+
+    #[test]
+    fn tokenize_template_handles_quotes_and_escapes() {
+        assert_eq!(tokenize_template(r#"code --goto "{file}:{line}""#).unwrap(), vec!["code", "--goto", "{file}:{line}"]);
+        assert_eq!(tokenize_template(r"ed \{literal\}").unwrap(), vec!["ed", "{literal}"]);
+        assert_eq!(tokenize_template("'single word' plain").unwrap(), vec!["single word", "plain"]);
+        assert_eq!(tokenize_template("").unwrap(), Vec::<String>::new());
     }
 
     pub(super) fn executable(path: &Path) {

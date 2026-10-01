@@ -49,7 +49,7 @@ describe('DiffPanel store reads', () => {
     const before = toolbarRenders.n;
     const list = { status: 'ready' as const, data: { files: [change], added: 1, deleted: 1 } };
     for (let i = 0; i < 3; i++) {
-      act(() => store.setState((s) => ({ panel: { selection: s.selection, marks: s.marks, parent: s.parent, details: s.details, message: s.message, sections: [{ spec, list }] } as never })));
+      act(() => store.setState((s) => ({ panel: { selection: s.selection, parent: s.parent, details: s.details, message: s.message, sections: [{ spec, list }] } as never })));
     }
     expect(toolbarRenders.n - before).toBe(0);
   });

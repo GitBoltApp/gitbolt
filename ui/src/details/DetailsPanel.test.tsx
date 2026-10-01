@@ -57,31 +57,20 @@ beforeEach(() => {
 });
 
 describe('DetailsPanel', () => {
-  it('hints at the second Ctrl+click while the first is pending, then shows the compare header', async () => {
+  it('a Ctrl+click on a second commit shows the compare header at once, no hint step (K15); a plain click leaves it', async () => {
     const store = createRepoViewStore(1, '/r', graph, loadedServices());
     renderPanel(store);
-    await act(async () => store.getState().selectRow(2, { ctrl: true }));
-    expect(screen.getByText('Ctrl+click another commit to compare')).toBeInTheDocument();
+    await act(async () => store.getState().selectRow(2));
     expect(screen.getByTestId('details-summary')).toHaveTextContent('First');
     await act(async () => store.getState().selectRow(1, { ctrl: true }));
-    expect(screen.queryByText('Ctrl+click another commit to compare')).toBeNull();
     expect(screen.getByTestId('compare-header')).toHaveTextContent(`Comparing ${B.slice(0, 6)} → ${A.slice(0, 6)}`);
     // The compare replaces the single-commit details, and lists the compare's files.
     expect(screen.queryByTestId('details-summary')).toBeNull();
+    expect(screen.getAllByTestId('compare-summary').map((e) => e.textContent)).toEqual(['First', 'Second']);
     expect(store.getState().sections.map((s) => s.spec)).toEqual([{ kind: 'compare', from: B, to: A }]);
-    // A plain click leaves compare mode, with no hint.
     await act(async () => store.getState().selectRow(2));
     expect(screen.queryByTestId('compare-header')).toBeNull();
-    expect(screen.queryByText('Ctrl+click another commit to compare')).toBeNull();
     expect(screen.getByTestId('details-summary')).toHaveTextContent('First');
-  });
-
-  it('a plain click shows no compare hint', async () => {
-    const store = createRepoViewStore(1, '/r', graph, loadedServices());
-    renderPanel(store);
-    await act(async () => store.getState().selectRow(1));
-    expect(screen.getByTestId('details-summary')).toHaveTextContent('Second');
-    expect(screen.queryByText('Ctrl+click another commit to compare')).toBeNull();
   });
 
   // Feedback F12: no flicker. The old commit's content stays until the new commit's details,
@@ -177,6 +166,10 @@ describe('DetailsPanel', () => {
       localStorage.clear();
     });
 
+    /** Waits a frame: the split's drag writes the live flexBasis in a `requestAnimationFrame`,
+     * coalescing however many `pointermove` events land within it (K26). */
+    const nextFrame = () => act(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+
     async function shown() {
       const store = createRepoViewStore(1, '/r', graph, loadedServices());
       const view = render(<RepoViewContext value={store}><DetailsPanel /></RepoViewContext>);
@@ -207,13 +200,15 @@ describe('DetailsPanel', () => {
       const sep = screen.getByRole('separator', { name: 'Resize commit details' });
       expect(fireEvent.pointerDown(sep, { clientY: 250, pointerId: 1, button: 0 })).toBe(false); // no text selection
       fireEvent.pointerMove(sep, { clientY: 400, pointerId: 1 });
+      await nextFrame();
       expect(top).toHaveStyle({ flexBasis: '40%' });
       fireEvent.pointerMove(sep, { clientY: 0, pointerId: 1 });
+      await nextFrame();
       // At least the 100 px header plus the message minimum.
       expect(top).toHaveStyle({ flexBasis: `${((100 + SPLIT.topExtraPx) / 1000) * 100}%` });
       fireEvent.pointerMove(sep, { clientY: 2000, pointerId: 1 });
+      fireEvent.pointerUp(sep, { clientY: 2000, pointerId: 1 }); // ends before the queued frame fires
       expect(sep).toHaveAttribute('aria-valuenow', String(Math.round(Math.min(SPLIT.max, 1 - SPLIT.bottomPx / 1000) * 100)));
-      fireEvent.pointerUp(sep, { clientY: 2000, pointerId: 1 });
       fireEvent.pointerMove(sep, { clientY: 300, pointerId: 1 });
       expect(sep).toHaveAttribute('aria-valuenow', String(Math.round(Math.min(SPLIT.max, 1 - SPLIT.bottomPx / 1000) * 100))); // the drag ended
       expect(Number(localStorage.getItem(SPLIT.key))).toBeCloseTo(Math.min(SPLIT.max, 1 - SPLIT.bottomPx / 1000));
@@ -284,6 +279,7 @@ describe('DetailsPanel', () => {
       fireEvent.pointerMove(sep, { clientY: 300, pointerId: 1 });
       fireEvent.pointerMove(sep, { clientY: 350, pointerId: 1 });
       fireEvent.pointerMove(sep, { clientY: 900, pointerId: 2 }); // another pointer: ignored
+      await nextFrame();
       expect(top).toHaveStyle({ flexBasis: '35%' });
       expect(save).not.toHaveBeenCalled();
       fireEvent.pointerUp(sep, { clientY: 350, pointerId: 2 }); // not ours: the drag goes on

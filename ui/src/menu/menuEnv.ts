@@ -1,12 +1,16 @@
 import { api, errorMessage } from '../api/client';
+import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
+import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
+import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
+import type { EditorContextMenuEvent } from '../diff/monaco/host';
 import { projectRemote, type ProjectRemote } from '../forge/urls';
 import { labelsByRowOf, membershipOf } from '../graph/graphIndex';
-import { loadOpeners, openersSnapshot, openVersion, openWith, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
+import { loadOpeners, openersSnapshot, openVersion, openWith, parseListSpec, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
 import type { RepoServices } from '../repo/services';
 import type { DiffTarget, RepoViewState, RepoViewStore } from '../repo/store';
 import { useToast } from '../ui/toast';
@@ -15,9 +19,10 @@ import { refreshMenuOn } from './menuStore';
 import { buildMenu } from './registry';
 import type { MenuRow } from './types';
 
-// Plan 1C Task 15's `menuEnv`, file menu only, pulled into 1B on the RepoView store. 1C's
-// version reads its app state (`useRuntime`, `useAppState`, Task 9); this one reads the one
-// RepoView store a file list lives in. Everything a builder sees is in memory (spec §7): no
+// Plan 1C Task 15's `menuEnv`, pulled into 1B on the RepoView store: file and folder shipped in
+// 1B (fb3 lane M); commit, tag and Monaco are 1C's own (lane W2-D). 1C's version reads its app
+// state (`useRuntime`, `useAppState`, Task 9); this one reads the one RepoView store a tab's
+// graph, file lists and diff live in. Everything a builder sees is in memory (spec §7): no
 // backend call before a menu shows.
 
 export interface Upstream { remote: string; branch: string }
@@ -50,6 +55,11 @@ export interface MenuActions {
   openIn(opener: OpenerPayload, target: OpenInTarget): void;
   openDiff(target: DiffTarget): void;
   viewFile(target: DiffTarget): void;
+  /** Compares two commits (K15), or a commit with the working tree (plan 1C Task 15's commit
+   * menu "Compare with HEAD"/"Compare with working tree"). */
+  compare(from: string, to: string | 'worktree'): void;
+  /** Copies a commit's full message (summary + body), loading it first if it isn't cached. */
+  copyMessage(sha: string): void;
 }
 
 export interface MenuEnv {
@@ -58,6 +68,10 @@ export interface MenuEnv {
   forge(remote?: string): ProjectRemote | null;
   openers: { list: OpenerPayload[] | null; error: string | null; last: string | null };
   act: MenuActions;
+  /** HEAD's branch (short name) and commit, for the commit menu's "Compare with HEAD" label and
+   * guard (spec §7 target table). `null` on an unborn or detached HEAD. */
+  headBranch: string | null;
+  headSha: string | null;
 }
 
 /** A folder row the folder menu is for. */
@@ -69,6 +83,42 @@ export interface FolderTarget {
    * the path it's given). */
   openIn: OpenInTarget;
 }
+
+/** A commit's branch, as the graph knows it (spec §7 "Copy branch name", "Forge link"). */
+export interface BranchRef { name: string; local: string | null; remotes: Array<{ fullName: string; remote: string }> }
+
+/** A commit row, or a branch label chip on one (plan 1C Task 15, `commit` kind). `branch` is set
+ * only when the menu opened on a branch label chip; a plain right-click on the row leaves it
+ * `null` (spec §7: the row and its labels are separate targets). */
+export interface CommitTarget {
+  sha: string;
+  /** MR/PR reference labels from the commit message, exactly as `RowPayload.mrRefs` has them
+   * (`"!42"`, `"acme/shop!1187"`, `"#12"`): the commit menu's `Open <ref>` rows. */
+  mrRefs: string[];
+  isWip: boolean;
+  branch: BranchRef | null;
+}
+
+/** A tag label chip (`tag` kind). */
+export interface TagTarget { name: string; fullName: string; sha: string }
+
+/** The Monaco context menu's target (`monaco` kind): the diff or file editor's selection, at the
+ * commit (or working tree, `sha: null`) the open file shows. */
+export interface MonacoTarget {
+  path: string;
+  sha: string | null;
+  lines: [number, number];
+  selectionText: string;
+  upstream: Upstream | null;
+  /** What Open in ▸ opens: the same version the file list's row would (spec §14.5), at `lines[0]`. */
+  openIn: OpenInTarget;
+}
+
+export const commitTargetOf = (row: RowPayload, branch: BranchRef | null = null): CommitTarget =>
+  ({ sha: row.id, mrRefs: row.mrRefs, isWip: row.kind === 'wip', branch });
+
+export const branchRefOf = (label: RefLabel): BranchRef =>
+  ({ name: label.name, local: label.local, remotes: label.remotes.map((r) => ({ fullName: r.fullName, remote: r.remote })) });
 
 /** Listeners for "the remotes arrived" (an open menu gains its Forge row). `services.
  * remotesSnapshot()` is the one cache of "this repo's remotes, loaded" (also read by
@@ -97,22 +147,56 @@ function afterPaint(fn: () => void): void {
 
 const toast = (m: string) => useToast.getState().show(m);
 
-/** The file menu's env, from the store's current state. */
+/** Copies a commit's full message, loading it first if it isn't cached (the commit menu's "Copy
+ * message"; the graph payload carries only the summary and body's first line, §9.2). Exported
+ * (fix round 1, item 7) for a direct unit test, alongside `compare`. */
+export function copyMessage(store: RepoViewStore, sha: string): void {
+  const cache = store.getState().services.messages;
+  const format = (m: CommitMessage) => (m.body ? `${m.summary}\n\n${m.body}` : m.summary);
+  const cached = cache.peek(sha);
+  const text = cached ? Promise.resolve(format(cached)) : cache.get(sha).then(format);
+  text.then((t) => copyText(t)).then(() => toast('Copied'), () => toast('Copy failed'));
+}
+
+/** "Compare with HEAD" / "Compare with working tree" (the commit menu's `view` group): drives
+ * the same selection primitives K15's Ctrl+click does, so the compare direction (older first,
+ * K16) comes out the same either way. Exported (fix round 1, item 7) for a direct unit test. */
+export function compare(store: RepoViewStore, from: string, to: string | 'worktree'): void {
+  const s = store.getState();
+  if (to === 'worktree') {
+    const wip = s.graph.rows.find((r) => r.kind === 'wip');
+    s.compareWithWorktree(from, wip?.wip?.worktreePath ?? s.repoPath);
+    return;
+  }
+  const i = s.indexById.get(from);
+  const j = s.indexById.get(to);
+  if (i === undefined || j === undefined) return;
+  s.selectRow(i);
+  s.selectRow(j, { ctrl: true });
+}
+
+/** The menu env, from the store's current state: file and folder (1B), commit, tag and Monaco
+ * (1C, Task 15). */
 export function fileMenuEnv(store: RepoViewStore): MenuEnv {
   const s = store.getState();
   const remotes = s.services.remotesSnapshot() ?? [];
+  const head = s.graph.head;
   return {
     forge: (remote) => {
       const r = projectRemote(remote === undefined ? remotes : remotes.filter((x) => x.name === remote));
       return r && r.hostKind !== 'generic' ? r : null;
     },
     openers: openersSnapshot(),
+    headBranch: head.branch?.replace(/^refs\/heads\//, '') ?? null,
+    headSha: head.target,
     act: {
       copy: (text) => { copyText(text).then(() => toast('Copied'), () => toast('Copy failed')); },
       openUrl: (url) => { api.openUrl(url).catch((e: unknown) => toast(errorMessage(e))); },
       openIn: (o, t) => openWith(s.repo, o, t),
       openDiff: (t) => store.getState().openFile({ ...t, view: 'diff' }),
       viewFile: (t) => store.getState().openFile({ ...t, view: 'file' }),
+      compare: (from, to) => compare(store, from, to),
+      copyMessage: (sha) => copyMessage(store, sha),
     },
   };
 }
@@ -223,6 +307,68 @@ export function folderTargetOf(s: RepoViewState, spec: DiffSpec, path: string, i
 export function folderMenu(store: RepoViewStore, spec: DiffSpec, path: string, inside: string): () => MenuRow[] {
   afterOpening(store);
   return () => buildMenu<FolderTarget, MenuEnv>('folder', folderTargetOf(store.getState(), spec, path, inside), fileMenuEnv(store));
+}
+
+/** A right-click on a graph row, or on a branch label chip (`branch` set): plan 1C Task 15. WIP
+ * rows get no commit menu (`commitTargetOf`'s `isWip`; the builders gate on it too). */
+export function commitMenu(store: RepoViewStore, row: RowPayload, branch: BranchRef | null = null): () => MenuRow[] {
+  afterOpening(store);
+  return () => buildMenu<CommitTarget, MenuEnv>('commit', commitTargetOf(row, branch), fileMenuEnv(store));
+}
+
+/** A right-click on a tag label chip. */
+export function tagMenu(store: RepoViewStore, sha: string, label: RefLabel): () => MenuRow[] {
+  afterOpening(store);
+  return () => buildMenu<TagTarget, MenuEnv>('tag', { name: label.name, fullName: `refs/tags/${label.name}`, sha }, fileMenuEnv(store));
+}
+
+/** A right-click on a graph label chip (`GraphView`/`RefLabels`): dispatches to the commit or tag
+ * menu by the label's own kind. */
+export function labelMenu(store: RepoViewStore, row: RowPayload, label: RefLabel): () => MenuRow[] {
+  return label.tag ? tagMenu(store, row.id, label) : commitMenu(store, row, branchRefOf(label));
+}
+
+/** The Monaco context menu's target: the open diff's side `e` fired on, at the commit (or working
+ * tree) that side shows. `null` while no diff is open (shouldn't happen: the handler is only
+ * installed then) or the diff's list has no matching, loaded section (a stale event from an
+ * editor mid-teardown). Exported (fix round 1, item 7) for a direct unit test. */
+export function monacoTargetOf(s: RepoViewState, e: EditorContextMenuEvent): MonacoTarget | null {
+  const diff = s.diff;
+  if (!diff) return null;
+  const onOld = e.side === 'original';
+  const path = onOld ? (diff.oldPath ?? diff.path) : diff.path;
+  const lines: [number, number] = e.selection ? [e.selection.startLine, e.selection.endLine] : [e.line, e.line];
+  const spec = parseListSpec(diff.key);
+  // `commitsOf` (also `fileTargetOf`'s) picks the commit for one side of a diff by its `deleted`
+  // flag: the old side's commit for a deleted file, else the new side's. The old/new side split
+  // is exactly what a side's own commit needs here too, so `onOld` fills that role directly —
+  // there's no real BlobSource to read a commit id off (a diff's sides are usually plain blobs,
+  // `object`/`worktree`/`absent`; `atCommit` is only File View's "unchanged file" case).
+  const { sha, branch } = spec ? commitsOf(s, spec, diff, onOld) : { sha: null, branch: null };
+  const inWorktree = spec && (spec.kind === 'wip' || spec.kind === 'worktree') ? spec.worktree : null;
+  const root = inWorktree ?? worktreeOf(diff) ?? s.repoPath;
+  return {
+    path,
+    sha,
+    lines,
+    selectionText: e.selectionText,
+    upstream: branch ? upstreamOf(s.graph, s.indexById, branch) : null,
+    // The same version the file list's row would open (spec §14.5), at the clicked line.
+    openIn: { worktree: root, path, line: lines[0], ...openVersion(diff, inWorktree) },
+  };
+}
+
+/** The builder for `MonacoHost.setContextMenuHandler`'s callback (installed while a tab is
+ * active, plan 1C Task 15). There's no DOM `contextmenu` event to build from (the editor's own
+ * was already suppressed by the host), so the caller shows the rows itself: `const build =
+ * monacoMenu(store, e); const rows = build(); if (rows.length) useMenu.getState().show(rows, e.x,
+ * e.y, performance.now(), build);`. */
+export function monacoMenu(store: RepoViewStore, e: EditorContextMenuEvent): () => MenuRow[] {
+  afterOpening(store);
+  return () => {
+    const t = monacoTargetOf(store.getState(), e);
+    return t ? buildMenu<MonacoTarget, MenuEnv>('monaco', t, fileMenuEnv(store)) : [];
+  };
 }
 
 // An open menu rebuilds when the openers or the remotes arrive (its Open in ▸ and Forge rows).

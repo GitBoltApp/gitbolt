@@ -128,7 +128,8 @@ function DiffPath({ target }: { target: DiffTarget }) {
 /** The path, its change kind and encoding, and ×. "Open in…" is on the toolbar below (J1). */
 export function DiffHeader({ target, encoding, onClose, busy = false }: { target: DiffTarget; encoding: string; onClose: () => void; busy?: boolean }) {
   return (
-    <header className="diff-header">
+    // `.panel-bar` (tokens.css): the details header's bar box, so their dividers line up (K5).
+    <header className="diff-header panel-bar">
       {/* F21: the change-kind icon, before the path. Empty for an unchanged File View file
           (fileViewTarget's status is ''), which has nothing to show an icon for: a same-width
           spacer (FileList.tsx's pattern) keeps the path from shifting as files are stepped
@@ -202,7 +203,9 @@ function ImageBody({ target, contents: c, onSourceChange }: { target: DiffTarget
   return <ImageDiff key={target.key} old={old} new={neu} source={source} onSourceChange={onSourceChange} single={single} />;
 }
 
-function Body({ target, contents, forced, onLoadAnyway, onShown, onSourceChange }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void }) {
+/** `banner`: whether the line-endings banner may show. Not while the header (and so the editor)
+ * still shows the previous file: it's this file's (K7). */
+function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void }) {
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
   const c = contents.data;
@@ -234,7 +237,7 @@ function Body({ target, contents, forced, onLoadAnyway, onShown, onSourceChange 
   // (detaches and re-attaches) the editor.
   return (
     <>
-      {c.eolOnly && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} → {eolLabel(c.new?.eol)})</div>}
+      {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} → {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
         ? <FileView path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} />
         : <TextDiff path={target.path} original={original} modified={modified} language={language} onShown={onShown} />}
@@ -281,7 +284,8 @@ const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role
  * anywhere, the editor included (F26, J4), through the app's handler on window (`useAppEscape`),
  * which sees it before Monaco would spend it on cancelling a selection; the panel only registers
  * Monaco's overlays (find, the command palette, the context menu, hovers, …) as owners that close
- * on Esc first (`editorOwnsEscape`). Ctrl+W always closes the file.
+ * on Esc first (`editorOwnsEscape`). Ctrl+W always closes the file (the app's shortcut,
+ * `app/coreActions.ts`).
  */
 export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session?: number }) {
   const services = useRepoView((s) => s.services);
@@ -309,8 +313,14 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // Only a switch to another file waits: the same file (its first load, File/Diff View, "Load
   // anyway") has nothing else on screen to be out of step with.
   // A reopen (another session, J16) starts over: the closed file's header is never shown.
+  // And it waits only while the same editor still shows the header's file (K7): from a message
+  // (a large file, a binary, an image, a failed load) or across Diff/File View, the body has
+  // already moved on, so the header goes with it rather than naming a file no longer shown.
   const header = useRef(body);
-  if (!showsEditor(body.target, body.contents) || editorShown === bodyId || header.current.target.key === body.target.key || header.current.session !== session) header.current = body;
+  const held = header.current;
+  const waits = showsEditor(body.target, body.contents) && editorShown !== bodyId && held.target.key !== body.target.key && held.session === session
+    && showsEditor(held.target, held.contents) && held.target.view === body.target.view;
+  if (!waits) header.current = body;
   const { target: shown, contents } = header.current;
   // An SVG's Source toggle, per file: its text diff gets the text-diff controls (H26).
   const [sourceOf, setSourceOf] = useState<string | null>(null);
@@ -324,8 +334,8 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // Esc is the app's (`useAppEscape`, on window, ahead of Monaco); an open editor overlay claims
   // it first, but only for a key pressed in the panel or in the overlay itself (feedback J4).
   useEscapeOwner(useCallback((e: globalThis.KeyboardEvent) => e.composedPath().some((n) => n === ref.current || (n instanceof Element && n.matches(ESCAPE_OWNER_AREAS))) && editorOwnsEscape(), []));
-  // Ctrl+W (I1) always closes, editor overlay or not: it's in the key router's `app` layer
-  // (`useAppEscape`), which runs ahead of this component's own handlers and stops the event.
+  // Ctrl+W (I1) always closes, editor overlay or not: it's the app's shortcut, in the key
+  // router's `app` layer, which runs ahead of this component's own handlers and stops the event.
   // ← goes back to the file list (the mirror of → there), unless the editor or a control in the
   // zone uses the key.
   const onKeyDown = (e: KeyboardEvent) => {
@@ -353,7 +363,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
         leading={<OpenInButton target={shown} line={openInLine(contents)} />}
       />
       <div className="diff-body">
-        <Body target={body.target} contents={body.contents} forced={forced} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} />
+        <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} />
       </div>
     </section>
   );

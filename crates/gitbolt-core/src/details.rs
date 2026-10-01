@@ -4,8 +4,9 @@
 use crate::commit::{parse_commit, Signature};
 use crate::error::{gix_err, GbError, GbErrorKind};
 use crate::payload::{CoAuthor, CommitDetailsPayload, PersonPayload, RemotePayload};
-use crate::remotes::{host_kind, parse_remote_url, HostKind};
+use crate::remotes::{host_kind, parse_remote_url, remote_url, HostKind};
 use gix::bstr::ByteSlice;
+use gix::remote::Direction;
 use gix::ObjectId;
 use regex::Regex;
 use std::collections::HashSet;
@@ -53,13 +54,12 @@ pub fn commit_details(repo: &gix::Repository, id: ObjectId) -> Result<CommitDeta
 /// Every remote with its parsed host and project path. `origin` comes first, then the rest by
 /// name, so the UI's "project remote" is simply the first one with a host.
 pub fn remotes(repo: &gix::Repository) -> Vec<RemotePayload> {
-    let config = repo.config_snapshot();
     let mut out: Vec<RemotePayload> = repo
         .remote_names()
         .into_iter()
         .map(|n| {
             let name = n.to_str_lossy().into_owned();
-            let parsed = config.string(format!("remote.{name}.url").as_str()).and_then(|u| parse_remote_url(&u.to_str_lossy()));
+            let parsed = remote_url(repo, &name, Direction::Fetch).and_then(|u| parse_remote_url(&u));
             let host_kind = parsed.as_ref().map(|u| host_kind(&u.host)).unwrap_or(HostKind::Generic);
             RemotePayload { host: parsed.as_ref().map(|u| u.host.clone()), path: parsed.map(|u| u.path), host_kind, name }
         })
@@ -137,5 +137,19 @@ mod tests {
         let list = remotes(&repo);
         assert_eq!(list[0], RemotePayload { name: "origin".into(), host: Some("gitlab.example.com".into()), path: Some("group/project".into()), host_kind: HostKind::GitLab });
         assert_eq!(list[1], RemotePayload { name: "backup".into(), host: None, path: None, host_kind: HostKind::Generic });
+    }
+
+    /// Deferred Rust minor #13: a remote configured through an `insteadOf` alias still gets a
+    /// parsed host and forge links, since `remotes()` now goes through `remote_url` (gix's
+    /// rewrite-aware lookup) instead of reading `remote.<name>.url` out of the config raw.
+    #[test]
+    fn remotes_resolve_instead_of_aliases() {
+        let r = TestRepo::new();
+        r.commit("a");
+        r.git(&["config", "url.https://github.com/.insteadOf", "gh:"]);
+        r.git(&["remote", "add", "origin", "gh:owner/repo.git"]);
+        let repo = gix::open(r.path()).unwrap();
+        let list = remotes(&repo);
+        assert_eq!(list, vec![RemotePayload { name: "origin".into(), host: Some("github.com".into()), path: Some("owner/repo".into()), host_kind: HostKind::GitHub }]);
     }
 }

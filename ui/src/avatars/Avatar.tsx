@@ -14,9 +14,10 @@ const hash = (s: string) => {
 };
 
 /** A person's avatar: initials on a lane-palette colour picked by the email, replaced by the
- * image once one arrives. Decorative: the name is always shown next to it. */
-export function Avatar({ name, email, size = 24 }: { name: string; email: string; size?: number }) {
-  const img = useAvatar(email);
+ * image once one arrives. Decorative: the name is always shown next to it (or in a tooltip).
+ * `request: false`: never asks for the image itself (useAvatar). */
+export function Avatar({ name, email, size = 24, request = true }: { name: string; email: string; size?: number; request?: boolean }) {
+  const img = useAvatar(email, request);
   const color = GRAPH_COLORS[hash(avatarKey(email) || name) % GRAPH_COLORS.length];
   return (
     <span className="avatar" data-testid="avatar" aria-hidden style={{ width: size, height: size, fontSize: Math.round(size * 0.42), background: color }}>

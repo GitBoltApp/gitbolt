@@ -1,7 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { SHORT_SHA_LEN } from '../src/format/sha';
 import { allocateColumns, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_MAX } from '../src/graph/columns';
-import { RAIL_W, STRIP_W } from '../src/graph/draw';
+import { graphLayout, RAIL_W, SHADE_W } from '../src/graph/draw';
 import { METRICS } from '../src/graph/metrics';
 import { DENSITIES, DENSITY_METRICS, DENSITY_STORAGE_KEY } from '../src/theme/density';
 import { GRAPH_COLORS } from '../src/theme/graphColors';
@@ -35,18 +35,17 @@ test.describe('commit graph', () => {
   });
 
   test('canvas paints a non-transparent colour at a row band', async ({ page }) => {
-    // Sample near the band's right side (canvas.width - strip - 2*dpr) rather than a
-    // hard-coded lane-0 x: the tinted row band (see draw.ts BAND_ALPHA) covers the row from the
-    // node's lane out to the darker "collapse strip" at the canvas edge, so this point is inked
-    // regardless of how many lanes the fixture happens to use. Row 0's vertical center is
-    // CSS y = rowH / 2.
-    const alpha = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [stripW, rowH]: number[]) => {
+    // Sample near the band's right side (16 px left of the canvas edge, clear of the rail) rather
+    // than a hard-coded lane-0 x: the tinted row band (see draw.ts BAND_ALPHA) covers the row from
+    // the node's lane out to the canvas edge, so this point is inked regardless of how many lanes
+    // the fixture happens to use. Row 0's vertical center is CSS y = rowH / 2.
+    const alpha = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [nearEdge, rowH]: number[]) => {
       const rect = c.getBoundingClientRect();
       const dpr = c.width / rect.width;
-      const x = Math.round(c.width - stripW * dpr - 2 * dpr);
+      const x = Math.round(c.width - nearEdge * dpr);
       const y = Math.round((rowH / 2) * dpr);
       return c.getContext('2d')!.getImageData(x, y, 1, 1).data[3];
-    }, [STRIP_W, METRICS.rowH]);
+    }, [16, METRICS.rowH]);
     expect(alpha).toBeGreaterThan(0);
   });
 
@@ -328,12 +327,14 @@ test.describe('commit graph', () => {
     expect(await tagChip.boundingBox()).toEqual(tagBefore);
     await expectConnectorMeetsCanvas(page, row);
 
-    // Narrow the Branch/Tag column to its minimum: the dimmed chip is dropped (wrapped onto the
-    // slot's hidden line), the tag chip keeps its full width, and the line to the node is intact.
+    // Narrow the Branch/Tag column to one step above its minimum (at the minimum itself the chips
+    // go icon-only, spec §8.4): the dimmed chip is dropped (wrapped onto the slot's hidden line),
+    // the tag chip keeps its full width, and the line to the node is intact.
     const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
     await handle.focus();
     for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
-    await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.labels));
+    await page.keyboard.press('ArrowRight');
+    await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.labels + 8));
     // Selected, so it stays shown without the pointer on the row.
     await row.locator('[data-col="author"]').click();
     await page.locator('.graph-header [data-col="message"]').hover();
@@ -1067,36 +1068,73 @@ test.describe('resizable columns', () => {
   });
 });
 
-/** The canvas pixel inside the overflow strip (clear of the 2 px rail) at row `row`'s center. */
-async function stripPixel(page: Page, row: number) {
-  return page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [stripW, railW, rowH, r]: number[]) => {
+/** At Graph width `width`: the packed column's alpha at every row's centre, and the shade's
+ * alpha (and darkest channel) at the zone's edge and past its far end, sampled in the gap
+ * between rows 4 and 5 (no band there). */
+async function zoneColumn(page: Page, width: number) {
+  const layout = graphLayout(width, METRICS, true);
+  return page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [packedX, area, shadeW, rowH]: number[]) => {
     const dpr = c.width / c.getBoundingClientRect().width;
-    const d = c.getContext('2d')!.getImageData(Math.round(c.width - ((stripW + railW) / 2) * dpr), Math.round((r * rowH + rowH / 2) * dpr), 1, 1).data;
-    return { a: d[3], hex: '#' + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('') };
-  }, [STRIP_W, RAIL_W, METRICS.rowH, row]);
+    const ctx = c.getContext('2d')!;
+    const px = (x: number, y: number) => ctx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data;
+    const rows = Math.floor(c.height / dpr / rowH);
+    const gap = 5 * rowH + 0.5;
+    const edge = px(area - 0.5, gap);
+    return {
+      centres: Array.from({ length: rows }, (_, i) => px(packedX, i * rowH + rowH / 2)[3]),
+      shade: { edge: edge[3], edgeRgb: Math.max(edge[0], edge[1], edge[2]), out: px(area - shadeW - 1.5, gap)[3] },
+    };
+  }, [layout.packedX, layout.area, SHADE_W, METRICS.rowH]);
+}
+
+/** The minimum-width strip: alpha at its centre on every row's centre line and in the gaps. */
+async function stripColumn(page: Page) {
+  return page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, railW]: number[]) => {
+    const dpr = c.width / c.getBoundingClientRect().width;
+    const ctx = c.getContext('2d')!;
+    const x = Math.floor((c.width - Math.max(1, Math.round(railW * dpr))) / 2);
+    const a = (y: number) => ctx.getImageData(x, Math.floor(y * dpr), 1, 1).data[3];
+    const rows = Math.min(10, Math.floor(c.height / dpr / rowH));
+    return { centres: Array.from({ length: rows }, (_, i) => a(i * rowH + rowH / 2)), gaps: Array.from({ length: rows - 1 }, (_, i) => a((i + 1) * rowH)) };
+  }, [METRICS.rowH, RAIL_W]);
 }
 
 test.describe('graph column width', () => {
-  test('the dark overflow strip shows only while the lanes don\'t fit the Graph column (F2)', async ({ page }) => {
+  test('while the lanes don\'t fit the Graph column, its right edge is the collapse zone: a gradient shade, then the packed nodes dimmed; at the minimum, a strip of dimmed nodes (F2, F11, R11)', async ({ page }) => {
     await page.goto(openUrl(fixtures.basic));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
     const canvas = page.getByTestId('graph-canvas');
     await expect(canvas).toHaveAttribute('data-clipped', 'false');
-    // Fits: the strip's area is just the row band (translucent lane colour), not a solid panel.
-    expect((await stripPixel(page, 4)).a).toBeLessThan(128);
     const handle = page.getByRole('separator', { name: 'Resize Graph column' });
+    const auto = Number(await handle.getAttribute('aria-valuenow'));
+    // Fits: no zone, so no shade where its edge would be.
+    expect((await zoneColumn(page, auto)).shade.edge).toBe(0);
     await handle.focus();
+    // Two steps: only lane 0's centre is left inside the lane area; lanes 1 and 2 are packed.
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    await expect(canvas).toHaveAttribute('data-clipped', 'true');
+    await expect(canvas).toHaveAttribute('data-strip', 'false');
+    // The shade: black, darkest at the zone's edge, fading out leftwards, in the gaps between rows.
+    await expect.poll(async () => (await zoneColumn(page, auto - 16)).shade.edge).toBeGreaterThan(60);
+    const z = await zoneColumn(page, auto - 16);
+    expect(z.shade.edgeRgb).toBeLessThan(10);
+    expect(z.shade.out).toBe(0);
+    // The packed column: the rows whose lane doesn't fit have their node there, dimmed (not
+    // opaque); the others show their band.
+    expect(z.centres.some((a) => a > 100 && a < 230)).toBe(true);
+    expect(z.centres.every((a) => a < 230)).toBe(true);
+    // At the minimum: a strip of every row's node, dimmed (every lane has run off), nothing
+    // between them.
     for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
     await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.graph));
-    await expect(canvas).toHaveAttribute('data-clipped', 'true');
-    // Cut off: a solid panel in the app background, on every row.
-    const bg = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-bg0').trim().toLowerCase());
-    await expect.poll(async () => (await stripPixel(page, 4)).a).toBe(255);
-    for (const r of [0, 4, 7]) expect((await stripPixel(page, r)).hex, `row ${r}`).toBe(bg);
+    await expect(canvas).toHaveAttribute('data-strip', 'true');
+    await expect.poll(async () => Math.min(...(await stripColumn(page)).centres)).toBeGreaterThan(100);
+    expect(Math.max(...(await stripColumn(page)).centres)).toBeLessThan(230);
+    expect(Math.max(...(await stripColumn(page)).gaps)).toBe(0);
     // Widened back to its lanes: gone again.
     for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowRight');
     await expect(canvas).toHaveAttribute('data-clipped', 'false');
-    await expect.poll(async () => (await stripPixel(page, 4)).a).toBeLessThan(128);
   });
 
   test('the Graph column can\'t be dragged wider than every lane plus padding (F2)', async ({ page }) => {

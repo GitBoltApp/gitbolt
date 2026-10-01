@@ -155,7 +155,8 @@ pub fn side_bytes(repo: &gix::Repository, path: &str, side: &Side, limit: u64) -
         let mib = |n: u64| n.div_ceil(1024 * 1024);
         return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path} is too large to open ({} MiB; the limit is {} MiB)", mib(size), mib(limit))));
     }
-    Ok(resolved.bytes(repo)?.0)
+    let mib = |n: u64| n.div_ceil(1024 * 1024);
+    Ok(resolved.bytes(repo, limit)?.ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("{path} is too large to open (the limit is {} MiB)", mib(limit))))?.0)
 }
 
 /// `git check-attr -z working-tree-encoding -- <path>` output: `path NUL attr NUL value NUL`.
@@ -210,6 +211,9 @@ fn resolve(repo: &gix::Repository, path: &str, side: &Side) -> Result<Option<Res
     }))
 }
 
+/// A side's bytes and its declared `working-tree-encoding`.
+type Loaded = (Vec<u8>, Option<String>);
+
 impl Resolved {
     fn size(&self, repo: &gix::Repository) -> Result<u64, GbError> {
         Ok(match self {
@@ -226,14 +230,29 @@ impl Resolved {
         })
     }
 
-    fn bytes(self, repo: &gix::Repository) -> Result<(Vec<u8>, Option<String>), GbError> {
-        Ok(match self {
+    /// The bytes and declared encoding; `None` if a working-tree file has grown past `limit` since
+    /// `size` checked it (it's read through `take`, never whole).
+    fn bytes(self, repo: &gix::Repository, limit: u64) -> Result<Option<Loaded>, GbError> {
+        Ok(Some(match self {
             Resolved::Blob(oid) => (repo.find_object(oid).map_err(gix_err)?.detach().data, None),
             Resolved::Text(t) => (t.into_bytes(), None),
-            Resolved::File { path, encoding } => (std::fs::read(path)?, encoding),
+            Resolved::File { path, encoding } => match read_bounded(&path, limit)? {
+                Some(bytes) => (bytes, encoding),
+                None => return Ok(None),
+            },
             Resolved::Link(path) => (std::fs::read_link(path)?.to_string_lossy().into_owned().into_bytes(), None),
-        })
+        }))
     }
+}
+
+/// Reads `path` whole if it's at most `limit` bytes, `None` if it's longer (at most `limit + 1`
+/// bytes are read either way). Rust minor #5: a size check followed by an unbounded read lets a
+/// file that grows in between through.
+pub(crate) fn read_bounded(path: &Path, limit: u64) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+    Ok((bytes.len() as u64 <= limit).then_some(bytes))
 }
 
 pub fn diff_contents(repo: &gix::Repository, path: &str, old: &Side, new: &Side, force: bool) -> Result<DiffContentsPayload, GbError> {
@@ -243,19 +262,29 @@ pub fn diff_contents(repo: &gix::Repository, path: &str, old: &Side, new: &Side,
     let old_size = old.as_ref().map(|r| r.size(repo)).transpose()?;
     let new_size = new.as_ref().map(|r| r.size(repo)).transpose()?;
     let limit = if force { MAX_FORCED_BYTES } else { LARGE_FILE_BYTES };
-    let too_large = [old_size, new_size].into_iter().flatten().any(|s| s > limit);
-    let load = |r: Option<Resolved>, size: Option<u64>| -> Result<Option<BlobPayload>, GbError> {
-        let (Some(r), Some(size)) = (r, size) else { return Ok(None) };
-        if too_large {
-            return Ok(Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None }));
-        }
-        let (bytes, declared) = r.bytes(repo)?;
+    let mut too_large = [old_size, new_size].into_iter().flatten().any(|s| s > limit);
+    // Both sides' bytes first: a working-tree file that grew past `limit` since its size was
+    // read makes the whole diff too large, like one that was already.
+    // `None`: not read (no such side, or already too large); `Some(None)`: grew past the limit.
+    let read = |r: Option<Resolved>| r.filter(|_| !too_large).map(|r| r.bytes(repo, limit)).transpose();
+    let (old_bytes, new_bytes) = (read(old)?, read(new)?);
+    too_large |= matches!(old_bytes, Some(None)) || matches!(new_bytes, Some(None));
+    let load = |bytes: Option<Option<Loaded>>, size: Option<u64>| -> Option<BlobPayload> {
+        let size = size?;
+        let (bytes, declared) = match bytes {
+            Some(Some(read)) if !too_large => read,
+            // A grown file is at least one byte past the limit now.
+            grown_or_skipped => {
+                let size = if matches!(grown_or_skipped, Some(None)) { size.max(limit + 1) } else { size };
+                return Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None });
+            }
+        };
         let d = decode_blob(&bytes, declared.as_deref());
         let base64 = (d.binary && image).then(|| base64::engine::general_purpose::STANDARD.encode(&bytes));
-        Ok(Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text: d.text, base64 }))
+        Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text: d.text, base64 })
     };
-    let old = load(old, old_size)?;
-    let new = load(new, new_size)?;
+    let old = load(old_bytes, old_size);
+    let new = load(new_bytes, new_size);
     let eol_only = matches!((&old, &new), (Some(BlobPayload { text: Some(a), .. }), Some(BlobPayload { text: Some(b), .. })) if eol_only_change(a, b));
     Ok(DiffContentsPayload { old, new, too_large, eol_only, image })
 }
@@ -434,6 +463,20 @@ mod tests {
         std::os::unix::fs::symlink("docs", r.path().join("d")).unwrap();
         assert_eq!(safe_join(&root, "d/manual.txt").unwrap(), root.join("docs/manual.txt"), "the returned path walks real directories");
         assert_eq!(safe_join(&root, ".gitignore-like.txt").unwrap(), root.join(".gitignore-like.txt"), "only .git itself is special");
+    }
+
+    /// Rust minor #5: the size check reads `metadata`, then the read happens; a file growing in
+    /// between (a log being written) must not get past the limit.
+    #[test]
+    fn worktree_reads_are_bounded_after_the_size_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("grows.log");
+        std::fs::write(&f, b"0123456789").unwrap();
+        assert_eq!(read_bounded(&f, 10).unwrap(), Some(b"0123456789".to_vec()), "exactly the limit is fine");
+        assert_eq!(read_bounded(&f, 9).unwrap(), None, "more than the limit is refused, not read whole");
+        let repo = gix::open(TestRepo::new().path()).unwrap();
+        let grown = Resolved::File { path: f, encoding: None };
+        assert!(grown.bytes(&repo, 4).unwrap().is_none());
     }
 
     #[test]

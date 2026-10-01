@@ -14,6 +14,9 @@ import { fakeServices } from '../repo/testServices';
 import { DiffHeader, DiffPanel } from './DiffPanel';
 import { DEFAULT_DIFF_PREFS, DIFF_PREFS_STORAGE_KEY, useDiffPrefs } from './diffPrefs';
 import { DiffToolbar } from './DiffToolbar';
+import '../app/coreActions';
+import { installShortcuts } from '../app/shortcuts';
+import { activeTabWith } from '../app/testShell';
 
 const host = vi.hoisted(() => ({
   attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async (_req: { path: string }) => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
@@ -147,20 +150,68 @@ describe('DiffPanel', () => {
     host.showDiff.mockImplementation(async () => {});
   });
 
+  // K7 (lane V's report): the header waits for the editor only while the editor is what still
+  // shows the header's file. From a message (a large file, a binary, an image, a failed load) or
+  // across Diff/File View, the body has already moved on: the header goes with it at once,
+  // instead of naming the previous file over the next one's (hidden, still loading) editor.
+  it('switching from a file the editor does not show, the header follows the body at once (K7)', async () => {
+    const big = targetFor(change('big.txt'), spec);
+    const b = targetFor(change('b.txt'), spec);
+    const c = targetFor(change('c.txt'), spec);
+    const released: (() => void)[] = [];
+    host.showDiff.mockImplementation(() => new Promise<void>((r) => { released.push(r); }));
+    host.showFile.mockImplementation(() => new Promise<void>((r) => { released.push(r); }));
+    const { store } = renderPanel(big, async (k) => (k.includes('big.txt') ? contents(sized({ size: 3_000_000, text: null }), sized({ size: 3_000_001, text: null }), { tooLarge: true }) : contents(blob('1\n'), blob(`${k}\n`))));
+    expect(await screen.findByText('Large file — load anyway?')).toBeInTheDocument();
+    act(() => store.getState().openFile(b));
+    await waitFor(() => expect(host.showDiff).toHaveBeenLastCalledWith(expect.objectContaining({ path: 'b.txt' })));
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('b.txt');
+    await act(async () => released.forEach((r) => r()));
+    // Diff View of b to File View of c: a different editor, so nothing of b stays on screen.
+    act(() => store.getState().openFile({ ...c, view: 'file' }));
+    await waitFor(() => expect(host.showFile).toHaveBeenCalled());
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('c.txt');
+    await act(async () => released.forEach((r) => r()));
+    host.showDiff.mockImplementation(async () => {});
+    host.showFile.mockImplementation(async () => {});
+  });
+
+  it("the next file's line-endings banner waits with the header, over the previous file's diff (K7)", async () => {
+    const a = targetFor(change('a.txt'), spec);
+    const crlf = targetFor(change('crlf.txt'), spec);
+    let release!: () => void;
+    host.showDiff.mockImplementation(async (req: { path: string }) => {
+      if (req.path === 'crlf.txt') await new Promise<void>((r) => { release = r; });
+    });
+    const { store } = renderPanel(a, async (k) => (k.includes('crlf') ? contents({ ...blob('x\r\n'), eol: 'crlf' }, blob('x\n'), { eolOnly: true }) : text()));
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalledTimes(1));
+    act(() => store.getState().openFile(crlf));
+    await waitFor(() => expect(host.showDiff).toHaveBeenLastCalledWith(expect.objectContaining({ path: 'crlf.txt' })));
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('a.txt');
+    expect(screen.queryByRole('note')).toBeNull();
+    await act(async () => release());
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('crlf.txt');
+    expect(screen.getByRole('note')).toHaveTextContent('Only line endings changed');
+    host.showDiff.mockImplementation(async () => {});
+  });
+
   it('a thin progress line shows after ~150 ms while a diff computes or loads, and goes once it is on screen', async () => {
     let release!: () => void;
     host.showDiff.mockImplementationOnce(() => new Promise<void>((r) => { release = r; }));
     const t0 = performance.now();
     const { store } = renderPanel(targetFor(change('a.txt'), spec), (k) => (k.includes('slow.txt') ? new Promise<DiffContentsPayload>(() => {}) : text()));
     await waitFor(() => expect(host.showDiff).toHaveBeenCalled());
-    expect(screen.queryByRole('progressbar')).toBeNull();
+    // "Not yet" only holds while under ~150 ms have passed; on a loaded machine the check itself
+    // can run later than that, when the line has rightly appeared already.
+    if (performance.now() - t0 < 120) expect(screen.queryByRole('progressbar')).toBeNull();
     expect(await screen.findByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
     expect(performance.now() - t0).toBeGreaterThanOrEqual(140);
     await act(async () => release());
     expect(screen.queryByRole('progressbar')).toBeNull();
     // A slow switch (contents still loading) shows it too, while the previous file stays.
+    const t1 = performance.now();
     act(() => store.getState().openFile(targetFor(change('slow.txt'), spec)));
-    expect(screen.queryByRole('progressbar')).toBeNull();
+    if (performance.now() - t1 < 120) expect(screen.queryByRole('progressbar')).toBeNull();
     expect(await screen.findByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
   });
 
@@ -407,6 +458,8 @@ describe('DiffPanel', () => {
     expect(screen.getAllByRole('toolbar', { name: 'Diff options' })[1].firstElementChild).toContainElement(button('Open image'));
     render(<DiffHeader target={target} encoding="" onClose={() => {}} />);
     expect(document.querySelector('.diff-header-leading')).toBeNull();
+    // K5/K6: the details header's bar box (tokens.css), so their dividers line up.
+    expect(document.querySelector('.diff-header')).toHaveClass('panel-bar');
   });
 
   it('a rename shows the common base, then old ⇒ new with only the new name highlighted; the tooltip stacks both paths (H21)', () => {
@@ -638,6 +691,9 @@ describe('DiffPanel', () => {
       el.appendChild(inner);
     });
     const { store } = renderPanel(targetFor(change('a.txt'), spec), text);
+    // Ctrl+W is the app's shortcut (plan 1C), acting on the active tab's store: this one.
+    const offKeys = installShortcuts();
+    activeTabWith(store);
     await waitFor(() => expect(inner).toBeDefined());
     const find = inner!.querySelector<HTMLElement>('.find-widget')!;
     const input = inner!.querySelector('textarea')!;
@@ -652,6 +708,7 @@ describe('DiffPanel', () => {
     expect(fireEvent.keyDown(input, { key: 'w', code: 'Comma', ctrlKey: true })).toBe(false);
     expect(seen).not.toHaveBeenCalled();
     expect(store.getState().diff).toBeNull();
+    offKeys();
     host.attachDiff.mockReset();
   });
 

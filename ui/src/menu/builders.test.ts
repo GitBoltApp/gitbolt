@@ -11,7 +11,7 @@ vi.mock('../api/client', () => ({ api: new Proxy({}, { get() { throw new Error('
 const { buildMenu } = await import('./registry');
 beforeAll(async () => { await import('./builders'); });
 
-import type { FileTarget, FolderTarget, MenuEnv } from './menuEnv';
+import type { CommitTarget, FileTarget, FolderTarget, MenuEnv, MonacoTarget, TagTarget } from './menuEnv';
 
 type Action = Extract<MenuRow, { kind: 'action' }>;
 type Submenu = Extract<MenuRow, { kind: 'submenu' }>;
@@ -23,8 +23,9 @@ const OPENERS: OpenerPayload[] = [
   { id: 'other', name: 'Other…', kind: 'chooser' },
 ];
 const gitlab = { host: 'gitlab.example.com', path: 'acme/shop', hostKind: 'gitlab' as const };
-const act = () => ({ copy: vi.fn(), openUrl: vi.fn(), openIn: vi.fn(), openDiff: vi.fn(), viewFile: vi.fn() });
-const envOf = (over: Partial<MenuEnv> = {}): MenuEnv => ({ forge: () => gitlab, openers: { list: OPENERS, error: null, last: null }, act: act(), ...over });
+const github = { host: 'github.com', path: 'owner/repo', hostKind: 'github' as const };
+const act = () => ({ copy: vi.fn(), openUrl: vi.fn(), openIn: vi.fn(), openDiff: vi.fn(), viewFile: vi.fn(), compare: vi.fn(), copyMessage: vi.fn() });
+const envOf = (over: Partial<MenuEnv> = {}): MenuEnv => ({ forge: () => gitlab, openers: { list: OPENERS, error: null, last: null }, act: act(), headBranch: 'main', headSha: 'h'.repeat(40), ...over });
 const sha = 'a'.repeat(40);
 const diff: DiffTarget = { key: 'k|src/a b.php', path: 'src/a b.php', oldPath: null, status: 'M', old: { kind: 'object', oid: 'o'.repeat(40) }, new: { kind: 'object', oid: 'n'.repeat(40) }, view: 'diff' };
 const target = (over: Partial<FileTarget> = {}): FileTarget => ({
@@ -163,5 +164,169 @@ describe('the file menu (spec §7; plan 1C Task 15, file kind)', () => {
     expect(env.act.openIn).toHaveBeenLastCalledWith(OPENERS[2], t.openIn);
     const none = buildMenu<FolderTarget, MenuEnv>('folder', t, envOf({ openers: { list: [OPENERS[0]], error: null, last: null } }));
     expect(labels((none.find((r) => r.kind === 'submenu') as Submenu).rows)).toEqual(['No file manager found']);
+  });
+});
+
+// Plan 1C Task 15 (lane W2-D): the commit, tag and Monaco kinds. `builders never touch the
+// backend` above already covers every kind through the throwing `api` proxy; these pin the rows.
+
+const branch = (name: string, local: string | null, ...remotes: Array<{ remote: string; branch: string }>): CommitTarget['branch'] => ({
+  name, local, remotes: remotes.map((r) => ({ fullName: `refs/remotes/${r.remote}/${r.branch}`, remote: r.remote })),
+});
+const commitTarget = (over: Partial<CommitTarget> = {}): CommitTarget => ({ sha, mrRefs: [], isWip: false, branch: null, ...over });
+const commit = (t: CommitTarget, env: MenuEnv) => buildMenu<CommitTarget, MenuEnv>('commit', t, env);
+
+describe('the commit menu (spec §7 target table; plan 1C Task 15, commit kind)', () => {
+  it('a branch tip: forge refs, then copy (branch name, SHA, message, Forge link), then view; every row has an icon and a tooltip', () => {
+    const t = commitTarget({ mrRefs: ['acme/shop!1187', '#3'], branch: branch('feature/x', 'refs/heads/feature/x', { remote: 'origin', branch: 'feature/x' }) });
+    const rows = commit(t, envOf());
+    expect(labels(rows)).toEqual(['Open acme/shop!1187', '---', 'Copy branch name', 'Copy SHA', 'Copy message', 'Forge link', '---', 'Compare with HEAD']);
+    const all = (rs: MenuRow[]): Array<Exclude<MenuRow, { kind: 'separator' }>> => rs.flatMap((r) => (r.kind === 'separator' ? [] : r.kind === 'submenu' ? [r, ...all(r.rows)] : [r]));
+    for (const r of all(rows)) {
+      expect(r.icon, r.id).toBeTruthy();
+      expect(r.tooltip.length, r.id).toBeGreaterThan(3);
+      if (r.kind === 'action') for (const v of r.variants ?? []) expect(v.tooltip.length, v.id).toBeGreaterThan(3);
+    }
+  });
+
+  it('a plain commit (no branch): no branch-name row, Compare with working tree, no forge refs row without a forge', () => {
+    const t = commitTarget({ mrRefs: ['!1'] });
+    const rows = commit(t, envOf({ forge: () => null }));
+    expect(labels(rows)).toEqual(['Copy SHA', 'Copy message', '---', 'Compare with working tree']);
+  });
+
+  it('a WIP row gets no commit menu at all', () => {
+    expect(commit(commitTarget({ isWip: true }), envOf())).toEqual([]);
+  });
+
+  it('Copy branch name | Local | Remote |, greying out what the branch lacks', () => {
+    const env = envOf();
+    const t = commitTarget({ branch: branch('topic', null, { remote: 'origin', branch: 'topic' }) });
+    const row = find(commit(t, env), 'Copy branch name');
+    row.run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('topic');
+    expect(variant(row, 'local').disabledReason).toBe('No local branch');
+    variant(row, 'remote').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('origin/topic');
+    const local = commitTarget({ branch: branch('topic', 'refs/heads/topic') });
+    expect(variant(find(commit(local, env), 'Copy branch name'), 'remote').disabledReason).toBe('Not on a remote');
+  });
+
+  it('Copy SHA | Short | Full |, and Copy message loads then copies the full message', () => {
+    const env = envOf();
+    const row = find(commit(commitTarget(), env), 'Copy SHA');
+    variant(row, 'short').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(shortSha(sha));
+    row.run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(sha);
+    find(commit(commitTarget(), env), 'Copy message').run();
+    expect(env.act.copyMessage).toHaveBeenLastCalledWith(sha);
+  });
+
+  it('Forge link on a branch tip: the label copies the branch link, ⎇/◉ copy theirs, Open opens; a branch off the remote greys out ⎇', () => {
+    const env = envOf();
+    const t = commitTarget({ branch: branch('feature/x', 'refs/heads/feature/x', { remote: 'origin', branch: 'feature/x' }) });
+    const row = find(commit(t, env), 'Forge link');
+    const branchUrl = 'https://gitlab.example.com/acme/shop/-/tree/feature/x';
+    const permalink = `https://gitlab.example.com/acme/shop/-/commit/${sha}`;
+    row.run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(branchUrl);
+    variant(row, 'commit').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(permalink);
+    variant(row, 'open').run();
+    expect(env.act.openUrl).toHaveBeenLastCalledWith(branchUrl);
+    const local = commitTarget({ branch: branch('local-only', 'refs/heads/local-only') });
+    expect(variant(find(commit(local, env), 'Forge link'), 'branch').disabledReason).toBe("This branch isn't on the remote");
+  });
+
+  it('Forge link on a plain commit: the permalink, no ⎇ ("right-click a branch label")', () => {
+    const env = envOf();
+    const row = find(commit(commitTarget(), env), 'Forge link');
+    expect(variant(row, 'branch').disabledReason).toBe('Right-click a branch label for its page');
+    row.run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(`https://gitlab.example.com/acme/shop/-/commit/${sha}`);
+  });
+
+  it("Compare with HEAD is disabled at HEAD; Compare with working tree always runs", () => {
+    const env = envOf({ headSha: sha });
+    const t = commitTarget({ branch: branch('main', 'refs/heads/main') });
+    expect(find(commit(t, env), 'Compare with HEAD').disabledReason).toBe('Already at HEAD');
+    const env2 = envOf();
+    find(commit(commitTarget(), env2), 'Compare with working tree').run();
+    expect(env2.act.compare).toHaveBeenLastCalledWith(sha, 'worktree');
+  });
+
+  it("open refs: GitLab's !, and its own # issues get no button; GitHub's # opens a pull request, its ! is ignored", () => {
+    const t = commitTarget({ mrRefs: ['acme/shop!1187', '#12'] });
+    expect(labels(commit(t, envOf()))).toContain('Open acme/shop!1187');
+    expect(labels(commit(t, envOf()))).not.toContain('Open #12');
+    const ght = commitTarget({ mrRefs: ['#12', '!3'] });
+    const rows = commit(ght, envOf({ forge: () => github }));
+    expect(labels(rows)).toContain('Open #12');
+    expect(labels(rows)).not.toContain('Open !3');
+    find(rows, 'Open #12').run();
+  });
+});
+
+const tagTarget = (over: Partial<TagTarget> = {}): TagTarget => ({ name: 'v1.0', fullName: 'refs/tags/v1.0', sha, ...over });
+
+describe('the tag menu (fix round 1, item 5: spec §7 ruling — copy, then forge)', () => {
+  it('Copy tag name, then Forge link; no forge row without a forge', () => {
+    const env = envOf();
+    const rows = buildMenu<TagTarget, MenuEnv>('tag', tagTarget(), env);
+    expect(labels(rows)).toEqual(['Copy tag name', '---', 'Forge link']);
+    find(rows, 'Forge link').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('https://gitlab.example.com/acme/shop/-/tree/v1.0');
+    variant(find(rows, 'Forge link'), 'open').run();
+    expect(env.act.openUrl).toHaveBeenLastCalledWith('https://gitlab.example.com/acme/shop/-/tree/v1.0');
+    find(rows, 'Copy tag name').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('v1.0');
+    expect(labels(buildMenu<TagTarget, MenuEnv>('tag', tagTarget(), envOf({ forge: () => null })))).toEqual(['Copy tag name']);
+  });
+});
+
+const monacoTarget = (over: Partial<MonacoTarget> = {}): MonacoTarget => ({
+  path: 'src/a.php', sha, lines: [3, 3], selectionText: '', upstream: { remote: 'origin', branch: 'main' },
+  openIn: { worktree: '/r', path: 'src/a.php', line: 3, source: { kind: 'atCommit', commit: sha }, fallback: null }, ...over,
+});
+const monaco = (t: MonacoTarget, env: MenuEnv) => buildMenu<MonacoTarget, MenuEnv>('monaco', t, env);
+
+describe('the Monaco menu (1B GROUP_ORDER.monaco: copy, forge, open)', () => {
+  it('rows in order; Copy is disabled with nothing selected', () => {
+    const rows = monaco(monacoTarget(), envOf());
+    expect(labels(rows)).toEqual(['Copy', 'Copy location', '---', 'Forge link', '---', 'Open in']);
+    expect(find(rows, 'Copy').disabledReason).toBe('Nothing selected');
+  });
+
+  it('Copy copies the selection; Copy location | rel | Abs |', () => {
+    const env = envOf();
+    const t = monacoTarget({ selectionText: 'const x = 1;', lines: [3, 5] });
+    const rows = monaco(t, env);
+    find(rows, 'Copy').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('const x = 1;');
+    const loc = find(rows, 'Copy location');
+    loc.run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('src/a.php:3-5');
+    variant(loc, 'abs').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith('/r/src/a.php:3-5');
+  });
+
+  it('Forge link carries the line anchor; no known upstream greys out ⎇, the permalink still works', () => {
+    const env = envOf();
+    const withUpstream = find(monaco(monacoTarget(), env), 'Forge link');
+    withUpstream.run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(`https://gitlab.example.com/acme/shop/-/blob/main/src/a.php#L3`);
+    const none = find(monaco(monacoTarget({ upstream: null }), env), 'Forge link');
+    expect(variant(none, 'branch').disabledReason).toBe("The commit's branch has no known upstream");
+    variant(none, 'commit').run();
+    expect(env.act.copy).toHaveBeenLastCalledWith(`https://gitlab.example.com/acme/shop/-/blob/${sha}/src/a.php#L3`);
+  });
+
+  it('Open in ▸ opens the target at the clicked line', () => {
+    const env = envOf({ openers: { list: OPENERS, error: null, last: null } });
+    const t = monacoTarget();
+    const sub = monaco(t, env).find((r) => r.kind === 'submenu') as Submenu;
+    find(sub.rows, 'Open in VS Code').run();
+    expect(env.act.openIn).toHaveBeenLastCalledWith(OPENERS[0], t.openIn);
   });
 });

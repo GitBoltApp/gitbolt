@@ -55,3 +55,17 @@ function rgbToHex(rgb: string): string {
   const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(rgb);
   return m ? `#${m.slice(1).map((n) => Number(n).toString(16).padStart(2, '0')).join('')}` : rgb;
 }
+
+describe('Avatar that never asks (request={false})', () => {
+  it('shows what the cache has, and picks up an image someone else requested, without asking itself', async () => {
+    const fetch = vi.fn(async () => ({ mime: 'image/png', base64: btoa('png') }));
+    const store = createAvatarStore(fetch);
+    render(<AvatarStoreContext value={store}><Avatar name="Ada Lovelace" email="ada@y" request={false} /></AvatarStoreContext>);
+    await act(async () => {});
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByTestId('avatar')).toHaveTextContent('AL');
+    await act(async () => { store.request('ada@y'); });
+    await act(async () => {});
+    expect(screen.getByTestId('avatar').querySelector('img')).not.toBeNull();
+  });
+});

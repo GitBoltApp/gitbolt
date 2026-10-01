@@ -2,7 +2,8 @@
 
 use crate::error::{gix_err, GbError};
 use crate::reflog::read_reflog;
-use crate::remotes::{host_kind, parse_remote_url, HostKind};
+use crate::remotes::{host_kind, parse_remote_url, remote_url, HostKind};
+use gix::remote::Direction;
 use gix::bstr::ByteSlice;
 use gix::ObjectId;
 use std::collections::HashMap;
@@ -54,11 +55,7 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
     let remote_hosts = remotes
         .iter()
         .map(|r| {
-            let kind = config
-                .string(format!("remote.{r}.url").as_str())
-                .and_then(|u| parse_remote_url(&u.to_str_lossy()))
-                .map(|u| host_kind(&u.host))
-                .unwrap_or(HostKind::Generic);
+            let kind = remote_url(repo, r, Direction::Fetch).and_then(|u| parse_remote_url(&u)).map(|u| host_kind(&u.host)).unwrap_or(HostKind::Generic);
             (r.clone(), kind)
         })
         .collect();
@@ -108,7 +105,7 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
 }
 
 /// Longest remote name that prefixes `rest` (remote names may contain `/`).
-fn remote_for(rest: &str, remotes: &[String]) -> Option<String> {
+pub(crate) fn remote_for(rest: &str, remotes: &[String]) -> Option<String> {
     remotes
         .iter()
         .filter(|r| rest.len() > r.len() && rest.starts_with(r.as_str()) && rest.as_bytes()[r.len()] == b'/')

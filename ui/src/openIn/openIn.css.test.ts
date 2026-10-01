@@ -12,10 +12,6 @@ describe('openIn.css motion (J19)', () => {
     expect(rule('.open-in-main, .open-in-toggle')).toMatch(/transition:\s*background-color var\(--motion-fast\), color var\(--motion-fast\)/);
   });
 
-  it('the menu items fade hover background/colour at the fast token', () => {
-    expect(rule('.open-in-item')).toMatch(/transition:\s*background-color var\(--motion-fast\), color var\(--motion-fast\)/);
-  });
-
   it('never uses transition: all', () => {
     expect(css).not.toMatch(/transition:\s*all/);
   });

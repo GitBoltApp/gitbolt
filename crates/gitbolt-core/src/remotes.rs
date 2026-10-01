@@ -1,9 +1,12 @@
 //! Remote URL parsing and forge host detection (no network).
 
-use serde::Serialize;
+use gix::bstr::ByteSlice;
+use gix::remote::Direction;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, TS)]
+// `Deserialize` and `Ord`: the profile's host-type overrides are a map keyed by host (§14.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum HostKind {
@@ -46,6 +49,16 @@ pub fn parse_remote_url(url: &str) -> Option<RemoteUrl> {
     Some(RemoteUrl { host: host_part.to_ascii_lowercase(), path })
 }
 
+/// `remote`'s effective URL for `direction`, with `url.<base>.insteadOf`/`pushInsteadOf` rewrites
+/// applied (gix's `Remote::url`, via `find_remote`). Reading `remote.<name>.url` straight out of
+/// the config, as the rest of this codebase used to, silently skips a rewritten alias (e.g. `gh:`
+/// standing in for `https://github.com/`), so that remote gets no forge links (deferred Rust minor
+/// #13). `None` when the remote doesn't exist, or has no URL for that direction.
+pub fn remote_url(repo: &gix::Repository, remote: &str, direction: Direction) -> Option<String> {
+    let remote = repo.find_remote(remote).ok()?;
+    remote.url(direction).map(|u| u.to_bstring().to_str_lossy().into_owned())
+}
+
 pub fn host_kind(host: &str) -> HostKind {
     let host = host.to_ascii_lowercase();
     if host == "github.com" || host.ends_with(".github.com") {
@@ -81,5 +94,25 @@ mod tests {
         assert_eq!(host_kind("gitlab.com"), HostKind::GitLab);
         assert_eq!(host_kind("gitlab.example.com"), HostKind::GitLab);
         assert_eq!(host_kind("code.example.com"), HostKind::Generic);
+    }
+
+    /// Deferred Rust minor #13: a raw `remote.<name>.url` read skips `url.*.insteadOf`, so a
+    /// remote configured through a rewritten alias gets no forge links at all.
+    #[test]
+    fn remote_url_applies_instead_of_and_push_instead_of_rewrites() {
+        let r = crate::testing::TestRepo::new();
+        r.commit("a");
+        // `insteadOf`: the configured URL itself is an alias, rewritten for both directions.
+        r.git(&["config", "url.https://github.com/.insteadOf", "gh:"]);
+        r.git(&["remote", "add", "origin", "gh:owner/repo.git"]);
+        // `pushInsteadOf`: only the push direction is rewritten; fetch is untouched.
+        r.git(&["config", "url.git@internal.example.com:.pushInsteadOf", "https://github.com/"]);
+        r.git(&["remote", "add", "backup", "https://github.com/owner/other.git"]);
+        let repo = gix::open(r.path()).unwrap();
+        assert_eq!(remote_url(&repo, "origin", Direction::Fetch).as_deref(), Some("https://github.com/owner/repo.git"));
+        assert_eq!(remote_url(&repo, "origin", Direction::Push).as_deref(), Some("https://github.com/owner/repo.git"), "no pushInsteadOf here: push falls back to the fetch URL");
+        assert_eq!(remote_url(&repo, "backup", Direction::Fetch).as_deref(), Some("https://github.com/owner/other.git"));
+        assert_eq!(remote_url(&repo, "backup", Direction::Push).as_deref(), Some("git@internal.example.com:owner/other.git"));
+        assert_eq!(remote_url(&repo, "nope", Direction::Fetch), None);
     }
 }

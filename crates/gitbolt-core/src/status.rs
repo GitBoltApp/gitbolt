@@ -81,11 +81,16 @@ pub fn parse_porcelain_v2(out: &[u8]) -> Vec<StatusEntry> {
     entries
 }
 
-pub async fn status(cli: &GitCli, worktree: &Path) -> Result<Vec<StatusEntry>, GbError> {
+/// Raw `git status --porcelain=v2 -z --untracked-files=all` output (the watcher digests it).
+pub async fn status_raw(cli: &GitCli, worktree: &Path) -> Result<Vec<u8>, GbError> {
     let out = cli
         .run(GitInvocation::new(worktree, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]))
         .await?;
-    Ok(parse_porcelain_v2(&out.stdout))
+    Ok(out.stdout)
+}
+
+pub async fn status(cli: &GitCli, worktree: &Path) -> Result<Vec<StatusEntry>, GbError> {
+    Ok(parse_porcelain_v2(&status_raw(cli, worktree).await?))
 }
 
 pub fn summarize(entries: &[StatusEntry]) -> WipCounts {

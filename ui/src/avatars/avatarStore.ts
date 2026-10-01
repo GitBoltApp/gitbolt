@@ -153,13 +153,15 @@ export const avatars = createAvatarStore((email) => api.avatar(email));
 /** Which store `Avatar` reads: the app's, unless a test provides its own. */
 export const AvatarStoreContext = createContext<AvatarStore>(avatars);
 
-export function useAvatar(email: string): AvatarImage | null {
+/** `request: false`: only read the cache; someone else asks for it (the graph's visible-rows
+ * requests, whose latest set wins on a fast scroll). */
+export function useAvatar(email: string, request = true): AvatarImage | null {
   const store = useContext(AvatarStoreContext);
   // The snapshot is this email's own entry: only its own arrival or eviction re-renders.
   const img = useSyncExternalStore(store.subscribe, () => store.get(email));
   // Asks again after an eviction too (`img` goes back to null).
   useEffect(() => {
-    if (!img) store.request(email);
-  }, [store, email, img]);
+    if (!img && request) store.request(email);
+  }, [store, email, img, request]);
   return img;
 }

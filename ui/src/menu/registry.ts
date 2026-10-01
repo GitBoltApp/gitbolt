@@ -5,7 +5,9 @@ export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' |
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   commit: ['sync', 'integrate', 'branch', 'commit', 'forge', 'manage', 'copy', 'view'],
-  tag: ['forge', 'copy', 'view'],
+  // Ruling (fix round 1, item 5): spec §7 wins over 1B's own order here — Copy name, then Forge
+  // link.
+  tag: ['copy', 'forge', 'view'],
   file: ['copy', 'forge', 'open', 'view'],
   folder: ['copy', 'open'],
   monaco: ['copy', 'forge', 'open'],

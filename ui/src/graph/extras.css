@@ -1,0 +1,18 @@
+/* Plan 1C graph extras (spec §8.3, §8.4). */
+
+/* A collapsed column's header icon (HeaderCell): the header's own dimmed colour. */
+.col-icon { display: inline-flex; align-items: center; color: var(--text-secondary); }
+
+/* The Graph column's lane scrollbar (HScroll): the app's 10 px scrollbar, over the bottom of the
+   lane area, above the rows and the canvas. Its track is transparent (tokens.css), so only the
+   thumb shows. */
+.graph-hscroll { position: absolute; overflow-x: auto; overflow-y: hidden; z-index: 4; }
+
+/* Icon-only chips (Branch/Tag at its minimum, RefLabels `compact`): tighter padding. The hover
+   copy (.ref-label-full) shows the name again; its left padding matches the compact chip's, so
+   the leading icon doesn't move as it expands. */
+.ref-label.compact { padding: 0 3px; gap: 2px; }
+.ref-label.compact > .ref-label-full { margin-left: -3px; padding: 0 5px 0 3px; }
+
+/* The avatar-only Author cell (Author at its minimum): the avatar centred in the row. */
+.graph-row > .col-author-avatar { display: flex; align-items: center; }

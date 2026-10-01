@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, List, ListTree } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
@@ -12,7 +12,8 @@ import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { DENSITY_METRICS, useDensity } from '../theme/density';
 import { useHoverTooltip } from '../ui/HoverTooltip';
 import { useFileListPrefs } from './fileListPrefs';
-import { allFolderPaths, buildRows, countByStatus, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
+import { allFolderPaths, buildRows, countByStatus, matchesFilter, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
+import { FilesFilter } from './FilesFilter';
 import { PathTooltip } from './RenamePaths';
 import { StatusIcon } from './StatusIcon';
 import './files.css';
@@ -48,6 +49,21 @@ function useTreePaths(commit: string | null) {
 
 const stats = (c: FileChange | null) => (!c ? '' : c.additions === null ? 'binary' : `+${c.additions} −${c.deletions ?? 0}`);
 
+/** `text`, with its first case-insensitive match of `query` wrapped for highlighting (feedback
+ * K18: "if cheap" — one match, in the text actually shown; no cross-row or cross-segment work). */
+function highlightMatch(text: string, query: string): ReactNode {
+  if (!query) return text;
+  const i = text.toLowerCase().indexOf(query);
+  if (i === -1) return text;
+  return (
+    <Fragment>
+      {text.slice(0, i)}
+      <mark className="filter-match">{text.slice(i, i + query.length)}</mark>
+      {text.slice(i + query.length)}
+    </Fragment>
+  );
+}
+
 const COUNT_KINDS = ['modified', 'added', 'deleted', 'renamed', 'conflicted'] as const;
 
 /** "2 modified · 1 renamed": the non-zero counts, in the header's order. */
@@ -67,7 +83,7 @@ function StatusCountsView({ counts, testId, size }: { counts: StatusCounts; test
   );
 }
 
-interface RowProps { id: string; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; onMouseDown: (e: MouseEvent) => void; onContextMenu: (e: MouseEvent) => void }
+interface RowProps { id: string; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; filterQuery: string; onMouseDown: (e: MouseEvent) => void; onContextMenu: (e: MouseEvent) => void }
 
 /** The file list a row is in: its tooltip opens left of it, over the center panel, so it never
  * covers the rows above or below (feedback J18). */
@@ -76,7 +92,7 @@ const fileListOf = (row: HTMLElement) => row.closest('.file-list');
 /** A folder row, or a file row with its full path in an instant hover tooltip, left of the list (a rename: old,
  * ↓, new; feedback H22). A renamed file shows its new name (tree) or new path (path view); the
  * old one is in the tooltip and the diff header. */
-function Row({ id, row, mode, active, top, height, onMouseDown, onContextMenu }: RowProps) {
+function Row({ id, row, mode, active, top, height, filterQuery, onMouseDown, onContextMenu }: RowProps) {
   const style = { top, height, paddingLeft: rowIndent(row.depth), gap: TREE.gap };
   const file = row.kind === 'file' ? row : null;
   const tip = useHoverTooltip({ content: file ? <PathTooltip path={file.target.path} oldPath={file.change?.oldPath ?? null} /> : null, disabled: !file, placement: 'left-of', leftOf: fileListOf });
@@ -84,7 +100,7 @@ function Row({ id, row, mode, active, top, height, onMouseDown, onContextMenu }:
     return (
       <div id={id} role="option" aria-selected={active} aria-expanded={row.expanded} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={onContextMenu}>
         <span className="file-chevron" style={{ width: TREE.chevron }}>{row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-        <span className="file-name">{row.name}</span>
+        <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
         {row.counts && <StatusCountsView counts={row.counts} testId="folder-counts" size={10} />}
       </div>
     );
@@ -108,8 +124,8 @@ function Row({ id, row, mode, active, top, height, onMouseDown, onContextMenu }:
       {...tip.triggerProps}
     >
       {c ? <StatusIcon status={c.status} size={TREE.icon} /> : <span className="status-spacer" style={{ width: TREE.icon }} aria-hidden="true" />}
-      {mode === 'path' && row.dir && <span className="file-dir">{row.dir}/</span>}
-      <span className="file-name">{row.name}</span>
+      {mode === 'path' && row.dir && <span className="file-dir">{highlightMatch(row.dir, filterQuery)}/</span>}
+      <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
       {s && (
         <span className="file-stats">
           {c?.additions === null ? 'binary' : <><span className="added">+{c?.additions}</span> <span className="deleted">−{c?.deletions}</span></>}
@@ -158,6 +174,11 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
   const { mode, sort, allFiles, set: setPrefs } = useFileListPrefs();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [cursor, setCursor] = useState<Cursor | null>(null);
+  // "View all files"' filter (feedback K18-K20): transient, never persisted, and only shown (or
+  // applied) while View all files is on — cleared when it's turned off.
+  const [filterText, setFilterText] = useState('');
+  useEffect(() => { if (!allFiles) setFilterText(''); }, [allFiles]);
+  const filterQuery = allFiles ? filterText.trim().toLowerCase() : '';
   // The file menu's openers and remotes, loaded ahead so it opens fully drawn (spec §7).
   const services = useRepoView((s) => s.services);
   const graph = useRepoView((s) => s.graph);
@@ -165,7 +186,15 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
   const tree = useTreePaths(allFiles ? allFilesCommit : null);
   const paths = tree.paths;
   const unchanged = useMemo(() => (allFiles && allFilesCommit && paths ? { commit: allFilesCommit, paths } : null), [allFiles, allFilesCommit, paths]);
-  const rows = useMemo(() => buildRows({ files: list.files, spec, unchanged, mode, sort, collapsed }), [list.files, spec, unchanged, mode, sort, collapsed]);
+  // The filter narrows both the changed and the unchanged files it's built from; a folder with no
+  // surviving descendant just isn't in the tree `buildRows` builds from what's left.
+  const filteredFiles = useMemo(() => (filterQuery ? list.files.filter((f) => matchesFilter(f.path, filterQuery)) : list.files), [list.files, filterQuery]);
+  const filteredUnchanged = useMemo(() => {
+    if (!unchanged) return null;
+    if (!filterQuery) return unchanged;
+    return { commit: unchanged.commit, paths: unchanged.paths.filter((p) => matchesFilter(p, filterQuery)) };
+  }, [unchanged, filterQuery]);
+  const rows = useMemo(() => buildRows({ files: filteredFiles, spec, unchanged: filteredUnchanged, mode, sort, collapsed }), [filteredFiles, spec, filteredUnchanged, mode, sort, collapsed]);
   // Every target key of this list starts with its spec's key (`targetFor`, `fileViewTarget`).
   const own = openKey !== null && openKey.startsWith(`${filesKey(spec)}|`);
   const cursorHere = useRepoView((s) => s.fileListCursor === filesKey(spec));
@@ -210,6 +239,8 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     for (let j = from; j >= 0 && j < rows.length; j += step) if (rows[j].kind === 'file') return j;
     return fallback ? fileAt(from, fallback) : -1;
   };
+  /** `j`, or `wrap()`'s result when `j` is -1 (feedback K4: ↑/↓ wrap at the list's ends). */
+  const orWrap = (j: number, wrap: () => number): number => (j === -1 ? wrap() : j);
   /** Puts the cursor on file row `j`, scrolls to it and opens it; nothing if there's none, or
    * it's the open file already. */
   const moveToFile = (j: number) => {
@@ -219,6 +250,34 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     v.scrollToIndex(j, { align: 'auto' });
     open(j);
   };
+  /** The first file row with changes from `from` (inclusive) stepping by `step`. -1 when there's
+   * none (feedback K19: "Previous/Next changed file" skips unchanged rows). */
+  const changedFileAt = (from: number, step: 1 | -1): number => {
+    for (let j = from; j >= 0 && j < rows.length; j += step) {
+      const r = rows[j];
+      if (r.kind === 'file' && r.change !== null) return j;
+    }
+    return -1;
+  };
+  /** "Previous changed file" / "Next changed file" (K19): from the active row, or an end when
+   * there's none; wraps around. */
+  const jumpChanged = (step: 1 | -1) => {
+    const from = activeIndex >= 0 ? activeIndex + step : (step === 1 ? 0 : rows.length - 1);
+    moveToFile(orWrap(changedFileAt(from, step), () => changedFileAt(step === 1 ? 0 : rows.length - 1, step)));
+  };
+  // Feedback K20: clearing the filter re-centres the selected row, once the wider, unfiltered
+  // rows it scrolls against are the ones laid out (the effect below, keyed on `rows`/`activeIndex`
+  // so it fires after that recompute, not on the click itself).
+  const centerOnClear = useRef(false);
+  const clearFilter = () => {
+    centerOnClear.current = true;
+    setFilterText('');
+  };
+  useLayoutEffect(() => {
+    if (!centerOnClear.current) return;
+    centerOnClear.current = false;
+    if (activeIndex >= 0) v.scrollToIndex(activeIndex, { align: 'center' });
+  }, [rows, activeIndex, v]);
   // Feedback H5b: the open file's row closes it (a toggle). The row keeps the cursor, with no
   // diff, so Enter/Space opens it again; the keyboard stays in the list.
   const toggleFile = (row: Extract<FileRow, { kind: 'file' }>, index: number) => {
@@ -271,9 +330,10 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     const page = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 240) / rowH) - 1);
     const last = rows.length - 1;
     // Feedback J3: the moves land on file rows only (folder rows are skipped), and open them.
+    // Feedback K4: ↓ past the last file wraps to the first, ↑ past the first wraps to the last.
     switch (e.key) {
-      case 'ArrowDown': moveToFile(i < 0 ? fileAt(0, 1) : fileAt(i + 1, 1)); break;
-      case 'ArrowUp': moveToFile(i < 0 ? fileAt(0, 1) : fileAt(i - 1, -1)); break;
+      case 'ArrowDown': moveToFile(i < 0 ? fileAt(0, 1) : orWrap(fileAt(i + 1, 1), () => fileAt(0, 1))); break;
+      case 'ArrowUp': moveToFile(i < 0 ? fileAt(0, 1) : orWrap(fileAt(i - 1, -1), () => fileAt(last, -1))); break;
       case 'PageDown': { const t = Math.min(last, i + page); moveToFile(fileAt(t, 1, -1)); break; }
       case 'PageUp': { const t = Math.max(0, i - page); moveToFile(fileAt(t, -1, 1)); break; }
       case 'Home': moveToFile(fileAt(0, 1)); break;
@@ -314,8 +374,9 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
     e.preventDefault();
   };
 
-  const folders = useMemo(() => (mode === 'tree' ? allFolderPaths(list.files, unchanged) : []), [mode, list.files, unchanged]);
+  const folders = useMemo(() => (mode === 'tree' ? allFolderPaths(filteredFiles, filteredUnchanged) : []), [mode, filteredFiles, filteredUnchanged]);
   const allExpanded = folders.every((p) => !collapsed.has(p));
+  const hasChangedRow = useMemo(() => rows.some((r) => r.kind === 'file' && r.change !== null), [rows]);
 
   return (
     <div className="file-list">
@@ -349,6 +410,17 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
           {allFilesCommit && <button type="button" className="toolbar-button" aria-pressed={allFiles} onClick={() => setPrefs({ allFiles: !allFiles })}>View all files</button>}
         </div>
       </div>
+      {allFiles && (
+        <FilesFilter
+          value={filterText}
+          onChange={setFilterText}
+          onClear={clearFilter}
+          onPrev={() => jumpChanged(-1)}
+          onNext={() => jumpChanged(1)}
+          canStep={hasChangedRow}
+          onEmptyEscape={closeDiff}
+        />
+      )}
       {tree.error && (
         <div className="file-list-error">
           <span role="alert">Couldn't list all files: {tree.error}</span>
@@ -378,9 +450,11 @@ export function FileList({ list, spec, label, allFilesCommit = null }: { list: F
                 active={row.id === activeId}
                 top={item.start}
                 height={rowH}
+                filterQuery={filterQuery}
                 onMouseDown={(e) => {
-                  // A double-click's second press would toggle the file straight back.
-                  if (e.button !== 0 || e.detail > 1) return;
+                  // Every press toggles (K2, K3), the second of a quick pair too: the browser counts
+                  // it as a double-click (`detail` 2), but to the user it's just another click.
+                  if (e.button !== 0) return;
                   if (row.kind === 'file') return toggleFile(row, item.index);
                   place(row);
                   toggle(row.path);

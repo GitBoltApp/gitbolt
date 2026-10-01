@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { fixtures, harnessHttp, openUrl } from './fixtures';
 
 // The `details` fixture's "Rename guide and update assets" commit changes logo.png from a 4×4 red
@@ -8,6 +8,7 @@ const COMMIT = 'Rename guide and update assets';
 const fileRow = (page: Page, path: string) => page.getByRole('option').and(page.locator(`[data-path="${path}"]`));
 const diff = (page: Page) => page.getByRole('region', { name: 'Diff' });
 const modeButton = (page: Page, name: string) => diff(page).getByRole('toolbar', { name: 'Image diff options' }).getByRole('button', { name, exact: true });
+const fitButton = (page: Page) => diff(page).getByRole('button', { name: 'Fit', exact: true });
 
 async function open(page: Page, path: string) {
   await fileRow(page, path).click();
@@ -16,8 +17,9 @@ async function open(page: Page, path: string) {
   await expect(diff(page).getByTestId('image-dims')).not.toContainText('…');
 }
 
-/** Home, then `n` steps right on the Zoom slider (Fit, 10, 25, 33, 50, 67, 75, 90, 100, 110, 125,
- * 150, 175, 200, 250, 300, 400, …: H24's fine ladder). */
+/** Home, then `n` steps right on the Zoom slider (10, 25, 33, 50, 67, 75, 90, 100, 110, 125, 150,
+ * 175, 200, 250, 300, 400, …: H24's fine ladder). K12: the slider's minimum is this ladder's own
+ * first rung — Fit is the separate `fitButton` below. */
 async function zoomTo(page: Page, n: number) {
   await diff(page).getByRole('slider', { name: 'Zoom' }).focus();
   await page.keyboard.press('Home');
@@ -85,8 +87,85 @@ test.describe('image diff', () => {
     await page.keyboard.press('ArrowRight');
     await expect(d.getByTestId('zoom-label')).toHaveText('110%');
     await expect(d.locator('img.image-layer').first()).toHaveCSS('image-rendering', 'pixelated');
+    // K12: Home lands on the ladder's own minimum (10%), not Fit.
     await zoomTo(page, 0);
-    await expect(d.getByTestId('zoom-label')).toHaveText('Fit');
+    await expect(d.getByTestId('zoom-label')).toHaveText('10%');
+  });
+
+  test("K11: the · separator has breathing room, and the meta block sits well clear of the zoom slider", async ({ page }) => {
+    await open(page, 'logo.png');
+    const d = diff(page);
+    const [zoomBox, dimsBox, sepBox, sizeBox] = await Promise.all([
+      d.locator('.image-zoom').boundingBox(),
+      d.getByTestId('image-dims').boundingBox(),
+      d.locator('.meta-sep').boundingBox(),
+      d.getByTestId('image-size').boundingBox(),
+    ]);
+    // A visible gap between the zoom slider group and the meta block, well past the toolbar's own
+    // 10px item gap.
+    expect(dimsBox!.x - (zoomBox!.x + zoomBox!.width)).toBeGreaterThan(10);
+    // Real breathing room either side of the "·" itself.
+    expect(sepBox!.x - (dimsBox!.x + dimsBox!.width)).toBeGreaterThan(2);
+    expect(sizeBox!.x - (sepBox!.x + sepBox!.width)).toBeGreaterThan(2);
+  });
+
+  test('K12: Fit sets the exact % that fits the image, and tracks a resize; K14: double-click the slider resets to 100%', async ({ page }) => {
+    await open(page, 'logo.png');
+    const d = diff(page);
+    const slider = d.getByRole('slider', { name: 'Zoom' });
+    const vp = (await d.locator('.image-viewport').first().boundingBox())!;
+    // The zoom ladder caps scale at 10×, same as `fitScale` (zoom.ts): the 4×4 logo's own fit is
+    // well past that in this viewport, so Fit lands on the 10× cap, not a viewport-filling size.
+    const expectedScale = Math.min(10, vp.width / 4, vp.height / 4);
+    await zoomTo(page, 15); // 400%, away from both Fit's and 100%'s value
+    await expect(d.getByTestId('zoom-label')).toHaveText('400%');
+    await fitButton(page).click();
+    await expect(fitButton(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(d.getByTestId('zoom-label')).toHaveText(`${Math.round(expectedScale * 100)}%`);
+    const layer = (await d.locator('img.image-layer').first().boundingBox())!;
+    expect(Math.abs(layer.width - 4 * expectedScale)).toBeLessThanOrEqual(1);
+    // Any other zoom action drops Fit mode (K12).
+    await slider.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(fitButton(page)).toHaveAttribute('aria-pressed', 'false');
+    // K14: double-click the slider resets to exactly 100%, also leaving Fit.
+    await fitButton(page).click();
+    await expect(fitButton(page)).toHaveAttribute('aria-pressed', 'true');
+    await slider.dblclick();
+    await expect(d.getByTestId('zoom-label')).toHaveText('100%');
+    await expect(fitButton(page)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('K13: clicking the zoom % edits it as a number — Enter applies, Esc cancels without closing the file, blur applies', async ({ page }) => {
+    await open(page, 'logo.png');
+    const d = diff(page);
+    await zoomTo(page, 15); // 400%
+    await expect(d.getByTestId('zoom-label')).toHaveText('400%');
+    await d.getByTestId('zoom-label').click();
+    const input = d.getByTestId('zoom-input');
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('400');
+    await input.fill('250');
+    await page.keyboard.press('Enter');
+    await expect(d.getByTestId('zoom-input')).toHaveCount(0);
+    await expect(d.getByTestId('zoom-label')).toHaveText('250%');
+    // Clamped to the zoom range.
+    await d.getByTestId('zoom-label').click();
+    await d.getByTestId('zoom-input').fill('99999');
+    await page.keyboard.press('Enter');
+    await expect(d.getByTestId('zoom-label')).toHaveText('1000%');
+    // Esc cancels the edit and does NOT close the file (the input owns Esc while editing).
+    await d.getByTestId('zoom-label').click();
+    await d.getByTestId('zoom-input').fill('12');
+    await page.keyboard.press('Escape');
+    await expect(d.getByTestId('zoom-input')).toHaveCount(0);
+    await expect(d.getByTestId('zoom-label')).toHaveText('1000%');
+    await expect(d.getByTestId('diff-path')).toBeVisible(); // still open
+    // Blur applies.
+    await d.getByTestId('zoom-label').click();
+    await d.getByTestId('zoom-input').fill('50');
+    await d.getByTestId('zoom-input').blur();
+    await expect(d.getByTestId('zoom-label')).toHaveText('50%');
   });
 
   test("Open in… sits at the far left of an image's toolbar, and opens the image (J1)", async ({ page, request }) => {
@@ -171,10 +250,16 @@ test.describe('image diff', () => {
   test('swipe, onion skin and difference modes', async ({ page }) => {
     await open(page, 'logo.png');
     const d = diff(page);
+    // K9: Side-by-side's Old/New chips, one per viewport, never in the way of a drag.
+    const labelsText = () => d.locator('.image-label').allTextContents();
+    await expect.poll(labelsText).toEqual(['Old', 'New']);
+    expect(await d.locator('.image-label').first().evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
     // 1000%: the image is wide enough on screen for the handle to travel (it stays inside it, H28).
-    await zoomTo(page, 20);
+    await zoomTo(page, 19);
     await modeButton(page, 'Swipe').click();
     await expect(modeButton(page, 'Swipe')).toHaveAttribute('aria-pressed', 'true');
+    // K9: one Old chip, one New chip, in Swipe too.
+    await expect.poll(labelsText).toEqual(['Old', 'New']);
     const divider = d.getByRole('slider', { name: 'Swipe position' });
     await divider.focus();
     const at = async () => Number(await divider.getAttribute('aria-valuenow'));
@@ -187,6 +272,8 @@ test.describe('image diff', () => {
     const opacity = d.getByRole('slider', { name: 'Opacity' });
     await expect(opacity).toBeVisible();
     await expect(opacity).toHaveValue('50');
+    // K9: Old/New flank the opacity slider.
+    await expect.poll(labelsText).toEqual(['Old', 'New']);
     await opacity.fill('20');
     // Each mode starts over at 50% when entered again (H28, H29).
     await modeButton(page, 'Swipe').click();
@@ -195,19 +282,62 @@ test.describe('image diff', () => {
     await expect(opacity).toHaveValue('50');
     await expect(d.locator('img.image-layer')).toHaveCount(2);
     await modeButton(page, 'Difference').click();
+    // K9 doesn't ask for Old/New in Difference; only K10's Amplify label remains.
+    await expect.poll(labelsText).toEqual(['Amplify']);
     const canvas = d.getByTestId('image-difference');
-    await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => {
+    const litPixels = () => canvas.evaluate((c: HTMLCanvasElement) => {
       const px = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
       let lit = 0;
       for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] > 0) lit++;
       return lit;
-    })).toBeGreaterThan(0);
+    });
+    await expect.poll(litPixels).toBeGreaterThan(0);
+    // K10 (fix round 1): the Amplify slider is 1×–16×, the TRUE multiplier, defaulting to 4× (the
+    // old fixed ×4 brighten's look), and stays interactive (zoom/pan untouched).
+    const amplify = d.getByRole('slider', { name: 'Amplify' });
+    await expect(amplify).toHaveAttribute('min', '1');
+    await expect(amplify).toHaveAttribute('max', '16');
+    await expect(amplify).toHaveValue('4');
+    await expect(d.getByTestId('amplify-value')).toHaveText('4×');
+    const scaleOf = () => canvas.evaluate((c) => new DOMMatrix(getComputedStyle(c).transform).a);
+    const scaleBefore = await scaleOf();
+    await amplify.fill('16');
+    await expect(d.getByTestId('amplify-value')).toHaveText('16×');
+    expect(await scaleOf()).toBe(scaleBefore); // zoom/pan untouched by amplifying
+    await expect.poll(litPixels).toBeGreaterThan(0);
+  });
+
+  test('K8: a mouse-down anywhere on the image in Swipe mode jumps the handle to the pointer and keeps dragging it', async ({ page }) => {
+    await open(page, 'logo.png');
+    const d = diff(page);
+    await zoomTo(page, 19); // 1000%: the 6×4 image is 60×40 px on screen, easy to click within
+    await modeButton(page, 'Swipe').click();
+    const divider = d.getByRole('slider', { name: 'Swipe position' });
+    const handleX = async () => { const h = (await divider.boundingBox())!; return h.x + h.width / 2; };
+    await expect(divider).toHaveAttribute('aria-valuenow', '50');
+    // The handle is clamped to the image's own on-screen bounds (H27/J10) — click within the
+    // image, clear of the handle's own (50%) position and its wider grab area.
+    const img = (await d.locator('.swipe-clip img.image-layer').boundingBox())!;
+    const y = img.y + img.height / 2;
+    const quarter = img.x + img.width * 0.25;
+    // A plain click (mouse down + up in place, no movement) jumps it there.
+    await page.mouse.move(quarter, y);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect.poll(async () => Math.abs((await handleX()) - quarter)).toBeLessThanOrEqual(2);
+    // A mouse-down followed by a drag (no release in between) keeps following the pointer.
+    const most = img.x + img.width * 0.85;
+    await page.mouse.move(img.x + img.width * 0.4, y);
+    await page.mouse.down();
+    await page.mouse.move(most, y, { steps: 8 });
+    await expect.poll(async () => Math.abs((await handleX()) - most)).toBeLessThanOrEqual(2);
+    await page.mouse.up();
   });
 
   test('zoom and pan stay linked across modes', async ({ page }) => {
     await open(page, 'logo.png');
     const d = diff(page);
-    await zoomTo(page, 16);
+    await zoomTo(page, 15);
     await expect(d.getByTestId('zoom-label')).toHaveText('400%');
     const scale = () => d.locator('.image-layer').first().evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
     await expect.poll(scale).toBe(4);
@@ -257,7 +387,7 @@ test.describe('image diff', () => {
       await page.mouse.move(vp.x + 20 + dx, vp.y + 20 + dy, { steps: 5 });
       await page.mouse.up();
     };
-    for (const n of [8, 20]) {
+    for (const n of [7, 19]) {
       // 100% and 1000%: the 4×4 image fits either way.
       await zoomTo(page, n);
       const before = await transform();
@@ -269,7 +399,7 @@ test.describe('image diff', () => {
   test('the swipe handle drags to both ends of the image, never past them, and grabbing it never pans (H27, J10)', async ({ page }) => {
     await open(page, 'logo.png');
     const d = diff(page);
-    await zoomTo(page, 20); // 1000%: the 6×4 image is 60×40 px on screen
+    await zoomTo(page, 19); // 1000%: the 6×4 image is 60×40 px on screen
     await modeButton(page, 'Swipe').click();
     const divider = d.getByRole('slider', { name: 'Swipe position' });
     const layerBox = async () => (await d.locator('.swipe-clip img.image-layer').boundingBox())!;
@@ -306,7 +436,7 @@ test.describe('image diff', () => {
   test("every mode frames the image's bounds: the pick behind it, a 1 px border, neutral grey around it (J11)", async ({ page }) => {
     await open(page, 'logo.png');
     const d = diff(page);
-    await zoomTo(page, 20); // 1000%: 40×40 and 60×40 on screen
+    await zoomTo(page, 19); // 1000%: 40×40 and 60×40 on screen
     await d.getByRole('button', { name: 'White background' }).click();
     const box = async (sel: string, i = 0) => (await d.locator(sel).nth(i).boundingBox())!;
     const same = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>

@@ -3,15 +3,21 @@
 use gitbolt_core::api::{Api, Request};
 use gitbolt_core::avatar::AvatarProvider;
 use gitbolt_core::error::GbError;
+use gitbolt_core::events::TAURI_EVENT;
 use gitbolt_core::git::GitCli;
 use gitbolt_core::log::CommandLog;
 use gitbolt_core::openers::chooser::system_chooser;
+use gitbolt_core::openers::folder_picker::system_folder_picker;
 use gitbolt_core::open_copy;
+use gitbolt_core::paths;
+use gitbolt_core::settings::SettingsStore;
+use gitbolt_core::shellenv::ShellEnv;
 use gitbolt_core::openers::{detect_system, spawn_detached_with, system_url_opener, ChildEnvHook, LaunchCommand, Launcher};
 use gitbolt_forge::gravatar::{Gravatar, DEFAULT_BASE_URL};
-use std::sync::Arc;
-use tauri::WebviewWindowBuilder;
+use std::sync::{Arc, OnceLock};
+use tauri::{Emitter, WebviewWindowBuilder};
 use tauri_runtime_cef::Cef;
+use tokio::sync::broadcast::error::RecvError;
 
 mod desktop;
 
@@ -26,8 +32,10 @@ async fn api(state: tauri::State<'_, Arc<Api>>, req: Request) -> Result<serde_js
 /// opened in an editor are copied under `~/.cache/gitbolt/open` (spec §14.5).
 ///
 /// `child_env` adjusts every child it starts: git, each opener launch, the chooser's `xdg-open`
-/// fallback and the URL opener (`desktop::restore_child_env` in the app).
+/// fallback and the URL opener (`desktop::restore_child_env` in the app). An opener launch also
+/// gets the login shell's environment, when `cli` has one captured (spec §5.3).
 fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook) -> Api {
+    let shell_env = cli.shell_env().cloned();
     // `system_url_opener` (I2) routes through the same argv-only, detached launch and
     // `child_env` hook as an opener launch, so the browser gets the session's own
     // `GDK_BACKEND`/`IBUS_ENABLE_SYNC_MODE` back and never sees `CHROME_DEVEL_SANDBOX`.
@@ -38,7 +46,7 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook) -> Ap
     });
     let api = Api::new(cli.with_command_hook(child_env.clone()), launch)
         .with_url_opener(url_opener)
-        .with_openers(Arc::new(detect_system), launcher(child_env.clone()));
+        .with_openers(Arc::new(detect_system), launcher(child_env.clone(), shell_env));
     let api = match system_chooser(child_env) {
         Some(chooser) => api.with_chooser(chooser),
         None => api,
@@ -52,16 +60,54 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook) -> Ap
 }
 
 /// "Open in…"'s launcher: detached, argv only, with `child_env`'s environment (so an editor
-/// doesn't start under XWayland or with the app's IBus sync mode).
-fn launcher(child_env: ChildEnvHook) -> Launcher {
-    Arc::new(move |c: &LaunchCommand| spawn_detached_with(c, &*child_env))
+/// doesn't start under XWayland or with the app's IBus sync mode). With a captured login-shell
+/// environment (spec §5.3: `SSH_AUTH_SOCK`, `PATH` additions), the editor starts from that one
+/// instead of the app's, and `child_env` still runs last. The API awaits the capture before an
+/// editor launch, so `captured()` has it by then (or it failed, and the app's own env is used).
+fn launcher(child_env: ChildEnvHook, shell_env: Option<Arc<ShellEnv>>) -> Launcher {
+    Arc::new(move |c: &LaunchCommand| {
+        let captured = shell_env.as_ref().and_then(|s| s.captured());
+        spawn_detached_with(c, &|cmd: &mut std::process::Command| {
+            // The capture already left GitBolt's own variables (`PRIVATE_ENV`) out.
+            if let Some(vars) = &captured {
+                cmd.env_clear().envs(vars.iter().map(|(k, v)| (k, v)));
+            }
+            child_env(cmd);
+        })
+    })
 }
+
+/// The main window as the folder-picker portal's parent: `x11:<xid>` (the CEF runtime's window is
+/// always X11), or `""` (no parent) if it has no X11 handle.
+#[cfg(target_os = "linux")]
+fn portal_parent<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) -> String {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match window.window_handle().map(|h| h.as_raw()) {
+        Ok(RawWindowHandle::Xlib(h)) => format!("x11:{:x}", h.window),
+        Ok(RawWindowHandle::Xcb(h)) => format!("x11:{:x}", h.window.get()),
+        _ => String::new(),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn portal_parent<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>) -> String {
+    String::new()
+}
+
+/// Where the folder picker finds its parent window: set once the window exists.
+type ParentWindow = Arc<OnceLock<Box<dyn Fn() -> String + Send + Sync>>>;
 
 /// Every CEF app is also its own renderer/GPU/utility process: this attribute runs the helper
 /// side for any process Chromium launched with `--type=` and returns before the Tauri app is
 /// built (required by `tauri-runtime-cef`; see its `examples/cef/src-tauri/src/main.rs`).
 #[tauri_runtime_cef::cef_entry_point]
 fn main() {
+    // Very first (the attribute above has already sent CEF's own `--type=` helpers away): when
+    // git or ssh runs this binary as GIT_ASKPASS/SSH_ASKPASS (spec §5.4), it only asks the
+    // running app over the askpass socket and exits. Git passes the prompt, never `--type=`.
+    if let Some(code) = gitbolt_core::askpass::run_client_from_env() {
+        std::process::exit(code);
+    }
     // First, before any thread and before GTK: the window's desktop identity (dock icon) and
     // the input method's key handling (Ctrl+C and friends reach the page). See desktop.rs.
     desktop::init();
@@ -71,9 +117,29 @@ fn main() {
     let launch = std::env::args().nth(1).or_else(|| std::env::var("GITBOLT_OPEN").ok());
     // Every child (git, the editors, the file manager, xdg-open) gets the session's own
     // IBUS_ENABLE_SYNC_MODE / GDK_BACKEND, not the app's (desktop.rs).
-    let cli = GitCli::new(Arc::new(CommandLog::new(1000)));
-    let backend = Arc::new(build_api(cli, launch, Arc::new(desktop::restore_child_env)));
+    let child_env: ChildEnvHook = Arc::new(desktop::restore_child_env);
+    // Spec §5.3: the login shell's environment, captured once (started in `setup`) through the
+    // same hook, so the shell sees the session's variables, not CEF's. Git commands that start
+    // before it's done wait for it (bounded by the 5 s capture timeout); so do editor launches.
+    let shell_env = ShellEnv::from_login_shell_with_hook(child_env.clone());
+    let cli = GitCli::new(Arc::new(CommandLog::new(1000))).with_shell_env(shell_env.clone());
+    // Settings and profiles (spec §14.3): `~/.config/gitbolt`, written debounced and flushed
+    // once more on exit.
+    let store = SettingsStore::open(paths::config_dir());
+    let exit_store = store.clone();
+    // "Open Repository" (spec §13): the folder-picker portal, parented to the main window once
+    // it exists (R2: no picker on a portal-less desktop; the UI falls back to a typed path).
+    let parent: ParentWindow = Arc::default();
+    let built = build_api(cli, launch, child_env);
+    let picker_parent = parent.clone();
+    let built = match system_folder_picker(move || picker_parent.get().map(|f| f()).unwrap_or_default()) {
+        Some(picker) => built.with_folder_picker(picker),
+        None => built,
+    };
+    let backend = Arc::new(built.with_store(store));
     let warm = backend.clone();
+    let forward = backend.clone();
+    let exit_api = backend.clone();
     tauri::Builder::default()
         // Never in caret-browsing mode, even if "Turn on" was once clicked in Chrome's F7
         // dialog (Chrome keeps it in the profile). The F7 command itself is blocked in the
@@ -87,11 +153,42 @@ fn main() {
         // wry's is; `tauri.conf.json` sets `create: false` on the main window, and it's built
         // here from that same config (matches the CEF spike's `src-tauri/src/main.rs`).
         .setup(move |app| {
+            // Every backend event goes to the webview as `gb:event` (spec §4.3).
+            let handle = app.handle().clone();
+            let mut events = forward.subscribe();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match events.recv().await {
+                        Ok(ev) => {
+                            if let Err(e) = handle.emit(TAURI_EVENT, &ev) {
+                                tracing::warn!("emit {TAURI_EVENT} failed: {e}");
+                            }
+                        }
+                        Err(RecvError::Lagged(n)) => tracing::warn!("event forwarder lagged by {n} events"),
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+            // Spec §5.4: the per-session askpass socket in $XDG_RUNTIME_DIR. Git runs this same
+            // binary as askpass. Before the window exists, so no request can outrun it. Without
+            // it the app still runs: a credential prompt then just fails (GIT_TERMINAL_PROMPT=0).
+            let askpass = std::env::current_exe().and_then(|exe| Ok((paths::runtime_dir()?, exe)));
+            match askpass {
+                Ok((dir, exe)) => {
+                    if let Err(e) = tauri::async_runtime::block_on(forward.start_askpass(&dir, exe)) {
+                        tracing::warn!("askpass socket unavailable in {}: {e}; credential prompts will fail", dir.display());
+                    }
+                }
+                Err(e) => tracing::warn!("askpass unavailable: {e}; credential prompts will fail"),
+            }
             let cfg = app.config().app.windows[0].clone();
-            WebviewWindowBuilder::from_config(app.handle(), &cfg)?.build()?;
+            let window = WebviewWindowBuilder::from_config(app.handle(), &cfg)?.build()?;
+            let _ = parent.set(Box::new(move || portal_parent(&window)));
             // Here, after the runtime's `set_var` (its SAFETY note: no other thread may read the
-            // environment before it): detect the "Open in…" editors off the UI's path, so the first
-            // `listOpeners` answers from the cache, and drop week-old copies of old versions.
+            // environment before it): capture the login shell's environment (spec §5.3), detect
+            // the "Open in…" editors off the UI's path, so the first `listOpeners` answers from
+            // the cache, and drop week-old copies of old versions.
+            tauri::async_runtime::spawn(shell_env.clone().warm());
             tauri::async_runtime::spawn(async move {
                 let _ = warm.dispatch(Request::ListOpeners).await;
             });
@@ -100,8 +197,19 @@ fn main() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running GitBolt");
+        .build(tauri::generate_context!())
+        .expect("error while building GitBolt")
+        .run(move |_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Err(e) = exit_store.flush_now() {
+                    tracing::warn!("saving settings on exit failed: {e}");
+                }
+                // The socket file would otherwise stay behind in $XDG_RUNTIME_DIR.
+                if let Some(askpass) = exit_api.askpass() {
+                    askpass.close();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -172,7 +280,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("env");
         let script = format!("printf '%s|%s' \"${{GDK_BACKEND-unset}}\" \"${{IBUS_ENABLE_SYNC_MODE-unset}}\" > '{}'", out.display());
-        launcher(hook)(&LaunchCommand { program: "/bin/sh".into(), args: vec!["-c".into(), script.into()] }).unwrap();
+        launcher(hook, None)(&LaunchCommand { program: "/bin/sh".into(), args: vec!["-c".into(), script.into()] }).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let mut got = String::new();
         while std::time::Instant::now() < deadline {
@@ -184,5 +292,37 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(got, "wayland|unset");
+    }
+
+    /// Spec §5.3: with a captured login-shell environment, an editor starts from it (the app's
+    /// own variables are gone), and the hook still runs last (the session's `GDK_BACKEND`).
+    #[tokio::test]
+    async fn an_opener_launch_starts_from_the_login_shells_environment() {
+        let session = desktop::EnvSnapshot::capture(|k| (k == "GDK_BACKEND").then(|| OsString::from("wayland")));
+        let hook: ChildEnvHook = Arc::new(move |c: &mut std::process::Command| session.apply(c));
+        let shell = ShellEnv::fixed(vec![
+            ("GB_FROM_LOGIN".into(), "yes".into()),
+            ("GDK_BACKEND".into(), "x11".into()),
+            ("PATH".into(), std::env::var_os("PATH").unwrap_or_default()),
+        ]);
+        // What an Api does before an editor launch: wait for the capture.
+        assert!(shell.get().await.is_some());
+        let dir = std::env::temp_dir().join(format!("gitbolt-app-login-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("env");
+        let script = format!("printf '%s|%s|%s' \"${{GB_FROM_LOGIN-unset}}\" \"${{GDK_BACKEND-unset}}\" \"${{CARGO_PKG_NAME-unset}}\" > '{}'", out.display());
+        launcher(hook, Some(shell))(&LaunchCommand { program: "/bin/sh".into(), args: vec!["-c".into(), script.into()] }).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut got = String::new();
+        while std::time::Instant::now() < deadline {
+            got = std::fs::read_to_string(&out).unwrap_or_default();
+            if got.matches('|').count() == 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        // CARGO_PKG_NAME is in this test's own environment (cargo sets it), not the login shell's.
+        assert_eq!(got, "yes|wayland|unset");
     }
 }

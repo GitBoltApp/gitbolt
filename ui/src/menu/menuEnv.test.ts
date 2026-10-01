@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RowPayload } from '../api/gen/RowPayload';
+import { createCommitMessageCache } from '../api/commitMessages';
+import type { CommitMessage } from '../api/gen/CommitMessage';
+import type { EditorContextMenuEvent } from '../diff/monaco/host';
 import { createRepoViewStore, fileViewTarget, targetFor } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
-import { fileTargetOf, upstreamOf } from './menuEnv';
+import { useToast } from '../ui/toast';
+import { compare, copyMessage, fileTargetOf, monacoTargetOf, upstreamOf } from './menuEnv';
+
+// `compare`/`copyMessage` reach the real clipboard (api/transport); fix round 1, item 7's unit
+// tests for them mock it, as DiffPanel.openIn.test.tsx and others do.
+const copyText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
+vi.mock('../api/transport', () => ({ copyText }));
 
 const row = (id: string, parents: string[], wip: string | null = null): RowPayload => ({
   id, kind: wip ? 'wip' : 'commit', lane: 0, color: 0, segments: [], summary: id, bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents, mrRefs: [],
@@ -82,5 +91,93 @@ describe('fileTargetOf', () => {
   it('an unchanged file from "View all files": its commit', () => {
     const spec = { kind: 'commit' as const, id: 'c0', parent: 0 };
     expect(fileTargetOf(store.getState(), spec, fileViewTarget('README.md', 'c0', spec), false)).toMatchObject({ sha: 'c0', changed: false });
+  });
+});
+
+// Fix round 1, item 7: direct unit tests for `compare` and `copyMessage` (the commit menu's
+// actions), not only through `fileMenuEnv`'s mocked `act`.
+describe('compare (the commit menu\'s Compare with HEAD / Compare with working tree)', () => {
+  afterEach(() => copyText.mockClear());
+
+  it('two commits: selects both (K15), the older one first regardless of call order (K16)', () => {
+    const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices());
+    compare(store, 'c1', 'c2');
+    const s = store.getState();
+    // c1 and c2 tie on committerTime in this fixture: the tie-break (the lower row index, i.e.
+    // the newer commit in the list) decides, same as a real Ctrl+click pairing would.
+    expect(s.selection).toMatchObject({ kind: 'compare', from: 'c2', to: 'c1' });
+  });
+
+  it("with the working tree: the WIP row's own worktree", () => {
+    const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices());
+    compare(store, 'c0', 'worktree');
+    expect(store.getState().selection).toMatchObject({ kind: 'compareWorktree', from: 'c0', worktree: '/wt/main' });
+  });
+
+  it('an id outside the loaded history: does nothing', () => {
+    const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices());
+    compare(store, 'nope', 'alsoNope');
+    expect(store.getState().selection).toEqual({ kind: 'none' });
+  });
+});
+
+describe('copyMessage', () => {
+  afterEach(() => { copyText.mockClear(); useToast.setState({ message: null }); });
+
+  it('a cached message: the summary and body, joined by a blank line', async () => {
+    const msg: CommitMessage = { id: 'c1', summary: 'Fix typo', body: 'Details here.' };
+    const cache = createCommitMessageCache(async () => msg);
+    await cache.get('c1'); // warms the cache, so `copyMessage` finds it already `peek`-able.
+    const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices({ messages: cache }));
+    copyMessage(store, 'c1');
+    await vi.waitFor(() => expect(copyText).toHaveBeenCalledWith('Fix typo\n\nDetails here.'));
+    expect(useToast.getState().message).toBe('Copied');
+  });
+
+  it('a summary with no body: just the summary, and it loads first if not cached', async () => {
+    const load = vi.fn(async (): Promise<CommitMessage> => ({ id: 'c2', summary: 'No body here', body: '' }));
+    const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices({ messages: createCommitMessageCache(load) }));
+    copyMessage(store, 'c2');
+    expect(load).toHaveBeenCalledWith('c2');
+    await vi.waitFor(() => expect(copyText).toHaveBeenCalledWith('No body here'));
+  });
+
+  it('a failed load: a "Copy failed" toast, nothing copied', async () => {
+    const store = createRepoViewStore(1, '/repo', graphOf(labels), fakeServices({ messages: createCommitMessageCache(async () => { throw new Error('boom'); }) }));
+    copyMessage(store, 'c3');
+    await vi.waitFor(() => expect(useToast.getState().message).toBe('Copy failed'));
+    expect(copyText).not.toHaveBeenCalled();
+  });
+});
+
+describe('monacoTargetOf (the Monaco menu\'s target)', () => {
+  const g = graphOf(labels);
+  const store = createRepoViewStore(1, '/repo', g, fakeServices());
+  const spec = { kind: 'commit' as const, id: 'c1', parent: 0 };
+  const change = (path: string) => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object' as const, oid: 'a'.repeat(40) }, new: { kind: 'object' as const, oid: 'b'.repeat(40) }, submodule: false });
+  const diff = targetFor(change('src/a.php'), spec);
+  const event = (over: Partial<EditorContextMenuEvent> = {}): EditorContextMenuEvent => ({ path: diff.path, side: 'modified', line: 5, selection: null, selectionText: '', x: 0, y: 0, ...over });
+
+  it('no diff open: null', () => {
+    expect(monacoTargetOf(store.getState(), event())).toBeNull();
+  });
+
+  it("the modified side: the commit's own sha, its branch upstream, a single-line location", () => {
+    store.setState({ diff });
+    const t = monacoTargetOf(store.getState(), event({ line: 5 }));
+    expect(t).toMatchObject({ path: 'src/a.php', sha: 'c1', lines: [5, 5], upstream: { remote: 'origin', branch: 'main' } });
+    expect(t!.openIn).toEqual({ worktree: '/repo', path: 'src/a.php', line: 5, source: diff.new, fallback: null });
+  });
+
+  it("the original side: the commit's parent (the version it diffs against), same branch/upstream", () => {
+    store.setState({ diff });
+    const t = monacoTargetOf(store.getState(), event({ side: 'original' }));
+    expect(t).toMatchObject({ sha: 'c2', upstream: { remote: 'origin', branch: 'main' } });
+  });
+
+  it('a multi-line selection: both line numbers, and the selected text', () => {
+    store.setState({ diff });
+    const t = monacoTargetOf(store.getState(), event({ selection: { startLine: 5, endLine: 7 }, selectionText: 'enum Suit…' }));
+    expect(t).toMatchObject({ lines: [5, 7], selectionText: 'enum Suit…' });
   });
 });

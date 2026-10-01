@@ -91,19 +91,27 @@ export function openVersion(t: DiffTarget, worktree: string | null): { source: B
   return { source: t.new.kind === 'absent' ? t.old : t.new, fallback: null };
 }
 
-/** The worktree of the list a target came from (its key starts with the list's `filesKey`, the
- * spec's JSON): a WIP or compare-with-working-tree list's, else `null`. A staged file has no
- * worktree side, so this is how the diff header knows its worktree. */
-export function listWorktree(key: string): string | null {
+/** The `DiffSpec` a list-item key starts with (`filesKey(spec)`, the spec's JSON, followed by
+ * `|`): tried at each `}|` boundary, since a worktree path inside the spec can itself contain
+ * `}|`. `null` if none parses (a malformed key). Shared by `listWorktree` and the Monaco menu's
+ * `menuEnv.monacoTargetOf` (plan 1C Task 15), which both need the list a diff target came from. */
+export function parseListSpec(key: string): DiffSpec | null {
   for (let i = key.indexOf('}|'); i >= 0; i = key.indexOf('}|', i + 1)) {
     try {
-      const spec = JSON.parse(key.slice(0, i + 1)) as DiffSpec;
-      return spec.kind === 'wip' || spec.kind === 'worktree' ? spec.worktree : null;
+      return JSON.parse(key.slice(0, i + 1)) as DiffSpec;
     } catch {
       // A `}|` inside the spec (a worktree path): keep looking.
     }
   }
   return null;
+}
+
+/** The worktree of the list a target came from (its key starts with the list's `filesKey`, the
+ * spec's JSON): a WIP or compare-with-working-tree list's, else `null`. A staged file has no
+ * worktree side, so this is how the diff header knows its worktree. */
+export function listWorktree(key: string): string | null {
+  const spec = parseListSpec(key);
+  return spec && (spec.kind === 'wip' || spec.kind === 'worktree') ? spec.worktree : null;
 }
 
 /** The worktree a diff side reads from, if either does (WIP, compare with the working tree). */

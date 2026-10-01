@@ -80,13 +80,16 @@ describe('GraphView virtual rows, controlled selection', () => {
     before = renders.n;
     fireEvent.keyDown(grid, { key: 'ArrowUp' });
     expect(renders.n - before).toBe(2);
-    // Row 1 is selected: Ctrl+click it (mark A, stays selected), then Ctrl+click row 3 (mark B,
-    // and the selection moves there): rows 1 and 3 re-render, rows 0 and 2 don't.
-    fireEvent.mouseDown(screen.getAllByRole('row')[1], { ctrlKey: true });
+    // Row 1 is selected: Ctrl+click row 3 selects it too (K15): rows 1 and 3 are both
+    // selected, and only row 3 re-renders (row 1 stays selected).
     before = renders.n;
     fireEvent.mouseDown(screen.getAllByRole('row')[3], { ctrlKey: true });
-    expect(screen.getByTestId('compare-b')).toBeInTheDocument();
-    expect(renders.n - before).toBe(2);
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'true']);
+    expect(renders.n - before).toBe(1);
+    // A plain click on row 2: rows 1, 2 and 3 change.
+    before = renders.n;
+    fireEvent.mouseDown(screen.getAllByRole('row')[2]);
+    expect(renders.n - before).toBe(3);
   });
 });
 

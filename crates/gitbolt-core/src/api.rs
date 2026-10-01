@@ -1,19 +1,25 @@
 //! The single command surface shared by the Tauri app and the test harness.
 
+use crate::askpass::AskpassServer;
 use crate::avatar::{AvatarPayload, AvatarProvider};
 use crate::blob::{diff_contents, is_dotgit, safe_join, working_tree_encoding, Side};
 use crate::commit::{parse_commit, parse_oid, read_commit_message};
 use crate::details::{commit_details, read_commit, remotes};
 use crate::diff::{file_list, DiffSpec};
 use crate::error::{GbError, GbErrorKind};
+use crate::events::{AppEvent, EventBus};
 use crate::git::GitCli;
 use crate::links::{validate_web_url, UrlOpener};
 use crate::log::CommandLog;
 use crate::openers::chooser::Chooser;
-use crate::openers::{Launcher, Opener, OpenerKind, OpenerPayload, CHOOSER_ID};
+use crate::openers::folder_picker::FolderPicker;
+use crate::ops::{OpId, OpRegistry};
+use crate::openers::{template_opener, DetectEnv, Launcher, Opener, OpenerKind, OpenerPayload, CHOOSER_ID, CUSTOM_ID};
 use crate::payload::{BlobSource, RepoSummary, SignatureKind, SignaturePayload};
+use crate::scan::ScannedRepo;
+use crate::settings::{AppSettings, EditorChoice, PinSetting, Profile, SettingsStore};
 use crate::signature::signature_status;
-use crate::snapshot::{build_graph, BuildOptions};
+use crate::snapshot::{build_graph_with_text, BuildOptions};
 use crate::tree::tree_files;
 use crate::worktree::list_worktrees;
 use gix::ObjectId;
@@ -23,15 +29,29 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, OnceCell};
 use ts_rs::TS;
 
 #[derive(Debug, Deserialize, TS)]
-#[serde(tag = "method", content = "params", rename_all = "camelCase")]
+#[serde(tag = "method", content = "params", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[ts(export)]
 pub enum Request {
     OpenRepo { path: String },
-    Graph { repo: u32, limit: Option<u32> },
+    /// The graph snapshot. `pin` (the repo's pin setting): `auto` or absent is the default
+    /// trunk, `off` no trunk, `ref` that ref (spec §8.3).
+    /// `rescan`: run status for every worktree instead of reusing the cached counts (tab
+    /// activation, spec §4.4). The counts are only reused while the repo is watched; an
+    /// unwatched repo always re-reads status.
+    Graph {
+        repo: u32,
+        limit: Option<u32>,
+        #[serde(default)]
+        #[ts(optional)]
+        pin: Option<PinSetting>,
+        #[serde(default)]
+        #[ts(optional)]
+        rescan: Option<bool>,
+    },
     CommandLog,
     LaunchRepo,
     /// The full message of one commit (read-only, via gix): loaded lazily by the graph's
@@ -73,19 +93,89 @@ pub enum Request {
         #[serde(default)]
         fallback: Option<BlobSource>,
     },
+    /// App settings, the active profile and the profile list (spec §14.1): `StatePayload`.
+    LoadState,
+    /// Replaces the app settings (written debounced); returns `null`.
+    SaveSettings { settings: AppSettings },
+    /// Replaces one existing profile (written debounced); returns `null`.
+    SaveProfile { profile: Profile },
+    /// A new, empty profile: `ProfileMeta`.
+    CreateProfile { name: String, color: String },
+    /// Makes `id` the active profile: the new `StatePayload`.
+    SwitchProfile { id: String },
+    /// Deletes an inactive profile: the remaining `ProfileMeta[]`.
+    DeleteProfile { id: String },
+    /// The user's answer to a credential prompt (`authWaiting`); `null` cancels it. Returns `null`.
+    AuthAnswer {
+        #[ts(type = "number")]
+        prompt: u64,
+        answer: Option<String>,
+    },
+    /// Cancels a running network operation; unknown ids are ignored. Returns `null`.
+    CancelOp {
+        #[ts(type = "number")]
+        op: u64,
+    },
+    /// `git fetch --all` (spec §15): `FetchOutcome`. `background` = GitBolt-started (never prompts).
+    Fetch { repo: u32, background: bool },
+    /// Clones `url` into the absolute `dest` (spec §13) and opens it: `RepoSummary`.
+    Clone { url: String, dest: String },
+    /// Every remote with its redacted URL, and the main worktree of a linked one: `RepoInfoPayload`.
+    RepoInfo { repo: u32 },
+    /// Branches, remotes, worktrees, stashes and tags (spec §6.4): `SidebarPayload`.
+    Sidebar { repo: u32 },
+    /// When a remote-tracking ref was last pushed (or else last fetched): `LastPushPayload | null`.
+    LastPush { repo: u32, remote_ref: String },
+    /// GitBolt's and git's versions (spec §6.5): `AppInfoPayload`.
+    AppInfo,
+    /// The system folder picker, starting in `start`: the picked folder, or `null` (cancelled,
+    /// or no picker on this desktop: the UI falls back to a typed path).
+    PickFolder { start: Option<String> },
+    /// The repositories in `root` (absolute), two levels deep, newest first: `ScannedRepo[]`.
+    /// Cached per root; `refresh` rescans.
+    ScanRepos { root: String, refresh: bool },
+    /// `~/repos` when it exists, else `null`.
+    SuggestReposFolder,
+    /// Starts the file watcher for this repo (the active tab's, spec §4.4); idempotent. `null`.
+    WatchRepo { repo: u32 },
+    /// Stops this repo's watcher; `null`.
+    UnwatchRepo { repo: u32 },
+    /// Stops every watcher (the UI's startup reset: none survive a reload); `null`.
+    UnwatchAll,
+    /// Find (spec §8.7): the loaded window's commits whose message contains `query`
+    /// (case-insensitive), or, for 4+ hex characters, whose id starts with it: `string[]`.
+    FindText { repo: u32, query: String },
+    /// The loaded window's commits that touched a path containing `query` (case-insensitive;
+    /// `[]` under 2 characters). The first call per window builds the path index: `string[]`.
+    FindPaths { repo: u32, query: String },
+    /// Whether `sha` is in the first 10,000 commits, and the window that would include it:
+    /// `LocateResult`. Not a commit: `notFound`.
+    LocateCommit { repo: u32, sha: String },
+    /// "Search older history": commits outside the window whose message or paths match `query`,
+    /// newest first: `HistoryHit[]`.
+    SearchHistory { repo: u32, query: String },
 }
 
-struct RepoHandle {
-    repo: gix::ThreadSafeRepository,
-    workdir: PathBuf,
+pub(crate) struct RepoHandle {
+    pub(crate) repo: gix::ThreadSafeRepository,
+    pub(crate) workdir: PathBuf,
+    /// The working directory's folder name (the fetch op's label).
+    pub(crate) name: String,
+    /// Held for the duration of any network operation: spec §15 "never overlaps".
+    pub(crate) net_lock: tokio::sync::Mutex<()>,
+    /// Each worktree's last status (the watcher keeps it fresh while the tab is active).
+    pub(crate) wip: Arc<crate::snapshot::WipCache>,
+    /// The last `graph` window's find state (spec §8.7); `None` until the first graph.
+    pub(crate) snapshot: Mutex<Option<Arc<crate::find::FindSnapshot>>>,
 }
 
 pub struct Api {
-    cli: GitCli,
-    launch_repo: Option<String>,
-    repos: Mutex<HashMap<u32, Arc<RepoHandle>>>,
-    next_id: AtomicU32,
-    version_ok: OnceCell<()>,
+    pub(crate) cli: GitCli,
+    pub(crate) launch_repo: Option<String>,
+    pub(crate) repos: Mutex<HashMap<u32, Arc<RepoHandle>>>,
+    pub(crate) next_id: AtomicU32,
+    /// git's version, checked (and cached) by the first `openRepo` (or `appInfo`).
+    pub(crate) version: OnceCell<(u32, u32, u32)>,
     /// Signature verdicts, keyed by (the repository's git directory, commit id), for the process
     /// lifetime (spec §9.1). Keyed on the repository too, not just the commit: the signature
     /// bytes never change, but git's verdict depends on the keyring, trust database and
@@ -94,24 +184,40 @@ pub struct Api {
     /// `unknownKey` means "couldn't verify with what's configured right now" (a missing key, or
     /// `gpg.ssh.allowedSignersFile` not set yet) and must be re-checked every time, since the
     /// user can fix their configuration between calls without the commit changing at all.
-    signatures: Mutex<HashMap<(PathBuf, ObjectId), SignaturePayload>>,
-    avatars: Option<Arc<dyn AvatarProvider>>,
-    url_opener: Option<UrlOpener>,
-    openers: Option<Arc<OpenerSource>>,
+    pub(crate) signatures: Mutex<HashMap<(PathBuf, ObjectId), SignaturePayload>>,
+    pub(crate) avatars: Option<Arc<dyn AvatarProvider>>,
+    pub(crate) url_opener: Option<UrlOpener>,
+    pub(crate) openers: Option<Arc<OpenerSource>>,
     /// "Other…" (H32): the system's Open With chooser; listed only when set.
-    chooser: Option<Chooser>,
+    pub(crate) chooser: Option<Chooser>,
     /// How long a detection answers `listOpeners` before the next one re-detects (the menu asks
     /// each time it opens, so a newly installed editor shows up without a restart).
-    opener_refresh: Duration,
+    pub(crate) opener_refresh: Duration,
     /// Old versions' read-only copies (spec §14.5).
-    open_cache: Option<PathBuf>,
+    pub(crate) open_cache: Option<PathBuf>,
+    /// Backend → frontend events (spec §4.3), forwarded by the app and the harness.
+    pub(crate) bus: EventBus,
+    /// Settings and profiles (spec §14.3); in memory unless `with_store` gives it a directory.
+    pub(crate) store: Arc<SettingsStore>,
+    /// Running network operations (fetch, clone): ids, cancellation, may they prompt.
+    pub(crate) ops: Arc<OpRegistry>,
+    /// The per-session askpass socket (spec §5.4), once `start_askpass` ran.
+    pub(crate) askpass: std::sync::OnceLock<Arc<AskpassServer>>,
+    /// The system folder picker (spec §13); `pickFolder` answers `null` without one.
+    pub(crate) folder_picker: Option<FolderPicker>,
+    /// The user's home, for the suggested repos folder (`~/repos`).
+    pub(crate) home: Option<PathBuf>,
+    /// `scanRepos` results per root, until a `refresh`.
+    pub(crate) scans: Mutex<HashMap<String, Vec<ScannedRepo>>>,
+    /// The live file watchers by repo id: only the active tab's (spec §4.4).
+    pub(crate) watchers: Mutex<HashMap<u32, crate::watch::RepoWatcher>>,
 }
 
 /// "Open in…": how to find the openers and how to launch one (the app spawns; the harness and
 /// tests record). `found` is the last successful detection and when it ran: a failed one (a
 /// panic) is never cached, so the next call retries. The lock is held only to read or store it,
 /// never while detecting; `refreshing` keeps one background re-detection at a time.
-struct OpenerSource {
+pub(crate) struct OpenerSource {
     detect: Arc<dyn Fn() -> Vec<Opener> + Send + Sync>,
     launcher: Launcher,
     found: Mutex<Option<(Instant, Arc<Vec<Opener>>)>>,
@@ -148,7 +254,7 @@ impl Api {
             launch_repo: launch_repo.filter(|p| !p.is_empty()),
             repos: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(1),
-            version_ok: OnceCell::new(),
+            version: OnceCell::new(),
             signatures: Mutex::new(HashMap::new()),
             avatars: None,
             url_opener: None,
@@ -156,7 +262,108 @@ impl Api {
             chooser: None,
             opener_refresh: OPENER_REFRESH,
             open_cache: None,
+            bus: EventBus::new(),
+            store: SettingsStore::in_memory(),
+            ops: Arc::new(OpRegistry::default()),
+            askpass: std::sync::OnceLock::new(),
+            folder_picker: None,
+            home: crate::paths::home_dir(),
+            scans: Mutex::new(HashMap::new()),
+            watchers: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn with_folder_picker(mut self, picker: FolderPicker) -> Self {
+        self.folder_picker = Some(picker);
+        self
+    }
+
+    /// The home `suggestReposFolder` looks in (the user's own unless changed; the harness's is
+    /// a temp dir).
+    pub fn with_home(mut self, home: Option<PathBuf>) -> Self {
+        self.home = home;
+        self
+    }
+
+    /// Drops every cached `scanRepos` result (the harness's reset).
+    pub fn forget_scans(&self) {
+        self.scans.lock().expect("scans poisoned").clear();
+    }
+
+    /// git's version, checked against `MIN_GIT` once and cached for the process lifetime.
+    pub(crate) async fn git_version(&self) -> Result<(u32, u32, u32), GbError> {
+        self.version.get_or_try_init(|| self.cli.check_version()).await.copied()
+    }
+
+    /// The custom editor (R5: the settings' Custom command, the repo's own over the profile's),
+    /// built for the worktree `root` (its `{repo}`). Its program is looked up on the login
+    /// shell's `PATH` when that's been captured (spec §5.3), else the app's.
+    async fn custom_opener(&self, h: &RepoHandle, root: &Path) -> Result<Opener, GbError> {
+        let profile = self.store.active_profile();
+        let own = profile.repos.get(&h.workdir.display().to_string()).and_then(|r| r.editor.clone());
+        let Some(EditorChoice::Custom { template }) = own.or(profile.editor) else {
+            return Err(GbError::new(GbErrorKind::InvalidInput, "no custom editor command is set"));
+        };
+        let captured = self.cli.child_env().await;
+        let root = root.to_path_buf();
+        blocking(move || {
+            let mut env = DetectEnv::from_system();
+            if let Some(path) = captured.as_ref().and_then(|vars| vars.iter().find(|(k, _)| k == "PATH")).map(|(_, v)| v.clone()) {
+                env.path = std::env::split_paths(&path).filter(|d| d.is_absolute()).collect();
+            }
+            template_opener(CUSTOM_ID, "Custom", &template, root, &env)
+        })
+        .await
+    }
+
+    pub fn ops(&self) -> &Arc<OpRegistry> {
+        &self.ops
+    }
+
+    pub fn askpass(&self) -> Option<&Arc<AskpassServer>> {
+        self.askpass.get()
+    }
+
+    /// Starts the askpass socket in `dir` (spec §5.4). `exe` is the binary git runs as askpass.
+    /// A second call keeps the first server.
+    pub async fn start_askpass(&self, dir: &Path, exe: PathBuf) -> std::io::Result<()> {
+        if self.askpass.get().is_some() {
+            return Ok(());
+        }
+        let server = AskpassServer::start(dir, exe, self.ops.clone(), self.bus.clone()).await?;
+        if let Err(extra) = self.askpass.set(server) {
+            extra.close();
+        }
+        Ok(())
+    }
+
+    /// Environment for a network command belonging to `op`: askpass's (none if askpass isn't
+    /// running: git then fails a prompt at once, `GIT_TERMINAL_PROMPT=0`), and for a GitBolt-started
+    /// (non-interactive) op, `GCM_INTERACTIVE=never` too, so Git Credential Manager never shows
+    /// its own prompt for a background fetch either.
+    pub(crate) fn net_env(&self, op: OpId) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+        let mut env = self.askpass.get().map(|s| s.env_for(Some(op))).unwrap_or_default();
+        if self.ops.get(op).is_some_and(|e| !e.interactive) {
+            env.push(("GCM_INTERACTIVE".into(), "never".into()));
+        }
+        env
+    }
+
+    pub fn with_store(mut self, store: Arc<SettingsStore>) -> Self {
+        self.store = store;
+        self.apply_profile_git_config();
+        self
+    }
+
+    /// Applies the active profile's extra gitconfig (spec §14.2) to every git command: after
+    /// loading the store, and whenever the profile (or which one is active) changes.
+    fn apply_profile_git_config(&self) {
+        let inc = self.store.active_profile().extra_gitconfig.filter(|p| !p.trim().is_empty()).map(PathBuf::from);
+        self.cli.set_include_path(inc);
+    }
+
+    pub fn store(&self) -> &Arc<SettingsStore> {
+        &self.store
     }
 
     pub fn with_avatars(mut self, provider: Arc<dyn AvatarProvider>) -> Self {
@@ -191,6 +398,14 @@ impl Api {
         self
     }
 
+    pub fn events(&self) -> &EventBus {
+        &self.bus
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<AppEvent> {
+        self.bus.subscribe()
+    }
+
     pub fn command_log(&self) -> &Arc<CommandLog> {
         self.cli.log()
     }
@@ -198,11 +413,33 @@ impl Api {
     pub async fn dispatch(&self, req: Request) -> Result<serde_json::Value, GbError> {
         match req {
             Request::OpenRepo { path } => to_json(self.open_repo(&path).await?),
-            Request::Graph { repo, limit } => {
+            Request::Graph { repo, limit, pin, rescan } => {
                 let h = self.handle(repo)?;
-                let opts = BuildOptions { limit: limit.map(|l| l as usize).unwrap_or(crate::snapshot::DEFAULT_COMMIT_LIMIT), ..Default::default() };
-                to_json(build_graph(h.repo.clone(), h.workdir.clone(), self.cli.clone(), opts).await?)
+                let (pinned_ref, no_pin) = match pin {
+                    Some(PinSetting::Off) => (None, true),
+                    Some(PinSetting::Ref { name }) => (Some(name), false),
+                    Some(PinSetting::Auto) | None => (None, false),
+                };
+                let opts = BuildOptions {
+                    limit: limit.map(|l| l as usize).unwrap_or(crate::snapshot::DEFAULT_COMMIT_LIMIT),
+                    pinned_ref,
+                    no_pin,
+                    wip_cache: Some(h.wip.clone()),
+                    rescan: rescan.unwrap_or(false) || !self.status_is_watched(repo),
+                };
+                let (payload, texts) = build_graph_with_text(h.repo.clone(), h.workdir.clone(), self.cli.clone(), opts).await?;
+                {
+                    // Find searches this window now; the path index carries over (find.rs).
+                    let mut snapshot = h.snapshot.lock().expect("snapshot poisoned");
+                    let next = crate::find::FindSnapshot::new(texts, snapshot.as_deref());
+                    *snapshot = Some(Arc::new(next));
+                }
+                to_json(payload)
             }
+            Request::FindText { repo, query } => to_json(self.find_text(repo, &query)?),
+            Request::FindPaths { repo, query } => to_json(self.find_paths(repo, &query).await?),
+            Request::LocateCommit { repo, sha } => to_json(self.locate_commit(repo, &sha).await?),
+            Request::SearchHistory { repo, query } => to_json(self.search_history(repo, &query).await?),
             Request::CommandLog => to_json(self.cli.log().entries()),
             Request::LaunchRepo => to_json(&self.launch_repo),
             Request::CommitMessage { repo, id } => {
@@ -276,17 +513,26 @@ impl Api {
                     return to_json(());
                 }
                 let launcher = self.openers.as_ref().ok_or_else(unavailable)?.launcher.clone();
-                // An id the cached list doesn't have (installed since): detect again once.
-                let find = |list: &[Opener]| list.iter().find(|o| o.id == opener).cloned();
-                let o = match find(&self.openers(false).await?) {
-                    Some(o) => o,
-                    None => find(&self.openers(true).await?).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("no opener {opener:?} on this machine")))?,
-                };
                 let root = self.worktree_dir(&h, &worktree).await?;
+                let o = if opener == CUSTOM_ID {
+                    self.custom_opener(&h, &root).await?
+                } else {
+                    // An id the cached list doesn't have (installed since): detect again once.
+                    let find = |list: &[Opener]| list.iter().find(|o| o.id == opener).cloned();
+                    match find(&self.openers(false).await?) {
+                        Some(o) => o,
+                        None => find(&self.openers(true).await?).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("no opener {opener:?} on this machine")))?,
+                    }
+                };
                 let target = match o.kind {
                     OpenerKind::FileManager => folder_target(&root, &path)?,
                     OpenerKind::Editor | OpenerKind::Chooser => self.open_in_file(&h, &root, &path, source, fallback).await?,
                 };
+                if o.kind == OpenerKind::Editor {
+                    // Spec §5.3: editors start with the login shell's environment, which the
+                    // launcher reads once captured; wait for the capture (bounded, and at most once).
+                    let _ = self.cli.child_env().await;
+                }
                 let cmd = o.command(&target, line);
                 blocking(move || launcher(&cmd)).await?;
                 to_json(())
@@ -295,6 +541,81 @@ impl Api {
                 validate_web_url(&url)?;
                 let opener = self.url_opener.as_ref().ok_or_else(|| GbError::other("opening links isn't available here"))?;
                 opener(&url)?;
+                to_json(())
+            }
+            Request::LoadState => {
+                self.apply_profile_git_config();
+                to_json(self.store.state())
+            }
+            Request::SaveSettings { settings } => {
+                self.store.save_settings(settings);
+                to_json(())
+            }
+            Request::SaveProfile { profile } => {
+                self.store.save_profile(profile)?;
+                self.apply_profile_git_config();
+                to_json(())
+            }
+            Request::CreateProfile { name, color } => to_json(self.store.create_profile(&name, &color)?),
+            Request::SwitchProfile { id } => {
+                let st = self.store.switch_profile(&id)?;
+                self.apply_profile_git_config();
+                to_json(st)
+            }
+            Request::DeleteProfile { id } => to_json(self.store.delete_profile(&id)?),
+            Request::AuthAnswer { prompt, answer } => {
+                let server = self.askpass.get().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "askpass is not running"))?;
+                server.answer(prompt, answer)?;
+                to_json(())
+            }
+            Request::CancelOp { op } => {
+                self.ops.cancel(op);
+                to_json(())
+            }
+            Request::Fetch { repo, background } => to_json(self.fetch(repo, background).await?),
+            Request::Clone { url, dest } => to_json(self.clone_repo(url, dest).await?),
+            Request::RepoInfo { repo } => {
+                let h = self.handle(repo)?;
+                to_json(crate::shelldata::repo_info(&self.cli, &h.repo, &h.workdir).await?)
+            }
+            Request::Sidebar { repo } => {
+                let h = self.handle(repo)?;
+                to_json(crate::shelldata::sidebar(&self.cli, &h.repo, &h.workdir).await?)
+            }
+            Request::LastPush { repo, remote_ref } => {
+                let h = self.handle(repo)?;
+                to_json(blocking(move || crate::shelldata::last_push(&h.repo, &remote_ref)).await?)
+            }
+            Request::AppInfo => to_json(crate::shelldata::app_info_payload(self.git_version().await?)),
+            Request::PickFolder { start } => {
+                let Some(picker) = self.folder_picker.clone() else { return to_json(Option::<String>::None) };
+                let start = start.map(PathBuf::from).filter(|p| p.is_absolute());
+                let picked = blocking(move || Ok(picker(start.as_deref()))).await?;
+                to_json(picked.map(|p| p.display().to_string()))
+            }
+            Request::ScanRepos { root, refresh } => {
+                if !Path::new(&root).is_absolute() {
+                    return Err(GbError::new(GbErrorKind::InvalidInput, format!("not an absolute folder: {root}")));
+                }
+                if !refresh && let Some(hit) = self.scans.lock().expect("scans poisoned").get(&root).cloned() {
+                    return to_json(hit);
+                }
+                let dir = PathBuf::from(&root);
+                let found = blocking(move || Ok(crate::scan::scan_repos(&dir))).await?;
+                self.scans.lock().expect("scans poisoned").insert(root, found.clone());
+                to_json(found)
+            }
+            Request::SuggestReposFolder => to_json(crate::scan::suggest_repos_folder(self.home.as_deref())),
+            Request::WatchRepo { repo } => {
+                self.watch_repo(repo).await?;
+                to_json(())
+            }
+            Request::UnwatchRepo { repo } => {
+                self.unwatch_repo(repo);
+                to_json(())
+            }
+            Request::UnwatchAll => {
+                self.unwatch_all();
                 to_json(())
             }
         }
@@ -358,7 +679,7 @@ impl Api {
         .await
     }
 
-    fn handle(&self, id: u32) -> Result<Arc<RepoHandle>, GbError> {
+    pub(crate) fn handle(&self, id: u32) -> Result<Arc<RepoHandle>, GbError> {
         self.repos
             .lock()
             .expect("repos poisoned")
@@ -367,8 +688,8 @@ impl Api {
             .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("no open repository with id {id}")))
     }
 
-    async fn open_repo(&self, path: &str) -> Result<RepoSummary, GbError> {
-        self.version_ok.get_or_try_init(|| async { self.cli.check_version().await.map(|_| ()) }).await?;
+    pub(crate) async fn open_repo(&self, path: &str) -> Result<RepoSummary, GbError> {
+        self.git_version().await?;
         let repo = gix::ThreadSafeRepository::discover(path)
             .map_err(|_| GbError::new(GbErrorKind::NotFound, format!("Not a git repository: {path}")))?;
         let workdir = repo
@@ -381,7 +702,14 @@ impl Api {
             return Ok(RepoSummary { id, path: workdir.display().to_string(), name });
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        repos.insert(id, Arc::new(RepoHandle { repo, workdir: workdir.clone() }));
+        repos.insert(id, Arc::new(RepoHandle {
+            repo,
+            workdir: workdir.clone(),
+            name: name.clone(),
+            net_lock: tokio::sync::Mutex::new(()),
+            wip: Arc::new(crate::snapshot::WipCache::watched_only()),
+            snapshot: Mutex::new(None),
+        }));
         Ok(RepoSummary { id, path: workdir.display().to_string(), name })
     }
 
@@ -518,6 +846,189 @@ mod tests {
         let api = api();
         assert_eq!(api.dispatch(req(serde_json::json!({"method": "launchRepo"}))).await.unwrap(), "/launch/path");
         assert!(api.dispatch(req(serde_json::json!({"method": "commandLog"}))).await.unwrap().is_array());
+    }
+
+    #[tokio::test]
+    async fn state_round_trips_through_dispatch() {
+        let api = api();
+        let st = api.dispatch(req(serde_json::json!({"method": "loadState"}))).await.unwrap();
+        assert_eq!(st["profile"]["id"], "default");
+        let mut profile = st["profile"].clone();
+        profile["tabs"] = serde_json::json!([{"id": "t1", "kind": "repo", "path": "/r", "alias": null}]);
+        api.dispatch(req(serde_json::json!({"method": "saveProfile", "params": {"profile": profile}}))).await.unwrap();
+        let st = api.dispatch(req(serde_json::json!({"method": "loadState"}))).await.unwrap();
+        assert_eq!(st["profile"]["tabs"][0]["path"], "/r");
+        let mut settings = st["settings"].clone();
+        settings["fetchIntervalSecs"] = serde_json::json!(0);
+        api.dispatch(req(serde_json::json!({"method": "saveSettings", "params": {"settings": settings}}))).await.unwrap();
+        assert_eq!(api.store().state().settings.fetch_interval_secs, 0);
+        let made = api.dispatch(req(serde_json::json!({"method": "createProfile", "params": {"name": "Work", "color": "#f00"}}))).await.unwrap();
+        let switched = api.dispatch(req(serde_json::json!({"method": "switchProfile", "params": {"id": made["id"]}}))).await.unwrap();
+        assert_eq!(switched["profile"]["name"], "Work");
+        assert_eq!(switched["profiles"].as_array().unwrap().len(), 2);
+        api.dispatch(req(serde_json::json!({"method": "switchProfile", "params": {"id": "default"}}))).await.unwrap();
+        let left = api.dispatch(req(serde_json::json!({"method": "deleteProfile", "params": {"id": made["id"]}}))).await.unwrap();
+        assert_eq!(left, serde_json::json!([{"id": "default", "name": "Default", "color": "#4d88ff"}]));
+    }
+
+    #[tokio::test]
+    async fn profile_extra_gitconfig_reaches_git_commands() {
+        let r = TestRepo::new();
+        r.commit("a");
+        let inc = r.root().join("work.gitconfig");
+        std::fs::write(&inc, "[gitbolt]\n\tprobe = work\n").unwrap();
+        let api = api();
+        let mut p = api.store().active_profile();
+        p.extra_gitconfig = Some(inc.display().to_string());
+        api.dispatch(req(serde_json::json!({"method": "saveProfile", "params": {"profile": p}}))).await.unwrap();
+        let out = api.cli.run(crate::git::GitInvocation::new(r.path(), ["config", "gitbolt.probe"])).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "work");
+        // A blank path is no include at all; switching to a profile without one drops it.
+        p.extra_gitconfig = Some("  ".into());
+        api.dispatch(req(serde_json::json!({"method": "saveProfile", "params": {"profile": p}}))).await.unwrap();
+        assert_eq!(api.cli.include_path(), None);
+        p.extra_gitconfig = Some(inc.display().to_string());
+        api.dispatch(req(serde_json::json!({"method": "saveProfile", "params": {"profile": p}}))).await.unwrap();
+        let made = api.dispatch(req(serde_json::json!({"method": "createProfile", "params": {"name": "Plain", "color": "#0f0"}}))).await.unwrap();
+        api.dispatch(req(serde_json::json!({"method": "switchProfile", "params": {"id": made["id"]}}))).await.unwrap();
+        assert!(api.cli.run(crate::git::GitInvocation::new(r.path(), ["config", "gitbolt.probe"])).await.is_err());
+        api.dispatch(req(serde_json::json!({"method": "switchProfile", "params": {"id": "default"}}))).await.unwrap();
+        assert_eq!(api.cli.include_path(), Some(inc.clone()));
+        // A store opened with an active profile that has one applies it at once.
+        let other = super::Api::new(GitCli::new(Arc::new(CommandLog::new(10))), None).with_store(api.store().clone());
+        assert_eq!(other.cli.include_path(), Some(inc));
+    }
+
+    #[tokio::test]
+    async fn shell_data_requests_dispatch() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        let s = api.dispatch(req(serde_json::json!({"method": "sidebar", "params": {"repo": id}}))).await.unwrap();
+        assert!(s["locals"].as_array().unwrap().iter().any(|b| b["name"] == "main" && b["isHead"] == true));
+        assert_eq!(s["remotes"][0]["name"], "origin");
+        let lp = api.dispatch(req(serde_json::json!({"method": "lastPush", "params": {"repo": id, "remoteRef": "refs/remotes/origin/main"}}))).await.unwrap();
+        assert_eq!(lp["kind"], "push");
+        let bad = api.dispatch(req(serde_json::json!({"method": "lastPush", "params": {"repo": id, "remoteRef": "../../etc/passwd"}}))).await.unwrap_err();
+        assert_eq!(bad.kind, GbErrorKind::InvalidInput);
+        let info = api.dispatch(req(serde_json::json!({"method": "repoInfo", "params": {"repo": id}}))).await.unwrap();
+        assert_eq!(info["remotes"][0]["name"], "origin");
+        assert!(info["mainWorktree"].is_null());
+        let before = api.command_log().entries().len();
+        let app = api.dispatch(req(serde_json::json!({"method": "appInfo"}))).await.unwrap();
+        assert_eq!(app["appVersion"], env!("CARGO_PKG_VERSION"));
+        assert!(app["gitVersion"].as_str().unwrap().starts_with('2'));
+        assert_eq!(api.command_log().entries().len(), before, "the git version is the one openRepo cached");
+    }
+
+    #[tokio::test]
+    async fn graph_accepts_a_pin_choice() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        let graph = |pin: serde_json::Value| req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "pin": pin}}));
+        let auto = api.dispatch(graph(serde_json::json!({"kind": "auto"}))).await.unwrap();
+        assert!(auto["pinnedRef"].is_string());
+        assert!(api.dispatch(graph(serde_json::json!({"kind": "off"}))).await.unwrap()["pinnedRef"].is_null());
+        let hotfix = api.dispatch(graph(serde_json::json!({"kind": "ref", "name": "refs/heads/hotfix"}))).await.unwrap();
+        assert_eq!(hotfix["pinnedRef"], "refs/heads/hotfix");
+        let absent = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}))).await.unwrap();
+        assert_eq!(absent["pinnedRef"], auto["pinnedRef"], "no pin is the default trunk");
+    }
+
+    #[tokio::test]
+    async fn pick_folder_scan_repos_and_suggest_repos_folder_dispatch() {
+        let api = api();
+        assert!(api.dispatch(req(serde_json::json!({"method": "pickFolder", "params": {"start": null}}))).await.unwrap().is_null(), "no picker: nothing picked");
+        let asked: Arc<Mutex<Vec<Option<PathBuf>>>> = Arc::default();
+        let sink = asked.clone();
+        let api = api.with_folder_picker(Arc::new(move |start: Option<&Path>| {
+            sink.lock().unwrap().push(start.map(Path::to_path_buf));
+            Some(PathBuf::from("/picked/here"))
+        }));
+        let picked = api.dispatch(req(serde_json::json!({"method": "pickFolder", "params": {"start": "/start"}}))).await.unwrap();
+        assert_eq!(picked, "/picked/here");
+        assert_eq!(*asked.lock().unwrap(), [Some(PathBuf::from("/start"))]);
+
+        let home = tempfile::tempdir().unwrap();
+        let api = api.with_home(Some(home.path().to_path_buf()));
+        let suggest = || req(serde_json::json!({"method": "suggestReposFolder"}));
+        assert!(api.dispatch(suggest()).await.unwrap().is_null(), "no ~/repos yet");
+        let repos = home.path().join("repos");
+        TestRepo::init_at(&repos.join("one")).commit("a");
+        assert_eq!(api.dispatch(suggest()).await.unwrap(), repos.display().to_string());
+
+        let scan = |refresh: bool| req(serde_json::json!({"method": "scanRepos", "params": {"root": repos, "refresh": refresh}}));
+        assert_eq!(api.dispatch(scan(false)).await.unwrap().as_array().unwrap().len(), 1);
+        TestRepo::init_at(&repos.join("two")).commit("b");
+        assert_eq!(api.dispatch(scan(false)).await.unwrap().as_array().unwrap().len(), 1, "cached per root");
+        assert_eq!(api.dispatch(scan(true)).await.unwrap().as_array().unwrap().len(), 2, "refresh rescans");
+        let rel = api.dispatch(req(serde_json::json!({"method": "scanRepos", "params": {"root": "relative", "refresh": false}}))).await.unwrap_err();
+        assert_eq!(rel.kind, GbErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn the_custom_editor_template_opens_through_the_launcher() {
+        let r = TestRepo::new();
+        fixtures::details(&r);
+        let (api, launches) = with_openers(api());
+        let id = open(&api, &r).await;
+        let wt = r.path().canonicalize().unwrap();
+        let open_custom = |line: Option<u32>| req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "src/app.php", "line": line, "opener": "custom"}}));
+        assert_eq!(api.dispatch(open_custom(None)).await.unwrap_err().kind, GbErrorKind::InvalidInput, "no custom command set");
+        let mut p = api.store().active_profile();
+        p.editor = Some(crate::settings::EditorChoice::Custom { template: "/bin/echo --goto {file}:{line} --project {repo}".into() });
+        api.store().save_profile(p.clone()).unwrap();
+        api.dispatch(open_custom(Some(7))).await.unwrap();
+        let file = wt.join("src/app.php").display().to_string();
+        assert_eq!(argv(launches.lock().unwrap().last().unwrap()), ["/bin/echo", "--goto", &format!("{file}:7"), "--project", &wt.display().to_string()]);
+        // The repo's own editor wins over the profile's.
+        p.repos.insert(wt.display().to_string(), crate::settings::RepoSettings { editor: Some(crate::settings::EditorChoice::Custom { template: "/bin/echo {file}".into() }), ..Default::default() });
+        api.store().save_profile(p.clone()).unwrap();
+        api.dispatch(open_custom(None)).await.unwrap();
+        assert_eq!(argv(launches.lock().unwrap().last().unwrap()), ["/bin/echo", &file]);
+        // The same path checks as any editor, and the template guard.
+        let escape = req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "../x", "line": null, "opener": "custom"}}));
+        assert_eq!(api.dispatch(escape).await.unwrap_err().kind, GbErrorKind::InvalidInput);
+        p.repos.clear();
+        p.editor = Some(crate::settings::EditorChoice::Custom { template: "/bin/sh -c 'vim {file}'".into() });
+        api.store().save_profile(p.clone()).unwrap();
+        assert_eq!(api.dispatch(open_custom(None)).await.unwrap_err().kind, GbErrorKind::InvalidInput);
+        p.editor = Some(crate::settings::EditorChoice::Opener { id: "vscode".into() });
+        api.store().save_profile(p).unwrap();
+        assert_eq!(api.dispatch(open_custom(None)).await.unwrap_err().kind, GbErrorKind::InvalidInput, "the editor is an opener, not a custom command");
+        assert_eq!(launches.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn auth_answer_and_cancel_op_dispatch() {
+        let api = api();
+        let answer = |prompt: u64| req(serde_json::json!({"method": "authAnswer", "params": {"prompt": prompt, "answer": "x"}}));
+        assert_eq!(api.dispatch(answer(1)).await.unwrap_err().kind, GbErrorKind::InvalidInput, "no askpass yet");
+        assert!(api.dispatch(req(serde_json::json!({"method": "cancelOp", "params": {"op": 42}}))).await.unwrap().is_null(), "unknown ids are ignored");
+        let op = api.ops().begin(crate::events::OpKind::Fetch, None, true);
+        api.dispatch(req(serde_json::json!({"method": "cancelOp", "params": {"op": op.id}}))).await.unwrap();
+        assert!(op.cancel.is_cancelled());
+        assert!(api.net_env(op.id).is_empty(), "no askpass: no askpass environment");
+        let dir = tempfile::tempdir().unwrap();
+        api.start_askpass(dir.path(), "/bin/false".into()).await.unwrap();
+        let first = api.askpass().unwrap().socket_path().to_path_buf();
+        api.start_askpass(dir.path(), "/bin/true".into()).await.unwrap();
+        assert_eq!(api.askpass().unwrap().socket_path(), first, "started once");
+        assert_eq!(api.dispatch(answer(1)).await.unwrap_err().kind, GbErrorKind::InvalidInput, "no such prompt");
+        let env = api.net_env(op.id);
+        assert!(env.iter().any(|(k, v)| k == crate::askpass::ENV_OP && *v == *op.id.to_string()));
+        assert!(!env.iter().any(|(k, _)| k == "GCM_INTERACTIVE"), "a user-started op may prompt through a credential manager");
+        // A GitBolt-started op never prompts, not even through Git Credential Manager's own UI.
+        let background = api.ops().begin(crate::events::OpKind::Fetch, Some(1), false);
+        let env = api.net_env(background.id);
+        assert!(env.iter().any(|(k, v)| k == "GCM_INTERACTIVE" && v == "never"), "{env:?}");
+        assert!(super::Api::new(GitCli::new(Arc::new(CommandLog::new(10))), None).net_env(background.id).is_empty(), "an op this Api doesn't know");
+        let plain = super::tests::api();
+        let bg = plain.ops().begin(crate::events::OpKind::Fetch, Some(1), false);
+        assert_eq!(plain.net_env(bg.id), vec![("GCM_INTERACTIVE".into(), "never".into())], "even without askpass");
     }
 
     #[tokio::test]

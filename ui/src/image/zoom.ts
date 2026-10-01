@@ -1,12 +1,14 @@
-/** Stepped zoom (spec §10.4), on a fine ladder (H24): the slider and Ctrl+wheel move one step. */
-export const ZOOM_STEPS = ['fit', 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 10] as const;
+/** Stepped zoom (spec §10.4), on a fine ladder (H24): the slider and Ctrl+wheel move one step.
+ * K12: Fit is a dedicated button, not a rung — the slider's minimum is this ladder's own first
+ * (fixed) rung, not a computed fit percentage. */
+export const ZOOM_STEPS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 10] as const;
 export type ZoomStep = (typeof ZOOM_STEPS)[number];
-/** Where an image opens: 100% (H23). Fit stays on the slider's first step. */
+/** Where an image opens: 100% (H23). */
 export const DEFAULT_STEP = ZOOM_STEPS.indexOf(1);
 /** Image px → screen px: `screen = image * scale + (x, y)`. Shared by every layer and side. */
 export interface View { scale: number; x: number; y: number }
 
-export const stepLabel = (s: ZoomStep) => (s === 'fit' ? 'Fit' : `${Math.round(s * 100)}%`);
+export const stepLabel = (s: ZoomStep) => `${Math.round(s * 100)}%`;
 export const pixelated = (scale: number) => scale > 1;
 
 export function fitScale(w: number, h: number, boxW: number, boxH: number): number {
@@ -41,12 +43,26 @@ export function zoomAround(v: View, scale: number, px: number, py: number): View
   return { scale, x: px - ix * scale, y: py - iy * scale };
 }
 
-/** The index (in ZOOM_STEPS) of the next numeric step above (1) or below (-1) `scale`. */
+/** The index (in ZOOM_STEPS) of the next step above (1) or below (-1) `scale`. */
 export function nextStepIndex(scale: number, dir: 1 | -1): number {
-  const numeric: [number, number][] = [];
-  ZOOM_STEPS.forEach((s, i) => { if (s !== 'fit') numeric.push([s, i]); });
-  if (dir > 0) return (numeric.find(([s]) => s > scale + 1e-9) ?? numeric[numeric.length - 1])[1];
-  return ([...numeric].reverse().find(([s]) => s < scale - 1e-9) ?? numeric[0])[1];
+  if (dir > 0) {
+    const i = ZOOM_STEPS.findIndex((s) => s > scale + 1e-9);
+    return i === -1 ? ZOOM_STEPS.length - 1 : i;
+  }
+  const i = [...ZOOM_STEPS].reverse().findIndex((s) => s < scale - 1e-9);
+  return i === -1 ? 0 : ZOOM_STEPS.length - 1 - i;
+}
+
+/** The rung closest to an arbitrary `scale` (K12/K13: Fit or a typed exact percent rarely land on
+ * one) — only for the slider thumb's position; the exact scale is kept regardless. */
+export function nearestStepIndex(scale: number): number {
+  let best = 0;
+  let bestDiff = Infinity;
+  ZOOM_STEPS.forEach((s, i) => {
+    const d = Math.abs(s - scale);
+    if (d < bestDiff) { bestDiff = d; best = i; }
+  });
+  return best;
 }
 
 /** How close the swipe handle may come to the VIEWPORT's edges (never the image's, J10): its 3 px

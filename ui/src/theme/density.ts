@@ -33,16 +33,24 @@ export interface DensityMetrics {
   cellPadX: number;
   /** The details panel's file-list row height. */
   fileRowH: number;
+  /**
+   * The panels' top bar, outer height (its 1 px bottom divider included): the open file's
+   * header (path, encoding, ×) and the details panel's header bar (the signature and hashes, or
+   * the compare / WIP bar), whose dividers line up across the two panels (K5, K6).
+   */
+  panelBarH: number;
 }
 
 export const DENSITY_METRICS: Readonly<Record<Density, DensityMetrics>> = {
-  compact: { rowH: 25, laneW: 16, bandInset: 2, chipH: 17, cellPadX: 6, fileRowH: 24 },
-  standard: { rowH: 28, laneW: 22, bandInset: 3, chipH: 22, cellPadX: 8, fileRowH: 26 },
-  comfortable: { rowH: 32, laneW: 24, bandInset: 4, chipH: 24, cellPadX: 10, fileRowH: 30 },
+  compact: { rowH: 25, laneW: 16, bandInset: 2, chipH: 17, cellPadX: 6, fileRowH: 24, panelBarH: 31 },
+  // K6: 1B's 30 px bar (plus its border), 20% taller.
+  standard: { rowH: 28, laneW: 22, bandInset: 3, chipH: 22, cellPadX: 8, fileRowH: 26, panelBarH: 37 },
+  comfortable: { rowH: 32, laneW: 24, bandInset: 4, chipH: 24, cellPadX: 10, fileRowH: 30, panelBarH: 41 },
 };
 
 /** The CSS custom properties a density sets (kept on :root, below): graph.css reads the
- * `--graph-*` ones; `--file-row-h` is there for the file list. */
+ * `--graph-*` ones; `--file-row-h` is there for the file list; `--panel-bar-h` sizes the
+ * shared `.panel-bar` (tokens.css). */
 export function densityCssVars(d: Density): Record<string, string> {
   const m = DENSITY_METRICS[d];
   return {
@@ -50,6 +58,7 @@ export function densityCssVars(d: Density): Record<string, string> {
     '--graph-chip-h': `${m.chipH}px`,
     '--graph-cell-pad-x': `${m.cellPadX}px`,
     '--file-row-h': `${m.fileRowH}px`,
+    '--panel-bar-h': `${m.panelBarH}px`,
   };
 }
 

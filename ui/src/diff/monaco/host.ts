@@ -17,6 +17,8 @@ export interface EditorContextMenuEvent {
   side: 'original' | 'modified' | 'file';
   line: number;
   selection: { startLine: number; endLine: number } | null;
+  /** The selected text, `''` when `selection` is null (plan 1C Task 15's Monaco `Copy` row). */
+  selectionText: string;
   x: number;
   y: number;
 }
@@ -56,6 +58,10 @@ export interface MonacoHost {
   /** Puts the keyboard in the attached editor: the diff's modified side, else the file editor.
    * A no-op while neither is attached. */
   focus(): void;
+  /** Opens Monaco's find widget (Ctrl+F while a file is open, plan 1C ruling R7) in the attached
+   * editor: the diff's side holding the keyboard (else its modified side), else the file editor.
+   * A no-op while neither is attached. */
+  openFind(): void;
   /** Plan 1C seam: its context menu replaces Monaco's. `null` restores Monaco's own menu, which
    * stays on in 1B (plan 1B deviation 1). */
   setContextMenuHandler(handler: ((e: EditorContextMenuEvent) => void) | null): void;
@@ -97,10 +103,30 @@ const sticky = () => useEditorSettings.getState().settings.stickyScroll;
 const sameDiff = (a: DiffContent, b: DiffContent) => a.path === b.path && a.original === b.original && a.modified === b.modified;
 const sameFile = (a: FileContent, b: FileContent) => a.path === b.path && a.text === b.text;
 
+/** Hides (or shows) an editor's element. `opacity` does the hiding (K7): Monaco's diff editor
+ * sets `visibility: visible` on its two inner editors, which wins over a `visibility: hidden`
+ * inherited from here, so that alone left the held diff painted. `visibility` stays too: it keeps
+ * the element itself out of hit-testing and the accessibility tree.
+ *
+ * Hidden, it's inert as well (`inert`, and `pointer-events: none` for good measure): the inner
+ * editors' forced `visibility: visible` would otherwise keep them clickable and focusable. Focus
+ * inside it goes to the focus zone around it (the diff panel) first, rather than to `<body>`. */
+function setHidden(el: HTMLElement, hidden: boolean): void {
+  if (hidden && el.contains(document.activeElement)) {
+    const zone = el.parentElement?.closest<HTMLElement>('[data-focus-zone]');
+    if (zone) zone.focus({ preventScroll: true });
+    else (document.activeElement as HTMLElement | null)?.blur();
+  }
+  el.style.visibility = hidden ? 'hidden' : '';
+  el.style.opacity = hidden ? '0' : '';
+  el.style.pointerEvents = hidden ? 'none' : '';
+  el.toggleAttribute('inert', hidden);
+}
+
 /** Hides `el` while the editor in it holds content (`shown`) other than what the attaching view
  * will show (`next`). Visible again once that is shown. */
 function hideUnless<T>(el: HTMLElement, shown: T | null, next: T | undefined, same: (a: T, b: T) => boolean): void {
-  el.style.visibility = shown && next && !same(shown, next) ? 'hidden' : '';
+  setHidden(el, !!shown && !!next && !same(shown, next));
 }
 
 /** One diff editor and one file editor for the whole app (spec §4.4), re-parented into whichever
@@ -216,7 +242,7 @@ class Host implements MonacoHost {
     try {
       await this.presentDiff(req);
     } catch (e) {
-      this.diffEl.style.visibility = '';
+      setHidden(this.diffEl, false);
       throw e;
     }
   }
@@ -254,7 +280,7 @@ class Host implements MonacoHost {
     ed.getOriginalEditor().render(true);
     ed.getModifiedEditor().render(true);
     this.diffShown = { path: req.path, original: req.original, modified: req.modified };
-    this.diffEl.style.visibility = '';
+    setHidden(this.diffEl, false);
     this.diffView?.dispose();
     for (const m of this.diffModels) m.dispose();
     this.diffView = view;
@@ -374,7 +400,7 @@ class Host implements MonacoHost {
     try {
       await this.presentFile(req);
     } catch (e) {
-      this.fileEl.style.visibility = '';
+      setHidden(this.fileEl, false);
       throw e;
     }
   }
@@ -390,7 +416,7 @@ class Host implements MonacoHost {
     const model = monaco.editor.createModel(req.text, lang);
     ed.setModel(model);
     this.fileShown = { path: req.path, text: req.text };
-    this.fileEl.style.visibility = '';
+    setHidden(this.fileEl, false);
     this.fileModel?.dispose();
     this.fileModel = model;
   }
@@ -403,6 +429,17 @@ class Host implements MonacoHost {
   focus(): void {
     if (this.diff && this.diffEl.parentElement) this.diff.getModifiedEditor().focus();
     else if (this.file && this.fileEl.parentElement) this.file.focus();
+  }
+
+  openFind(): void {
+    let ed: MonacoNs.editor.ICodeEditor | null = null;
+    if (this.diff && this.diffEl.parentElement) {
+      const original = this.diff.getOriginalEditor();
+      ed = original.hasTextFocus() ? original : this.diff.getModifiedEditor();
+    } else if (this.file && this.fileEl.parentElement) ed = this.file;
+    if (!ed) return;
+    ed.focus();
+    void ed.getAction('actions.find')?.run();
   }
 
   setContextMenuHandler(handler: ((e: EditorContextMenuEvent) => void) | null): void {
@@ -420,21 +457,50 @@ class Host implements MonacoHost {
     if (this.file && this.fileEl.parentElement && shown(file)) this.file.layout(file);
   }
 
-  private wireMenu(ed: MonacoNs.editor.ICodeEditor, side: Side): void {
+  /** Builds and shows the menu for `ed`/`side` at `(x, y)`, from the current selection (or the
+   * cursor, keyboard-triggered). Shared by the mouse and keyboard paths. A no-op while no
+   * handler is set (fix round 1, item 1): with `contextmenu: false` (`setContextMenuHandler`),
+   * Monaco's own `editor.action.showContextMenu` is inert too (it checks the same option), so
+   * there is nothing to fall back to either way. */
+  private openMenuAt(ed: MonacoNs.editor.IStandaloneCodeEditor, side: Side, line: number, x: number, y: number): void {
+    if (!this.menu) return;
+    const sel = ed.getSelection();
+    const hasSelection = !!sel && !sel.isEmpty();
+    this.menu({
+      path: side === 'file' ? this.filePath : this.diffPath,
+      side,
+      line,
+      selection: hasSelection ? { startLine: sel.startLineNumber, endLine: sel.endLineNumber } : null,
+      selectionText: hasSelection ? (ed.getModel()?.getValueInRange(sel) ?? '') : '',
+      x,
+      y,
+    });
+  }
+
+  /** Shift+F10 / the ContextMenu key (fix round 1, item 1): `onContextMenu` is mouse-only, so a
+   * keyboard invocation never reaches it. Opens at the cursor's screen position
+   * (`getScrolledVisiblePosition`, relative to the editor; the editor's own box origin makes it
+   * a page position), just below the line, like a real context menu would. */
+  private openMenuAtCursor(ed: MonacoNs.editor.IStandaloneCodeEditor, side: Side): void {
+    const pos = ed.getPosition();
+    if (!pos) return;
+    const rect = ed.getDomNode()?.getBoundingClientRect();
+    const visible = ed.getScrolledVisiblePosition(pos);
+    const x = (rect?.left ?? 0) + (visible?.left ?? 0);
+    const y = (rect?.top ?? 0) + (visible?.top ?? 0) + (visible?.height ?? 0);
+    this.openMenuAt(ed, side, pos.lineNumber, x, y);
+  }
+
+  private wireMenu(ed: MonacoNs.editor.IStandaloneCodeEditor, side: Side): void {
     ed.onContextMenu((e) => {
       if (!this.menu) return;
       // With `contextmenu: false` Monaco no longer suppresses the webview's native menu.
       e.event.preventDefault();
-      const sel = ed.getSelection();
-      this.menu({
-        path: side === 'file' ? this.filePath : this.diffPath,
-        side,
-        line: e.target.position?.lineNumber ?? sel?.startLineNumber ?? 1,
-        selection: sel && !sel.isEmpty() ? { startLine: sel.startLineNumber, endLine: sel.endLineNumber } : null,
-        x: e.event.posx,
-        y: e.event.posy,
-      });
+      this.openMenuAt(ed, side, e.target.position?.lineNumber ?? ed.getSelection()?.startLineNumber ?? 1, e.event.posx, e.event.posy);
     });
+    const fromKeyboard = () => this.openMenuAtCursor(ed, side);
+    ed.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F10, fromKeyboard);
+    ed.addCommand(monaco.KeyCode.ContextMenu, fromKeyboard);
   }
 }
 

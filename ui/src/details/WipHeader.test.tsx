@@ -32,5 +32,7 @@ describe('WipHeader', () => {
   it('names the main worktree "Working tree"', async () => {
     await renderSelected(graphOf(wipRow({ worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 })), 0);
     expect(screen.getByTestId('wip-header')).toHaveTextContent('// WIP Working tree ✎1');
+    // The open file's bar box (K5/K6).
+    expect(screen.getByTestId('wip-header')).toHaveClass('panel-bar');
   });
 });

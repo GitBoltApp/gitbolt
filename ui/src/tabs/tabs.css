@@ -1,0 +1,37 @@
+/* The tab bar (spec §6.2) and the modal dialogs it owns (About, New/Rename profile). J19/J20/F5:
+   the motion tokens, no text selection, pointer cursors. */
+.tab-bar { display: flex; align-items: stretch; height: 34px; background: var(--toolbar-bg0); border-bottom: 1px solid var(--section-border); flex: none; user-select: none; }
+.tab-bar-btn { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 34px; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
+.tab-bar-btn:hover, .tab-bar-btn:focus-visible { color: var(--text-selected); background: var(--hover-row); }
+
+.tabs { display: flex; flex: 1; min-width: 0; overflow: hidden; }
+.tab { position: relative; display: flex; align-items: center; gap: 6px; max-width: 220px; min-width: 90px; padding: 0 6px 0 12px; border-right: 1px solid var(--section-border); color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
+.tab[aria-selected="true"] { background: var(--app-bg0); color: var(--text-selected); }
+.tab:not([aria-selected="true"]):hover { background: var(--hover-row); }
+/* The dragged tab's own snapshot stays warm (spec §6.2): on top, offset by the pointer, no
+   transition fighting the per-frame `transform`. */
+.tab.dragging { z-index: 2; opacity: 0.9; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); transition: none; }
+.tab.drop-target::before { content: ''; position: absolute; left: -1px; top: 4px; bottom: 4px; width: 2px; background: var(--blue); }
+.tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close { all: unset; display: inline-flex; padding: 3px; border-radius: 3px; opacity: 0.6; cursor: pointer; transition: opacity var(--motion-fast), background-color var(--motion-fast); }
+.tab-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.12); }
+.tab-rename { width: 100%; font: inherit; color: inherit; background: var(--panel-bg1); border: 1px solid var(--blue); border-radius: 3px; padding: 1px 4px; cursor: text; }
+
+.profile-switcher { all: unset; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
+.profile-switcher:hover, .profile-switcher:focus-visible { color: var(--text-selected); background: var(--hover-row); }
+.profile-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+/* About, New/Rename profile: the app's one modal pattern. */
+.modal-backdrop { position: fixed; inset: 0; z-index: 800; display: grid; place-items: center; background: rgba(0, 0, 0, 0.45); }
+.modal { min-width: 320px; max-width: 520px; padding: 16px 20px; background: var(--panel-bg0); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); color: var(--text-normal); }
+.modal h2 { margin: 0 0 12px; font-size: 15px; color: var(--text-selected); }
+.modal label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.modal input { font: inherit; padding: 5px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.modal-actions button { font: inherit; padding: 5px 14px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; transition: background-color var(--motion-fast); }
+.modal-actions button:hover { background: var(--hover-row); }
+.modal-actions button[type="submit"] { background: var(--blue); border-color: var(--blue); }
+.modal-actions button[type="submit"]:disabled { opacity: 0.5; cursor: default; background: var(--panel-bg1); border-color: var(--section-border); }
+.swatches { display: flex; gap: 6px; margin-bottom: 4px; }
+.swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.swatch[aria-checked="true"] { border-color: var(--text-selected); }

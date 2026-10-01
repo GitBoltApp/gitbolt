@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nextStepIndex, pixelated, startView, stepLabel, SWIPE_VIEWPORT_EDGE_PX, ZOOM_STEPS, zoomAround } from './zoom';
+import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, SWIPE_VIEWPORT_EDGE_PX, ZOOM_STEPS, zoomAround } from './zoom';
 
 describe('image zoom', () => {
   it('fits, centres and labels', () => {
@@ -10,8 +10,18 @@ describe('image zoom', () => {
   });
 
   it('a fine ladder of steps (H24), and 100% is where an image opens (H23)', () => {
-    expect(ZOOM_STEPS.map(stepLabel)).toEqual(['Fit', '10%', '25%', '33%', '50%', '67%', '75%', '90%', '100%', '110%', '125%', '150%', '175%', '200%', '250%', '300%', '400%', '500%', '600%', '800%', '1000%']);
+    // K12: Fit is a button now, not the slider's bottom stop — the ladder's own minimum (10%) is.
+    expect(ZOOM_STEPS.map(stepLabel)).toEqual(['10%', '25%', '33%', '50%', '67%', '75%', '90%', '100%', '110%', '125%', '150%', '175%', '200%', '250%', '300%', '400%', '500%', '600%', '800%', '1000%']);
     expect(ZOOM_STEPS[DEFAULT_STEP]).toBe(1);
+  });
+
+  it('finds the rung closest to an arbitrary scale (K12/K13: Fit or a typed % rarely land on one)', () => {
+    const at = (s: number) => ZOOM_STEPS.indexOf(s as (typeof ZOOM_STEPS)[number]);
+    expect(nearestStepIndex(1)).toBe(at(1));
+    expect(nearestStepIndex(0.83)).toBe(at(0.9));
+    expect(nearestStepIndex(0.81)).toBe(at(0.75));
+    expect(nearestStepIndex(0.05)).toBe(0); // below the ladder's own minimum: clamps to it
+    expect(nearestStepIndex(20)).toBe(ZOOM_STEPS.length - 1); // above the maximum
   });
 
   it('zooms around the cursor and steps through every numeric level (Ctrl+wheel)', () => {

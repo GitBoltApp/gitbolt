@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, SELECTED_BAND_ALPHA, STRIP_W } from './draw';
+import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, graphLayout, nodeRadius, PACKED_ALPHA, SELECTED_BAND_ALPHA, SHADE_ALPHA, SHADE_W, zoneWidth } from './draw';
 import type { RowPayload } from '../api/gen/RowPayload';
 
 function recorder() {
@@ -7,8 +7,10 @@ function recorder() {
   // Numeric args are kept exact (not rounded): the device-pixel snap produces values like
   // 11.5 or 17/1.5 that a naive Math.round would collapse into indistinguishable integers,
   // hiding the exact behavior the connector's crisp-pixel math depends on.
+  // createLinearGradient hands back a gradient whose colour stops are recorded too.
+  const gradient = { addColorStop: (...a: unknown[]) => { calls.push(`addColorStop(${a.join(',')})`); } };
   const ctx = new Proxy({} as Record<string, unknown>, {
-    get: (_t, k: string) => (k in _t ? _t[k] : (...a: unknown[]) => { calls.push(`${k}(${a.map((x) => (typeof x === 'number' ? x : typeof x)).join(',')})`); }),
+    get: (_t, k: string) => (k in _t ? _t[k] : (...a: unknown[]) => { calls.push(`${k}(${a.map((x) => (typeof x === 'number' ? x : typeof x)).join(',')})`); return k === 'createLinearGradient' ? gradient : undefined; }),
     set: (t, k: string, v) => { t[k] = v; calls.push(`${k}=${String(v)}`); return true; },
   });
   return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
@@ -43,43 +45,26 @@ describe('drawGraph', () => {
     expect(calls.findIndex((c) => c.startsWith('fillRect('))).toBeLessThan(calls.findIndex((c) => c.startsWith('arc(')));
   });
 
-  it('draws the overflow strip only when the graph is clipped: a solid app-background panel, full height, over the lanes (F2)', () => {
-    const base = { rows: [row(0, 'commit', [1 << 20])], first: 0, last: 1, scrollTop: 0, width: 100, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#123456', labeledRows: new Set<number>(), dpr: 1 };
-    const fits = recorder();
-    drawGraph(fits.ctx, { ...base, clipped: false });
-    expect(fits.calls).not.toContain(`fillRect(${100 - STRIP_W},0,${STRIP_W},22)`);
-    expect(fits.calls).not.toContain('fillStyle=rgba(0,0,0,0.35)');
-    const cut = recorder();
-    drawGraph(cut.ctx, { ...base, clipped: true });
-    const strip = cut.calls.indexOf(`fillRect(${100 - STRIP_W},0,${STRIP_W},22)`);
-    expect(strip).toBeGreaterThan(-1);
-    const before = cut.calls.slice(0, strip);
-    expect(before.findLast((x) => x.startsWith('fillStyle='))).toBe('fillStyle=#123456');
-    expect(before.findLast((x) => x.startsWith('globalAlpha='))).toBe('globalAlpha=1');
-    // Over the lines and nodes (it hides the part of the graph that's cut off).
-    expect(cut.calls.findIndex((c) => c.startsWith('arc('))).toBeGreaterThan(-1);
-    const after = cut.calls.slice(strip);
-    expect(after.some((c) => c.startsWith('arc(') || c === 'stroke()')).toBe(false);
+  it('while the lanes fit, nothing is packed, clipped, shaded or dimmed (F2, R11)', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', [1 << 20]), row(4, 'commit', [])];
+    drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, clipped: false });
+    expect(calls.some((c) => c.startsWith('clip('))).toBe(false);
+    expect(calls.some((c) => c.startsWith('createLinearGradient('))).toBe(false);
+    expect(calls).not.toContain(`globalAlpha=${PACKED_ALPHA}`);
+    // Lane 4 (x = 80) is drawn in its lane; its band runs to the edge.
+    expect(calls.filter((c) => c.startsWith('arc(80,'))).toHaveLength(1);
+    expect(calls).toContain('fillRect(80,24,20,18)');
   });
 
-  it('the strip is the scrollbar thickness (14 px), snapped to whole device pixels flush with the right edge (DPR 1.5)', () => {
-    expect(STRIP_W).toBe(14);
+  it('draws a solid, full-alpha 2px rail in the lane color at the right edge, last (after packed nodes and the shade)', () => {
     const { ctx, calls } = recorder();
-    // width 101 CSS px -> backing store round(151.5) = 152 device px; the strip is round(14 * 1.5)
-    // = 21 device px, so it spans device px 131..152: CSS x 131/1.5, width 21/1.5 = 14.
-    drawGraph(ctx, { rows: [row(0, 'commit', [])], first: 0, last: 1, scrollTop: 0, width: 101, height: 22, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1.5, clipped: true });
-    expect(calls).toContain(`fillRect(${131 / 1.5},0,${21 / 1.5},22)`);
-  });
-
-  it('draws a solid, full-alpha 2px rail in the lane color at the right edge, after the strip', () => {
-    const { ctx, calls } = recorder();
-    const rows = [row(0, 'commit', []), row(1, 'commit', [])];
+    const rows = [row(0, 'commit', []), row(5, 'commit', [])];
     drawGraph(ctx, { rows, first: 0, last: 2, scrollTop: 0, width: 100, height: 44, metrics: { rowH: 22, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, clipped: true });
+    const lastNode = calls.findLastIndex((c) => c.startsWith('arc('));
     for (const [top, c] of [[0, '#a'], [22, '#b']] as const) {
-      const strip = calls.indexOf(`fillRect(${100 - STRIP_W},0,${STRIP_W},44)`);
       const rail = calls.indexOf(`fillRect(98,${top + 2},2,18)`);
-      expect(strip).toBeGreaterThan(-1);
-      expect(rail).toBeGreaterThan(strip);
+      expect(rail).toBeGreaterThan(lastNode);
       // The fill state in effect for the rail: the lane color, at full alpha.
       const before = calls.slice(0, rail);
       expect(before.findLast((x) => x.startsWith('fillStyle='))).toBe(`fillStyle=${c}`);
@@ -113,6 +98,16 @@ describe('drawGraph', () => {
     expect(alphaFor('fillRect(16,2,84,21)')).toBe(`globalAlpha=${BAND_ALPHA}`);
     expect(alphaFor('fillRect(32,27,68,21)')).toBe(`globalAlpha=${SELECTED_BAND_ALPHA}`);
     expect(alphaFor('fillRect(16,52,84,21)')).toBe(`globalAlpha=${BAND_ALPHA}`);
+  });
+
+  it('a compare\'s second selected row gets the selected band too (K15)', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', []), row(1, 'commit', []), row(0, 'commit', [])];
+    drawGraph(ctx, { rows, first: 0, last: 3, scrollTop: 0, width: 100, height: 75, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors: ['#a', '#b'], nodeFill: '#000', labeledRows: new Set(), dpr: 1, selected: 1, alsoSelected: 2 });
+    const alphaFor = (rect: string) => calls.slice(0, calls.indexOf(rect)).findLast((c) => c.startsWith('globalAlpha='));
+    expect(alphaFor('fillRect(16,2,84,21)')).toBe(`globalAlpha=${BAND_ALPHA}`);
+    expect(alphaFor('fillRect(32,27,68,21)')).toBe(`globalAlpha=${SELECTED_BAND_ALPHA}`);
+    expect(alphaFor('fillRect(16,52,84,21)')).toBe(`globalAlpha=${SELECTED_BAND_ALPHA}`);
   });
 
   it('draws the label connector only on labeled rows, from x=0 to the node, snapped to a device pixel', () => {
@@ -223,5 +218,107 @@ describe('drawGraph', () => {
     expect(smooth).toBeLessThan(calls.findIndex((c) => c.startsWith('drawImage(')));
     // The second row has no avatar: it keeps its initials.
     expect(calls.filter((c) => c.startsWith('fillText(')).length).toBe(1);
+  });
+});
+
+describe('drawGraph: the collapse zone, packed nodes and the minimum-width strip (F11, R11)', () => {
+  const m = { rowH: 25, laneW: 16, padX: 8 };
+  // r = 9; the zone = 18 + 2 * 3 + 2 (rail) = 26 px; at width 80 the lane area is 54 px, and the
+  // packed column's centre sits mid-zone left of the rail: 54 + (26 - 2) / 2 = 66.
+  const base = { first: 0, scrollTop: 0, metrics: m, colors: ['#a', '#b', '#c', '#d', '#e', '#f'], nodeFill: '#000', dpr: 1, clipped: true };
+  const alphaAt = (calls: string[], i: number) => calls.slice(0, i).findLast((c) => c.startsWith('globalAlpha='));
+  const TAU = Math.PI * 2;
+
+  it('sizes the zone to fit a node plus a gap either side and the rail, per density', () => {
+    expect(nodeRadius(m)).toBe(9);
+    expect(zoneWidth(m)).toBe(26);
+    expect(zoneWidth({ rowH: 28, laneW: 22, padX: 11 })).toBe(21 + 8);
+    expect(graphLayout(80, m, false)).toEqual({ zone: 0, area: 80, packedX: 80, strip: false });
+    expect(graphLayout(80, m, true)).toEqual({ zone: 26, area: 54, packedX: 66, strip: false });
+    // Lane 0 needs 16 + 9 = 25 px: below that there are no lanes at all, only the strip.
+    expect(graphLayout(26 + 25, m, true).strip).toBe(false);
+    expect(graphLayout(26 + 24, m, true).strip).toBe(true);
+    expect(graphLayout(26 + 24, m, false).strip).toBe(false);
+  });
+
+  it('packs every node whose lane runs past the lane area into ONE column in the zone, dimmed', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', []), row(3, 'commit', []), row(5, 'merge', []), row(1, 'commit', [])];
+    drawGraph(ctx, { ...base, rows, last: 4, width: 80, height: 100, labeledRows: new Set() });
+    const arcs = calls.map((c, i) => [c, i] as const).filter(([c]) => c.startsWith('arc('));
+    // Lanes 0 and 1 are inside the 54 px lane area (x 16, 32); lanes 3 (64) and 5 are packed.
+    expect(arcs.map(([c]) => c.split(',')[0])).toEqual(['arc(16', 'arc(32', 'arc(66', 'arc(66']);
+    for (const [c, i] of arcs) expect(alphaAt(calls, i), c).toBe(c.startsWith('arc(66') ? `globalAlpha=${PACKED_ALPHA}` : 'globalAlpha=1');
+    // A packed merge is a node like the rest of the column (the commit's radius), not a dot.
+    expect(arcs[3][0]).toBe(`arc(66,62.5,9,0,${TAU})`);
+    // Packed rows' bands fill the zone only; a lane row's runs from its node to the edge.
+    expect(calls).toContain('fillRect(54,27,26,21)');
+    expect(calls).toContain('fillRect(32,77,48,21)');
+  });
+
+  it('clips the lines to the lane area: no line enters the zone or joins a packed node', () => {
+    const { ctx, calls } = recorder();
+    const toLane5 = 0 | (5 << 10) | (1 << 20);
+    drawGraph(ctx, { ...base, rows: [row(0, 'commit', [toLane5]), row(5, 'commit', [])], last: 2, width: 80, height: 50, labeledRows: new Set() });
+    const clip = calls.indexOf('clip()');
+    expect(calls[clip - 1]).toBe('rect(0,0,54,50)');
+    const restore = calls.indexOf('restore()', clip);
+    // The merge line to lane 5 is drawn inside the clip; nothing is stroked from the area's edge.
+    expect(calls.slice(clip, restore).some((c) => c.startsWith('quadraticCurveTo('))).toBe(true);
+    expect(calls.some((c) => c.startsWith('moveTo(54,'))).toBe(false);
+  });
+
+  it("shades a gradient band at the zone's left edge, over the lanes, before the packed nodes", () => {
+    const { ctx, calls } = recorder();
+    drawGraph(ctx, { ...base, rows: [row(0, 'commit', []), row(5, 'commit', [])], last: 2, width: 80, height: 50, labeledRows: new Set() });
+    const grad = calls.indexOf(`createLinearGradient(${54 - SHADE_W},0,54,0)`);
+    expect(grad).toBeGreaterThan(-1);
+    expect(calls.slice(grad, grad + 3)).toEqual([`createLinearGradient(${54 - SHADE_W},0,54,0)`, 'addColorStop(0,rgba(0,0,0,0))', `addColorStop(1,rgba(0,0,0,${SHADE_ALPHA}))`]);
+    const shade = calls.indexOf(`fillRect(${54 - SHADE_W},0,${SHADE_W},50)`, grad);
+    expect(shade).toBeGreaterThan(calls.indexOf(`arc(16,12.5,9,0,${TAU})`));
+    expect(shade).toBeLessThan(calls.findIndex((c) => c.startsWith('arc(66,')));
+    expect(alphaAt(calls, shade)).toBe('globalAlpha=1');
+  });
+
+  it("runs a packed row's label connector to its packed node", () => {
+    const { ctx, calls } = recorder();
+    drawGraph(ctx, { ...base, rows: [row(0, 'commit', []), row(5, 'commit', [])], last: 2, width: 80, height: 50, labeledRows: new Set([0, 1]) });
+    expect(calls).toContain('lineTo(16,12.5)');
+    expect(calls).toContain('lineTo(57,37.5)'); // 66 - 9
+  });
+
+  it('packs by the lane centre: a lane whose centre is inside keeps its nodes, even half under the shade', () => {
+    const { ctx, calls } = recorder();
+    // Lane 2's centre (48) is inside the 54 px lane area, its node reaching 57: drawn in its lane.
+    drawGraph(ctx, { ...base, rows: [row(2, 'commit', [(2 << 10) | 2 | (2 << 20)])], last: 1, width: 80, height: 25, labeledRows: new Set() });
+    expect(calls.filter((c) => c.startsWith('arc(')).map((c) => c.split(',')[0])).toEqual(['arc(48']);
+    expect(calls).toContain('lineTo(48,25)');
+  });
+
+  it('shifts the lanes by scrollX and packs the ones scrolled out on either side', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', [1 << 20]), row(3, 'commit', []), row(5, 'commit', [])];
+    drawGraph(ctx, { ...base, rows, last: 3, width: 80, height: 75, scrollX: 32, labeledRows: new Set() });
+    expect(calls).toContain('translate(-32,0)');
+    // Lane 0: 16 - 32 < 0, packed. Lane 3: 64 - 32 = 32, shown. Lane 5: 96 - 32 = 64, past 54: packed.
+    expect(calls.filter((c) => c.startsWith('arc(')).map((c) => c.split(',')[0])).toEqual(['arc(32', 'arc(66', 'arc(66']);
+    expect(calls).toContain('fillRect(32,27,48,21)');
+  });
+
+  it('at the minimum width: one column of coloured nodes, dimmed like any packed node, and the rail; no bands, lines or shade (F11)', () => {
+    const { ctx, calls } = recorder();
+    const rows = [row(0, 'commit', [1 << 20]), row(2, 'merge', [(2 << 10) | 2 | (2 << 20)]), row(1, 'stash', [])];
+    drawGraph(ctx, { ...base, rows, last: 3, width: 48, height: 75, labeledRows: new Set([0]) });
+    // Centred left of the 2 px rail: (48 - 2) / 2 = 23. Merges are nodes too; a stash keeps its square.
+    expect(calls.filter((c) => c.startsWith('arc(')).map((c) => c.split(',').slice(0, 3).join(','))).toEqual(['arc(23,12.5,9', 'arc(23,37.5,9']);
+    const s = 25 * 0.28;
+    expect(calls).toContain(`rect(${23 - s},${62.5 - s},${2 * s},${2 * s})`);
+    expect(calls).not.toContain(`globalAlpha=${BAND_ALPHA}`);
+    // Every lane has run off: every node is packed, so dimmed (R11).
+    for (const [i, c] of calls.entries()) if (c.startsWith('arc(') || c.startsWith('rect(')) expect(alphaAt(calls, i), c).toBe(`globalAlpha=${PACKED_ALPHA}`);
+    expect(calls.some((c) => c.startsWith('createLinearGradient('))).toBe(false);
+    // The only line is the label connector, to the node's edge (the continuity rule).
+    expect(calls.filter((c) => c.startsWith('lineTo('))).toEqual(['lineTo(14,12.5)']);
+    expect(calls).toContain('fillRect(46,2,2,21)'); // the rail edge
   });
 });

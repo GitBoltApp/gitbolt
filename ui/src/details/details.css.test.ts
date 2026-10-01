@@ -41,6 +41,27 @@ describe('details.css (feedback H11)', () => {
   });
 });
 
+describe('details.css header bars (K5, K6)', () => {
+  const diff = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'diff', 'diff.css'), 'utf8');
+  const diffRule = (selector: string) => diff.match(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('the commit hashes row, the compare bar and the open file\'s header set no height or border of their own: both come from .panel-bar (tokens.css), so the heights are equal', () => {
+    for (const [name, body] of [['.commit-ids', rule('.commit-ids')], ['.compare-bar', rule('.compare-bar')], ['.wip-header', rule('.wip-header')], ['.diff-header', diffRule('.diff-header')]]) {
+      expect(body, name).not.toBe('');
+      expect(body, name).not.toMatch(/(^|;)\s*(min-|max-)?height:/);
+      expect(body, name).not.toMatch(/border(-bottom)?:/);
+      expect(body, name).not.toMatch(/padding(-top|-bottom)?:\s*[1-9]/);
+    }
+  });
+
+  it('nothing above the commit bar: the header section has no top padding, and the bar spans the panel\'s width', () => {
+    expect(rule('.commit-details')).toMatch(/padding:\s*0 12px 0;/);
+    expect(rule('.commit-ids')).toMatch(/margin:\s*0 -12px/);
+    expect(rule('.compare-header')).toMatch(/padding:\s*0 12px/);
+    expect(rule('.compare-bar')).toMatch(/margin:\s*0 -12px/);
+  });
+});
+
 describe('details.css motion (J19)', () => {
   it('the split-resizer hover reveal fades its background at the fast token, not its top/height', () => {
     const before = rule('.split-resizer::before');

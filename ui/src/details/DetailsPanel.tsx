@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import type { CommitDetailsPayload } from '../api/gen/CommitDetailsPayload';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import { copyText } from '../api/transport';
@@ -61,7 +61,7 @@ function CommitHeader({ d }: { d: CommitDetailsPayload }) {
   const commitDate = <span data-testid="commit-date">{formatDate(d.committer.time)}</span>;
   return (
     <header className="commit-header">
-      <div className="commit-ids">
+      <div className="commit-ids panel-bar">
         <span className="commit-ids-start"><SignatureBadge id={d.id} signed={d.signed} /></span>
         <span className="commit-id">
           <span className="id-label">commit:</span>{' '}
@@ -100,7 +100,7 @@ function CommitHeader({ d }: { d: CommitDetailsPayload }) {
  * remote, with `Open !n` buttons. Rendered from the settled `panel` (feedback F12): both have
  * arrived (or failed) by now, so there's no placeholder frame.
  */
-function CommitDetails({ panel, ratio }: { panel: PanelContent; ratio: number }) {
+function CommitDetails({ panel, ratio, ref }: { panel: PanelContent; ratio: number; ref?: Ref<HTMLDivElement> }) {
   const { details, message, selection } = panel;
   const row = useRepoView((s) => (selection.kind === 'commit' && s.graph.rows[selection.index]?.id === selection.id ? s.graph.rows[selection.index] : undefined));
   const remote = useProjectRemote(useRepoView((s) => s.services));
@@ -109,9 +109,10 @@ function CommitDetails({ panel, ratio }: { panel: PanelContent; ratio: number })
     if (readyId) perf.done('details');
   }, [readyId]);
   // The header stays put; only the message scrolls (feedback F13). The section's height is the
-  // split's share of the panel.
+  // split's share of the panel (its live drag writes flexBasis to this node directly: see
+  // SplitResizer).
   return (
-    <div className="commit-details" style={{ flexBasis: `${ratio * 100}%` }}>
+    <div ref={ref} className="commit-details" style={{ flexBasis: `${ratio * 100}%` }}>
       {details.status === 'ready' && <CommitHeader d={details.data} />}
       {details.status === 'error' && <div role="alert" className="details-error">{details.message}</div>}
       <div className="commit-message message-box" data-testid="commit-message">
@@ -201,11 +202,6 @@ function FileSections({ panel }: { panel: PanelContent }) {
   );
 }
 
-/** Shown while the first Ctrl+click of a compare waits for the second (spec §9.4). */
-function CompareHint({ panel }: { panel: PanelContent }) {
-  return panel.marks.a !== null && panel.marks.b === null ? <div className="compare-hint">Ctrl+click another commit to compare</div> : null;
-}
-
 /** The panel's height and its commit header's, kept current by a ResizeObserver (window
  * resizes, header changes) and re-read before paint whenever the shown content changes. */
 function usePanelSize(ref: RefObject<HTMLDivElement | null>, panel: PanelContent | null) {
@@ -240,15 +236,17 @@ export function DetailsPanel() {
   const size = usePanelSize(useRef<HTMLDivElement>(null), panel);
   const bounds = splitBounds(size.height, size.header);
   const shown = Math.max(bounds[0], Math.min(bounds[1], ratio));
+  // SplitResizer writes the live ratio straight here while dragging (rAF-coalesced), bypassing
+  // React (and the file lists it would otherwise re-render) until the drag ends.
+  const topRef = useRef<HTMLDivElement>(null);
   if (!panel) return null;
   const kind = panel.selection.kind;
   return (
     <div ref={size.ref} className="details-panel">
       {kind === 'commit' && (
         <>
-          <CompareHint panel={panel} />
-          <CommitDetails panel={panel} ratio={shown} />
-          <SplitResizer ratio={shown} bounds={bounds} height={size.height} onChange={setRatio} onCommit={saveSplit} />
+          <CommitDetails panel={panel} ratio={shown} ref={topRef} />
+          <SplitResizer ratio={shown} bounds={bounds} height={size.height} onChange={setRatio} onCommit={saveSplit} targetRef={topRef} />
         </>
       )}
       {(kind === 'compare' || kind === 'compareWorktree') && <CompareHeader />}

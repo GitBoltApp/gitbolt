@@ -7,7 +7,20 @@
 .image-toolbar button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 .image-toolbar button:disabled { opacity: 0.4; cursor: default; }
 .image-zoom { display: inline-flex; align-items: center; gap: 6px; }
-.image-stage { display: flex; gap: 2px; flex: 1; min-height: 0; user-select: none; -webkit-user-select: none; }
+/* K12/K13: the Fit button and the clickable zoom value share the toolbar's button look. */
+.image-toolbar .zoom-fit, .image-toolbar .zoom-value { all: unset; cursor: pointer; padding: 2px 8px; border-radius: 4px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
+/* K23: same fixed-width fix as the Amplify value — zoom runs 10%-1000%, so its digit count changes
+   too (e.g. 99% → 100%), which would otherwise shove the meta/background controls after it. */
+.image-toolbar .zoom-value { font-variant-numeric: tabular-nums; min-width: 5ch; text-align: center; }
+.image-toolbar .zoom-fit:hover, .image-toolbar .zoom-value:hover { background: var(--hover-row); color: var(--text-selected); }
+.zoom-input { width: 3.4em; text-align: center; font: inherit; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; padding: 1px 4px; }
+.meta-sep { margin: 0 3px; color: var(--text-secondary); }
+.image-stage { position: relative; display: flex; gap: 2px; flex: 1; min-height: 0; user-select: none; -webkit-user-select: none; }
+/* K21: a 1 px divider between the two halves in side-by-side. An absolutely positioned overlay
+   (not a border/margin) sitting in the gap, so it never nudges the flex split between the two
+   equally flex:1 viewports (the existing border token, same as the toolbar's own borders). The
+   markup only renders it when both images exist, so a single-image pane (H25) never grows one. */
+.side-divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; margin-left: -0.5px; background: var(--section-border); pointer-events: none; }
 .image-source { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .image-viewport { position: relative; flex: 1; min-width: 0; overflow: hidden; cursor: grab; touch-action: none; background: var(--app-bg0); }
 /* J11: the image's bounds on screen. The background pick is drawn here only, behind the image,
@@ -27,16 +40,34 @@
 .checker-icon { overflow: hidden; box-shadow: none; outline: 1px solid rgb(255 255 255 / 0.35); outline-offset: -1px; }
 .checker-icon .checker-dark { fill: #4a4a4a; }
 .checker-icon .checker-light { fill: #cfcfcf; }
-.image-meta { white-space: nowrap; }
+/* K11: a bit more room between the zoom slider and the meta block (dims/size). */
+.image-meta { white-space: nowrap; margin-left: 6px; }
 .image-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; user-select: none; }
 .swipe-clip { position: absolute; inset: 0; }
 .swipe-divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--blue); cursor: ew-resize; outline: none; }
 /* A wider grab area than the 3 px line, so a grab near it doesn't miss onto the image. */
 .swipe-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -6px; right: -6px; }
-.onion-opacity { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: 40%; }
+/* K9: the Old/New (and onion's opacity) end labels live in one bottom-centred, flex control, the
+   opacity slider between them; the same shape as difference's Amplify control below. */
+.onion-control, .difference-amplify { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; }
+.onion-control { width: 40%; }
+.onion-control .onion-opacity { flex: 1; }
 /* `all: unset` and `outline: none` above drop the browser's focus ring: keyboard users need it back
    (the same ring as `.sha:focus-visible` in graph.css). */
-.image-toolbar .segmented > button:focus-visible, .image-toolbar .toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; color: var(--text-selected); }
-.image-toolbar .segmented > button:focus-visible { border-radius: 2px; }
+.image-toolbar .segmented > button:focus-visible, .image-toolbar .toggle:focus-visible, .image-toolbar .zoom-fit:focus-visible, .image-toolbar .zoom-value:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; color: var(--text-selected); }
+.image-toolbar .segmented > button:focus-visible, .image-toolbar .zoom-fit:focus-visible, .image-toolbar .zoom-value:focus-visible { border-radius: 2px; }
 .swipe-divider:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: 2px; }
 .image-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); pointer-events: none; }
+/* K9: subtle Old/New chips — never in the way of a drag or the swipe handle. */
+.image-label { pointer-events: none; font-size: 10px; line-height: 1.5; letter-spacing: 0.03em; text-transform: uppercase; color: rgba(255, 255, 255, 0.85); }
+.image-viewport > .image-label { position: absolute; bottom: 6px; background: rgba(0, 0, 0, 0.55); padding: 1px 6px; border-radius: 3px; }
+.image-viewport > .image-label.label-bl { left: 6px; }
+.image-viewport > .image-label.label-br { right: 6px; }
+/* K22: side-by-side's own Old/New chips are bigger and centred horizontally in each half, near the
+   top (swipe's bottom corner chips above are unchanged — that position is still right for swipe;
+   onion shares no part of this selector). */
+.image-stage.mode-side .image-viewport > .image-label { top: 8px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); font-size: 13px; padding: 2px 8px; }
+.onion-label { flex: none; color: var(--text-secondary); }
+/* K23: a fixed width (sized for "16×", the widest value) so the slider doesn't shift when the
+   digit count changes (e.g. 9× → 10×). */
+.amplify-value { flex: none; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 3ch; }

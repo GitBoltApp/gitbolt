@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { installZoom, nextZoom, parseZoom, ZOOM_STEPS, ZOOM_STORAGE_KEY, zoomDirection } from './zoom';
+import { installZoom, nextZoom, parseZoom, setZoom, useZoom, ZOOM_STEPS, ZOOM_STORAGE_KEY, zoomDirection } from './zoom';
 
 const key = (key: string, mods: Partial<KeyboardEventInit> = {}) => new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true, ...mods });
 
@@ -113,5 +113,28 @@ describe('installZoom', () => {
     expect(apply).toHaveBeenLastCalledWith(90);
     get.mockRestore();
     set.mockRestore();
+  });
+
+  it('useZoom follows the keys and setZoom (the status bar\'s step list), which applies and saves', () => {
+    const apply = vi.fn();
+    localStorage.setItem(ZOOM_STORAGE_KEY, '120');
+    uninstall = installZoom(apply);
+    expect(useZoom.getState().zoom).toBe(120);
+    document.body.dispatchEvent(key('='));
+    expect(useZoom.getState().zoom).toBe(130);
+    setZoom(250);
+    expect(useZoom.getState().zoom).toBe(250);
+    expect(apply).toHaveBeenLastCalledWith(250);
+    expect(localStorage.getItem(ZOOM_STORAGE_KEY)).toBe('250');
+    expect(document.documentElement.dataset.zoom).toBe('250');
+    // The keys step on from the picked zoom.
+    document.body.dispatchEvent(key('-'));
+    expect(apply).toHaveBeenLastCalledWith(200);
+    // Uninstalled: setZoom no longer calls this install's apply (back to the webview's).
+    uninstall();
+    uninstall = undefined;
+    apply.mockClear();
+    setZoom(100);
+    expect(apply).not.toHaveBeenCalled();
   });
 });

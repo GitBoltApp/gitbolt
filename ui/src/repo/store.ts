@@ -41,14 +41,18 @@ export interface FileSection { title: string | null; spec: DiffSpec; list: Loada
 /** What the right panel shows: one selection with everything loaded for it (feedback F12). */
 export interface PanelContent {
   selection: Exclude<Selection, { kind: 'none' }>;
-  marks: CompareMarks;
   parent: number;
   details: Loadable<CommitDetailsPayload>;
   message: Loadable<CommitMessage>;
   sections: FileSection[];
 }
-/** Compare endpoints as row indexes: `a` is the first Ctrl+click, `b` the second (spec §9.4). */
-export interface CompareMarks { a: number | null; b: number | null }
+/**
+ * A compare's two selected rows (spec §9.4, K15), as row indexes (`null`: not in the loaded
+ * graph): `cursor` is the one Ctrl+clicked last (the keyboard's position), `other` the one
+ * selected before it. Both show as selected. The compare's direction is by commit date, not by
+ * these (K16).
+ */
+export interface CompareRows { cursor: number | null; other: number | null }
 
 export interface RepoViewState {
   repo: number;
@@ -57,7 +61,8 @@ export interface RepoViewState {
   graph: GraphPayload;
   indexById: Map<string, number>;
   selection: Selection;
-  marks: CompareMarks;
+  /** The compare's two selected rows; both `null` unless comparing. */
+  compareRows: CompareRows;
   parent: number;
   /** The selected commit's header (§9.1); `idle` unless a single commit is selected. */
   details: Loadable<CommitDetailsPayload>;
@@ -92,11 +97,22 @@ export interface RepoViewState {
    */
   fileListCursor: string | null;
   setFileListCursor(key: string): void;
+  /**
+   * Plan 1C Find (Ctrl+F, spec §8.7): the commit ids that match, or `null` for no search. While
+   * set, the graph dims every other row's text at the row-dim mechanism's `'filter'` level
+   * (rowDim.ts). By id, so a refresh that moves the rows keeps dimming the same commits.
+   */
+  filterKeep: ReadonlySet<string> | null;
+  setFilterKeep(keep: ReadonlySet<string> | null): void;
   setGraph(graph: GraphPayload): void;
+  /**
+   * A plain click selects the row alone. A Ctrl+click (K15) adds it to a single selection, and
+   * the two are compared (spec §9.4); on one of a compared pair it drops that one; on a third
+   * row it pairs it with the one Ctrl+clicked last.
+   */
   selectRow(index: number, mods?: { ctrl?: boolean }): void;
   selectCommitById(id: string): boolean;
-  /** Reverses a compare. An open diff moves to the same file in the reversed list, or closes. */
-  swapCompare(): void;
+  /** Leaves compare mode for the row Ctrl+clicked last (or else the other one). */
   exitCompare(): void;
   compareWithWorktree(from: string, worktree: string): void;
   setParent(parent: number): void;
@@ -122,7 +138,7 @@ const backendOrder: FileOrder = (files, spec) => files.map((f) => targetFor(f, s
 /** A keyed, cached source: a `Loader` or the `CommitMessageCache`. */
 interface Source<T> { peek(key: string): T | undefined; get(key: string): Promise<T> }
 
-const NO_MARKS: CompareMarks = { a: null, b: null };
+const NO_ROWS: CompareRows = { cursor: null, other: null };
 const IDLE = { status: 'idle' } as const;
 const indexGraph = (g: GraphPayload) => new Map(g.rows.map((r, i) => [r.id, i] as const));
 
@@ -143,12 +159,21 @@ export function selectedIndex(s: RepoViewState): number {
     case 'wip':
       return s.selection.index;
     case 'compare':
-      return s.marks.b ?? -1;
     case 'compareWorktree':
-      return s.marks.a ?? -1;
+      return s.compareRows.cursor ?? -1;
     default:
       return -1;
   }
+}
+
+/** The second selected row: a compare's other side (K15), else -1. */
+export const otherSelectedIndex = (s: RepoViewState): number => s.compareRows.other ?? -1;
+
+/** A compare's endpoints `[base, target]`, rows `i` and `j`: older = base, by commit date (K16);
+ * the same date: the lower row (the graph lists parents below their children). */
+function byDate(rows: GraphPayload['rows'], i: number, j: number): [number, number] {
+  const ti = rows[i].committerTime, tj = rows[j].committerTime;
+  return (ti !== tj ? ti < tj : i > j) ? [i, j] : [j, i];
 }
 
 /** The file lists a selection shows, in order. */
@@ -176,7 +201,7 @@ const settledFor = (l: Loadable<{ id: string }>, id: string) => l.status === 'er
 /** The panel for state `s` (whose `panel` is the one shown so far): `s`'s own content once all
  * of it has settled, else the one shown so far. */
 function panelFor(s: RepoViewState): Pick<RepoViewState, 'panel' | 'panelPending'> {
-  const { selection, marks, parent, details, message, sections } = s;
+  const { selection, parent, details, message, sections } = s;
   if (selection.kind === 'none') return { panel: null, panelPending: false };
   const want = sectionSpecs(selection, parent).map((x) => filesKey(x.spec));
   const complete = sections.length === want.length
@@ -184,8 +209,8 @@ function panelFor(s: RepoViewState): Pick<RepoViewState, 'panel' | 'panelPending
     && (selection.kind !== 'commit' || (settledFor(details, selection.id) && settledFor(message, selection.id)));
   if (!complete) return { panel: s.panel, panelPending: true };
   const p = s.panel;
-  if (p && p.selection === selection && p.marks === marks && p.parent === parent && p.details === details && p.message === message && p.sections === sections) return { panel: p, panelPending: false };
-  return { panel: { selection, marks, parent, details, message, sections }, panelPending: false };
+  if (p && p.selection === selection && p.parent === parent && p.details === details && p.message === message && p.sections === sections) return { panel: p, panelPending: false };
+  return { panel: { selection, parent, details, message, sections }, panelPending: false };
 }
 
 export function createRepoViewStore(repo: number, repoPath: string, graph: GraphPayload, services: RepoServices): RepoViewStore {
@@ -228,22 +253,20 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
     /** Leaves every selection: late results for the old one are dropped. */
     function clearSelection(extra: Partial<RepoViewState> = {}) {
       ++seq;
-      set({ selection: { kind: 'none' }, marks: NO_MARKS, details: IDLE, message: IDLE, sections: [], diff: null, ...extra });
+      set({ selection: { kind: 'none' }, compareRows: NO_ROWS, details: IDLE, message: IDLE, sections: [], diff: null, ...extra });
     }
 
     function requestFocus(zone: FocusZone, extra: Partial<RepoViewState> = {}) {
       set((st) => ({ ...extra, focus: zone, focusRequest: st.focusRequest + 1 }));
     }
 
-    /** `marks` land in the same update as the selection, so the panel never shows the new
-     * marks (the compare hint) on the previous commit. */
-    function selectCommit(index: number, marks: CompareMarks) {
+    function selectCommit(index: number) {
       const rows = get().graph.rows;
       const row = rows[index];
       const mySeq = ++seq;
       perf.start('details');
       const selection: Selection = { kind: 'commit', index, id: row.id };
-      set({ selection, marks, parent: 0, diff: null, details: IDLE, message: IDLE });
+      set({ selection, compareRows: NO_ROWS, parent: 0, diff: null, details: IDLE, message: IDLE });
       loadCommit(row.id, mySeq);
       loadSections(sectionSpecs(selection, 0), mySeq);
       // The neighbours' details, file lists and messages: Up/Down then swaps the panel at once.
@@ -253,22 +276,27 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       for (const id of near) if (!services.messages.peek(id)) services.messages.get(id).catch(() => {});
     }
 
-    /** `reopen`: the diff open before a swap. It stays open while the reversed list loads, then
-     * moves to the same file in that list (a rename under its old path), or closes. */
-    function startCompare(from: string, to: string, marks: CompareMarks, reopen: DiffTarget | null = null) {
+    /** Selects `rows` (both shown as selected) and compares `selection`'s endpoints. Like any
+     * selection change, it closes the open diff. */
+    function startCompare(selection: Extract<Selection, { kind: 'compare' | 'compareWorktree' }>, rows: CompareRows) {
       const mySeq = ++seq;
-      const spec: DiffSpec = { kind: 'compare', from, to };
-      const selection: Selection = { kind: 'compare', from, to };
-      set({ selection, marks, diff: reopen, details: IDLE, message: IDLE });
+      set({ selection, compareRows: rows, diff: null, details: IDLE, message: IDLE });
       loadSections(sectionSpecs(selection, 0), mySeq);
-      if (!reopen) return;
-      const stillOpen = () => mySeq === seq && get().diff === reopen;
-      services.files.get(filesKey(spec)).then((list) => {
-        if (!stillOpen()) return;
-        const i = list.files.findIndex((f) => f.path === reopen.path || (reopen.oldPath !== null && f.path === reopen.oldPath && f.oldPath === reopen.path));
-        if (i < 0) set({ diff: null });
-        else get().openFile({ ...targetFor(list.files[i], spec), view: reopen.view }, list.files.slice(i + 1, i + 2).map((f) => targetFor(f, spec)));
-      }, () => { if (stillOpen()) set({ diff: null }); });
+    }
+
+    /** Compares rows `other` (already selected) and `cursor` (just Ctrl+clicked), K15. A commit
+     * with the WIP row compares it with that worktree; two WIP rows can't be compared: the
+     * clicked one is selected alone. */
+    function pairRows(other: number, cursor: number) {
+      const rows = get().graph.rows;
+      const [o, c] = [rows[other], rows[cursor]];
+      if (o.kind !== 'wip' && c.kind !== 'wip') {
+        const [base, target] = byDate(rows, other, cursor);
+        startCompare({ kind: 'compare', from: rows[base].id, to: rows[target].id }, { cursor, other });
+      } else if (o.kind !== 'wip' || c.kind !== 'wip') {
+        const [commit, wip] = o.kind === 'wip' ? [c, o] : [o, c];
+        startCompare({ kind: 'compareWorktree', from: commit.id, worktree: wip.wip!.worktreePath }, { cursor, other });
+      } else get().selectRow(cursor);
     }
 
     return {
@@ -278,7 +306,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       graph,
       indexById: indexGraph(graph),
       selection: { kind: 'none' },
-      marks: NO_MARKS,
+      compareRows: NO_ROWS,
       parent: 0,
       details: IDLE,
       message: IDLE,
@@ -289,9 +317,14 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       focus: 'graph',
       focusRequest: 0,
       fileListCursor: null,
+      filterKeep: null,
 
       setFileListCursor(key) {
         if (get().fileListCursor !== key) set({ fileListCursor: key });
+      },
+
+      setFilterKeep(keep) {
+        if (get().filterKeep !== keep) rawSet({ filterKeep: keep });
       },
 
       setGraph(next) {
@@ -308,29 +341,40 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
           const i = next.rows.findIndex((r) => r.wip?.worktreePath === worktree);
           selection = i < 0 ? { kind: 'none' } : { ...selection, index: i };
         }
-        const marks = { a: remap(prev.marks.a), b: remap(prev.marks.b) };
+        const compareRows = prev.compareRows === NO_ROWS ? NO_ROWS : { cursor: remap(prev.compareRows.cursor), other: remap(prev.compareRows.other) };
         // The selected commit or worktree is gone: clear what was shown for it.
-        if (selection.kind === 'none' && prev.selection.kind !== 'none') clearSelection({ graph: next, indexById, marks });
-        else set({ graph: next, indexById, selection, marks });
+        if (selection.kind === 'none' && prev.selection.kind !== 'none') clearSelection({ graph: next, indexById });
+        else set({ graph: next, indexById, selection, compareRows });
       },
 
       selectRow(index, mods = {}) {
-        const { graph: g, marks, selection } = get();
+        const { graph: g, compareRows, selection } = get();
         const row = g.rows[index];
         if (!row) return;
-        if (mods.ctrl && row.kind !== 'wip') {
-          if (marks.a === null || marks.a === index || selection.kind === 'compare') selectCommit(index, { a: index, b: null });
-          else startCompare(g.rows[marks.a].id, row.id, { a: marks.a, b: index });
-          return;
+        if (mods.ctrl) {
+          const comparing = selection.kind === 'compare' || selection.kind === 'compareWorktree';
+          if (comparing && (index === compareRows.cursor || index === compareRows.other)) {
+            // One of the pair: drop it, back to the other alone (or none, if it has no row).
+            const keep = index === compareRows.cursor ? compareRows.other : compareRows.cursor;
+            if (keep !== null) get().selectRow(keep);
+            else clearSelection();
+            return;
+          }
+          const anchor = comparing ? compareRows.cursor : selection.kind === 'commit' || selection.kind === 'wip' ? selection.index : null;
+          if (anchor === index) return;
+          if (anchor !== null) {
+            pairRows(anchor, index);
+            return;
+          }
         }
         if (row.kind === 'wip' && row.wip) {
           const w = row.wip;
           const mySeq = ++seq;
           const wip: Selection = { kind: 'wip', index, worktree: w.worktreePath, name: w.worktreeName };
-          set({ selection: wip, marks: NO_MARKS, diff: null, details: IDLE, message: IDLE });
+          set({ selection: wip, compareRows: NO_ROWS, diff: null, details: IDLE, message: IDLE });
           loadSections(sectionSpecs(wip, 0), mySeq);
         } else {
-          selectCommit(index, NO_MARKS);
+          selectCommit(index);
         }
       },
 
@@ -341,26 +385,19 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         return true;
       },
 
-      swapCompare() {
-        const { selection, marks, diff } = get();
-        if (selection.kind === 'compare') startCompare(selection.to, selection.from, { a: marks.b, b: marks.a }, diff);
-      },
-
       exitCompare() {
-        const { selection, marks } = get();
-        const target = marks.b ?? marks.a;
-        if (selection.kind !== 'compare' && selection.kind !== 'compareWorktree' && marks.a === null) return;
-        // Both clear the marks, in the same update as the new selection.
+        const { selection, compareRows } = get();
+        if (selection.kind !== 'compare' && selection.kind !== 'compareWorktree') return;
+        const target = compareRows.cursor ?? compareRows.other;
+        // Both clear the compare rows, in the same update as the new selection.
         if (target !== null) get().selectRow(target);
         else clearSelection();
       },
 
       compareWithWorktree(from, worktree) {
-        const mySeq = ++seq;
-        const a = get().indexById.get(from) ?? null;
-        const selection: Selection = { kind: 'compareWorktree', from, worktree };
-        set({ selection, marks: { a, b: null }, diff: null, details: IDLE, message: IDLE });
-        loadSections(sectionSpecs(selection, 0), mySeq);
+        const { indexById, graph: g } = get();
+        const wipRow = g.rows.findIndex((r) => r.wip?.worktreePath === worktree);
+        startCompare({ kind: 'compareWorktree', from, worktree }, { cursor: indexById.get(from) ?? null, other: wipRow < 0 ? null : wipRow });
       },
 
       setParent(parent) {

@@ -14,8 +14,13 @@ import { useFileListPrefs } from '../files/fileListPrefs';
 import { RepoView, RIGHT_PANEL } from './RepoView';
 import type { RepoServices } from './services';
 import { fakeServices } from './testServices';
+import { createRepoViewStore } from './store';
+import '../app/coreActions';
+import { installShortcuts } from '../app/shortcuts';
+import { useAppState } from '../app/state';
+import { activeTabWith } from '../app/testShell';
 
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);
@@ -38,6 +43,10 @@ function services(overrides: Partial<RepoServices> = {}): RepoServices {
   });
 }
 
+/** Waits a frame: PanelResizer's drag writes the live width in a `requestAnimationFrame`,
+ * coalescing however many `pointermove` events land within it (K26). */
+const nextFrame = () => act(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+
 const EMPTY_LIST: FileListPayload = { files: [], added: 0, deleted: 0 };
 const realWidth = window.innerWidth;
 function setWindowWidth(w: number) {
@@ -45,8 +54,13 @@ function setWindowWidth(w: number) {
   window.dispatchEvent(new Event('resize'));
 }
 
+/** The app's shortcuts, for the tests that press Ctrl+W (removed after each test). */
+let offKeys: (() => void) | undefined;
+
 describe('RepoView', () => {
   afterEach(() => {
+    offKeys?.();
+    offKeys = undefined;
     setWindowWidth(realWidth);
     vi.mocked(copyText).mockClear();
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
@@ -65,15 +79,38 @@ describe('RepoView', () => {
     expect(screen.getAllByRole('row')[1]).toHaveAttribute('aria-selected', 'true');
   });
 
+  it("the store's filterKeep (plan 1C Find) dims every other row's text at the 'filter' level, through the shared row-dim", () => {
+    const store = createRepoViewStore(1, '/r', graph, services());
+    render(<RepoView repo={1} repoPath="/r" graph={graph} store={store} />);
+    const dimmed = () => screen.getAllByRole('row').map((r) => r.querySelector('[data-col="message"]')!.classList.contains('row-dim-filter'));
+    expect(dimmed()).toEqual([false, false]);
+    act(() => store.getState().setFilterKeep(new Set([B])));
+    expect(dimmed()).toEqual([true, false]);
+    act(() => store.getState().setFilterKeep(null));
+    expect(dimmed()).toEqual([false, false]);
+  });
+
+  it('graphOverlay renders inside the graph panel, and hides with the graph while a file is open', async () => {
+    const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
+    const store = createRepoViewStore(1, '/r', graph, services({ files: new Loader(async () => list, new Lru(10)) }));
+    render(<RepoView repo={1} repoPath="/r" graph={graph} store={store} graphOverlay={<div data-testid="overlay" />} />);
+    expect(screen.getByTestId('overlay').closest('.center-panel')).not.toBeNull();
+    fireEvent.mouseDown(screen.getAllByRole('row')[0]);
+    await screen.findByRole('listbox', { name: 'Changed files' });
+    await act(async () => store.getState().openFirstFile());
+    expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('a.txt');
+    expect(screen.getByTestId('overlay')).not.toBeVisible();
+  });
+
   it('Escape leaves compare mode', async () => {
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
     const rows = screen.getAllByRole('row');
-    fireEvent.mouseDown(rows[1], { ctrlKey: true });
+    fireEvent.mouseDown(rows[1]);
     fireEvent.mouseDown(rows[0], { ctrlKey: true });
-    expect(screen.getByTestId('compare-a')).toBeInTheDocument();
+    // K15: both compared commits show as selected.
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'true']);
     fireEvent.keyDown(screen.getByRole('grid', { name: 'Commit graph' }), { key: 'Escape' });
-    expect(screen.queryByTestId('compare-a')).toBeNull();
-    expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'false']);
   });
 
   it('Escape in the file list returns to the graph (closeDiff) and keeps comparing; Escape in the grid leaves compare', async () => {
@@ -89,18 +126,18 @@ describe('RepoView', () => {
     fireEvent.keyDown(box, { key: 'Escape' });
     expect(document.activeElement).toBe(grid);
     expect(screen.getByTestId('compare-header')).toBeInTheDocument();
-    expect(screen.getByTestId('compare-a')).toBeInTheDocument();
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'true']);
     fireEvent.keyDown(grid, { key: 'Escape' });
     expect(screen.queryByTestId('compare-header')).toBeNull();
-    expect(screen.queryByTestId('compare-a')).toBeNull();
+    expect(screen.getAllByRole('row').map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'false']);
   });
 
-  it('leaving compare from the header (× or Escape on Swap) gives keyboard focus back to the grid', async () => {
+  it('leaving compare from the header (× or Escape on it) gives keyboard focus back to the grid', async () => {
     render(<RepoView repo={1} repoPath="/r" graph={graph} services={services()} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
     const compare = async () => {
       const rows = screen.getAllByRole('row');
-      fireEvent.mouseDown(rows[1], { ctrlKey: true });
+      fireEvent.mouseDown(rows[1]);
       fireEvent.mouseDown(rows[0], { ctrlKey: true });
       expect(await screen.findByTestId('compare-header')).toBeInTheDocument();
     };
@@ -112,9 +149,9 @@ describe('RepoView', () => {
     expect(document.activeElement).toBe(grid);
 
     await compare();
-    const swap = screen.getByRole('button', { name: 'Swap' });
-    swap.focus();
-    fireEvent.keyDown(swap, { key: 'Escape' });
+    const again = screen.getByRole('button', { name: 'Exit compare' });
+    again.focus();
+    fireEvent.keyDown(again, { key: 'Escape' });
     expect(screen.queryByTestId('compare-header')).toBeNull();
     expect(document.activeElement).toBe(grid);
   });
@@ -126,7 +163,6 @@ describe('RepoView', () => {
     fireEvent.mouseDown(rows[1]);
     expect(await screen.findByRole('complementary', { name: 'Commit details' })).toBeInTheDocument();
     fireEvent.mouseDown(rows[2], { ctrlKey: true });
-    fireEvent.mouseDown(rows[1], { ctrlKey: true });
     expect(await screen.findByRole('complementary', { name: 'Compare' })).toBeInTheDocument();
     fireEvent.mouseDown(rows[0]);
     expect(await screen.findByRole('complementary', { name: 'Working tree changes' })).toBeInTheDocument();
@@ -258,10 +294,11 @@ describe('RepoView', () => {
     // A drag doesn't start a text selection.
     expect(fireEvent.pointerDown(sep, { clientX: 800, pointerId: 1, button: 0 })).toBe(false);
     fireEvent.pointerMove(sep, { clientX: 700, pointerId: 1 });
+    await nextFrame();
     expect(panel).toHaveStyle({ width: '500px' });
     fireEvent.pointerMove(sep, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerUp(sep, { clientX: 0, pointerId: 1 }); // ends before the queued frame fires
     expect(panel).toHaveStyle({ width: '720px' });
-    fireEvent.pointerUp(sep, { clientX: 0, pointerId: 1 });
     for (let i = 0; i < 40; i++) fireEvent.keyDown(sep, { key: 'ArrowRight' });
     expect(panel).toHaveStyle({ width: '280px' });
     expect(sep).toHaveAttribute('aria-valuenow', '280');
@@ -372,14 +409,15 @@ describe('RepoView', () => {
     expect(screen.getAllByRole('row')[0]).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('Ctrl+W closes the open file from the file list (as Escape does), and does nothing with none open', async () => {
+  it('Ctrl+W closes the open file from the file list (as Escape does); with none open, the tab', async () => {
     const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
-    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);
+    // Ctrl+W is the app's shortcut (plan 1C), acting on the active tab's store.
+    const store = activeTabWith(createRepoViewStore(1, '/r', graph, services({ files: new Loader(async () => list, new Lru(10)) })));
+    offKeys = installShortcuts();
+    render(<RepoView repo={1} repoPath="/r" graph={graph} store={store} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
     const box = await screen.findByRole('listbox', { name: 'Changed files' });
-    // No file open: left alone (plan 1C makes it close the tab).
-    expect(fireEvent.keyDown(grid, { key: 'w', ctrlKey: true })).toBe(true);
     grid.focus();
     await act(async () => fireEvent.keyDown(grid, { key: 'Enter' }));
     expect(await screen.findByTestId('diff-path', {}, { timeout: 5000 })).toHaveTextContent('a.txt');
@@ -387,11 +425,17 @@ describe('RepoView', () => {
     expect(screen.getByRole('region', { name: 'Diff' })).toBeInTheDocument();
     expect(fireEvent.keyDown(box, { key: 'w', ctrlKey: true })).toBe(false);
     expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
+    expect(useAppState.getState().profile.tabs.map((t) => t.id)).toEqual(['t', 'u']);
+    // No file open: the tab.
+    expect(fireEvent.keyDown(grid, { key: 'w', ctrlKey: true })).toBe(false);
+    expect(useAppState.getState().profile.tabs.map((t) => t.id)).toEqual(['u']);
   });
 
   it('with DiffPanel inside RepoView: Esc is left to an open editor overlay, Ctrl+W closes the file regardless', async () => {
     const list: FileListPayload = { files: [{ path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }], added: 1, deleted: 0 };
-    render(<RepoView repo={1} repoPath="/r" graph={graph} services={services({ files: new Loader(async () => list, new Lru(10)) })} />);
+    const store = activeTabWith(createRepoViewStore(1, '/r', graph, services({ files: new Loader(async () => list, new Lru(10)) })));
+    offKeys = installShortcuts();
+    render(<RepoView repo={1} repoPath="/r" graph={graph} store={store} />);
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
     await screen.findByRole('listbox', { name: 'Changed files' });

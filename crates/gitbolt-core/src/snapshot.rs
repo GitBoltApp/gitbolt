@@ -6,12 +6,15 @@ use crate::graph::{layout, LayoutNode, NodeKind, Parent};
 use crate::payload::{GraphPayload, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
 use crate::refs::{read_refs, RefKind, RepoRefs};
 use crate::remotes::HostKind;
-use crate::status::{status, summarize, WipCounts};
+use crate::status::{parse_porcelain_v2, status_raw, summarize, WipCounts};
 use crate::walk::{walk, WalkOptions};
 use crate::worktree::{list_worktrees, Worktree};
 use gix::ObjectId;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 pub const DEFAULT_COMMIT_LIMIT: usize = 2000;
 
@@ -19,27 +22,170 @@ pub const DEFAULT_COMMIT_LIMIT: usize = 2000;
 pub struct BuildOptions {
     pub limit: usize,
     pub pinned_ref: Option<String>,
+    /// No trunk at all (the pin setting `off`): `pinned_ref` is ignored and no default is picked.
+    pub no_pin: bool,
+    /// Reuse (and refresh) per-worktree status from here; `None` always runs status.
+    pub wip_cache: Option<Arc<WipCache>>,
+    /// Run status for every worktree even when cached (tab activation, spec §4.4).
+    pub rescan: bool,
 }
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None }
+        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None, no_pin: false, wip_cache: None, rescan: false }
+    }
+}
+
+/// One worktree's status: counts for the WIP row, and a digest of the raw porcelain output so
+/// the watcher can tell whether anything visible changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WipEntry {
+    pub counts: WipCounts,
+    pub digest: u64,
+}
+
+impl WipEntry {
+    pub fn from_raw(raw: &[u8]) -> Self {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        raw.hash(&mut h);
+        Self { counts: summarize(&parse_porcelain_v2(raw)), digest: h.finish() }
+    }
+}
+
+/// Last known status per worktree, keyed by canonical path. A graph build reads it (unless
+/// rescanning); the active tab's watcher keeps it fresh (spec §4.4, §8.6).
+///
+/// Two writers (graph builds and the watcher) put into it, so every put carries the `stamp` taken
+/// before its status read: a read that started earlier never replaces one that started later.
+/// A `watched_only` cache (a repository handle's) offers an entry for reuse only while a watcher
+/// `cover`s that worktree.
+#[derive(Debug, Default)]
+pub struct WipCache {
+    seq: AtomicU64,
+    inner: Mutex<WipInner>,
+}
+
+#[derive(Debug, Default)]
+struct WipInner {
+    entries: HashMap<PathBuf, (u64, WipEntry)>,
+    /// `None`: every entry is reusable. `Some`: only the covered worktrees', and whose watcher
+    /// (by serial) covers them.
+    coverage: Option<(Option<u64>, HashSet<PathBuf>)>,
+}
+
+impl WipCache {
+    /// A cache whose entries are reused only for worktrees a watcher covers.
+    pub fn watched_only() -> Self {
+        Self { seq: AtomicU64::new(0), inner: Mutex::new(WipInner { entries: HashMap::new(), coverage: Some((None, HashSet::new())) }) }
+    }
+
+    fn key(path: &Path) -> PathBuf {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, WipInner> {
+        self.inner.lock().expect("wip cache poisoned")
+    }
+
+    /// Take one before a status read; pass it to `put` with that read's result.
+    pub fn stamp(&self) -> u64 {
+        self.seq.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn get(&self, path: &Path) -> Option<WipEntry> {
+        let key = Self::key(path);
+        self.lock().entries.get(&key).map(|(_, e)| *e)
+    }
+
+    /// `get`, if this worktree's entry may stand in for a status read (see `watched_only`).
+    pub fn reusable(&self, path: &Path) -> Option<WipEntry> {
+        let key = Self::key(path);
+        let inner = self.lock();
+        match &inner.coverage {
+            Some((_, roots)) if !roots.contains(&key) => None,
+            _ => inner.entries.get(&key).map(|(_, e)| *e),
+        }
+    }
+
+    /// Stores `entry`, read under `stamp`, and returns what was cached before. A put whose
+    /// stamp is older than the cached entry's changes nothing (and returns the entry that stays).
+    pub fn put(&self, path: &Path, stamp: u64, entry: WipEntry) -> Option<WipEntry> {
+        let key = Self::key(path);
+        let mut inner = self.lock();
+        match inner.entries.get(&key) {
+            Some(&(held, current)) if held > stamp => Some(current),
+            _ => inner.entries.insert(key, (stamp, entry)).map(|(_, e)| e),
+        }
+    }
+
+    /// The watcher `owner` keeps these (canonical) worktrees fresh.
+    pub fn cover(&self, owner: u64, roots: HashSet<PathBuf>) {
+        self.lock().coverage = Some((Some(owner), roots));
+    }
+
+    /// The watcher `owner` stopped (or can't keep up): nothing is covered, unless another
+    /// watcher took over meanwhile.
+    pub fn uncover(&self, owner: u64) {
+        if let Some((who, roots)) = &mut self.lock().coverage
+            && *who == Some(owner)
+        {
+            *who = None;
+            roots.clear();
+        }
     }
 }
 
 pub async fn build_graph(repo: gix::ThreadSafeRepository, workdir: PathBuf, cli: GitCli, opts: BuildOptions) -> Result<GraphPayload, GbError> {
+    Ok(build_graph_with_text(repo, workdir, cli, opts).await?.0)
+}
+
+/// Like `build_graph`, plus each walked commit's lowercased full message (`summary + "\n" +
+/// body`), in walk order, for find (spec §8.7).
+pub async fn build_graph_with_text(repo: gix::ThreadSafeRepository, workdir: PathBuf, cli: GitCli, opts: BuildOptions) -> Result<(GraphPayload, Vec<(ObjectId, String)>), GbError> {
     let worktrees = list_worktrees(&cli, &workdir).await?;
-    let wip = collect_wip(&cli, &worktrees).await;
+    let wip = collect_wip(&cli, &worktrees, opts.wip_cache.as_deref(), opts.rescan).await;
     tokio::task::spawn_blocking(move || assemble(&repo.to_thread_local(), &worktrees, &wip, &workdir, &opts))
         .await
         .map_err(|e| GbError::other(format!("graph task failed: {e}")))?
 }
 
-/// (index into `worktrees`, counts) for every dirty, usable worktree.
-async fn collect_wip(cli: &GitCli, worktrees: &[Worktree]) -> Vec<(usize, WipCounts)> {
+/// The commits the graph walks from, deduplicated, in order: HEAD, every ref, every worktree's
+/// HEAD, then the stashes. Find's `locateCommit` walks from the same tips, so the window it
+/// computes is the one the graph then loads.
+pub(crate) fn graph_tips(refs: &RepoRefs, worktrees: &[Worktree]) -> Vec<ObjectId> {
+    let mut tips = Vec::new();
+    let mut seen = HashSet::new();
+    let candidates = refs.head.target.into_iter()
+        .chain(refs.refs.iter().map(|r| r.target))
+        .chain(worktrees.iter().filter_map(|w| w.head))
+        .chain(refs.stashes.iter().map(|s| s.id));
+    for id in candidates {
+        if seen.insert(id) {
+            tips.push(id);
+        }
+    }
+    tips
+}
+
+/// (index into `worktrees`, counts) for every dirty, usable worktree. A worktree whose cached counts
+/// are `reusable` keeps them unless `rescan`; every status that does run refreshes the cache
+/// (stamped before the read, so an older read never replaces a newer one).
+async fn collect_wip(cli: &GitCli, worktrees: &[Worktree], cache: Option<&WipCache>, rescan: bool) -> Vec<(usize, WipCounts)> {
     let jobs = worktrees.iter().enumerate().filter(|(_, w)| !w.bare && !w.prunable && w.head.is_some() && w.path.is_dir()).map(|(i, w)| async move {
-        match status(cli, &w.path).await {
-            Ok(entries) => Some((i, summarize(&entries))),
+        if !rescan
+            && let Some(e) = cache.and_then(|c| c.reusable(&w.path))
+        {
+            return Some((i, e.counts));
+        }
+        let stamp = cache.map(WipCache::stamp).unwrap_or(0);
+        match status_raw(cli, &w.path).await {
+            Ok(raw) => {
+                let entry = WipEntry::from_raw(&raw);
+                if let Some(c) = cache {
+                    c.put(&w.path, stamp, entry);
+                }
+                Some((i, entry.counts))
+            }
             Err(e) => {
                 tracing::warn!("status failed for worktree {}: {e}", w.path.display());
                 None
@@ -76,26 +222,16 @@ enum Entry {
     Wip(usize),
 }
 
-fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCounts)], workdir: &Path, opts: &BuildOptions) -> Result<GraphPayload, GbError> {
+fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCounts)], workdir: &Path, opts: &BuildOptions) -> Result<(GraphPayload, Vec<(ObjectId, String)>), GbError> {
     let refs = read_refs(repo)?;
     let stash_ids: HashSet<ObjectId> = refs.stashes.iter().map(|s| s.id).collect();
 
-    let mut tips = Vec::new();
-    let mut seen = HashSet::new();
-    let candidates = refs.head.target.into_iter()
-        .chain(refs.refs.iter().map(|r| r.target))
-        .chain(worktrees.iter().filter_map(|w| w.head))
-        .chain(refs.stashes.iter().map(|s| s.id));
-    for id in candidates {
-        if seen.insert(id) {
-            tips.push(id);
-        }
-    }
+    let tips = graph_tips(&refs, worktrees);
     let walked = walk(repo, &tips, &WalkOptions { limit: opts.limit, first_parent_only: stash_ids.clone() })?;
     let commits = &walked.commits;
     let index: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
 
-    let pinned_ref_candidate = opts.pinned_ref.clone().or_else(|| default_trunk(&refs));
+    let pinned_ref_candidate = if opts.no_pin { None } else { opts.pinned_ref.clone().or_else(|| default_trunk(&refs)) };
     let pinned_tip = pinned_ref_candidate
         .as_ref()
         .and_then(|n| refs.refs.iter().find(|r| &r.full_name == n))
@@ -220,7 +356,8 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         })
         .collect();
 
-    Ok(GraphPayload {
+    let texts = commits.iter().map(|c| (c.id, format!("{}\n{}", c.summary, c.body).to_lowercase())).collect();
+    let payload = GraphPayload {
         rows,
         labels: build_labels(&refs, worktrees, workdir, &index, &row_of_commit),
         max_lanes: lay.max_lanes,
@@ -232,7 +369,8 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
             unborn: refs.head.unborn,
         },
         truncated: walked.truncated,
-    })
+    };
+    Ok((payload, texts))
 }
 
 fn canonical(p: &Path) -> PathBuf {
@@ -328,6 +466,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wip_cache_is_reused_unless_rescanning() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let cache = Arc::new(WipCache::default());
+        let opts = || BuildOptions { wip_cache: Some(cache.clone()), ..Default::default() };
+        let g = build(&r, opts()).await;
+        let main_wip = |g: &GraphPayload| g.rows.iter().find_map(|row| row.wip.as_ref().filter(|w| w.worktree_name.is_none()).cloned()).unwrap();
+        assert_eq!(main_wip(&g).modified, 1);
+        r.write("brand-new.txt", "x\n");
+        let g = build(&r, opts()).await;
+        assert_eq!(main_wip(&g).added, 0, "cached counts are reused");
+        let g = build(&r, BuildOptions { wip_cache: Some(cache.clone()), rescan: true, ..Default::default() }).await;
+        assert_eq!(main_wip(&g).added, 1, "rescan refreshes");
+    }
+
+    #[test]
+    fn wip_cache_put_returns_the_previous_entry() {
+        let c = WipCache::default();
+        let dir = tempfile::tempdir().unwrap();
+        let e = WipEntry::from_raw(b"1 .M N... 100644 100644 100644 a b f\0");
+        assert_eq!(c.put(dir.path(), c.stamp(), e), None);
+        assert_eq!(c.put(dir.path(), c.stamp(), e), Some(e));
+        let clean = WipEntry::from_raw(b"");
+        assert_eq!(c.put(dir.path(), c.stamp(), clean), Some(e));
+        assert_eq!(c.get(dir.path()).unwrap().counts, WipCounts::default());
+    }
+
+    /// Two writers (a graph build and the watcher): a status read that started earlier never
+    /// replaces one that started later, whichever finishes last.
+    #[test]
+    fn an_older_status_read_never_replaces_a_newer_one() {
+        let c = WipCache::default();
+        let dir = tempfile::tempdir().unwrap();
+        let (older, newer) = (c.stamp(), c.stamp());
+        let (old, new) = (WipEntry::from_raw(b"? a\0"), WipEntry::from_raw(b""));
+        c.put(dir.path(), newer, new);
+        assert_eq!(c.put(dir.path(), older, old), Some(new), "the stale put reports what stays");
+        assert_eq!(c.get(dir.path()), Some(new));
+    }
+
+    /// A watched-only cache (a repo handle's) reuses an entry only for a worktree its watcher
+    /// covers, and only while that watcher's coverage stands.
+    #[test]
+    fn a_watched_only_cache_reuses_covered_worktrees_only() {
+        let c = WipCache::watched_only();
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let e = WipEntry::from_raw(b"");
+        c.put(a.path(), c.stamp(), e);
+        c.put(b.path(), c.stamp(), e);
+        assert_eq!(c.reusable(a.path()), None, "nothing is covered yet");
+        c.cover(7, [a.path().canonicalize().unwrap()].into());
+        assert_eq!(c.reusable(a.path()), Some(e));
+        assert_eq!(c.reusable(b.path()), None, "not covered by the watcher");
+        c.uncover(8);
+        assert_eq!(c.reusable(a.path()), Some(e), "another watcher's uncover changes nothing");
+        c.uncover(7);
+        assert_eq!(c.reusable(a.path()), None);
+        assert_eq!(WipCache::default().reusable(a.path()), None);
+    }
+
+    #[tokio::test]
     async fn basic_fixture_rows_kinds_and_pinning() {
         let r = TestRepo::new();
         fixtures::basic(&r);
@@ -417,6 +616,15 @@ mod tests {
         assert_eq!(lane("Hotfix: null check"), 0);
         assert_eq!(lane("Merge branch 'feature/login'"), 0, "the hotfix chain includes the merge");
         assert_ne!(lane("On main: Experiment"), 0);
+    }
+
+    #[tokio::test]
+    async fn pin_off_disables_the_default_trunk() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        assert!(build(&r, BuildOptions::default()).await.pinned_ref.is_some());
+        let g = build(&r, BuildOptions { no_pin: true, ..Default::default() }).await;
+        assert_eq!(g.pinned_ref, None);
     }
 
     #[tokio::test]

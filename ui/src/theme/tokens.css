@@ -38,6 +38,11 @@ body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var
    before any diff has opened. */
 .icon-button { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 3px; color: var(--text-secondary); transition: background-color var(--motion-fast), color var(--motion-fast); }
 .icon-button:hover, .icon-button:focus-visible { background: var(--hover-row); color: var(--text-selected); }
+/* K5/K6: the panels' top bar box, shared by the open file's header (diff.css) and the details
+   panel's header bar (the signature and hashes, the compare and WIP bars; details.css), so their
+   1 px dividers line up across the two panels. Only this rule sets their height and divider;
+   the height (divider included) is the density's (theme/density.ts). */
+.panel-bar { box-sizing: border-box; height: var(--panel-bar-h); border-bottom: 1px solid var(--section-border); flex: none; }
 
 /* ==== motion (J19). Opacity/colour/background-colour/border-colour/box-shadow only — never
    layout props, never `top`, never transforms on virtualized rows or the canvas. Two speeds,

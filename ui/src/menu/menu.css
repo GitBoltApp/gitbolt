@@ -10,8 +10,12 @@
 .ctx-label { flex: 1; }
 .ctx-shortcut { color: var(--text-secondary); font-size: 11px; margin-left: 16px; }
 .ctx-chevron { flex: none; color: var(--text-secondary); }
-.ctx-variants { display: flex; gap: 2px; margin-left: 12px; }
-.ctx-variant { all: unset; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 3px; font-size: 11px; color: var(--text-secondary); background: rgba(255, 255, 255, 0.06); cursor: pointer; }
+/* K25: a real button group, no gap between siblings (a gap is dead space the pointer crosses,
+   during which the tooltip briefly falls back to the row's — see ContextMenu.tsx's variant
+   pointerLeave). The group is rounded as one; adjacent buttons share a 1px divider instead. */
+.ctx-variants { display: flex; margin-left: 12px; border-radius: 3px; overflow: hidden; }
+.ctx-variant { all: unset; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 5px; box-sizing: border-box; font-size: 11px; color: var(--text-secondary); background: rgba(255, 255, 255, 0.06); cursor: pointer; }
+.ctx-variant + .ctx-variant { border-left: 1px solid var(--section-border); }
 .ctx-variant:hover, .ctx-variant[data-active="true"] { background: var(--blue); color: #fff; }
 .ctx-variant[aria-disabled="true"] { opacity: 0.35; background: transparent; cursor: default; }
 .ctx-sep { height: 1px; margin: 4px 0; background: var(--section-border); }

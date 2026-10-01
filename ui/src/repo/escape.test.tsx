@@ -5,6 +5,9 @@ import { isEditorKey } from '../ui/keys';
 import { useAppEscape, useEscapeOwner } from './escape';
 import { createRepoViewStore, type DiffTarget, type RepoViewStore } from './store';
 import { fakeServices } from './testServices';
+import '../app/coreActions';
+import { installShortcuts } from '../app/shortcuts';
+import { activeTabWith } from '../app/testShell';
 
 const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
 const target: DiffTarget = { key: 'k|a.txt', path: 'a.txt', oldPath: null, status: 'M', old: { kind: 'absent' }, new: { kind: 'absent' }, view: 'diff' };
@@ -66,20 +69,25 @@ describe('useAppEscape (J4)', () => {
   });
 });
 
-describe('useAppEscape: Ctrl+W (I1)', () => {
-  it('closes the open file even when the keydown target is <body> (focus fell off after a click on non-focusable content)', () => {
+describe('Ctrl+W (I1), the app\'s shortcut since plan 1C', () => {
+  it('is no longer the view\'s: useAppEscape leaves it alone', () => {
     const { store, view } = mount(() => false);
     act(() => store.getState().openFile(target));
-    expect(fireEvent.keyDown(document.body, { key: 'w', ctrlKey: true })).toBe(false);
-    expect(store.getState().diff).toBeNull();
-    expect(store.getState().focus).toBe('graph');
+    expect(fireEvent.keyDown(document.body, { key: 'w', ctrlKey: true })).toBe(true);
+    expect(store.getState().diff).not.toBeNull();
     view.unmount();
   });
 
-  it('does nothing with no file open', () => {
-    const { store, view } = mount(() => false);
-    expect(fireEvent.keyDown(document.body, { key: 'w', ctrlKey: true })).toBe(true);
+  it('closes the open file even when the keydown target is <body> (focus fell off after a click on non-focusable content)', () => {
+    const { store, view } = mount(() => true);
+    const off = installShortcuts();
+    activeTabWith(store);
+    act(() => store.getState().openFile(target));
+    // An Esc owner (an editor overlay) claims only a plain Esc, never Ctrl+W.
+    expect(fireEvent.keyDown(document.body, { key: 'w', ctrlKey: true })).toBe(false);
     expect(store.getState().diff).toBeNull();
+    expect(store.getState().focus).toBe('graph');
+    off();
     view.unmount();
   });
 });

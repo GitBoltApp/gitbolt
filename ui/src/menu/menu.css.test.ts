@@ -16,3 +16,13 @@ describe('menu.css motion (J19 remainder)', () => {
     for (const t of css.match(/transition:[^;}]*/g) ?? []) expect(t).toMatch(/^transition:\s*background-color /);
   });
 });
+
+describe('inline variants are a gapless button group (K25)', () => {
+  it('the group has no gap between its buttons', () => {
+    expect(rule('.ctx-variants')).not.toMatch(/\bgap\s*:/);
+  });
+
+  it('adjacent variant buttons share a 1px divider instead of a gap', () => {
+    expect(css).toMatch(/\.ctx-variant \+ \.ctx-variant\s*\{[^}]*border-left:\s*1px/);
+  });
+});

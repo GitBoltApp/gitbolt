@@ -30,6 +30,10 @@ vi.mock('./setup', () => {
     const menus: Listener[] = [];
     const mouseUps: Listener[] = [];
     const inputs: Listener[] = [];
+    // A real element so `getBoundingClientRect` (the keyboard menu's position, fix round 1) is a
+    // normal DOM stub, not another fake to maintain.
+    const domNode = document.createElement('div');
+    vi.spyOn(domNode, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 200, right: 0, bottom: 0, width: 0, height: 0, x: 100, y: 200, toJSON: () => ({}) });
     const ed = {
       menus,
       mouseUps,
@@ -112,9 +116,20 @@ vi.mock('./setup', () => {
       getLayoutInfo: () => ({ height: 500 }),
       getOption: () => 19,
       focus: vi.fn(),
+      hasTextFocus: vi.fn(() => false),
+      // Monaco's find widget (plan 1C R7): `getAction('actions.find').run()`.
+      findRun: vi.fn(async () => {}),
+      getAction: vi.fn((id: string) => (id === 'actions.find' ? { run: ed.findRun } : null)),
       updateOptions: vi.fn(),
       setModel: vi.fn(),
       layout: vi.fn(),
+      // Shift+F10 / the ContextMenu key (fix round 1, item 1): keyed by the keybinding number, as
+      // the real `addCommand` is (there is no separate "get the handler for this key" API).
+      commands: new Map<number, () => void>(),
+      addCommand: vi.fn((keybinding: number, handler: () => void) => { ed.commands.set(keybinding, handler); return 'cmd'; }),
+      getPosition: vi.fn((): { lineNumber: number; column: number } | null => ({ lineNumber: 7, column: 1 })),
+      getDomNode: vi.fn(() => domNode),
+      getScrolledVisiblePosition: vi.fn((): { top: number; left: number; height: number } | null => ({ top: 30, left: 5, height: 19 })),
     };
     return ed;
   }
@@ -181,6 +196,9 @@ vi.mock('./setup', () => {
   const monaco = {
     editor: editor(),
     languages: { getLanguages: () => [{ id: 'plaintext' }], register: vi.fn(), setTokensProvider: vi.fn() },
+    // The real numeric values (fix round 1, item 1): Shift+F10 / the ContextMenu key.
+    KeyMod: { CtrlCmd: 2048, Shift: 1024, Alt: 512, WinCtrl: 256 },
+    KeyCode: { ContextMenu: 58, F10: 68 },
   };
   const reset = () => {
     Object.assign(state, { defined: new Set(['vs', 'vs-dark', 'hc-black']), applied: 'vs', themeAtCreate: [], diffAutoUpdate: true, lineChanges: null, diffs: [], files: [] });
@@ -207,7 +225,7 @@ const copyText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
 vi.mock('../../api/transport', () => ({ copyText }));
 vi.mock('shiki/wasm', () => ({ default: {} }));
 
-interface FakeCodeEditor { isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
+interface FakeCodeEditor { isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
 interface FakeViewModel { model: { original: { text: string; dispose: ReturnType<typeof vi.fn> }; modified: { text: string; dispose: ReturnType<typeof vi.fn> } }; computed: boolean; dispose: ReturnType<typeof vi.fn>; finish(): void }
 interface FakeState {
   defined: Set<string>;
@@ -290,6 +308,31 @@ describe('MonacoHost', () => {
     expect(onFile.event.preventDefault).toHaveBeenCalled();
   });
 
+  it("Shift+F10 and the ContextMenu key open our menu at the cursor (fix round 1, item 1: onContextMenu is mouse-only)", async () => {
+    const { host, state } = await fresh();
+    host.attachDiff(document.createElement('div'));
+    await host.showDiff(diffReq('diffed.txt'));
+    const modified = state.diffs[0].modified as unknown as { commands: Map<number, () => void> };
+    const shiftF10 = modified.commands.get(1024 | 68); // KeyMod.Shift | KeyCode.F10
+    const contextMenuKey = modified.commands.get(58); // KeyCode.ContextMenu
+    expect(shiftF10).toBeTypeOf('function');
+    expect(contextMenuKey).toBeTypeOf('function');
+
+    // No handler set: Monaco's own `editor.action.showContextMenu` is inert too while
+    // `contextmenu` is false, so there's nothing to fall back to either way.
+    shiftF10!();
+
+    const handler = vi.fn();
+    host.setContextMenuHandler(handler);
+    shiftF10!();
+    // The cursor's screen position: the editor's box (100, 200) plus its scrolled-visible
+    // position (left 5, top 30, height 19) — just below the line, as a right-click would land.
+    expect(handler).toHaveBeenCalledExactlyOnceWith({ path: 'diffed.txt', side: 'modified', line: 7, selection: null, selectionText: '', x: 105, y: 249 });
+    handler.mockClear();
+    contextMenuKey!();
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
   it('leaves no timer or diff listener behind, whether the diff computes or the backstop fires', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const { host, state } = await fresh();
@@ -321,6 +364,26 @@ describe('MonacoHost', () => {
     host.focus();
     expect(state.files[0].focus).toHaveBeenCalledTimes(1);
     expect(state.diffs[0].modified.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("openFind() opens Monaco's find in the attached editor: the diff side holding the keyboard (else the modified one), else the file editor", async () => {
+    const { host, state } = await fresh();
+    host.openFind(); // nothing attached yet: a no-op
+    const diffBox = document.createElement('div');
+    host.attachDiff(diffBox);
+    host.openFind();
+    const { original, modified } = state.diffs[0];
+    expect(modified.focus).toHaveBeenCalledTimes(1);
+    expect(modified.findRun).toHaveBeenCalledTimes(1);
+    expect(original.findRun).not.toHaveBeenCalled();
+    original.hasTextFocus.mockReturnValue(true);
+    host.openFind();
+    expect(original.findRun).toHaveBeenCalledTimes(1);
+    expect(modified.findRun).toHaveBeenCalledTimes(1);
+    host.detachDiff(diffBox);
+    host.attachFile(document.createElement('div'));
+    host.openFind();
+    expect(state.files[0].findRun).toHaveBeenCalledTimes(1);
   });
 
   it('setFileWordWrap updates the file editor in place, keeping its model (and scroll position)', async () => {
@@ -429,6 +492,63 @@ describe('MonacoHost', () => {
     const third = document.createElement('div');
     host.attachDiff(third, b);
     expect((third.firstElementChild as HTMLElement).style.visibility).toBe('');
+  });
+
+  // K7: `visibility: hidden` alone didn't hide it. Monaco's diff editor sets `visibility: visible`
+  // on its two inner editors (tied to its accessible diff viewer), and a descendant's own value
+  // wins over the inherited one: the old diff stayed painted. Opacity can't be undone below.
+  it("the held diff is hidden in a way Monaco's inner editors can't undo: opacity 0, until the next one is on screen (K7)", async () => {
+    const { host } = await fresh();
+    const box = document.createElement('div');
+    host.attachDiff(box);
+    await host.showDiff(diffReq('a.txt'));
+    const el = box.firstElementChild as HTMLElement;
+    // What Monaco does to its inner editors.
+    const inner = el.appendChild(document.createElement('div'));
+    inner.style.visibility = 'visible';
+    const b = { ...diffReq('a.txt'), modified: 'another commit\n' };
+    expect(host.keepDiff(box, b)).toBe(true);
+    expect(el.style.opacity).toBe('0');
+    await host.showDiff(b);
+    expect(el.style.opacity).toBe('');
+    expect(el.style.visibility).toBe('');
+    // Re-attached elsewhere for another diff, and File View's editor, the same.
+    host.detachDiff(box);
+    const other = document.createElement('div');
+    host.attachDiff(other, { ...b, modified: 'a third\n' });
+    expect((other.firstElementChild as HTMLElement).style.opacity).toBe('0');
+    const fileBox = document.createElement('div');
+    host.attachFile(fileBox);
+    await host.showFile({ path: 'a.txt', text: 'one\n', language: 'plaintext', wordWrap: false });
+    expect(host.keepFile(fileBox, { path: 'a.txt', text: 'two\n' })).toBe(true);
+    expect((fileBox.firstElementChild as HTMLElement).style.opacity).toBe('0');
+  });
+
+  // Fix round 1: hidden, the held editor can't be clicked or focused (its inner editors' forced
+  // `visibility: visible` would allow both); focus inside it moves to the zone around it.
+  it('hidden, the held editor is inert and takes no pointer; focus inside it moves to its zone; shown, both come back', async () => {
+    const { host } = await fresh();
+    const zone = document.body.appendChild(document.createElement('section'));
+    zone.tabIndex = -1;
+    zone.dataset.focusZone = 'diff';
+    const box = zone.appendChild(document.createElement('div'));
+    host.attachDiff(box);
+    await host.showDiff(diffReq('a.txt'));
+    const el = box.firstElementChild as HTMLElement;
+    const input = el.appendChild(document.createElement('textarea'));
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    const b = { ...diffReq('a.txt'), modified: 'another commit\n' };
+    host.keepDiff(box, b);
+    expect(el.hasAttribute('inert')).toBe(true);
+    expect(el.style.pointerEvents).toBe('none');
+    expect(document.activeElement).toBe(zone);
+    await host.showDiff(b);
+    expect(el.hasAttribute('inert')).toBe(false);
+    expect(el.style.pointerEvents).toBe('');
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    zone.remove();
   });
 
   it('a kept panel shown again keeps its editor: keepDiff/keepFile hide what it holds unless it is the next one (J16)', async () => {

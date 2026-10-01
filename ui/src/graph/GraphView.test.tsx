@@ -77,15 +77,16 @@ describe('GraphView', () => {
     expect(summary.nextSibling).toBe(body);
   });
 
-  it('controlled selection reports Ctrl+clicks and draws compare markers', () => {
+  it('controlled selection reports Ctrl+clicks; a compare\'s two rows are both selected, with no A/B marks (K15, K16)', () => {
     const onSelect = vi.fn();
-    render(<GraphView graph={graph} repoId="/r" selected={1} onSelect={onSelect} compare={{ a: 0, b: 1 }} />);
+    render(<GraphView graph={graph} repoId="/r" selected={1} alsoSelected={0} onSelect={onSelect} />);
     const rows = screen.getAllByRole('row');
     expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+    expect(rows[0]).toHaveAttribute('aria-selected', 'true');
     fireEvent.mouseDown(rows[0], { ctrlKey: true });
     expect(onSelect).toHaveBeenCalledWith(0, { ctrl: true });
-    expect(within(rows[0]).getByTestId('compare-a')).toHaveTextContent('A');
-    expect(within(rows[1]).getByTestId('compare-b')).toHaveTextContent('B');
+    expect(document.querySelector('.compare-marker')).toBeNull();
+    expect(rows[0]).not.toHaveTextContent(/^A/);
   });
 
   it('in the Branch/Tag column only the chips select the row: empty space and the connector do nothing (F6)', () => {
@@ -179,10 +180,46 @@ describe('GraphView', () => {
     expect(onKey).toHaveBeenCalledWith('Enter');
   });
 
-  it('labels the compare badges for assistive technology', () => {
-    render(<GraphView graph={graph} repoId="/r" selected={1} onSelect={() => {}} compare={{ a: 0, b: 1 }} />);
-    expect(screen.getByRole('img', { name: 'Compare A' })).toHaveTextContent('A');
-    expect(screen.getByRole('img', { name: 'Compare B' })).toHaveTextContent('B');
+  it('Shift+F10 and the ContextMenu key open the commit menu at the selected row (fix round 1, item 4)', () => {
+    const onContextMenu = vi.fn();
+    render(<GraphView graph={graph} repoId="/r" selected={0} onContextMenu={onContextMenu} />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    const row0 = screen.getAllByRole('row')[0];
+    vi.spyOn(row0, 'getBoundingClientRect').mockReturnValue({ left: 10, top: 0, right: 0, bottom: 38, width: 0, height: 0, x: 10, y: 0, toJSON: () => ({}) });
+
+    fireEvent.keyDown(grid, { key: 'F10', shiftKey: true });
+    expect(onContextMenu).toHaveBeenCalledOnce();
+    const [e, row] = onContextMenu.mock.calls[0];
+    expect(row).toEqual(graph.rows[0]);
+    expect(e.clientX).toBe(10);
+    expect(e.clientY).toBe(38);
+    expect(() => e.preventDefault()).not.toThrow();
+
+    onContextMenu.mockClear();
+    fireEvent.keyDown(grid, { key: 'ContextMenu' });
+    expect(onContextMenu).toHaveBeenCalledOnce();
+
+    // Plain F10 (no Shift) and Shift+<anything else> are left for other bindings.
+    onContextMenu.mockClear();
+    fireEvent.keyDown(grid, { key: 'F10' });
+    fireEvent.keyDown(grid, { key: 'A', shiftKey: true });
+    expect(onContextMenu).not.toHaveBeenCalled();
+  });
+
+  it('the keyboard commit menu skips a WIP row, and does nothing with no onContextMenu', () => {
+    const wipGraph: GraphPayload = {
+      ...graph,
+      rows: [{ id: 'wip', kind: 'wip', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: { worktreePath: '/repo', worktreeName: null, modified: 1, added: 0, deleted: 0, conflicted: 0 } }, ...graph.rows],
+    };
+    const onContextMenu = vi.fn();
+    render(<GraphView graph={wipGraph} repoId="/r" selected={0} onContextMenu={onContextMenu} />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    fireEvent.keyDown(grid, { key: 'F10', shiftKey: true });
+    expect(onContextMenu).not.toHaveBeenCalled();
+
+    // No handler at all: the key falls through to the rest of onKeyDown without throwing.
+    render(<GraphView graph={graph} repoId="/r" selected={0} />);
+    expect(() => fireEvent.keyDown(screen.getAllByRole('grid', { name: 'Commit graph' })[1], { key: 'F10', shiftKey: true })).not.toThrow();
   });
 
   it('arrow keys move the selection', () => {
@@ -375,6 +412,9 @@ describe('GraphView columns', () => {
     expect(cell('message')).toHaveStyle({ width: `${message + 8}px` });
   });
 
+  // Heavy, not stuck: ~120 one-pixel drag steps, each re-rendering the view and reading widths
+  // through several `getAllByRole('row')` queries (slow in jsdom). ~2 s alone; under a loaded
+  // machine it crossed vitest's 5 s default, hence the explicit budget.
   it('dragging each column\'s right-edge handle resizes that column, the handle staying under the pointer (F3)', () => {
     render(<GraphView graph={graph} repoId="/repo" />);
     const right = (col: string) => leftOf(col) + cellW(col);
@@ -402,7 +442,7 @@ describe('GraphView columns', () => {
       expect(right('graph'), `graph d=${d}`).toBe(gx + d);
       expect(cellW('graph')).toBe(g0 + d);
     });
-  });
+  }, 15_000);
 
   it('never goes below a column minimum', () => {
     render(<GraphView graph={graph} repoId="/repo" />);

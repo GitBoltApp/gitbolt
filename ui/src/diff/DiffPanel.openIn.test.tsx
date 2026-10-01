@@ -23,6 +23,7 @@ vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
 
 const { Loader } = await import('../data/loader');
 const { Lru } = await import('../data/lru');
+const { ContextMenu } = await import('../menu/ContextMenu');
 const { createRepoViewStore, RepoViewContext, targetFor, useRepoView } = await import('../repo/store');
 const { fakeServices } = await import('../repo/testServices');
 const { resetOpenersForTests } = await import('../openIn/openers');
@@ -43,7 +44,7 @@ function renderPanel(spec: DiffSpec, file: FileChange = change) {
     const diff = useRepoView((s) => s.diff);
     return diff && <DiffPanel target={diff} />;
   };
-  render(<RepoViewContext value={store}><Connected /></RepoViewContext>);
+  render(<RepoViewContext value={store}><Connected /><ContextMenu /></RepoViewContext>);
   return store;
 }
 
@@ -76,7 +77,11 @@ describe('the diff toolbar\'s "Open in…" (H9, J1)', () => {
 
   it('Escape in its menu closes the menu, not the file', async () => {
     const store = renderPanel({ kind: 'commit', id: 'c'.repeat(40), parent: 0 });
-    fireEvent.click(await screen.findByRole('button', { name: 'More ways to open' }));
+    const toggle = await screen.findByRole('button', { name: 'More ways to open' });
+    // A real click focuses a button first (jsdom's `fireEvent.click` doesn't emulate that default
+    // action): the shared menu's focus-restore reads whatever had focus when it opened.
+    act(() => toggle.focus());
+    fireEvent.click(toggle);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(store.getState().diff).not.toBeNull();

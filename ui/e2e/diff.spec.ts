@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 // Diff prefs persist in localStorage (plan 1B amendment 3). Every test starts from the defaults
@@ -60,6 +60,54 @@ async function sampleFrames(page: Page): Promise<() => Promise<Frame[]>> {
       const w = window as unknown as { sampled: Frame[]; stopSampling: boolean };
       w.stopSampling = true;
       return w.sampled;
+    });
+  };
+}
+
+/** What the diff panel on screen actually paints (K7), as one string: `panel:<header path>` when
+ * a panel is shown, then every text of its body and `img:W×H` (natural size) for every image layer that
+ * `checkVisibility` counts as painted (laid out, `visibility: visible`, no ancestor at opacity 0).
+ * Runs in the page; `painted(page)` evaluates it once. */
+function paintedNow(): string {
+  const shown = (el: Element) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+  const panel = [...document.querySelectorAll('.diff-panel')].find((p) => shown(p));
+  const body = panel?.querySelector('.diff-body');
+  if (!panel || !body) return '';
+  const out = [`panel:${panel.querySelector('[data-testid="diff-path"]')?.textContent ?? ''}`];
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    // Monaco draws a line's spaces as no-break spaces.
+    const text = n.textContent?.replace(/\u00a0/g, ' ').trim();
+    if (text && n.parentElement && shown(n.parentElement)) out.push(text);
+  }
+  for (const img of body.querySelectorAll<HTMLImageElement>('img.image-layer')) if (img.naturalWidth && shown(img)) out.push(`img:${img.naturalWidth}×${img.naturalHeight}`);
+  return out.join('|');
+}
+const painted = (page: Page) => page.evaluate(paintedNow);
+
+/** `paintedNow` twice per frame (a rAF callback, and a task posted from it: `sampleFrames`'
+ * pattern) until the returned stop function, which resolves to the samples. */
+async function samplePainted(page: Page): Promise<() => Promise<string[]>> {
+  await page.evaluate((fn) => {
+    const now = new Function(`return (${fn})()`) as () => string;
+    const w = window as unknown as { paintedSamples: string[]; stopPainted: boolean };
+    w.paintedSamples = [];
+    w.stopPainted = false;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => w.paintedSamples.push(now());
+    const loop = () => {
+      w.paintedSamples.push(now());
+      channel.port2.postMessage(null);
+      if (!w.stopPainted) requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }, paintedNow.toString());
+  return async () => {
+    await page.evaluate(() => new Promise((r) => { let n = 5; const f = () => (--n ? requestAnimationFrame(f) : r(null)); requestAnimationFrame(f); }));
+    return page.evaluate(() => {
+      const w = window as unknown as { paintedSamples: string[]; stopPainted: boolean };
+      w.stopPainted = true;
+      return w.paintedSamples;
     });
   };
 }
@@ -233,6 +281,142 @@ test.describe('diff viewer controls', () => {
     expect(frames.at(-1)).toMatchObject({ path: 'feature.txt', visible: true });
   });
 
+  // K7: open a file, ×, open another: the kept panel's editor still holds the first file until the
+  // second is presented. The host's `visibility: hidden` didn't hide it: Monaco's diff editor sets
+  // `visibility: visible` on its two inner editors, which a descendant's own value wins over. This
+  // samples what is actually painted (`checkVisibility`: laid out, visible, no ancestor at
+  // opacity 0), text and images, in every frame from the click on.
+  for (const [first, second, stale, fresh] of [
+    ['ws.txt', 'src/app.php', 'fn main() {', 'enum Suit'],
+    ['crlf.txt', 'docs/manual.txt', 'second', 'Step one.'],
+    ['src/app.php', 'logo.png', 'enum Suit', 'img:6×4'],
+    ['logo.png', 'icon.svg', 'img:6×4', 'img:16×16'],
+    ['icon.svg', 'logo.png', 'img:16×16', 'img:6×4'],
+  ] as const) {
+    test(`K7: ${first}, ×, then ${second}: ${first} is never painted again`, async ({ page }) => {
+      await open(page, first);
+      await expect.poll(() => painted(page), { timeout: 15_000 }).toContain(stale);
+      await diff(page).getByRole('button', { name: 'Close diff' }).click();
+      await expect(diff(page)).toHaveCount(0);
+      const stop = await samplePainted(page);
+      await fileRow(page, second).click();
+      await expect.poll(() => painted(page), { timeout: 15_000 }).toContain(fresh);
+      const frames = await stop();
+      expect(frames.length).toBeGreaterThan(6);
+      expect(frames.filter((f) => f.includes(stale))).toEqual([]);
+      expect(frames.at(-1)).toContain(fresh);
+    });
+  }
+
+  // K7 via the editor's older content: the image in between leaves the editor holding ws.txt,
+  // which must stay unpainted when app.php reopens the text diff.
+  test('K7: a text file, an image, ×, then another text file: the first text file is never painted', async ({ page }) => {
+    await open(page, 'ws.txt');
+    await expect.poll(() => painted(page), { timeout: 15_000 }).toContain('fn main() {');
+    await open(page, 'logo.png');
+    await expect.poll(() => painted(page)).toContain('img:6×4');
+    await diff(page).getByRole('button', { name: 'Close diff' }).click();
+    const stop = await samplePainted(page);
+    await fileRow(page, 'src/app.php').click();
+    await expect.poll(() => painted(page), { timeout: 15_000 }).toContain('enum Suit');
+    const frames = await stop();
+    expect(frames.filter((f) => f.includes('fn main() {') || f.includes('img:'))).toEqual([]);
+  });
+
+  // Fix round 1: while hidden (another file computing), the held editor can't be clicked or
+  // focused, though Monaco forces its inner editors visible; shown, it's the editor again.
+  test('K7: the hidden held editor takes no click and no focus; shown, it takes both', async ({ page }) => {
+    // A certain hidden gap: the held editor stays hidden until app.php is presented, and that
+    // first waits for its PHP grammar, which the dev server serves as a module. Hold it ~400 ms.
+    // (Holding the file's contents wouldn't do: the panel shows "Loading…" instead, the editor
+    // detached, and app.php is prefetched as ws.txt's neighbour anyway.)
+    let held = 0;
+    await page.route(/\/\.vite\/deps\/php-[^/]*\.js/, async (route) => {
+      held++;
+      await new Promise((r) => setTimeout(r, 400));
+      await route.continue();
+    });
+    await open(page, 'ws.txt');
+    await expect.poll(() => painted(page), { timeout: 15_000 }).toContain('fn main() {');
+    await diff(page).getByRole('button', { name: 'Close diff' }).click();
+    await page.evaluate(() => {
+      const w = window as unknown as { hiddenProbes: string[]; stopProbe: boolean };
+      w.hiddenProbes = [];
+      w.stopProbe = false;
+      const probe = () => {
+        const host = [...document.querySelectorAll<HTMLElement>('.diff-panel .monaco-host')].find((h) => h.checkVisibility());
+        if (host && host.style.opacity === '0') {
+          const r = host.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          host.querySelector<HTMLElement>('.editor.modified textarea')?.focus();
+          w.hiddenProbes.push(`inert=${host.inert} hit=${!!hit && host.contains(hit)} focus=${host.contains(document.activeElement)}`);
+        }
+        if (!w.stopProbe) requestAnimationFrame(probe);
+      };
+      requestAnimationFrame(probe);
+    });
+    await fileRow(page, 'src/app.php').click();
+    await expect.poll(() => painted(page), { timeout: 15_000 }).toContain('enum Suit');
+    const probes = await page.evaluate(() => { const w = window as unknown as { hiddenProbes: string[]; stopProbe: boolean }; w.stopProbe = true; return w.hiddenProbes; });
+    expect(held).toBeGreaterThan(0);
+    expect(probes.length).toBeGreaterThan(0);
+    expect([...new Set(probes)]).toEqual(['inert=true hit=false focus=false']);
+    const line = diff(page).locator('.editor.modified .view-line').filter({ hasText: 'final class Card' });
+    await line.click();
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('.editor.modified'))).toBe(true);
+  });
+
+  test('K7: reopening the same file is instant: it is painted in the first frame after the click', async ({ page }) => {
+    await open(page, 'ws.txt');
+    await expect.poll(() => painted(page), { timeout: 15_000 }).toContain('fn main() {');
+    await diff(page).getByRole('button', { name: 'Close diff' }).click();
+    const stop = await samplePainted(page);
+    await fileRow(page, 'ws.txt').click();
+    await expect.poll(() => painted(page)).toContain('fn main() {');
+    const frames = (await stop()).filter((f) => f.startsWith('panel'));
+    expect(frames[0]).toContain('fn main() {');
+  });
+
+  // K7, the direct switch (lane V's report): ↑/↓ from file to file, through a large file's
+  // message, a binary, images and text. Every painted frame shows one file, the header's: the
+  // header waits for the editor only while the editor still shows the header's file.
+  test('K7: stepping through every file with ↑/↓, each painted frame shows only the file its header names', async ({ page }) => {
+    const MARKS: Record<string, string[]> = {
+      'big.txt': ['Large file'], 'crlf.txt': ['second', 'Only line endings changed'], 'data.bin': ['Binary file'], 'ünï.txt': ['unicode path'],
+      'manual.txt': ['revised'], 'icon.svg': ['img:16×16'], 'logo.png': ['img:6×4', 'img:4×4'], 'old.txt': ['to be deleted'], 'app.php': ['filler11'], 'ws.txt': ['fn main() {'],
+    };
+    const fileOf = (f: string) => Object.keys(MARKS).find((k) => f.split('|')[0].includes(k)) ?? null;
+    await open(page, 'crlf.txt');
+    await expect.poll(() => painted(page), { timeout: 15_000 }).toContain('second');
+    const stop = await samplePainted(page);
+    const walk = [['ArrowUp', 'big.txt'], ['ArrowDown', 'crlf.txt'], ...['data.bin', 'ünï.txt', 'manual.txt', 'icon.svg', 'logo.png', 'old.txt', 'app.php', 'ws.txt'].map((p) => ['ArrowDown', p]), ['ArrowUp', 'app.php'], ['ArrowUp', 'old.txt']] as const;
+    const reached = (file: string) => expect.poll(async () => { const f = await painted(page); return fileOf(f) === file && MARKS[file].some((m) => f.includes(m)); }, { timeout: 15_000 }).toBe(true);
+    for (const [key, file] of walk) {
+      await page.keyboard.press(key);
+      await reached(file);
+    }
+    // And a click, from one text diff to another with a banner (crlf.txt's line endings).
+    await fileRow(page, 'crlf.txt').click();
+    await reached('crlf.txt');
+    const frames = (await stop()).filter((f) => f.startsWith('panel'));
+    expect(frames.length).toBeGreaterThan(20);
+    const mixed = frames.filter((f) => {
+      const own = fileOf(f);
+      return Object.entries(MARKS).some(([file, marks]) => file !== own && marks.some((m) => f.includes(m)));
+    });
+    expect(mixed).toEqual([]);
+    // Nor a header left behind: once a file's body is painted, the header naming it goes when its
+    // body does (the next file's editor, hidden while it computes, is no reason to keep it).
+    const orphaned = frames.filter((f, i) => {
+      const own = fileOf(f);
+      const has = (g: string) => MARKS[own!]?.some((m) => g.includes(m));
+      if (!own || has(f)) return false;
+      for (let j = i - 1; j >= 0 && fileOf(frames[j]) === own; j--) if (has(frames[j])) return true;
+      return false;
+    });
+    expect(orphaned).toEqual([]);
+  });
+
   test('Esc closes the file even from inside the editor with a selection; an open find widget closes first', async ({ page, browserName }) => {
     await open(page, 'src/app.php');
     await computed(page);
@@ -248,12 +432,13 @@ test.describe('diff viewer controls', () => {
     await page.keyboard.press('Escape');
     await expect(find).toHaveCount(0);
     await expect(d).toBeVisible();
-    // Monaco's context menu (on in 1B): Esc closes the menu, not the file.
+    // The shared context menu replaces Monaco's own once a diff has opened (plan 1C Task 15):
+    // Esc closes the menu, not the file.
     await d.locator('.editor.modified .view-line').filter({ hasText: 'final class Card' }).click({ button: 'right' });
-    const menu = page.locator('.context-view .monaco-menu');
+    const menu = page.getByTestId('context-menu');
     await expect(menu).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(menu).toBeHidden();
+    await expect(menu).not.toBeVisible();
     await expect(d).toBeVisible();
     await d.locator('.editor.modified .view-line').filter({ hasText: 'final class Card' }).getByText('Card', { exact: true }).dblclick();
     await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('.editor.modified'))).toBe(true);

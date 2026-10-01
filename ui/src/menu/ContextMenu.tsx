@@ -29,6 +29,13 @@ export const SUBMENU_OPEN_MS = 100;
  * where it left to the submenu's near edge. Resting that long inside it (no move) hands over to
  * the row under the pointer; leaving the triangle does so at once. */
 export const SUBMENU_GRACE_MS = 300;
+/** A window blur closes the menu only once the window has stayed unfocused this long (K24).
+ * Under GNOME (mutter on Xwayland) every button press in the window refocuses it: the window
+ * manager's `WM_TAKE_FOCUS`, which the CEF runtime answers by moving the X focus back to the
+ * browser (vendor/tauri-runtime-cef/GITBOLT-PATCH.md). The page sees that as a window blur and,
+ * a few ms later, a focus, right after the right-click that opened the menu. Closing on the blur
+ * itself closed every menu at once. A real deactivation (another window) has no focus after it. */
+export const BLUR_SETTLE_MS = 150;
 
 type Pt = { x: number; y: number };
 const cross = (o: Pt, a: Pt, b: Pt) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
@@ -95,9 +102,12 @@ export function remap(old: Level[], rows: MenuRow[]): Level[] {
  *   disabled rows), ←/→ between variants and in and out of submenus, Enter/Space runs, Esc
  *   closes (a submenu first), Tab closes.
  * - Escape, Tab and a pick give focus back to where it was; a press outside closes it and leaves
- *   focus alone (the press already moved it). A scroll, a resize or the window losing focus (I2)
- *   also give focus back, when it's still on the menu itself: those don't move focus on their
- *   own, so without it the browser would drop it to `<body>` when the menu hides or unmounts.
+ *   focus alone (the press already moved it). A resize or the window losing focus for good (I2;
+ *   `BLUR_SETTLE_MS`, K24) also give focus back, when it's still on the menu itself: those don't
+ *   move focus on their own, so without it the browser would drop it to `<body>` when the menu
+ *   hides or unmounts.
+ * - A scroll doesn't close it (K1), and the wheel outside it is swallowed while it's open, as
+ *   under a native menu: nothing behind it moves.
  * - Records `window.__gbMenuLatency` (spec §17.3).
  */
 export function ContextMenu() {
@@ -105,6 +115,8 @@ export function ContextMenu() {
   const seq = useMenu((s) => s.seq);
   const x = useMenu((s) => s.x);
   const y = useMenu((s) => s.y);
+  const initialRow = useMenu((s) => s.initialRow);
+  const label = useMenu((s) => s.label);
   const uid = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [levels, setLevels] = useState<Level[]>([]);
@@ -156,10 +168,10 @@ export function ContextMenu() {
     const focused = document.activeElement;
     if (!(focused instanceof HTMLElement && el.contains(focused))) returnTo.current = focused instanceof HTMLElement ? focused : null;
     const { left, top } = placeMenu(x, y, { w: el.offsetWidth, h: el.offsetHeight }, viewport());
-    setLevels([{ rows, active: firstEnabled(rows), variant: -1, left, top }]);
+    setLevels([{ rows, active: startIndex(rows, initialRow ?? undefined), variant: -1, left, top }]);
     el.focus({ preventScroll: true });
     window.__gbMenuLatency = performance.now() - useMenu.getState().openedAt;
-  }, [rows, seq, x, y]);
+  }, [rows, seq, x, y, initialRow]);
 
   // Submenus: placed from their measured size (the first guess assumed plain rows).
   useLayoutEffect(() => {
@@ -184,13 +196,29 @@ export function ContextMenu() {
   useEffect(() => {
     if (!open) return;
     const inside = (t: EventTarget | null) => t instanceof Node && !!rootRef.current?.contains(t);
-    // I2: a scroll, a resize or the window losing focus doesn't itself move focus, unlike a
-    // press (which focuses whatever it hit) — so restore it, but only when it's still on the
-    // menu (not, say, a pick's own focus move already in flight).
+    // I2: a resize or the window losing focus doesn't itself move focus, unlike a press (which
+    // focuses whatever it hit) — so restore it, but only when it's still on the menu (not, say, a
+    // pick's own focus move already in flight).
     const stillFocused = () => !!rootRef.current && rootRef.current.contains(document.activeElement);
     const onDown = (e: PointerEvent) => { if (!inside(e.target)) dismiss(false); };
-    const onScroll = (e: Event) => { if (!inside(e.target)) dismiss(stillFocused()); };
     const onAway = () => dismiss(stillFocused());
+    // K24: a window blur closes it only if the window stays unfocused (BLUR_SETTLE_MS): a press
+    // under GNOME's window manager bounces the window focus (blur, then focus a few ms later).
+    let blurTimer: ReturnType<typeof setTimeout> | undefined;
+    const onBlur = () => {
+      clearTimeout(blurTimer);
+      blurTimer = setTimeout(onAway, BLUR_SETTLE_MS);
+    };
+    const onFocus = () => clearTimeout(blurTimer);
+    // K1: a scroll doesn't close it. The browser dispatches scroll events in the frame after the
+    // scroll, so one the user started before the right-click (a wheel notch, the tail of a smooth
+    // or kinetic scroll) landed after the menu opened and closed it at once. As a native menu, the
+    // wheel outside it moves nothing behind it (nor zooms an image) while it's open.
+    const onWheel = (e: WheelEvent) => {
+      if (inside(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
     // The safe triangle: moving inside it keeps the submenu (and restarts the rest timer);
     // leaving it hands over to the row the pointer is on.
     const onMove = (e: PointerEvent) => {
@@ -209,16 +237,19 @@ export function ContextMenu() {
       return 'handled';
     });
     window.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('blur', onAway);
+    window.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
     window.addEventListener('resize', onAway);
     window.addEventListener('pointermove', onMove, true);
     return () => {
       window.removeEventListener('pointermove', onMove, true);
       endGrace(false);
       window.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('blur', onAway);
+      window.removeEventListener('wheel', onWheel, true);
+      clearTimeout(blurTimer);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
       window.removeEventListener('resize', onAway);
       offKeys();
     };
@@ -453,7 +484,16 @@ export function ContextMenu() {
                       aria-disabled={!!v.disabledReason || undefined}
                       data-active={active && j === lv.variant}
                       onPointerEnter={(e) => { e.stopPropagation(); tipVariant(e.currentTarget, v); }}
-                      onPointerLeave={(e) => { e.stopPropagation(); tipRow(e.currentTarget.closest('.ctx-row')!, r); }}
+                      onPointerLeave={(e) => {
+                        e.stopPropagation();
+                        // K25: moving straight into a sibling in this group leaves the tooltip alone —
+                        // that sibling's own pointerEnter (above) swaps it to its tooltip directly. Only
+                        // leaving the group altogether falls back to the row's tooltip, so the pointer
+                        // never passes through it mid-group.
+                        const next = e.relatedTarget;
+                        if (next instanceof Element && next.classList.contains('ctx-variant') && next.parentElement === e.currentTarget.parentElement) return;
+                        tipRow(e.currentTarget.closest('.ctx-row')!, r);
+                      }}
                       onClick={(e) => { e.stopPropagation(); runVariant(v); }}
                     >
                       {VIcon ? <VIcon size={13} aria-hidden /> : v.label}
@@ -468,7 +508,7 @@ export function ContextMenu() {
     </div>
   );
 
-  const shown = rows ? (levels.length ? levels : [{ rows, active: firstEnabled(rows), variant: -1, left: x, top: y }]) : [];
+  const shown = rows ? (levels.length ? levels : [{ rows, active: startIndex(rows, initialRow ?? undefined), variant: -1, left: x, top: y }]) : [];
   const deepest = shown.length - 1;
   const activeRow = shown[deepest]?.rows[shown[deepest].active];
   const root = levels[0];
@@ -476,7 +516,7 @@ export function ContextMenu() {
     <div
       ref={rootRef}
       role="menu"
-      aria-label="Context menu"
+      aria-label={label ?? 'Context menu'}
       aria-activedescendant={activeRow && activeRow.kind !== 'separator' ? rowId(deepest, shown[deepest].active) : undefined}
       tabIndex={-1}
       className="ctx-menu"

@@ -47,6 +47,13 @@ describe('commit header', () => {
     expect(screen.getByTestId('signature-badge')).toHaveAttribute('data-kind', 'unsigned');
   });
 
+  it('K5: the signature and hashes row is the open file\'s bar box, its divider below it', async () => {
+    renderView();
+    const ids = (await screen.findByTestId('details-sha')).closest('.commit-ids');
+    expect(ids).toHaveClass('panel-bar');
+    expect(ids).toContainElement(screen.getByTestId('signature-badge'));
+  });
+
   it('a co-author chip shows the name and email in a hover card outside the scrolling panel', async () => {
     renderView();
     const chip = (await screen.findAllByTestId('co-author'))[0];

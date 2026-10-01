@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 test('the WIP row shows read-only unstaged and staged files with their diffs', async ({ page }) => {

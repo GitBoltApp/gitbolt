@@ -4,7 +4,7 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { IMAGE_BACKGROUNDS, useImageBackground } from './background';
 import { drawDifference } from './difference';
 import type { ImageSource } from './sources';
-import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
+import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
 import './image.css';
 
 export type ImageMode = 'side' | 'swipe' | 'onion' | 'difference';
@@ -46,6 +46,11 @@ const dims = (d: Decoded) => (d.dim ? `${d.dim.w}×${d.dim.h}` : d.failed ? '?' 
 const MODE_START_PCT = 50;
 /** The swipe handle's keyboard step (percent of the box). */
 const SWIPE_KEY_STEP = 5;
+/** Difference mode's Amplify slider (K10): 1×–16×, the TRUE multiplier (fix round 1) — 1× is the
+ * raw difference; the default, 4×, matches the look of the old fixed ×4 brighten. */
+const AMPLIFY_MIN = 1;
+const AMPLIFY_MAX = 16;
+const AMPLIFY_DEFAULT = 4;
 const broken = <div className="image-error">Image couldn&apos;t be decoded</div>;
 
 /** The checkerboard toggle's icon (J12): a 3×3 board of big squares filling the swatch's box, so
@@ -86,6 +91,16 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
   }, []);
   const [step, setStep] = useState(DEFAULT_STEP);
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
+  // The displayed zoom % (K13's editable label): set alongside `step`/`view` by every zoom action,
+  // not read back from `view.scale` — the box may not be measurable yet (no layout, or the image
+  // hasn't decoded), same as `step` itself always tracks the target rung regardless.
+  const [zoomPct, setZoomPct] = useState(Math.round(ZOOM_STEPS[DEFAULT_STEP] * 100));
+  // K12: Fit is a button, not a rung — this tracks whether it's the active target, so a resize
+  // (syncBox) keeps refitting instead of keeping the last rung's view.
+  const [fitMode, setFitMode] = useState(false);
+  const [amplify, setAmplify] = useState(AMPLIFY_DEFAULT);
+  const [editingZoom, setEditingZoom] = useState(false);
+  const [zoomDraft, setZoomDraft] = useState('');
   const [swipe, setSwipe] = useState(MODE_START_PCT);
   const [opacity, setOpacity] = useState(MODE_START_PCT);
   const [boxW, setBoxW] = useState(0);
@@ -100,10 +115,17 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
+  const swipeDragging = useRef(false);
   const stepRef = useRef(DEFAULT_STEP);
+  const fitModeRef = useRef(false);
+  const amplifyRef = useRef(AMPLIFY_DEFAULT);
   const viewRef = useRef(view);
   const lastBox = useRef<{ w: number; h: number } | null>(null);
   const wheelAcc = useRef(0);
+  const zoomInputRef = useRef<HTMLInputElement>(null);
+  // The Difference canvas's two loaded images (K10): kept so the Amplify slider can repaint
+  // without reloading them on every tick.
+  const diffImgs = useRef<{ a: HTMLImageElement | null; b: HTMLImageElement | null } | null>(null);
   const activeMode: ImageMode = both ? mode : 'side';
   const contentW = Math.max(oldImg.dim?.w ?? 0, newImg.dim?.w ?? 0);
   const contentH = Math.max(oldImg.dim?.h ?? 0, newImg.dim?.h ?? 0);
@@ -112,6 +134,9 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
   const applyStep = (i: number, around?: { x: number; y: number }, start = false) => {
     setStep(i);
     stepRef.current = i;
+    setZoomPct(Math.round(ZOOM_STEPS[i] * 100));
+    setFitMode(false);
+    fitModeRef.current = false;
     const box = boxRef.current;
     if (!box || contentW === 0) return;
     const bw = box.clientWidth;
@@ -119,9 +144,46 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
     lastBox.current = { w: bw, h: bh };
     setBoxW(bw);
     const s = ZOOM_STEPS[i];
-    if (s === 'fit') setView(centered(fitScale(contentW, contentH, bw, bh), contentW, contentH, bw, bh));
-    else if (start) setView(startView(s, contentW, contentH, bw, bh));
+    if (start) setView(startView(s, contentW, contentH, bw, bh));
     else setView((v) => clampView(zoomAround(v, s, around?.x ?? bw / 2, around?.y ?? bh / 2), contentW, contentH, bw, bh));
+  };
+
+  /** K12: the Fit button. Sets the exact % that fits the image in the viewport — not necessarily a
+   * slider rung — and stays the active target across a resize (`syncBox`) until any other zoom
+   * action (a rung, Ctrl+wheel, a typed %, the double-click reset) turns `fitMode` back off. */
+  const applyFit = () => {
+    const box = boxRef.current;
+    if (!box || contentW === 0) return;
+    const bw = box.clientWidth;
+    const bh = box.clientHeight;
+    lastBox.current = { w: bw, h: bh };
+    setBoxW(bw);
+    const s = fitScale(contentW, contentH, bw, bh);
+    setView(centered(s, contentW, contentH, bw, bh));
+    setZoomPct(Math.round(s * 100));
+    const i = nearestStepIndex(s);
+    setStep(i);
+    stepRef.current = i;
+    setFitMode(true);
+    fitModeRef.current = true;
+  };
+
+  /** K13: the typed exact zoom %, already clamped to the zoom range. Zooms around the box's
+   * centre, like Ctrl+wheel does when there's no cursor position to keep steady. */
+  const applyScale = (scale: number) => {
+    const box = boxRef.current;
+    if (!box || contentW === 0) return;
+    const bw = box.clientWidth;
+    const bh = box.clientHeight;
+    lastBox.current = { w: bw, h: bh };
+    setBoxW(bw);
+    setView((v) => clampView(zoomAround(v, scale, bw / 2, bh / 2), contentW, contentH, bw, bh));
+    setZoomPct(Math.round(scale * 100));
+    const i = nearestStepIndex(scale);
+    setStep(i);
+    stepRef.current = i;
+    setFitMode(false);
+    fitModeRef.current = false;
   };
 
   /** Pans by (dx, dy), only where the image is larger than the box (H27). */
@@ -135,8 +197,8 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
   const syncBox = () => {
     const box = boxRef.current;
     if (!box) return;
-    if (stepRef.current === 0) {
-      applyStep(0);
+    if (fitModeRef.current) {
+      applyFit();
       return;
     }
     const w = box.clientWidth;
@@ -152,6 +214,7 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
   useLayoutEffect(() => {
     latest.current = { applyStep, syncBox };
     viewRef.current = view;
+    amplifyRef.current = amplify;
   });
 
   // New or newly decoded images start at 100% (H23): scrollable where larger than the box.
@@ -192,12 +255,34 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
   }, [showSource]);
 
   useEffect(() => {
+    if (editingZoom) { zoomInputRef.current?.focus(); zoomInputRef.current?.select(); }
+  }, [editingZoom]);
+
+  useEffect(() => {
     if (activeMode !== 'difference' || !canvasRef.current || !old || !neu || contentW === 0) return;
     const canvas = canvasRef.current;
     let live = true;
-    void Promise.all([loadImage(old.url), loadImage(neu.url)]).then(([a, b]) => { if (live) drawDifference(canvas, a, b, contentW, contentH); });
+    void Promise.all([loadImage(old.url), loadImage(neu.url)]).then(([a, b]) => {
+      if (!live) return;
+      diffImgs.current = { a, b };
+      drawDifference(canvas, a, b, contentW, contentH, amplifyRef.current);
+    });
     return () => { live = false; };
   }, [activeMode, old, neu, contentW, contentH]);
+
+  // K10: the Amplify slider repaints from the already-loaded images — no reload, so dragging it
+  // stays fast — via the same `drawDifference`, which keeps the canvas's zoom/pan transform and
+  // pixelated rendering untouched (only the pixel content changes). Fix round 1 (Medium): a
+  // `range` input fires `change` on every tick while dragging, and each one is a full
+  // getImageData/putImageData at native resolution — coalesced to at most one repaint per
+  // animation frame, so only the latest `amplify` by the time the frame paints is ever drawn.
+  useEffect(() => {
+    if (activeMode !== 'difference' || !canvasRef.current || !diffImgs.current) return;
+    const canvas = canvasRef.current;
+    const { a, b } = diffImgs.current;
+    const raf = requestAnimationFrame(() => drawDifference(canvas, a, b, contentW, contentH, amplify));
+    return () => cancelAnimationFrame(raf);
+  }, [amplify, activeMode, contentW, contentH]);
 
   // J13: until every side has decoded (or failed), there's no size to place the images by, and a
   // later side's size moves the view again: they'd paint at the top left, then jump. Hidden until
@@ -227,6 +312,27 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
   // a not-yet-decoded image have no box to clamp to.
   const swipePct = boxW > 0 && contentW > 0 ? (clampSwipe((swipe / 100) * boxW, view, contentW, boxW) / boxW) * 100 : swipe;
   const moveSwipe = (pct: number) => setSwipe(Math.max(0, Math.min(100, pct)));
+  // K8: a mouse-down anywhere on the image in Swipe mode jumps the handle to the pointer and starts
+  // dragging it — it replaces `pan` for this mode's box (the divider's own handler stops
+  // propagation first, so a press on the 3 px line itself still only drags the handle, unchanged).
+  const swipeDrag = {
+    onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      const r = e.currentTarget.getBoundingClientRect();
+      moveSwipe(((e.clientX - r.left) / r.width) * 100);
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      swipeDragging.current = true;
+    },
+    onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
+      if (!swipeDragging.current) return;
+      if ((e.buttons & 1) === 0) { swipeDragging.current = false; return; }
+      const r = e.currentTarget.getBoundingClientRect();
+      moveSwipe(((e.clientX - r.left) / r.width) * 100);
+    },
+    onPointerUp: () => { swipeDragging.current = false; },
+    onPointerCancel: () => { swipeDragging.current = false; },
+    onLostPointerCapture: () => { swipeDragging.current = false; },
+  };
   const bg = `bg-${background}`;
   const img = (src: ImageSource, decoded: Decoded, label: string, style?: CSSProperties) =>
     decoded.failed ? broken : <img className="image-layer" src={src.url} alt={label} draggable={false} style={{ ...layer, ...style }} />;
@@ -236,6 +342,21 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
     d && ready && <div className={`image-frame ${cls}`} aria-hidden="true" style={{ transform: `translate(${view.x}px, ${view.y}px)`, width: d.w * view.scale, height: d.h * view.scale }} />;
   // Swipe, onion skin and difference overlay both sides: one frame, around both.
   const overlay = contentW > 0 ? { w: contentW, h: contentH } : null;
+
+  // K13: click the zoom % to edit it as a number. `<input type="text">` (not `type="number"`) so
+  // the key router's own text-box check (`isTextInput`, repo/escape.ts) recognises it: Esc is then
+  // never treated as the app's close-file key while editing, and the input's own handler below
+  // owns it instead, as required.
+  const startEditZoom = () => {
+    setZoomDraft(String(zoomPct));
+    setEditingZoom(true);
+  };
+  const commitZoom = () => {
+    const n = Number(zoomDraft);
+    if (Number.isFinite(n) && n > 0) applyScale(Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], Math.max(ZOOM_STEPS[0], n / 100)));
+    setEditingZoom(false);
+  };
+  const cancelZoom = () => setEditingZoom(false);
 
   return (
     <div className="image-diff">
@@ -249,19 +370,51 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
           </div>
         )}
         {source && <button type="button" className="toggle" aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>Source</button>}
-        <label className="image-zoom">
-          <input type="range" min={0} max={ZOOM_STEPS.length - 1} step={1} value={step} aria-label="Zoom" aria-valuetext={stepLabel(ZOOM_STEPS[step])} onChange={(e) => applyStep(Number(e.target.value))} />
-          <span data-testid="zoom-label">{stepLabel(ZOOM_STEPS[step])}</span>
-        </label>
+        <div className="image-zoom">
+          {/* K12: Fit is its own button, not the slider's bottom stop — the slider's minimum is
+              now a fixed ladder rung. */}
+          <button type="button" className="zoom-fit" aria-pressed={fitMode} onClick={applyFit}>Fit</button>
+          <input
+            type="range"
+            min={0}
+            max={ZOOM_STEPS.length - 1}
+            step={1}
+            value={step}
+            aria-label="Zoom"
+            aria-valuetext={stepLabel(ZOOM_STEPS[step])}
+            onChange={(e) => applyStep(Number(e.target.value))}
+            onDoubleClick={() => applyStep(DEFAULT_STEP)} // K14: reset to 100%
+          />
+          {editingZoom ? (
+            <input
+              ref={zoomInputRef}
+              type="text"
+              inputMode="numeric"
+              className="zoom-input"
+              data-testid="zoom-input"
+              aria-label="Zoom percentage"
+              value={zoomDraft}
+              onChange={(e) => setZoomDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitZoom(); }
+                else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelZoom(); }
+              }}
+              onBlur={commitZoom}
+            />
+          ) : (
+            // K13: click to edit an exact %.
+            <button type="button" className="zoom-value" data-testid="zoom-label" onClick={startEditZoom}>{zoomPct}%</button>
+          )}
+        </div>
         <span className="dim image-meta" data-testid="image-meta">
           {both ? (
             <>
-              <span data-testid="image-dims">{dims(oldImg)} → {dims(newImg)}</span> · <span data-testid="image-size">{formatBytes(old?.size)} → {formatBytes(neu?.size)}</span>
+              <span data-testid="image-dims">{dims(oldImg)} → {dims(newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes(old?.size)} → {formatBytes(neu?.size)}</span>
             </>
           ) : (
             // Only the side that exists (H25).
             <>
-              <span data-testid="image-dims">{dims(old ? oldImg : newImg)}</span> · <span data-testid="image-size">{formatBytes((old ?? neu)?.size)}</span>
+              <span data-testid="image-dims">{dims(old ? oldImg : newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes((old ?? neu)?.size)}</span>
               {single && <> ({single})</>}
             </>
           )}
@@ -286,15 +439,23 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
         <div ref={stageRef} className={`image-stage mode-${activeMode}`} onContextMenu={(e) => e.preventDefault()} onDragStart={(e) => e.preventDefault()}>
           {activeMode === 'side' && (
             <>
-              {old && <div ref={boxRef} className="image-viewport" {...pan}>{frame(oldImg.dim)}{img(old, oldImg, 'before')}</div>}
-              {neu && <div ref={old ? undefined : boxRef} className="image-viewport" {...pan}>{frame(newImg.dim)}{img(neu, newImg, 'after')}</div>}
+              {/* K9: subtle, non-interactive Old/New chips. */}
+              {old && <div ref={boxRef} className="image-viewport" {...pan}>{frame(oldImg.dim)}{img(old, oldImg, 'before')}{both && <span className="image-label label-bl">Old</span>}</div>}
+              {/* K21: a 1 px divider between the two halves — out of flow (position: absolute), so
+                  it never shifts either viewport's flexed width by even a sub-pixel. */}
+              {both && <div className="side-divider" aria-hidden="true" />}
+              {neu && <div ref={old ? undefined : boxRef} className="image-viewport" {...pan}>{frame(newImg.dim)}{img(neu, newImg, 'after')}{both && <span className="image-label label-bl">New</span>}</div>}
             </>
           )}
           {activeMode === 'swipe' && old && neu && (
-            <div ref={boxRef} className="image-viewport" {...pan}>
+            // K8: a mouse-down anywhere jumps the handle here and drags it (swipeDrag), not a pan.
+            <div ref={boxRef} className="image-viewport" {...swipeDrag}>
               {frame(overlay)}
               {img(old, oldImg, 'before')}
               <div className="swipe-clip" style={{ clipPath: `inset(0 0 0 ${swipePct}%)` }}>{img(neu, newImg, 'after')}</div>
+              {/* K9: fixed corner chips (not clipped with the image), clear of the handle. */}
+              <span className="image-label label-bl">Old</span>
+              <span className="image-label label-br">New</span>
               <div
                 role="slider"
                 aria-label="Swipe position"
@@ -325,7 +486,12 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
               {frame(overlay)}
               {img(old, oldImg, 'before')}
               {img(neu, newImg, 'after', { opacity: opacity / 100 })}
-              <input className="onion-opacity" type="range" min={0} max={100} value={opacity} aria-label="Opacity" onPointerDown={(e) => e.stopPropagation()} onChange={(e) => setOpacity(Number(e.target.value))} />
+              {/* K9: Old/New at the two ends of the opacity slider. */}
+              <div className="onion-control">
+                <span className="image-label onion-label">Old</span>
+                <input className="onion-opacity" type="range" min={0} max={100} value={opacity} aria-label="Opacity" onPointerDown={(e) => e.stopPropagation()} onChange={(e) => setOpacity(Number(e.target.value))} />
+                <span className="image-label onion-label">New</span>
+              </div>
             </div>
           )}
           {activeMode === 'difference' && old && neu && (
@@ -334,6 +500,22 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
               {(oldImg.failed || newImg.failed) && broken}
               {frame(overlay, 'bg-black')}
               <canvas ref={canvasRef} className="image-layer" data-testid="image-difference" style={layer} />
+              {/* K10: 1×–16× brighten multiplier — the true multiplier, default 4× (the old fixed ×4's look). */}
+              <div className="difference-amplify">
+                <span className="image-label onion-label">Amplify</span>
+                <input
+                  type="range"
+                  min={AMPLIFY_MIN}
+                  max={AMPLIFY_MAX}
+                  step={1}
+                  value={amplify}
+                  aria-label="Amplify"
+                  aria-valuetext={`${amplify}×`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onChange={(e) => setAmplify(Number(e.target.value))}
+                />
+                <span className="amplify-value" data-testid="amplify-value">{amplify}×</span>
+              </div>
             </div>
           )}
         </div>

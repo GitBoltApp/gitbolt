@@ -1,15 +1,21 @@
-import { Activity, useCallback, useEffect, useRef, useState } from 'react';
+import { Activity, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { GraphPayload } from '../api/gen/GraphPayload';
+import type { RefLabel } from '../api/gen/RefLabel';
+import type { RowPayload } from '../api/gen/RowPayload';
+import { loadMonacoHost } from '../diff/monaco/load';
 import { DetailsPanel } from '../details/DetailsPanel';
 import { releaseDetachedEditors } from '../diff/editorRelease';
 import { displayedOrder } from '../files/fileListPrefs';
 import { GraphView } from '../graph/GraphView';
+import type { RowDim } from '../graph/rowDim';
+import { commitMenu, labelMenu, monacoMenu } from '../menu/menuEnv';
+import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
 import { useAppEscape } from './escape';
 import { useFocusZone } from './focus';
 import { LazyDiffPanel } from './LazyDiffPanel';
 import { PanelResizer } from './PanelResizer';
 import { createServices, type RepoServices } from './services';
-import { createRepoViewStore, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore, type DiffTarget } from './store';
+import { createRepoViewStore, otherSelectedIndex, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore, type DiffTarget, type RepoViewStore } from './store';
 import './repo.css';
 
 export const RIGHT_PANEL = { min: 280, max: 720, default: 400 } as const;
@@ -32,31 +38,40 @@ function useRightPanelMax(): number {
 
 /**
  * One repository's view: the graph (or a diff) in the center, details on the right. Plan 1C
- * wraps one per tab inside `<Activity>`. Pass the repo's `services` (App's per-repo instance,
- * whose message cache the whole view shares); the fallback builds its own.
+ * wraps one per tab inside `<Activity>`, and the tab owns the view's `store` (ruling R3: the
+ * tab's registry entry, `app/tabStores.ts`), so everything else in the tab (Ctrl+W, menus, find,
+ * the sidebar) reaches the same selection and open file. Without a `store`, the view makes its
+ * own from `services` (the repo's per-repo caches; the fallback builds its own). Keep `store`
+ * the same for the view's lifetime. `graphOverlay` (plan 1C's Find box) floats over the graph
+ * panel, and hides with the graph while a file is open.
  */
-export function RepoView({ repo, repoPath, graph, services }: { repo: number; repoPath: string; graph: GraphPayload; services?: RepoServices }) {
-  const [store] = useState(() => createRepoViewStore(repo, repoPath, graph, services ?? createServices(repo)));
+export function RepoView({ repo, repoPath, graph, services, store: given, graphOverlay }: { repo: number; repoPath: string; graph: GraphPayload; services?: RepoServices; store?: RepoViewStore; graphOverlay?: ReactNode }) {
+  const [store] = useState(() => given ?? createRepoViewStore(repo, repoPath, graph, services ?? createServices(repo)));
   useEffect(() => {
     store.getState().setGraph(graph);
   }, [store, graph]);
   return (
     <RepoViewContext value={store}>
-      <RepoLayout />
+      <RepoLayout graphOverlay={graphOverlay} />
     </RepoViewContext>
   );
 }
 
 /** GraphView driven by the store. Every callback it passes is stable, so the memoized rows
- * re-render only when their own selection or compare mark changes. */
+ * re-render only when their own selection changes. */
 function ConnectedGraph() {
   const graph = useRepoView((s) => s.graph);
   const repoPath = useRepoView((s) => s.repoPath);
   const messages = useRepoView((s) => s.services.messages);
   const selected = useRepoView(selectedIndex);
-  const marks = useRepoView((s) => s.marks);
+  const alsoSelected = useRepoView(otherSelectedIndex);
   const selectRow = useRepoView((s) => s.selectRow);
   const store = useRepoViewStore();
+  // Find's matches (plan 1C): the rest dim at the 'filter' level (rowDim.ts). One O(1) lookup per
+  // rendered row; GraphView hands each row only its own level, so a new search re-renders just
+  // the rows whose level changed.
+  const filterKeep = useRepoView((s) => s.filterKeep);
+  const rowDim = useMemo<RowDim | null>(() => (filterKeep ? { dimmed: (i) => !filterKeep.has(graph.rows[i]?.id ?? '') && 'filter' } : null), [filterKeep, graph]);
   const gridRef = useRef<HTMLDivElement>(null);
   const zone = useFocusZone('graph', gridRef);
   // → and Enter open the first changed file as its list displays it, and the keyboard follows
@@ -66,6 +81,15 @@ function ConnectedGraph() {
     store.getState().openFirstFile(displayedOrder);
     return true;
   }, [store]);
+  // Plan 1C Task 15: the commit menu (a plain right-click on the row) and the commit/tag menu on
+  // a branch or tag label chip. Both build synchronously from the store (spec §7: no backend
+  // call before a menu shows).
+  const onContextMenu = useCallback((e: MenuEventLike, row: RowPayload) => {
+    openContextMenu(e, commitMenu(store, row));
+  }, [store]);
+  const onLabelContextMenu = useCallback((e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => {
+    openContextMenu(e, labelMenu(store, row, label));
+  }, [store]);
   return (
     <GraphView
       graph={graph}
@@ -73,15 +97,18 @@ function ConnectedGraph() {
       messages={messages}
       selected={selected}
       onSelect={selectRow}
-      compare={marks}
+      alsoSelected={alsoSelected}
       onUnhandledKey={onUnhandledKey}
       gridRef={gridRef}
       gridProps={zone}
+      onContextMenu={onContextMenu}
+      onLabelContextMenu={onLabelContextMenu}
+      rowDim={rowDim}
     />
   );
 }
 
-function RepoLayout() {
+function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
   const store = useRepoViewStore();
   const diff = useRepoView((s) => s.diff);
   const diffOpen = diff !== null;
@@ -102,6 +129,10 @@ function RepoLayout() {
   const maxW = useRightPanelMax();
   // The chosen width, re-clamped to the window: widening the window again restores it.
   const rightW = Math.min(prefW, maxW);
+  // PanelResizer writes the live width straight here while dragging (rAF-coalesced), bypassing
+  // React until the drag ends — a drag never re-renders the graph, the diff editor or the
+  // details panel per pointer event.
+  const rightPanelRef = useRef<HTMLElement>(null);
   // Esc, from wherever the focus is (feedback J4): one handler on `window`, not per zone.
   const viewRef = useRef<HTMLDivElement>(null);
   useAppEscape(store, viewRef);
@@ -109,14 +140,37 @@ function RepoLayout() {
   // already run (J16): let the shared editor go of its box. Outside the panel's `<Activity>`, so
   // it runs on this unmount; a microtask, once the view's DOM is gone.
   useEffect(() => () => queueMicrotask(releaseDetachedEditors), []);
-  // Ctrl+W closes the open file from anywhere in the view, even with focus on <body> (I1): it's
-  // in the key router's `app` layer (`useAppEscape`, above), next to Esc. With none open it does
-  // nothing yet; plan 1C makes it close the tab.
+  // Plan 1C Task 15's Monaco menu, installed once a diff has been opened (not just while the
+  // panel is on screen: there's nothing to detach before the first open, and a right-click right
+  // after a reopen must still work). The boolean, not `kept` itself, is the dependency: `kept`'s
+  // identity changes on every file switch, and re-registering the same handler each time would be
+  // wasted work. Deferred behind it so this never triggers Monaco's own lazy chunk (spec §10.3)
+  // on a tab that never opens a diff; by the time it flips, `LazyDiffPanel` is already loading it.
+  const diffEverOpened = kept !== null;
+  useEffect(() => {
+    if (!diffEverOpened) return;
+    let live = true;
+    void loadMonacoHost().then((host) => {
+      if (!live) return;
+      host.setContextMenuHandler((e) => {
+        const build = monacoMenu(store, e);
+        const rows = build();
+        if (rows.length > 0) useMenu.getState().show(rows, e.x, e.y, performance.now(), build);
+      });
+    });
+    return () => {
+      live = false;
+      void loadMonacoHost().then((host) => host.setContextMenuHandler(null)).catch(() => {});
+    };
+  }, [diffEverOpened, store]);
+  // Ctrl+W closes the open file from anywhere, even with focus on <body> (I1), else the tab: the
+  // app's shortcut (`app/coreActions.ts`), acting on the active tab's store.
   return (
     <div ref={viewRef} className="repo-view" data-testid="repo-view">
       <main className="center-panel">
         <Activity mode={diffOpen ? 'hidden' : 'visible'}>
           <ConnectedGraph />
+          {graphOverlay}
         </Activity>
         {/* J16: once opened, the diff panel stays mounted, hidden while no file is open, so a
             reopen wakes the same panel and editor (no lazy-chunk suspense, no re-attach). Hidden,
@@ -131,8 +185,8 @@ function RepoLayout() {
           (plan 1B deviation 8). */}
       {hasPanel && (
         <>
-          <PanelResizer width={rightW} min={RIGHT_PANEL.min} max={maxW} onChange={setRightW} />
-          <aside className="right-panel" aria-label={panelLabel} aria-busy={pending} style={{ width: rightW }}>
+          <PanelResizer width={rightW} min={RIGHT_PANEL.min} max={maxW} onChange={setRightW} panelRef={rightPanelRef} />
+          <aside ref={rightPanelRef} className="right-panel" aria-label={panelLabel} aria-busy={pending} style={{ width: rightW }}>
             {/* The next selection is loading: the previous one stays, and past ~150 ms (CSS
                 delay) a thin progress line shows (feedback F12). */}
             {pending && <div className="panel-busy" data-testid="panel-busy" aria-hidden="true" />}

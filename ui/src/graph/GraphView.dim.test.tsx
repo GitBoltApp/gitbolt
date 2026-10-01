@@ -107,4 +107,18 @@ describe('branch-hover focus (J22)', () => {
     rerender(<GraphView graph={graph} repoId="/repo" rowDim={null} />);
     expect(dimmedRows()).toEqual([false, false, false, false, false]);
   });
+
+  it("with both, each row takes the stronger level: Find's non-matches stay at 'filter', and the branch hover dims the matches outside that branch at 'branch'", () => {
+    // Find keeps rows 0–2; feat claims rows 1 and 3.
+    render(<GraphView graph={graph} repoId="/repo" rowDim={dimAllBut(new Set([0, 1, 2]), 'filter')} />);
+    const snapshot = () => graph.rows.map((_, i) => renders.byTime.get(i) ?? 0);
+    const before = snapshot();
+    fireEvent.mouseEnter(chip('feat'));
+    act(() => vi.advanceTimersByTime(BRANCH_FOCUS_DELAY_MS));
+    expect(dimKinds()).toEqual(['branch', false, 'branch', 'filter', 'filter']);
+    // Memo-safe: only the two rows whose level changed re-rendered.
+    expect(snapshot().map((n, i) => n - before[i])).toEqual([1, 0, 1, 0, 0]);
+    fireEvent.mouseLeave(chip('feat'));
+    expect(dimKinds()).toEqual([false, false, false, 'filter', 'filter']);
+  });
 });

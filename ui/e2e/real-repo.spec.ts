@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 const REAL_REPO = process.env.GITBOLT_REAL_REPO;
 

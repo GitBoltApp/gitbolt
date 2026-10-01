@@ -1,5 +1,5 @@
 .diff-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; background: var(--app-bg0); container: diff-panel / inline-size; }
-.diff-header { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--section-border); background: var(--panel-bg0); flex: none; position: relative; }
+.diff-header { display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px; background: var(--panel-bg0); position: relative; }
 /* A diff taking a moment to load or compute: a thin line sweeping along the header's bottom. */
 .diff-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; pointer-events: none; }
 /* J19: colour/opacity only, never a layout property — the sweep is a `transform: translateX`

@@ -63,6 +63,15 @@ fn load(repo: &gix::Repository, id: ObjectId, opts: &WalkOptions) -> Result<Opti
 }
 
 pub fn walk(repo: &gix::Repository, tips: &[ObjectId], opts: &WalkOptions) -> Result<WalkResult, GbError> {
+    let (collected, truncated) = walk_by_date(repo, tips, opts)?;
+    Ok(WalkResult { commits: topo_by_date(collected), truncated })
+}
+
+/// The commits `walk` collects, in the order it collects them (newest committer date first),
+/// before the topological fix-up; and whether more were left. A walk with a smaller `limit`
+/// collects a prefix of this order, so a commit at position `i` here is in every window of
+/// `limit > i` (find's outside-window hashes, spec §8.7).
+pub fn walk_by_date(repo: &gix::Repository, tips: &[ObjectId], opts: &WalkOptions) -> Result<(Vec<CommitMeta>, bool), GbError> {
     let mut heap: BinaryHeap<(i64, Reverse<u64>, ObjectId)> = BinaryHeap::new();
     let mut loaded: HashMap<ObjectId, CommitMeta> = HashMap::new();
     let mut seen: HashSet<ObjectId> = HashSet::new();
@@ -87,8 +96,7 @@ pub fn walk(repo: &gix::Repository, tips: &[ObjectId], opts: &WalkOptions) -> Re
         }
         collected.push(c);
     }
-    let truncated = !heap.is_empty();
-    Ok(WalkResult { commits: topo_by_date(collected), truncated })
+    Ok((collected, !heap.is_empty()))
 }
 
 /// Kahn's algorithm restricted to the collected set; ties are broken by committer time, then by
@@ -190,6 +198,38 @@ mod tests {
         let res = walk(&repo, &[head], &WalkOptions { limit: 10, first_parent_only: HashSet::new() }).unwrap();
         assert_eq!(res.commits[0].summary, "child (clock behind)");
         assert_children_first(&res.commits);
+    }
+
+    /// Two children of M, one older than M (skew): the walk collects M before that child, while
+    /// the topological order puts the child first. A window must be sized by collection order.
+    #[test]
+    fn collection_order_sizes_the_window_under_clock_skew() {
+        let r = TestRepo::new();
+        r.set_clock(2_000_000_000);
+        r.commit("M");
+        r.switch_new("b1");
+        r.set_clock(3_000_000_000);
+        r.commit("C1");
+        r.switch("main");
+        r.switch_new("b2");
+        r.set_clock(1_000_000_000);
+        r.commit("C2 (clock behind M)");
+        let repo = gix::open(r.path()).unwrap();
+        let tips = all_tips(&r);
+        let opts = |limit| WalkOptions { limit, first_parent_only: HashSet::new() };
+        let (collected, truncated) = walk_by_date(&repo, &tips, &opts(10)).unwrap();
+        assert!(!truncated);
+        assert_eq!(collected.iter().map(|c| c.summary.as_str()).collect::<Vec<_>>(), vec!["C1", "M", "C2 (clock behind M)"]);
+        let topo = walk(&repo, &tips, &opts(10)).unwrap();
+        assert_eq!(topo.commits.iter().map(|c| c.summary.as_str()).collect::<Vec<_>>(), vec!["C1", "C2 (clock behind M)", "M"]);
+        // C2 sits at 1 in the topological order, but a window of 2 doesn't hold it; one of 3 does.
+        let has_c2 = |limit| walk(&repo, &tips, &opts(limit)).unwrap().commits.iter().any(|c| c.summary.starts_with("C2"));
+        assert!(!has_c2(2));
+        assert!(has_c2(3));
+        // Every smaller limit collects a prefix of the same order.
+        for limit in 1..=3 {
+            assert_eq!(walk_by_date(&repo, &tips, &opts(limit)).unwrap().0, collected[..limit].to_vec());
+        }
     }
 
     #[test]

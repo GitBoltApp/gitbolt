@@ -22,9 +22,13 @@ ts-rs.workspace = true
 tempfile.workspace = true
 encoding_rs.workspace = true
 base64.workspace = true
+dirs.workspace = true
+notify.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+# `#[tokio::test(start_paused = true)]` for the settings debounce test.
+tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus.workspace = true

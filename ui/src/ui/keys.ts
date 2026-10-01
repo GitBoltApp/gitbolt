@@ -1,19 +1,21 @@
 type KeyLike = { key: string; code: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean; shiftKey: boolean };
 
 /**
- * Whether a key event is `letter` (lower-case a-z). By character when `e.key` is a Latin letter,
- * so Dvorak and AZERTY users press the letter printed on their key; by key position (`e.code`)
- * otherwise, so on a non-Latin layout (Cyrillic, Greek, …) the chord still works.
+ * The letter (lower-case a-z) a key event is, for shortcuts; null for any other key. By
+ * character when `e.key` is a Latin letter, so Dvorak and AZERTY users press the letter printed
+ * on their key; by key position (`e.code`) otherwise, so on a non-Latin layout (Cyrillic, Greek,
+ * …) the chord still works. The app's Ctrl shortcuts are named by it (`app/shortcuts.ts`).
  */
-export function matchesLetter(e: Pick<KeyLike, 'key' | 'code'>, letter: string): boolean {
+export function letterOf(e: Pick<KeyLike, 'key' | 'code'>): string | null {
   const k = e.key.toLowerCase();
-  return /^[a-z]$/.test(k) ? k === letter : e.code === `Key${letter.toUpperCase()}`;
+  if (/^[a-z]$/.test(k)) return k;
+  return /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : null;
 }
 
-/** Ctrl+W: closes the open file, as Esc does, even with an editor overlay open (as VS Code
- * does); plan 1C makes it close the tab. It's a Chrome-reserved chord: the CEF runtime lets it
- * reach the page (vendor/tauri-runtime-cef/GITBOLT-PATCH.md). */
-export const isCloseFileKey = (e: KeyLike) => e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && matchesLetter(e, 'w');
+/** Whether a key event is `letter` (lower-case a-z), as `letterOf` reads it. */
+export function matchesLetter(e: Pick<KeyLike, 'key' | 'code'>, letter: string): boolean {
+  return letterOf(e) === letter;
+}
 
 const editorKeys = new WeakSet<Event>();
 /** Marks a key event an editor overlay owns (Esc closing Monaco's hover, find, menu, …), for

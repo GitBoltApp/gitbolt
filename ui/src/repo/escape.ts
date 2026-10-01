@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from 'react';
 import { registerKeys } from '../ui/keyRouter';
-import { isCloseFileKey, markEditorKey } from '../ui/keys';
+import { markEditorKey } from '../ui/keys';
 import type { RepoViewStore } from './store';
 
 /** Whether `e` (an Esc) belongs to something before the app: an editor overlay (Monaco's find
@@ -39,11 +39,10 @@ const isTextInput = (t: Element | null) => !!t && (t.matches(TEXT_INPUT) || (t i
  * area). With a file open it closes it, back to the graph with the selection kept; in the file
  * list it returns to the graph; otherwise it leaves compare mode.
  *
- * Also registers Ctrl+W (I1, ledger 2026-09-27: "like Esc"), spec §11.1's "anywhere": with a file
- * open it closes it, the same way Esc does; otherwise it does nothing yet (plan 1C makes it close
- * the tab). It's registered in the `app` layer too, so an open editor overlay never claims it (the
- * `overlay` layer below only asks the owners for a *plain* Esc) — it always closes the file, as
- * `DiffPanel`'s own capture handler used to.
+ * Ctrl+W isn't here: since plan 1C it's the app's one binding (`app/coreActions.ts`, through the
+ * same router's `app` layer), which closes the open file if there is one, else the tab (ruling R6:
+ * never both on one press). Like Esc it works from anywhere, and an open editor overlay never
+ * claims it (the `overlay` layer below only asks the owners for a *plain* Esc).
  *
  * It goes through the key router (`ui/keyRouter.ts`), ahead of every handler in the page
  * (Monaco's included), and after the layers above it:
@@ -73,23 +72,14 @@ export function useAppEscape(store: RepoViewStore, root?: RefObject<HTMLElement 
       return 'native';
     });
     const offApp = registerKeys('app', (e) => {
-      if (isCloseFileKey(e)) {
-        if (!visible(e)) return;
-        const target = e.target instanceof Element ? e.target : null;
-        if (isTextInput(target)) return;
-        if (!store.getState().diff) return;
-        store.getState().closeDiff();
-        e.preventDefault();
-        return 'handled';
-      }
       if (!mine(e)) return;
       const target = e.target instanceof Element ? e.target : null;
       if (isTextInput(target)) return;
       const s = store.getState();
       if (s.diff || within(target, '[data-focus-zone="files"]')) s.closeDiff();
-      else if (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree' || s.marks.a !== null) {
+      else if (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree') {
         s.exitCompare();
-        // From the compare header (Swap or ×, which unmount), focus would drop to <body>.
+        // From the compare header (its ×, which unmounts), focus would drop to <body>.
         if (!within(target, '[data-focus-zone="graph"]')) s.setFocus('graph');
       } else return;
       e.preventDefault();

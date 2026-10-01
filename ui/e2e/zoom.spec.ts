@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 // App zoom (spec §12.2). The browser harness has no Tauri webview to zoom, so `setZoom` is a no-op

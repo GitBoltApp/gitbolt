@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { allocateColumns, autoGraphWidth, columnMax, handleRange, lanesWidth, SHA_MAX, columnPrefsPersistence, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_W, useColumnPrefs, type ColumnWidths, type ResizableColumn } from './columns';
+import { allocateColumns, autoGraphWidth, columnMax, handleRange, handleShown, hiddenColumnsPersistence, isCollapsed, lanesWidth, SHA_MAX, columnPrefsPersistence, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_W, useColumnPrefs, type ColumnWidths, type ResizableColumn } from './columns';
 
 // labels 200, graph 64, author 160, date 170, sha SHA_W: everything but Message sums to 594 + SHA_W.
 const prefs = { labels: 200, graph: 64, author: 160, date: 170 };
@@ -390,5 +390,72 @@ describe('column prefs persistence seam', () => {
     useColumnPrefs.getState().loadFor('/repo/b');
     expect(useColumnPrefs.getState().prefs.labels).toBe(320);
     expect(load).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('hidden and collapsed columns (T16a, spec §8.4)', () => {
+  beforeEach(() => useColumnPrefs.getState().reset());
+  afterEach(() => vi.restoreAllMocks());
+
+  it('hidden columns take no width and give it to Message', () => {
+    const all = allocateColumns(prefs, 1200);
+    const some = allocateColumns(prefs, 1200, new Set(['author', 'sha'] as const));
+    expect(some.author).toBe(0);
+    expect(some.sha).toBe(0);
+    expect(some.message).toBe(all.message + all.author + all.sha);
+    expect(some.total).toBe(1200);
+    expect(allocateColumns(prefs, 1200, new Set(['labels'] as const)).labels).toBe(0);
+    expect(allocateColumns({ ...prefs, sha: 200 }, 1200, new Set(['date'] as const))).toMatchObject({ date: 0, sha: 200 });
+  });
+
+  it('squeezing takes room only from the visible one of Author and Date', () => {
+    // Message at its minimum needs 60 px more than there is: Author is hidden, so all of it comes out of Date.
+    const tight = prefs.labels + prefs.graph + prefs.date + SHA_W + COLUMN_MIN.message - 60;
+    const w = allocateColumns(prefs, tight, new Set(['author'] as const));
+    expect(w).toMatchObject({ author: 0, date: prefs.date - 60, message: COLUMN_MIN.message, total: tight });
+    // Far too narrow: Date stops at its minimum, Author stays hidden (0, not its minimum).
+    expect(allocateColumns(prefs, 300, new Set(['author'] as const))).toMatchObject({ author: 0, date: COLUMN_MIN.date });
+  });
+
+  it('a column at its minimum is collapsed', () => {
+    expect(isCollapsed('labels', COLUMN_MIN.labels)).toBe(true);
+    expect(isCollapsed('labels', COLUMN_MIN.labels + 1)).toBe(false);
+    expect(isCollapsed('graph', COLUMN_MIN.graph)).toBe(true);
+    expect(isCollapsed('author', COLUMN_MIN.author)).toBe(true);
+    expect(isCollapsed('date', COLUMN_MIN.date + 20)).toBe(false);
+  });
+
+  it('a handle shows only while its column and the one it trades with are both shown', () => {
+    const none = new Set<never>();
+    for (const c of ['labels', 'graph', 'message', 'author', 'date'] as const) expect(handleShown(c, none), c).toBe(true);
+    expect(handleShown('labels', new Set(['labels'] as const))).toBe(false);
+    expect(handleShown('graph', new Set(['labels', 'author', 'date', 'sha'] as const))).toBe(true);
+    expect(handleShown('message', new Set(['author'] as const))).toBe(false);
+    expect(handleShown('author', new Set(['date'] as const))).toBe(false);
+    expect(handleShown('date', new Set(['sha'] as const))).toBe(false);
+    expect(handleShown('date', new Set(['author'] as const))).toBe(true);
+  });
+
+  it('the hidden set loads per repo through its own seam and saves on every toggle', () => {
+    const load = vi.spyOn(hiddenColumnsPersistence, 'load').mockImplementation((id) => (id === '/repo/b' ? ['date'] : null));
+    const save = vi.spyOn(hiddenColumnsPersistence, 'save');
+    const s = useColumnPrefs.getState();
+    s.loadFor('/repo/a');
+    expect(load).toHaveBeenLastCalledWith('/repo/a');
+    expect([...useColumnPrefs.getState().hidden]).toEqual([]);
+    useColumnPrefs.getState().toggleHidden('author');
+    expect([...useColumnPrefs.getState().hidden]).toEqual(['author']);
+    expect(save).toHaveBeenLastCalledWith('/repo/a', ['author']);
+    useColumnPrefs.getState().toggleHidden('author');
+    expect([...useColumnPrefs.getState().hidden]).toEqual([]);
+    expect(save).toHaveBeenLastCalledWith('/repo/a', []);
+    useColumnPrefs.getState().loadFor('/repo/b');
+    expect([...useColumnPrefs.getState().hidden]).toEqual(['date']);
+    // A stored name that isn't a hideable column (Graph, Message, a typo) is dropped.
+    load.mockImplementation(() => ['graph', 'message', 'sha', 'nope'] as never);
+    useColumnPrefs.getState().loadFor('/repo/c');
+    expect([...useColumnPrefs.getState().hidden]).toEqual(['sha']);
+    useColumnPrefs.getState().reset();
+    expect(useColumnPrefs.getState().hidden.size).toBe(0);
   });
 });

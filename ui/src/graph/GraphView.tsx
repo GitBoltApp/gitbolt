@@ -1,5 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
+import { Clock, GitBranch, GitGraph, MessageSquare, User } from 'lucide-react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
 import type { CommitMessageCache } from '../api/commitMessages';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
@@ -8,19 +9,28 @@ import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
 import { formatDate } from '../format/date';
 import { wipCountsText } from '../format/wip';
+import { Avatar } from '../avatars/Avatar';
 import { avatars } from '../avatars/avatarStore';
-import type { CompareMarks } from '../repo/store';
+import { buildMenu } from '../menu/registry';
+import { openContextMenu, openMenuAt, type MenuEventLike } from '../menu/menuStore';
 import { useHoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { ColumnResizer } from './ColumnResizer';
-import { allocateColumns, autoGraphWidth, lanesWidth, useColumnPrefs, type ColumnWidths } from './columns';
+import './columnMenu';
+import type { ColumnTarget } from './columnMenu';
+import { allocateColumns, autoGraphWidth, handleShown, isCollapsed, lanesWidth, useColumnPrefs, type ColumnWidths, type HideableColumn } from './columns';
+import { graphLayout } from './draw';
 import { GraphCanvas } from './GraphCanvas';
+import { HeaderCell } from './HeaderCell';
+import { HScroll, HSCROLL_H } from './HScroll';
 import { labelsByRowOf, membershipOf } from './graphIndex';
 import { branchRows, type BranchMembership } from './membership';
+import { anchoredScrollTop } from './anchor';
 import { useGraphMetrics } from './metrics';
 import { RefLabels } from './RefLabels';
-import { dimAllBut, ROW_DIM_CLASS, rowDimKindClass, useBranchFocus, type DimKind, type RowDim } from './rowDim';
+import { dimAllBut, ROW_DIM_CLASS, rowDimKindClass, strongerDim, useBranchFocus, type DimKind, type RowDim } from './rowDim';
 import './graph.css';
+import './extras.css';
 
 function WipSummary({ row }: { row: RowPayload }) {
   const w = row.wip!;
@@ -54,7 +64,7 @@ const renderMessage = (m: CommitMessage) => (
  * themselves), and keyboard users read the selected commit's full message in the details panel
  * (§9.2).
  */
-function MessageCell({ row, width, messages, mark, dim }: { row: RowPayload; width: number; messages?: CommitMessageCache; mark: 'A' | 'B' | null; dim: string }) {
+function MessageCell({ row, width, messages, dim }: { row: RowPayload; width: number; messages?: CommitMessageCache; dim: string }) {
   const isWip = row.kind === 'wip';
   const { triggerProps, tooltip } = useHoverTooltip({
     delayMs: MESSAGE_TOOLTIP_DELAY_MS,
@@ -68,7 +78,6 @@ function MessageCell({ row, width, messages, mark, dim }: { row: RowPayload; wid
   });
   return (
     <span role="gridcell" data-col="message" className={`col-msg${dim}`} style={{ width }} {...triggerProps}>
-      {mark && <span className="compare-marker" role="img" aria-label={`Compare ${mark}`} data-testid={mark === 'A' ? 'compare-a' : 'compare-b'}>{mark}</span>}
       {isWip ? <WipSummary row={row} /> : <><span className="msg-summary">{row.summary}</span>{row.bodyFirstLine && <span className="dim msg-body">{row.bodyFirstLine}</span>}</>}
       {tooltip}
     </span>
@@ -76,6 +85,9 @@ function MessageCell({ row, width, messages, mark, dim }: { row: RowPayload; wid
 }
 
 const NO_LABELS: RefLabel[] = [];
+const NO_ROWS: Set<number> = new Set();
+/** The `column` menu's toggle (stable: the store's action). */
+const toggleHidden = (col: HideableColumn) => useColumnPrefs.getState().toggleHidden(col);
 
 /** Rows either side of the screen whose avatars are also asked for, so normal scrolling doesn't
  * pop them in. Much smaller than the virtualizer's overscan: a fast scroll must stay cheap. */
@@ -93,15 +105,31 @@ const onLabelsMouseDown = (e: MouseEvent<HTMLElement>) => {
   if (!(e.target instanceof Element && e.target.closest('.ref-label, .ref-more'))) e.stopPropagation();
 };
 
+/** A row's DOM id (the keyboard commit-menu path, fix round 1, item 4: finding its element to
+ * open the menu at, as `FileList.tsx`'s `rowId` does for its own rows). */
+const graphRowId = (id: string) => `graph-row-${id}`;
+
+/** The Author cell at its minimum (spec §8.4): the author's avatar alone, named by an instant
+ * tooltip (and for assistive tech). It never asks for the image: the view's visible-rows request
+ * (latest set wins on a fast scroll) already covers every commit row on screen. */
+function AuthorAvatar({ name, email }: { name: string; email: string }) {
+  const { triggerProps, tooltip } = useHoverTooltip({ content: name });
+  return (
+    <span className="author-avatar" role="img" aria-label={name} {...triggerProps}>
+      <Avatar name={name} email={email} size={16} request={false} />
+      {tooltip}
+    </span>
+  );
+}
+
 interface GraphRowProps {
   row: RowPayload;
   index: number;
   start: number;
   /** The density's row height (H1). */
   rowH: number;
+  /** Selected, or one of a compare's two selected rows (K15). */
   selected: boolean;
-  /** The row's compare badge (spec §9.4), if it is a compare endpoint. */
-  mark: 'A' | 'B' | null;
   cols: ColumnWidths;
   labels: RefLabel[];
   /** The branch this commit belongs to, while it's hovered or selected (F7); else null. */
@@ -115,6 +143,14 @@ interface GraphRowProps {
   dimmed: DimKind | false;
   /** A branch chip on this row is entered (its refs) or left (null): J22's focus. */
   onBranchHover(refs: readonly string[] | null): void;
+  /** A right-click anywhere on the row, or the keyboard (Shift+F10 / the ContextMenu key, on the
+   * selected row — fix round 1, item 4, `FileList.tsx`'s own pattern): plan 1C Task 15's commit
+   * menu. `MenuEventLike`, not a real `MouseEvent`, since the keyboard path has none. Omitted:
+   * the native menu shows (no menu system installed yet). */
+  onContextMenu?: (e: MenuEventLike, row: RowPayload) => void;
+  /** A right-click on one of the row's branch/tag label chips (the commit or tag menu, with that
+   * label's own target). */
+  onLabelContextMenu?: (e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => void;
 }
 
 /**
@@ -123,13 +159,16 @@ interface GraphRowProps {
  * the view and the canvas, not every row; a hover re-renders only the rows whose membership
  * chip appears or goes, and a branch focus (J22) only the rows whose `dimmed` changes.
  */
-const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, mark, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover }: GraphRowProps) {
+const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu }: GraphRowProps) {
   const isWip = row.kind === 'wip';
+  // A column at its minimum collapses its cells too (spec §8.4): icon-only chips, the avatar only.
+  const authorAvatar = isCollapsed('author', cols.author) && !isWip;
   // The row-dim mechanism's classes, on the text cells only (never the chips or the graph): the
   // shared motion class plus the level's own colour class.
   const dim = dimmed ? ` ${ROW_DIM_CLASS} ${rowDimKindClass(dimmed)}` : '';
   return (
     <div
+      id={graphRowId(row.id)}
       role="row"
       aria-rowindex={index + 1}
       aria-selected={selected}
@@ -140,22 +179,39 @@ const GraphRow = memo(function GraphRow({ row, index, start, rowH, selected, mar
       onMouseDown={(e) => onSelect(index, { ctrl: e.ctrlKey || e.metaKey })}
       onMouseEnter={() => onHover(row.id, index, true)}
       onMouseLeave={() => onHover(row.id, index, false)}
+      onContextMenu={isWip ? undefined : (e) => onContextMenu?.(e, row)}
     >
-      <span role="gridcell" data-col="labels" className="col-labels" style={{ width: cols.labels }} onMouseDown={onLabelsMouseDown}>
-        <RefLabels labels={labels} color={row.color} membership={membership} onBranchHover={onBranchHover} />
-      </span>
+      {/* A hidden column (spec §8.4) has width 0 and no cell. */}
+      {cols.labels > 0 && (
+        <span role="gridcell" data-col="labels" className="col-labels" style={{ width: cols.labels }} onMouseDown={onLabelsMouseDown}>
+          <RefLabels
+            labels={labels}
+            color={row.color}
+            membership={membership}
+            onBranchHover={onBranchHover}
+            compact={isCollapsed('labels', cols.labels)}
+            onContextMenu={onLabelContextMenu && ((label, e) => onLabelContextMenu(e, row, label))}
+          />
+        </span>
+      )}
       <span role="gridcell" data-col="graph" style={{ width: cols.graph }} />
-      <MessageCell row={row} width={cols.message} messages={messages} mark={mark} dim={dim} />
-      <span role="gridcell" data-col="author" className={`col-author${dim}`} style={{ width: cols.author }}>{row.authorName}</span>
-      <span role="gridcell" data-col="date" className={`col-date${dim}`} style={{ width: cols.date }}>{isWip ? '' : formatDate(row.committerTime)}</span>
-      <span role="gridcell" data-col="sha" className={`col-sha${dim}`} style={{ width: cols.sha }}>
-        {!isWip && (
-          <button type="button" data-testid="sha" className="sha" title="Copy full SHA" onMouseDown={(e) => e.stopPropagation()} onClick={() => onCopySha(row.id)}>
-            {/* The whole hash: the column shows as many whole characters as fit (graph.css). */}
-            {row.id}
-          </button>
-        )}
-      </span>
+      <MessageCell row={row} width={cols.message} messages={messages} dim={dim} />
+      {cols.author > 0 && (
+        <span role="gridcell" data-col="author" className={`col-author${authorAvatar ? ' col-author-avatar' : ''}${dim}`} style={{ width: cols.author }}>
+          {authorAvatar ? <AuthorAvatar name={row.authorName} email={row.authorEmail} /> : row.authorName}
+        </span>
+      )}
+      {cols.date > 0 && <span role="gridcell" data-col="date" className={`col-date${dim}`} style={{ width: cols.date }}>{isWip ? '' : formatDate(row.committerTime)}</span>}
+      {cols.sha > 0 && (
+        <span role="gridcell" data-col="sha" className={`col-sha${dim}`} style={{ width: cols.sha }}>
+          {!isWip && (
+            <button type="button" data-testid="sha" className="sha" title="Copy full SHA" onMouseDown={(e) => e.stopPropagation()} onClick={() => onCopySha(row.id)}>
+              {/* The whole hash: the column shows as many whole characters as fit (graph.css). */}
+              {row.id}
+            </button>
+          )}
+        </span>
+      )}
     </div>
   );
 });
@@ -174,8 +230,9 @@ export interface GraphViewProps {
   selected?: number;
   /** Called on a click (`ctrl`: Ctrl or ⌘ held) or a keyboard move. Keep it stable (rows are memoized). */
   onSelect?: (index: number, mods: SelectMods) => void;
-  /** Compare endpoints, drawn as A/B badges (spec §9.4). */
-  compare?: CompareMarks;
+  /** A second selected row, shown like `selected`: a compare's other commit (spec §9.4, K15).
+   * `selected` is the keyboard's position. -1 or omitted: none. */
+  alsoSelected?: number;
   /** Keys GraphView doesn't handle itself (→, Enter, …). Return true if handled. */
   onUnhandledKey?: (key: string) => boolean;
   /** The grid element, for focus-zone registration. */
@@ -183,13 +240,17 @@ export interface GraphViewProps {
   gridProps?: HTMLAttributes<HTMLDivElement>;
   /**
    * Rows whose text cells to dim, from outside (plan 1C Task 17's Ctrl+F:
-   * `dimAllBut(matches, 'filter')`). While set, it takes precedence over the branch-hover focus
-   * (J22). See rowDim.ts.
+   * `dimAllBut(matches, 'filter')`). Combined with the branch-hover focus (J22) row by row, at
+   * the stronger level (`strongerDim`, rowDim.ts).
    */
   rowDim?: RowDim | null;
+  /** Plan 1C Task 15's commit and label (branch/tag) context menus. Keep both stable (rows are
+   * memoized). */
+  onContextMenu?: (e: MenuEventLike, row: RowPayload) => void;
+  onLabelContextMenu?: (e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => void;
 }
 
-export function GraphView({ graph, repoId, messages, selected: controlled, onSelect, compare, onUnhandledKey, gridRef, gridProps, rowDim = null }: GraphViewProps) {
+export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = -1, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu }: GraphViewProps) {
   const ownRef = useRef<HTMLDivElement>(null);
   const scrollRef = gridRef ?? ownRef;
   // The last scroll offset while visible: restored when <Activity> shows the graph again
@@ -200,6 +261,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
   const [viewportH, setViewportH] = useState(0);
   const [viewportW, setViewportW] = useState(0);
   const prefs = useColumnPrefs((s) => s.prefs);
+  // The repo's hidden columns (spec §8.4), toggled from the header's `column` menu.
+  const hidden = useColumnPrefs((s) => s.hidden);
   useLayoutEffect(() => useColumnPrefs.getState().loadFor(repoId), [repoId]);
   const [ownSelected, setOwnSelected] = useState(-1);
   const selected = controlled ?? ownSelected;
@@ -221,7 +284,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
   // membership claims and tip), at the 'branch' level (the row-dim mechanism, rowDim.ts).
   const { refs: focusRefs, onBranchHover } = useBranchFocus();
   const hoverDim = useMemo(() => (focusRefs ? dimAllBut(branchRows(membership, labelsByRow, focusRefs), 'branch') : null), [focusRefs, membership, labelsByRow]);
-  const dim = rowDim ?? hoverDim;
+  // Find's filter and the hover together: each row at the stronger level (rowDim.ts).
+  const dim = useMemo(() => strongerDim(rowDim, hoverDim), [rowDim, hoverDim]);
   // The commit under the pointer is a ref: most crossings change nothing on screen. State holds
   // only the commit whose membership chip the hover shows, and is set only when that changes, so
   // crossing rows without a chip doesn't re-render the view at all. Keyed by commit id (not row
@@ -245,7 +309,29 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
   // only clamped while it exceeds the current graph's max (a refresh or load more changes it).
   const graphMax = autoGraphWidth(graph.maxLanes, metrics);
   const graphW = Math.min(prefs.graph ?? graphMax, graphMax);
-  const cols = useMemo(() => allocateColumns({ ...prefs, graph: graphW }, viewportW), [prefs, graphW, viewportW]);
+  const cols = useMemo(() => allocateColumns({ ...prefs, graph: graphW }, viewportW, hidden), [prefs, graphW, viewportW, hidden]);
+  // Narrower than its lanes (F2): the collapse zone packs the lanes that don't fit (F11), and the
+  // column gets its own lane scrollbar over the lane area, unless no lane fits at all (the strip).
+  const lanesW = lanesWidth(graph.maxLanes, metrics);
+  const clipped = cols.graph < lanesW;
+  const layout = graphLayout(cols.graph, metrics, clipped);
+  const laneScrollMax = clipped && !layout.strip ? Math.max(0, lanesW - layout.area) : 0;
+  const [laneScroll, setLaneScroll] = useState(0);
+  const canvasId = useId();
+  const scrollX = Math.min(laneScroll, laneScrollMax);
+  // Hidden Branch/Tag: no chips, so no connectors on the canvas either.
+  const canvasLabeledRows = cols.labels > 0 ? labeledRows : NO_ROWS;
+  const columnMenu = () => buildMenu<ColumnTarget, object>('column', { hidden, toggle: toggleHidden }, {});
+  const onHeaderMenu = (e: MouseEvent) => openContextMenu(e, columnMenu);
+  // The same menu from the keyboard (the menu key, Shift+F10), while a header control (a resize
+  // handle) has focus: opened below that column's header cell.
+  const onHeaderKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!(e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const at = e.target instanceof Element ? e.target.closest('[data-col]') : null;
+    openMenuAt(at ?? e.currentTarget, columnMenu());
+  };
 
   const v = useVirtualizer({
     count: graph.rows.length,
@@ -321,7 +407,65 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
     if (selected >= 0) v.scrollToIndex(selected, { align: 'auto' });
   }, [selected, v]);
 
+  // A refresh (repo-changed / refs-updated, plan 1C) replaces the rows: what's on screen stays
+  // where it was (spec §4.4 "keeps the selection and scroll position"). The selected commit is
+  // the anchor while it's on screen, else the top row. The selection itself follows its commit
+  // id (the store's `setGraph`; below for the uncontrolled one). Also runs when <Activity> shows
+  // the graph again after a refresh while it was hidden, from the scroll the effect above
+  // restored.
+  const laidOut = useRef({ rows: graph.rows, selected });
+  useLayoutEffect(() => {
+    const prev = laidOut.current;
+    const el = scrollRef.current;
+    if (prev.rows === graph.rows || !el) return;
+    const rowH = metrics.rowH;
+    const top = el.scrollTop;
+    const selId = prev.rows[prev.selected]?.id ?? null;
+    const selOnScreen = selId !== null && (prev.selected + 1) * rowH > top && prev.selected * rowH < top + el.clientHeight;
+    const anchorId = (selOnScreen ? selId : null) ?? prev.rows[Math.floor(top / rowH)]?.id ?? null;
+    const next = anchoredScrollTop(prev.rows, graph.rows, anchorId, top, rowH);
+    if (selId !== null) {
+      const now = graph.rows.findIndex((r) => r.id === selId);
+      if (controlled === undefined) {
+        setOwnSelected(now);
+        shownSelection.current = now;
+      } else if (now === selected) {
+        // The same commit, moved with the rows rather than from outside: no scroll to it.
+        shownSelection.current = selected;
+      }
+    }
+    if (next !== top) {
+      el.scrollTop = next;
+      lastScroll.current = next;
+      // The canvas and the virtual window follow in this same frame, not on the scroll event.
+      setScrollTop(next);
+    }
+  }, [graph.rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  // After the anchor: what the next refresh compares against (not while hidden, so a refresh
+  // under a diff is anchored when the graph shows again).
+  useLayoutEffect(() => {
+    laidOut.current = { rows: graph.rows, selected };
+  });
+
+  // The commit menu from the keyboard (the menu key, Shift+F10), at the selected row (fix round
+  // 1, item 4; `FileList.tsx`'s own pattern). A `MenuEventLike`, not a real `MouseEvent`: there's
+  // no click to build one from, so `openContextMenu` gets a small stand-in with the row's own
+  // rect instead of a pointer position.
+  const onGraphKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return false;
+    const row = graph.rows[selected];
+    const el = row ? document.getElementById(graphRowId(row.id)) : null;
+    if (!row || !el || row.kind === 'wip' || !onContextMenu) return false;
+    const r = el.getBoundingClientRect();
+    onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: r.left, clientY: r.bottom, timeStamp: performance.now() }, row);
+    return true;
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
+    if (onGraphKeyDown(e)) {
+      e.preventDefault();
+      return;
+    }
     const page = Math.max(1, Math.floor(viewportH / metrics.rowH) - 1);
     const moves: Record<string, number> = { ArrowDown: selected + 1, ArrowUp: selected - 1, PageDown: selected + page, PageUp: selected - page, Home: 0, End: graph.rows.length - 1 };
     if (e.key in moves) {
@@ -343,15 +487,18 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
     <div className="graph-panel">
       {/* Outside the scroll container (so it stays put vertically), and translated by the
           table's scrollLeft so it tracks horizontal scrolling. */}
-      <div className="graph-header">
+      {/* Right-click: the `column` menu, to hide or show columns (spec §8.4). */}
+      <div className="graph-header" onContextMenu={onHeaderMenu} onKeyDown={onHeaderKeyDown}>
         <div className="graph-header-inner" style={{ width: cols.total, transform: `translateX(${-scrollLeft}px)` }}>
-          {/* Every handle is on the right edge of the column it resizes (F3); SHA is last: none. */}
-          <span data-col="labels" style={{ width: cols.labels }}><span className="col-title">BRANCH / TAG</span><ColumnResizer col="labels" name="Branch / Tag" cols={cols} available={viewportW} /></span>
-          <span data-col="graph" style={{ width: cols.graph }}><span className="col-title">GRAPH</span><ColumnResizer col="graph" name="Graph" cols={cols} available={viewportW} graphMax={graphMax} /></span>
-          <span data-col="message" style={{ width: cols.message }}><span className="col-title">COMMIT MESSAGE</span><ColumnResizer col="message" name="Commit message" cols={cols} available={viewportW} /></span>
-          <span data-col="author" style={{ width: cols.author }}><span className="col-title">AUTHOR</span><ColumnResizer col="author" name="Author" cols={cols} available={viewportW} /></span>
-          <span data-col="date" style={{ width: cols.date }}><span className="col-title">COMMIT DATE / TIME</span><ColumnResizer col="date" name="Date" cols={cols} available={viewportW} /></span>
-          <span data-col="sha" style={{ width: cols.sha }}><span className="col-title">SHA</span></span>
+          {/* Every handle is on the right edge of the column it resizes (F3); SHA is last: none.
+              A hidden column has no header cell, and a handle whose trade partner is hidden goes
+              too (columns.ts handleShown). At its minimum a column's title is its icon (§8.4). */}
+          {cols.labels > 0 && <span data-col="labels" style={{ width: cols.labels }}><HeaderCell col="labels" width={cols.labels} title="BRANCH / TAG" name="Branch / Tag" icon={GitBranch} /><ColumnResizer col="labels" name="Branch / Tag" cols={cols} available={viewportW} /></span>}
+          <span data-col="graph" style={{ width: cols.graph }}><HeaderCell col="graph" width={cols.graph} title="GRAPH" name="Graph" icon={GitGraph} /><ColumnResizer col="graph" name="Graph" cols={cols} available={viewportW} graphMax={graphMax} /></span>
+          <span data-col="message" style={{ width: cols.message }}><HeaderCell col="message" width={cols.message} title="COMMIT MESSAGE" name="Commit message" icon={MessageSquare} />{handleShown('message', hidden) && <ColumnResizer col="message" name="Commit message" cols={cols} available={viewportW} />}</span>
+          {cols.author > 0 && <span data-col="author" style={{ width: cols.author }}><HeaderCell col="author" width={cols.author} title="AUTHOR" name="Author" icon={User} />{handleShown('author', hidden) && <ColumnResizer col="author" name="Author" cols={cols} available={viewportW} />}</span>}
+          {cols.date > 0 && <span data-col="date" style={{ width: cols.date }}><HeaderCell col="date" width={cols.date} title="COMMIT DATE / TIME" name="Commit date / time" icon={Clock} />{handleShown('date', hidden) && <ColumnResizer col="date" name="Date" cols={cols} available={viewportW} />}</span>}
+          {cols.sha > 0 && <span data-col="sha" style={{ width: cols.sha }}><span className="col-title">SHA</span></span>}
         </div>
       </div>
       <div className="graph-body">
@@ -370,17 +517,18 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
                   index={item.index}
                   start={item.start}
                   rowH={metrics.rowH}
-                  selected={item.index === selected}
-                  mark={compare?.a === item.index ? 'A' : compare?.b === item.index ? 'B' : null}
+                  selected={item.index === selected || item.index === alsoSelected}
                   cols={cols}
                   labels={labelsByRow.get(item.index) ?? NO_LABELS}
-                  membership={row.id === hoverChip || item.index === selected ? membership[item.index] : null}
+                  membership={row.id === hoverChip || item.index === selected || item.index === alsoSelected ? membership[item.index] : null}
                   messages={messages}
                   onSelect={select}
                   onHover={hover}
                   onCopySha={copySha}
                   dimmed={dim?.dimmed(item.index) ?? false}
                   onBranchHover={onBranchHover}
+                  onContextMenu={onContextMenu}
+                  onLabelContextMenu={onLabelContextMenu}
                 />
               );
             })}
@@ -389,8 +537,9 @@ export function GraphView({ graph, repoId, messages, selected: controlled, onSel
         {/* Clipped to the scroll viewport (clientWidth/clientHeight exclude the scrollbars), so a
             canvas that reaches past it never paints over the vertical scrollbar. */}
         <div className="graph-canvas-clip" style={{ width: viewportW, height: viewportH }}>
-          <GraphCanvas rows={graph.rows} scrollTop={scrollTop} width={cols.graph} height={viewportH} left={cols.labels - scrollLeft} metrics={metrics} labeledRows={labeledRows} avatar={avatarBitmap} avatarVersion={avatarVersion} clipped={cols.graph < lanesWidth(graph.maxLanes, metrics)} selected={selected} headRow={headRow} />
+          <GraphCanvas rows={graph.rows} scrollTop={scrollTop} width={cols.graph} height={viewportH} left={cols.labels - scrollLeft} metrics={metrics} labeledRows={canvasLabeledRows} avatar={avatarBitmap} avatarVersion={avatarVersion} clipped={clipped} scrollX={scrollX} id={canvasId} selected={selected} alsoSelected={alsoSelected} headRow={headRow} />
         </div>
+        {laneScrollMax > 0 && <HScroll left={cols.labels - scrollLeft} top={viewportH - HSCROLL_H} width={layout.area} contentW={lanesW} scrollX={scrollX} onScroll={setLaneScroll} controls={canvasId} />}
       </div>
     </div>
   );

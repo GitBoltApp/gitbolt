@@ -19,9 +19,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * - `'branch'`: J22's branch-hover focus, inside GraphView (`useBranchFocus` below): hovering a
  *   branch chip for `BRANCH_FOCUS_DELAY_MS` dims every row not in that branch (`branchRows`,
  *   membership.ts), at `--text-row-dimmed-branch` (50% white).
- * - `'filter'`: Plan 1C Task 17's Ctrl+F commit search: pass `GraphView`'s `rowDim` prop, e.g.
- *   `dimAllBut(matchingRows, 'filter')`; while it's set it takes precedence over the hover focus.
+ * - `'filter'`: Plan 1C Task 17's Ctrl+F commit search: `GraphView`'s `rowDim` prop
+ *   (`dimAllBut(matchingRows, 'filter')`, which RepoView builds from the store's `filterKeep`).
  *   Dims at `--text-row-dimmed` (20% white).
+ *
+ * When both are active (`strongerDim`), each row takes the stronger of its two levels: a row
+ * Find dims stays at 'filter' (20%) whatever the hover says, and the hover dims Find's matches
+ * outside the hovered branch at 'branch' (50%). So hovering a chip during a search still shows
+ * which matches are on that branch, and a non-match never looks brighter than a match.
  */
 export type DimKind = 'branch' | 'filter';
 
@@ -32,6 +37,20 @@ export interface RowDim {
 /** Dims every row except `kept`, at `kind`'s level. */
 export function dimAllBut(kept: ReadonlySet<number>, kind: DimKind): RowDim {
   return { dimmed: (i) => !kept.has(i) && kind };
+}
+
+/** The stronger dim level of `a` and `b` (`'filter'` over `'branch'` over none). */
+const LEVEL: Record<DimKind, number> = { branch: 1, filter: 2 };
+function stronger(a: DimKind | false, b: DimKind | false): DimKind | false {
+  if (!a) return b;
+  if (!b) return a;
+  return LEVEL[a] >= LEVEL[b] ? a : b;
+}
+
+/** Both sources at once: each row at the stronger of its two levels (either may be `null`). */
+export function strongerDim(a: RowDim | null, b: RowDim | null): RowDim | null {
+  if (!a || !b) return a ?? b;
+  return { dimmed: (i) => stronger(a.dimmed(i), b.dimmed(i)) };
 }
 
 /** The class every dimmed row's text cells carry, whatever the level (the shared motion rule,

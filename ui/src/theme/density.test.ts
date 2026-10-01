@@ -14,7 +14,7 @@ describe('density presets (feedback H1)', () => {
   });
 
   it('each step is roomier than the one before it, in every metric', () => {
-    for (const k of ['rowH', 'laneW', 'chipH', 'cellPadX', 'fileRowH', 'bandInset'] as const) {
+    for (const k of ['rowH', 'laneW', 'chipH', 'cellPadX', 'fileRowH', 'bandInset', 'panelBarH'] as const) {
       expect(DENSITY_METRICS.compact[k], k).toBeLessThanOrEqual(DENSITY_METRICS.standard[k]);
       expect(DENSITY_METRICS.standard[k], k).toBeLessThanOrEqual(DENSITY_METRICS.comfortable[k]);
     }
@@ -35,7 +35,15 @@ describe('density presets (feedback H1)', () => {
       '--graph-chip-h': '22px',
       '--graph-cell-pad-x': `${DENSITY_METRICS.standard.cellPadX}px`,
       '--file-row-h': `${DENSITY_METRICS.standard.fileRowH}px`,
+      '--panel-bar-h': '37px',
     });
+  });
+
+  it('K6: the panels\' top bar (the open file\'s path/encoding/×, the details header\'s hashes) is 20% taller than 1B\'s 30 px at standard; compact keeps 1B\'s', () => {
+    // Outer heights, 1 px bottom border included: 1B's bar was 30 px plus its border.
+    expect(DENSITY_METRICS.compact.panelBarH).toBe(31);
+    expect(DENSITY_METRICS.standard.panelBarH).toBe(30 * 1.2 + 1);
+    expect(DENSITY_METRICS.comfortable.panelBarH).toBeGreaterThan(DENSITY_METRICS.standard.panelBarH);
   });
 
   it('keeps the variables on :root, in step with the store (the graph and the details panel are siblings)', () => {

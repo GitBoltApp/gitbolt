@@ -1,17 +1,22 @@
-use gitbolt_core::api::Api;
-use gitbolt_core::git::GitCli;
-use gitbolt_core::log::CommandLog;
-use gitbolt_core::testing::{fixtures, isolated_git_env, TestRepo};
+use gitbolt_core::testing::{fixtures, TestRepo};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 /// Written into a fixture's root directory once it has been built, so a later
 /// run recognizes the directory as safe to blow away and rebuild.
 const FIXTURE_MARKER: &str = ".gitbolt-fixture";
 
+fn main() {
+    // First: when git runs this binary as GIT_ASKPASS (spec §5.4), it only asks the running
+    // harness over its socket and exits, before any runtime or logging starts.
+    if let Some(code) = gitbolt_core::askpass::run_client_from_env() {
+        std::process::exit(code);
+    }
+    harness_main();
+}
+
 #[tokio::main]
-async fn main() {
+async fn harness_main() {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()))
@@ -22,21 +27,11 @@ async fn main() {
             let port: u16 = args.iter().position(|a| a == "--port").and_then(|i| args.get(i + 1)).and_then(|p| p.parse().ok()).unwrap_or(7433);
             let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.expect("bind harness port");
             eprintln!("gitbolt-harness listening on ws://127.0.0.1:{port}/ws");
-            // No avatar provider (tests never touch the network) and a URL opener that only
-            // logs: the UI's link buttons are checked by their data-url attribute instead.
-            // "Open in…" lists fake openers and records launches (GET /launches) without
-            // running anything.
-            // Old versions are copied into a temporary directory that lives as long as the server.
-            let launches = Arc::new(gitbolt_harness::Launches::default());
-            let open_cache = tempfile::tempdir().expect("open-in cache");
-            let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
-                .with_url_opener(Arc::new(|url: &str| {
-                    tracing::info!("openUrl {url}");
-                    Ok(())
-                }))
-                .with_open_cache(open_cache.path().to_path_buf());
-            let api = Arc::new(gitbolt_harness::with_fake_openers(api, launches.clone()));
-            gitbolt_harness::serve_with_launches(listener, api, launches).await;
+            // See `Harness::new`: fake openers, recorded launches, a logging URL opener, no
+            // avatars, a temporary open-in cache.
+            let config_dir = args.iter().position(|a| a == "--config-dir").and_then(|i| args.get(i + 1)).map(PathBuf::from);
+            let harness = gitbolt_harness::Harness::new(gitbolt_harness::HarnessOptions { config_dir, ..Default::default() }).await;
+            gitbolt_harness::serve(listener, harness).await;
         }
         Some("fixture") if args.len() == 3 => {
             let root = PathBuf::from(&args[2]);
@@ -59,7 +54,7 @@ async fn main() {
             println!("{}", repo.path().display());
         }
         _ => {
-            eprintln!("usage: gitbolt-harness serve [--port N] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view> <dir>");
+            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view> <dir>");
             std::process::exit(2);
         }
     }

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { fixtures, harnessHttp, openUrl } from './fixtures';
@@ -158,6 +158,26 @@ test.describe('file list and diff takeover', () => {
     await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
   });
 
+  test('K2, K3: quick clicks each count, the second of a double-click too (a file opens and closes, a folder toggles back)', async ({ page }) => {
+    await selectRow(page, 'Rename guide and update assets');
+    const diff = page.getByRole('region', { name: 'Diff' });
+    // Two presses within the double-click time: open, then close.
+    await fileRow(page, 'crlf.txt').dblclick();
+    await expect(diff).toHaveCount(0);
+    // Three: open, close, open.
+    await fileRow(page, 'crlf.txt').click({ clickCount: 3 });
+    await expect(page.getByTestId('diff-path')).toContainText('crlf.txt');
+    await page.getByRole('button', { name: 'Tree' }).click();
+    const docs = fileRow(page, 'docs');
+    await expect(docs).toHaveAttribute('aria-expanded', 'true');
+    await docs.dblclick();
+    await expect(docs).toHaveAttribute('aria-expanded', 'true');
+    await expect(fileRow(page, 'docs/manual.txt')).toBeVisible();
+    await docs.click({ clickCount: 3 });
+    await expect(docs).toHaveAttribute('aria-expanded', 'false');
+    await expect(fileRow(page, 'docs/manual.txt')).toHaveCount(0);
+  });
+
   test('a collapsed folder\'s counts follow its name; Expand/Collapse\'s icon ink sits 8 px in (H16, H17)', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
     await page.getByRole('button', { name: 'Tree' }).click();
@@ -311,6 +331,69 @@ test.describe('file list and diff takeover', () => {
     await unstaged.getByRole('option').and(page.locator('[data-path="docs/manual.txt"]')).click({ button: 'right' });
     await menu.getByRole('menuitem', { name: 'Open diff' }).click();
     await expect(page.getByRole('region', { name: 'Diff' }).getByTestId('diff-path')).toContainText('manual.txt');
+  });
+
+  test('K1: a right-click always opens the file menu: just after a wheel scroll, again and again, on other rows, over a tooltip', async ({ page }) => {
+    // Short enough, with every file listed, for the file list to scroll.
+    await page.setViewportSize({ width: 1280, height: 440 });
+    await selectRow(page, 'Rename guide and update assets');
+    await page.getByRole('button', { name: 'View all files' }).click();
+    const list = page.getByRole('listbox', { name: 'Changed files' });
+    await expect(fileRow(page, 'ws.txt')).toHaveCount(1);
+    expect(await list.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(60);
+    const menu = page.getByTestId('context-menu');
+    // A couple of frames and a task: long enough for any late scroll event to land.
+    const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 50)))));
+    const rightClick = async () => {
+      await page.mouse.down({ button: 'right' });
+      await page.mouse.up({ button: 'right' });
+    };
+    const lb = (await list.boundingBox())!;
+    // The wheel's scroll event is dispatched in the next frame, after the right-click that
+    // follows it: it used to close the menu the right-click had just opened.
+    for (const dy of [60, -60, 60]) {
+      await page.mouse.move(lb.x + 60, lb.y + lb.height / 2);
+      await page.mouse.wheel(0, dy);
+      await rightClick();
+      await settle();
+      await expect(menu).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeHidden();
+    }
+    // Open, the wheel over the list scrolls nothing behind it, and the menu stays.
+    await page.mouse.move(lb.x + 60, lb.y + lb.height / 2);
+    await rightClick();
+    await expect(menu).toBeVisible();
+    const top = await list.evaluate((el) => el.scrollTop);
+    await page.mouse.move(lb.x + 20, lb.y + lb.height / 2);
+    await page.mouse.wheel(0, 60);
+    await settle();
+    await expect(menu).toBeVisible();
+    expect(await list.evaluate((el) => el.scrollTop)).toBe(top);
+    await page.keyboard.press('Escape');
+    // Off the list first: the checks above leave the pointer on whichever row sits mid-list (the
+    // layout decides which; it can be src/app.php), and a row's tooltip opens only on entering it.
+    await page.mouse.move(1, 1);
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
+    // Again on the same row, then on others, each with the previous menu still open, and each
+    // other row with its tooltip showing. Each step lands left of the menu before (which opened
+    // at the pointer), on the row itself, and each menu opens at the pointer.
+    const steps = [['src/app.php', 48], ['src/app.php', 40], ['src/app.php', 32], ['crlf.txt', 24], ['logo.png', 16], ['crlf.txt', 8]] as const;
+    let last = '';
+    for (const [path, x] of steps) {
+      const row = fileRow(page, path);
+      await row.scrollIntoViewIfNeeded();
+      await row.hover({ position: { x, y: 5 } });
+      if (path !== last) await expect(page.getByRole('tooltip')).toHaveText(path);
+      last = path;
+      await rightClick();
+      await settle();
+      await expect(menu).toBeVisible();
+      const [m, r] = [(await menu.boundingBox())!, (await row.boundingBox())!];
+      expect(Math.abs(m.x - (r.x + x))).toBeLessThan(2);
+    }
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
   });
 
   test('the Open in submenu stays open on a diagonal move across the rows below its row (hover intent)', async ({ page }) => {
@@ -579,6 +662,91 @@ test.describe('file list and diff takeover', () => {
     await expect(page.getByTestId('file-view')).toContainText('café crème brûlée', { timeout: 15_000 });
     await fileRow(page, 'utf16.txt').click();
     await expect(page.getByTestId('diff-encoding')).toHaveText('UTF-16LE');
+  });
+
+  test('K4: ↓ on the last file wraps to the first, and ↑ on the first wraps to the last, in View all files', async ({ page }) => {
+    await selectRow(page, 'Rename guide and update assets');
+    await page.getByRole('button', { name: 'View all files' }).click();
+    await expect(page.getByRole('option')).toHaveCount(12);
+    const list = page.getByRole('listbox', { name: 'Changed files' });
+    await list.focus();
+    // Path order: big.txt … ws.txt (last). The row's own selected state (not the diff panel's
+    // breadcrumb, which a separate, pre-existing kept-panel bug — K7, Lane R's — can leave
+    // showing a stale path when a file already open elsewhere in this sequence reopens) is what
+    // this checks: the file list's own navigation and highlight.
+    await page.keyboard.press('End');
+    await expect(fileRow(page, 'ws.txt')).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowDown');
+    await expect(fileRow(page, 'big.txt')).toHaveAttribute('aria-selected', 'true'); // wraps to the first row
+    await page.keyboard.press('ArrowUp');
+    await expect(fileRow(page, 'ws.txt')).toHaveAttribute('aria-selected', 'true'); // wraps back to the last
+  });
+
+  test('K18-K20: the View all files filter narrows and highlights, its X re-centres the selection, and Esc clears it first', async ({ page }) => {
+    // Short enough that the 12 rows scroll, so re-centring has something to do.
+    await page.setViewportSize({ width: 1280, height: 560 });
+    await selectRow(page, 'Rename guide and update assets');
+    await page.getByRole('button', { name: 'View all files' }).click();
+    await expect(page.getByRole('option')).toHaveCount(12);
+    const filter = page.getByLabel('Filter files');
+    await expect(filter).toBeVisible();
+    await filter.fill('svg');
+    await expect(page.getByRole('option')).toHaveCount(1);
+    const match = fileRow(page, 'icon.svg').locator('mark.filter-match');
+    await expect(match).toHaveText('svg');
+    // Esc: the input owns it while there's something to clear.
+    await page.keyboard.press('Escape');
+    await expect(filter).toHaveValue('');
+    await expect(page.getByRole('option')).toHaveCount(12);
+    // A narrow filter, then the X: the selected row (still open) re-centres in the list.
+    await fileRow(page, 'old.txt').click();
+    await filter.fill('old');
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Clear filter' }).click();
+    await expect(filter).toHaveValue('');
+    await expect(page.getByRole('option')).toHaveCount(12);
+    // Centred as far as the list can scroll: the target is the row's centre at the box's centre,
+    // clamped to the scroll range (the list's height depends on the shell around it: toolbar,
+    // status bar).
+    const centring = await page.locator('.file-list-scroll').evaluate((s) => {
+      const row = s.querySelector('[data-path="old.txt"]')!.getBoundingClientRect();
+      const offset = row.top - s.getBoundingClientRect().top + s.scrollTop;
+      const target = Math.max(0, Math.min(offset + row.height / 2 - s.clientHeight / 2, s.scrollHeight - s.clientHeight));
+      return { target, off: Math.abs(s.scrollTop - target), rowH: row.height };
+    });
+    expect(centring.target).toBeGreaterThan(0);
+    expect(centring.off).toBeLessThan(centring.rowH);
+    // Esc with nothing to clear, focus still in the (empty) filter: the app's Esc as usual
+    // (K18-K20's text-input rule), closing the open file — not a no-op, as a plain text input's
+    // Esc otherwise would be.
+    await expect(page.getByRole('region', { name: 'Diff' })).toBeVisible();
+    await filter.focus();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
+  });
+
+  test('K19: Previous/Next changed file jump to the nearest changed file, skipping unchanged rows, and wrap', async ({ page }) => {
+    await selectRow(page, 'Rename guide and update assets');
+    await page.getByRole('button', { name: 'View all files' }).click();
+    await expect(page.getByRole('option')).toHaveCount(12);
+    const next = page.getByRole('button', { name: 'Next changed file' });
+    const prev = page.getByRole('button', { name: 'Previous changed file' });
+    const selected = () => page.getByRole('option', { selected: true });
+    // Path order: … icon.svg, latin1.txt (unchanged), logo.png, … : Next from icon.svg skips it.
+    // Checked via the row's own selected state, not the diff panel's breadcrumb: a separate,
+    // pre-existing kept-panel bug (K7, Lane R's) can leave that showing a stale path when a file
+    // already open earlier in this sequence reopens; the file list's own state is unaffected.
+    await fileRow(page, 'icon.svg').click();
+    await next.click();
+    await expect(selected()).toHaveAttribute('data-path', 'logo.png');
+    await prev.click();
+    await expect(selected()).toHaveAttribute('data-path', 'icon.svg');
+    // Wraps at the ends too (both big.txt, the first row, and ws.txt, the last, are changed).
+    await fileRow(page, 'ws.txt').click();
+    await next.click();
+    await expect(selected()).toHaveAttribute('data-path', 'big.txt');
+    await prev.click();
+    await expect(selected()).toHaveAttribute('data-path', 'ws.txt');
   });
 });
 

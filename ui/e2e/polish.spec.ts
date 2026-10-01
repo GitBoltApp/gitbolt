@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 // Global polish (user feedback F22, F31): one text-selection colour, Ctrl+C outside the editor,

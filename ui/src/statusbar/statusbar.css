@@ -1,0 +1,17 @@
+/* The status bar (spec §6.5). It sits above the auth prompt's backdrop (auth.css, z-index 800),
+   so "Waiting for authentication… Cancel" stays usable while the prompt is up. */
+.status-bar { position: relative; z-index: 810; display: flex; align-items: center; gap: 2px; height: 22px; padding: 0 6px; box-sizing: border-box; font-size: 11px; color: var(--text-secondary); background: var(--toolbar-bg0); border-top: 1px solid var(--section-border); flex: none; user-select: none; }
+.sb-item { all: unset; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; height: 100%; white-space: nowrap; }
+.sb-button { cursor: pointer; border-radius: 3px; transition: background-color var(--motion-fast); }
+.sb-button:hover { background: var(--hover-row); color: var(--text-selected); }
+.sb-button:focus-visible { outline: 1px solid var(--blue); }
+.sb-spacer { flex: 1; }
+.sb-warn { color: var(--status-modified); }
+.sb-auth { color: var(--text-selected); }
+.sb-link { all: unset; margin-left: 6px; color: var(--blue); cursor: pointer; }
+.sb-link:hover { text-decoration: underline; }
+.sb-link:focus-visible { outline: 1px solid var(--blue); }
+.sb-badge { min-width: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: var(--status-deleted); color: #fff; font-size: 10px; line-height: 14px; text-align: center; }
+.sb-spin { animation: sb-spin 1s linear infinite; }
+@keyframes sb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sb-spin { animation: none; } }

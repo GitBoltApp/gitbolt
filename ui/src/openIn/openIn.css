@@ -1,14 +1,9 @@
-/* "Open in…" (feedback H9): the split button for the diff header and its dropdown. The file
-   list's right-click uses the shared context menu (ui/src/menu), with the same opener rows. */
+/* "Open in…" (feedback H9): the split button for the diff header. Its dropdown, and the file
+   list's right-click, both use the shared context menu (ui/src/menu), with the same opener rows
+   (plan 1C Task 15, Amendment 11: converted from this file's own popup). */
 .open-in-button { display: inline-flex; align-items: stretch; height: 22px; border: 1px solid var(--section-border); border-radius: 4px; overflow: hidden; flex: none; }
 .open-in-main, .open-in-toggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); white-space: nowrap; transition: background-color var(--motion-fast), color var(--motion-fast); }
 .open-in-main { padding: 0 8px 0 6px; }
 .open-in-toggle { padding: 0 4px; border-left: 1px solid var(--section-border); }
 .open-in-main:hover, .open-in-toggle:hover, .open-in-toggle[aria-expanded="true"] { background: var(--hover-row); color: var(--text-selected); }
 .open-in-main:focus-visible, .open-in-toggle:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
-.open-in-menu { position: fixed; z-index: 1001; min-width: 180px; padding: 4px 0; box-sizing: border-box; border: 1px solid var(--section-border); border-radius: 4px; background: var(--panel-bg1); box-shadow: 0 2px 8px rgb(0 0 0 / 0.4); }
-.open-in-item { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 4px 12px; color: var(--text-normal); white-space: nowrap; transition: background-color var(--motion-fast), color var(--motion-fast); }
-.open-in-item:hover, .open-in-item:focus { background: var(--selected-row); color: var(--text-selected); outline: none; }
-.open-in-item > svg { flex: none; color: var(--text-secondary); }
-.open-in-empty { padding: 4px 12px; color: var(--text-secondary); white-space: nowrap; }
-.open-in-menu:focus { outline: none; }

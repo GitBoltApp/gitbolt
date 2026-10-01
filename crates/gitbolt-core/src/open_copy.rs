@@ -37,11 +37,9 @@ pub fn write_copy(cache: &Path, key: &str, rel: &str, bytes: &[u8]) -> Result<Pa
     // Private folders (0700 on unix), including ones an earlier version left more open.
     make_private_dirs(cache, &root, &dir)?;
     let dest = safe_join(&root, rel)?;
-    // An earlier copy is read-only: replace it (the directory is ours and writable).
-    match std::fs::symlink_metadata(&dest) {
-        Ok(m) if m.is_dir() => return Err(GbError::new(GbErrorKind::InvalidInput, format!("{rel} is a directory in the copy"))),
-        Ok(_) => std::fs::remove_file(&dest)?,
-        Err(_) => {}
+    // An earlier copy is read-only; `write_read_only` replaces it with a rename, not in place.
+    if std::fs::symlink_metadata(&dest).is_ok_and(|m| m.is_dir()) {
+        return Err(GbError::new(GbErrorKind::InvalidInput, format!("{rel} is a directory in the copy")));
     }
     write_read_only(&dest, bytes)?;
     // The copy's root dates the copy for `clean` (a nested file doesn't touch its mtime).
@@ -73,24 +71,58 @@ fn make_private_dirs(_cache: &Path, _root: &Path, dir: &Path) -> Result<(), GbEr
     Ok(())
 }
 
-/// Writes a new file that is read-only from the moment it exists (0444 on unix, the read-only
-/// attribute elsewhere): no window in which another process could open it for writing.
-#[cfg(unix)]
+/// Writes `bytes` to a fresh, uniquely-named temp file next to `dest` (read-only from the moment
+/// it exists), then renames it onto `dest` — atomically replacing any earlier copy there. Minor
+/// #7: the old approach (`remove_file` then `create_new` on `dest` itself) let two concurrent
+/// opens of the same old file race, with the loser failing `AlreadyExists`; a unique temp name
+/// never collides between callers, and the rename can't fail that way, so both opens succeed no
+/// matter which finishes last.
 fn write_read_only(dest: &Path, bytes: &[u8]) -> Result<(), GbError> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new().create_new(true).write(true).mode(0o444).open(dest)?.write_all(bytes)?;
+    let dir = dest.parent().expect("write_copy always gives a path with a parent");
+    let tmp = dir.join(format!(".{}-{}", std::process::id(), next_seq()));
+    write_new_read_only(&tmp, bytes)?;
+    std::fs::rename(&tmp, dest)?;
     Ok(())
 }
 
+/// Monotonic within this process: paired with the pid (fix round 1, item 8), every call gets a
+/// temp name no other call — concurrent, or from a past run under the same pid — could have used,
+/// without needing wall-clock time at all.
+fn next_seq() -> u64 {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A new file (the path must not already exist) that is read-only from the moment it exists (0444
+/// on unix, the read-only attribute elsewhere): no window in which another process could open it
+/// for writing. If the write itself fails partway (fix round 1, item 8), the half-written file is
+/// removed rather than left behind: `create_new` failing (the path already existed) means nothing
+/// was created here, so nothing needs cleaning up either way.
+#[cfg(unix)]
+fn write_new_read_only(dest: &Path, bytes: &[u8]) -> Result<(), GbError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new().create_new(true).write(true).mode(0o444).open(dest)?;
+    write_all_or_remove(&mut f, dest, bytes)
+}
+
 #[cfg(not(unix))]
-fn write_read_only(dest: &Path, bytes: &[u8]) -> Result<(), GbError> {
-    use std::io::Write;
+fn write_new_read_only(dest: &Path, bytes: &[u8]) -> Result<(), GbError> {
     let mut f = std::fs::OpenOptions::new().create_new(true).write(true).open(dest)?;
-    f.write_all(bytes)?;
+    write_all_or_remove(&mut f, dest, bytes)?;
     let mut perms = f.metadata()?.permissions();
     perms.set_readonly(true);
     std::fs::set_permissions(dest, perms)?;
+    Ok(())
+}
+
+/// Writes `bytes` to the already-created `dest` via `f`; on failure, removes `dest` instead of
+/// leaving a half-written file behind. Takes `f` as a generic writer so a test can force the
+/// failure deterministically, without needing a real full-disk or permission-revoked condition.
+fn write_all_or_remove(f: &mut impl std::io::Write, dest: &Path, bytes: &[u8]) -> Result<(), GbError> {
+    if let Err(e) = f.write_all(bytes) {
+        let _ = std::fs::remove_file(dest);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -135,6 +167,55 @@ mod tests {
         assert_eq!(again, p);
         assert_eq!(std::fs::read(&p).unwrap(), b"<?php // v2\n");
         assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o444);
+    }
+
+    /// Minor #7: two (here, many) concurrent opens of the same old file used to race
+    /// `remove_file` against `create_new`, with the loser failing `AlreadyExists`. Writing to a
+    /// unique temp name and renaming over the destination means every writer succeeds.
+    #[test]
+    fn concurrent_writes_of_the_same_copy_never_fail() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = std::sync::Arc::new(tmp.path().to_path_buf());
+        let threads: Vec<_> = (0..16u8)
+            .map(|i| {
+                let cache = cache.clone();
+                std::thread::spawn(move || write_copy(&cache, "abc123", "src/app.php", format!("<?php // {i}\n").as_bytes()))
+            })
+            .collect();
+        let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        for r in &results {
+            assert!(r.is_ok(), "{r:?}");
+        }
+        let dest = results[0].as_ref().unwrap();
+        assert_eq!(mode(dest), 0o444, "the winner is still read-only");
+        let content = std::fs::read_to_string(dest).unwrap();
+        assert!(content.starts_with("<?php // "), "one of the writers' content survives: {content:?}");
+        // No leftover temp files: every rename replaced the destination cleanly.
+        let left: Vec<_> = std::fs::read_dir(dest.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("app.php")]);
+    }
+
+    /// Fix round 1, item 8: a write failure partway through must not leave a half-written file
+    /// at `dest`. `write_all_or_remove` is tested directly with an always-failing writer, since a
+    /// real full-disk or permission-revoked-mid-write condition isn't reliably forceable in a
+    /// fast, portable unit test.
+    #[test]
+    fn a_write_failure_removes_the_half_written_file() {
+        struct FailingWriter;
+        impl std::io::Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("disk full"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("half-written");
+        std::fs::write(&dest, b"whatever create_new would have produced").unwrap();
+        let err = write_all_or_remove(&mut FailingWriter, &dest, b"data").unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Io);
+        assert!(!dest.exists(), "the half-written file must be removed on failure");
     }
 
     #[test]

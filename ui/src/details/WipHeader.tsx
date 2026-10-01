@@ -14,7 +14,7 @@ export function WipHeader() {
   });
   if (selection?.kind !== 'wip') return null;
   return (
-    <header className="wip-header" data-testid="wip-header">
+    <header className="wip-header panel-bar" data-testid="wip-header">
       <span className="wip-tag">// WIP</span> <span className="person-name">{selection.name ?? 'Working tree'}</span> <span className="dim">{wip ? wipCountsText(wip) : ''}</span>
     </header>
   );

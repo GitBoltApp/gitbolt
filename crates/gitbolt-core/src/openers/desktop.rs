@@ -183,6 +183,29 @@ fn runnable(env: &DetectEnv, e: &Entry) -> Option<(PathBuf, Vec<ExecArg>)> {
     Some((program, args))
 }
 
+/// Flatpak exports wrap a forwarded field code in `@@ … @@` (a plain path, from `%f`/`%F`) or
+/// `@@u … @@` (a URI, from `%u`/`%U`): see the module docs and minor #4. Turns the `ExecArg::File`
+/// inside an `@@u … @@` span into `ExecArg::FileUri`; a plain `@@ … @@` span is untouched.
+fn mark_flatpak_uri_forwarding(args: Vec<ExecArg>) -> Vec<ExecArg> {
+    let marker = |a: &ExecArg, s: &str| matches!(a, ExecArg::Literal(x) if x.to_string_lossy() == s);
+    let mut in_uri_span = false;
+    args.into_iter()
+        .map(|a| {
+            if marker(&a, "@@u") {
+                in_uri_span = true;
+                a
+            } else if marker(&a, "@@") {
+                in_uri_span = false;
+                a
+            } else if in_uri_span && a == ExecArg::File {
+                ExecArg::FileUri
+            } else {
+                a
+            }
+        })
+        .collect()
+}
+
 /// The editors among the desktop entries (unsorted; `detect` sorts them), one per app: the known
 /// editors by their stable id, the others as `desktop:<desktop id without .desktop>`.
 pub(super) fn editors(env: &DetectEnv) -> Vec<Opener> {
@@ -205,8 +228,11 @@ pub(super) fn editors(env: &DetectEnv) -> Vec<Opener> {
         if found.iter().any(|o| o.id == opener_id) {
             continue;
         }
-        // Flatpak's `@@`/`@@u` file forwarding only passes real paths: no `path:line` or flags
-        // inside it, so a Flatpak IDE opens the file without the line.
+        // Flatpak's `@@`/`@@u` file forwarding only passes real paths or URIs: no `path:line` or
+        // flags inside it, so a Flatpak IDE opens the file without the line. `@@u … @@` (a URI
+        // code forwarded) additionally needs the file itself as a `file://` URI, not a path
+        // (minor #4): the document portal that exports it into the sandbox takes a URI.
+        let args = mark_flatpak_uri_forwarding(args);
         let forwards = args.iter().any(|a| matches!(a, ExecArg::Literal(s) if s.to_string_lossy().starts_with("@@")));
         let style = match line.filter(|_| !forwards) {
             Some(l) => ArgStyle::ExecWithLine(args, l),
@@ -350,6 +376,21 @@ mod tests {
         assert_eq!(found[0].name, "IntelliJ IDEA");
         let c = found[0].command(Path::new("/w/a.kt"), Some(5));
         assert_eq!(c.program, t.root.join("usr/bin/flatpak"));
-        assert_eq!(args(&c), ["run", "--command=idea", "com.jetbrains.IntelliJ-IDEA-Ultimate", "@@u", "/w/a.kt", "@@"]);
+        // Minor #4: the `@@u … @@`-wrapped file goes in as a `file://` URI, not a bare path, so
+        // the document portal can export it into the sandbox.
+        assert_eq!(args(&c), ["run", "--command=idea", "com.jetbrains.IntelliJ-IDEA-Ultimate", "@@u", "file:///w/a.kt", "@@"]);
+    }
+
+    /// A plain `@@ … @@` span (from `%f`/`%F`) is untouched: only `@@u` spans become URIs.
+    #[test]
+    fn a_flatpak_app_forwarding_a_plain_path_keeps_the_path() {
+        let t = tree();
+        let flat = t.root.join("flatpak/exports/share");
+        executable(&t.root.join("usr/bin/flatpak"));
+        desktop(&flat, "com.visualstudio.code.desktop", &format!("[Desktop Entry]\nType=Application\nName=Visual Studio Code\nExec={}/usr/bin/flatpak run --command=code com.visualstudio.code @@ %F @@\nCategories=Development;IDE;\n", t.root.display()));
+        let found = detect(&t.env);
+        assert_eq!(ids(&found), ["vscode"]);
+        let c = found[0].command(Path::new("/w/a.kt"), Some(5));
+        assert_eq!(args(&c), ["run", "--command=code", "com.visualstudio.code", "@@", "/w/a.kt", "@@"]);
     }
 }

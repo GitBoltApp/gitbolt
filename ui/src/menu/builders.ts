@@ -1,9 +1,10 @@
-import { fileUrl, type ProjectRemote } from '../forge/urls';
+import { refTokenFromLabel } from '../details/messageLinks';
+import { branchUrl, commitUrl, fileUrl, type ProjectRemote } from '../forge/urls';
 import { defaultOpener, openerRowId, openInSubmenuRows } from '../openIn/openerRows';
 import { shortSha } from '../format/sha';
 import { ICONS } from './icons';
-import type { FileTarget, FolderTarget, MenuEnv } from './menuEnv';
-import { registerMenu } from './registry';
+import type { CommitTarget, FileTarget, FolderTarget, MenuEnv, MonacoTarget, TagTarget } from './menuEnv';
+import { registerMenu, tmpl } from './registry';
 import type { MenuRow, Variant } from './types';
 
 // Pure: rows are built only from the target and the in-memory env (spec §7). Never call the API
@@ -99,5 +100,165 @@ registerMenu<FolderTarget, MenuEnv>({
   rows: (t, env) => {
     const { list, error } = env.openers;
     return [{ kind: 'submenu', id: 'folder.openIn', label: 'Open in', icon: ICONS.reveal, tooltip: 'Show the folder in the file manager', rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn), { folder: true }) }];
+  },
+});
+
+// Plan 1C Task 15 (lane W2-D): the commit, tag and Monaco kinds, registered next to 1B's file and
+// folder rows above, with new ids (a duplicate id throws at import, preflight.md T15). Still
+// pure: no API client import (builders.test.ts's throwing proxy covers these too).
+
+/** A commit target's branch, as its remote-tracking ref (origin first, spec §7's `⎇`/forge rows). */
+const remoteBranch = (b: CommitTarget['branch']) => {
+  const r = b?.remotes.find((x) => x.remote === 'origin') ?? b?.remotes[0];
+  return r ? { remote: r.remote, name: r.fullName.slice(`refs/remotes/${r.remote}/`.length) } : null;
+};
+
+/**
+ * `Forge link | ⎇ | ◉ | Open |` for a target whose commit permalink is always known (a real
+ * commit, unlike a file that might not be committed yet): the M report's shape (item 10, spec
+ * §7's Amendment 6) — the label copies the branch link when there is one, else the permalink; ⎇
+ * and ◉ copy each explicitly; Open opens the default in the browser.
+ */
+function commitForgeRow(id: string, name: string, branch: { url: string | null; reason: string }, commitLink: string, env: MenuEnv): MenuRow {
+  const url = branch.url ?? commitLink;
+  const variants: Variant[] = [
+    { id: 'branch', icon: ICONS.branch, tooltip: `Copy the branch's link on ${name}`, run: () => branch.url && env.act.copy(branch.url), disabledReason: branch.url ? undefined : branch.reason },
+    { id: 'commit', icon: ICONS.commit, tooltip: `Copy a ${name} permalink pinned to this commit`, run: () => env.act.copy(commitLink) },
+    { id: 'open', icon: ICONS.browser, tooltip: `Open on ${name} in the browser`, run: () => env.act.openUrl(url) },
+  ];
+  return row({ id, label: 'Forge link', icon: ICONS.forge, tooltip: `Copy the link to ${branch.url ? 'the branch' : 'this commit'} on ${name}`, run: () => env.act.copy(url), variants });
+}
+
+/** A single-link forge row (a tag's page): copy on the label, an Open variant (same shape as
+ * `commitForgeRow`, without the branch/commit split a tag has no use for). */
+function simpleForgeRow(id: string, url: string, what: string, env: MenuEnv): MenuRow {
+  return row({ id, label: 'Forge link', icon: ICONS.forge, tooltip: `Copy ${what}`, run: () => env.act.copy(url), variants: [{ id: 'open', icon: ICONS.browser, tooltip: `Open ${what} in the browser`, run: () => env.act.openUrl(url) }] });
+}
+
+/** One `Open <ref>` row per distinct MR/PR reference in the commit message (spec §7's target
+ * table; issues get no button, M report deviation 9's `ForgeRef.type`). */
+registerMenu<CommitTarget, MenuEnv>({
+  id: 'commit.forge.refs', kind: 'commit', group: 'forge', order: 0,
+  when: (t) => !t.isWip,
+  rows: (t, env) => {
+    const f = env.forge();
+    if (!f) return [];
+    const seen = new Set<string>();
+    return t.mrRefs.flatMap((label) => {
+      const token = refTokenFromLabel(label, f);
+      if (!token || token.kind !== 'link' || token.ref?.type !== 'mr' || seen.has(token.url)) return [];
+      seen.add(token.url);
+      const kind = f.hostKind === 'gitlab' ? 'merge request' : 'pull request';
+      return [row({ id: `commit.openRef.${token.ref.label}`, label: `Open ${token.ref.label}`, icon: ICONS.mr, tooltip: `Open ${kind} ${token.ref.label} on ${forgeName(f)}`, run: () => env.act.openUrl(token.url) })];
+    });
+  },
+});
+
+/** `Copy branch name | Local | Remote |` · `Copy SHA | Short | Full |` · `Copy message` ·
+ * `Forge link | ⎇ | ◉ | Open |`, one group (spec §7's target table puts the commit's Forge link
+ * in the copy group, unlike the file menu's own `forge` group). */
+registerMenu<CommitTarget, MenuEnv>({
+  id: 'commit.copy', kind: 'commit', group: 'copy', order: 0,
+  when: (t) => !t.isWip,
+  rows: (t, env) => {
+    const out: MenuRow[] = [];
+    const b = t.branch;
+    if (b) {
+      const local = b.local?.replace(/^refs\/heads\//, '') ?? null;
+      const rb = remoteBranch(b);
+      out.push(row({
+        id: 'commit.copyBranch', label: 'Copy branch name', icon: ICONS.branch, tooltip: `Copy "${b.name}"`, run: () => env.act.copy(b.name),
+        variants: [
+          { id: 'local', label: 'Local', tooltip: local ? `Copy the local branch name (${local})` : 'This branch has no local copy', run: () => local && env.act.copy(local), disabledReason: local ? undefined : 'No local branch' },
+          { id: 'remote', label: 'Remote', tooltip: rb ? `Copy "${rb.remote}/${rb.name}"` : 'This branch isn\'t on a remote', run: () => rb && env.act.copy(`${rb.remote}/${rb.name}`), disabledReason: rb ? undefined : 'Not on a remote' },
+        ],
+      }));
+    }
+    out.push(row({
+      id: 'commit.copySha', label: 'Copy SHA', icon: ICONS.sha, tooltip: 'Copy the full commit id', run: () => env.act.copy(t.sha),
+      variants: [
+        { id: 'short', label: 'Short', tooltip: `Copy the short id (${shortSha(t.sha)})`, run: () => env.act.copy(shortSha(t.sha)) },
+        { id: 'full', label: 'Full', tooltip: 'Copy the full 40-character id', run: () => env.act.copy(t.sha) },
+      ],
+    }));
+    out.push(row({ id: 'commit.copyMessage', label: 'Copy message', icon: ICONS.message, tooltip: 'Copy the full commit message', run: () => env.act.copyMessage(t.sha) }));
+    const rb = remoteBranch(b);
+    const f = env.forge(rb?.remote);
+    if (f) out.push(commitForgeRow('commit.forgeLink', forgeName(f), { url: rb ? branchUrl(f, rb.name) : null, reason: b ? 'This branch isn\'t on the remote' : 'Right-click a branch label for its page' }, commitUrl(f, t.sha)!, env));
+    return out;
+  },
+});
+
+/** `Compare with HEAD` (a branch's tip) or `Compare with working tree` (a plain commit). */
+registerMenu<CommitTarget, MenuEnv>({
+  id: 'commit.view', kind: 'commit', group: 'view', order: 0,
+  when: (t) => !t.isWip,
+  rows: (t, env) => t.branch
+    ? [row({
+      id: 'commit.compareHead', label: 'Compare with HEAD', icon: ICONS.compare, tooltip: tmpl('Compare {Y} with HEAD ({X})', { X: env.headBranch, Y: t.branch.name }),
+      run: () => env.headSha && env.act.compare(t.sha, env.headSha), disabledReason: env.headSha === t.sha ? 'Already at HEAD' : env.headSha ? undefined : 'No HEAD commit',
+    })]
+    : [row({ id: 'commit.compareWorktree', label: 'Compare with working tree', icon: ICONS.compare, tooltip: 'Compare this commit with the files on disk', run: () => env.act.compare(t.sha, 'worktree') })],
+});
+
+/** `Forge link` · `Copy tag name` (spec §7's tag row; 1B's `GROUP_ORDER.tag` puts forge first). */
+registerMenu<TagTarget, MenuEnv>({
+  id: 'tag.forge', kind: 'tag', group: 'forge', order: 0,
+  rows: (t, env) => {
+    const f = env.forge();
+    if (!f) return [];
+    const name = forgeName(f);
+    const url = branchUrl(f, t.name);
+    return url ? [simpleForgeRow('tag.forgeLink', url, `the tag's page on ${name}`, env)] : [];
+  },
+});
+registerMenu<TagTarget, MenuEnv>({
+  id: 'tag.copy', kind: 'tag', group: 'copy', order: 0,
+  rows: (t, env) => [row({ id: 'tag.copyName', label: 'Copy tag name', icon: ICONS.copy, tooltip: `Copy "${t.name}"`, run: () => env.act.copy(t.name) })],
+});
+
+/** `path:line` or `path:from-to` (a multi-line selection), the Monaco menu's Copy location. */
+const monacoLocation = (t: MonacoTarget) => `${t.path}:${t.lines[0]}${t.lines[1] !== t.lines[0] ? `-${t.lines[1]}` : ''}`;
+
+registerMenu<MonacoTarget, MenuEnv>({
+  id: 'monaco.copy', kind: 'monaco', group: 'copy', order: 0,
+  rows: (t, env) => [
+    row({ id: 'monaco.copySelection', label: 'Copy', icon: ICONS.copy, tooltip: 'Copy the selected text', run: () => env.act.copy(t.selectionText), disabledReason: t.selectionText ? undefined : 'Nothing selected' }),
+    row({
+      id: 'monaco.copyLocation', label: 'Copy location', icon: ICONS.copy, tooltip: `Copy "${monacoLocation(t)}"`, run: () => env.act.copy(monacoLocation(t)),
+      variants: [
+        { id: 'rel', label: monacoLocation(t), tooltip: 'Copy the repository-relative location', run: () => env.act.copy(monacoLocation(t)) },
+        { id: 'abs', label: 'Abs', tooltip: 'Copy the absolute path with the line', run: () => env.act.copy(`${t.openIn.worktree}/${monacoLocation(t)}`) },
+      ],
+    }),
+  ],
+});
+
+/** `Forge link | ⎇ | ◉ | Open |`, with the selection's line anchor. */
+registerMenu<MonacoTarget, MenuEnv>({
+  id: 'monaco.forge', kind: 'monaco', group: 'forge', order: 0,
+  rows: (t, env) => {
+    const f = env.forge(t.upstream?.remote);
+    if (!f) return [];
+    const name = forgeName(f);
+    const lines = { a: t.lines[0], b: t.lines[1] };
+    const branchLink = t.upstream ? fileUrl(f, t.upstream.branch, t.path, lines) : null;
+    const commitLink = t.sha ? fileUrl(f, t.sha, t.path, lines) : null;
+    const url = branchLink ?? commitLink;
+    if (!url) return [];
+    const variants: Variant[] = [
+      { id: 'branch', icon: ICONS.branch, tooltip: t.upstream ? `Copy the link to this file on ${t.upstream.remote}/${t.upstream.branch} (${name})` : `Copy the branch's link on ${name}`, run: () => branchLink && env.act.copy(branchLink), disabledReason: branchLink ? undefined : "The commit's branch has no known upstream" },
+      { id: 'commit', icon: ICONS.commit, tooltip: `Copy a ${name} permalink pinned to this commit`, run: () => commitLink && env.act.copy(commitLink), disabledReason: commitLink ? undefined : 'Not committed yet' },
+      { id: 'open', icon: ICONS.browser, tooltip: `Open on ${name} in the browser`, run: () => env.act.openUrl(url) },
+    ];
+    return [row({ id: 'monaco.forgeLink', label: 'Forge link', icon: ICONS.forge, tooltip: `Copy the link to this file on ${name}`, run: () => env.act.copy(url), variants })];
+  },
+});
+
+registerMenu<MonacoTarget, MenuEnv>({
+  id: 'monaco.open', kind: 'monaco', group: 'open', order: 0,
+  rows: (t, env) => {
+    const { list, error } = env.openers;
+    return [{ kind: 'submenu', id: 'monaco.openIn', label: 'Open in', icon: ICONS.editor, tooltip: `Open the file in another application at line ${t.lines[0]}`, rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn)) }];
   },
 });

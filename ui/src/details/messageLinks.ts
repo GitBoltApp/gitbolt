@@ -115,6 +115,15 @@ function buildRefToken(label: string, sigil: '!' | '#', remote: ProjectRemote): 
   return null;
 }
 
+/** As `buildRefToken`, but taking a whole reference label (`referenceLabels`'/`RowPayload.mrRefs`'
+ * shape, e.g. `"acme/shop!1187"`) rather than a pre-split sigil. `null` when the label has
+ * neither `!` nor `#` (shouldn't happen for a real ref label). Used by the commit menu's `Open
+ * <ref>` rows (plan 1C Task 15). */
+export function refTokenFromLabel(label: string, remote: ProjectRemote): MessageToken | null {
+  const idx = label.search(/[!#]/);
+  return idx < 0 ? null : buildRefToken(label, label[idx] as '!' | '#', remote);
+}
+
 /** Splits a message into text and links (spec §9.2): URLs always link; `!`/`#` references link
  * per host kind (GitLab: `!` MRs, `#` issues; GitHub: `#` PRs, `!` ignored; generic or no remote:
  * URLs only). Concatenating every token's text gives back the input exactly. */

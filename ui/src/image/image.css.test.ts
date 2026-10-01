@@ -21,3 +21,56 @@ describe('image.css motion (J19)', () => {
     expect(css).not.toMatch(/transition:\s*all/);
   });
 });
+
+describe('image.css labels (K9)', () => {
+  it("the Old/New (and Amplify) chips never block a drag or the swipe handle", () => {
+    expect(rule('.image-label')).toMatch(/pointer-events:\s*none/);
+  });
+});
+
+describe('image.css side-by-side divider (K21)', () => {
+  it('draws a 1 px line, off the existing border token, centred in the stage', () => {
+    const r = rule('.side-divider');
+    expect(r).toMatch(/width:\s*1px/);
+    expect(r).toMatch(/background:\s*var\(--section-border\)/);
+    expect(r).toMatch(/left:\s*50%/);
+  });
+
+  it('is out of flow (absolute), so it never nudges the flexed viewports’ widths by even a sub-pixel', () => {
+    expect(rule('.side-divider')).toMatch(/position:\s*absolute/);
+    expect(rule('.image-stage')).toMatch(/position:\s*relative/);
+  });
+
+  it("never blocks a drag on the image beneath it", () => {
+    expect(rule('.side-divider')).toMatch(/pointer-events:\s*none/);
+  });
+});
+
+describe('image.css side-by-side labels (K22)', () => {
+  it('are bigger and centred horizontally, near the top, in side-by-side only', () => {
+    const r = rule('.image-stage.mode-side .image-viewport > .image-label');
+    expect(r).toMatch(/left:\s*50%/);
+    expect(r).toMatch(/transform:\s*translateX\(-50%\)/);
+    expect(r).toMatch(/top:\s*8px/);
+    expect(r).toMatch(/font-size:\s*13px/);
+  });
+
+  it('leaves swipe corner chips (label-bl/label-br) unchanged', () => {
+    expect(rule('.image-viewport > .image-label.label-bl')).toMatch(/left:\s*6px/);
+    expect(rule('.image-viewport > .image-label.label-br')).toMatch(/right:\s*6px/);
+  });
+});
+
+describe('image.css fixed-width slider values (K23)', () => {
+  it("the Amplify value reserves space for its widest reading (16×), tabular digits", () => {
+    const r = rule('.amplify-value');
+    expect(r).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    expect(r).toMatch(/min-width:\s*3ch/);
+  });
+
+  it('the zoom % value reserves space for its widest reading (1000%), tabular digits', () => {
+    const r = rule('.image-toolbar .zoom-value');
+    expect(r).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    expect(r).toMatch(/min-width:\s*5ch/);
+  });
+});

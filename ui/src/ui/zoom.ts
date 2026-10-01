@@ -1,3 +1,4 @@
+import { create } from 'zustand';
 import { registerKeys } from './keyRouter';
 
 /**
@@ -9,7 +10,8 @@ import { registerKeys } from './keyRouter';
  * Chrome keeps a zoom level per origin in its profile. GitBolt's saved step is the source of
  * truth: it's re-applied at startup, 100% included.
  *
- * Plan 1C moves the saved step into its settings store (spec §15 `zoom`).
+ * The saved step stays in localStorage (plan 1C ruling R4), so it applies before the first paint;
+ * `useZoom` mirrors it for the status bar.
  */
 export const ZOOM_STEPS = [80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300] as const;
 export const ZOOM_STORAGE_KEY = 'gitbolt.zoom.v1';
@@ -66,6 +68,26 @@ export function applyWebviewZoom(pct: number): void {
 }
 
 /**
+ * The current zoom step, for what shows it (the status bar, spec §6.5). The step itself still
+ * lives in localStorage (ruling R4: it must apply before the first paint); this only mirrors it.
+ */
+export const useZoom = create<{ zoom: number }>(() => ({ zoom: load() }));
+
+let applyZoom: (pct: number) => void = applyWebviewZoom;
+
+function show(pct: number) {
+  useZoom.setState({ zoom: pct });
+  document.documentElement.dataset.zoom = String(pct);
+  applyZoom(pct);
+}
+
+/** Zooms to `pct` (one of `ZOOM_STEPS`) and saves it: the status bar's step list (spec §12.3). */
+export function setZoom(pct: number): void {
+  show(pct);
+  save(pct);
+}
+
+/**
  * Installs the zoom keys and the Ctrl+wheel guard on `window`, and applies the saved step. The
  * keys are app actions in the key router (`keyRouter.ts`, capture phase), so the editor never
  * sees them, and (H2) they work even with a menu open: the router routes zoom past the menu
@@ -74,19 +96,13 @@ export function applyWebviewZoom(pct: number): void {
  * its own Ctrl+wheel (the image diff) still gets the event. Returns the uninstaller.
  */
 export function installZoom(apply: (pct: number) => void = applyWebviewZoom): () => void {
-  let current = load();
-  const set = (pct: number) => {
-    current = pct;
-    document.documentElement.dataset.zoom = String(pct);
-    apply(pct);
-  };
-  set(current);
+  applyZoom = apply;
+  show(load());
   const onKeyDown = (e: KeyboardEvent) => {
     const dir = zoomDirection(e);
     if (dir === null) return;
     e.preventDefault();
-    set(nextZoom(current, dir));
-    save(current);
+    setZoom(nextZoom(useZoom.getState().zoom, dir));
     return 'handled' as const;
   };
   const onWheel = (e: WheelEvent) => {
@@ -95,6 +111,7 @@ export function installZoom(apply: (pct: number) => void = applyWebviewZoom): ()
   const offKeys = registerKeys('app', onKeyDown);
   window.addEventListener('wheel', onWheel, { capture: true, passive: false });
   return () => {
+    applyZoom = applyWebviewZoom;
     offKeys();
     window.removeEventListener('wheel', onWheel, { capture: true });
   };

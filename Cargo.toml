@@ -20,7 +20,7 @@ thiserror = "2.0.21"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 regex = "1.13"
-nix = { version = "0.31", features = ["signal", "process"] }
+nix = { version = "0.31", features = ["signal", "process", "user"] }
 ts-rs = "12.0.1"
 tempfile = "3.27"
 encoding_rs = "0.8.42"
@@ -46,6 +46,11 @@ tauri-plugin-opener = "=3.0.0-alpha.1"
 # "Other…" (feedback H32): the xdg-desktop-portal Open With chooser over D-Bus. Already in the
 # tree through tauri-plugin-opener; same version and features.
 zbus = "5.19"
+# The main window's X11 id, the folder-picker portal's parent (plan 1C, spec §13). Already in the
+# tree through tauri; same version.
+raw-window-handle = "0.6.2"
+# The active-tab file watcher (plan 1C Task 6): inotify on Linux.
+notify = "8.2.0"
 
 [patch.crates-io]
 # CEF issue #3002 idle-busy-loop workaround; see vendor/tauri-runtime-cef/GITBOLT-PATCH.md.

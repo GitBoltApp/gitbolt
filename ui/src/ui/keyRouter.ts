@@ -6,8 +6,9 @@ import { zoomDirection } from './zoom';
  * handlers (Monaco, the lists, …) goes through it, in a fixed order of layers:
  *
  * 1. `menu`: an open menu. The context menu (`ContextMenu`) takes every key, wherever the focus
- *    is. Any other shown `[role="menu"]` (the diff toolbar's Open in… dropdown), or a key pressed
- *    inside one, keeps the key for that menu's own handler (built in below).
+ *    is (plan 1C Task 15, Amendment 11: the diff toolbar's Open in… dropdown is this same menu
+ *    now, not a dropdown of its own). Any other shown `[role="menu"]`, or a key pressed inside
+ *    one, keeps the key for that menu's own handler (built in below).
  * 2. `tooltip`: a shown tooltip (`HoverTooltip`, `TooltipHost`): Esc dismisses it (WCAG 1.4.13).
  * 3. `overlay`: an editor overlay (Monaco's find widget, context menu, hovers, …) claims Esc
  *    pressed in its own area (`useEscapeOwner`), and Monaco then closes it.
