@@ -13,7 +13,7 @@ const row = (id: string, summary: string, authorName: string, committerTime: num
 const wipRow: RowPayload = { ...row('wip:/r', '', '', 0), kind: 'wip', wip: { worktreePath: '/r', worktreeName: 'main-tree', modified: 2, added: 0, deleted: 0, renamed: 0, conflicted: 0 } };
 const graph: GraphPayload = {
   rows: [wipRow, row(A, 'Third change', 'Ada', T + 7200), row(B, 'Second change', 'Grace', T + 3600), row(C, 'First change', 'Linus', T)],
-  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: A, detached: false, unborn: false }, truncated: false,
+  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: A, detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 
 describe('MultiSummary (K27)', () => {

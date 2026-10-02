@@ -47,3 +47,20 @@
    changed line's number carries its colour too. */
 .monaco-diff-editor .insert-sign, .monaco-editor .inline-added-margin-view-zone .insert-sign { color: var(--green); }
 .monaco-diff-editor .delete-sign, .monaco-editor .inline-deleted-margin-view-zone .delete-sign { color: var(--red); }
+.diff-dirty { color: var(--orange); margin-right: 4px; }
+
+/* Spec #2 §7.3: hunk header buttons, the line bar and the refusal note. */
+.hunk-zone { display: flex; align-items: center; padding-left: 8px; }
+/* Monaco paints its view lines over the view zones (later in the DOM, both absolute), so a click on
+   a hunk button landed on the lines instead: lift the hunk zones above them. */
+.monaco-editor .view-zones .hunk-zone { z-index: 1; }
+.hunk-buttons { display: inline-flex; gap: 4px; }
+.hunk-button, .line-action { display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px; border: 1px solid var(--section-border); border-radius: 3px; background: var(--control-bg); color: var(--text-normal); font-size: 11px; cursor: pointer; }
+.hunk-button:hover, .line-action:hover { background: var(--control-hover-bg); }
+.hunk-button.danger:hover, .line-action.danger:hover { color: var(--red); }
+.hunk-button[aria-disabled="true"], .line-action[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.line-action-bar { position: fixed; z-index: 20; display: flex; gap: 4px; padding: 3px; border-radius: 4px; background: var(--panel-bg1); box-shadow: 0 1px 4px var(--shadow-popup); }
+/* The refusal note is a banner in the body's flex column, above the editor (`order`: HunkActions
+   renders after the editor, which must not remount): in normal flow, so the editor shrinks to fit
+   under it and none of its lines are covered (2B final I4). */
+.hunk-refused { order: -1; }

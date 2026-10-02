@@ -87,12 +87,12 @@ function Row({ b, w }: { b: Banner; w: WriteCtx }) {
  * shows; events and write results keep it current. */
 export function Banners({ tab }: TabSlotProps) {
   const ctx = useRepoContext();
-  const banners = useJournal((s) => s.states[journalKey(ctx.repoId, ctx.path)]?.banners ?? NONE);
+  const banners = useJournal((s) => s.states[journalKey(ctx.repoId, ctx.worktree)]?.banners ?? NONE);
   useEffect(() => {
-    if (ctx.repoId >= 0) void loadJournal(ctx.repoId, ctx.path);
-  }, [ctx.repoId, ctx.path]);
+    if (ctx.repoId >= 0) void loadJournal(ctx.repoId, ctx.worktree);
+  }, [ctx.repoId, ctx.worktree]);
   if (banners.length === 0) return null;
-  const w: WriteCtx = { tabId: tab.id, repoId: ctx.repoId, worktree: ctx.path };
+  const w: WriteCtx = { tabId: tab.id, repoId: ctx.repoId, worktree: ctx.worktree };
   return (
     <div className="banners" role="region" aria-label="Notices">
       {banners.map((b) => <Row key={`${b.kind}-${b.entry}`} b={b} w={w} />)}

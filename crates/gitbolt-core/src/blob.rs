@@ -59,6 +59,12 @@ pub fn decode_blob(bytes: &[u8], declared: Option<&str>) -> Decoded {
     }
 }
 
+/// The blob id of these bytes, as `hash-object` gives it with no filters: the working
+/// copy's save base (spec #2 §7.5) and `WipBase.worktree` (§7.3).
+pub fn worktree_id(bytes: &[u8]) -> String {
+    gix::objs::compute_hash(gix::hash::Kind::Sha1, gix::objs::Kind::Blob, bytes).map(|id| id.to_string()).unwrap_or_default()
+}
+
 fn text_result(text: String, encoding: String) -> Decoded {
     let eol = detect_eol(&text);
     Decoded { text: Some(text), binary: false, encoding, eol }
@@ -276,12 +282,12 @@ pub fn diff_contents(repo: &gix::Repository, path: &str, old: &Side, new: &Side,
             // A grown file is at least one byte past the limit now.
             grown_or_skipped => {
                 let size = if matches!(grown_or_skipped, Some(None)) { size.max(limit + 1) } else { size };
-                return Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None });
+                return Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None, hash: None });
             }
         };
         let d = decode_blob(&bytes, declared.as_deref());
         let base64 = (d.binary && image).then(|| base64::engine::general_purpose::STANDARD.encode(&bytes));
-        Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text: d.text, base64 })
+        Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text: d.text, base64, hash: Some(worktree_id(&bytes)) })
     };
     let old = load(old_bytes, old_size);
     let new = load(new_bytes, new_size);
@@ -328,6 +334,12 @@ mod tests {
         assert!(!eol_only_change("a\r\n", "b\n"));
         assert_eq!(detect_eol("a\r\nb\n"), Eol::Mixed);
         assert_eq!(detect_eol("no newline"), Eol::None);
+    }
+
+    #[test]
+    fn worktree_id_is_the_blob_id_of_the_raw_bytes() {
+        assert_eq!(worktree_id(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+        assert_eq!(worktree_id(b"hello\n"), "ce013625030ba8dba906f756967f9e9ca394464a");
     }
 
     #[test]

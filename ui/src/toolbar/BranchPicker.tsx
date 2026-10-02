@@ -1,11 +1,10 @@
 import { ArrowDownAZ, Check, ChevronDown, Clock, GitBranch } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { selectCommit } from '../app/graphNav';
+import { checkoutLocal } from '../branches/checkout';
 import { useRepoContext } from '../app/repoContext';
 import { useRuntime } from '../app/runtime';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { RefPicker, type PickItem } from '../ui/RefPicker';
-import { useToast } from '../ui/toast';
 
 const NO_BRANCHES: never[] = [];
 
@@ -28,8 +27,7 @@ function saveOrder(o: Order): void {
 }
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
 
-/** Spec §6.3: the current branch, and a searchable list of the local branches. Picking one jumps
- * to its tip in the graph (checking it out is #2's). */
+/** Spec §6.3: the current branch, and a searchable list of the local branches. Picking one checks it out (spec #2 §19 item 5). */
 export function BranchPicker() {
   const { tabId } = useRepoContext();
   const head = useRuntime((s) => s.tabs[tabId]?.graph?.head);
@@ -58,11 +56,11 @@ export function BranchPicker() {
   const pick = (item: PickItem) => {
     setAnchor(null);
     const b = locals.find((l) => l.fullName === item.id);
-    if (b && !selectCommit(tabId, b.target, { focus: true })) useToast.getState().show('Not in the loaded history');
+    if (b && !b.isHead) checkoutLocal(tabId, b.name);
   };
   return (
     <>
-      <HoverTooltip content="Jump to a local branch">
+      <HoverTooltip content="Check out a local branch">
         <button
           ref={button}
           type="button"
@@ -76,7 +74,7 @@ export function BranchPicker() {
           <span className="tb-value"><GitBranch size={12} aria-hidden /> {label} <ChevronDown size={12} aria-hidden /></span>
         </button>
       </HoverTooltip>
-      {anchor && <RefPicker anchor={anchor} ignore={button.current} placeholder="Find a local branch" items={items} toggle={toggle} onClose={close} onPick={pick} />}
+      {anchor && <RefPicker anchor={anchor} ignore={button.current} placeholder="Check out a local branch" items={items} toggle={toggle} onClose={close} onPick={pick} />}
     </>
   );
 }

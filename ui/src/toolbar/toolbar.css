@@ -4,6 +4,7 @@
 .tb-picker { cursor: pointer; border-radius: 4px; transition: background-color var(--motion-fast); }
 .tb-picker:hover, .tb-picker[aria-expanded="true"] { background: var(--hover-row); }
 .tb-picker:focus-visible { outline: 1px solid var(--blue); }
+.tb-sub { color: var(--text-secondary); font-weight: 400; }
 .tb-caption { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
 .tb-value { display: inline-flex; align-items: center; gap: 4px; color: var(--text-selected); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-spacer { flex: 1; }
@@ -18,3 +19,9 @@
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 .tb-btn { position: relative; }
 .tb-queued { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }
+
+.tb-default-picker-backdrop { position: fixed; inset: 0; z-index: 899; background: transparent; }
+.tb-default-picker { position: fixed; z-index: 900; min-width: 220px; padding: 4px 0; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); color: var(--text-normal); font-size: 13px; outline: none; user-select: none; }
+.tb-default-picker-title { max-width: 18rem; padding: 4px 12px 6px; color: var(--text-secondary); font-size: 11px; white-space: normal; }
+.tb-default-picker-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer; }
+.tb-default-picker-row[data-active="true"] { background: var(--hover-row); color: var(--text-selected); }

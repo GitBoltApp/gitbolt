@@ -84,9 +84,12 @@ pub fn classify(path: &Path, common_dir: &Path, worktrees: &[WatchedWorktree]) -
                 match file {
                     "HEAD" => c(ChangeKind::Head, owner),
                     "index" => c(ChangeKind::Index, owner),
+                    f if is_state_file(f) => c(ChangeKind::State, owner), // 2D-T6
                     _ => None,
                 }
             }
+            // 2D-T6
+            r if is_state_file(r) => c(ChangeKind::State, by_git_dir(common_dir)),
             _ => None,
         };
     }
@@ -98,6 +101,11 @@ pub fn classify(path: &Path, common_dir: &Path, worktrees: &[WatchedWorktree]) -
     Some(Classified { kind: ChangeKind::Worktree, worktree: Some(i) })
 }
 
+
+/// A file whose presence is a worktree's in-progress state (spec #2 §13.2).
+fn is_state_file(rel: &str) -> bool {
+    matches!(rel, "MERGE_HEAD" | "CHERRY_PICK_HEAD" | "REVERT_HEAD" | "REBASE_HEAD") || ["rebase-merge", "rebase-apply"].iter().any(|d| rel == *d || rel.starts_with(&format!("{d}/")))
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WatchPlan {
@@ -191,6 +199,7 @@ struct GitState {
     stash: u64,
     config: u64,
     heads: u64,
+    state: u64, // 2D-T6
 }
 
 fn hash_file(h: &mut impl Hasher, path: &Path) {
@@ -231,11 +240,20 @@ fn git_state(common_dir: &Path, worktrees: &[WatchedWorktree]) -> GitState {
         }),
         config: digest(&|h| hash_file(h, &common_dir.join("config"))),
         heads: digest(&|h| worktrees.iter().for_each(|w| hash_file(h, &w.git_dir.join("HEAD")))),
+        // 2D-T6 begin
+        state: digest(&|h| {
+            for w in worktrees {
+                for f in ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "rebase-merge/head-name", "rebase-merge/msgnum", "rebase-apply/next"] {
+                    hash_file(h, &w.git_dir.join(f));
+                }
+            }
+        }),
+        // 2D-T6 end
     }
 }
 
 fn changed_kinds(old: &GitState, new: &GitState) -> BTreeSet<ChangeKind> {
-    [(old.refs != new.refs, ChangeKind::Refs), (old.stash != new.stash, ChangeKind::Stash), (old.config != new.config, ChangeKind::Config), (old.heads != new.heads, ChangeKind::Head)]
+    [(old.refs != new.refs, ChangeKind::Refs), (old.stash != new.stash, ChangeKind::Stash), (old.config != new.config, ChangeKind::Config), (old.heads != new.heads, ChangeKind::Head), (old.state != new.state, ChangeKind::State)]
         .into_iter()
         .filter_map(|(changed, k)| changed.then_some(k))
         .collect()
@@ -786,7 +804,7 @@ impl Loop {
         // Gone worktrees (and any the re-listing couldn't drop) are never read.
         status.retain(|r| r.is_dir());
         let mut changed = self.refresh_status(&status, false, &batch.touched, batch.overflow).await;
-        let git_kinds = [ChangeKind::Refs, ChangeKind::Head, ChangeKind::Stash, ChangeKind::Config];
+        let git_kinds = [ChangeKind::Refs, ChangeKind::Head, ChangeKind::Stash, ChangeKind::Config, ChangeKind::State];
         if batch.overflow || rebased || git_kinds.iter().any(|k| kinds.contains(k)) {
             let (c, w) = (self.spec.common_dir.clone(), self.spec.worktrees.clone());
             if let Ok(next) = tokio::task::spawn_blocking(move || git_state(&c, &w)).await {
@@ -1079,6 +1097,17 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_head_changes_the_state_digest() {
+        let r = TestRepo::new();
+        r.commit("c");
+        let wts = [WatchedWorktree { root: r.path().to_path_buf(), git_dir: r.path().join(".git") }];
+        let before = git_state(&r.path().join(".git"), &wts);
+        std::fs::write(r.path().join(".git/MERGE_HEAD"), "x\n").unwrap();
+        let after = git_state(&r.path().join(".git"), &wts);
+        assert_eq!(changed_kinds(&before, &after), [ChangeKind::State].into_iter().collect());
+    }
+
+    #[test]
     fn classifies_git_dir_and_worktree_paths() {
         let c = Path::new("/r/.git");
         let wts = [wt("/r", "/r/.git"), wt("/w/hotfix", "/r/.git/worktrees/hotfix"), wt("/r/nested-wt", "/r/.git/worktrees/nested")];
@@ -1090,6 +1119,14 @@ mod tests {
         assert_eq!(k("/r/.git/refs/stash"), Some((ChangeKind::Stash, None)));
         assert_eq!(k("/r/.git/logs/refs/stash"), Some((ChangeKind::Stash, None)));
         assert_eq!(k("/r/.git/config"), Some((ChangeKind::Config, None)));
+        // 2D-T6 begin
+        assert_eq!(k("/r/.git/MERGE_HEAD"), Some((ChangeKind::State, Some(0))));
+        assert_eq!(k("/r/.git/rebase-merge"), Some((ChangeKind::State, Some(0))));
+        assert_eq!(k("/r/.git/rebase-merge/msgnum"), Some((ChangeKind::State, Some(0))));
+        assert_eq!(k("/r/.git/worktrees/hotfix/CHERRY_PICK_HEAD"), Some((ChangeKind::State, Some(1))));
+        assert_eq!(k("/r/.git/worktrees/hotfix/rebase-apply/next"), Some((ChangeKind::State, Some(1))));
+        assert_eq!(k("/r/.git/MERGE_MSG"), None, "the message alone isn't a state change");
+        // 2D-T6 end
         assert_eq!(k("/r/.git/worktrees/hotfix/HEAD"), Some((ChangeKind::Head, Some(1))));
         assert_eq!(k("/r/.git/worktrees/hotfix/index"), Some((ChangeKind::Index, Some(1))));
         assert_eq!(k("/r/.git/index.lock"), None);

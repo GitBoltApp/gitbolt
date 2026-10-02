@@ -23,7 +23,7 @@ const { resetOpenersForTests, defaultOpener, worktreeOf, openVersion, listWorktr
 const { filesKey } = await import('../repo/services');
 const { OPEN_IN_KEY, loadLastOpener } = await import('./openInPrefs');
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const commitTarget: DiffTarget = { key: 'k|src/app.php', path: 'src/app.php', oldPath: null, status: 'M', old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, view: 'diff' };
 
 function renderButton(target: DiffTarget = commitTarget, line: number | null = null) {

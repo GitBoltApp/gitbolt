@@ -204,6 +204,14 @@ pub(crate) async fn cas_with(backend: Backend, cli: &GitCli, token: &WriteToken,
     res.map_err(|e| if e.kind == GbErrorKind::RefMoved { moved(repo, moves).unwrap_or(e) } else { e })
 }
 
+// --- 2C T6: a detached HEAD's CAS ---
+/// A detached HEAD's own CAS (Deviation 3): `refs/`-only `cas` refuses HEAD, and gix would
+/// replace a symbolic HEAD with an oid. `--no-deref` updates HEAD itself, only if it's `old`.
+pub(crate) async fn cas_detached_head(cli: &GitCli, token: &WriteToken, root: &Path, old: &str, new: &str, message: &str) -> Result<(), GbError> {
+    cli.run(GitInvocation::write(token, root, ["update-ref", "--no-deref", "-m", message, "HEAD", new, old])).await.map(drop)
+}
+// --- end 2C T6 ---
+
 #[cfg(test)]
 mod tests {
     use super::*;

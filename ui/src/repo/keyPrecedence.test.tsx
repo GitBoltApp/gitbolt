@@ -21,7 +21,7 @@ vi.mock('../diff/DiffToolbar', () => ({ goToChange: vi.fn() }));
  * the changes). Each rule is checked with the lower layers all armed, and with the menu opened
  * after the app's keys registered (M's own listener used to lose to them that way).
  */
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const target: DiffTarget = { key: 'k|a.txt', path: 'a.txt', oldPath: null, status: 'M', old: { kind: 'absent' }, new: { kind: 'absent' }, view: 'diff' };
 const action = (id: string, run = vi.fn()): MenuRow => ({ kind: 'action', id, label: id, icon: Copy, tooltip: id, run });
 

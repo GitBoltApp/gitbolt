@@ -3,8 +3,8 @@ import type { Expect } from '../src/api/gen/Expect';
 import type { GbError } from '../src/api/gen/GbError';
 import type { TestIntent } from '../src/api/gen/TestIntent';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { HARNESS_BIN } from './harness-path';
 
 export const fixtures = JSON.parse(readFileSync(join(import.meta.dirname, '.fixtures.json'), 'utf8')) as {
@@ -30,7 +30,7 @@ export const harnessWs = `${harnessHttp.replace(/^http/, 'ws')}/ws`;
  * A brand-new copy of a fixture for one test: tests that change the repo (or its tabs) must not
  * share one. Made under the run's fixture root (`fixtures.notRepo`), which global setup removes.
  */
-export function freshFixture(name: 'basic' | 'unborn' | 'long_labels' | 'wide' | 'details' | 'long_history' | 'diff_view' | 'merge_lock'): string {
+export function freshFixture(name: 'basic' | 'unborn' | 'long_labels' | 'wide' | 'details' | 'long_history' | 'diff_view' | 'merge_lock' | 'wip_staging' | 'wip_conflict' | 'worktrees' | 'sync' | 'conflicts' | 'stack' | 'rebase60'): string {
   const root = mkdtempSync(join(fixtures.notRepo, 'fresh-'));
   return execFileSync(HARNESS_BIN, ['fixture', name, join(root, name)], { encoding: 'utf8' }).trim();
 }
@@ -50,3 +50,18 @@ export async function testWrite(request: APIRequestContext, path: string, intent
   const res = await request.post(`${harnessHttp}/test/write`, { data: { path, intent, ...extra } });
   return (await res.json()) as { ok?: unknown; err?: GbError };
 }
+
+// --- 2D T17 ---
+/** Runs in the sync fixture's origin (`<fixture root>/origin.git`, next to the working copy). */
+export const originGit = (repo: string, ...args: string[]): string => git(join(dirname(repo), 'origin.git'), ...args);
+
+/** Writes an executable hook into a fixture repo's hooks dir. */
+export function writeHook(repo: string, name: string, script: string): void {
+  const path = join(repo, '.git', 'hooks', name);
+  writeFileSync(path, script);
+  chmodSync(path, 0o755);
+}
+
+/** Creates an empty file (a hook's go signal). */
+export const touch = (path: string): void => writeFileSync(path, '');
+// --- end 2D T17 ---

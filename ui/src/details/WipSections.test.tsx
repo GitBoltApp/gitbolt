@@ -12,7 +12,7 @@ import { loadWipPanel, WIP_PANEL, wipSplitBounds } from './wipPanelPrefs';
 const file = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...paths: string[]): FileListPayload => ({ files: paths.map(file), added: paths.length, deleted: 0 });
 const section = (title: string, staged: boolean, ...paths: string[]): FileSection => ({ title, spec: { kind: 'wip', worktree: '/r', staged }, list: { status: 'ready', data: list(...paths) } });
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 
 function setup() {
   const store = createRepoViewStore(1, '/r', graph, fakeServices());
@@ -28,6 +28,20 @@ beforeEach(() => {
 });
 
 describe('WipSections (K36)', () => {
+  it('Conflicted comes first with each file’s kind, and its files are in neither other list (spec #2 §7.1)', () => {
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    const c = { ...file('c.txt'), status: 'U', conflict: 'bothModified' as const };
+    const sections = [
+      { ...section('Unstaged', false), list: { status: 'ready', data: { files: [file('a.txt'), c], added: 2, deleted: 0 } } } as FileSection,
+      section('Staged', true, 'b.txt'),
+    ];
+    render(<RepoViewContext value={store}><WipSections sections={sections} /></RepoViewContext>);
+    const heads = screen.getAllByRole('heading').map((h) => h.textContent);
+    expect(heads).toEqual(['Conflicted (1)', 'Unstaged (1)', 'Staged (1)']);
+    expect(screen.getByText('both modified')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Stage c\.txt/ })).toBeNull();
+  });
+
   it('K86: no +0/−0 totals for an empty side; a one-sided change shows only that side', () => {
     const store = createRepoViewStore(1, '/r', graph, fakeServices());
     const sections = [section('Unstaged', false), { ...section('Staged', true, 'a.txt'), list: { status: 'ready', data: { files: [file('a.txt')], added: 0, deleted: 3 } } } as FileSection];
@@ -102,12 +116,12 @@ describe('WipSections (K36)', () => {
     const { view } = setup();
     fireEvent.keyDown(screen.getByRole('separator'), { key: 'ArrowUp' });
     fireEvent.click(screen.getByRole('button', { name: /^Staged/ }));
-    expect(stored()).toEqual({ ratio: 0.45, collapsed: { unstaged: false, staged: true } });
+    expect(stored()).toEqual({ ratio: 0.45, collapsed: { unstaged: false, staged: true, conflicted: false } });
     view.unmount();
     setup();
     expect(screen.getByRole('button', { name: /^Staged/ })).toHaveAttribute('aria-expanded', 'false');
     localStorage.setItem(WIP_PANEL.key, '{"ratio":"x","collapsed":7}');
-    expect(loadWipPanel()).toEqual({ ratio: 0.5, collapsed: { unstaged: false, staged: false } });
+    expect(loadWipPanel()).toEqual({ ratio: 0.5, collapsed: { unstaged: false, staged: false, conflicted: false } });
     localStorage.setItem(WIP_PANEL.key, 'not json');
     expect(loadWipPanel().ratio).toBe(0.5);
   });

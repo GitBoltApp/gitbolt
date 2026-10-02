@@ -8,4 +8,17 @@ gone: boolean, tipTime: number, summary: string, author: string, isHead: boolean
 /**
  * Checked out in another worktree (its path).
  */
-worktree: string | null, };
+worktree: string | null, 
+/**
+ * The worktree (any, the handle's own included) whose HEAD names it (spec #2 §11.2).
+ */
+checkedOut: string | null, 
+/**
+ * Where Push sends it (spec #2 §12.3, `remote/branch`): the push remote, else the upstream.
+ */
+pushTarget: string | null, 
+/**
+ * Commits on the push target that aren't in the branch (the force confirmation's count);
+ * `None` when that ref doesn't exist yet.
+ */
+pushBehind: number | null, };

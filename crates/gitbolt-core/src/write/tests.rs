@@ -334,7 +334,7 @@ fn leave_pending(data: &Path, git_dir: &Path, root: &Path, label: &str, commit: 
         .update(|j| {
             let id = j.begin(crate::journal::NewEntry { label: label.into(), kind: OpKind::Discard, head_before: Default::default(), undo: crate::journal::UndoKind::Restore }, (crate::journal::system_clock())());
             let e = j.entry_mut(id).unwrap();
-            e.before = Some(crate::journal::Snapshot { commit: commit.into(), paths: vec!["file_0.txt".into()], untracked: Vec::new() });
+            e.before = Some(crate::journal::Snapshot { commit: commit.into(), paths: vec!["file_0.txt".into()], untracked: Vec::new(), ..Default::default() });
             e.owner = owner;
             id
         })
@@ -391,7 +391,7 @@ async fn the_watchers_echo_of_a_write_is_absorbed() {
     r.git(&["branch", "x", &c1]);
     let (api, _data) = api();
     let id = open(&api, r.path()).await;
-    api.dispatch(Request::Graph { repo: id, limit: None, pin: None, rescan: None }).await.unwrap();
+    api.dispatch(Request::Graph { repo: id, limit: None, pin: None, rescan: None, active: None }).await.unwrap();
     api.dispatch(Request::WatchRepo { repo: id }).await.unwrap();
     let mut rx = api.subscribe();
     write(&api, id, r.path(), expect_ref("refs/heads/x", Some(&c1)), TestIntent::MoveRef { name: "refs/heads/x".into(), to: Some(c2) }).await.unwrap();
@@ -536,3 +536,229 @@ async fn hook_output_lines_are_redacted_before_they_are_emitted() {
         other => panic!("{other:?}"),
     }
 }
+
+// --- 2D T1: network phases ---
+
+/// Waits for `line` in op `op`'s Activity output.
+async fn output_line(rx: &mut broadcast::Receiver<AppEvent>, op: u64, line: &str) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let AppEvent::OpOutput { op: o, line: l } = rx.recv().await.unwrap()
+                && o == op
+                && l == line
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("never saw {line:?}"));
+}
+
+/// Spec #2 §3.5: a network transfer holds only the queue's running slot, never the write lock
+/// or the watcher hold. A discard (immediate) runs during it, and the next queued item still
+/// waits for it. Both shapes: pull's fetch-first and push's mid-run transfer.
+#[tokio::test]
+async fn a_transfer_holds_only_the_queue_slot() {
+    for first in [true, false] {
+        let (r, _, _) = repo();
+        r.write("file_0.txt", "dirty\n");
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let w = api.repo_writes(&api.handle(id).unwrap());
+        let (mut rx, mut seen) = (api.subscribe(), api.subscribe());
+        let transfer = TestIntent::Transfer { label: "push x".into(), ms: 60_000, first };
+        let (t, after, ()) = tokio::join!(write(&api, id, r.path(), Expect::default(), transfer), write(&api, id, r.path(), Expect::default(), sleep("after", 0)), async {
+            let op = started(&mut rx, "push x").await;
+            output_line(&mut rx, op, "transferring").await;
+            assert!(w.lock.try_lock().is_ok(), "the transfer holds no write lock (first: {first})");
+            write(&api, id, r.path(), Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await.unwrap();
+            assert_eq!(w.queue.state().queued.len(), 1, "\"after\" still waits for the transfer's slot");
+            api.ops().cancel(op);
+        });
+        assert_eq!(t.unwrap_err().kind, GbErrorKind::Cancelled);
+        after.unwrap_or_else(|e| panic!("a Cancel of the running item never stops the queue: {e:?}"));
+        assert_eq!(started_labels(&drain(&mut seen)), ["push x", "discard file_0.txt", "after"], "first: {first}");
+        // (2C T1's network-step test, merged in here.)
+        assert!(w.lock.try_lock().is_ok(), "a cancelled transfer relocked, then released at the end (first: {first})");
+    }
+}
+
+/// A transfer that relocks finishes its local phases under the lock again: its verify and the
+/// write's refresh run locked, and the lock is free at the end.
+#[tokio::test]
+async fn a_finished_transfer_relocks_before_verify() {
+    let (r, _, _) = repo();
+    let (api, _data) = api();
+    let id = open(&api, r.path()).await;
+    let res = write(&api, id, r.path(), Expect::default(), TestIntent::Transfer { label: "push y".into(), ms: 0, first: false }).await.unwrap();
+    assert!(res["wip"].is_object(), "the write's fresh lists, read under the lock again");
+    let w = api.repo_writes(&api.handle(id).unwrap());
+    assert!(w.lock.try_lock().is_ok(), "released at the end");
+}
+// --- end 2D T1 ---
+
+// --- 2D T2: the pause ---
+
+/// main and feature both change c.txt (a conflict); d.txt has an uncommitted change, which a
+/// merge autostashes (§6.1: any tracked change). Returns main's tip.
+fn conflicting() -> (TestRepo, String) {
+    let r = TestRepo::new();
+    r.git(&["config", "user.name", "Ada Lovelace"]);
+    r.git(&["config", "user.email", "ada@example.com"]);
+    r.write("c.txt", "base\n");
+    r.write("d.txt", "d\n");
+    r.git(&["add", "c.txt", "d.txt"]);
+    r.git(&["commit", "-q", "-m", "base"]);
+    r.switch_new("feature");
+    r.write("c.txt", "feature\n");
+    r.git(&["commit", "-q", "-am", "feature"]);
+    r.switch("main");
+    r.write("c.txt", "main\n");
+    r.git(&["commit", "-q", "-am", "main"]);
+    let tip = r.git(&["rev-parse", "HEAD"]);
+    r.write("d.txt", "dirty\n");
+    (r, tip)
+}
+
+async fn settle(api: &Api, id: u32, wt: &Path) -> serde_json::Value {
+    api.dispatch(Request::SettlePaused { repo: id, worktree: wt.canonicalize().unwrap().display().to_string() }).await.unwrap()
+}
+
+/// §13.2: a merge that stops on conflicts keeps its entry and autostash waiting, and the Commit
+/// that completes it makes one undoable step (Deviation 3).
+#[tokio::test]
+async fn a_stopped_merge_waits_then_its_commit_completes_one_entry() {
+    let (r, main_tip) = conflicting();
+    let (api, data) = api();
+    let id = open(&api, r.path()).await;
+    let res = write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap();
+    assert_eq!(res["journal"]["paused"]["label"], "merge feature into main");
+    assert!(res["journal"]["banners"].as_array().unwrap().is_empty(), "no autostash banner while paused");
+    assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "d\n", "d.txt's change waits in the autostash");
+    let j = journal(data.path(), &r);
+    assert_eq!(j.undo.last().unwrap().state, crate::journal::EntryState::Paused);
+    assert_eq!(j.kept.len(), 1);
+    assert_eq!(j.kept[0].reason, crate::journal::KeptReason::Paused);
+    let err = write(&api, id, r.path(), Expect::default(), TestIntent::MoveRef { name: "refs/heads/feature".into(), to: Some(main_tip.clone()) }).await.unwrap_err();
+    assert_eq!(err.kind, GbErrorKind::InProgress, "other writes wait for the merge");
+
+    r.write("c.txt", "resolved\n");
+    r.git(&["add", "c.txt"]);
+    let res = write(&api, id, r.path(), Expect::default(), TestIntent::CommitMerge { message: "Merge feature".into() }).await.unwrap();
+    assert!(res["journal"]["paused"].is_null());
+    assert_eq!(res["journal"]["undo"]["label"], "merge feature into main", "the commit is absorbed: one Undo step");
+    assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n", "the autostash is restored at completion");
+    let j = journal(data.path(), &r);
+    assert_eq!(j.undo.len(), 1);
+    assert_eq!(j.undo[0].refs[0].old.as_deref(), Some(main_tip.as_str()));
+    assert!(j.kept.is_empty());
+    assert_eq!(r.git(&["rev-list", "--count", "--merges", "HEAD"]), "1");
+}
+
+/// Review Focus 2: aborted in a terminal while paused, the next settle restores the autostash
+/// and drops the entry (nothing moved).
+#[tokio::test]
+async fn an_outside_abort_settles_and_restores_the_autostash() {
+    let (r, main_tip) = conflicting();
+    let (api, data) = api();
+    let id = open(&api, r.path()).await;
+    write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap();
+    r.git(&["merge", "--abort"]);
+    let res = settle(&api, id, r.path()).await;
+    assert!(res["journal"]["paused"].is_null());
+    assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n");
+    assert_eq!(r.git(&["rev-parse", "HEAD"]), main_tip);
+    let j = journal(data.path(), &r);
+    assert!(j.undo.is_empty(), "an abort leaves nothing to undo");
+    assert!(j.kept.is_empty());
+}
+
+/// Review Focus 3: a restart while paused isn't a crash. The entry stays paused (no recovery
+/// banner), and completion after the restart still restores the autostash.
+#[tokio::test]
+async fn a_paused_entry_survives_a_restart_and_completes() {
+    let (r, _) = conflicting();
+    let data = tempfile::tempdir().unwrap();
+    let new_api = || Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None).with_data_dir(data.path().to_path_buf());
+    {
+        let api = new_api();
+        let id = open(&api, r.path()).await;
+        write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap();
+    }
+    let api = new_api();
+    let id = open(&api, r.path()).await;
+    let state = api.dispatch(Request::JournalState { repo: id, worktree: r.path().canonicalize().unwrap().display().to_string() }).await.unwrap();
+    assert!(state["banners"].as_array().unwrap().is_empty(), "no \"GitBolt stopped during\" banner: {state}");
+    assert_eq!(state["paused"]["kind"], "merge");
+    r.write("c.txt", "resolved\n");
+    r.git(&["add", "c.txt"]);
+    r.git(&["commit", "-q", "--no-edit"]);
+    settle(&api, id, r.path()).await;
+    assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n");
+    assert_eq!(journal(data.path(), &r).undo[0].state, crate::journal::EntryState::Done);
+}
+
+/// Review I1: aborted outside GitBolt, the pause settles before the next write runs: that
+/// write's own move isn't recorded on the merge entry, and the autostash comes back first.
+/// Review N3: that write then fails Stale (the worktree changed under what the user saw), and
+/// its retry runs.
+#[tokio::test]
+async fn an_outside_abort_settles_before_the_next_write_runs() {
+    let (r, main_tip) = conflicting();
+    let (api, data) = api();
+    let id = open(&api, r.path()).await;
+    write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap();
+    r.git(&["merge", "--abort"]);
+    let err = write(&api, id, r.path(), Expect::default(), TestIntent::Commit { message: "after".into(), allow_empty: true }).await.unwrap_err();
+    assert_eq!(err.kind, GbErrorKind::Stale, "{err:?}");
+    assert_eq!(r.git(&["rev-parse", "HEAD"]), main_tip, "the commit didn't run");
+    assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n", "restored before the commit, on main");
+    let state = api.dispatch(Request::JournalState { repo: id, worktree: r.path().canonicalize().unwrap().display().to_string() }).await.unwrap();
+    assert!(state["paused"].is_null());
+    write(&api, id, r.path(), Expect::default(), TestIntent::Commit { message: "after".into(), allow_empty: true }).await.unwrap();
+    let j = journal(data.path(), &r);
+    assert_eq!(j.undo.iter().map(|e| e.label.as_str()).collect::<Vec<_>>(), ["commit \"after\""], "the aborted merge left nothing");
+    assert_eq!(j.undo[0].refs[0].old.as_deref(), Some(main_tip.as_str()));
+    assert!(j.kept.is_empty());
+}
+
+/// Review I1: a new merge that stops after an outside abort settles the old pause first: one
+/// paused entry, one waiting autostash.
+#[tokio::test]
+async fn a_new_merge_after_an_outside_abort_settles_the_old_pause_first() {
+    let (r, _) = conflicting();
+    let (api, data) = api();
+    let id = open(&api, r.path()).await;
+    write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap();
+    let first = journal(data.path(), &r).kept[0].id;
+    r.git(&["merge", "--abort"]);
+    let err = write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap_err();
+    assert_eq!(err.kind, GbErrorKind::Stale, "the old pause settled first (its autostash is back): {err:?}");
+    assert!(journal(data.path(), &r).undo.is_empty(), "the old pause was dropped (an abort)");
+    write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap();
+    let j = journal(data.path(), &r);
+    assert_eq!(j.undo.len(), 1, "the old pause was dropped (an abort)");
+    assert_eq!(j.undo[0].state, crate::journal::EntryState::Paused);
+    assert_eq!(j.kept.len(), 1);
+    assert_ne!(j.kept[0].id, first, "the old autostash was restored, then stashed again");
+    assert_eq!(j.kept[0].reason, crate::journal::KeptReason::Paused);
+    assert_eq!(r.git(&["stash", "list"]).lines().count(), 1);
+}
+
+/// Review M2: aborted, then committed in a terminal: not a completed merge, so the terminal
+/// commit isn't recorded as the merge's move (Undo would rewind it).
+#[tokio::test]
+async fn an_outside_abort_then_commit_is_not_recorded_as_the_merge() {
+    let (r, _) = conflicting();
+    let (api, data) = api();
+    let id = open(&api, r.path()).await;
+    write(&api, id, r.path(), Expect::default(), TestIntent::MergeStop { target: "feature".into() }).await.unwrap();
+    r.git(&["merge", "--abort"]);
+    r.git(&["commit", "-q", "--allow-empty", "-m", "outside"]);
+    settle(&api, id, r.path()).await;
+    let j = journal(data.path(), &r);
+    assert!(j.undo.is_empty(), "treated as an abort: {:?}", j.undo);
+    assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n");
+}
+// --- end 2D T2 ---

@@ -1,0 +1,12 @@
+/* Spec #2 §7.1: a row's actions show on hover and on the active row, at its right edge. */
+.row-actions { display: inline-flex; gap: 2px; margin-left: auto; visibility: hidden; }
+.file-stats + .row-actions { margin-left: 0; }
+.file-row:hover .row-actions, .file-row[aria-selected="true"] .row-actions { visibility: visible; }
+.row-action { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 18px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--text-secondary); cursor: pointer; }
+.row-action:hover { background: var(--control-hover-bg); color: var(--text-normal); }
+.row-action.danger:hover { color: var(--red); }
+.row-action[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+.wip-head-actions { display: inline-flex; gap: 2px; margin-left: auto; }
+
+.wip-view-bar { position: relative; }
+.staging-undo { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; gap: 2px; }

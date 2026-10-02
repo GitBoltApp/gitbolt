@@ -16,4 +16,10 @@ target: string | null,
 /**
  * Commits made since (`expected..actual`) that the move drops from it.
  */
-dropped: number, };
+dropped: number, 
+/**
+ * The undo leaves it where it is (`target` = `actual`): a snapshot restore over a moved
+ * HEAD restores the files over it (2B final I1). For HEAD, `expected`/`actual` are
+ * `refs/heads/<branch>` when the branch changed, else commit ids.
+ */
+stays: boolean, };

@@ -28,3 +28,14 @@ describe('diff.css motion (J19)', () => {
     expect(css).not.toMatch(/transition:\s*all/);
   });
 });
+
+describe('diff.css hunk refusal note (2B final I4)', () => {
+  it('is a banner in normal flow above the editor, never an overlay on its last lines', () => {
+    const r = rule('.hunk-refused');
+    expect(r).toMatch(/order:\s*-1/);
+    expect(r).not.toMatch(/position:\s*absolute/);
+    expect(rule('.diff-body')).toMatch(/flex-direction:\s*column/);
+    expect(rule('.diff-banner')).toMatch(/flex:\s*none/);
+    expect(rule('.text-diff')).toMatch(/flex:\s*1;\s*min-height:\s*0/);
+  });
+});

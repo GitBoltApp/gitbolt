@@ -4,6 +4,11 @@ import { X } from 'lucide-react';
 import { BUSY_DELAY_MS, useLateFlag } from '../util/lateFlag';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
+import { useRepoContext } from '../app/repoContext';
+import { WipStagingUndo } from '../stage/UndoButtons';
+import { isWipKey } from '../repo/wipLists';
+import { comboOf } from '../app/shortcuts';
+import { registerKeys } from '../ui/keyRouter';
 import { errorMessage } from '../api/client';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
 import { renameParts } from '../files/renameParts';
@@ -16,7 +21,7 @@ import { useFocusZone } from '../repo/focus';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { OpenInButton } from '../openIn/OpenInMenu';
 import { contentKey, type RepoServices } from '../repo/services';
-import { contentsRequest, useRepoView, type DiffTarget, type Loadable } from '../repo/store';
+import { contentsRequest, useRepoView, useRepoViewStore, type DiffTarget, type Loadable } from '../repo/store';
 import { useChangeKeys } from './changeKeys';
 import { DiffToolbar } from './DiffToolbar';
 import { FileView } from './FileView';
@@ -24,12 +29,14 @@ import { firstChangedLine } from './firstChange';
 import { eolLabel, formatBytes } from './format';
 import { highlightLanguage } from './language';
 import { loadMonacoHost } from './monaco/load';
-import { TextDiff } from './TextDiff';
+import { loadedHost, TextDiff } from './TextDiff';
+import { HunkActions, wipSideOf } from './hunkActions';
+import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty, saveWorkingCopy, suspendCopy, trackCopy, useWorkingCopy } from './workingCopy';
 import './diff.css';
 
 /** The target's contents. A cached (e.g. prefetched) file is ready on the first render, so
  * Up/Down through prefetched files never shows a loading frame. */
-export function useContents(services: RepoServices, target: DiffTarget, force: boolean): Loadable<DiffContentsPayload> {
+export function useContents(services: RepoServices, target: DiffTarget, force: boolean, epoch = 0): Loadable<DiffContentsPayload> {
   const key = contentKey(contentsRequest(target, force));
   const [state, setState] = useState<{ key: string; value: Loadable<DiffContentsPayload> }>({ key: '', value: { status: 'idle' } });
   useEffect(() => {
@@ -45,7 +52,7 @@ export function useContents(services: RepoServices, target: DiffTarget, force: b
       (e: unknown) => { if (live) setState({ key, value: { status: 'error', message: errorMessage(e) } }); },
     );
     return () => { live = false; };
-  }, [services, key]);
+  }, [services, key, epoch]);
   if (state.key === key) return state.value;
   const hit = services.contents.peek(key);
   return hit ? { status: 'ready', data: hit } : { status: 'loading' };
@@ -115,7 +122,7 @@ function DiffPath({ target }: { target: DiffTarget }) {
 }
 
 /** The path, its change kind and encoding, and ×. "Open in…" is on the toolbar below (J1). */
-export function DiffHeader({ target, encoding, onClose, busy = false }: { target: DiffTarget; encoding: string; onClose: () => void; busy?: boolean }) {
+export function DiffHeader({ target, encoding, onClose, busy = false, dirty = false, onSave }: { target: DiffTarget; encoding: string; onClose: () => void; busy?: boolean; dirty?: boolean; onSave?: () => void }) {
   return (
     // `.panel-bar` (tokens.css): the details header's bar box, so their dividers line up (K5).
     <header className="diff-header panel-bar">
@@ -126,8 +133,10 @@ export function DiffHeader({ target, encoding, onClose, busy = false }: { target
       {target.status
         ? <StatusIcon status={target.status} size={14} />
         : <span className="status-spacer" style={{ width: 14 }} aria-hidden="true" />}
+      {dirty && <span className="diff-dirty" aria-label="Unsaved changes">●</span>}
       <DiffPath target={target} />
       {encoding && <span className="diff-encoding" data-testid="diff-encoding">{encoding}</span>}
+      {onSave && <HoverTooltip content="Save (Ctrl+S)"><button type="button" className="text-button diff-save" disabled={!dirty} onClick={onSave}>Save</button></HoverTooltip>}
       <HoverTooltip content="Close (Esc)"><button type="button" className="icon-button" aria-label="Close diff" onClick={onClose}><X size={14} /></button></HoverTooltip>
       {busy && <div className="diff-progress" role="progressbar" aria-label="Loading diff" />}
     </header>
@@ -194,7 +203,7 @@ function ImageBody({ target, contents: c, onSourceChange }: { target: DiffTarget
 
 /** `banner`: whether the line-endings banner may show. Not while the header (and so the editor)
  * still shows the previous file: it's this file's (K7). */
-function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void }) {
+function Body({ target, contents, forced, banner, onLoadAnyway, onShown, shownSeq = 0, onSourceChange, editable = false, onEdit, draft }: { shownSeq?: number; target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
   const c = contents.data;
@@ -220,7 +229,8 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     return <div className="diff-message" data-testid="binary-summary">Binary file · {formatBytes(c.old?.size)} → {formatBytes(c.new?.size)}</div>;
   }
   const original = c.old?.text ?? '';
-  const modified = c.new?.text ?? '';
+  // Unsaved edits kept while the tab was hidden show again instead of the disk text.
+  const modified = draft ?? c.new?.text ?? '';
   const language = highlightLanguage(target.path, modified || original);
   // The banner's slot stays in place while it's absent, so moving between files never remounts
   // (detaches and re-attaches) the editor.
@@ -228,8 +238,10 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     <>
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} → {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
-        ? <FileView path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} />
-        : <TextDiff path={target.path} original={original} modified={modified} language={language} onShown={onShown} />}
+        ? <FileView identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} />
+        : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} />}
+      {/* Spec #2 §7.3: hunk and line buttons on a WIP text diff. */}
+      {target.view === 'diff' && wipSideOf(target) && <HunkActions target={target} shownSeq={shownSeq} />}
     </>
   );
 }
@@ -249,12 +261,12 @@ const ESCAPE_OWNERS = [
 ].join(', ');
 const isShown = (el: HTMLElement) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
 /** An overlay's own area, wherever it's mounted (a context view on <body>, a shadow root's host). */
-const ESCAPE_OWNER_AREAS = `${ESCAPE_OWNERS}, .shadow-root-host`;
+export const ESCAPE_OWNER_AREAS = `${ESCAPE_OWNERS}, .shadow-root-host`;
 /** Whether one of `ESCAPE_OWNERS` is on screen. The whole document, not just the panel, and
  * inside Monaco's shadow roots: its context view renders in an open shadow root
  * (`.shadow-root-host`, `useShadowDOM` is on by default), in the editor's container or on
  * `<body>` depending on the host. */
-const editorOwnsEscape = () =>
+export const editorOwnsEscape = () =>
   [document, ...[...document.querySelectorAll('.shadow-root-host')].flatMap((h) => (h.shadowRoot ? [h.shadowRoot] : []))]
     .some((root) => [...root.querySelectorAll<HTMLElement>(ESCAPE_OWNERS)].some(isShown));
 
@@ -285,16 +297,40 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // "Load anyway" holds for the file it was pressed on, until it's closed; another file asks again.
   const [forcedKey, setForcedKey] = useState<string | null>(null);
   const forcedFor = (t: DiffTarget) => forcedKey === `${session}|${t.key}`;
-  const live = useContents(services, target, forcedFor(target));
+  const { tabId, repoId } = useRepoContext();
+  const store = useRepoViewStore();
+  const epoch = useWorkingCopy((s) => s.epoch[tabId] ?? 0);
+  const live = useContents(services, target, forcedFor(target), epoch);
   // The body renders the presented file: the target, or the previous one while it loads.
   const body = usePresented(target, live, session);
   const forced = forcedFor(body.target);
+  const bodyCopy = useWorkingCopy((s) => (s.copies[tabId]?.key === body.target.key ? s.copies[tabId] : undefined));
+  // Spec #2 §7.5: the working-tree side of a WIP file is editable; tracked per presented file and
+  // reload (a save or Reload gives a new payload, and so a new base).
+  const bodyData = body.contents.status === 'ready' ? body.contents.data : null;
+  const editable = isEditableTarget(body.target, bodyData);
+  useEffect(() => {
+    if (!editable || !bodyData) return;
+    trackCopy(tabId, repoId, body.target, bodyData);
+    // Out of view (a hidden tab) or replaced: unsaved edits are kept as a draft, else dropped.
+    return () => suspendCopy(tabId, loadedHost());
+  }, [tabId, repoId, editable, body.target.key, body.target.view, bodyData]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => installWindowCloseGuard(), []);
+  const onEdit = useCallback(() => markDirty(tabId), [tabId]);
+  useEffect(() => installLeaveGuard(tabId, store), [tabId, store]);
+  useEffect(() => registerKeys('app', (e) => {
+    if (comboOf(e) !== 'Ctrl+S' || !useWorkingCopy.getState().copies[tabId]) return;
+    e.preventDefault();
+    void saveWorkingCopy(tabId);
+    return 'handled';
+  }), [tabId]);
   // The header and toolbar follow the body, but an editor body only once the host has shown it:
   // the diff (or file) computes off-screen, and all of it switches in the same frame (F24).
   // `flushSync`, so that render commits in the task that swapped the editor, before a paint.
   const bodyId = `${body.target.key}|${body.target.view}`;
   const [editorShown, setEditorShown] = useState<string | null>(null);
-  const onShown = () => flushSync(() => setEditorShown(bodyId));
+  const [shownSeq, setShownSeq] = useState(0);
+  const onShown = () => flushSync(() => { setEditorShown(bodyId); setShownSeq((n) => n + 1); });
   // Still on its way: the target's contents are loading, or its editor hasn't shown it yet (a cold
   // first load, a slow diff). The progress line shows only if that lasts.
   const pending = live.status === 'loading' || live.status === 'idle' || (showsEditor(body.target, body.contents) && editorShown !== bodyId);
@@ -311,6 +347,8 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
     && showsEditor(held.target, held.contents) && held.target.view === body.target.view;
   if (!waits) header.current = body;
   const { target: shown, contents } = header.current;
+  const copy = useWorkingCopy((s) => s.copies[tabId]);
+  const shownCopy = copy?.key === shown.key ? copy : undefined;
   // Splits both full texts, so it is worked out once per loaded payload (the loader's cached
   // object), not on each of a file switch's several renders (review M1).
   const loaded = contents.status === 'ready' ? contents.data : null;
@@ -347,16 +385,17 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   };
   return (
     <section ref={ref} className="diff-panel" role="region" aria-label="Diff" tabIndex={-1} onKeyDown={onKeyDown} onClick={onClick} {...zone}>
-      <DiffHeader target={shown} encoding={encoding} onClose={closeDiff} busy={busy} />
+      <DiffHeader target={shown} encoding={encoding} onClose={closeDiff} busy={busy} dirty={!!shownCopy?.dirty} onSave={shownCopy ? () => void saveWorkingCopy(tabId) : undefined} />
       <DiffToolbar
         target={shown}
         canDiff={canDiff}
         canStep={textDiff}
         textTools={!imageDiff || svgSource}
         leading={<OpenInButton target={shown} line={openLine} />}
+        staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
       />
       <div className="diff-body">
-        <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} />
+        <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} shownSeq={shownSeq} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} editable={editable} onEdit={onEdit} draft={bodyCopy?.draft} />
       </div>
     </section>
   );

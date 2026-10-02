@@ -22,8 +22,8 @@ const graph: GraphPayload = {
     { id: 'a'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: 'Second', bodyFirstLine: 'details', authorName: 'Ada Lovelace', authorEmail: '', authorTime: 1_767_225_600, committerTime: 1_767_227_520, parents: ['b'.repeat(40)], mrRefs: [], wip: null },
     { id: 'b'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: 'First', bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: '', authorTime: 1_767_225_000, committerTime: 1_767_225_000, parents: [], mrRefs: [], wip: null },
   ],
-  labels: [{ row: 0, name: 'main', local: 'refs/heads/main', remotes: [], tag: false, isHead: true, worktree: null }],
-  maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'a'.repeat(40), detached: false, unborn: false }, truncated: false,
+  labels: [{ row: 0, name: 'main', local: 'refs/heads/main', remotes: [], tag: false, isHead: true, worktree: null, checkedOut: null }],
+  maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'a'.repeat(40), detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 
 beforeEach(() => useDensity.setState({ density: DEFAULT_DENSITY }));
@@ -185,7 +185,7 @@ describe('GraphView', () => {
   });
 
   it('a row with chips that aren\'t its branch\'s tip (a tag) shows the dimmed chip after them (F7)', () => {
-    const tagged: GraphPayload = { ...graph, labels: [...graph.labels, { row: 1, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null }] };
+    const tagged: GraphPayload = { ...graph, labels: [...graph.labels, { row: 1, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null, checkedOut: null }] };
     render(<GraphView graph={tagged} repoId="/r" />);
     const row = screen.getAllByRole('row')[1];
     fireEvent.mouseEnter(row);

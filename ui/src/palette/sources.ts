@@ -5,6 +5,7 @@ import { listTreeFiles, openFileView } from '../app/seams1b';
 import { useAppState } from '../app/state';
 import { activateTab, tabLabel } from '../app/tabs';
 import { SETTINGS, useSettingsUi } from '../settings/schema';
+import { checkoutLocal, checkoutRemote } from '../branches/checkout';
 import { useToast } from '../ui/toast';
 import type { PaletteEntry } from './search';
 
@@ -19,8 +20,8 @@ export function refEntries(tabId: string): PaletteEntry[] {
   if (!s) return [];
   const jump = (sha: string) => () => { if (!selectCommit(tabId, sha, { focus: true })) useToast.getState().show('Not in the loaded history'); };
   return [
-    ...s.locals.map((b): PaletteEntry => ({ id: `ref:${b.fullName}`, group: 'ref', label: b.name, detail: 'local', run: jump(b.target) })),
-    ...s.remotes.flatMap((g) => g.branches.map((b): PaletteEntry => ({ id: `ref:${b.fullName}`, group: 'ref', label: `${g.name}/${b.name}`, detail: 'remote', run: jump(b.target) }))),
+    ...s.locals.map((b): PaletteEntry => ({ id: `ref:${b.fullName}`, group: 'ref', label: b.name, detail: 'local · Shift+Enter checks out', run: jump(b.target), alt: () => checkoutLocal(tabId, b.name) })),
+    ...s.remotes.flatMap((g) => g.branches.map((b): PaletteEntry => ({ id: `ref:${b.fullName}`, group: 'ref', label: `${g.name}/${b.name}`, detail: 'remote · Shift+Enter checks out', run: jump(b.target), alt: () => checkoutRemote(tabId, g.name, b.name, b.target) }))),
     ...s.tags.map((t): PaletteEntry => ({ id: `ref:${t.fullName}`, group: 'ref', label: t.name, detail: 'tag', run: jump(t.target) })),
   ];
 }

@@ -17,7 +17,7 @@ const A = 'a1b2c3'.padEnd(40, '0'), B = 'e4f5a6'.padEnd(40, '0');
 const OLD = 1_767_225_600, NEW = OLD + 3600;
 const row = (id: string, summary: string, authorName: string, committerTime: number): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName, authorEmail: `${authorName.toLowerCase()}@example.com`, authorTime: committerTime, committerTime, parents: [], mrRefs: [], wip: null });
 const wipRow: RowPayload = { ...row('wip:/r', '', '', 0), kind: 'wip', wip: { worktreePath: '/r', worktreeName: 'main-tree', modified: 2, added: 0, deleted: 0, renamed: 0, conflicted: 0 } };
-const graph: GraphPayload = { rows: [wipRow, row(B, 'Newer change with a long summary', 'Grace', NEW), row(A, 'Older change', 'Ada', OLD)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: B, detached: false, unborn: false }, truncated: false };
+const graph: GraphPayload = { rows: [wipRow, row(B, 'Newer change with a long summary', 'Grace', NEW), row(A, 'Older change', 'Ada', OLD)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: B, detached: false, unborn: false }, truncated: false, worktrees: [] };
 
 describe('CompareHeader (K17, K27)', () => {
   it('shows FROM → TO in click order, then each commit: avatar, one-line summary and date; the swap reverses them', async () => {

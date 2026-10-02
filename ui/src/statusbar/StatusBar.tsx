@@ -7,6 +7,7 @@ import { useAppInfo } from '../app/appInfo';
 import { useOps, type OpInfo } from '../app/ops';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
+import { rebaseStatus } from '../integrate/rebasing';
 import { openMenuAt } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
 import { QueueChip } from '../queue/QueueChip';
@@ -71,7 +72,7 @@ function useSlow(op: OpInfo | undefined): OpInfo | undefined {
 /** How long an autostash step runs before the slow-write status names it (spec #2 §6: a big
  * worktree's stash, or a slow clean/smudge filter). */
 export const SLOW_STASH_MS = 60_000;
-const STEP_TEXT = { saving: 'Saving your changes…', restoring: 'Restoring your changes…' } as const;
+const STEP_TEXT = { saving: 'Saving your changes…', restoring: 'Restoring your changes…', restoringFiles: 'Restoring files…' } as const;
 
 /** The write's status text: its label, or after `SLOW_STASH_MS` of one step, that step. */
 function useWriteText(op: OpInfo | undefined): string | undefined {
@@ -83,7 +84,11 @@ function useWriteText(op: OpInfo | undefined): string | undefined {
     return () => clearTimeout(t);
   }, [at]);
   if (!op) return undefined;
-  return op.stash && op.stash.at === slowAt ? STEP_TEXT[op.stash.step] : `${capitalized(op.label)}…`;
+  // --- 2D T18: a rebase's counter, from its first step (Deviation 11) ---
+  const rebasing = rebaseStatus(op);
+  if (rebasing && !(op.stash && op.stash.at === slowAt)) return rebasing;
+  // --- end 2D T18 ---
+  return op.stash && op.stash.at === slowAt ? STEP_TEXT[op.stash.step] : op.kind === 'commit' ? 'Committing…' : `${capitalized(op.label)}…`;
 }
 
 /**
@@ -97,7 +102,10 @@ export function StatusBar() {
   const skipped = useRuntime((s) => (activeTab ? s.tabs[activeTab]?.fetchSkipped ?? null : null));
   const task = useOps((s) => firstOp(s.ops));
   const fetching = useSlow(useOps((s) => userFetch(s.ops)));
-  const writing = useSlow(useOps((s) => userWrite(s.ops)));
+  const write = useOps((s) => userWrite(s.ops));
+  const slowWrite = useSlow(write);
+  // A rebase with a step shows at once (2D T18); other writes wait out SLOW_FETCH_MS.
+  const writing = write && rebaseStatus(write) ? write : slowWrite;
   const writeText = useWriteText(writing);
   const prompt = useOps((s) => s.prompts[0]);
   const unread = useOps((s) => s.unread);
@@ -130,7 +138,7 @@ export function StatusBar() {
           <button type="button" className="sb-link" onClick={() => cancel(fetching.op)}>Cancel</button>
         </span>
       ) : writing ? (
-        <span className="sb-item sb-task">
+        <span className="sb-item sb-task" data-testid="status-write">
           <LoaderCircle size={12} className="sb-spin" aria-hidden />
           {writeText}
           {/* During an autostash step, Cancel is a Stop: git's step is stopped, and the

@@ -11,10 +11,10 @@ const rowsOf = (specs: Spec[]): RowPayload[] => specs.map(([id, lane, parents, k
   id, kind, lane, color: lane, segments: [], summary: id, bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents, mrRefs: [], wip: null,
 }));
 const rows = (...specs: Spec[]) => rowsOf(specs);
-const local = (row: number, name: string): RefLabel => ({ row, name, local: `refs/heads/${name}`, remotes: [], tag: false, isHead: false, worktree: null });
-const remoteOnly = (row: number, remote: string, name: string): RefLabel => ({ row, name, local: null, remotes: [{ fullName: `refs/remotes/${remote}/${name}`, remote, host: null, hostKind: 'generic' }], tag: false, isHead: false, worktree: null });
-const tag = (row: number, name: string): RefLabel => ({ row, name, local: null, remotes: [], tag: true, isHead: false, worktree: null });
-const detachedHead = (row: number): RefLabel => ({ row, name: 'HEAD', local: null, remotes: [], tag: false, isHead: true, worktree: null });
+const local = (row: number, name: string): RefLabel => ({ row, name, local: `refs/heads/${name}`, remotes: [], tag: false, isHead: false, worktree: null, checkedOut: null });
+const remoteOnly = (row: number, remote: string, name: string): RefLabel => ({ row, name, local: null, remotes: [{ fullName: `refs/remotes/${remote}/${name}`, remote, host: null, hostKind: 'generic' }], tag: false, isHead: false, worktree: null, checkedOut: null });
+const tag = (row: number, name: string): RefLabel => ({ row, name, local: null, remotes: [], tag: true, isHead: false, worktree: null, checkedOut: null });
+const detachedHead = (row: number): RefLabel => ({ row, name: 'HEAD', local: null, remotes: [], tag: false, isHead: true, worktree: null, checkedOut: null });
 
 const names = (r: RowPayload[], labels: RefLabel[]) => branchMembership(r, labelsByRow(labels)).map((m) => m?.name ?? null);
 

@@ -10,15 +10,25 @@ import { THEMES } from '../theme/themes';
 const remote = (name: string, branch: string): RemoteRefLabel => ({ fullName: `refs/remotes/${name}/${branch}`, remote: name, host: null, hostKind: 'generic' });
 
 const remoteOnly = (branch: string, ...remotes: string[]): RefLabel => ({
-  row: 0, name: branch, local: null, tag: false, isHead: false, worktree: null,
+  row: 0, name: branch, local: null, tag: false, isHead: false, worktree: null, checkedOut: null,
   remotes: remotes.map((r) => remote(r, branch)),
 });
 
 const LONG = 'feature/a-very-long-branch-name-that-the-chip-truncates';
 
 describe('RefLabels', () => {
+  it('draws the rebased branch with a spinner at HEAD, even with no label of its own (2D T18)', () => {
+    const { rerender } = render(<RefLabels labels={[]} color={0} rebasing="main" />);
+    expect(screen.getByLabelText('main (rebasing)')).toHaveClass('ref-rebasing');
+    const other = remoteOnly('topic', 'origin');
+    rerender(<RefLabels labels={[other]} color={0} rebasing="main" />);
+    expect(screen.getByLabelText('main (rebasing)')).toBeInTheDocument();
+    rerender(<RefLabels labels={[other]} color={0} />);
+    expect(screen.queryByLabelText('main (rebasing)')).toBeNull();
+  });
+
   it("marks the checked-out branch's chip, its bigger check and its connector (J21); other rows' aren't", () => {
-    const head: RefLabel = { row: 0, name: 'main', local: 'refs/heads/main', tag: false, isHead: true, worktree: null, remotes: [] };
+    const head: RefLabel = { row: 0, name: 'main', local: 'refs/heads/main', tag: false, isHead: true, worktree: null, checkedOut: null, remotes: [] };
     const { container, rerender } = render(<RefLabels labels={[head, remoteOnly('topic', 'origin')]} color={0} membership={{ name: 'x', color: 1, ref: 'refs/heads/x' }} />);
     const labels = container.querySelector('.ref-labels')!;
     expect(labels).toHaveClass('ref-labels-head');
@@ -33,7 +43,7 @@ describe('RefLabels', () => {
 
   it('outline source icons (laptop, generic remote) are a step bigger than the filled brand marks, so they read the same size', () => {
     const label: RefLabel = {
-      row: 0, name: 'dev', local: 'refs/heads/dev', tag: false, isHead: false, worktree: null,
+      row: 0, name: 'dev', local: 'refs/heads/dev', tag: false, isHead: false, worktree: null, checkedOut: null,
       remotes: [{ fullName: 'refs/remotes/origin/dev', remote: 'origin', host: 'gitlab.example.com', hostKind: 'gitlab' }, remote('backup', 'dev')],
     };
     const { container } = render(<RefLabels labels={[label]} color={0} />);
@@ -63,7 +73,7 @@ describe('RefLabels', () => {
   });
 
   it('one chip per branch name: one icon per ref, each with its own short-name tooltip (no refs/heads/)', () => {
-    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: true, worktree: null, remotes: [remote('origin', 'foo'), remote('upstream', 'foo')] };
+    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: true, worktree: null, checkedOut: null, remotes: [remote('origin', 'foo'), remote('upstream', 'foo')] };
     const { container } = render(<RefLabels labels={[label]} color={0} />);
     const chip = container.querySelector('.ref-labels > .ref-label')!;
     expect(chip.querySelectorAll(':scope > .ref-icon [aria-label="local"]')).toHaveLength(1);
@@ -83,7 +93,7 @@ describe('RefLabels', () => {
   });
 
   it('a remote icon keeps the upstream\'s own branch name when it differs from the local one', () => {
-    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: false, worktree: null, remotes: [remote('origin', 'feature/foo')] };
+    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [remote('origin', 'feature/foo')] };
     const { container } = render(<RefLabels labels={[label]} color={0} />);
     fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label')!);
     fireEvent.mouseEnter(fullIcon(container, 'remote origin'));
@@ -91,14 +101,14 @@ describe('RefLabels', () => {
   });
 
   it('the resting chip\'s icons show their tooltip too, at once: the pointer can land on one before the expanded copy covers it (H12)', () => {
-    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: false, worktree: null, remotes: [] };
+    const label: RefLabel = { row: 0, name: 'foo', local: 'refs/heads/foo', tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [] };
     const { container } = render(<RefLabels labels={[label]} color={0} />);
     fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label > .ref-icon')!);
     expect(screen.getByRole('tooltip').textContent).toBe('foo (Local)');
   });
 
   it('stays expanded while the pointer moves onto the expanded copy (including its icons), collapses on leaving it', () => {
-    const label: RefLabel = { row: 0, name: LONG, local: `refs/heads/${LONG}`, tag: false, isHead: false, worktree: null, remotes: [remote('origin', LONG)] };
+    const label: RefLabel = { row: 0, name: LONG, local: `refs/heads/${LONG}`, tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [remote('origin', LONG)] };
     const { container } = render(<div data-testid="outside"><RefLabels labels={[label]} color={0} /></div>);
     const chip = container.querySelector('.ref-labels > .ref-label')!;
     fireEvent.mouseEnter(chip);
@@ -173,7 +183,7 @@ describe('RefLabels', () => {
   });
 
   it('a membership chip goes after the real chips and the +N badge, before the connector, without changing them (F7)', () => {
-    const tagOnly: RefLabel = { row: 0, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null };
+    const tagOnly: RefLabel = { row: 0, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null, checkedOut: null };
     const membership = { name: 'main', color: 2, ref: 'refs/heads/main' };
     const { container } = render(<RefLabels labels={[tagOnly, remoteOnly('x', 'origin')]} color={0} membership={membership} />);
     const kids = [...container.querySelector('.ref-labels')!.children].map((el) => el.className);
@@ -186,7 +196,7 @@ describe('RefLabels', () => {
   });
 
   it('the membership chip expands like the others while hovered: an untruncated copy over it, gone on leaving (J6)', () => {
-    const tagOnly: RefLabel = { row: 0, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null };
+    const tagOnly: RefLabel = { row: 0, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null, checkedOut: null };
     const membership = { name: LONG, color: 1, ref: `refs/heads/${LONG}` };
     // Alone on its row, and after a real chip (in the slot).
     for (const labels of [[], [tagOnly]]) {
@@ -214,7 +224,7 @@ describe('RefLabels', () => {
   });
 
   it('hovering the chip floats an untruncated copy over it, and leaving collapses it', () => {
-    const label: RefLabel = { row: 0, name: LONG, local: `refs/heads/${LONG}`, tag: false, isHead: false, worktree: null, remotes: [] };
+    const label: RefLabel = { row: 0, name: LONG, local: `refs/heads/${LONG}`, tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [] };
     const { container } = render(<RefLabels labels={[label]} color={0} />);
     expect(container.querySelector('.ref-label-full')).toBeNull();
     const chip = container.querySelector('.ref-labels > .ref-label')!;
@@ -256,7 +266,7 @@ describe('RefLabels and the theme', () => {
 });
 
 describe('RefLabels, several labels (K104)', () => {
-  const local = (name: string, isHead = false): RefLabel => ({ row: 0, name, local: `refs/heads/${name}`, tag: false, isHead, worktree: null, remotes: [] });
+  const local = (name: string, isHead = false): RefLabel => ({ row: 0, name, local: `refs/heads/${name}`, tag: false, isHead, worktree: null, checkedOut: null, remotes: [] });
   const labels = [local('dev', true), local('prod'), local('staging')];
 
   it('shows every chip side by side when the column has room, with no +N', () => {

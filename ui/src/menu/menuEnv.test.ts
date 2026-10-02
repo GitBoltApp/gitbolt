@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRuntime } from '../app/runtime';
+import { useTabViews } from '../app/tabStores';
 import type { SideItem } from '../sidebar/model';
 import type { MenuRow } from './types';
 import type { GraphPayload } from '../api/gen/GraphPayload';
@@ -11,7 +12,7 @@ import type { EditorContextMenuEvent } from '../diff/monaco/host';
 import { createRepoViewStore, fileViewTarget, targetFor } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { useToast } from '../ui/toast';
-import { compare, copyMessage, fileMenuEnv, fileTargetOf, folderTargetOf, monacoTargetOf, sidebarItemMenu, sidebarRemoteMenu, splitRemoteRef, upstreamOf, type FileTarget, type MenuEnv } from './menuEnv';
+import { commitTargetOf, compare, copyMessage, fileMenuEnv, fileTargetOf, folderTargetOf, monacoTargetOf, rootOfSpec, sidebarItemMenu, sidebarRemoteMenu, splitRemoteRef, upstreamOf, type FileTarget, type MenuEnv } from './menuEnv';
 import { buildMenu } from './registry';
 
 // `compare`/`copyMessage` reach the real clipboard (api/transport); fix round 1, item 7's unit
@@ -24,12 +25,12 @@ const row = (id: string, parents: string[], wip: string | null = null): RowPaylo
   wip: wip ? { worktreePath: wip, worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } : null,
 });
 const remote = (remote: string, branch: string) => ({ fullName: `refs/remotes/${remote}/${branch}`, remote, host: 'gitlab.example.com', hostKind: 'gitlab' as const });
-const label = (r: number, name: string, local: boolean, remotes: ReturnType<typeof remote>[], extra: Partial<RefLabel> = {}): RefLabel => ({ row: r, name, local: local ? `refs/heads/${name}` : null, remotes, tag: false, isHead: false, worktree: null, ...extra });
+const label = (r: number, name: string, local: boolean, remotes: ReturnType<typeof remote>[], extra: Partial<RefLabel> = {}): RefLabel => ({ row: r, name, local: local ? `refs/heads/${name}` : null, remotes, tag: false, isHead: false, worktree: null, checkedOut: null, ...extra });
 
 // wip → c0 (main, origin/main) → c1 → c2 ; topic (local only) at t0, origin/topic at t1 ; lone at l0
 const graphOf = (labels: RefLabel[]): GraphPayload => ({
   rows: [row('wip', ['c0'], '/wt/main'), row('c0', ['c1']), row('c1', ['c2']), row('c2', []), row('t0', ['t1']), row('t1', ['c2']), row('l0', ['c2'])],
-  labels, maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'c0', detached: false, unborn: false }, truncated: false,
+  labels, maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'c0', detached: false, unborn: false }, truncated: false, worktrees: [],
 });
 const labels = [
   label(1, 'main', true, [remote('origin', 'main')], { isHead: true }),
@@ -118,6 +119,14 @@ describe('fileTargetOf', () => {
   it('an unchanged file from "View all files": its commit', () => {
     const spec = { kind: 'commit' as const, id: 'c0', parent: 0 };
     expect(fileTargetOf(store.getState(), spec, fileViewTarget('README.md', 'c0', spec), false)).toMatchObject({ sha: 'c0', changed: false });
+  });
+});
+
+describe('rootOfSpec (2C T2: one handle per repository)', () => {
+  it("a commit's files open in the tab's open worktree, never the main one from a linked tab", () => {
+    const store = createRepoViewStore(1, '/repo', { ...graphOf(labels), openWorktree: '/wt/linked' }, fakeServices());
+    expect(rootOfSpec(store.getState(), { kind: 'commit', id: 'c2' } as never)).toBe('/wt/linked');
+    expect(rootOfSpec(createRepoViewStore(1, '/repo', graphOf(labels), fakeServices()).getState(), { kind: 'commit', id: 'c2' } as never)).toBe('/repo');
   });
 });
 
@@ -232,7 +241,7 @@ describe('monacoTargetOf (the Monaco menu\'s target)', () => {
 // Plan 1C Task 15b: the sidebar's configured upstream, and the sidebar item menus.
 describe('upstreamOf with the sidebar (configured upstreams)', () => {
   const g = graphOf(labels);
-  const local = (name: string, upstream: string | null, gone = false) => ({ name, fullName: `refs/heads/${name}`, target: 't', upstream, ahead: 0, behind: 0, gone, tipTime: 0, summary: '', author: '', isHead: false, worktree: null });
+  const local = (name: string, upstream: string | null, gone = false) => ({ name, fullName: `refs/heads/${name}`, target: 't', upstream, ahead: 0, behind: 0, gone, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null });
   const sidebarOf = (locals: ReturnType<typeof local>[]) => ({ locals, remotes: [{ name: 'origin', host: null, hostKind: 'gitlab' as const, branches: [] }, { name: 'up/stream', host: null, hostKind: 'generic' as const, branches: [] }], worktrees: [], stashes: [], tags: [] });
 
   it('splits a remote ref by the sidebar remote names (a name may hold "/")', () => {
@@ -312,3 +321,27 @@ describe('the sidebar item menus', () => {
     expect((rows.find((r) => r.kind === 'action' && r.label === 'Copy URL') as Extract<MenuRow, { kind: 'action' }>).disabledReason).toBeUndefined();
   });
 });
+
+// --- 2C T9: the 2C menu env ---
+describe('the 2C menu env (spec #2 §9, §11.2)', () => {
+  afterEach(() => { useTabViews.setState({ views: {} }); useRuntime.setState({ tabs: {} }); });
+
+  it('knows the write target, the labels at a commit and the active worktree', () => {
+    const wt = (path: string, branch: string, head: string, isMain: boolean, inProgress: string | null) => ({ path, branch, head, isMain, locked: false, inProgress });
+    const graph = { ...graphOf(labels), worktrees: [wt('/r', 'refs/heads/main', 'aaa', true, null), wt('/r-x', 'refs/heads/x', 'bbb', false, 'rebase')] } as unknown as GraphPayload;
+    const store = createRepoViewStore(3, '/r', graph, fakeServices());
+    useTabViews.setState({ views: { t1: { repo: 3, services: fakeServices(), store } } });
+    useRuntime.setState({ tabs: { t1: { status: 'ready', error: null, repo: { id: 3, path: '/r', name: 'r', worktree: '/r-x' }, graph, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null, worktree: '/r-x' } } });
+    const env = fileMenuEnv(store);
+    expect(env.write).toEqual({ tabId: 't1', repoId: 3, worktree: '/r-x' });
+    expect(env.mainWorktree).toBe('/r');
+    expect(env.activeWorktree).toBe('/r-x');
+    expect(env.inProgress).toBe('rebase');
+    expect(env.worktreeShown('/r-x')).toBe('../r-x');
+    expect(env.labelsAt(graph.rows[1].id).map((l) => l.name)).toEqual(graph.labels.filter((l) => l.row === 1).map((l) => l.name));
+  });
+  it('marks stash rows', () => {
+    expect(commitTargetOf({ id: 's', kind: 'stash', mrRefs: [] } as unknown as RowPayload).isStash).toBe(true);
+  });
+});
+// --- end 2C T9 ---

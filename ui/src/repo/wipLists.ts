@@ -5,6 +5,8 @@ export type WipSpec = Extract<DiffSpec, { kind: 'wip' }>;
 
 /** A WIP list's key: `filesKey` of its spec (same field order as the store's `sectionSpecs`). */
 export const wipKey = (worktree: string, staged: boolean) => JSON.stringify({ kind: 'wip', worktree, staged } satisfies WipSpec);
+/** Whether `key` is a WIP list's (or WIP diff's) key. */
+export const isWipKey = (key: string) => key.startsWith('{"kind":"wip"');
 
 /**
  * The WIP rows' file lists, held in memory while the tab is watched (K44), so selecting a WIP

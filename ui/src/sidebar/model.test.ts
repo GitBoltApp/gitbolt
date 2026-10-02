@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import { buildPanels, folderKey, sectionKey, sectionsOf, type Panel } from './model';
 
-const branch = (name: string, tipTime: number, extra: object = {}) => ({ name, fullName: `refs/heads/${name}`, target: name.padEnd(40, '0'), upstream: null, ahead: 0, behind: 0, gone: false, tipTime, summary: `tip of ${name}`, author: 'Ada', isHead: false, worktree: null, ...extra });
+const branch = (name: string, tipTime: number, extra: object = {}) => ({ name, fullName: `refs/heads/${name}`, target: name.padEnd(40, '0'), upstream: null, ahead: 0, behind: 0, gone: false, tipTime, summary: `tip of ${name}`, author: 'Ada', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, ...extra });
 const payload: SidebarPayload = {
   locals: [branch('feature/login', 30), branch('feature/pay/v2', 10), branch('main', 20, { isHead: true })],
   remotes: [{ name: 'origin', host: null, hostKind: 'gitlab', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main', target: 'm'.repeat(40), tipTime: 20, summary: 's', author: 'a' }] }],
-  worktrees: [{ path: '/r', name: 'r', branch: 'main', head: 'h'.repeat(40), isMain: true, isCurrent: true }],
+  worktrees: [{ path: '/r', name: 'r', branch: 'main', head: 'h'.repeat(40), isMain: true, isCurrent: true, locked: false }],
   stashes: [{ index: 0, id: 's'.repeat(40), message: 'On main: wip', time: 5 }],
   tags: [{ name: 'v1.0', fullName: 'refs/tags/v1.0', target: 't'.repeat(40), time: 1 }],
 };

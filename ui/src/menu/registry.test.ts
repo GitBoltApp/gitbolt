@@ -1,4 +1,4 @@
-import { Copy, Eye, GitMerge } from 'lucide-react';
+import { Archive, Copy, Eye, GitMerge } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MenuRow } from './types';
 import { buildMenu, registerMenu, tmpl } from './registry';
@@ -51,4 +51,12 @@ describe('menu registry', () => {
     expect(tmpl('Fast-forward {Y} to {X}', { X: 'main', Y: 'dev' })).toBe('Fast-forward dev to main');
     expect(tmpl('Merge {X} into {Y}', { X: null, Y: 'dev' })).toBe('Merge HEAD into dev');
   });
+
+  // --- 2C T9: the wip menu kind ---
+  it('orders the wip menu: worktree rows, then stash rows', () => {
+    offs.push(registerMenu({ id: 't.stash', kind: 'wip', group: 'stash', order: 0, rows: () => [{ kind: 'action', id: 's', label: 'Stash', icon: Archive, tooltip: 's', run: () => {} }] }));
+    offs.push(registerMenu({ id: 't.wt', kind: 'wip', group: 'worktree', order: 0, rows: () => [{ kind: 'action', id: 'w', label: 'Switch', icon: Archive, tooltip: 'w', run: () => {} }] }));
+    expect(buildMenu('wip', {}, {}).map((r) => (r.kind === 'action' ? r.id : r.kind))).toEqual(['w', 'separator', 's']);
+  });
+  // --- end 2C T9 ---
 });

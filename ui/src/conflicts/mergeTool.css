@@ -1,0 +1,62 @@
+/* The merge tool (spec #2 §13.3): Current | Incoming over the output. Theme tokens only. */
+.merge-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; background: var(--app-bg0); }
+.merge-tool { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.merge-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); flex: 1; min-height: 0; border-bottom: 1px solid var(--section-border); }
+.merge-pane, .merge-output { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.merge-pane + .merge-pane { border-left: 1px solid var(--section-border); }
+.merge-output { flex: 1; }
+.merge-pane > header, .merge-output > header { display: flex; align-items: center; gap: 10px; flex: none; height: 28px; padding: 0 10px; background: var(--file-bar-bg); color: var(--text-normal); font-size: 12px; border-bottom: 1px solid var(--section-border); }
+.merge-pane-current > header { box-shadow: inset 3px 0 0 var(--conflict-ours); }
+.merge-pane-incoming > header { box-shadow: inset 3px 0 0 var(--conflict-theirs); }
+.merge-side { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.merge-pane > header label { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
+.merge-output > header button { font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; padding: 2px 10px; cursor: pointer; }
+.merge-output > header button.primary { color: var(--text-on-accent); background: var(--blue); border-color: var(--blue); }
+.merge-output > header button:disabled { opacity: 0.5; cursor: default; }
+.merge-output > header button:focus-visible, .merge-nontext button:focus-visible { outline: 1px solid var(--focus-outline); }
+.merge-editor { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.merge-message { padding: 16px; color: var(--text-secondary); }
+.merge-message button { font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.merge-pane > header label:has(input:disabled) { opacity: 0.5; cursor: default; }
+.merge-note { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.merge-deleted { color: var(--red); }
+.merge-output > header button[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+.merge-count { color: var(--text-secondary); white-space: nowrap; }
+.merge-output > header .icon-button { display: inline-flex; align-items: center; justify-content: center; padding: 2px 4px; }
+
+/* The panes' regions, tinted by side; a ticked line is stronger. */
+.merge-current-line { background: color-mix(in srgb, var(--conflict-ours) 18%, transparent); }
+.merge-incoming-line { background: color-mix(in srgb, var(--conflict-theirs) 18%, transparent); }
+.merge-current-line.picked { background: color-mix(in srgb, var(--conflict-ours) 34%, transparent); }
+.merge-incoming-line.picked { background: color-mix(in srgb, var(--conflict-theirs) 34%, transparent); }
+
+/* A line's checkbox, in the glyph margin: an empty box, or a ticked one. */
+.merge-check { cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.merge-check::before { content: ''; box-sizing: border-box; width: 11px; height: 11px; border: 1px solid var(--text-secondary); border-radius: 2px; }
+.merge-check:hover::before { border-color: var(--text-normal); }
+.merge-check.on::before { background: var(--text-normal); border-color: var(--text-normal); }
+.merge-check.on::after { content: ''; position: absolute; width: 3px; height: 6px; margin-top: -2px; border: solid var(--app-bg0); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+/* A region's header zone in a pane, with its hunk checkbox. Monaco places zones (absolute) under
+   its text layer, which takes the clicks: the z-index lifts the checkbox above it. */
+.merge-zone { z-index: 1; display: flex; align-items: center; height: 100%; padding: 0 8px; box-sizing: border-box; font-size: 12px; color: var(--text-secondary); background: var(--panel-bg1); border-top: 1px solid var(--section-border); }
+.merge-zone-current { box-shadow: inset 3px 0 0 var(--conflict-ours); }
+.merge-zone-incoming { box-shadow: inset 3px 0 0 var(--conflict-theirs); }
+.merge-zone label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* The output's regions: each line in its side's colour, a hand-edited region in the base's; an
+   empty one is a rule where its lines would go. */
+.merge-output-current { background: color-mix(in srgb, var(--conflict-ours) 18%, transparent); }
+.merge-output-incoming { background: color-mix(in srgb, var(--conflict-theirs) 18%, transparent); }
+.merge-output-edited { background: color-mix(in srgb, var(--conflict-base) 18%, transparent); }
+.merge-output-gap-below { box-shadow: inset 0 -2px 0 var(--conflict-base); }
+.merge-output-gap-above { box-shadow: inset 0 2px 0 var(--conflict-base); }
+
+/* Non-text conflicts: a sentence and three buttons. */
+.merge-nontext { padding: 16px; color: var(--text-normal); }
+.merge-nontext p { margin: 0 0 12px; }
+.merge-nontext-actions { display: flex; gap: 8px; }
+.merge-nontext button { font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.merge-nontext button:hover, .merge-output > header button:hover:not(:disabled):not(.primary) { background: var(--control-hover-bg); }
+.merge-nontext button.danger { color: var(--red); }
+.merge-nontext button:disabled { opacity: 0.5; cursor: default; }

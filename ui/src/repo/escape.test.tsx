@@ -9,7 +9,7 @@ import '../app/coreActions';
 import { installShortcuts } from '../app/shortcuts';
 import { activeTabWith } from '../app/testShell';
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const target: DiffTarget = { key: 'k|a.txt', path: 'a.txt', oldPath: null, status: 'M', old: { kind: 'absent' }, new: { kind: 'absent' }, view: 'diff' };
 
 function mount(owns: (e: KeyboardEvent) => boolean) {

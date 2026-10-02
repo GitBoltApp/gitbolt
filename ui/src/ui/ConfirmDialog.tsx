@@ -10,8 +10,13 @@ export interface ConfirmRequest {
   danger?: boolean;
 }
 
+export interface Choice { id: string; label: string; danger?: boolean }
+export interface ChoiceRequest { title: string; body: string; choices: Choice[] }
+
 interface Pending extends ConfirmRequest {
   resolve(ok: boolean): void;
+  choices?: Choice[];
+  answer?(id: string | null): void;
 }
 
 const useConfirmStore = create<{ pending: Pending | null }>(() => ({ pending: null }));
@@ -23,6 +28,17 @@ const useConfirmStore = create<{ pending: Pending | null }>(() => ({ pending: nu
 export function confirmAction(req: ConfirmRequest): Promise<boolean> {
   useConfirmStore.getState().pending?.resolve(false);
   return new Promise((resolve) => useConfirmStore.setState({ pending: { ...req, resolve } }));
+}
+
+/** A question with several answers besides Cancel (spec #2 §7.5: [Save] [Discard edits]
+ * [Cancel]; [Reload] [Overwrite]). Resolves the picked choice's id, or `null` for Cancel, Esc,
+ * the backdrop or a newer question. */
+export function chooseAction(req: ChoiceRequest): Promise<string | null> {
+  useConfirmStore.getState().pending?.resolve(false);
+  return new Promise((resolve) => {
+    const answer = (id: string | null) => resolve(id);
+    useConfirmStore.setState({ pending: { title: req.title, body: req.body, confirmLabel: '', choices: req.choices, answer, resolve: (ok) => { if (!ok) answer(null); } } });
+  });
 }
 
 export function ConfirmDialog() {
@@ -46,7 +62,14 @@ function ConfirmForm({ pending }: { pending: Pending }) {
         <div className="modal-actions">
           {/* Cancel takes the initial focus, so an Enter that was meant for something else can't confirm. */}
           <button type="button" autoFocus onClick={() => done(false)}>Cancel</button>
-          <button type="button" className={pending.danger ? 'danger' : undefined} onClick={() => done(true)}>{pending.confirmLabel}</button>
+          {pending.choices
+            ? pending.choices.map((c) => (
+              <button key={c.id} type="button" className={c.danger ? 'danger' : undefined} onClick={() => {
+                useConfirmStore.setState({ pending: null });
+                pending.answer!(c.id);
+              }}>{c.label}</button>
+            ))
+            : <button type="button" className={pending.danger ? 'danger' : undefined} onClick={() => done(true)}>{pending.confirmLabel}</button>}
         </div>
       </div>
     </div>

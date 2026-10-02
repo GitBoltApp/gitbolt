@@ -13,7 +13,7 @@ import { fakeServices } from '../repo/testServices';
 // every change of the panel's file sections (a WIP list re-read, a new selection's lists).
 const host = vi.hoisted(() => ({
   attachDiff: vi.fn(), detachDiff: vi.fn(), keepDiff: vi.fn(() => false), showDiff: vi.fn(async () => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
-  attachFile: vi.fn(), detachFile: vi.fn(), keepFile: vi.fn(() => false), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(),
+  attachFile: vi.fn(), detachFile: vi.fn(), keepFile: vi.fn(() => false), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), setModifiedEditable: vi.fn(), onModifiedEdit: vi.fn(), modifiedText: vi.fn(() => null), setFileEditable: vi.fn(), onFileEdit: vi.fn(), fileText: vi.fn(() => null), keepViewOnNextShow: vi.fn(),
   setContextMenuHandler: vi.fn(), layout: vi.fn(), releaseDetached: vi.fn(),
 }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
@@ -34,9 +34,9 @@ vi.mock('./firstChange', async (importOriginal) => {
 
 const { DiffPanel } = await import('./DiffPanel');
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
-const blob = (text: string): BlobPayload => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null });
+const blob = (text: string): BlobPayload => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null, hash: null });
 const change: FileChange = { path: 'a.txt', oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false };
 
 describe('DiffPanel store reads', () => {

@@ -134,9 +134,9 @@ describe('StatusBar (spec §6.5)', () => {
     try {
       render(<StatusBar />);
       act(() => useOps.getState().apply({ type: 'opStarted', op: 7, kind: 'commit', repo: 1, label: 'commit "Fix x"', interactive: true }));
-      expect(screen.queryByText(/Commit "Fix x"…/)).toBeNull();
+      expect(screen.queryByText(/Committing…/)).toBeNull();
       act(() => { vi.advanceTimersByTime(SLOW_FETCH_MS); });
-      expect(screen.getByText(/Commit "Fix x"…/)).toBeInTheDocument();
+      expect(screen.getByText(/Committing…/)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
       expect(api.cancelOp).toHaveBeenCalledWith(7);
     } finally {

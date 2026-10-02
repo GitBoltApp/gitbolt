@@ -19,11 +19,11 @@ Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true
 
 // M merges feat (F2 <- F1) into main (M <- A <- B). Row i's committerTime is i, to count renders.
 const row = (i: number, id: string, lane: number, parents: string[]): RowPayload => ({ id, kind: parents.length > 1 ? 'merge' : 'commit', lane, color: lane, segments: [], summary: `commit ${id}`, bodyFirstLine: '', authorName: 'A', authorEmail: '', authorTime: 0, committerTime: i, parents, mrRefs: [], wip: null });
-const local = (r: number, name: string): RefLabel => ({ row: r, name, local: `refs/heads/${name}`, remotes: [], tag: false, isHead: false, worktree: null });
+const local = (r: number, name: string): RefLabel => ({ row: r, name, local: `refs/heads/${name}`, remotes: [], tag: false, isHead: false, worktree: null, checkedOut: null });
 const graph: GraphPayload = {
   rows: [row(0, 'M', 0, ['A', 'F2']), row(1, 'F2', 1, ['F1']), row(2, 'A', 0, ['B']), row(3, 'F1', 1, ['B']), row(4, 'B', 0, [])],
-  labels: [local(0, 'main'), local(1, 'feat'), { row: 4, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null }],
-  maxLanes: 2, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false,
+  labels: [local(0, 'main'), local(1, 'feat'), { row: 4, name: 'v1', local: null, remotes: [], tag: true, isHead: false, worktree: null, checkedOut: null }],
+  maxLanes: 2, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 
 const TEXT_COLS = ['message', 'author', 'date', 'sha'];

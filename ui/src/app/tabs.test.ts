@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Profile } from '../api/gen/Profile';
 import { EMPTY_PROFILE } from './state';
-import { closeOthers, closeTab, closeToRight, cycleTab, MAX_CLOSED, MAX_RECENT, moveTab, openBlankTab, openRepoTab, renameTab, reopenClosed, setTabRepo, touchRecent } from './tabs';
+import { closeOthers, closeTab, closeToRight, cycleTab, MAX_CLOSED, MAX_RECENT, moveTab, openBlankTab, openRepoTab, renameTab, reopenClosed, setTabRepo, tabLabel, touchRecent } from './tabs';
 
 const withTabs = (...paths: string[]): Profile => {
   let p: Profile = { ...EMPTY_PROFILE, id: 'default' };
-  paths.forEach((path, i) => { p = openRepoTab(p, path, `t${i}`).profile; });
+  paths.forEach((path, i) => { p = openRepoTab(p, path, null, `t${i}`).profile; });
   return p;
 };
 const paths = (p: Profile) => p.tabs.map((t) => t.path ?? '(open)');
@@ -14,10 +14,10 @@ describe('tab model', () => {
   it('opens after the active tab and focuses an existing tab for the same repo', () => {
     let p = withTabs('/a', '/b');
     p = { ...p, activeTab: 't0' };
-    const r = openRepoTab(p, '/c', 'tc');
+    const r = openRepoTab(p, '/c', null, 'tc');
     expect(paths(r.profile)).toEqual(['/a', '/c', '/b']);
     expect(r.profile.activeTab).toBe('tc');
-    const again = openRepoTab(r.profile, '/a', 'nope');
+    const again = openRepoTab(r.profile, '/a', null, 'nope');
     expect(again.tabId).toBe('t0');
     expect(again.profile.tabs).toHaveLength(3);
   });
@@ -109,5 +109,39 @@ describe('tab model edges', () => {
     expect(p.recent).toHaveLength(MAX_RECENT);
     expect(p.recent.some((r) => r.path === '/pinned')).toBe(true);
     expect(p.recent[0].path).toBe(`/r${MAX_RECENT + 4}`);
+  });
+});
+
+describe('tabs of one repository on different worktrees (spec #2 §11.2)', () => {
+  const base = (): Profile => ({ ...EMPTY_PROFILE, id: 'default', tabs: [], activeTab: null });
+  it('opens a second tab for another worktree of the same repo, and focuses an existing one', () => {
+    const a = openRepoTab(base(), '/r', '/r');
+    const b = openRepoTab(a.profile, '/r', '/r-x');
+    expect(b.profile.tabs.map((t) => t.worktree)).toEqual(['/r', '/r-x']);
+    const again = openRepoTab(b.profile, '/r', '/r-x');
+    expect(again.tabId).toBe(b.tabId);
+    expect(again.profile.tabs).toHaveLength(2);
+  });
+  it('setTabRepo collapses only a duplicate of the same worktree', () => {
+    const a = openRepoTab(base(), '/r', '/r');
+    const blank = openBlankTab(a.profile);
+    const p = setTabRepo(blank.profile, blank.tabId, '/r', '/r-x');
+    expect(p.tabs).toHaveLength(2);
+    const dup = openBlankTab(p);
+    expect(setTabRepo(dup.profile, dup.tabId, '/r', '/r').tabs).toHaveLength(2);
+  });
+  it("a tab saved before 2C (no worktree) is its path's, and opening it names the repository and worktree", () => {
+    const old: Profile = { ...base(), tabs: [{ id: 'o', kind: 'repo', path: '/r-x', alias: null }], activeTab: 'o' };
+    expect(openRepoTab(old, '/r-x').tabId).toBe('o');
+    const p = setTabRepo(old, 'o', '/r', '/r-x');
+    expect(p.tabs[0]).toMatchObject({ path: '/r', worktree: '/r-x' });
+  });
+  it("a linked worktree's tab is labelled by its folder, and closes and reopens on that worktree", () => {
+    const p = openRepoTab(base(), '/r', '/r-x', 'x').profile;
+    expect(tabLabel(p.tabs[0], 'r')).toBe('r-x');
+    expect(tabLabel(openRepoTab(base(), '/r', '/r', 'm').profile.tabs[0], 'r')).toBe('r');
+    const closed = closeTab(p, 'x');
+    expect(closed.closedTabs.at(-1)).toMatchObject({ path: '/r-x' });
+    expect(reopenClosed(closed, 'n')!.profile.tabs[0]).toMatchObject({ path: '/r-x', worktree: null });
   });
 });

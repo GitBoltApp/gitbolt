@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { GraphView } from './GraphView';
-import { readWipDraft } from './wipDraft';
+import { flushDrafts, readWipDraft, reloadDrafts, writeWipDraft } from '../commit/draft';
 
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 1200 });
@@ -15,11 +15,11 @@ const wipRow = (path: string, name: string | null, counts: Counts) => ({
 });
 const commit = { ...base, id: 'a'.repeat(40), kind: 'commit' as const, summary: 'c0', wip: null };
 const payload = (...rows: ReturnType<typeof wipRow>[]): GraphPayload => ({
-  rows: [...rows, commit], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false,
+  rows: [...rows, commit], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
 });
 const input = (i = 0) => screen.getAllByPlaceholderText('// WIP')[i] as HTMLInputElement;
 
-beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
+beforeEach(() => { flushDrafts(); localStorage.clear(); reloadDrafts(); vi.useFakeTimers(); });
 afterEach(() => vi.useRealTimers());
 
 describe('WIP row counts (K47)', () => {
@@ -46,11 +46,11 @@ describe('WIP row draft summary (K48)', () => {
     const g = payload(wipRow('/r', null, { modified: 1 }), wipRow('/r-wt', 'wt', { added: 1 }));
     const { unmount } = render(<GraphView graph={g} repoId="/r" />);
     fireEvent.change(input(0), { target: { value: 'fix the thing' } });
-    expect(readWipDraft('/r', '/r')).toBe('');
+    expect(localStorage.getItem('gitbolt.wipDraft.v2')).toBeNull();
     act(() => { vi.advanceTimersByTime(400); });
-    expect(readWipDraft('/r', '/r')).toBe('fix the thing');
-    expect(readWipDraft('/r', '/r-wt')).toBe('');
-    expect(readWipDraft('/other', '/r')).toBe('');
+    expect(readWipDraft('/r', '/r').summary).toBe('fix the thing');
+    expect(readWipDraft('/r', '/r-wt').summary).toBe('');
+    expect(readWipDraft('/other', '/r').summary).toBe('');
     unmount();
     render(<GraphView graph={g} repoId="/r" />);
     expect(input(0).value).toBe('fix the thing');
@@ -61,19 +61,31 @@ describe('WIP row draft summary (K48)', () => {
     render(<GraphView graph={payload(wipRow('/r', null, { modified: 1 }))} repoId="/r" />);
     fireEvent.change(input(), { target: { value: 'abc' } });
     fireEvent.blur(input());
-    expect(readWipDraft('/r', '/r')).toBe('abc');
+    expect(readWipDraft('/r', '/r').summary).toBe('abc');
     fireEvent.change(input(), { target: { value: '' } });
     fireEvent.blur(input());
-    expect(localStorage.length).toBe(0);
+    expect(JSON.parse(localStorage.getItem('gitbolt.wipDraft.v2') ?? '{}')).toEqual({});
   });
 
-  it('limits to 72 characters and shows a counter only past 60', () => {
+  it('has no length limit; the counter shows past 60 and warns past 72', () => {
     render(<GraphView graph={payload(wipRow('/r', null, { modified: 1 }))} repoId="/r" />);
-    expect(input().maxLength).toBe(72);
+    expect(input().maxLength).toBe(-1);
     fireEvent.change(input(), { target: { value: 'x'.repeat(60) } });
     expect(screen.queryByTestId('wip-counter')).toBeNull();
     fireEvent.change(input(), { target: { value: 'x'.repeat(61) } });
-    expect(screen.getByTestId('wip-counter')).toHaveTextContent('61/72');
+    expect(screen.getByTestId('wip-counter')).toHaveTextContent('61');
+    expect(screen.getByTestId('wip-counter')).not.toHaveClass('warn');
+    fireEvent.change(input(), { target: { value: 'x'.repeat(73) } });
+    expect(screen.getByTestId('wip-counter')).toHaveClass('warn');
+    expect(readWipDraft('/r', '/r').summary).toBe('x'.repeat(73));
+  });
+
+  it('edits the shared draft, keeping its description', () => {
+    writeWipDraft('/r', '/r', { summary: 'from the commit box', description: 'kept' });
+    render(<GraphView graph={payload(wipRow('/r', null, { modified: 1 }))} repoId="/r" />);
+    expect(input().value).toBe('from the commit box');
+    fireEvent.change(input(), { target: { value: 'new' } });
+    expect(readWipDraft('/r', '/r')).toEqual({ summary: 'new', description: 'kept' });
   });
 
   it('a press in the input selects the WIP row (plain; Ctrl/Shift as a row click), and the click toggles nothing', () => {
@@ -110,7 +122,7 @@ describe('WIP row draft summary (K48)', () => {
     fireEvent.keyDown(input(), { key: 'Escape' });
     expect(document.activeElement).toBe(grid);
     expect(input().value).toBe('keep me');
-    expect(readWipDraft('/r', '/r')).toBe('keep me');
+    expect(readWipDraft('/r', '/r').summary).toBe('keep me');
     input().focus();
     fireEvent.keyDown(input(), { key: 'Enter' });
     expect(document.activeElement).not.toBe(input());

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { RepoCtx } from '../app/repoContext';
+import type { MenuRow } from '../menu/types';
 
 /**
  * A toolbar button, by action id (ruling R10): the action (`registerActions`) gives it its icon,
@@ -11,7 +12,22 @@ export type ToolbarPlacement = 'center' | 'end';
 
 /** What a button shows for its tab right now, when that's more than its action says: the
  * undo tooltip and its disabled reason (spec #2 §5.5). */
-export interface ButtonView { tooltip: string; disabled: boolean }
+export interface ButtonView {
+  tooltip: string;
+  disabled: boolean;
+  /** The caption, when it follows state. */
+  label?: string;
+}
+
+/** A split button's default picker (spec #2 §12.1): a heading over radio rows. Picking sets the
+ * default and closes; it runs nothing. */
+export interface ToolbarPicker {
+  title: string;
+  options: Array<{ value: string; label: string }>;
+  /** A hook: the current value. */
+  useValue: () => string;
+  set: (value: string) => void;
+}
 
 export interface ToolbarButton {
   /** The action it runs. */
@@ -24,6 +40,10 @@ export interface ToolbarButton {
   order: number;
   /** A split button: these action ids are its dropdown, as menu rows. */
   menu?: string[];
+  /** The caret opens this picker instead of a menu. */
+  picker?: ToolbarPicker;
+  /** The caret's rows, built from the snapshot when it opens (Push's upstream rows). */
+  menuRows?: (ctx: RepoCtx) => MenuRow[];
   /** A hook: true while what the button starts is running for this tab (a spinner; disabled). */
   useBusy?: (ctx: RepoCtx) => boolean;
   /** A hook: an op this button starts waits in the queue (spec #2 §3.6): a small badge. */

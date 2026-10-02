@@ -18,11 +18,11 @@ const { useJournal } = await import('../undo/store');
 
 const tab = { id: 't', kind: 'repo' as const, path: '/r', alias: null };
 const base = { entry: 5, label: 'checkout feature/x', stash: 'abc1234def', stashMessage: 'autostash before checkout feature/x', target: 'feature/x', snapshot: false, files: 0, canDrop: false, binary: false };
-const state = (banners: Banner[]) => ({ undo: null, redo: null, undoBlocked: 'Nothing to undo', redoBlocked: 'Nothing to redo', banners });
+const state = (banners: Banner[]) => ({ undo: null, redo: null, undoBlocked: 'Nothing to undo', redoBlocked: 'Nothing to redo', banners, paused: null });
 const show = (banners: Banner[]) => {
   api.journalState.mockResolvedValue(state(banners));
   act(() => useJournal.getState().set(4, '/r', state(banners)));
-  render(<RepoContext value={{ tabId: 't', repoId: 4, path: '/r', info: null }}><Banners tab={tab} /></RepoContext>);
+  render(<RepoContext value={{ tabId: 't', repoId: 4, path: '/r', worktree: '/r', info: null }}><Banners tab={tab} /></RepoContext>);
 };
 const wr = (journal = state([])) => ({ outcome: null, journal, staging: { undo: null, redo: null, off: null }, wip: null });
 const notices = () => screen.getByRole('region', { name: 'Notices' });

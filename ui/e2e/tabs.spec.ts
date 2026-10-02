@@ -131,7 +131,7 @@ test.describe('tabs', () => {
     await page.getByRole('button', { name: /Profile: Default/ }).click();
     await page.getByRole('menuitem', { name: 'New profile…' }).click();
     await page.getByLabel('Profile name').fill('Work');
-    await page.getByRole('button', { name: 'Create' }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.getByRole('button', { name: /Profile: Work/ })).toBeVisible();
     // The new profile has no tabs, so it shows its automatic Open tab.
     await expect(page.getByRole('tab')).toHaveCount(1);

@@ -214,7 +214,13 @@ test.describe('sidebar item menus', () => {
   test('a branch: the branch label menu, every row with an instant tooltip; Show in graph selects its tip', async ({ page }) => {
     await item(page, 'Local', 'hotfix').click({ button: 'right' });
     await expect(menu(page)).toBeVisible();
-    expect(await labels(page)).toEqual(['Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD', 'Show in graph']);
+    // Spec #2 §14: the Sync, Commit (Reset), Integrate, Branch and Manage groups come first.
+    expect(await labels(page)).toEqual([
+      'Pull', 'Push', 'Set upstream', 'Reset main to this commit',
+      'Fast-forward hotfix to main', 'Merge hotfix into main', 'Rebase main onto hotfix',
+      'Checkout', 'Create worktree from', 'Create branch here', 'Rename hotfix', 'Delete',
+      'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD', 'Show in graph',
+    ]);
     await action(page, 'Copy SHA').hover();
     await expect(page.getByRole('tooltip')).toHaveText('Copy the full commit id');
     await action(page, 'Show in graph').hover();
@@ -236,7 +242,7 @@ test.describe('sidebar item menus', () => {
     const leaf = panel(page, 'Remote').locator('.sb-item').first();
     const name = (await leaf.getAttribute('aria-label'))!;
     await leaf.click({ button: 'right' });
-    expect((await labels(page))[0]).toBe('Copy branch name');
+    expect(await labels(page)).toContain('Copy branch name');
     await action(page, 'Copy branch name').click();
     await copied(page, `origin/${name}`);
     await page.keyboard.press('Escape');
@@ -251,7 +257,8 @@ test.describe('sidebar item menus', () => {
     expect(await labels(page)).toContain('Copy tag name');
     await page.keyboard.press('Escape');
     await panel(page, 'Stashes').getByRole('treeitem').first().click({ button: 'right' });
-    expect(await labels(page)).toEqual(['Copy SHA', 'Copy message', 'Show in graph']);
+    // Spec #2 §10: Apply, Pop, Delete, then the Copy rows.
+    expect(await labels(page)).toEqual(['Apply', 'Pop', 'Delete', 'Copy SHA', 'Copy message', 'Show in graph']);
     await page.keyboard.press('Escape');
     await panel(page, 'Worktrees').getByRole('treeitem').nth(1).click({ button: 'right' });
     expect(await labels(page)).toContain('Open in file manager');

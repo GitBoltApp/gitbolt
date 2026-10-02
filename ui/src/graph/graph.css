@@ -50,6 +50,7 @@
 .wip-input::placeholder { color: var(--wip-input-placeholder); opacity: 1; }
 .wip-input:focus, .wip-input:focus-visible { border-color: var(--blue); outline: 1px solid var(--blue); outline-offset: -1px; }
 .wip-counter { flex: none; font-size: 11px; color: var(--text-secondary); }
+.wip-counter.warn { color: var(--orange); }
 .wip-summary .wip-counts { flex: none; }
 /* K100: the worktree name gives way first (an ellipsis); the draft box keeps its 116px minimum and the counts follow. */
 .wip-worktree { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -189,7 +190,20 @@
 .msg-tooltip-summary { font-weight: 600; }
 .msg-tooltip-body { margin-top: 8px; color: var(--text-normal); }
 .toast { position: fixed; z-index: 802; /* above a modal's backdrop (800), below the auth prompt (805) and status bar (810) */ bottom: 24px; left: 50%; transform: translateX(-50%); max-width: min(720px, calc(100vw - 32px)); overflow-wrap: anywhere; background: var(--panel-bg1); color: var(--text-selected); padding: 6px 12px; border-radius: 4px; }
+.toast-warning { border-left: 3px solid var(--status-modified); }
+.toast-detail { margin-top: 4px; color: var(--text-secondary); font-size: 12px; }
+.toast-dismiss { all: unset; margin-left: 10px; cursor: pointer; vertical-align: middle; color: var(--text-secondary); }
+.toast-dismiss:hover { color: var(--text-selected); }
+.toast-dismiss:focus-visible { outline: 1px solid var(--blue); }
 .toast-action { all: unset; margin-left: 10px; color: var(--blue); cursor: pointer; white-space: nowrap; }
 .toast-action:hover { text-decoration: underline; }
 .toast-action:focus-visible { outline: 1px solid var(--blue); }
 .center-message { display: grid; place-items: center; height: 100%; color: var(--text-secondary); }
+
+/* --- 2D T18: the branch a rebase is replaying, at HEAD's row (RefLabels.tsx RebasingChip). The
+   checked-out chip's look with a dashed border and a spinner: HEAD is detached while it runs. --- */
+.ref-label.ref-rebasing { box-sizing: border-box; border: 1px dashed var(--lane-color); cursor: default; }
+.ref-rebasing .spin { flex: none; animation: ref-spin 1s linear infinite; }
+@keyframes ref-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ref-rebasing .spin { animation: none; } }
+/* --- end 2D T18 --- */

@@ -8,15 +8,17 @@ import { DetailsPanel } from '../details/DetailsPanel';
 import { releaseDetachedEditors } from '../diff/editorRelease';
 import { displayedOrder } from '../files/fileListPrefs';
 import { GraphView } from '../graph/GraphView';
+import { rebasingChip } from '../integrate/rebasing';
 import type { RowDim } from '../graph/rowDim';
-import { commitMenu, labelMenu, monacoMenu } from '../menu/menuEnv';
+import { commitMenu, labelMenu, monacoMenu, wipMenu } from '../menu/menuEnv';
+import { graphLabelDoubleClick, graphRowDoubleClick } from '../graph/rowActions';
 import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
 import { useAppEscape } from './escape';
 import { useFocusZone } from './focus';
 import { LazyDiffPanel } from './LazyDiffPanel';
 import { PanelResizer } from './PanelResizer';
 import { createServices, type RepoServices } from './services';
-import { createRepoViewStore, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore, type DiffTarget, type RepoViewStore } from './store';
+import { createRepoViewStore, RepoViewContext, selectedIndex, useRepoView, useRepoViewStore, openWorktree, type DiffTarget, type RepoViewStore } from './store';
 import './repo.css';
 
 export const RIGHT_PANEL = { min: 280, max: 720, default: 400 } as const;
@@ -83,6 +85,10 @@ function ConnectedGraph() {
   const alsoSelected = useMemo(() => new Set(pickedRows), [pickedRows]);
   const selectRow = useRepoView((s) => s.selectRow);
   const store = useRepoViewStore();
+  // --- 2D T18: the chip of a branch being rebased in the active worktree (refetched with the graph) ---
+  const worktree = useRepoView(openWorktree);
+  const rebasing = useMemo(() => rebasingChip(graph, worktree), [graph, worktree]);
+  // --- end 2D T18 ---
   // Find's matches (plan 1C): the rest dim at the 'filter' level (rowDim.ts). One O(1) lookup per
   // rendered row; GraphView hands each row only its own level, so a new search re-renders just
   // the rows whose level changed.
@@ -106,6 +112,11 @@ function ConnectedGraph() {
   const onLabelContextMenu = useCallback((e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => {
     openContextMenu(e, labelMenu(store, row, label));
   }, [store]);
+  // --- 2C T9: double-clicks (registered by the features that own them) and the WIP row's menu ---
+  const onLabelDoubleClick = useCallback((row: RowPayload, label: RefLabel) => { graphLabelDoubleClick(store, row, label); }, [store]);
+  const onRowDoubleClick = useCallback((row: RowPayload) => { graphRowDoubleClick(store, row); }, [store]);
+  const onWipContextMenu = useCallback((e: MenuEventLike, row: RowPayload) => { openContextMenu(e, wipMenu(store, row)); }, [store]);
+  // --- end 2C T9 ---
   return (
     <GraphView
       graph={graph}
@@ -119,7 +130,11 @@ function ConnectedGraph() {
       gridProps={zone}
       onContextMenu={onContextMenu}
       onLabelContextMenu={onLabelContextMenu}
+      onLabelDoubleClick={onLabelDoubleClick}
+      onRowDoubleClick={onRowDoubleClick}
+      onWipContextMenu={onWipContextMenu}
       rowDim={rowDim}
+      rebasing={rebasing}
     />
   );
 }

@@ -7,6 +7,7 @@ import { activeRuntime, activeStore, activeTab, registerActions } from './action
 import { useAbout } from './About';
 import { useOpenUi } from '../open/openUi';
 import { flushSaves, useAppState } from './state';
+import { guardTabClose } from '../diff/workingCopy';
 import { closeTab, cycleTab, openBlankTab, reopenClosed } from './tabs';
 
 /**
@@ -67,7 +68,7 @@ const off = registerActions([
     when: () => !!activeTab(),
     run: () => {
       const t = activeTab();
-      if (t) update((p) => closeTab(p, t.id));
+      if (t) guardTabClose([t.id], () => update((p) => closeTab(p, t.id)));
     },
   },
   {
@@ -106,11 +107,12 @@ const off = registerActions([
     },
   },
   {
-    id: 'repo.openFolder', label: 'Open in file manager', group: 'Repository', icon: FolderOpen, tooltip: "Open the repository's folder in the file manager",
+    id: 'repo.openFolder', label: 'Open in file manager', group: 'Repository', icon: FolderOpen, tooltip: "Open the tab's worktree folder in the file manager",
     when: () => !!activeRuntime()?.repo,
     run: () => {
-      const repo = activeRuntime()?.repo;
-      if (repo) openRepoFolder(repo.id, repo.path);
+      // The tab's active worktree, not the repository's main one (spec #2 §11.2).
+      const rt = activeRuntime();
+      if (rt?.repo) openRepoFolder(rt.repo.id, rt.worktree ?? rt.repo.path);
     },
   },
   {

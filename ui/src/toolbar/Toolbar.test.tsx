@@ -5,8 +5,8 @@ import type { LocalBranch } from '../api/gen/LocalBranch';
 
 const api = vi.hoisted(() => ({ fetch: vi.fn(async () => ({ status: 'done', changed: false })) }));
 vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () => {} }));
-const selectCommit = vi.hoisted(() => vi.fn(() => true));
-vi.mock('../app/graphNav', () => ({ selectCommit }));
+const checkoutLocal = vi.hoisted(() => vi.fn());
+vi.mock('../branches/checkout', () => ({ checkoutLocal }));
 
 await import('./feature');
 const { Toolbar } = await import('./Toolbar');
@@ -21,10 +21,10 @@ const { useMenu } = await import('../menu/menuStore');
 const { useToast } = await import('../ui/toast');
 
 const branch = (name: string, target: string, over: Partial<LocalBranch> = {}): LocalBranch => ({
-  name, fullName: `refs/heads/${name}`, target, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, ...over,
+  name, fullName: `refs/heads/${name}`, target, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, ...over,
 });
 
-const ctx = { tabId: 't', repoId: 4, path: '/r', info: null };
+const ctx = { tabId: 't', repoId: 4, path: '/r', worktree: '/r', info: null };
 const renderToolbar = () => render(<RepoContext value={ctx}><Toolbar /></RepoContext>);
 
 describe('Toolbar (spec §6.3)', () => {
@@ -36,8 +36,8 @@ describe('Toolbar (spec §6.3)', () => {
     useRuntime.setState({ tabs: {} });
     useRuntime.getState().patch('t', {
       status: 'ready',
-      repo: { id: 4, path: '/r', name: 'gitbolt' },
-      graph: { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'aaaaaaaaaa', detached: false, unborn: false }, truncated: false },
+      repo: { id: 4, path: '/r', name: 'gitbolt', worktree: '/r' },
+      graph: { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'aaaaaaaaaa', detached: false, unborn: false }, truncated: false, worktrees: [] },
       sidebar: { locals: [branch('main', 'aaaaaaaaaa', { isHead: true }), branch('feature/login', 'bbbbbbbbbb', { ahead: 2, behind: 1 })], remotes: [], worktrees: [], stashes: [], tags: [] },
     });
   });
@@ -48,15 +48,22 @@ describe('Toolbar (spec §6.3)', () => {
     expect(screen.getByRole('button', { name: 'Branch: main' })).toBeInTheDocument();
   });
 
-  it('Fetch runs the repo.fetch action (a user fetch), and its dropdown lists Fetch all', () => {
+  it('Fetch runs the default (Fetch All: a user fetch), and its caret opens the default picker', async () => {
     renderToolbar();
+    useToast.getState().dismiss();
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true, op: 1, server: { lines: 0, warning: null } } as never);
     fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
     expect(api.fetch).toHaveBeenCalledWith(4, false);
+    await act(async () => { await Promise.resolve(); });
+    expect(useToast.getState().message).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Fetch options' }));
-    const rows = useMenu.getState().rows!;
-    expect(rows.map((r) => r.kind === 'action' && r.label)).toEqual(['Fetch all']);
-    if (rows[0].kind === 'action') rows[0].run();
-    expect(api.fetch).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('menu', { name: 'Select a default pull/fetch operation to execute when clicking this button' })).toBeInTheDocument();
+    expect(screen.getAllByRole('menuitemradio').map((r) => r.textContent)).toEqual(['Fetch All', 'Pull (fast-forward if possible)', 'Pull (fast-forward only)', 'Pull (rebase)']);
+    expect(screen.getByRole('menuitemradio', { name: 'Fetch All' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Pull (rebase)' }));
+    expect(useAppState.getState().settings.syncButton).toBe('pullRebase');
+    expect(api.fetch).toHaveBeenCalledTimes(1);
+    useAppState.getState().setSettings({ syncButton: 'fetchAll' });
   });
 
   it('Fetch is busy while the user\'s fetch runs for this repo, not another repo', () => {
@@ -137,23 +144,15 @@ describe('Toolbar (spec §6.3)', () => {
     expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
   });
 
-  it('the branch picker lists the local branches and jumps to the picked one\'s tip', () => {
+  it('the branch picker lists the local branches and checks out the picked one', () => {
     renderToolbar();
     fireEvent.click(screen.getByRole('button', { name: 'Branch: main' }));
     const options = screen.getAllByRole('option');
     // Alphabetical by default (K72).
     expect(options.map((o) => o.textContent)).toEqual(['feature/login2↑ 1↓', 'main']);
     fireEvent.click(screen.getByText('feature/login'));
-    expect(selectCommit).toHaveBeenCalledWith('t', 'bbbbbbbbbb', { focus: true });
+    expect(checkoutLocal).toHaveBeenCalledWith('t', 'feature/login');
     expect(screen.queryByRole('listbox')).toBeNull();
-  });
-
-  it('a branch whose tip is not loaded says so', () => {
-    selectCommit.mockReturnValueOnce(false);
-    renderToolbar();
-    fireEvent.click(screen.getByRole('button', { name: 'Branch: main' }));
-    fireEvent.click(screen.getByText('feature/login'));
-    expect(useToast.getState().message).toBe('Not in the loaded history');
   });
 
   it('shows a queued badge on a button whose op waits in the queue (spec #2 §3.6)', () => {
@@ -178,5 +177,26 @@ describe('Toolbar (spec §6.3)', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Nothing to undo');
     offA();
     offB();
+  });
+
+  it('a picker button\'s caret opens its picker; menuRows build the caret\'s rows when it opens; a view sets the caption', async () => {
+    const run = vi.fn();
+    const offA = registerActions([{ id: 't.sync', label: 'Fetch', group: 'Repository', icon: Search, tooltip: 'Fetch every remote', run }, { id: 't.push', label: 'Push', group: 'Repository', icon: Search, tooltip: 'Push', run }]);
+    let mode = 'fetchAll';
+    const offB = registerToolbarButton({ action: 't.sync', order: 98, picker: { title: 'Pick one', options: [{ value: 'fetchAll', label: 'Fetch All' }, { value: 'pullFfOnly', label: 'Pull (fast-forward only)' }], useValue: () => mode, set: (v) => { mode = v; } }, useView: () => ({ tooltip: 'Pull origin/main into main (fast-forward only)', disabled: false, label: 'Pull' }) });
+    const rows = vi.fn(() => [{ kind: 'action' as const, id: 'up', label: 'origin/main', icon: Search, tooltip: 'Track origin/main', run }]);
+    const offC = registerToolbarButton({ action: 't.push', order: 99, menuRows: rows });
+    renderToolbar();
+    expect(screen.getByRole('button', { name: 'Pull' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Pull options' }));
+    expect(await screen.findByText('Pick one')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Pull (fast-forward only)' }));
+    expect(mode).toBe('pullFfOnly');
+    expect(run).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Push options' }));
+    expect(rows).toHaveBeenCalled();
+    offA();
+    offB();
+    offC();
   });
 });

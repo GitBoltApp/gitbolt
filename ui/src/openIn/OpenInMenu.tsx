@@ -2,7 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
 import { openMenuAt, refreshMenuOn, useMenu } from '../menu/menuStore';
-import { useRepoView, type DiffTarget } from '../repo/store';
+import { openWorktree, useRepoView, type DiffTarget } from '../repo/store';
 import { openerIcon, openerRowId, openInSubmenuRows } from './openerRows';
 import { defaultOpener, listWorktree, openerLabel, openersSnapshot, openVersion, refreshOpeners, subscribeOpeners, useOpenIn, useOpeners, worktreeOf } from './openers';
 import './openIn.css';
@@ -37,7 +37,8 @@ export function OpenerIcon({ opener, size = 14 }: { opener: OpenerPayload; size?
  */
 export function OpenInButton({ target, line = null, worktree: given }: { target: DiffTarget; line?: number | null; worktree?: string | null }) {
   const openers = useOpeners();
-  const repoPath = useRepoView((s) => s.repoPath);
+  // The tab's open (active) worktree: a file opens in the checkout the tab shows (spec #2 §11.2).
+  const openTree = useRepoView(openWorktree);
   const { last, open } = useOpenIn();
   const [expanded, setExpanded] = useState(false);
   const group = useRef<HTMLSpanElement>(null);
@@ -48,7 +49,7 @@ export function OpenInButton({ target, line = null, worktree: given }: { target:
   useEffect(() => useMenu.subscribe((s) => { if (s.rows === null) setExpanded(false); }), []);
   if (!openers || !current) return null;
   const worktree = given ?? listWorktree(target.key) ?? worktreeOf(target);
-  const t = { worktree: worktree ?? repoPath, path: target.path, line, ...openVersion(target, worktree) };
+  const t = { worktree: worktree ?? openTree, path: target.path, line, ...openVersion(target, worktree) };
   const copy = t.source.kind === 'object' || t.source.kind === 'atCommit';
   const build = () => openInSubmenuRows(openersSnapshot().list, openersSnapshot().error, (o) => open(o, t), { copy });
   const show = () => {

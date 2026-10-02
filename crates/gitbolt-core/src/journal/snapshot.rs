@@ -10,10 +10,11 @@ use crate::error::{gix_err, GbError, GbErrorKind};
 use crate::git::{GitCli, GitInvocation};
 use crate::journal::Snapshot;
 use crate::write::WriteToken;
-use gix::bstr::ByteSlice;
+use gix::bstr::{BString, ByteSlice};
 use gix::ObjectId;
 use std::collections::BTreeSet;
 use std::ffi::OsString;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -138,9 +139,11 @@ fn tree_info(root: &Path, tree: &str, paths: &[&String]) -> Result<(Vec<u8>, BTr
     for p in paths {
         match tree.lookup_entry_by_path(p.as_str()).map_err(gix_err)? {
             Some(e) if !e.mode().is_tree() => {
-                if !repo.has_object(e.object_id()) {
+                // --- 2B T4: a gitlink's commit is the submodule's, never in this repository ---
+                if !e.mode().is_commit() && !repo.has_object(e.object_id()) {
                     return Err(missing());
                 }
+                // --- end 2B T4 ---
                 info.extend_from_slice(format!("{} {}\t{p}\0", e.mode().kind().as_octal_str(), e.object_id()).as_bytes());
                 present.insert((*p).clone());
             }
@@ -176,6 +179,17 @@ async fn files_only(cx: &SnapshotCx<'_>, paths: &[String], untracked: &[String])
         index.entries().iter().map(|e| e.path(&index).to_str_lossy().into_owned()).collect()
     };
     let is_dir = |p: &str| cx.root.join(p).symlink_metadata().is_ok_and(|m| m.is_dir());
+    // --- 2B T4: a file of HEAD stays in P ---
+    // A HEAD file the index no longer has (a staged deletion, a rename's source) is a path the op
+    // touches even when a folder stands there now: its index state ("absent") must come back.
+    let head_files: BTreeSet<String> = {
+        let repo = gix::open(cx.root).map_err(gix_err)?;
+        match repo.head_commit().ok().and_then(|c| c.tree().ok()) {
+            Some(tree) => paths.iter().filter(|p| tree.lookup_entry_by_path(p.as_str()).ok().flatten().is_some_and(|e| !e.mode().is_tree())).cloned().collect(),
+            None => BTreeSet::new(),
+        }
+    };
+    // --- end 2B T4 ---
     let (mut p_out, mut u_out, mut seen) = (Vec::new(), Vec::new(), BTreeSet::new());
     for p in untracked {
         let files = if is_dir(p) {
@@ -197,8 +211,8 @@ async fn files_only(cx: &SnapshotCx<'_>, paths: &[String], untracked: &[String])
         let exact = indexed.iter().any(|q| q == p);
         let under: Vec<&String> = indexed.iter().filter(|q| q.starts_with(&prefix)).collect();
         let files: Vec<String> = match (exact, under.is_empty()) {
-            (false, false) => under.into_iter().cloned().collect(),
-            (false, true) if is_dir(p) => Vec::new(),
+            (false, false) => under.into_iter().cloned().chain(head_files.contains(p).then(|| p.clone())).collect(),
+            (false, true) if is_dir(p) && !head_files.contains(p) => Vec::new(),
             _ => vec![p.clone()],
         };
         for f in files {
@@ -239,10 +253,40 @@ pub(crate) async fn create(cx: &SnapshotCx<'_>, label: &str, paths: &[String], u
     // 2. W-tree: the same temp index plus P's tracked worktree state (deletions included). Only
     //    paths git knows of or that exist, or `add` fails the pathspec.
     let (_, in_i) = tree_info(cx.root, &i_tree, &tracked)?;
-    let add: Vec<&String> = tracked.iter().copied().filter(|p| in_i.contains(p.as_str()) || cx.root.join(p).symlink_metadata().is_ok()).collect();
-    if !add.is_empty() {
-        cx.cli.run(cx.indexed(&ti, ["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"]).stdin(nul_list(add))).await?;
+    // --- 2B T4: a path with no file is a removal, never an `add` ---
+    // No file at it (gone, a file where a folder of it must be) or a folder in its place (not a
+    // submodule): W has nothing there. `add` would put the folder's files in W, which then looks
+    // changed against every later state, or fail on an ignored file standing in its way.
+    let gitlinks: BTreeSet<String> = {
+        let repo = gix::open(cx.root).map_err(gix_err)?;
+        let tree = repo.find_tree(oid(&i_tree)?).map_err(|_| missing())?;
+        tracked.iter().filter(|p| tree.lookup_entry_by_path(p.as_str()).ok().flatten().is_some_and(|e| e.mode().is_commit())).map(|p| (*p).clone()).collect()
+    };
+    // Only "not found" and "not a directory" (a file where a folder of it is) mean no file: any
+    // other error (permission denied) fails the snapshot, as `add` would have.
+    let mut no_file = BTreeSet::new();
+    for p in &tracked {
+        let none = match cx.root.join(p).symlink_metadata() {
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => true,
+            Err(e) => return Err(e.into()),
+            Ok(m) => m.is_dir() && !gitlinks.contains(*p),
+        };
+        if none {
+            no_file.insert((*p).clone());
+        }
     }
+    let removals: Vec<u8> = tracked.iter().filter(|p| in_i.contains(p.as_str()) && no_file.contains(**p)).flat_map(|p| format!("0 {ZERO_OID}\t{p}\0").into_bytes()).collect();
+    if !removals.is_empty() {
+        cx.cli.run(cx.indexed(&ti, ["update-index", "-z", "--index-info"]).stdin(removals)).await?;
+    }
+    let add: Vec<&String> = tracked.iter().copied().filter(|p| !no_file.contains(*p)).collect();
+    // `-f`: every path is named exactly, so it adds that file, nothing more. Without it, `add`
+    // refuses a tracked file inside an ignored folder ("paths are ignored"), and a file at a
+    // HEAD path the index doesn't have (a rename's source) that's ignored.
+    if !add.is_empty() {
+        cx.cli.run(cx.indexed(&ti, ["add", "-A", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"]).stdin(nul_list(add))).await?;
+    }
+    // --- end 2B T4 ---
     let w_tree = cx.text(cx.indexed(&ti, ["write-tree"])).await?;
 
     // 3. U: the untracked files the operation deletes, in a fresh temp index.
@@ -266,8 +310,27 @@ pub(crate) async fn create(cx: &SnapshotCx<'_>, label: &str, paths: &[String], u
     }
     args.extend(["-m", message.as_str()]);
     let w = cx.text(cx.git(args)).await?;
-    Ok(Snapshot { commit: w, paths: paths.to_vec(), untracked: untracked.to_vec() })
+    // --- 2B T4: permission bits ---
+    let modes = paths.iter().filter_map(|p| cx.root.join(p).symlink_metadata().ok().filter(|m| m.is_file()).map(|m| (p.clone(), m.permissions().mode() & 0o7777))).collect();
+    Ok(Snapshot { commit: w, paths: paths.to_vec(), untracked: untracked.to_vec(), modes })
+    // --- end 2B T4 ---
 }
+
+// --- 2B T4: permission bits ---
+/// The permission bits the snapshot recorded, on each regular file it checked out (`paths`).
+/// Best effort: a file that can't be chmodded keeps git's mode, with a warning.
+fn reapply_modes(root: &Path, snap: &Snapshot, paths: &BTreeSet<String>) {
+    for p in paths {
+        let Some(mode) = snap.modes.get(p) else { continue };
+        let full = root.join(p);
+        if full.symlink_metadata().is_ok_and(|m| m.is_file())
+            && let Err(e) = std::fs::set_permissions(&full, std::fs::Permissions::from_mode(*mode))
+        {
+            tracing::warn!(target: "gitbolt_core::write", "restoring {p}'s permissions: {e}");
+        }
+    }
+}
+// --- end 2B T4 ---
 
 /// W's tree, I's tree and U's tree (if any).
 fn trees(root: &Path, snap: &Snapshot) -> Result<(String, String, Option<String>), GbError> {
@@ -310,6 +373,15 @@ pub(crate) async fn restore(cx: &SnapshotCx<'_>, snap: &Snapshot) -> Result<(), 
         Some(u) => tree_present(cx.root, u, &untracked)?,
         None => BTreeSet::new(),
     };
+    // --- 2C repo-safety ---
+    // A repository standing where a file of W or U goes back would be removed whole by
+    // `checkout-index -f`: refused here in words, whatever the caller checked (2B T4 re-review
+    // N5, 2C T6 re-review 3 C5).
+    let (root_buf, snap_owned) = (cx.root.to_path_buf(), snap.clone());
+    if let Some(p) = crate::api::blocking(move || scan_in_the_way(&root_buf, &snap_owned)).await?.scan.repos.first() {
+        return Err(crate::write::precheck::repository_in_the_way(p, "restore"));
+    }
+    // --- end 2C repo-safety ---
     let dir = tempfile::Builder::new().prefix("restore-").tempdir_in(cx.tmp)?;
 
     // 1. The worktree from W and U, each through a temp index (the likeliest step to fail, so
@@ -321,6 +393,9 @@ pub(crate) async fn restore(cx: &SnapshotCx<'_>, snap: &Snapshot) -> Result<(), 
         cx.cli.run(cx.indexed(&tu, ["read-tree", u.as_str()])).await?;
         cx.cli.run(cx.indexed(&tu, ["checkout-index", "-f", "-a"])).await?;
     }
+    // --- 2B T4: permission bits ---
+    reapply_modes(cx.root, snap, &in_w.union(&in_u).cloned().collect());
+    // --- end 2B T4 ---
     // 2. The real index: P's entries from I (a removal line where I has none).
     if !tracked.is_empty() {
         cx.cli.run(cx.git(["update-index", "-z", "--index-info"]).stdin(index_lines)).await?;
@@ -342,6 +417,110 @@ pub(crate) async fn restore(cx: &SnapshotCx<'_>, snap: &Snapshot) -> Result<(), 
     }
     Ok(())
 }
+
+// --- 2C repo-safety ---
+/// What [`restore`] would delete writing a file of W or U where the disk now has a directory:
+/// `checkout-index -f` removes the directory whole (2C T6 re-review 3 C5). A caller refuses over
+/// `repos` and autostashes `untracked` first, which asks (§6.1, the Paths rule).
+#[derive(Debug, Default)]
+pub(crate) struct DirsInTheWay {
+    /// Repositories in such a directory (`.git`, a populated gitlink, a nested clone), sorted.
+    pub repos: Vec<String>,
+    /// What else the restore would delete that the snapshot doesn't hold, sorted, for the
+    /// autostash: the files outside the index in such a directory, the index entries under it
+    /// (safety review I2: `checkout-index -f` leaves them `AD` beside the file), and a file or
+    /// a symlink standing where one of a restored path's directories must be (I1: `-f` unlinks
+    /// it).
+    pub untracked: Vec<String>,
+}
+
+/// The gix part of [`dirs_in_the_way`]: `scan` is the directories in the way of a file of W or
+/// U; `blocked` the rest of what is lost without a git read (I1, I2). One lstat per path of the
+/// snapshot, a walk only of a directory found in the way ([`crate::write::precheck::repos_at`]).
+pub(crate) struct RestoreScan {
+    pub scan: crate::write::precheck::InTheWay,
+    pub blocked: Vec<String>,
+}
+
+pub(crate) fn scan_in_the_way(root: &Path, snap: &Snapshot) -> Result<RestoreScan, GbError> {
+    use crate::write::precheck;
+    let (w_tree, _, u_tree) = trees(root, snap)?;
+    let repo = gix::open(root).map_err(gix_err)?;
+    let index = repo.index_or_empty().map_err(gix_err)?;
+    let gitlinks = precheck::index_gitlinks(&index);
+    let tracked = snap.paths.iter().filter(|p| !snap.untracked.contains(p));
+    let mut files = precheck::files_in(&repo.find_tree(oid(&w_tree)?).map_err(|_| missing())?, tracked)?;
+    if let Some(u) = &u_tree {
+        files.extend(precheck::files_in(&repo.find_tree(oid(u)?).map_err(|_| missing())?, &snap.untracked)?);
+    }
+    let scan = precheck::repos_at(root, &gitlinks, files.iter().map(|p| p.as_bstr()));
+    let mut blocked = scan.indexed_under(&index);
+    // I1: a file (or a symlink) standing where one of a restored path's directories must be.
+    for f in &files {
+        let parts: Vec<&[u8]> = f.split(|b| *b == b'/').collect();
+        let mut lead = BString::default();
+        for part in &parts[..parts.len().saturating_sub(1)] {
+            if !lead.is_empty() {
+                lead.push(b'/');
+            }
+            lead.extend_from_slice(part);
+            match precheck::full_path(root, &lead).symlink_metadata() {
+                Ok(m) if m.is_dir() => continue,
+                Ok(_) => blocked.push(lead.to_str_lossy().into_owned()),
+                Err(_) => {}
+            }
+            break;
+        }
+    }
+    blocked.retain(|p| !snap.paths.contains(p));
+    Ok(RestoreScan { scan, blocked })
+}
+
+/// A read: [`scan_in_the_way`], then `ls-files --others` only over the directories it found in
+/// the way ([`crate::write::precheck::others_under`]).
+pub(crate) async fn dirs_in_the_way(cli: &GitCli, root: &Path, snap: &Snapshot) -> Result<DirsInTheWay, GbError> {
+    let (root_buf, snap_owned) = (root.to_path_buf(), snap.clone());
+    let RestoreScan { scan, blocked } = crate::api::blocking(move || scan_in_the_way(&root_buf, &snap_owned)).await?;
+    let (nested, files) = crate::write::precheck::others_under(cli, root, &scan.dirs).await?;
+    let mut repos = scan.repos;
+    repos.extend(nested);
+    let mut untracked: Vec<String> = files.into_iter().filter(|f| !snap.paths.contains(f)).collect();
+    untracked.extend(blocked);
+    untracked.sort();
+    untracked.dedup();
+    Ok(DirsInTheWay { repos: repos.into_iter().collect(), untracked })
+}
+// --- end 2C repo-safety ---
+
+// --- 2C T6: restore_index ---
+/// `restore`'s read-only checks alone (the objects are there, P's index entries can be
+/// carried), so a caller can run them before it moves a ref.
+pub(crate) fn check_restore(root: &Path, snap: &Snapshot) -> Result<(), GbError> {
+    let (w_tree, i_tree, u_tree) = trees(root, snap)?;
+    let tracked: Vec<&String> = snap.paths.iter().filter(|p| !snap.untracked.contains(p)).collect();
+    check_index(root, &tracked)?;
+    tree_info(root, &i_tree, &tracked)?;
+    tree_info(root, &w_tree, &tracked)?;
+    if let Some(u) = &u_tree {
+        tree_present(root, u, &snap.untracked.iter().collect::<Vec<_>>())?;
+    }
+    Ok(())
+}
+
+/// The index part of a restore only (§5.3, the mixed reset's undo): P's entries from I. The
+/// working tree is never touched, so later edits there survive.
+pub(crate) async fn restore_index(cx: &SnapshotCx<'_>, snap: &Snapshot) -> Result<(), GbError> {
+    let (_, i_tree, _) = trees(cx.root, snap)?;
+    let tracked: Vec<&String> = snap.paths.iter().filter(|p| !snap.untracked.contains(p)).collect();
+    if tracked.is_empty() {
+        return Ok(());
+    }
+    check_index(cx.root, &tracked)?;
+    let (index_lines, _) = tree_info(cx.root, &i_tree, &tracked)?;
+    cx.cli.run(cx.git(["update-index", "-z", "--index-info"]).stdin(index_lines)).await?;
+    Ok(())
+}
+// --- end 2C T6 ---
 
 #[cfg(test)]
 mod tests {
@@ -608,4 +787,96 @@ mod tests {
         restore(&cx, &snap).await.unwrap();
         assert!(r.path().join("d.txt/inner.txt").exists());
     }
+
+    // --- 2B T4 ---
+    /// Review M5: a path whose metadata can't be read (permission denied) fails the snapshot;
+    /// only "not found" and "not a directory" mean no file.
+    #[tokio::test]
+    async fn an_unreadable_path_fails_the_snapshot() {
+        use std::os::unix::fs::PermissionsExt;
+        let r = TestRepo::new();
+        r.write("locked/f.txt", "f\n");
+        r.git(&["add", "."]);
+        r.git(&["commit", "-q", "-m", "base"]);
+        let tmp = tempfile::tempdir().unwrap();
+        let (cli, token) = (cli(), WriteToken::for_tests());
+        let cx = SnapshotCx { cli: &cli, token: &token, root: r.path(), tmp: tmp.path() };
+        std::fs::set_permissions(r.path().join("locked"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        let res = create(&cx, "x", &strings(&["locked/f.txt"]), &[]).await;
+        std::fs::set_permissions(r.path().join("locked"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    /// Review I2: permission bits come back exactly, under `core.fileMode=false` too.
+    #[tokio::test]
+    async fn permission_bits_round_trip() {
+        use std::os::unix::fs::PermissionsExt;
+        let r = TestRepo::new();
+        r.git(&["config", "core.fileMode", "false"]);
+        r.write("t.sh", "tracked\n");
+        r.git(&["add", "."]);
+        r.git(&["commit", "-q", "-m", "base"]);
+        r.write("u.txt", "untracked secret\n");
+        let mode = |p: &str| std::fs::metadata(r.path().join(p)).unwrap().permissions().mode() & 0o7777;
+        let set = |p: &str, m: u32| std::fs::set_permissions(r.path().join(p), std::fs::Permissions::from_mode(m)).unwrap();
+        set("t.sh", 0o750);
+        set("u.txt", 0o600);
+        let tmp = tempfile::tempdir().unwrap();
+        let (cli, token) = (cli(), WriteToken::for_tests());
+        let cx = SnapshotCx { cli: &cli, token: &token, root: r.path(), tmp: tmp.path() };
+        let snap = create(&cx, "x", &strings(&["t.sh", "u.txt"]), &strings(&["u.txt"])).await.unwrap();
+        set("t.sh", 0o644);
+        std::fs::remove_file(r.path().join("u.txt")).unwrap();
+        restore(&cx, &snap).await.unwrap();
+        assert_eq!((mode("t.sh"), mode("u.txt")), (0o750, 0o600));
+        // A journal written before the field still loads.
+        let old: Snapshot = serde_json::from_str(r#"{"commit":"w","paths":[],"untracked":[]}"#).unwrap();
+        assert!(old.modes.is_empty());
+    }
+
+    /// Review I1: a gitlink in P snapshots and restores (its commit isn't in this repository).
+    #[tokio::test]
+    async fn a_gitlink_in_p_snapshots_and_restores() {
+        let r = TestRepo::new();
+        r.commit("base");
+        let inner = r.path().join("emb");
+        std::fs::create_dir_all(&inner).unwrap();
+        r.git_in(&inner, &["init", "-q"]);
+        std::fs::write(inner.join("e.txt"), "e\n").unwrap();
+        r.git_in(&inner, &["add", "."]);
+        r.git_in(&inner, &["-c", "user.name=x", "-c", "user.email=x@x", "commit", "-q", "-m", "inner"]);
+        r.git(&["add", "emb"]);
+        let tmp = tempfile::tempdir().unwrap();
+        let (cli, token) = (cli(), WriteToken::for_tests());
+        let cx = SnapshotCx { cli: &cli, token: &token, root: r.path(), tmp: tmp.path() };
+        let staged = r.git(&["ls-files", "-s", "emb"]);
+        let snap = create(&cx, "x", &strings(&["emb"]), &[]).await.unwrap();
+        r.git(&["rm", "-q", "-f", "--cached", "emb"]);
+        restore(&cx, &snap).await.unwrap();
+        assert_eq!(r.git(&["ls-files", "-s", "emb"]), staged);
+        assert!(inner.join("e.txt").exists() && inner.join(".git").exists());
+    }
+    // --- end 2B T4 ---
+
+    // --- 2C repo-safety ---
+    /// 2B T4 re-review N5: a repository standing where a file of the snapshot goes back is
+    /// refused in words by the restore itself, and nothing changes.
+    #[tokio::test]
+    async fn restore_refuses_a_repository_standing_at_a_snapshot_path() {
+        let r = dirty_repo();
+        let tmp = tempfile::tempdir().unwrap();
+        let (cli, token) = (cli(), WriteToken::for_tests());
+        let cx = SnapshotCx { cli: &cli, token: &token, root: r.path(), tmp: tmp.path() };
+        let snap = create(&cx, "x", &strings(&["a.txt", "c.txt"]), &strings(&["c.txt"])).await.unwrap();
+        destroy(&r);
+        std::fs::create_dir(r.path().join("c.txt")).unwrap();
+        r.git_in(&r.path().join("c.txt"), &["init", "-q"]);
+        let before = split(&r);
+        let err = restore(&cx, &snap).await.unwrap_err();
+        assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::InvalidInput, "c.txt is a repository in the way of the restore: move it first"));
+        assert_eq!(split(&r), before, "nothing changed");
+        assert_eq!(std::fs::read_to_string(r.path().join("a.txt")).unwrap(), "a1\n", "W wasn't checked out either");
+        assert!(r.path().join("c.txt/.git").is_dir());
+    }
+    // --- end 2C repo-safety ---
 }

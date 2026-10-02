@@ -47,6 +47,14 @@ impl CommandLog {
         q.push_back(entry);
     }
 
+    /// Replaces a logged command's stderr (a push's Details, with the server's lines first).
+    pub fn set_stderr(&self, id: u64, stderr: &str) {
+        let mut entries = self.inner.lock().expect("command log poisoned");
+        if let Some(e) = entries.iter_mut().find(|e| e.id == id) {
+            e.stderr = truncate_utf8(stderr, STDERR_LOG_LIMIT).to_string();
+        }
+    }
+
     /// Oldest first.
     pub fn entries(&self) -> Vec<CommandLogEntry> {
         self.inner.lock().expect("command log poisoned").iter().cloned().collect()

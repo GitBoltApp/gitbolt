@@ -30,7 +30,7 @@ const A = 'a'.repeat(40), B = 'b'.repeat(40);
 const never = () => new Promise<never>(() => {});
 const commit = (id: string, summary: string): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: 'grace@example.com', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
 const wipRow: RowPayload = { ...commit('wip:/r', ''), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 1, deleted: 0, renamed: 0, conflicted: 0 } };
-const graph: GraphPayload = { rows: [wipRow, commit(A, 'Second'), commit(B, 'First')], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false };
+const graph: GraphPayload = { rows: [wipRow, commit(A, 'Second'), commit(B, 'First')], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] };
 const file = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object', oid: B }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...paths: string[]): FileListPayload => ({ files: paths.map(file), added: paths.length, deleted: 0 });
 
@@ -57,6 +57,20 @@ beforeEach(() => {
 });
 
 describe('DetailsPanel', () => {
+  it('the Edit message pencil shows for the HEAD commit only, and not mid merge or rebase (spec #2 §8.3)', async () => {
+    const store = createRepoViewStore(1, '/r', graph, loadedServices());
+    renderPanel(store);
+    await act(async () => store.getState().selectRow(1));
+    expect(await screen.findByRole('button', { name: 'Edit message' })).toBeTruthy();
+    await act(async () => store.getState().selectRow(2));
+    expect(await screen.findByText('First')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
+    store.setState((s) => ({ graph: { ...s.graph, inProgress: { '/r': { kind: 'other', what: 'revert' } } } }));
+    await act(async () => store.getState().selectRow(1));
+    expect(await screen.findByText('Second')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
+  });
+
   it('a Ctrl+click on a second commit shows the compare header at once, no hint step (K15); a plain click leaves it', async () => {
     const store = createRepoViewStore(1, '/r', graph, loadedServices());
     renderPanel(store);
@@ -120,7 +134,7 @@ describe('DetailsPanel', () => {
     for (const state of seen) expect([second, first]).toContainEqual(state);
   });
 
-  it('the WIP row shows its header and read-only Unstaged and Staged lists, re-read on every selection (deviation 9)', async () => {
+  it('the WIP row shows its header and its Unstaged and Staged lists, re-read on every selection (deviation 9)', async () => {
     let reads = 0;
     api.fileList.mockImplementation(async (_repo: number, spec: DiffSpec) => {
       if (spec.kind !== 'wip') return never();
@@ -138,7 +152,7 @@ describe('DetailsPanel', () => {
     expect(screen.getByRole('listbox', { name: 'Unstaged' })).toBeInTheDocument();
     expect(screen.getByRole('listbox', { name: 'Staged' })).toBeInTheDocument();
     expect(screen.queryByTestId('details-summary')).toBeNull();
-    expect(screen.queryAllByRole('button', { name: /^(stage|unstage|discard|commit)\b/i })).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Discard all' })).toBeInTheDocument();
     expect(api.fileList.mock.calls.map(([, spec]) => spec)).toEqual([
       { kind: 'wip', worktree: '/r', staged: false },
       { kind: 'wip', worktree: '/r', staged: true },

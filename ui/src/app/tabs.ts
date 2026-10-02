@@ -11,12 +11,21 @@ export const newTabId = (): string =>
 
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
-/** What a tab shows: the alias, else the repo's name, else the folder name. */
+/** What a tab shows: the alias, else the repo's name (a linked worktree's folder name, as
+ * before 2C shared one handle between them), else the folder name. */
 export function tabLabel(tab: TabState, repoName?: string | null): string {
   if (tab.alias) return tab.alias;
   if (tab.kind === 'open') return 'Open repository';
+  if (tab.worktree && tab.path && tab.worktree !== tab.path) return basename(tab.worktree);
   return repoName ?? (tab.path ? basename(tab.path) : 'Repository');
 }
+
+/** The worktree a tab shows: its active one, else (a tab saved before 2C, or not opened yet) its path. */
+export const tabWorktree = (t: TabState): string | null => t.worktree ?? t.path;
+
+/** A tab is one repository with an active worktree (spec #2 §11.2): `(path, worktree)`; a
+ * missing worktree is the repository's own path. */
+const sameTab = (t: TabState, path: string, worktree: string | null) => t.kind === 'repo' && t.path === path && tabWorktree(t) === (worktree ?? path);
 
 const activeIndex = (p: Profile) => p.tabs.findIndex((t) => t.id === p.activeTab);
 
@@ -26,33 +35,38 @@ function insertAfterActive(p: Profile, tab: TabState): Profile {
   return { ...p, tabs: [...p.tabs.slice(0, at), tab, ...p.tabs.slice(at)], activeTab: tab.id };
 }
 
-/** Opens `path` in a new tab after the active one, or focuses the tab already showing it. */
-export function openRepoTab(p: Profile, path: string, id = newTabId()): { profile: Profile; tabId: string } {
-  const existing = p.tabs.find((t) => t.kind === 'repo' && t.path === path);
+/** Opens `path` (on `worktree`) in a new tab after the active one, or focuses the tab already
+ * showing it. */
+export function openRepoTab(p: Profile, path: string, worktree: string | null = null, id = newTabId()): { profile: Profile; tabId: string } {
+  const existing = p.tabs.find((t) => sameTab(t, path, worktree));
   if (existing) return { profile: { ...p, activeTab: existing.id }, tabId: existing.id };
-  return { profile: insertAfterActive(p, { id, kind: 'repo', path, alias: null }), tabId: id };
+  return { profile: insertAfterActive(p, { id, kind: 'repo', path, alias: null, worktree }), tabId: id };
 }
 
 export function openBlankTab(p: Profile, id = newTabId()): { profile: Profile; tabId: string } {
-  return { profile: insertAfterActive(p, { id, kind: 'open', path: null, alias: null }), tabId: id };
+  return { profile: insertAfterActive(p, { id, kind: 'open', path: null, alias: null, worktree: null }), tabId: id };
 }
 
-/** Points a tab at a repo (Open screen → repo, or canonicalizing a path). A duplicate collapses. */
-export function setTabRepo(p: Profile, id: string, path: string): Profile {
-  const dup = p.tabs.find((t) => t.id !== id && t.kind === 'repo' && t.path === path);
+/** Points a tab at a repo and worktree (Open screen → repo, or canonicalizing a path: a tab
+ * saved before 2C on a linked worktree becomes `(repository, that worktree)`). A duplicate of
+ * the same worktree collapses. */
+export function setTabRepo(p: Profile, id: string, path: string, worktree: string | null = null): Profile {
+  const dup = p.tabs.find((t) => t.id !== id && sameTab(t, path, worktree));
   if (dup) return { ...p, tabs: p.tabs.filter((t) => t.id !== id), activeTab: dup.id };
-  return { ...p, tabs: p.tabs.map((t) => (t.id === id ? { ...t, kind: 'repo' as const, path } : t)) };
+  return { ...p, tabs: p.tabs.map((t) => (t.id === id ? { ...t, kind: 'repo' as const, path, worktree } : t)) };
 }
 
 /** Closes a tab; the active one hands over to its right neighbour (else its left). Repo tabs go
- * on the closed stack (Ctrl+Shift+T), newest last, at most MAX_CLOSED. */
+ * on the closed stack (Ctrl+Shift+T), newest last, at most MAX_CLOSED, by the worktree they
+ * showed: reopening opens that path, and `openRepo` names its repository again. */
 export function closeTab(p: Profile, id: string): Profile {
   const i = p.tabs.findIndex((t) => t.id === id);
   if (i < 0) return p;
   const tab = p.tabs[i];
   const tabs = p.tabs.filter((t) => t.id !== id);
-  const closedTabs = tab.kind === 'repo' && tab.path
-    ? [...p.closedTabs, { path: tab.path, alias: tab.alias, index: i }].slice(-MAX_CLOSED)
+  const shown = tabWorktree(tab);
+  const closedTabs = tab.kind === 'repo' && shown
+    ? [...p.closedTabs, { path: shown, alias: tab.alias, index: i }].slice(-MAX_CLOSED)
     : p.closedTabs;
   const activeTab = p.activeTab === id ? tabs[Math.min(i, tabs.length - 1)]?.id ?? null : p.activeTab;
   return { ...p, tabs, closedTabs, activeTab };
@@ -78,10 +92,10 @@ export function reopenClosed(p: Profile, id = newTabId()): { profile: Profile; t
   const last = p.closedTabs.at(-1);
   if (!last) return null;
   const closedTabs = p.closedTabs.slice(0, -1);
-  const existing = p.tabs.find((t) => t.kind === 'repo' && t.path === last.path);
+  const existing = p.tabs.find((t) => t.kind === 'repo' && tabWorktree(t) === last.path);
   if (existing) return { profile: { ...p, closedTabs, activeTab: existing.id }, tabId: existing.id };
   const at = Math.min(last.index, p.tabs.length);
-  const tab: TabState = { id, kind: 'repo', path: last.path, alias: last.alias };
+  const tab: TabState = { id, kind: 'repo', path: last.path, alias: last.alias, worktree: null };
   return { profile: { ...p, tabs: [...p.tabs.slice(0, at), tab, ...p.tabs.slice(at)], closedTabs, activeTab: id }, tabId: id };
 }
 

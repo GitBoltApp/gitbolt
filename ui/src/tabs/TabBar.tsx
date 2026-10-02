@@ -4,6 +4,7 @@ import type { TabState } from '../api/gen/TabState';
 import { runAction } from '../app/actions';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
+import { guardTabClose } from '../diff/workingCopy';
 import { activateTab, closeTab, moveTab, renameTab, tabLabel } from '../app/tabs';
 import { openContextMenu } from '../menu/menuStore';
 import { buildMenu } from '../menu/registry';
@@ -112,7 +113,7 @@ export function TabBar() {
               onPointerDown={(e) => { if (!isEditableTarget(e.target)) onPointerDown(e, i); }}
               onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
               onClick={() => { if (!consumeClick()) update((p) => activateTab(p, t.id)); }}
-              onAuxClick={(e) => { if (e.button === 1) update((p) => closeTab(p, t.id)); }}
+              onAuxClick={(e) => { if (e.button === 1) guardTabClose([t.id], () => update((p) => closeTab(p, t.id))); }}
               onDoubleClick={() => useTabUi.getState().startRename(t.id)}
               onContextMenu={(e) => openContextMenu(e, () => buildMenu<TabTarget, TabEnv>('tab', { tab: t, index: i }, { tabCount: tabs.length, closedCount }))}
               onKeyDown={(e) => onTabKeyDown(e, i, t.id)}
@@ -134,7 +135,7 @@ export function TabBar() {
                 tabIndex={-1}
                 aria-label={`Close ${label}`}
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); update((p) => closeTab(p, t.id)); }}
+                onClick={(e) => { e.stopPropagation(); guardTabClose([t.id], () => update((p) => closeTab(p, t.id))); }}
               >
                 <X size={12} aria-hidden />
               </button>

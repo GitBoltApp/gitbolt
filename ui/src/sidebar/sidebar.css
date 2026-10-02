@@ -31,7 +31,7 @@
 /* Ahead/behind (K67): the counts with real arrow icons; the text glyphs were too small to read. */
 .sb-ab { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); }
 .sb-ab > span { display: inline-flex; align-items: center; gap: 1px; }
-.sb-sort { width: 18px; height: 18px; }
+.sb-sort, .sb-head-action { width: 18px; height: 18px; }
 .sb-resize { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 2; }
 .sidebar-narrow { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 40px; padding-top: 6px; flex: none; background: var(--panel-bg0); border-right: 1px solid var(--section-border); }
 .sn-item { all: unset; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 0; width: 36px; color: var(--text-secondary); border-radius: 4px; cursor: pointer; }

@@ -208,7 +208,8 @@ async fn an_ssh_passphrase_prompt_reaches_the_modal_without_a_display() {
         }
     });
     let out = api.dispatch(serde_json::from_value(serde_json::json!({"method": "fetch", "params": {"repo": opened["id"], "background": false}})).unwrap()).await.unwrap();
-    assert_eq!(out, serde_json::json!({"status": "done", "changed": true}));
+    // 2D T4: a done fetch also carries its op id and the server output summary.
+    assert_eq!((&out["status"], &out["changed"]), (&serde_json::json!("done"), &serde_json::json!(true)), "{out}");
     let (text, secret) = tokio::time::timeout(Duration::from_secs(5), asked).await.unwrap().unwrap();
     assert!(text.starts_with("Enter passphrase for key"), "{text}");
     assert!(secret);

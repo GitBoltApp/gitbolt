@@ -51,11 +51,18 @@ pub enum SkipReason {
     AuthRequired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "status", rename_all = "camelCase")]
 #[ts(export)]
 pub enum FetchOutcome {
-    Done { changed: bool },
+    Done {
+        changed: bool,
+        /// Its `remote:` lines, counted for the toast (spec #2 §12.4).
+        server: crate::write::remote_output::RemoteSummary,
+        /// The op, so the toast's "Server output" link opens its Activity entry.
+        #[ts(type = "number")]
+        op: u64,
+    },
     Skipped { reason: SkipReason },
 }
 
@@ -74,21 +81,31 @@ fn ref_state(repo: &gix::ThreadSafeRepository) -> Result<BTreeMap<String, String
     Ok(out)
 }
 
-async fn ref_state_async(repo: gix::ThreadSafeRepository) -> Result<BTreeMap<String, String>, GbError> {
+pub(crate) async fn ref_state_async(repo: gix::ThreadSafeRepository) -> Result<BTreeMap<String, String>, GbError> {
     tokio::task::spawn_blocking(move || ref_state(&repo)).await.map_err(|e| GbError::other(format!("ref snapshot failed: {e}")))?
 }
 
 /// Forwards progress lines as `opProgress` events, only when the phase or percent changes,
 /// until the sender is dropped.
 fn forward_progress(bus: EventBus, op: OpId) -> (mpsc::UnboundedSender<String>, tokio::task::JoinHandle<()>) {
+    forward_progress_to(bus, op, None)
+}
+
+// --- 2D T14: pull's fetch ---
+/// `forward_progress`, also passing every line on to `also` (a write's Activity output).
+pub(crate) fn forward_progress_to(bus: EventBus, op: OpId, also: Option<mpsc::UnboundedSender<String>>) -> (mpsc::UnboundedSender<String>, tokio::task::JoinHandle<()>) {
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let task = tokio::spawn(async move {
         let mut last: Option<(String, Option<u8>)> = None;
         while let Some(line) = rx.recv().await {
-            if let Some(p) = parse_progress(&line) {
+            let progress = parse_progress(&line);
+            if let Some(out) = &also {
+                let _ = out.send(line);
+            }
+            if let Some(p) = progress {
                 let key = (p.phase.clone(), p.percent);
                 if last.as_ref() != Some(&key) {
-                    bus.emit(AppEvent::OpProgress { op, phase: p.phase, percent: p.percent });
+                    bus.emit(AppEvent::OpProgress { op, phase: p.phase, percent: p.percent, step: None });
                     last = Some(key);
                 }
             }
@@ -96,6 +113,7 @@ fn forward_progress(bus: EventBus, op: OpId) -> (mpsc::UnboundedSender<String>, 
     });
     (tx, task)
 }
+// --- end 2D T14 ---
 
 fn is_empty_dir(p: &Path) -> bool {
     std::fs::read_dir(p).map(|mut d| d.next().is_none()).unwrap_or(false)
@@ -135,22 +153,28 @@ fn remove_failed_clone(dest: &Path, top: Option<&Path>) {
 }
 
 /// A clone or fetch whose credential prompt the user cancelled fails with an auth error; it's
-/// reported as cancelled.
-fn user_cancelled(e: GbError, op: &OpEntry) -> GbError {
-    if e.kind != GbErrorKind::Cancelled && op.prompt_cancelled() {
+/// reported as cancelled. Only an auth error (2D T14 re-review m2): a later failure (a second key
+/// authenticated, then the push was rejected) shows as itself.
+pub(crate) fn user_cancelled(e: GbError, op: &OpEntry) -> GbError {
+    if prompt_dismissed(&e, op) {
         GbError { kind: GbErrorKind::Cancelled, message: "Cancelled".into(), ..e }
     } else {
         e
     }
 }
 
+/// `e` is the auth failure of a credential prompt the user dismissed.
+fn prompt_dismissed(e: &GbError, op: &OpEntry) -> bool {
+    e.kind == GbErrorKind::AuthFailed && op.prompt_cancelled()
+}
+
 /// Never the `ext::` transport (it runs an arbitrary command), whatever the config says.
-const NO_EXT: [&str; 2] = ["-c", "protocol.ext.allow=never"];
+pub(crate) const NO_EXT: [&str; 2] = ["-c", "protocol.ext.allow=never"];
 
 /// K28: a fetch never starts upkeep in the user's repo. Without these, every fetch spawns
 /// `git maintenance run --auto` (which may gc or repack) and, with `fetch.writeCommitGraph`,
 /// rewrites the commit-graph: that's the user's own git's job, not a viewer's.
-const NO_UPKEEP: [&str; 2] = ["--no-auto-maintenance", "--no-write-commit-graph"];
+pub(crate) const NO_UPKEEP: [&str; 2] = ["--no-auto-maintenance", "--no-write-commit-graph"];
 
 /// The command as the activity log shows it (K101): `git` and its argv (no environment), through
 /// the redactor so a URL's credentials never reach the log.
@@ -206,24 +230,25 @@ impl Api {
                 // Every queued user op cancels a background fetch (spec #2 §3.6): SIGTERM first,
                 // so git drops its ref locks rather than leaving them for the next fetch.
                 .term_grace(crate::git::WRITE_TERM_GRACE);
-            let out = self.cli.run(inv).await;
+            let mut out = self.cli.run(inv).await;
             let _ = progress.await;
+            let server = crate::write::remote_output::capture(self, op.id, &mut out);
             out?;
-            Ok::<bool, GbError>(ref_state_async(h.repo.clone()).await? != before)
+            Ok::<(bool, _), GbError>((ref_state_async(h.repo.clone()).await? != before, server))
         }
         .await;
         let (outcome, result) = match res {
-            Ok(changed) => {
+            Ok((changed, server)) => {
                 if changed {
                     self.bus.emit(AppEvent::RefsUpdated { repo: id });
                 }
-                (OpOutcome::Ok, Ok(FetchOutcome::Done { changed }))
+                (OpOutcome::Ok, Ok(FetchOutcome::Done { changed, server, op: op.id }))
             }
             // Cancelled by a user op (spec #2 §3.6): the next interval retries; nothing to show.
             // Any other cancel of a background fetch (no UI offers one: it shows nowhere, K30)
             // reports the same, since the token can't tell who cancelled it.
             Err(e) if background && e.kind == GbErrorKind::Cancelled && !op.prompt_cancelled() => (OpOutcome::Skipped, Ok(FetchOutcome::Skipped { reason: SkipReason::Busy })),
-            Err(e) if e.kind == GbErrorKind::Cancelled || op.prompt_cancelled() => (OpOutcome::Cancelled, Err(user_cancelled(e, &op))),
+            Err(e) if e.kind == GbErrorKind::Cancelled || prompt_dismissed(&e, &op) => (OpOutcome::Cancelled, Err(user_cancelled(e, &op))),
             Err(_) if op.auth_denied() => (OpOutcome::Skipped, Ok(FetchOutcome::Skipped { reason: SkipReason::AuthRequired })),
             Err(e) => (OpOutcome::Failed, Err(e)),
         };
@@ -271,7 +296,7 @@ impl Api {
         let _ = progress.await;
         let (outcome, message) = match &res {
             Ok(_) => (OpOutcome::Ok, None),
-            Err(e) if e.kind == GbErrorKind::Cancelled || op.prompt_cancelled() => (OpOutcome::Cancelled, Some("Cancelled".to_string())),
+            Err(e) if e.kind == GbErrorKind::Cancelled || prompt_dismissed(e, &op) => (OpOutcome::Cancelled, Some("Cancelled".to_string())),
             Err(e) => (OpOutcome::Failed, Some(e.message.clone())),
         };
         if res.is_err() {
@@ -323,6 +348,20 @@ mod tests {
         out
     }
 
+    /// 2D T14 re-review m2: a dismissed prompt makes only the auth failure a Cancel; a later
+    /// rejection (another key authenticated) shows as itself.
+    #[test]
+    fn only_an_auth_failure_after_a_dismissed_prompt_is_cancelled() {
+        let api = api();
+        let op = api.ops.begin(OpKind::Push, None, true);
+        let auth = || GbError::new(GbErrorKind::AuthFailed, "Authentication failed");
+        assert_eq!(user_cancelled(auth(), &op).kind, GbErrorKind::AuthFailed, "no prompt was dismissed");
+        op.note_prompt_cancelled();
+        assert_eq!(user_cancelled(auth(), &op).kind, GbErrorKind::Cancelled);
+        assert_eq!(user_cancelled(GbError::new(GbErrorKind::NonFastForward, "rejected"), &op).kind, GbErrorKind::NonFastForward);
+        assert_eq!(user_cancelled(GbError::new(GbErrorKind::HookFailed, "pre-receive"), &op).kind, GbErrorKind::HookFailed);
+    }
+
     #[test]
     fn parses_git_progress_lines() {
         let p = parse_progress("Receiving objects:  45% (450/1000), 1.20 MiB | 1.00 MiB/s").unwrap();
@@ -344,7 +383,8 @@ mod tests {
         let id = open(&api, &r).await;
         let mut rx = api.subscribe();
         push_from_elsewhere(&r, "from-elsewhere");
-        assert_eq!(api.fetch(id, false).await.unwrap(), FetchOutcome::Done { changed: true });
+        let out = api.fetch(id, false).await.unwrap();
+        assert!(matches!(out, FetchOutcome::Done { changed: true, .. }), "{out:?}");
         let kinds = drain(&mut rx);
         assert!(kinds.iter().any(|e| matches!(e, AppEvent::OpStarted { kind: crate::events::OpKind::Fetch, repo: Some(rid), label, .. } if *rid == id && label == "repo")));
         assert!(kinds.contains(&AppEvent::RefsUpdated { repo: id }));
@@ -352,7 +392,8 @@ mod tests {
         assert!(r.git(&["rev-parse", "--verify", "refs/remotes/origin/from-elsewhere"]).len() == 40);
         assert!(api.ops().get(1).is_none(), "the op is unregistered once it's done");
 
-        assert_eq!(api.fetch(id, true).await.unwrap(), FetchOutcome::Done { changed: false });
+        let out = api.fetch(id, true).await.unwrap();
+        assert!(matches!(out, FetchOutcome::Done { changed: false, .. }), "{out:?}");
         for ev in drain(&mut rx) {
             assert_ne!(ev, AppEvent::RefsUpdated { repo: id }, "nothing moved, so no refsUpdated");
         }
@@ -379,7 +420,8 @@ mod tests {
             )
         };
         let before = snapshot();
-        assert_eq!(api.fetch(id, true).await.unwrap(), FetchOutcome::Done { changed: true });
+        let out = api.fetch(id, true).await.unwrap();
+        assert!(matches!(out, FetchOutcome::Done { changed: true, .. }), "{out:?}");
         assert_eq!(snapshot(), before);
     }
 
@@ -398,7 +440,8 @@ mod tests {
         push_from_elsewhere(&r, "lands");
         let spawned_maintenance = || std::fs::read_to_string(&trace).unwrap_or_default().lines().any(|l| l.contains("\"child_start\"") && l.contains("\"maintenance\""));
         let _ = std::fs::remove_file(&trace);
-        assert_eq!(api.fetch(id, true).await.unwrap(), FetchOutcome::Done { changed: true });
+        let out = api.fetch(id, true).await.unwrap();
+        assert!(matches!(out, FetchOutcome::Done { changed: true, .. }), "{out:?}");
         assert!(!spawned_maintenance(), "GitBolt's fetch started maintenance");
         let args = api.cli.log().entries().into_iter().find(|e| e.args.iter().any(|a| a == "fetch")).unwrap().args;
         assert!(args.contains(&"--no-auto-maintenance".to_string()) && args.contains(&"--no-write-commit-graph".to_string()), "{args:?}");
@@ -599,7 +642,8 @@ mod tests {
         assert!(r.try_git(&["rev-parse", "--verify", "refs/remotes/origin/feature/login"]).is_ok(), "--no-prune keeps it");
         s.prune = true;
         api.store().save_settings(s);
-        assert_eq!(api.fetch(id, false).await.unwrap(), FetchOutcome::Done { changed: true });
+        let out = api.fetch(id, false).await.unwrap();
+        assert!(matches!(out, FetchOutcome::Done { changed: true, .. }), "{out:?}");
         assert!(r.try_git(&["rev-parse", "--verify", "refs/remotes/origin/feature/login"]).is_err(), "--prune removes it");
     }
 
@@ -876,5 +920,22 @@ mod tests {
         assert!(api.fetch(id, false).await.is_err());
         assert!(api.clone_repo(url, r.root().join("clone").display().to_string()).await.is_err());
         assert!(!marker.exists(), "the ext:: command never ran");
+    }
+
+    /// Spec #2 §12.4: a plain fetch's server lines are only git's pack meters: stored, not counted.
+    #[tokio::test]
+    async fn a_plain_fetch_counts_no_server_output() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        push_from_elsewhere(&r, "more");
+        match api.fetch(id, false).await.unwrap() {
+            FetchOutcome::Done { changed: true, server, op } => {
+                assert_eq!(server, crate::write::remote_output::RemoteSummary::default());
+                assert!(op > 0);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

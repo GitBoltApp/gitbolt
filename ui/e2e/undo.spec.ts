@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl, testWrite } from './fixtures';
 import { expect, test, type Page } from './test';
+import { selectWip, timedClick } from './wip';
 
 const undoButton = (page: Page) => page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true });
 const graph = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
@@ -11,6 +12,22 @@ async function open(page: Page, repo: string) {
   await page.goto(openUrl(repo));
   await expect(graph(page)).toBeVisible();
 }
+
+test.describe('undo of a real commit (spec #2 §5.3, 2B)', () => {
+  test('the toolbar undoes a commit from the commit box; its changes come back staged (< 150 ms)', async ({ page }) => {
+    const repo = freshFixture('wip_staging');
+    await open(page, repo);
+    await selectWip(page);
+    await page.getByTestId('commit-box').getByRole('textbox', { name: 'Commit summary' }).fill('To undo');
+    await page.getByTestId('commit-box').getByRole('textbox', { name: 'Commit summary' }).press('Control+Enter');
+    await expect(graph(page).getByText('To undo')).toBeVisible();
+    await expect(undoButton(page)).not.toHaveAttribute('aria-disabled', 'true');
+    const ms = await timedClick(page, undoButton(page), { sel: '[role="grid"] [role="row"]', text: 'To undo', gone: true });
+    await expect(graph(page).getByText('To undo')).toHaveCount(0);
+    expect(ms, 'undo of a commit').toBeLessThan(150);
+    expect(git(repo, 'diff', '--cached', '--name-only')).toBe('notes.txt');
+  });
+});
 
 test.describe('undo (spec #2 §5.5)', () => {
   test('the toolbar undoes and redoes a commit; the toast offers Redo', async ({ page, request }) => {
@@ -126,5 +143,21 @@ test.describe('undo (spec #2 §5.5)', () => {
     await notices.getByRole('button', { name: 'Dismiss' }).click();
     await expect(notices).toBeHidden();
     expect(git(repo, 'stash', 'list', '--format=%gs')).toContain('autostash before checkout side');
+  });
+});
+
+test.describe('undo of a discard (spec #2 §5.3, 2B)', () => {
+  test('the toolbar restores a discarded file and a Discard all', async ({ page }) => {
+    const repo = freshFixture('wip_staging');
+    await open(page, repo);
+    const before = git(repo, 'status', '--porcelain');
+    await graph(page).getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
+    await page.getByTestId('wip-header').getByRole('button', { name: 'Discard all' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard all' }).click();
+    await expect.poll(() => git(repo, 'status', '--porcelain')).toBe('');
+    await undoButton(page).hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Undo discard all changes (Ctrl+Z)');
+    await undoButton(page).click();
+    await expect.poll(() => git(repo, 'status', '--porcelain')).toBe(before);
   });
 });

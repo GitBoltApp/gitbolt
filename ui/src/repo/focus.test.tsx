@@ -6,7 +6,7 @@ import { useFocusZone } from './focus';
 import { createRepoViewStore, RepoViewContext, type FocusZone } from './store';
 import { fakeServices } from './testServices';
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 
 function Zone({ zone, inner }: { zone: FocusZone; inner?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);

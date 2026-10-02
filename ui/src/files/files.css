@@ -50,6 +50,11 @@
 .wip-sections { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wip-view-bar { flex: none; display: flex; justify-content: center; padding: 6px 12px; }
 .wip-section.sized { flex: 0 0 auto; }
+.wip-section.conflicted { flex: 0 1 auto; max-height: 33.333%; }
+/* Capped at a third, its list gives up the usual 120px floor (one row stays): the floor overflowed the
+   cap and covered the Unstaged header and its buttons. */
+.wip-section.conflicted .file-list-scroll { min-height: var(--file-row-h); }
+.wip-split { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wip-section.collapsed { flex: none; }
 .wip-section-head { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; padding: 0 12px; height: var(--file-row-h); cursor: pointer; border-top: 1px solid var(--section-border); }
 .wip-section-head .file-section-title { margin: 0; flex: none; }
@@ -64,6 +69,12 @@
 .split-resizer + .wip-section > .wip-section-head { border-top: 0; }
 /* The WIP header bar: `N file changes on [branch]`. */
 .wip-header { justify-content: center; }
+.wip-switch { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 11px; padding: 1px 8px; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; cursor: pointer; }
+.wip-switch:hover { color: var(--text-selected); background: var(--hover-row); }
+.wip-switch:focus-visible { outline: 1px solid var(--blue); }
 .wip-branch { padding: 0 6px; border-radius: 3px; background: color-mix(in srgb, var(--blue) 30%, transparent); color: var(--text-selected); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wip-section-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wip-section-body[hidden] { display: none; }
+
+.file-conflict { margin-left: auto; color: var(--status-conflicted); font-size: 11px; }
+.file-conflict + .row-actions { margin-left: 0; }

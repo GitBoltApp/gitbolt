@@ -1,4 +1,4 @@
-import { Check, Laptop, Tag, TreePine } from 'lucide-react';
+import { Check, Laptop, LoaderCircle, Tag, TreePine } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
@@ -41,6 +41,21 @@ function SourceIcon({ tip, children }: { tip: ReactNode; children: ReactNode }) 
   );
 }
 
+// --- 2D T18 ---
+/** The branch a rebase is replaying, at HEAD's row while its worktree rebases (Deviation 10):
+ * a spinner and the name, dashed. HEAD is detached then, so the branch has no chip of its own. */
+function RebasingChip({ name }: { name: string }) {
+  const { triggerProps, tooltip } = useHoverTooltip({ content: `${name} is being rebased` });
+  return (
+    <span className="ref-label ref-label-head ref-rebasing" aria-label={`${name} (rebasing)`} {...triggerProps}>
+      <LoaderCircle size={12} className="spin" aria-hidden />
+      <span className="ref-name">{name}</span>
+      {tooltip}
+    </span>
+  );
+}
+// --- end 2D T18 ---
+
 /** A chip's inside. `compact` (Branch/Tag at its minimum, spec §8.4): icons only, no name; the
  * hover copy (`full`) is never compact, so hovering names the ref. */
 // Lucide's outline icons leave ~2/24 padding inside their box, while the brand marks fill theirs
@@ -73,7 +88,7 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
  * collapses once the pointer leaves the copy. The copy is never smaller than the chip it covers,
  * so expanding can't move the pointer "out" and back in (no flicker at the edge).
  */
-function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranchHover, onContextMenu, stack }: { color: string; className?: string; content: (full: boolean) => ReactNode; stack?: () => ReactNode; refs?: readonly string[]; onBranchHover?: BranchHover; onContextMenu?: (e: MouseEvent<HTMLElement>) => void }) {
+function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranchHover, onContextMenu, onDoubleClick, stack }: { color: string; className?: string; content: (full: boolean) => ReactNode; stack?: () => ReactNode; refs?: readonly string[]; onBranchHover?: BranchHover; onContextMenu?: (e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (e: MouseEvent<HTMLElement>) => void }) {
   const [expanded, setExpanded] = useState(false);
   // J22: entering a branch chip starts its branch's focus, leaving ends it. A chip unmounted
   // under the pointer (scrolled out of the virtual window) never gets its mouseleave: end it then.
@@ -97,6 +112,7 @@ function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranc
       onMouseEnter={enter}
       onMouseLeave={leave}
       onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
     >
       {content(false)}
       {expanded && (stack ? stack() : (
@@ -110,7 +126,7 @@ function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranc
 
 /** One row of the label stack (K77): a full chip for one ref. Hovering it starts that ref's
  * branch focus (J22), ended on leaving or unmounting; right-clicking opens that label's menu. */
-function StackRow({ label, onBranchHover, onContextMenu }: { label: RefLabel; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
+function StackRow({ label, onBranchHover, onContextMenu, onDoubleClick }: { label: RefLabel; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
   const focusing = useRef<BranchHover | null>(null);
   useEffect(() => () => focusing.current?.(null), []);
   return (
@@ -127,6 +143,7 @@ function StackRow({ label, onBranchHover, onContextMenu }: { label: RefLabel; on
         focusing.current = null;
       }}
       onContextMenu={onContextMenu && ((e) => { e.stopPropagation(); onContextMenu(label, e); })}
+      onDoubleClick={onDoubleClick && ((e) => { e.stopPropagation(); onDoubleClick(label, e); })}
     >
       <ChipContent label={label} full />
     </span>
@@ -140,7 +157,7 @@ function StackRow({ label, onBranchHover, onContextMenu }: { label: RefLabel; on
  * open while the pointer is anywhere over it. Absolutely positioned from the row (as the single
  * copy is: `.col-labels` clips nothing it doesn't contain); measured once on mount, before paint.
  */
-function LabelStack({ labels, onBranchHover, onContextMenu }: { labels: RefLabel[]; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
+function LabelStack({ labels, onBranchHover, onContextMenu, onDoubleClick }: { labels: RefLabel[]; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -164,7 +181,7 @@ function LabelStack({ labels, onBranchHover, onContextMenu }: { labels: RefLabel
   }, []);
   return (
     <span ref={ref} className="ref-stack" aria-hidden="true">
-      {labels.map((l, i) => <StackRow key={`${i}:${l.name}`} label={l} onBranchHover={onBranchHover} onContextMenu={onContextMenu} />)}
+      {labels.map((l, i) => <StackRow key={`${i}:${l.name}`} label={l} onBranchHover={onBranchHover} onContextMenu={onContextMenu} onDoubleClick={onDoubleClick} />)}
     </span>
   );
 }
@@ -203,8 +220,10 @@ function DimChip({ membership, onBranchHover }: { membership: BranchMembership; 
  * `.ref-dim-slot`, which gives up its width before the real chip does and drops the dimmed chip
  * whole when it doesn't fit (graph.css), so it never truncates or displaces a real chip.
  */
-export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, width, onContextMenu, line }: {
+export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, width, onContextMenu, onDoubleClick, line, rebasing = null }: {
   labels: RefLabel[];
+  /** HEAD's row only: the branch being rebased in the active worktree (2D T18). */
+  rebasing?: string | null;
   color: number;
   membership?: BranchMembership | null;
   onBranchHover?: BranchHover;
@@ -215,12 +234,16 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   /** Right-clicking the row's own (first) label chip: the commit or tag menu for that branch or
    * tag (plan 1C Task 15). or any row of the hover stack (K77). Not on the `+N` badge or the dimmed membership chip. */
   onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void;
+  /** Double-clicking a label chip or a stack row (a branch checks out; spec #2 §9.3). The handler
+   * stops the event, so the row's own double-click doesn't also fire. */
+  onDoubleClick?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void;
   /** The connector's line, CSS px from the row's top: placed on the device pixel rows the canvas
    * draws its half on (K57, pixels.ts connectorLine). Omitted: centred, 1 px (2 px for HEAD). */
   line?: { top: number; height: number } | null;
 }) {
   // The theme's lanes (overrides applied): a theme switch recolours the chips in place.
   const lanes = useTheme((s) => s.colors.graph);
+  if (labels.length === 0 && rebasing) return <span className="ref-labels ref-labels-head" style={{ ['--lane-color' as string]: lanes[color % lanes.length] }}><RebasingChip name={rebasing} /></span>;
   if (labels.length === 0) return membership ? <span className="ref-labels"><DimChip membership={membership} onBranchHover={onBranchHover} /></span> : null;
   const c = lanes[color % lanes.length];
   // K104: the chips that fit whole (estimated from canvas text widths: no layout per row), the
@@ -232,11 +255,12 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   // The checked-out branch (HEAD's label always sorts first): its chip is always lit and its
   // connector is the graph line's width and colour (J21, graph.css; draw.ts `headRow`).
   const head = labels[0].isHead;
-  const stack = hidden > 0 ? () => <LabelStack labels={labels} onBranchHover={onBranchHover} onContextMenu={onContextMenu} /> : undefined;
+  const stack = hidden > 0 ? () => <LabelStack labels={labels} onBranchHover={onBranchHover} onContextMenu={onContextMenu} onDoubleClick={onDoubleClick} /> : undefined;
   return (
     // `--lane-color` is set here (not just on the chip) so `.ref-connector`, a sibling of the
     // chip, can read it too: it continues the connector drawn in the canvas (see draw.ts).
     <span className={head ? 'ref-labels ref-labels-head' : 'ref-labels'} style={{ ['--lane-color' as string]: c, ...(line && { ['--conn-top' as string]: `${line.top}px`, ['--conn-h' as string]: `${line.height}px` }) }}>
+      {rebasing && <RebasingChip name={rebasing} />}
       {labels.slice(0, shown).map((l, i) => (
         <Chip
           key={`${i}:${l.name}`}
@@ -245,6 +269,7 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
           refs={chipRefs(l)}
           onBranchHover={onBranchHover}
           onContextMenu={onContextMenu && ((e) => onContextMenu(l, e))}
+          onDoubleClick={onDoubleClick && ((e) => { e.stopPropagation(); onDoubleClick(l, e); })}
           stack={i === 0 ? stack : undefined}
           content={(full) => <ChipContent label={l} full={full} compact={compact} />}
         />

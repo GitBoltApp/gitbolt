@@ -28,7 +28,7 @@ beforeAll(() => {
 const row = (i: number, name: string, email: string) => ({ id: String(i).padStart(40, '0'), kind: 'commit' as const, lane: 0, color: 0, segments: [], summary: `c${i}`, bodyFirstLine: '', authorName: name, authorEmail: email, authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
 const graph: GraphPayload = {
   rows: [row(0, 'Ada Lovelace', 'Ada@Example.com'), row(1, 'Grace Hopper', 'grace@example.com'), row(2, 'Ada Lovelace', 'ada@example.com')],
-  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false,
+  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 
 describe('GraphView avatars', () => {

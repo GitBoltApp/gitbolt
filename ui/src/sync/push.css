@@ -1,0 +1,2 @@
+.push-target { display: flex; align-items: center; gap: 6px; margin: 10px 0; }
+.push-target input { flex: 1; min-width: 0; }

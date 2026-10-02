@@ -25,6 +25,8 @@ pub enum ChangeKind {
     Head,
     Stash,
     Config,
+    /// A merge, rebase, cherry-pick or revert started or ended (spec #2 §3.5).
+    State,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -49,6 +51,8 @@ pub enum OpKind {
     Redo,
     Worktree,
     Resolve,
+    // Saving a working file (2B, Deviation 11).
+    Save,
 }
 
 /// An autostash step (`OpStashStep`).
@@ -60,6 +64,10 @@ pub enum StashStep {
     Saving,
     /// `git stash apply` and its drop: "Restoring your changes…".
     Restoring,
+    // --- 2C T5 ---
+    /// Putting back the files a failed or cancelled checkout rewrote: "Restoring files…".
+    RestoringFiles,
+    // --- end 2C T5 ---
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -70,6 +78,18 @@ pub enum OpOutcome {
     Skipped,
     Failed,
     Cancelled,
+}
+
+/// A rebase's place (spec #2 §13.4): step `n` of `m`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ProgressStep {
+    pub n: u32,
+    pub m: u32,
+    /// The branch being rebased (short name), when known: the status bar's `Rebasing main (n/m)...`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -105,6 +125,17 @@ pub enum AppEvent {
         op: u64,
         phase: String,
         percent: Option<u8>,
+        /// A rebase's `n` of `m`; absent for fetch and clone.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        step: Option<ProgressStep>,
+    },
+    /// A push's or fetch's `remote:` lines (spec #2 §12.4), classified: the UI keeps them in
+    /// that op's Activity entry, whole.
+    OpRemote {
+        #[ts(type = "number")]
+        op: u64,
+        lines: Vec<crate::write::remote_output::RemoteLine>,
     },
     OpFinished {
         #[ts(type = "number")]

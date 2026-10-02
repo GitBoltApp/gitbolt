@@ -16,7 +16,7 @@ vi.mock('../api/client', () => ({ api }));
 
 const A = 'a'.repeat(40);
 const flush = () => new Promise((r) => setTimeout(r, 0));
-const blob = (b: Partial<BlobPayload>): BlobPayload => ({ size: 0, binary: false, encoding: 'UTF-8', eol: 'lf', text: null, base64: null, ...b });
+const blob = (b: Partial<BlobPayload>): BlobPayload => ({ size: 0, binary: false, encoding: 'UTF-8', eol: 'lf', text: null, base64: null, hash: null, ...b });
 const contents = (text: string): DiffContentsPayload => ({ old: null, new: blob({ text }), tooLarge: false, eolOnly: false, image: false });
 
 beforeEach(() => {

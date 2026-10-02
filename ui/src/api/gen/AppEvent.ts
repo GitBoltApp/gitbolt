@@ -3,8 +3,10 @@ import type { ChangeKind } from "./ChangeKind";
 import type { JournalState } from "./JournalState";
 import type { OpKind } from "./OpKind";
 import type { OpOutcome } from "./OpOutcome";
+import type { ProgressStep } from "./ProgressStep";
 import type { QueueItem } from "./QueueItem";
 import type { QueueStop } from "./QueueStop";
+import type { RemoteLine } from "./RemoteLine";
 import type { StashStep } from "./StashStep";
 
 export type AppEvent = { "type": "repoChanged", repo: number, kinds: Array<ChangeKind>, worktrees: Array<string>, versions: Record<string, string>, } | { "type": "refsUpdated", repo: number, } | { "type": "opStarted", op: number, kind: OpKind, repo: number | null, 
@@ -16,7 +18,11 @@ label: string,
  * User-started (`true`) or GitBolt-started (`false`, the background fetch). The UI
  * shows a background op nowhere but its activity log (K30).
  */
-interactive: boolean, } | { "type": "opProgress", op: number, phase: string, percent: number | null, } | { "type": "opFinished", op: number, kind: OpKind, repo: number | null, outcome: OpOutcome, message: string | null, 
+interactive: boolean, } | { "type": "opProgress", op: number, phase: string, percent: number | null, 
+/**
+ * A rebase's `n` of `m`; absent for fetch and clone.
+ */
+step?: ProgressStep, } | { "type": "opRemote", op: number, lines: Array<RemoteLine>, } | { "type": "opFinished", op: number, kind: OpKind, repo: number | null, outcome: OpOutcome, message: string | null, 
 /**
  * The git command that ran, argv joined for display and redacted (no environment, no
  * askpass secrets): the activity log shows it (K101).

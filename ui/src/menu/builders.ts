@@ -1,3 +1,8 @@
+import { Minus, Plus, Trash2 } from 'lucide-react';
+import type { FileChange } from '../api/gen/FileChange';
+import { activeStore, activeTab } from '../app/actions';
+import { discardPaths, stagePaths, unstageFiles } from '../stage/actions';
+import { COMMIT_QUEUED, stagingKey, useStaging } from '../stage/store';
 import { refTokenFromLabel } from '../details/messageLinks';
 import { branchUrl, commitUrl, fileUrl, repoUrl, type ProjectRemote } from '../forge/urls';
 import { defaultOpener, openerRowId, openInSubmenuRows } from '../openIn/openerRows';
@@ -26,6 +31,31 @@ function copyPath(id: string, path: string, root: string, env: MenuEnv): MenuRow
     ],
   });
 }
+
+// --- 2B T9: a WIP file's Stage / Unstage and Discard changes (spec #2 §7.1) ---
+registerMenu<FileTarget, MenuEnv>({
+  id: 'file.stage', kind: 'file', group: 'stage', order: 0,
+  // A conflicted file's rows (Take current / incoming, Mark resolved) are 2D's.
+  when: (t) => !!t.wip && t.wip.status !== 'U',
+  rows: (t) => {
+    const wip = t.wip!;
+    const tab = activeTab();
+    const repo = activeStore()?.getState().repo;
+    if (!tab || repo === undefined) return [];
+    const ctx = { tabId: tab.id, repoId: repo, worktree: wip.worktree };
+    const queued = useStaging.getState().committing[stagingKey(repo, wip.worktree)] ? COMMIT_QUEUED : undefined;
+    if (wip.staged) {
+      const change = { path: t.path, oldPath: wip.oldPath } as FileChange;
+      return [row({ id: 'file.unstage', label: 'Unstage', icon: Minus, tooltip: 'Move this file’s staged changes back to Unstaged', run: () => void unstageFiles(ctx, [change]), disabledReason: queued })];
+    }
+    return [
+      row({ id: 'file.stageFile', label: 'Stage', icon: Plus, tooltip: 'Stage this file’s changes', run: () => void stagePaths(ctx, [t.path]), disabledReason: queued }),
+      // A submodule's changes are discarded inside it.
+      ...(wip.submodule ? [] : [row({ id: 'file.discard', label: 'Discard changes', icon: Trash2, tooltip: 'Discard this file’s unstaged changes (you can undo this)', run: () => void discardPaths(ctx, [t.path]), disabledReason: queued })]),
+    ];
+  },
+});
+// --- end 2B T9 ---
 
 registerMenu<FileTarget, MenuEnv>({ id: 'file.copy', kind: 'file', group: 'copy', order: 0, rows: (t, env) => [copyPath('file.copyPath', t.path, t.root, env)] });
 

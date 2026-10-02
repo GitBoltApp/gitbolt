@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CommitDetailsPayload } from '../api/gen/CommitDetailsPayload';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
@@ -15,7 +15,7 @@ const row = (id: string, kind: RowPayload['kind'] = 'commit', wip: RowPayload['w
 });
 const graph: GraphPayload = {
   rows: [row('wip:/r', 'wip', { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 }), row(A), row(B), row(C)],
-  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false,
+  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 const details = (id: string): CommitDetailsPayload => ({ id, parents: [], author: { name: 'Ada', email: 'ada@example.com', time: 0 }, committer: { name: 'Ada', email: 'ada@example.com', time: 0 }, coAuthors: [], signed: false });
 const message = (id: string): CommitMessage => ({ id, summary: id.slice(0, 1), body: `body of ${id.slice(0, 1)}` });
@@ -430,6 +430,33 @@ describe('WIP lists held while watched (K44)', () => {
     await settle();
     expect(shown(s)).toEqual(['u3.txt', 's3.txt']);
     expect(wip.peek(U.slice('files '.length))?.version).toBe('v3');
+  });
+
+  it('a leave guard that takes over holds the open file until it calls go (spec #2 §7.5)', () => {
+    const { services } = fakeServices();
+    const s = createRepoViewStore(1, '/r', graph, services);
+    const target = targetFor(change('a.txt', 'M'), { kind: 'commit', id: A, parent: 0 });
+    s.getState().openFile(target);
+    let go: (() => void) | null = null;
+    s.getState().setLeaveGuard((g) => { go = g; return true; });
+    s.getState().closeDiff();
+    expect(s.getState().diff).toEqual(target);
+    go!();
+    expect(s.getState().diff).toBeNull();
+  });
+
+  it('the Diff/File toggle is guarded too, and re-opening the open file is not', () => {
+    const { services } = fakeServices();
+    const s = createRepoViewStore(1, '/r', graph, services);
+    const target = targetFor(change('a.txt', 'M'), { kind: 'commit', id: A, parent: 0 });
+    s.getState().openFile(target);
+    const asked = vi.fn(() => true);
+    s.getState().setLeaveGuard(asked);
+    s.getState().setView('file');
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(s.getState().diff?.view).toBe('diff');
+    s.getState().openFile(target);
+    expect(asked).toHaveBeenCalledTimes(1);
   });
 });
 

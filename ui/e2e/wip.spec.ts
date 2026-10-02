@@ -5,7 +5,7 @@ import { fixtures, freshFixture, git, harnessHttp, harnessWs, openUrl } from './
 
 const rows = (page: Page) => page.getByRole('grid', { name: 'Commit graph' }).getByRole('row');
 
-test('the WIP row shows read-only unstaged and staged files with their diffs', async ({ page }) => {
+test('the WIP row shows unstaged and staged files with their diffs', async ({ page }) => {
   // The staged tweak is the last line of a long file: Hunk mode shows it (with its context)
   // where the default Inline mode (amendment 3) would leave it below Monaco's rendered lines.
   await page.addInitScript(() => localStorage.setItem('gitbolt.diffPrefs.v1', JSON.stringify({ mode: 'hunk', ignoreWhitespace: false, wordWrap: false })));
@@ -23,7 +23,9 @@ test('the WIP row shows read-only unstaged and staged files with their diffs', a
   await expect(diff.locator('.editor.modified')).toContainText('untracked notes', { timeout: 15_000 });
   await page.getByRole('listbox', { name: 'Staged', exact: true }).getByRole('option').click();
   await expect(diff.locator('.editor.modified')).toContainText('// staged tweak');
-  await expect(page.getByRole('button', { name: /^(stage|unstage|discard|commit)\b/i })).toHaveCount(0);
+  // 2B made the lists editable (spec #2 §7.1): each section carries its staging buttons.
+  await expect(page.locator('.wip-section[data-section="unstaged"]').getByRole('button', { name: 'Stage all' })).toBeVisible();
+  await expect(page.locator('.wip-section[data-section="staged"]').getByRole('button', { name: 'Unstage all' })).toBeVisible();
 });
 
 test('K44: the watched tab holds the WIP lists: they update live, and re-selecting the row reads nothing', async ({ page }) => {

@@ -1,11 +1,14 @@
 import { create } from 'zustand';
+import { pruneWipDrafts, rekeyWipDrafts } from '../commit/draft';
 import { api, errorMessage } from '../api/client';
 import type { GraphPayload } from '../api/gen/GraphPayload';
+import type { Profile } from '../api/gen/Profile';
 import type { RepoInfoPayload } from '../api/gen/RepoInfoPayload';
 import type { RepoSummary } from '../api/gen/RepoSummary';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import { useAppState } from './state';
 import { dropTabView, feedTabView } from './tabStores';
+import { withActiveSidebar } from '../worktrees/active';
 import { openRepoTab, setTabRepo, touchRecent } from './tabs';
 
 /** One tab's loaded repo (not persisted: the profile holds only the tab's path). */
@@ -22,9 +25,17 @@ export interface TabRuntime {
   fetchSkipped: string | null;
   /** Commit window override (find: a hash deeper than the default window); null = setting. */
   limit: number | null;
+  /** The tab's active worktree (spec #2 §11.2), canonical as the backend spells it; null until
+   * the repo is open. `repo` is the repository's handle, shared by every tab on it. */
+  worktree: string | null;
 }
 
-const EMPTY: TabRuntime = { status: 'loading', error: null, repo: null, graph: null, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null };
+const EMPTY: TabRuntime = { status: 'loading', error: null, repo: null, graph: null, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null, worktree: null };
+
+/** The worktree a tab acts on: its active one, else (not open yet) its repository's path. */
+export const worktreeOf = (rt: Pick<TabRuntime, 'repo' | 'worktree'> | undefined): string | null => rt?.worktree ?? rt?.repo?.path ?? null;
+
+const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
 interface RuntimeState {
   tabs: Record<string, TabRuntime>;
@@ -57,30 +68,69 @@ function sideRead<T>(what: string, p: Promise<T>): Promise<T | undefined> {
   });
 }
 
+/** The graph's error for an active worktree that was removed (or never was one of the repository's). */
+const GONE = 'is not a worktree of this repository';
+
 async function load(tabId: string, rescan: boolean, side: boolean): Promise<void> {
   const rt = useRuntime.getState().tabs[tabId];
   if (!rt?.repo) return;
   const repo = rt.repo;
   const { settings, profile } = useAppState.getState();
   const pin = profile.repos[repo.path]?.pin ?? undefined;
-  // Still the same tab on the same repo (not closed, or re-pointed, meanwhile).
-  const current = () => useRuntime.getState().tabs[tabId]?.repo?.id === repo.id;
+  const worktree = rt.worktree;
+  // Still the same tab on the same repo and worktree (not closed, or re-pointed, meanwhile).
+  const current = () => {
+    const now = useRuntime.getState().tabs[tabId];
+    return now?.repo?.id === repo.id && now.worktree === worktree;
+  };
   try {
     const [graph, sidebar, info] = await Promise.all([
-      // `rescan` only when asked: a watched repo's status cache is kept fresh (W2-B).
-      api.graph(repo.id, rt.limit ?? settings.commitLimit, rescan ? { pin, rescan } : { pin }),
+      // `rescan` only when asked: a watched repo's status cache is kept fresh (W2-B). `active`:
+      // the tab's worktree is laid out as the open one (spec #2 §11.2).
+      api.graph(repo.id, rt.limit ?? settings.commitLimit, { ...(rescan ? { pin, rescan } : { pin }), ...(worktree ? { active: worktree } : {}) }),
       // A worktree/index-only change can't alter refs, stashes or config: keep what's shown.
       side ? sideRead('sidebar', api.sidebar(repo.id)) : Promise.resolve(undefined),
       side ? sideRead('repo info', api.repoInfo(repo.id)) : Promise.resolve(undefined),
     ]);
-    if (!current()) return;
+    if (!current()) {
+      // Dropped for a switch: a sidebar/info read lost with it re-queues as a full refresh for
+      // the now-current worktree (the follow-up would otherwise be graph-only).
+      if (side) { const q = queued.get(tabId); queued.set(tabId, { rescan: q?.rescan ?? false, side: true }); }
+      return;
+    }
     feedTabView(tabId, repo, graph);
-    useRuntime.getState().patch(tabId, { graph, status: 'ready', error: null, ...(sidebar && { sidebar }), ...(info && { info }) });
+    // §8.2: drafts of worktrees that no longer exist go when the worktree list loads.
+    if (sidebar?.worktrees.length) pruneWipDrafts(repo.path, sidebar.worktrees.map((w) => w.path));
+    // The graph was laid out for `worktree` by the backend; the sidebar is the handle's (read
+    // once for every tab), so its current branch and worktree are marked for this tab here.
+    useRuntime.getState().patch(tabId, { graph, status: 'ready', error: null, ...(sidebar && { sidebar: withActiveSidebar(sidebar, worktree ?? repo.path) }), ...(info && { info }) });
   } catch (e) {
     if (!current()) return;
+    // Review Focus 5: the active worktree is gone (removed elsewhere, or by this app): the tab
+    // falls back to the repository's main one, in the runtime and in the saved tab.
+    if (worktree && worktree !== repo.path && errorMessage(e).endsWith(GONE)) {
+      useRuntime.getState().patch(tabId, { worktree: repo.path });
+      useAppState.getState().updateProfile((p) => ({ ...p, tabs: p.tabs.map((t) => (t.id === tabId ? { ...t, worktree: repo.path } : t)) }));
+      return load(tabId, rescan, side);
+    }
     const cur = useRuntime.getState().tabs[tabId];
     useRuntime.getState().patch(tabId, cur?.graph ? { error: errorMessage(e) } : { status: 'error', error: errorMessage(e) });
   }
+}
+
+/**
+ * Before 2C a linked worktree's tab was its own repository: its per-repo settings (pin, columns,
+ * sidebar sort and sections, editor) and its WIP drafts were keyed by the worktree's path. They
+ * are the repository's now, keyed by `repoPath`. A linked entry moves across when the repository
+ * has none yet, and its unsent drafts are re-keyed, so nothing the user set or typed is lost.
+ * The old settings entry stays (nothing prunes `profile.repos`).
+ */
+export function migrateLinked(p: Profile, linked: readonly string[], repoPath: string): Profile {
+  const from = [...new Set(linked)].filter((l) => l !== repoPath);
+  for (const l of from) rekeyWipDrafts(l, repoPath);
+  const source = from.find((l) => p.repos[l]);
+  if (!source || p.repos[repoPath]) return p;
+  return { ...p, repos: { ...p.repos, [repoPath]: p.repos[source] } };
 }
 
 export const useRuntime = create<RuntimeState>((set, get) => ({
@@ -109,13 +159,20 @@ export const useRuntime = create<RuntimeState>((set, get) => ({
         const app = useAppState.getState();
         // Closed meanwhile: nothing to show it in, and it wasn't really opened (no Recent entry).
         if (!tabOpen(tabId)) return get().drop(tabId);
-        const next = touchRecent(setTabRepo(app.profile, tabId, repo.path), repo.path, repo.name);
+        // A tab is `(repository, worktree)` (spec #2 §11.2): it keeps its saved worktree, else
+        // the one opened (a tab saved before 2C on a linked worktree migrates here). Recent
+        // remembers the worktree the tab shows, by its folder name as before.
+        const saved = app.profile.tabs.find((t) => t.id === tabId)?.worktree ?? null;
+        const worktree = saved ?? repo.worktree;
+        const name = worktree === repo.path ? repo.name : basename(worktree);
+        const migrated = migrateLinked(app.profile, [repo.worktree, worktree], repo.path);
+        const next = touchRecent(setTabRepo(migrated, tabId, repo.path, worktree), worktree, name);
         app.setProfile(next);
         if (!next.tabs.some((t) => t.id === tabId)) {
           get().drop(tabId); // it duplicated an open tab, which is now active instead
           return;
         }
-        get().patch(tabId, { repo });
+        get().patch(tabId, { repo, worktree });
         // Plain: an unwatched repo's graph re-reads status anyway (the watch comes from RepoTab).
         await get().refresh(tabId);
         requestAnimationFrame(() => console.info(`[gitbolt] graph ready in ${Math.round(performance.now() - t0)} ms (${get().tabs[tabId]?.graph?.rows.length ?? 0} rows)`));
@@ -164,7 +221,8 @@ export async function openPathInTab(path: string, tabId?: string): Promise<void>
   if (id) {
     app.setProfile({ ...app.profile, activeTab: id });
   } else {
-    const r = openRepoTab(app.profile, path);
+    // No worktree yet: the backend names the one `path` is in on open (`RepoSummary.worktree`).
+    const r = openRepoTab(app.profile, path, null);
     app.setProfile(r.profile);
     id = r.tabId;
   }

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { registerKeys } from './keyRouter';
 import { Toast } from './Toast';
 import { useToast } from './toast';
 
@@ -33,5 +34,19 @@ describe('Toast', () => {
     act(() => useToast.getState().show('a', { actions: [{ label: 'Details', run: () => {} }] }));
     act(() => useToast.getState().show('Copied'));
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('Esc dismisses a sticky toast; a modal (menu layer) takes Esc first; a plain toast ignores it', () => {
+    render(<Toast />);
+    act(() => useToast.getState().show('Plain'));
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(useToast.getState().message).toBe('Plain');
+    act(() => useToast.getState().show('Problem', { tone: 'warning', sticky: true }));
+    const off = registerKeys('menu', () => 'handled');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(useToast.getState().message).toBe('Problem');
+    off();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(useToast.getState().message).toBeNull();
   });
 });

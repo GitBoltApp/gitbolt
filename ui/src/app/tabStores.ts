@@ -19,6 +19,12 @@ export const useTabViews = create<{ views: Record<string, TabView> }>(() => ({ v
 export const tabView = (tabId: string): TabView | undefined => useTabViews.getState().views[tabId];
 export const tabStore = (tabId: string): RepoViewStore | undefined => tabView(tabId)?.store;
 
+/** The tab a view store belongs to (menus build a write target from the store alone). */
+export function tabIdOf(store: RepoViewStore): string | null {
+  for (const [id, v] of Object.entries(useTabViews.getState().views)) if (v.store === store) return id;
+  return null;
+}
+
 /** The tab's view, reactive (undefined until its first graph). */
 export const useTabView = (tabId: string): TabView | undefined => useTabViews((s) => s.views[tabId]);
 

@@ -51,6 +51,19 @@ pub enum DateFormat {
     Mdy12h,
 }
 
+/// What the toolbar's Fetch/Pull button runs (spec #2 §12.1). Fetch All by default: the least
+/// surprising. Within pull, ff-only is the preferred mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum SyncButtonMode {
+    #[default]
+    FetchAll,
+    PullFfOrMerge,
+    PullFfOnly,
+    PullRebase,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
@@ -70,6 +83,8 @@ pub struct AppSettings {
     pub gravatar: bool,
     /// Writes `debug`-level lines to the log file (spec §16.2).
     pub debug_logging: bool,
+    /// The toolbar Fetch/Pull button's default operation (spec #2 §12.1).
+    pub sync_button: SyncButtonMode,
     /// Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
     /// the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
     #[ts(type = "Record<string, (string | null)[]>")]
@@ -125,6 +140,7 @@ impl Default for AppSettings {
             date_format: DateFormat::Ymd12h,
             gravatar: true,
             debug_logging: false,
+            sync_button: SyncButtonMode::FetchAll,
             graph_color_overrides: BTreeMap::new(),
             window: None,
         }
@@ -151,6 +167,12 @@ pub struct TabState {
     pub path: Option<String>,
     /// Display alias (tab "Rename").
     pub alias: Option<String>,
+    /// The tab's active worktree (spec #2 §11.2); `None`: the repository's main worktree. A
+    /// profile saved before 2C has none, and `path` may be a linked worktree's: opening the tab
+    /// rewrites it to the repository's path and this worktree. Optional in TypeScript too: a tab
+    /// made before 2C has none.
+    #[ts(optional = nullable)]
+    pub worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -758,6 +780,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_tab_keeps_its_active_worktree_and_old_tabs_have_none() {
+        let t: TabState = serde_json::from_value(serde_json::json!({"id": "t", "kind": "repo", "path": "/r", "alias": null})).unwrap();
+        assert_eq!(t.worktree, None);
+        let t = TabState { worktree: Some("/r-x".into()), ..t };
+        assert_eq!(serde_json::to_value(&t).unwrap()["worktree"], "/r-x");
+    }
+
+    #[test]
     fn debug_logging_defaults_off_for_older_files() {
         let mut v = serde_json::to_value(AppSettings::default()).unwrap();
         v.as_object_mut().unwrap().remove("debugLogging");
@@ -1194,5 +1224,14 @@ mod tests {
             serde_json::to_value(EditorChoice::Custom { template: "subl {file}:{line}".into() }).unwrap(),
             serde_json::json!({"kind": "custom", "template": "subl {file}:{line}"})
         );
+    }
+
+    /// Spec #2 §12.1: the Fetch/Pull button's default is Fetch All; files without it load so.
+    #[test]
+    fn the_sync_button_defaults_to_fetch_all() {
+        assert_eq!(AppSettings::default().sync_button, SyncButtonMode::FetchAll);
+        let s: AppSettings = serde_json::from_value(serde_json::json!({"version": SETTINGS_VERSION})).unwrap();
+        assert_eq!(s.sync_button, SyncButtonMode::FetchAll);
+        assert_eq!(serde_json::to_value(SyncButtonMode::PullFfOrMerge).unwrap(), "pullFfOrMerge");
     }
 }

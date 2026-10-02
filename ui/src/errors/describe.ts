@@ -56,6 +56,10 @@ export function describeError(err: GbError): { title: string; message: string } 
   // Spec #2 §15: the message is the title ("A rebase is in progress", "a.php changed since it was shown").
   if (err.kind === 'InProgress') return { title: err.message, message: 'Finish or abort it first' };
   if (err.kind === 'Stale') return { title: err.message, message: 'Refreshed: try again' };
+  // --- 2C T12 ---
+  // "<path> is a repository in the way of the checkout: move it first": a refusal, readable as one.
+  if (err.kind === 'InvalidInput' && /is a repository in the way of the /.test(err.message)) return { title: 'A repository is in the way', message: err.message.replace(/^(.*?) is a repository in the way of the (\w+): move it first$/, '$1 can\'t be replaced during the $2: move it first') };
+  // --- end 2C T12 ---
   return { title, message: err.message };
 }
 

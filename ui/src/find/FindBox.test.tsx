@@ -29,7 +29,7 @@ const { FindBox } = await import('./FindBox');
 const { closeFind, useFind } = await import('./findStore');
 
 const row = (id: string, summary: string): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'A', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
-const graph: GraphPayload = { rows: [row('a', 'match one'), row('b', 'other'), row('c', 'match two')], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false };
+const graph: GraphPayload = { rows: [row('a', 'match one'), row('b', 'other'), row('c', 'match two')], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [] };
 const tab: TabState = { id: 't', kind: 'repo', path: '/t', alias: null };
 
 let offKeys: () => void;

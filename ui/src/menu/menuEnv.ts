@@ -9,6 +9,10 @@ import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
 import { useAppState } from '../app/state';
+import { tabIdOf } from '../app/tabStores';
+import type { WriteCtx } from '../write/client';
+import { withActiveSidebar } from '../worktrees/active';
+import { worktreeDisplay } from '../worktrees/paths';
 import type { EditorContextMenuEvent } from '../diff/monaco/host';
 import { useRuntime } from '../app/runtime';
 import { projectRemote, type ProjectRemote } from '../forge/urls';
@@ -16,6 +20,7 @@ import { labelsByRowOf, membershipOf } from '../graph/graphIndex';
 import { loadOpeners, openersSnapshot, openVersion, openWith, parseListSpec, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
 import type { RepoServices } from '../repo/services';
 import type { SideItem } from '../sidebar/model';
+import { wipKey } from '../repo/wipLists';
 import { openWorktree, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
 import { useToast } from '../ui/toast';
 import './builders';
@@ -51,6 +56,10 @@ export interface FileTarget {
   list: DiffSpec['kind'];
   /** What Open in ▸ opens: the working-tree file in a worktree list, else the version shown. */
   openIn: OpenInTarget;
+  /** A WIP row's file (spec #2 §7.1): its worktree, its section and what the menu's Stage /
+   * Unstage / Discard need (`submodule`: a submodule is discarded inside itself, so no Discard).
+   * `null` for every other list. */
+  wip: { worktree: string; staged: boolean; oldPath: string | null; status: string; submodule?: boolean } | null;
 }
 
 export interface MenuActions {
@@ -83,6 +92,20 @@ export interface MenuEnv {
   headSha: string | null;
   /** Whether the commit is among the graph's loaded rows ("Show in graph" is greyed otherwise). */
   inGraph(sha: string): boolean;
+  // --- 2C T9: the 2C menu env ---
+  /** Where a write from this menu runs: the tab, its repo, its active worktree (spec #2 §11.2). */
+  write: WriteCtx | null;
+  /** The tab's sidebar payload (upstreams, remote branches, worktrees, stashes), when loaded. */
+  sidebar: SidebarPayload | null;
+  /** The graph's labels on commit `sha` (Checkout ▸, Create worktree from ▸). */
+  labelsAt(sha: string): RefLabel[];
+  activeWorktree: string | null;
+  mainWorktree: string | null;
+  /** A merge, rebase… in the active worktree: Reset and checkout rows grey out. */
+  inProgress: string | null;
+  /** `../shop-x`, as messages name a worktree. */
+  worktreeShown(path: string): string;
+  // --- end 2C T9 ---
 }
 
 /** A folder row the folder menu is for. */
@@ -107,8 +130,17 @@ export interface CommitTarget {
    * (`"!42"`, `"acme/shop!1187"`, `"#12"`): the commit menu's `Open <ref>` rows. */
   mrRefs: string[];
   isWip: boolean;
+  // --- 2C T9 ---
+  /** A stash node (spec #2 §10: Apply, Pop, Delete on the graph's stash nodes). */
+  isStash: boolean;
+  // --- end 2C T9 ---
   branch: BranchRef | null;
 }
+
+// --- 2C T9: the wip menu kind ---
+/** A WIP row (`wip` kind, spec #2 §14). */
+export interface WipTarget { worktree: string; name: string | null; active: boolean }
+// --- end 2C T9 ---
 
 /** A tag label chip (`tag` kind). */
 export interface TagTarget { name: string; fullName: string; sha: string }
@@ -134,7 +166,7 @@ export type SidebarTarget =
   | { what: 'stash'; sha: string; message: string };
 
 export const commitTargetOf = (row: RowPayload, branch: BranchRef | null = null): CommitTarget =>
-  ({ sha: row.id, mrRefs: row.mrRefs, isWip: row.kind === 'wip', branch });
+  ({ sha: row.id, mrRefs: row.mrRefs, isWip: row.kind === 'wip', isStash: row.kind === 'stash', branch });
 
 export const branchRefOf = (label: RefLabel): BranchRef =>
   ({ name: label.name, local: label.local, remotes: label.remotes.map((r) => ({ fullName: r.fullName, remote: r.remote })) });
@@ -196,7 +228,23 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
   const s = store.getState();
   const remotes = s.services.remotesSnapshot() ?? [];
   const head = s.graph.head;
+  // --- 2C T9: the 2C menu env ---
+  const tabId = tabIdOf(store);
+  const rt = tabId ? useRuntime.getState().tabs[tabId] : undefined;
+  const active = rt?.worktree ?? openWorktree(s);
+  const main = s.graph.worktrees.find((w) => w.isMain)?.path ?? s.repoPath;
+  const byRow = labelsByRowOf(s.graph.labels);
+  // --- end 2C T9 ---
   return {
+    // --- 2C T9: the 2C menu env ---
+    write: tabId && rt?.repo ? { tabId, repoId: rt.repo.id, worktree: active } : null,
+    sidebar: sidebarFor(s.repo, active),
+    labelsAt: (sha) => byRow.get(s.indexById.get(sha) ?? -1) ?? [],
+    activeWorktree: active,
+    mainWorktree: main,
+    inProgress: s.graph.worktrees.find((w) => w.path === active)?.inProgress ?? null,
+    worktreeShown: (path) => worktreeDisplay(main, path),
+    // --- end 2C T9 ---
     forge: (remote) => {
       const r = projectRemote(remote === undefined ? remotes : remotes.filter((x) => x.name === remote), useAppState.getState().profile.hostOverrides);
       return r && r.hostKind !== 'generic' ? r : null;
@@ -245,8 +293,11 @@ function sameNamed(g: GraphPayload, branch: string): Upstream | null {
 }
 
 /** The sidebar payload of the tab showing repo `repo`, when loaded (menus read stores only). Any tab on the same `repo.id` is the same repo, so its payload is equally current: the first will do. */
-const sidebarFor = (repo: number): SidebarPayload | null =>
-  Object.values(useRuntime.getState().tabs).find((t) => t.repo?.id === repo && t.sidebar)?.sidebar ?? null;
+const sidebarFor = (repo: number, active?: string): SidebarPayload | null => {
+  const sb = Object.values(useRuntime.getState().tabs).find((t) => t.repo?.id === repo && t.sidebar)?.sidebar ?? null;
+  // The first tab's payload is marked for ITS worktree: re-mark it for the asking tab's.
+  return sb && active ? withActiveSidebar(sb, active) : sb;
+};
 
 /** `refs/remotes/<remote>/<branch>` split by the sidebar's remote names (a remote name may hold
  * "/"; the longest match wins), else at the first "/". */
@@ -322,16 +373,17 @@ function commitsOf(s: RepoViewState, spec: DiffSpec, t: DiffTarget, deleted: boo
 
 /** K99: the folder a list's paths are relative to. A WIP/worktree list: that worktree. A commit
  * that is a checked-out worktree's HEAD (its branch label says where): that worktree. Else the
- * repository's own. */
+ * tab's open (active) worktree, never the main one from a linked tab (spec #2 §11.2). */
 export function rootOfSpec(s: RepoViewState, spec: DiffSpec): string {
   if (spec.kind === 'wip' || spec.kind === 'worktree') return spec.worktree;
   if (spec.kind === 'commit') {
     const r = s.indexById.get(spec.id);
     const wt = r === undefined ? undefined : s.graph.labels.find((l) => l.row === r && l.worktree)?.worktree;
     if (wt) return wt;
-    return sidebarFor(s.repo)?.worktrees.find((w) => !w.isCurrent && w.head === spec.id)?.path ?? s.repoPath;
+    const open = openWorktree(s);
+    return sidebarFor(s.repo)?.worktrees.find((w) => w.path !== open && w.head === spec.id)?.path ?? open;
   }
-  return s.repoPath;
+  return openWorktree(s);
 }
 
 /** The file menu's target for row `t` of the list for `spec`. */
@@ -350,6 +402,9 @@ export function fileTargetOf(s: RepoViewState, spec: DiffSpec, t: DiffTarget, ch
     deleted,
     list: spec.kind,
     openIn: { worktree: root, path: t.path, line: null, ...openVersion(t, inWorktree) },
+    wip: spec.kind === 'wip'
+      ? { worktree: spec.worktree, staged: spec.staged, oldPath: t.oldPath, status: t.status, submodule: s.services.wip.peek(wipKey(spec.worktree, spec.staged))?.files.find((f) => f.path === t.path)?.submodule === true }
+      : null,
   };
 }
 
@@ -386,6 +441,17 @@ export function commitMenu(store: RepoViewStore, row: RowPayload, branch: Branch
   afterOpening(store);
   return () => buildMenu<CommitTarget, MenuEnv>('commit', commitTargetOf(row, branch), fileMenuEnv(store));
 }
+
+// --- 2C T9: the wip menu ---
+/** A right-click on a WIP row (spec #2 §14): the `wip` kind. */
+export function wipMenu(store: RepoViewStore, row: RowPayload): () => MenuRow[] {
+  const wt = row.wip?.worktreePath ?? '';
+  return () => {
+    const env = fileMenuEnv(store);
+    return buildMenu<WipTarget, MenuEnv>('wip', { worktree: wt, name: row.wip?.worktreeName ?? null, active: wt === env.activeWorktree }, env);
+  };
+}
+// --- end 2C T9 ---
 
 /** A right-click on a tag label chip. */
 export function tagMenu(store: RepoViewStore, sha: string, label: RefLabel): () => MenuRow[] {
@@ -467,7 +533,7 @@ export function sidebarItemMenu(store: RepoViewStore, item: SideItem): () => Men
           ? { name: item.name, local: item.branch.fullName, remotes: upstream ? [{ fullName: item.branch.upstream!, remote: upstream.remote }] : [] }
           : { name: `${item.remote}/${item.name}`, local: null, remotes: [{ fullName: item.branch.fullName, remote: item.remote }] };
         const mrRefs = sha ? s.graph.rows[s.indexById.get(sha) ?? -1]?.mrRefs ?? [] : [];
-        return joinGroups(sha ? buildMenu<CommitTarget, MenuEnv>('commit', { sha, mrRefs, isWip: false, branch }, env) : [], view({ what: 'ref', sha }));
+        return joinGroups(sha ? buildMenu<CommitTarget, MenuEnv>('commit', { sha, mrRefs, isWip: false, isStash: false, branch }, env) : [], view({ what: 'ref', sha }));
       }
       case 'tag':
         return joinGroups(sha ? buildMenu<TagTarget, MenuEnv>('tag', { name: item.tag.name, fullName: item.tag.fullName, sha }, env) : [], view({ what: 'ref', sha }));

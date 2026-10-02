@@ -48,8 +48,8 @@ describe('ops store', () => {
       vi.setSystemTime(22_000);
       apply({ type: 'opFinished', op: 6, kind: 'fetch', repo: 2, outcome: 'ok', message: null, command: null });
       expect(useOps.getState().activity).toEqual([
-        { at: 22_000, kind: 'fetch', label: 'shop', background: false, durationMs: 800, outcome: 'ok', message: null, command: null, output: [] },
-        { at: 21_200, kind: 'fetch', label: 'shop', background: true, durationMs: 20_200, outcome: 'failed', message: 'Could not resolve host: h', command: null, output: [] },
+        { at: 22_000, op: 6, kind: 'fetch', label: 'shop', background: false, durationMs: 800, outcome: 'ok', message: null, command: null, output: [], remote: [] },
+        { at: 21_200, op: 5, kind: 'fetch', label: 'shop', background: true, durationMs: 20_200, outcome: 'failed', message: 'Could not resolve host: h', command: null, output: [], remote: [] },
       ]);
       expect(useOps.getState().errors).toEqual([]);
     } finally {
@@ -111,5 +111,15 @@ describe('write op output (spec #2 §3.5)', () => {
     s.apply({ type: 'opStarted', op: 4, kind: 'stage', repo: 1, label: 'stage a.php', interactive: true });
     s.apply({ type: 'opFinished', op: 4, kind: 'stage', repo: 1, outcome: 'failed', message: 'boom', command: null });
     expect(useOps.getState().activity).toHaveLength(1);
+  });
+
+  it("keeps an op's server lines in its Activity entry (spec #2 §12.4)", () => {
+    const s = useOps.getState();
+    s.apply({ type: 'opStarted', op: 41, kind: 'push', repo: 1, label: 'push dev to origin/dev', interactive: true });
+    s.apply({ type: 'opRemote', op: 41, lines: [{ text: 'Deployed preview for dev', kind: 'info' }] });
+    s.apply({ type: 'opFinished', op: 41, kind: 'push', repo: 1, outcome: 'ok', message: null, command: null });
+    const e = useOps.getState().activity[0];
+    expect(e.op).toBe(41);
+    expect(e.remote).toEqual([{ text: 'Deployed preview for dev', kind: 'info' }]);
   });
 });

@@ -102,4 +102,14 @@ describe('ActivityModal (K101)', () => {
     fireEvent.click(logs);
     expect(api.openLogsFolder).toHaveBeenCalledOnce();
   });
+
+  it('shows a server output section first, linkified, expanded for the focused op', async () => {
+    useOps.setState({ activity: [{ at: 1, op: 9, kind: 'push', label: 'push dev', background: false, durationMs: 5, outcome: 'ok', message: null, command: null, output: [], remote: [{ text: 'To create a merge request for dev, visit:', kind: 'boilerplate' }, { text: '  https://gitlab.example/mr/new', kind: 'boilerplate' }, { text: 'integration: rebase failed', kind: 'warning' }] }] });
+    useActivityUi.setState({ open: true, view: 'activity', focusOp: 9 });
+    render(<ActivityModal />);
+    const section = await screen.findByText('Server output (1 line)');
+    expect(section.closest('details')).toHaveAttribute('open');
+    expect(screen.getByRole('link', { name: 'https://gitlab.example/mr/new' })).toBeInTheDocument();
+    expect(screen.getByText('integration: rebase failed')).toHaveClass('remote-warning');
+  });
 });

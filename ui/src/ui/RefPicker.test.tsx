@@ -128,3 +128,13 @@ describe('RefPicker', () => {
     expect(css.match(/\.picker-item \{[^}]*\}/)?.[0]).not.toMatch(/transition/);
   });
 });
+
+describe('RefPicker placement', () => {
+  it('opens under its anchor, kept inside the window when the anchor is low', () => {
+    const { unmount } = picker({ anchor: new DOMRect(10, 100, 100, 20) });
+    expect((document.querySelector('.picker') as HTMLElement).style.top).toBe('124px');
+    unmount();
+    picker({ anchor: new DOMRect(10, window.innerHeight + 200, 100, 20) });
+    expect(parseFloat((document.querySelector('.picker') as HTMLElement).style.top)).toBeLessThanOrEqual(window.innerHeight - 4);
+  });
+});

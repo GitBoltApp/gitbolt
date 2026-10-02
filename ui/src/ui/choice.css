@@ -1,0 +1,4 @@
+.modal-note { margin: 8px 0 0; color: var(--text-normal); }
+.modal-check { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.modal-check-detail { color: var(--text-normal); }
+.choice-actions .choice-cancel { order: 99; }

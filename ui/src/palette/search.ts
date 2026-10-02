@@ -1,7 +1,7 @@
 import fuzzysort from 'fuzzysort';
 
 export type PaletteGroup = 'action' | 'ref' | 'file' | 'setting' | 'tab';
-export interface PaletteEntry { id: string; group: PaletteGroup; label: string; detail?: string; run(): void }
+export interface PaletteEntry { id: string; group: PaletteGroup; label: string; detail?: string; run(): void; /** Shift+Enter: an @ ref's checkout. */ alt?(): void }
 
 export const GROUP_ORDER: readonly PaletteGroup[] = ['action', 'ref', 'file', 'setting', 'tab'];
 export const GROUP_LABEL: Record<PaletteGroup, string> = { action: 'Actions', ref: 'Branches & tags', file: 'Files at HEAD', setting: 'Settings', tab: 'Tabs & recent repos' };

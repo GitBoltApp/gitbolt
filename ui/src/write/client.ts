@@ -4,7 +4,9 @@ import { useRuntime } from '../app/runtime';
 import { tabView } from '../app/tabStores';
 import { toastActionError } from '../debug/errorToast';
 import { toGbError } from '../errors/describe';
+import { ERROR_TOAST_MS, useToast } from '../ui/toast';
 import { confirmAction, type ConfirmRequest } from '../ui/ConfirmDialog';
+import { useStaging } from '../stage/store';
 import { loadJournal, useJournal } from '../undo/store';
 import { writeErrorContext } from './indexLock';
 
@@ -17,13 +19,22 @@ export interface Confirmed {
   autostash: boolean;
   /** "Apply without restoring what was staged?": `withoutIndex`. */
   withoutIndex: boolean;
+  // --- 2C T9: the reset question ---
+  /** "Reset main to a1b2c3 and discard changes to 4 files?" (spec #2 §9.4): `discard`. */
+  discard: boolean;
+  // --- end 2C T9 ---
+  // --- 2D T15 ---
+  /** "Mark it resolved anyway?" (spec #2 §13.3): `confirmMarkers`. */
+  markers: boolean;
+  // --- end 2D T15 ---
 }
-const NONE: Confirmed = { autostash: false, withoutIndex: false };
+const NONE: Confirmed = { autostash: false, withoutIndex: false, discard: false, markers: false };
 
 /** Applies a write's answer (spec #2 §3.1): the journal and the fresh WIP lists at once, so the
  * UI never waits on the file watcher. */
 export function applyResult(ctx: WriteCtx, r: WriteResult<unknown>): void {
   useJournal.getState().set(ctx.repoId, ctx.worktree, r.journal);
+  useStaging.getState().set(ctx.repoId, ctx.worktree, r.staging);
   if (r.wip) tabView(ctx.tabId)?.services.wip.put(r.wip.worktree, { staged: r.wip.staged, unstaged: r.wip.unstaged, version: r.wip.version });
 }
 
@@ -38,6 +49,21 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
   if (d?.kind === 'applyWithoutIndex' && !asked.withoutIndex) {
     return { flag: 'withoutIndex', req: { title: 'Apply without restoring what was staged?', body: 'git couldn\'t restore what was staged. Apply the changes unstaged instead?', confirmLabel: 'Apply' } };
   }
+  // --- 2C T9: the reset question ---
+  if (d?.kind === 'resetDiscards' && !asked.discard) {
+    return { flag: 'discard', req: { title: 'Discard changes?', body: err.message, confirmLabel: 'Reset', danger: true } };
+  }
+  // --- end 2C T9 ---
+  // --- 2D T15 ---
+  if (d?.kind === 'markersRemain' && !asked.markers) {
+    return { flag: 'markers', req: { title: 'Conflict markers remain', body: `${d.path} still has conflict markers. Mark it resolved anyway?`, confirmLabel: 'Mark resolved' } };
+  }
+  // Take current / Take incoming over the user's edits: `confirmDiscard`, sent with the
+  // destructive `discard` flag (a Retry never re-sends it).
+  if (d?.kind === 'discardEdits' && !asked.discard) {
+    return { flag: 'discard', req: { title: 'Discard your edits?', body: `Discard your edits to ${d.path}? The side you chose replaces the file, and Undo can't bring the edits back.`, confirmLabel: 'Discard edits', danger: true } };
+  }
+  // --- end 2D T15 ---
   return null;
 }
 
@@ -52,12 +78,13 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
  *
  * Resolves to the outcome, or `null` when it failed or the user said no.
  */
-export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, asked: Confirmed) => Promise<WriteResult<T>>, opts: { refresh?: () => void | Promise<void> } = {}): Promise<T | null> {
+export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, asked: Confirmed) => Promise<WriteResult<T>>, opts: { refresh?: () => void | Promise<void>; onSuccess?: (outcome: T) => void | Promise<void>; handle?: (err: GbError) => boolean } = {}): Promise<T | null> {
   const attempt = async (asked: Confirmed): Promise<T | null> => {
+    let outcome: T;
     try {
-      const r = await send(asked.autostash || asked.withoutIndex, asked);
+      const r = await send(asked.autostash || asked.withoutIndex || asked.discard || asked.markers, asked);
       applyResult(ctx, r as WriteResult<unknown>);
-      return r.outcome;
+      outcome = r.outcome;
     } catch (e) {
       const err = toGbError(e);
       const q = question(err, asked);
@@ -65,12 +92,32 @@ export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, aske
       // A Stale undo, redo or banner (2A final M1) changed nothing, so no journalChanged comes:
       // reload it, so the toast's "Refreshed" is true and the toolbar names the real top.
       if (err.kind === 'Stale') await loadJournal(ctx.repoId, ctx.worktree);
+      // --- 2C T9: caller-handled failures ---
+      // A caller that has its own answer for this failure (CheckedOutElsewhere's [Switch to it]).
+      try {
+        if (opts.handle?.(err)) return null;
+      } catch (he) {
+        console.error('[gitbolt] a write failure handler threw', he);
+        useToast.getState().show(`Couldn't handle the failure: ${toGbError(he).message}`, { ms: ERROR_TOAST_MS });
+        return null;
+      }
+      // --- end 2C T9 ---
       toastActionError(err, writeErrorContext(ctx.repoId, {
-        retry: () => attempt(asked).then(() => {}),
+        // A retry never re-sends a destructive discard the user confirmed for an earlier attempt.
+        retry: () => attempt({ ...asked, discard: false }).then(() => {}),
         refresh: opts.refresh ?? (() => useRuntime.getState().refresh(ctx.tabId)),
       }));
       return null;
     }
+    // The write succeeded. Every success path, a Retry from the error toast included, runs the
+    // caller's follow-up here; if that throws, the write still stands: log it, no Retry.
+    try {
+      await opts.onSuccess?.(outcome);
+    } catch (e) {
+      console.error('[gitbolt] follow-up after a write failed', e);
+      useToast.getState().show(`Done, but the view didn't update: ${toGbError(e).message}`, { ms: ERROR_TOAST_MS });
+    }
+    return outcome;
   };
   return attempt(NONE);
 }

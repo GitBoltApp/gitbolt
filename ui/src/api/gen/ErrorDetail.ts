@@ -7,4 +7,4 @@ export type ErrorDetail = { "kind": "hook", hook: string, } | { "kind": "indexLo
 /**
  * With the device: the file's identity, so a lock replaced since (same mtime) isn't removed.
  */
-ino: number, dev: number, } | { "kind": "autostashConflict", paths: Array<string>, target: string, } | { "kind": "applyWithoutIndex" };
+ino: number, dev: number, } | { "kind": "autostashConflict", paths: Array<string>, target: string, } | { "kind": "applyWithoutIndex" } | { "kind": "checkedOutElsewhere", branch: string, worktree: string, } | { "kind": "resetDiscards", branch: string, to: string, files: number, } | { "kind": "markersRemain", path: string, } | { "kind": "discardEdits", path: string, };

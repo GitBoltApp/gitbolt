@@ -2,6 +2,7 @@
 
 pub mod fixtures;
 pub mod state;
+pub mod write;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -77,6 +78,49 @@ pub fn gpg_signing_unavailable() -> Option<&'static str> {
     match std::process::Command::new("gpg").arg("--version").output() {
         Ok(out) if out.status.success() => None,
         _ => Some("gpg not installed"),
+    }
+}
+
+/// A throwaway GnuPG home (short path: gpg-agent's socket lives in it), whose agent is stopped
+/// when it drops. `program` is a `gpg.program` wrapper that points git at it. Never the user's
+/// keyring: every call passes `--homedir`.
+pub struct GpgHome {
+    dir: tempfile::TempDir,
+    pub program: PathBuf,
+}
+
+impl GpgHome {
+    pub fn new() -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::Builder::new().prefix("gpg").tempdir_in("/tmp").expect("gpg tempdir");
+        let home = dir.path().join("home");
+        std::fs::create_dir(&home).expect("gpg home");
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).expect("chmod gpg home");
+        let program = dir.path().join("gpg.sh");
+        std::fs::write(&program, format!("#!/bin/sh\nexec gpg --homedir {} \"$@\"\n", home.display())).expect("gpg wrapper");
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).expect("chmod gpg wrapper");
+        Self { dir, program }
+    }
+
+    /// The GnuPG home itself (`--homedir`).
+    pub fn home(&self) -> PathBuf {
+        self.dir.path().join("home")
+    }
+
+    pub fn gpg(&self, args: &[&str]) -> std::process::Output {
+        Command::new("gpg").arg("--homedir").arg(self.home()).args(["--batch", "--yes", "--pinentry-mode", "loopback", "--passphrase", ""]).args(args).output().expect("gpg")
+    }
+}
+
+impl Default for GpgHome {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for GpgHome {
+    fn drop(&mut self) {
+        let _ = Command::new("gpgconf").arg("--homedir").arg(self.home()).args(["--kill", "all"]).output();
     }
 }
 
@@ -258,6 +302,44 @@ impl TestRepo {
         self
     }
 
+    /// A hook in the bare origin (`add_origin`): a server-side script (`pre-receive`,
+    /// `post-receive`) whose output reaches the pusher as `remote:` lines (spec #2 §12.4).
+    pub fn origin_hook(&self, name: &str, script: &str) -> &Self {
+        use std::os::unix::fs::PermissionsExt;
+        let p = self.root.join("origin.git/hooks").join(name);
+        std::fs::create_dir_all(p.parent().expect("hooks dir")).expect("create hooks dir");
+        std::fs::write(&p, script).expect("write hook");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("chmod hook");
+        self
+    }
+
+    /// A clone of the origin at `<root>/<name>`, with its own identity: another developer.
+    pub fn clone_origin(&self, name: &str) -> PathBuf {
+        let dir = self.root.join(name);
+        if !dir.exists() {
+            let origin = self.root.join("origin.git");
+            self.git_in(&self.root, &["clone", "-q", origin.to_str().expect("utf-8 path"), dir.to_str().expect("utf-8 path")]);
+            self.git_in(&dir, &["config", "user.name", "Grace Hopper"]);
+            self.git_in(&dir, &["config", "user.email", "grace@example.com"]);
+        }
+        dir
+    }
+
+    /// Another developer's push: in the `elsewhere` clone, commits `file` on `branch` (created
+    /// from the origin's when missing) and pushes it.
+    pub fn push_from_clone(&self, branch: &str, file: &str, content: &str, message: &str) {
+        let dir = self.clone_origin("elsewhere");
+        self.git_in(&dir, &["fetch", "-q", "origin"]);
+        if self.try_git_in(&dir, &["switch", "-q", branch]).is_err() {
+            self.git_in(&dir, &["switch", "-q", "-c", branch, &format!("origin/{branch}")]);
+        }
+        self.git_in(&dir, &["pull", "-q", "--ff-only"]);
+        std::fs::write(dir.join(file), content).expect("write file");
+        self.git_in(&dir, &["add", file]);
+        self.git_in(&dir, &["commit", "-q", "-m", message]);
+        self.git_in(&dir, &["push", "-q", "origin", branch]);
+    }
+
     /// SSH commit signing (spec #2 §17.1), in this repo's own config: a throwaway ed25519 key
     /// (`ssh-keygen -N ''`), `gpg.format=ssh`, `commit.gpgsign=true`, `user.signingkey`, an
     /// allowed-signers file, and `gpg.ssh.program` = a wrapper that counts each `-Y sign` in
@@ -289,6 +371,30 @@ impl TestRepo {
             self.git(&["config", k, &v]);
         }
         true
+    }
+
+    /// GPG commit signing (spec #2 §17.1): a fresh key in a throwaway GnuPG home (ultimately
+    /// trusted there), `gpg.format=openpgp`, `user.signingkey`, `commit.gpgsign=true` and
+    /// `gpg.program` = the home's wrapper, in this repo's own config. `None`, with the reason
+    /// printed, when this machine can't make a key. Keep the home alive for the test.
+    pub fn signing_gpg(&self) -> Option<GpgHome> {
+        if let Some(why) = gpg_signing_unavailable() {
+            eprintln!("skipping GPG signing: {why}");
+            return None;
+        }
+        let home = GpgHome::new();
+        let made = home.gpg(&["--quick-generate-key", "Ada Lovelace <ada@example.com>", "ed25519", "sign", "never"]);
+        if !made.status.success() {
+            eprintln!("skipping GPG signing: gpg can't make a key here ({})", String::from_utf8_lossy(&made.stderr).trim());
+            return None;
+        }
+        let listing = String::from_utf8_lossy(&home.gpg(&["--list-secret-keys", "--with-colons"]).stdout).into_owned();
+        let fpr = listing.lines().find(|l| l.starts_with("fpr:"))?.split(':').nth(9)?.to_string();
+        let program = home.program.to_str()?.to_string();
+        for (k, v) in [("gpg.format", "openpgp"), ("commit.gpgsign", "true"), ("user.signingkey", fpr.as_str()), ("gpg.program", program.as_str())] {
+            self.git(&["config", k, v]);
+        }
+        Some(home)
     }
 
     /// How many times the `signing_ssh` wrapper was asked to sign.

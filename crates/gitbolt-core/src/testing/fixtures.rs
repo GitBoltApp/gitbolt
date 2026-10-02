@@ -269,3 +269,247 @@ pub fn long_history(r: &TestRepo) {
         r.commit(&format!("Commit {i:02}"));
     }
 }
+
+/// The WIP panel's working set (2B e2e), with a repo-local identity so the app can commit:
+/// - `src/app.txt` (40 lines): three unstaged hunks, at lines 5, 20 and 35;
+/// - `notes.txt` (40 lines): line 3 staged, line 30 unstaged (partially staged);
+/// - `gone.txt`: deleted, unstaged;
+/// - `space name.txt`: a line added, unstaged;
+/// - `new.txt`: untracked, 3 lines.
+pub fn wip_staging(r: &TestRepo) {
+    r.git(&["config", "user.name", "Ada Lovelace"]);
+    r.git(&["config", "user.email", "ada@example.com"]);
+    let lines = |f: &dyn Fn(usize) -> String| (1..=40).map(f).map(|l| l + "\n").collect::<String>();
+    r.write("src/app.txt", &lines(&|i| format!("app {i:02}")));
+    r.write("notes.txt", &lines(&|i| format!("note {i:02}")));
+    r.write("gone.txt", "bye\n");
+    r.write("space name.txt", "one\n");
+    r.commit_all_as("Base", "Ada Lovelace", "ada@example.com");
+    r.write("src/app.txt", &lines(&|i| if matches!(i, 5 | 20 | 35) { format!("app {i:02} changed") } else { format!("app {i:02}") }));
+    r.write("notes.txt", &lines(&|i| if i == 3 { "note 03 staged".into() } else { format!("note {i:02}") }));
+    r.git(&["add", "notes.txt"]);
+    r.write("notes.txt", &lines(&|i| match i {
+        3 => "note 03 staged".into(),
+        30 => "note 30 unstaged".into(),
+        _ => format!("note {i:02}"),
+    }));
+    std::fs::remove_file(r.path().join("gone.txt")).expect("remove gone.txt");
+    r.write("space name.txt", "one\ntwo\n");
+    r.write("new.txt", "fresh 1\nfresh 2\nfresh 3\n");
+}
+
+/// A merge stopped on a conflict in `c.txt` (both modified), plus an unstaged edit of `side.txt`.
+pub fn wip_conflict(r: &TestRepo) {
+    r.git(&["config", "user.name", "Ada Lovelace"]);
+    r.git(&["config", "user.email", "ada@example.com"]);
+    r.write("c.txt", "base\n");
+    r.write("side.txt", "side\n");
+    r.commit_all_as("Base", "Ada Lovelace", "ada@example.com");
+    r.switch_new("other");
+    r.write("c.txt", "theirs\n");
+    r.commit_all_as("Theirs", "Ada Lovelace", "ada@example.com");
+    r.switch("main");
+    r.write("c.txt", "ours\n");
+    r.commit_all_as("Ours", "Ada Lovelace", "ada@example.com");
+    let _ = r.try_git(&["merge", "-q", "--no-ff", "other"]); // stops on c.txt, on purpose
+    r.write("side.txt", "side edited\n");
+}
+
+/// The origin's `post-receive` for `sync`: GitLab's merge-request boilerplate, a deploy line, and
+/// for `dev` a failure-looking line (the user's integration-rebase script, spec #2 §12.4).
+const SYNC_POST_RECEIVE: &str = r#"#!/bin/sh
+while read old new ref; do
+  branch=${ref#refs/heads/}
+  echo ""
+  echo "To create a merge request for $branch, visit:"
+  echo "  http://gitlab.example/team/app/-/merge_requests/new?merge_request%5Bsource_branch%5D=$branch"
+  echo ""
+  if [ "$branch" = dev ]; then echo "integration: rebase onto dev failed: conflict in a.txt"; fi
+  echo "Deployed preview for $branch"
+done
+"#;
+
+/// Fetch, pull and push (spec #2 §12; `sync.spec`). See `Interfaces` in plan 2D Task 3.
+pub fn sync(r: &TestRepo) {
+    r.commit_as("Initial commit", "Ada Lovelace", "ada@example.com");
+    r.commit_as("Add readme", "Grace Hopper", "grace@example.com");
+    r.add_origin();
+    r.push("main");
+    r.git(&["remote", "set-head", "origin", "main"]);
+    r.switch_new("dev");
+    r.commit_as("Dev work", "Ada Lovelace", "ada@example.com");
+    r.push("dev");
+    r.switch("main");
+    r.switch_new("diverged");
+    r.commit_as("Shared start", "Ada Lovelace", "ada@example.com");
+    r.push("diverged");
+    r.write("local.txt", "local\n");
+    r.git(&["add", "local.txt"]);
+    r.git(&["commit", "-q", "-m", "Local side"]);
+    r.switch("main");
+    r.switch_new("feature/new");
+    r.commit_as("New feature", "Linus Torvalds", "linus@example.com");
+    r.switch("main");
+    r.push_from_clone("main", "remote.txt", "remote\n", "Remote change");
+    r.push_from_clone("diverged", "remote-side.txt", "remote\n", "Remote side");
+    // Installed last, so the fixture's own pushes stay quiet.
+    r.origin_hook("post-receive", SYNC_POST_RECEIVE);
+}
+
+/// 30 lines; `edits` replaces line `i` (0-based) with its text.
+fn numbered(edits: &[(usize, &str)]) -> String {
+    (0..30)
+        .map(|i| edits.iter().find(|(j, _)| *j == i).map(|(_, t)| t.to_string()).unwrap_or_else(|| format!("line {i}")))
+        .map(|l| l + "\n")
+        .collect()
+}
+
+/// Conflicts (spec #2 §13; `conflicts.spec`). See `Interfaces` in plan 2D Task 3.
+pub fn conflicts(r: &TestRepo) {
+    r.write("a.txt", &numbered(&[]));
+    r.write_bytes("logo.bin", &[0, 1, 2, 3, 0, 9]);
+    r.write("gone.txt", "will be deleted on main\n");
+    r.git(&["add", "a.txt", "logo.bin", "gone.txt"]);
+    r.git(&["commit", "-q", "-m", "Base"]);
+    r.switch_new("clean");
+    r.write("clean.txt", "clean\n");
+    r.git(&["add", "clean.txt"]);
+    r.git(&["commit", "-q", "-m", "Clean change"]);
+    r.switch("main");
+    r.switch_new("feature/x");
+    r.write("a.txt", &numbered(&[(3, "incoming three"), (15, "incoming fifteen")]));
+    r.write_bytes("logo.bin", &[0, 7, 7, 7, 0, 9]);
+    r.write("gone.txt", "modified on feature/x\n");
+    r.git(&["commit", "-q", "-am", "Feature edits"]);
+    r.switch("main");
+    r.write("a.txt", &numbered(&[(3, "current three"), (15, "current fifteen")]));
+    r.write_bytes("logo.bin", &[0, 5, 5, 5, 0, 9]);
+    r.git(&["rm", "-q", "gone.txt"]);
+    r.git(&["commit", "-q", "-am", "Main edits"]);
+}
+
+/// A three-branch stack (spec #2 §13.1): feature/a → b → c on main, main then moves.
+pub fn stack(r: &TestRepo) {
+    r.commit("Base");
+    for b in ["feature/a", "feature/b", "feature/c"] {
+        r.switch_new(b);
+        r.commit(&format!("Work on {b}"));
+    }
+    r.switch("main");
+    r.write("main.txt", "main\n");
+    r.git(&["add", "main.txt"]);
+    r.git(&["commit", "-q", "-m", "Main moves"]);
+    r.switch("feature/c");
+}
+
+/// 60 one-file commits on `topic`, which `main` moved past: the rebase speed budget (§13.4, §16).
+pub fn rebase60(r: &TestRepo) {
+    r.commit("Base");
+    r.switch_new("topic");
+    for i in 0..60 {
+        r.write(&format!("topic/{i:02}.txt"), &format!("{i}\n"));
+        r.git(&["add", &format!("topic/{i:02}.txt")]);
+        r.git(&["commit", "-q", "-m", &format!("Topic {i:02}")]);
+    }
+    r.switch("main");
+    r.write("upstream.txt", "upstream\n");
+    r.git(&["add", "upstream.txt"]);
+    r.git(&["commit", "-q", "-m", "Upstream"]);
+    r.switch("topic");
+}
+
+// --- 2C T10: the worktrees fixture ---
+/// A history shaped like a busy product repo, for the worktree-switch budget (spec #2 §16):
+/// 300 commits over six branches merged back into main, an origin, and three worktrees (main
+/// and two linked), each dirty so each has a WIP row.
+pub fn worktrees(r: &TestRepo) {
+    r.commit_as("Initial commit", "Ada Lovelace", "ada@example.com");
+    r.add_origin();
+    for b in 0..6 {
+        let name = format!("feature/f{b}");
+        r.switch_new(&name);
+        for i in 0..40 {
+            r.commit(&format!("{name} step {i:02}"));
+        }
+        r.switch("main");
+        r.merge(&name, &format!("Merge branch '{name}'"));
+        for i in 0..9 {
+            r.commit(&format!("main after {name} {i}"));
+        }
+    }
+    r.push("main");
+    r.git(&["branch", "wt-one", "feature/f4"]);
+    r.git(&["branch", "wt-two", "feature/f5"]);
+    for (name, branch) in [("one", "wt-one"), ("two", "wt-two")] {
+        let wt = r.add_worktree(name, branch);
+        std::fs::write(wt.join("file_0.txt"), format!("{name} change\n")).expect("write");
+    }
+    r.write("file_1.txt", "main change\n");
+}
+// --- end 2C T10 ---
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- 2C T10 ---
+    #[test]
+    fn worktrees_has_three_dirty_worktrees_over_a_merged_history() {
+        let r = TestRepo::new();
+        worktrees(&r);
+        let list = r.git(&["worktree", "list", "--porcelain"]);
+        assert_eq!(list.lines().filter(|l| l.starts_with("worktree ")).count(), 3);
+        assert!(list.contains("refs/heads/wt-one") && list.contains("refs/heads/wt-two"));
+        assert!(r.git(&["rev-list", "--count", "main"]).parse::<u32>().unwrap() >= 300);
+        for wt in ["wt-one", "wt-two"] {
+            assert!(!r.git_in(&r.root().join(wt), &["status", "--porcelain"]).is_empty(), "{wt} is dirty");
+        }
+        assert!(!r.git(&["status", "--porcelain"]).is_empty());
+    }
+    // --- end 2C T10 ---
+
+    #[test]
+    fn sync_has_a_behind_main_a_diverged_branch_and_a_talking_origin() {
+        let r = TestRepo::new();
+        sync(&r);
+        r.git(&["fetch", "-q", "origin"]);
+        assert_eq!(r.git(&["rev-list", "--count", "main..origin/main"]), "1");
+        assert_eq!(r.git(&["rev-list", "--left-right", "--count", "diverged...origin/diverged"]), "1\t1");
+        assert_eq!(r.git(&["rev-parse", "--abbrev-ref", "dev@{upstream}"]), "origin/dev");
+        assert!(r.try_git(&["rev-parse", "--abbrev-ref", "feature/new@{upstream}"]).is_err());
+        assert!(r.git(&["status", "--porcelain"]).is_empty());
+        let other = r.clone_origin("talk");
+        r.git_in(&other, &["switch", "-q", "dev"]);
+        std::fs::write(other.join("t.txt"), "t\n").unwrap();
+        r.git_in(&other, &["add", "t.txt"]);
+        r.git_in(&other, &["commit", "-q", "-m", "talk"]);
+        let out = std::process::Command::new("git").current_dir(&other).args(["push", "origin", "dev"]).envs(crate::testing::isolated_git_env()).output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("remote: To create a merge request for dev, visit:"), "{stderr}");
+        assert!(stderr.contains("remote: integration: rebase onto dev failed: conflict in a.txt"), "{stderr}");
+    }
+
+    #[test]
+    fn conflicts_conflict_in_text_binary_and_delete_modify() {
+        let r = TestRepo::new();
+        conflicts(&r);
+        assert!(r.try_git(&["merge", "--no-edit", "feature/x"]).is_err());
+        let unmerged = r.git(&["diff", "--name-only", "--diff-filter=U"]);
+        assert_eq!(unmerged.lines().collect::<Vec<_>>(), ["a.txt", "gone.txt", "logo.bin"]);
+        assert_eq!(std::fs::read_to_string(r.path().join("a.txt")).unwrap().matches("<<<<<<<").count(), 2, "two regions");
+        r.git(&["merge", "--abort"]);
+        r.git(&["merge", "--no-edit", "clean"]);
+    }
+
+    #[test]
+    fn stack_and_rebase60_have_their_shapes() {
+        let r = TestRepo::new();
+        stack(&r);
+        assert_eq!(r.git(&["branch", "--show-current"]), "feature/c");
+        assert_eq!(r.git(&["rev-list", "--count", "main..feature/c"]), "3");
+        let r = TestRepo::new();
+        rebase60(&r);
+        assert_eq!(r.git(&["rev-list", "--count", "main..topic"]), "60");
+        assert_eq!(r.git(&["rev-list", "--count", "topic..main"]), "1");
+    }
+}

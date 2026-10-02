@@ -5,12 +5,10 @@
 use crate::api::Api;
 use crate::error::{short_ref, GbError, GbErrorKind};
 use crate::events::{ChangeKind, OpKind};
-use crate::git::GitInvocation;
 use crate::journal::{snapshot, RefMove, UndoKind};
 use crate::write::types::{Expect, WriteResult};
-use crate::write::{run_write, Plan, Pre, WriteClass, WriteCx, WriteIntent};
+use crate::write::{run_write, NetCx, Plan, Pre, WriteClass, WriteCx, WriteIntent};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::time::Duration;
 use ts_rs::TS;
 
@@ -31,11 +29,19 @@ pub enum TestIntent {
     Discard { paths: Vec<String> },
     /// `git merge --ff-only <target>` on the checked-out branch: Rewind undo.
     FastForward { target: String },
-    /// `git switch --no-guess <branch>`, autostashing on overlap (§6.1): Switch undo.
+    /// `git switch --no-guess <branch>`, autostashing on overlap (§6.1); with `create`,
+    /// `git switch --no-guess -c <branch>` (a ref the redo must create before switching,
+    /// Deviation 9). Switch undo.
     Switch {
         branch: String,
         #[serde(default)]
         confirm: crate::write::types::Confirm,
+        // --- 2C T1 ---
+        /// Optional in TypeScript: 2A's specs send a switch without it.
+        #[serde(default)]
+        #[ts(as = "Option<bool>", optional)]
+        create: bool,
+        // --- end 2C T1 ---
     },
     /// A journal barrier, push's stand-in: nothing runs.
     Barrier { label: String },
@@ -47,6 +53,36 @@ pub enum TestIntent {
         #[serde(default)]
         fail: bool,
     },
+    // --- 2C T1: config replay ---
+    /// Sets (or unsets) `branch.<branch>.<key>`, recording the change, with an optional note:
+    /// MoveRefs undo with no refs, so only the config replay undoes it.
+    BranchConfig {
+        branch: String,
+        key: String,
+        value: Option<String>,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    // --- end 2C T1 ---
+    // --- 2D T1 (2C T1's network step uses it too) ---
+    /// A network stand-in: sends the Activity line "transferring", then waits `ms` (cancellable)
+    /// with no write lock and no watcher hold: before the lock (`first`, pull's fetch) or
+    /// mid-run (push's transfer).
+    Transfer {
+        label: String,
+        #[ts(type = "number")]
+        ms: u64,
+        #[serde(default)]
+        first: bool,
+    },
+    // --- end 2D T1 ---
+    // --- 2D T2 ---
+    /// `git merge --no-edit <target>`, autostashing any tracked change (§6.1); on conflicts it
+    /// pauses (§13.2): Rewind undo.
+    MergeStop { target: String },
+    /// `git commit -q -F -`, allowed mid-merge: the commit that completes one (2B's Commit).
+    CommitMerge { message: String },
+    // --- end 2D T2 ---
 }
 
 fn nul_list<'a>(paths: impl IntoIterator<Item = &'a String>) -> Vec<u8> {
@@ -56,13 +92,6 @@ fn nul_list<'a>(paths: impl IntoIterator<Item = &'a String>) -> Vec<u8> {
         bytes.push(0);
     }
     bytes
-}
-
-/// The untracked (not ignored) ones among `paths`: a read, with the never-write environment.
-async fn untracked_among(api: &Api, root: &Path, paths: &[String]) -> Result<Vec<String>, GbError> {
-    let args = ["ls-files", "-z", "--others", "--exclude-standard", "--"].into_iter().map(String::from).chain(paths.iter().cloned());
-    let out = api.cli.run(GitInvocation::new(root, args).env("GIT_LITERAL_PATHSPECS", "1")).await?;
-    Ok(out.stdout.split(|b| *b == 0).filter(|s| !s.is_empty()).map(|s| String::from_utf8_lossy(s).into_owned()).collect())
 }
 
 struct MoveRef {
@@ -147,7 +176,7 @@ impl WriteIntent for Discard {
         Some(UndoKind::Restore)
     }
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
-        let untracked = untracked_among(pre.api, pre.root, &self.paths).await?;
+        let untracked = crate::write::precheck::untracked_among(&pre.api.cli, pre.root, &self.paths).await?;
         Ok(Plan { snapshot: Some((self.paths.clone(), untracked)), ..Plan::default() })
     }
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
@@ -203,6 +232,7 @@ impl WriteIntent for FastForward {
 struct Switch {
     branch: String,
     confirm: crate::write::types::Confirm,
+    create: bool,
 }
 
 impl WriteIntent for Switch {
@@ -222,7 +252,15 @@ impl WriteIntent for Switch {
     fn confirm(&self) -> crate::write::types::Confirm {
         self.confirm
     }
+    /// A created branch is read before (as absent), so verify records its creation.
+    fn refs(&self) -> Vec<String> {
+        if self.create { vec![format!("refs/heads/{}", self.branch)] } else { Vec::new() }
+    }
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
+        // A new branch at HEAD: the worktree doesn't move.
+        if self.create {
+            return Ok(Plan::default());
+        }
         let name = format!("refs/heads/{}", self.branch);
         let target = crate::write::refs::read_ref(&gix::open(pre.root).map_err(crate::error::gix_err)?, &name)?.ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("no branch {}", self.branch)))?;
         let target = gix::ObjectId::from_hex(target.as_bytes()).map_err(crate::error::gix_err)?;
@@ -230,7 +268,10 @@ impl WriteIntent for Switch {
         Ok(Plan { autostash: Some(spec), ..Plan::default() })
     }
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
-        let inv = cx.git(["switch", "--no-guess", self.branch.as_str()]);
+        let inv = match self.create {
+            true => cx.git(["switch", "--no-guess", "-c", self.branch.as_str()]),
+            false => cx.git(["switch", "--no-guess", self.branch.as_str()]),
+        };
         cx.run_git(inv).await?;
         for k in [ChangeKind::Head, ChangeKind::Index, ChangeKind::Worktree] {
             cx.touch(k);
@@ -288,6 +329,158 @@ impl WriteIntent for Sleep {
     }
 }
 
+// --- 2C T1: config replay ---
+struct BranchConfig {
+    branch: String,
+    key: String,
+    value: Option<String>,
+    note: Option<String>,
+}
+
+impl WriteIntent for BranchConfig {
+    type Outcome = ();
+    fn kind(&self) -> OpKind {
+        OpKind::Branch
+    }
+    fn label(&self) -> String {
+        format!("set branch.{}.{}", self.branch, self.key)
+    }
+    fn undo(&self) -> Option<UndoKind> {
+        Some(UndoKind::MoveRefs)
+    }
+    async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
+        let before = crate::write::config::branch_config(&cx.api.cli, cx.root, &self.branch).await?;
+        let key = format!("branch.{}.{}", self.branch, self.key);
+        let args: Vec<String> = match &self.value {
+            Some(v) => vec!["config".into(), "--local".into(), key, v.clone()],
+            None => vec!["config".into(), "--local".into(), "--unset-all".into(), key],
+        };
+        let inv = cx.git(args);
+        cx.run_git(inv).await?;
+        let after = crate::write::config::branch_config(&cx.api.cli, cx.root, &self.branch).await?;
+        cx.record_config(crate::write::config::changes(&before, &after))?;
+        if let Some(n) = &self.note {
+            cx.set_note(n.clone())?;
+        }
+        Ok(())
+    }
+}
+// --- end 2C T1 ---
+
+// --- 2D T1 ---
+/// Waits `ms` unless the op is cancelled first.
+async fn wait_or_cancel(op: &crate::ops::OpEntry, ms: u64) -> Result<(), GbError> {
+    tokio::select! {
+        () = tokio::time::sleep(Duration::from_millis(ms)) => Ok(()),
+        () = op.cancel.cancelled() => Err(GbError::new(GbErrorKind::Cancelled, "Cancelled")),
+    }
+}
+
+struct Transfer {
+    label: String,
+    ms: u64,
+    first: bool,
+}
+
+impl WriteIntent for Transfer {
+    type Outcome = ();
+    fn kind(&self) -> OpKind {
+        OpKind::Push
+    }
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+    fn undo(&self) -> Option<UndoKind> {
+        None
+    }
+    async fn transfer_first(&self, net: &mut NetCx<'_>) -> Result<(), GbError> {
+        if !self.first {
+            return Ok(());
+        }
+        let _ = net.output().send("transferring".into());
+        wait_or_cancel(net.op, self.ms).await
+    }
+    async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
+        if self.first {
+            return Ok(());
+        }
+        cx.unlock();
+        let _ = cx.output().send("transferring".into());
+        let waited = wait_or_cancel(cx.op, self.ms).await;
+        cx.relock().await;
+        waited
+    }
+}
+// --- end 2D T1 ---
+
+// --- 2D T2 ---
+struct MergeStop {
+    target: String,
+}
+
+impl WriteIntent for MergeStop {
+    type Outcome = ();
+    fn kind(&self) -> OpKind {
+        OpKind::Merge
+    }
+    fn label(&self) -> String {
+        format!("merge {} into main", self.target)
+    }
+    fn undo(&self) -> Option<UndoKind> {
+        Some(UndoKind::Rewind)
+    }
+    fn runs_hooks(&self) -> bool {
+        true
+    }
+    async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
+        let repo = gix::open(pre.root).map_err(crate::error::gix_err)?;
+        let target = repo.rev_parse_single(self.target.as_str()).map_err(crate::error::gix_err)?.detach();
+        let spec = crate::journal::autostash::AutostashSpec { rule: crate::journal::autostash::AutostashRule::AnyTracked, target: Some(target), op: format!("merge {}", self.target), target_name: Some(self.target.clone()) };
+        Ok(Plan { autostash: Some(spec), ..Plan::default() })
+    }
+    async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
+        let inv = cx.git(["merge", "--no-edit", self.target.as_str()]);
+        let res = cx.run_git(inv).await;
+        cx.touch(ChangeKind::Worktree);
+        cx.touch(ChangeKind::Index);
+        if res.is_err()
+            && let Ok(Some(crate::in_progress::InProgress::Merge { merge_head, .. })) = crate::in_progress::read(cx.root)
+        {
+            cx.paused = Some(crate::write::Pause { kind: crate::journal::PausedKind::Merge, target: self.target.clone(), target_oid: Some(merge_head), put_back: Vec::new() });
+            return Ok(());
+        }
+        res.map(|_| ())
+    }
+}
+
+struct CommitMerge {
+    message: String,
+}
+
+impl WriteIntent for CommitMerge {
+    type Outcome = ();
+    fn kind(&self) -> OpKind {
+        OpKind::Commit
+    }
+    fn label(&self) -> String {
+        format!("commit \"{}\"", self.message)
+    }
+    fn undo(&self) -> Option<UndoKind> {
+        Some(UndoKind::MoveRefs)
+    }
+    fn runs_hooks(&self) -> bool {
+        true
+    }
+    fn allowed_in_progress(&self) -> bool {
+        true
+    }
+    async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
+        let inv = cx.git(["commit", "-q", "-F", "-"]).stdin(self.message.clone().into_bytes());
+        cx.run_git(inv).await.map(|_| ())
+    }
+}
+// --- end 2D T2 ---
+
 fn json<T: Serialize>(r: WriteResult<T>) -> Result<serde_json::Value, GbError> {
     serde_json::to_value(r).map_err(|e| GbError::other(format!("serialize: {e}")))
 }
@@ -298,8 +491,12 @@ pub(crate) async fn run(api: &Api, repo: u32, worktree: &str, expect: Expect, in
         TestIntent::Commit { message, allow_empty } => json(run_write(api, repo, worktree, expect, Commit { message, allow_empty }).await?),
         TestIntent::Discard { paths } => json(run_write(api, repo, worktree, expect, Discard { paths }).await?),
         TestIntent::FastForward { target } => json(run_write(api, repo, worktree, expect, FastForward { target }).await?),
-        TestIntent::Switch { branch, confirm } => json(run_write(api, repo, worktree, expect, Switch { branch, confirm }).await?),
+        TestIntent::Switch { branch, confirm, create } => json(run_write(api, repo, worktree, expect, Switch { branch, confirm, create }).await?),
         TestIntent::Barrier { label } => json(run_write(api, repo, worktree, expect, Barrier { label }).await?),
         TestIntent::Sleep { label, ms, fail } => json(run_write(api, repo, worktree, expect, Sleep { label, ms, fail }).await?),
+        TestIntent::BranchConfig { branch, key, value, note } => json(run_write(api, repo, worktree, expect, BranchConfig { branch, key, value, note }).await?),
+        TestIntent::Transfer { label, ms, first } => json(run_write(api, repo, worktree, expect, Transfer { label, ms, first }).await?),
+        TestIntent::MergeStop { target } => json(run_write(api, repo, worktree, expect, MergeStop { target }).await?),
+        TestIntent::CommitMerge { message } => json(run_write(api, repo, worktree, expect, CommitMerge { message }).await?),
     }
 }

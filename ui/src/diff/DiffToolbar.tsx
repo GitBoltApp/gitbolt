@@ -22,7 +22,7 @@ export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().th
  * `textTools`: the text-diff groups apply at all. Not for an image diff (H26), unless it's an
  * SVG's Source, which is a text diff.
  */
-export function DiffToolbar({ target, canDiff, canStep, textTools = true, leading }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; leading?: ReactNode }) {
+export function DiffToolbar({ target, canDiff, canStep, textTools = true, leading, staging }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; leading?: ReactNode; staging?: ReactNode }) {
   const prefs = useDiffPrefs((s) => s.prefs);
   const setPrefs = useDiffPrefs((s) => s.set);
   const setView = useRepoView((s) => s.setView);
@@ -37,6 +37,7 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, leadin
         <button type="button" aria-pressed={inDiff} disabled={!canDiff} onClick={() => setView('diff')}>Diff View</button>
       </div>
       <div className="diff-toolbar-end">
+        {staging}
         {textTools && (
           <>
             <div className="diff-toolbar-group" role="group" aria-label="Changes">

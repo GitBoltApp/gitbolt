@@ -5,7 +5,7 @@ import { LazyDiffPanel } from './LazyDiffPanel';
 import { createRepoViewStore, RepoViewContext, targetFor, type DiffTarget } from './store';
 import { fakeServices } from './testServices';
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
 const target = (path: string) => targetFor({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'absent' }, submodule: false }, spec);
 
@@ -76,5 +76,25 @@ describe('LazyDiffPanel', () => {
     expect(region).toHaveAttribute('data-focus-zone', 'diff');
     act(() => store.getState().setFocus('diff'));
     expect(document.activeElement).toBe(region);
+  });
+
+  it('a conflicted WIP file opens the merge tool in place of the diff (spec #2 §13.3)', async () => {
+    const Panel = ({ target: t }: { target: DiffTarget }) => <div data-testid="panel">{t.path}</div>;
+    const Merge = ({ target: t }: { target: DiffTarget }) => <div data-testid="merge">{t.path}</div>;
+    const load = vi.fn(async () => ({ default: Panel }));
+    const loadMerge = vi.fn(async () => ({ default: Merge }));
+    const wip = { kind: 'wip' as const, worktree: '/r', staged: false };
+    const file = (status: string) => targetFor({ path: 'a.txt', oldPath: null, status, additions: 0, deletions: 0, old: { kind: 'absent' }, new: { kind: 'worktree', worktree: '/r' }, submodule: false }, wip);
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    act(() => store.getState().openFile(file('U')));
+    const view = render(<RepoViewContext value={store}><LazyDiffPanel target={file('U')} load={load} loadMerge={loadMerge} /></RepoViewContext>);
+    expect(await screen.findByTestId('merge')).toHaveTextContent('a.txt');
+    expect(load).not.toHaveBeenCalled();
+    view.rerender(<RepoViewContext value={store}><LazyDiffPanel target={file('M')} load={load} loadMerge={loadMerge} /></RepoViewContext>);
+    expect(await screen.findByTestId('panel')).toHaveTextContent('a.txt');
+    // A commit's file with status U (none, in practice) is a plain diff.
+    view.rerender(<RepoViewContext value={store}><LazyDiffPanel target={{ ...target('a.txt'), status: 'U' }} load={load} loadMerge={loadMerge} /></RepoViewContext>);
+    expect(await screen.findByTestId('panel')).toBeInTheDocument();
+    expect(loadMerge).toHaveBeenCalledTimes(1);
   });
 });

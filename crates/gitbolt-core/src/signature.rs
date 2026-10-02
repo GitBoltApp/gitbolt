@@ -49,7 +49,7 @@ pub async fn signature_status(cli: &GitCli, cwd: &Path, id: ObjectId, signed: bo
 mod tests {
     use super::*;
     use crate::log::CommandLog;
-    use crate::testing::{isolated_git_env, TestRepo};
+    use crate::testing::{isolated_git_env, GpgHome, TestRepo};
     use std::sync::Arc;
 
     fn cli() -> GitCli {
@@ -73,37 +73,6 @@ mod tests {
         assert_eq!(parse_signature_status(b"N\0\0\0\0undefined\n", "", false).kind, SignatureKind::Unsigned);
     }
 
-    /// A throwaway GnuPG home (short path: gpg-agent's socket lives in it), whose agent is stopped
-    /// when it drops. `program` is a `gpg.program` wrapper that points git at it.
-    struct GpgHome {
-        dir: tempfile::TempDir,
-        program: std::path::PathBuf,
-    }
-
-    impl GpgHome {
-        fn gpg(&self, args: &[&str]) -> std::process::Output {
-            std::process::Command::new("gpg").arg("--homedir").arg(self.dir.path().join("home")).args(["--batch", "--yes", "--pinentry-mode", "loopback", "--passphrase", ""]).args(args).output().unwrap()
-        }
-
-        fn new() -> Self {
-            use std::os::unix::fs::PermissionsExt;
-            let dir = tempfile::Builder::new().prefix("gpg").tempdir_in("/tmp").unwrap();
-            let home = dir.path().join("home");
-            std::fs::create_dir(&home).unwrap();
-            std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
-            let program = dir.path().join("gpg.sh");
-            std::fs::write(&program, format!("#!/bin/sh\nexec gpg --homedir {} \"$@\"\n", home.display())).unwrap();
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-            Self { dir, program }
-        }
-    }
-
-    impl Drop for GpgHome {
-        fn drop(&mut self) {
-            let _ = std::process::Command::new("gpgconf").arg("--homedir").arg(self.dir.path().join("home")).args(["--kill", "all"]).output();
-        }
-    }
-
     /// Spec §17.1: signature status with a test GPG key. One commit signed by a throwaway key is
     /// read three ways: by the keyring that made it (the key is ultimately trusted: verified), by
     /// one that holds only its public half (untrusted: unverified) and by an empty one (unknown).
@@ -121,7 +90,7 @@ mod tests {
         }
         let public = maker.gpg(&["--export"]).stdout;
         let mut import = std::process::Command::new("gpg")
-            .arg("--homedir").arg(reader.dir.path().join("home")).args(["--batch", "--import"])
+            .arg("--homedir").arg(reader.home()).args(["--batch", "--import"])
             .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
             .spawn()
             .unwrap();

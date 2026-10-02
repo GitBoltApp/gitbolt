@@ -2,6 +2,7 @@ import { Check, CircleSlash, ClipboardCopy, Copy, FolderOpen, Gauge, TriangleAle
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { OpOutcome } from '../api/gen/OpOutcome';
+import type { RemoteLine } from '../api/gen/RemoteLine';
 import { track } from '../debug/actionLog';
 import { ActionLogView } from '../debug/ActionLogView';
 import { CommandLogView } from '../debug/CommandLogView';
@@ -20,10 +21,38 @@ const close = () => useActivityUi.getState().setOpen(false);
 /** A header button's work, recorded in the action log; a failure toasts like any action's (R12). */
 const run = (id: string, label: string, fn: () => unknown) => track(id, label, fn, (e) => toastActionError(e));
 
+/** DOM guard: the entry keeps every line, the section renders the first so many. */
+const MAX_RENDERED = 2000;
+
+const URL = /(https?:\/\/[^\s]+)/g;
+
+/** A line with its URLs as links (spec #2 §12.4), opened through the backend's opener. */
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(URL);
+  return <>{parts.map((p, i) => (i % 2 === 1 ? <a key={i} href={p} onClick={(ev) => { ev.preventDefault(); void api.openUrl(p); }}>{p}</a> : p))}</>;
+}
+
+/** The server's `remote:` lines, whole; boilerplate is shown but not counted. */
+function ServerOutput({ lines, open }: { lines: RemoteLine[]; open: boolean }) {
+  const n = lines.filter((l) => l.kind !== 'boilerplate').length;
+  if (n === 0) return null;
+  const shown = lines.slice(0, MAX_RENDERED);
+  return (
+    <details className="activity-server" open={open || undefined}>
+      <summary>{`Server output (${n} ${n === 1 ? 'line' : 'lines'})`}</summary>
+      <pre>{shown.map((l, i) => <div key={i} className={`remote-${l.kind}`}><Linkified text={l.text} /></div>)}{lines.length > shown.length && <div className="remote-boilerplate">{`… ${lines.length - shown.length} more lines`}</div>}</pre>
+    </details>
+  );
+}
+
 /** K101's timeline: every finished fetch and clone, newest first. */
 function ActivityView() {
   const activity = useOps((s) => s.activity);
+  const focusOp = useActivityUi((s) => s.focusOp);
   const [errorsOnly, setErrorsOnly] = useState(false);
+  useEffect(() => {
+    if (focusOp !== null) document.querySelector(`.activity-entry[data-op="${focusOp}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [focusOp]);
   const now = Date.now();
   const shown = errorsOnly ? activity.filter((e) => e.outcome === 'failed') : activity;
   return (
@@ -38,7 +67,7 @@ function ActivityView() {
         {shown.map((e, i) => {
           const Icon = ICON[e.outcome];
           return (
-            <li key={`${e.at}-${i}`} className={`activity-entry ${e.outcome}`}>
+            <li key={`${e.at}-${i}`} className={`activity-entry ${e.outcome}`} data-op={e.op}>
               <div className="activity-meta">
                 <Icon size={14} aria-hidden />
                 <span className="activity-time">{new Date(e.at).toLocaleString()} · {relativeTime(e.at, now)}</span>
@@ -50,6 +79,7 @@ function ActivityView() {
                 <button type="button" className="icon-button" aria-label="Copy entry" onClick={() => void copyAndSay(entryText(e, now))}><Copy size={13} /></button>
               </div>
               {(e.command || e.message) && <pre className="activity-msg">{e.command && <span className="activity-cmd">$ {e.command}{e.message ? '\n' : ''}</span>}{e.message}</pre>}
+              {e.remote.length > 0 && <ServerOutput lines={e.remote} open={focusOp === e.op} />}
               {e.output.length > 0 && (
                 <details className="activity-output">
                   <summary>Output ({e.output.length} {e.output.length === 1 ? 'line' : 'lines'})</summary>

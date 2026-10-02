@@ -12,6 +12,7 @@ import { useToast } from '../ui/toast';
 import { HoverCard } from './HoverCard';
 import { HEADER_H, ROW_H, rowIndent } from './layout';
 import { sectionKey, type FlatRow, type Panel, type SideItem } from './model';
+import { useHeaderActions, sidebarDoubleClick, type HeaderAction } from './itemActions';
 import { SectionIcon } from './SectionIcon';
 
 const toggle = (list: string[], key: string) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
@@ -33,6 +34,10 @@ function ItemIcon({ item }: { item: SideItem }) {
  * stack's layout; the divider (`children`) sits on its bottom edge. Collapse state and sort are
  * per repo (`RepoSettings.collapsed` / `sidebarSort`), as they were before panels.
  */
+// --- 2C T9: header actions ---
+const NO_ACTIONS: HeaderAction[] = [];
+// --- end 2C T9 ---
+
 export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, repoId, path, onPanelEl, onBodyEl, children }: {
   panel: Panel;
   height: number;
@@ -46,6 +51,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
 }) {
   const { section, rows, collapsed } = panel;
   const updateRepo = useAppState((s) => s.updateRepo);
+  const headerActions = useHeaderActions((s) => s.bySection[section.id] ?? NO_ACTIONS);
   const store = useRepoViewStore();
   const [cursor, setCursor] = useState(0);
   const [hover, setHover] = useState<{ item: SideItem; top: number; left: number } | null>(null);
@@ -129,6 +135,15 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
           <span className="sb-label">{section.label}</span>
           <span className="sb-count" aria-label={`${section.label} count`}>{panel.matched}</span>
         </button>
+        {/* --- 2C T9: section header actions (the Worktrees header's +) --- */}
+        {headerActions.map((a) => (
+          <HoverTooltip key={a.id} content={a.label}>
+            <button type="button" className="icon-button sb-head-action" aria-label={a.label} onClick={(e) => { e.stopPropagation(); a.run({ tabId }); }}>
+              <a.icon size={13} aria-hidden />
+            </button>
+          </HoverTooltip>
+        ))}
+        {/* --- end 2C T9 --- */}
         {section.nests && !collapsed && (
           <HoverTooltip content={panel.sort === 'tree' ? 'Sorted as a folder tree. Click: newest first' : 'Newest first. Click: folder tree'}>
             <button type="button" className="icon-button sb-sort" aria-label={sortLabel} onClick={() => updateRepo(path, (r) => ({ ...r, sidebarSort: { ...r.sidebarSort, [section.id]: panel.sort === 'tree' ? 'recent' : 'tree' } }))}>
@@ -175,6 +190,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   className={`sb-row sb-item${head ? ' is-head' : ''}`}
                   style={style}
                   onClick={() => { setCursor(vi.index); jump(it); }}
+                  onDoubleClick={() => { sidebarDoubleClick({ tabId, store }, it); }}
                   onPointerEnter={(e) => onItemEnter(it, e.currentTarget)}
                   onPointerLeave={() => setHover(null)}
                   onContextMenu={(e) => { setHover(null); onRowMenu(e, row, vi.index); }}

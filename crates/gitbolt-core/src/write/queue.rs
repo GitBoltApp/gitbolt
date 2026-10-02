@@ -25,8 +25,9 @@ use tokio_util::sync::CancellationToken;
 ///   a write holds this lock, and never on a live owner's pending entry (another instance's
 ///   write in flight).
 pub(crate) struct RepoWrites {
-    /// Taken by every write for its local phases (a network transfer runs outside it).
-    pub(crate) lock: tokio::sync::Mutex<()>,
+    /// Taken by every write for its local phases (a network transfer runs outside it). An
+    /// `Arc`, so a write can release it mid-run and take it again (`WriteCx::unlock`, 2D T1).
+    pub(crate) lock: Arc<tokio::sync::Mutex<()>>,
     pub(crate) queue: WriteQueue,
     /// The open repo ids sharing this common dir (one per tab's worktree, Deviation 4).
     ids: Arc<Mutex<BTreeSet<u32>>>,
@@ -44,11 +45,13 @@ impl Drop for Waiting<'_> {
 }
 
 impl RepoWrites {
-    /// Takes the write lock (FIFO), counted in `waiting` while it waits.
-    pub(crate) async fn acquire(&self) -> tokio::sync::MutexGuard<'_, ()> {
+    /// Takes the write lock (FIFO), counted in `waiting` while it waits. The guard is owned: it
+    /// lives in the write's `WriteCx`, which may drop it for a network transfer and take it
+    /// again (`WriteCx::unlock`/`relock`/`network`).
+    pub(crate) async fn acquire(&self) -> tokio::sync::OwnedMutexGuard<()> {
         self.waiting.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let _counted = Waiting(&self.waiting);
-        self.lock.lock().await
+        self.lock.clone().lock_owned().await
     }
 
     /// How many writes wait for the lock (tests wait on it instead of on the clock).
@@ -66,7 +69,7 @@ impl RepoWrites {
                 emit(*id, s);
             }
         }));
-        Self { lock: tokio::sync::Mutex::new(()), queue, ids, waiting: Default::default() }
+        Self { lock: Arc::new(tokio::sync::Mutex::new(())), queue, ids, waiting: Default::default() }
     }
 
     pub(crate) fn add_id(&self, id: u32) {

@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useDiffPrefs } from './diffPrefs';
+import type { MonacoHost } from './monaco/host';
 import { EditorLoadError, keepWhileHidden, SHOW_ERROR_TITLE, useMonacoHost, useOnShown, useShow } from './TextDiff';
 
 /** File View: the whole file at that commit, read-only and highlighted (spec §10.1). Attached
  * before it's shown, as `TextDiff` is; `onShown` as there. */
-export function FileView({ path, text, language, onShown }: { path: string; text: string; language: string; onShown?: () => void }) {
+export function FileView({ path, text, language, onShown, editable = false, onEdit, identity }: { identity?: string; path: string; text: string; language: string; onShown?: () => void; editable?: boolean; onEdit?: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const { host, error, retry } = useMonacoHost();
   const wordWrap = useDiffPrefs((s) => s.prefs.wordWrap);
@@ -20,7 +21,22 @@ export function FileView({ path, text, language, onShown }: { path: string; text
   }, [host]);
   // Word wrap isn't a dependency: toggling it goes through the editor's options (below), so the
   // file isn't shown again and keeps its scroll position.
-  const show = useShow(host, (h) => h.showFile({ path, text, language, wordWrap: useDiffPrefs.getState().prefs.wordWrap }), [path, text, language], shown);
+  // As TextDiff's: a show starts read-only; the working-tree file is editable (spec #2 §7.5).
+  const edit = useRef({ editable, onEdit });
+  edit.current = { editable, onEdit };
+  const applyEditable = (h: MonacoHost) => {
+    h.setFileEditable(edit.current.editable);
+    h.onFileEdit(edit.current.editable ? () => edit.current.onEdit?.() : null);
+  };
+  const show = useShow(host, async (h) => {
+    await h.showFile({ identity, path, text, language, wordWrap: useDiffPrefs.getState().prefs.wordWrap });
+    applyEditable(h);
+  }, [path, text, language], shown);
+  useEffect(() => {
+    if (!host) return;
+    applyEditable(host);
+    return () => host.onFileEdit(null);
+  }, [host, editable]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     host?.setFileWordWrap(wordWrap);
   }, [host, wordWrap]);

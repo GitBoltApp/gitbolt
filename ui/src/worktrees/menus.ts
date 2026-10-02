@@ -1,0 +1,73 @@
+import { ArrowRightLeft, FolderPlus, FolderX, SquarePlus } from 'lucide-react';
+import { registerMenu, type MenuContribution } from '../menu/registry';
+import type { CommitTarget, MenuEnv, SidebarTarget, WipTarget } from '../menu/menuEnv';
+import type { MenuRow } from '../menu/types';
+import { openWorktreeTab, setActiveWorktree } from './active';
+import { openCreateWorktree } from './CreateWorktreeDialog';
+import { removeWorktree } from './remove';
+
+const row = (r: Omit<Extract<MenuRow, { kind: 'action' }>, 'kind'>): MenuRow => ({ kind: 'action', ...r });
+
+const switchRow = (id: string, label: string, path: string, env: MenuEnv): MenuRow => row({
+  id, label, icon: ArrowRightLeft, tooltip: `Make ${env.worktreeShown(path)} this tab's worktree (its WIP, commit box and Undo)`,
+  run: () => env.write && setActiveWorktree(env.write.tabId, path),
+  disabledReason: path === env.activeWorktree ? 'Already the active worktree' : undefined,
+});
+const openTabRow = (id: string, path: string, env: MenuEnv): MenuRow => row({
+  id, label: 'Open in a new tab', icon: SquarePlus, tooltip: `Open ${env.worktreeShown(path)} in its own tab (the same repository, already loaded)`,
+  run: () => { if (env.write) void openWorktreeTab(env.write.tabId, path); },
+});
+
+/** The sidebar worktree row (spec #2 §11.2, §14): Switch to, Open in a new tab. Remove is below. */
+const sidebarRows: MenuContribution<SidebarTarget, MenuEnv> = {
+  id: 'sidebar.worktree', kind: 'sidebar', group: 'worktree', order: 0,
+  when: (t) => t.what === 'worktree',
+  rows: (t, env) => (t.what === 'worktree' ? [switchRow('sidebar.worktree.switch', 'Switch to', t.path, env), openTabRow('sidebar.worktree.openTab', t.path, env)] : []),
+};
+
+/** A WIP row (§14): Switch to this worktree (not on the active one's), Open in a new tab. */
+const wipRows: MenuContribution<WipTarget, MenuEnv> = {
+  id: 'wip.worktree', kind: 'wip', group: 'worktree', order: 0,
+  rows: (t, env) => [...(t.active ? [] : [switchRow('wip.switch', 'Switch to this worktree', t.worktree, env)]), openTabRow('wip.openTab', t.worktree, env)],
+};
+
+export const offWorktreeMenus: Array<() => void> = [registerMenu(sidebarRows), registerMenu(wipRows)];
+
+// --- 2C T14 ---
+/** Remove (sidebar worktree row): greyed for the main and locked worktrees, with the reason. */
+const removeRows: MenuContribution<SidebarTarget, MenuEnv> = {
+  id: 'sidebar.worktree.remove', kind: 'sidebar', group: 'worktree', order: 10,
+  when: (t, env) => t.what === 'worktree' && !!env.write,
+  rows: (t, env) => {
+    if (t.what !== 'worktree') return [];
+    const w = env.sidebar?.worktrees.find((x) => x.path === t.path);
+    const why = w?.isMain ? "The main worktree can't be removed" : w?.locked ? 'Locked: unlock it first' : undefined;
+    return [row({ id: 'sidebar.worktree.remove', label: 'Remove…', icon: FolderX, tooltip: `Delete ${env.worktreeShown(t.path)}'s folder (its branch stays)`, run: () => { void removeWorktree(env.write!, t.path, t.branch); }, disabledReason: why })];
+  },
+};
+
+/** Create worktree from ▸ (core §7 Branch group): each branch at the commit that no worktree
+ * has, a remote-only one (a new tracking branch), then a new branch here. */
+const createRows: MenuContribution<CommitTarget, MenuEnv> = {
+  id: 'branch.createWorktree', kind: 'commit', group: 'branch', order: 10,
+  when: (t, env) => !t.isWip && !t.isStash && !!env.write,
+  rows: (t, env) => {
+    const tabId = env.write!.tabId;
+    const sub: MenuRow[] = env.labelsAt(t.sha).flatMap((l): MenuRow[] => {
+      if (l.tag) return [];
+      if (l.local) {
+        const name = l.local.replace(/^refs\/heads\//, '');
+        return [row({ id: `wt:${l.local}`, label: name, icon: FolderPlus, tooltip: `A worktree on ${name}`, run: () => openCreateWorktree({ tabId, at: t.sha, branch: { kind: 'existing', name } }), disabledReason: l.checkedOut ? `Checked out in ${env.worktreeShown(l.checkedOut)}` : undefined })];
+      }
+      const r = l.remotes[0];
+      if (!r) return [];
+      const branch = r.fullName.slice(`refs/remotes/${r.remote}/`.length);
+      return [row({ id: `wt:${r.fullName}`, label: `${r.remote}/${branch}`, icon: FolderPlus, tooltip: `A worktree on a new ${branch} tracking ${r.remote}/${branch}`, run: () => openCreateWorktree({ tabId, at: t.sha, branch: { kind: 'remote', remote: r.remote, branch, name: branch } }) })];
+    });
+    const fresh = row({ id: 'wt:new', label: 'New branch here…', icon: FolderPlus, tooltip: `A worktree on a new branch at ${t.sha.slice(0, 7)}`, run: () => openCreateWorktree({ tabId, at: t.sha, branch: null }) });
+    return [{ kind: 'submenu', id: 'branch.createWorktree', label: 'Create worktree from', icon: FolderPlus, tooltip: 'Check out a branch in a new folder', rows: [...sub, ...(sub.length ? [{ kind: 'separator' as const }] : []), fresh] }];
+  },
+};
+
+offWorktreeMenus.push(registerMenu(removeRows), registerMenu(createRows));
+// --- end 2C T14 ---

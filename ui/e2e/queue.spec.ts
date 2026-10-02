@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { freshFixture, git, openUrl, testWrite } from './fixtures';
+import { freshFixture, git, openUrl, originGit, testWrite, touch, writeHook } from './fixtures';
 import { expect, test, type Page } from './test';
 
 const chip = (page: Page) => page.locator('.status-bar .sb-queue');
@@ -82,3 +82,27 @@ test.describe('action queue (spec #2 §3.6)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+// --- 2D T17 ---
+test('two real pushes queue in click order; a Cancel of the running one never stops the queue (spec #2 §3.6)', async ({ page }) => {
+  const repo = freshFixture('sync');
+  git(repo, 'switch', '-q', 'dev');
+  git(repo, 'commit', '-q', '--allow-empty', '-m', 'dev more');
+  const go = `${repo}/../go`;
+  writeHook(repo, 'pre-push', `#!/bin/sh\nwhile [ ! -f '${go}' ]; do sleep 0.05; done\n`);
+  await page.goto(openUrl(repo));
+  const push = page.getByRole('button', { name: 'Push', exact: true });
+  await push.click();
+  await push.click();
+  await expect(page.getByRole('button', { name: /Running: push dev to origin\/dev · 1 queued/ })).toBeVisible();
+  await page.getByRole('button', { name: /Running: push dev/ }).click();
+  await page.getByRole('menuitem', { name: 'Cancel push dev to origin/dev' }).click();
+  // The first push stopped (its hook still waits) and the second one runs: nothing is queued.
+  await expect(chip(page)).toHaveText('Running: push dev to origin/dev');
+  touch(go);
+  // While the cancelled push is still being stopped, the chip reads "1 queued": wait for the
+  // whole chip to go (the second push done), not just its Running/Stopped text.
+  await expect(chip(page)).toBeHidden();
+  expect(originGit(repo, 'rev-parse', 'dev')).toBe(git(repo, 'rev-parse', 'dev'));
+});
+// --- end 2D T17 ---

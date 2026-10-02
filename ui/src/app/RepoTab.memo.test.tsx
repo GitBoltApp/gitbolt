@@ -4,7 +4,7 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 
 const row = (id: string): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary: id, bodyFirstLine: '', authorName: 'A', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
-const graphFor = (repo: number): GraphPayload => ({ rows: [row(`r${repo}`)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false });
+const graphFor = (repo: number): GraphPayload => ({ rows: [row(`r${repo}`)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [] });
 const ids: Record<string, number> = { '/a': 1, '/b': 2, '/c': 3 };
 
 const api = vi.hoisted(() => ({
@@ -38,7 +38,7 @@ const activate = (id: string) => act(() => useAppState.getState().updateProfile(
 describe('RepoTab under <Activity>', () => {
   beforeEach(() => {
     renders.clear();
-    api.openRepo.mockImplementation(async (path: string) => ({ id: ids[path], path, name: path.slice(1) }));
+    api.openRepo.mockImplementation(async (path: string) => ({ id: ids[path], path, name: path.slice(1), worktree: path }));
     api.graph.mockImplementation(async (repo: number) => graphFor(repo));
     useRuntime.setState({ tabs: {} });
     useTabViews.setState({ views: {} });

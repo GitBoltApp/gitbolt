@@ -210,6 +210,11 @@ fn main() {
     let forward = backend.clone();
     let exit_api = backend.clone();
     let exit_settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Tauri's own runtime (`tokio::runtime::Runtime::new()`), but with 8 MB worker stacks, not
+    // 2 MB: a request's future is polled on a worker, and the write path's is deep in a debug
+    // build. Leaked, as Tauri keeps its own for the process's life.
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(8 * 1024 * 1024).build().expect("the async runtime");
+    tauri::async_runtime::set(Box::leak(Box::new(runtime)).handle().clone());
     tauri::Builder::default()
         // Never in caret-browsing mode, even if "Turn on" was once clicked in Chrome's F7
         // dialog (Chrome keeps it in the profile). The F7 command itself is blocked in the

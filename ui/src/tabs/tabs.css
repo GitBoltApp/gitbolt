@@ -43,3 +43,8 @@
 .swatches { display: flex; gap: 6px; margin-bottom: 4px; }
 .swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
 .swatch[aria-checked="true"] { border-color: var(--text-selected); }
+/* The one-field prompt (create branch, rename). */
+.modal .modal-field span { color: var(--text-secondary); }
+.modal .modal-error { margin: -4px 0 12px; color: var(--red); }
+.modal label.modal-check { flex-direction: row; align-items: center; gap: 6px; }
+.modal label.modal-check input { padding: 0; }

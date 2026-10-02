@@ -18,7 +18,7 @@ const host = vi.hoisted(() => {
     keepDiff: vi.fn((el: HTMLElement, _next: unknown) => el === h.box),
     showDiff: vi.fn(async (_req: { path: string; modified: string }) => {}),
     setDiffPrefs: vi.fn(), goToChange: vi.fn(),
-    attachFile: vi.fn(), detachFile: vi.fn(), keepFile: vi.fn(() => false), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(),
+    attachFile: vi.fn(), detachFile: vi.fn(), keepFile: vi.fn(() => false), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), setModifiedEditable: vi.fn(), onModifiedEdit: vi.fn(), modifiedText: vi.fn(() => null), setFileEditable: vi.fn(), onFileEdit: vi.fn(), fileText: vi.fn(() => null), keepViewOnNextShow: vi.fn(),
     setContextMenuHandler: vi.fn(), layout: vi.fn(),
     // As the real host's: lets go of a box that left the document.
     releaseDetached: vi.fn(() => { if (h.box && !h.box.isConnected) h.detachDiff(h.box); }),
@@ -43,11 +43,11 @@ const { RepoView } = await import('../repo/RepoView');
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);
 const row = (id: string, summary: string, parents: string[]): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: 'grace@example.com', authorTime: 1_767_225_600, committerTime: 1_767_225_600, parents, mrRefs: [], wip: null });
-const graph: GraphPayload = { rows: [row(A, 'Second', [B]), row(B, 'First', [])], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false };
+const graph: GraphPayload = { rows: [row(A, 'Second', [B]), row(B, 'First', [])], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] };
 const details = (id: string, parents: string[]): CommitDetailsPayload => ({ id, parents, coAuthors: [], signed: false, author: { name: 'Grace Hopper', email: 'grace@example.com', time: 1_767_225_600 }, committer: { name: 'Ada Lovelace', email: 'ada@example.com', time: 1_767_225_660 } });
 const file = (path: string) => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object' as const, oid: B }, new: { kind: 'object' as const, oid: A }, submodule: false });
 const list: FileListPayload = { files: [file('a.txt'), file('b.txt')], added: 2, deleted: 2 };
-const blob = (text: string): BlobPayload => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null });
+const blob = (text: string): BlobPayload => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null, hash: null });
 
 function renderView() {
   const services = fakeServices({

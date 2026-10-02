@@ -5,7 +5,9 @@ import type { TabState } from '../api/gen/TabState';
 import { useFetchScheduler } from './fetchSchedule';
 import { RepoContext } from './repoContext';
 import { useRuntime } from './runtime';
+import { tabLabel } from './tabs';
 import { RepoView, RepoViewContext } from './seams1b';
+import { useOps } from './ops';
 import { TabSlot } from './slots';
 import { tabView, useTabView } from './tabStores';
 import { setWatched } from './watch';
@@ -76,9 +78,12 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
     if (repoId === undefined) return;
     return onEvent((ev) => {
       if (ev.type === 'repoChanged' && ev.repo === repoId) tabView(tab.id)?.services.wip.changed(ev.worktrees, ev.versions);
+      // --- 2D T18: a rebase's per-commit ticks reload the graph alone; the op's end does the full refresh once ---
+      if (ev.type === 'opFinished' && ev.repo === repoId && (ev.kind === 'rebase' || ev.kind === 'pull')) { void refresh(tab.id); return; }
+      // --- end 2D T18 ---
       if (ev.type !== 'repoChanged' && ev.type !== 'refsUpdated') return;
       if (ev.repo !== repoId) return;
-      if (ev.type === 'refsUpdated') void refresh(tab.id);
+      if (ev.type === 'refsUpdated') void refresh(tab.id, Object.values(useOps.getState().ops).some((o) => o.repo === repoId && o.step) ? { graphOnly: true } : undefined);
       // Only refs, HEAD, stashes and config show in the sidebar and repo info; a worktree/index
       // change reloads the graph alone (1C review M5).
       else void refresh(tab.id, ev.kinds.some((k) => k === 'refs' || k === 'head' || k === 'stash' || k === 'config') ? {} : { graphOnly: true });
@@ -88,15 +93,18 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
   // Background fetch (spec §15): this tab's timer lives only while it's shown.
   useFetchScheduler(tab.id, repoId);
 
-  // The window title follows the active tab (1A's e2e checks `GitBolt — repo`).
+  // The window title follows the active tab (1A's e2e checks `GitBolt — repo`). A linked
+  // worktree's tab is titled by its folder, as its label is (`tabLabel`, without the alias).
   const repoName = rt?.repo?.name;
+  const title = repoName ? tabLabel({ ...tab, alias: null, path: rt?.repo?.path ?? tab.path, worktree: rt?.worktree ?? tab.worktree }, repoName) : null;
   useEffect(() => {
-    if (repoName) document.title = `GitBolt — ${repoName}`;
-  }, [repoName]);
+    if (title) document.title = `GitBolt — ${title}`;
+  }, [title]);
 
   const repo = rt?.repo;
   const info = rt?.info ?? null;
-  const ctx = useMemo(() => (repo ? { tabId: tab.id, repoId: repo.id, path: repo.path, info } : null), [tab.id, repo, info]);
+  const worktree = rt?.worktree ?? repo?.path;
+  const ctx = useMemo(() => (repo ? { tabId: tab.id, repoId: repo.id, path: repo.path, worktree: worktree ?? repo.path, info } : null), [tab.id, repo, worktree, info]);
 
   if (!rt || (rt.status === 'loading' && !rt.graph)) return <div className="center-message">Loading…</div>;
   if (!rt.graph || !repo || !ctx || !view) return <div className="center-message" role="alert">{rt.error}</div>;

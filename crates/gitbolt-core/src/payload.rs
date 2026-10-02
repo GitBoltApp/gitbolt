@@ -21,6 +21,34 @@ pub struct GraphPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub open_worktree: Option<String>,
+    /// Every usable worktree of the repository (spec #2 §11.2).
+    pub worktrees: Vec<GraphWorktree>,
+    // 2D-T6 begin
+    /// Each worktree's merge, rebase or other in-progress operation (spec #2 §13.2), keyed by its
+    /// path as its WIP row's `worktreePath` spells it (Deviation 1). Absent when none is mid-operation.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[ts(optional, as = "Option<std::collections::BTreeMap<String, crate::in_progress::InProgress>>")]
+    pub in_progress: std::collections::BTreeMap<String, crate::in_progress::InProgress>,
+    // 2D-T6 end
+}
+
+/// One usable worktree as the graph sees it (spec #2 §11.2): the UI moves the HEAD marker and
+/// the "checked out elsewhere" chips to the tab's active worktree from these, with no request.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct GraphWorktree {
+    /// Spelled as its WIP row's `WipPayload::worktree_path`.
+    pub path: String,
+    /// The full ref its HEAD names; `None` when detached or bare.
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub is_main: bool,
+    pub locked: bool,
+    /// The operation in progress there, by kind (`merge`, `rebase`, or what git calls the other
+    /// one: `cherry-pick`, `revert`, `am`); the detail is in `GraphPayload.in_progress`, keyed by
+    /// this path.
+    pub in_progress: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -98,6 +126,8 @@ pub struct RefLabel {
     pub tag: bool,
     pub is_head: bool,
     pub worktree: Option<String>,
+    /// The worktree (any, the open one included) whose HEAD is this local branch.
+    pub checked_out: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -118,6 +148,9 @@ pub struct RepoSummary {
     pub id: u32,
     pub path: String,
     pub name: String,
+    /// The canonical worktree the opened path is in. `path` is the repository's (its main
+    /// worktree), shared by every tab on it (spec #2 §11.2).
+    pub worktree: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -181,6 +214,36 @@ pub enum BlobSource {
     Worktree { worktree: String },
 }
 
+/// An unmerged path's conflict (spec #2 §7.1), from `git status`'s two-letter code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ConflictKind {
+    BothModified,
+    BothAdded,
+    BothDeleted,
+    AddedByUs,
+    AddedByThem,
+    DeletedByUs,
+    DeletedByThem,
+}
+
+impl ConflictKind {
+    /// Porcelain v2's `XY` of a `u` entry.
+    pub fn from_xy(x: char, y: char) -> Option<Self> {
+        Some(match (x, y) {
+            ('U', 'U') => Self::BothModified,
+            ('A', 'A') => Self::BothAdded,
+            ('D', 'D') => Self::BothDeleted,
+            ('A', 'U') => Self::AddedByUs,
+            ('U', 'A') => Self::AddedByThem,
+            ('D', 'U') => Self::DeletedByUs,
+            ('U', 'D') => Self::DeletedByThem,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -196,6 +259,10 @@ pub struct FileChange {
     pub old: BlobSource,
     pub new: BlobSource,
     pub submodule: bool,
+    /// An unmerged WIP path's conflict kind; absent everywhere else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub conflict: Option<ConflictKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -287,6 +354,9 @@ pub struct BlobPayload {
     pub text: Option<String>,
     /// Raw bytes, base64, for binary images only (spec §10.4).
     pub base64: Option<String>,
+    /// The loaded bytes' `worktree_id` (2B Deviation 12): the save base of a working-tree side.
+    /// `None` when the side wasn't loaded (too large).
+    pub hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

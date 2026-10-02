@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { GbError } from '../api/gen/GbError';
 import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { showServerResult } from '../sync/serverOutput';
 import { openActivityLog } from './activityLog';
 import { useOps } from './ops';
 import { platform } from './platform';
@@ -107,9 +108,11 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
     const out = await api.fetch(repo.id, background);
     if (out.status === 'done' || out.reason === 'authRequired') failing.delete(repo.id);
     if (out.status === 'done') {
-      // A fetch that worked says nothing, user-initiated or not: the button's spinner and the
+      // A fetch that worked says nothing (except a user's with server output, which links it, and a server warning, spec #2 §12.4), user-initiated or not: the button's spinner and the
       // graph are enough, and a toast every time is noise (the user's call, after K96).
       patch({ lastFetchAt: Date.now(), fetchSkipped: null });
+      if (!background && out.server.lines > 0) showServerResult(`Fetched ${repo.name}`, `Fetched ${repo.name}; the server reported a problem`, out.server, out.op);
+      else if (background && out.server.warning) showServerResult('', `Background fetch of ${repo.name}: the server reported a problem`, out.server, out.op);
     } else if (out.reason === 'authRequired') patch({ lastFetchAt: Date.now(), fetchSkipped: FETCH_SKIPPED_AUTH });
     else if (!background) {
       const running = Object.values(useOps.getState().ops).find((o) => o.kind === 'fetch' && o.repo === repo.id);

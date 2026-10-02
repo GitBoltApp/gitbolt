@@ -8,6 +8,8 @@ import { loadMonacoHost } from './monaco/load';
 
 // Once loaded, later mounts get the host on their first render (no empty frame per file).
 let loaded: MonacoHost | null = null;
+/** The host once loaded, for code that can't wait for the promise (an effect's cleanup). */
+export const loadedHost = (): MonacoHost | null => loaded;
 
 export interface MonacoHostState {
   /** Null while its lazy chunk (Monaco, Shiki, the WASM) loads, or after a failure. */
@@ -120,7 +122,7 @@ export const SHOW_ERROR_TITLE = "Couldn't show this file";
  * effect, which runs before the passive effect that shows the texts: `showDiff` shows nothing
  * unless `attachDiff` has run. `onShown` fires once the diff is on screen (see `useOnShown`).
  */
-export function TextDiff({ path, original, modified, language, onShown }: { path: string; original: string; modified: string; language: string; onShown?: () => void }) {
+export function TextDiff({ path, original, modified, language, onShown, editable = false, onEdit, identity }: { identity?: string; path: string; original: string; modified: string; language: string; onShown?: () => void; editable?: boolean; onEdit?: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const { host, error, retry } = useMonacoHost();
   const prefs = useDiffPrefs((s) => s.prefs);
@@ -135,7 +137,23 @@ export function TextDiff({ path, original, modified, language, onShown }: { path
     if (!host.keepDiff(el, content.current)) host.attachDiff(el, content.current);
     return keepWhileHidden(el, () => host.detachDiff(el));
   }, [host]);
-  const show = useShow(host, (h) => h.showDiff({ path, original, modified, language, prefs: useDiffPrefs.getState().prefs }), [path, original, modified, language], shown);
+  // Spec #2 §7.5: the working-tree side is editable. A show starts read-only, so it's turned on
+  // again once shown; the listener follows `editable` and the latest `onEdit`.
+  const edit = useRef({ editable, onEdit });
+  edit.current = { editable, onEdit };
+  const applyEditable = (h: MonacoHost) => {
+    h.setModifiedEditable(edit.current.editable);
+    h.onModifiedEdit(edit.current.editable ? () => edit.current.onEdit?.() : null);
+  };
+  const show = useShow(host, async (h) => {
+    await h.showDiff({ identity, path, original, modified, language, prefs: useDiffPrefs.getState().prefs });
+    applyEditable(h);
+  }, [path, original, modified, language], shown);
+  useEffect(() => {
+    if (!host) return;
+    applyEditable(host);
+    return () => host.onModifiedEdit(null);
+  }, [host, editable]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     host?.setDiffPrefs(prefs);
   }, [host, prefs]);

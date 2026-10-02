@@ -1,3 +1,4 @@
+import { Pencil } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import type { CommitDetailsPayload } from '../api/gen/CommitDetailsPayload';
 import type { DiffSpec } from '../api/gen/DiffSpec';
@@ -9,11 +10,14 @@ import { shortSha } from '../format/sha';
 import { perf } from '../perf';
 import { useFocusZone } from '../repo/focus';
 import { filesKey } from '../repo/services';
-import { useRepoView, useRepoViewStore, type FileSection, type PanelContent } from '../repo/store';
+import { openWorktree, useRepoView, useRepoViewStore, type FileSection, type PanelContent } from '../repo/store';
 import { useToast } from '../ui/toast';
 import { Avatar } from '../avatars/Avatar';
 import { LARGEST_AVATAR_PX } from '../avatars/avatarStore';
 import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
+import { useRepoContext } from '../app/repoContext';
+import { HeadMessageEditor } from './HeadMessageEditor';
+import { CommitBox } from '../commit/CommitBox';
 import { CoAuthors, personLabel } from './CoAuthors';
 import { CompareHeader } from './CompareHeader';
 import { loadSplit, saveSplit, splitBounds } from './detailsSplit';
@@ -108,6 +112,13 @@ function CommitDetails({ panel, ratio, ref }: { panel: PanelContent; ratio: numb
   const { details, message, selection } = panel;
   const row = useRepoView((s) => (selection.kind === 'commit' && s.graph.rows[selection.index]?.id === selection.id ? s.graph.rows[selection.index] : undefined));
   const remote = useProjectRemote(useRepoView((s) => s.services));
+  const { tabId } = useRepoContext();
+  const repoId = useRepoView((s) => s.repo);
+  const worktree = useRepoView((s) => openWorktree(s));
+  // Spec #2 §8.3: the open worktree's HEAD; 2D hides the pencil mid merge or rebase (the backend refuses it).
+  const canEdit = useRepoView((s) => selection.kind === 'commit' && s.graph.head.target === selection.id && !s.graph.inProgress?.[openWorktree(s)] && !s.graph.worktrees.find((w) => w.path === openWorktree(s))?.inProgress);
+  const [editing, setEditing] = useState<string | null>(null); // the commit id being edited
+  useEffect(() => { if (selection.kind !== 'commit' || selection.id !== editing) setEditing(null); }, [selection, editing]);
   const readyId = details.status === 'ready' && message.status === 'ready' ? details.data.id : null;
   useEffect(() => {
     if (readyId) perf.done('details');
@@ -120,7 +131,18 @@ function CommitDetails({ panel, ratio, ref }: { panel: PanelContent; ratio: numb
       {details.status === 'ready' && <CommitHeader d={details.data} />}
       {details.status === 'error' && <div role="alert" className="details-error">{details.message}</div>}
       <div className="commit-message message-box" data-testid="commit-message">
-        {message.status === 'ready' ? <Message summary={message.data.summary} body={message.data.body} remote={remote} /> : (
+        {editing && message.status === 'ready' && canEdit ? (
+          <HeadMessageEditor ctx={{ tabId, repoId, worktree }} head={editing} message={message.data} onDone={() => setEditing(null)} />
+        ) : message.status === 'ready' ? (
+          <>
+            {canEdit && selection.kind === 'commit' && (
+              <HoverTooltip content="Edit the commit message">
+                <button type="button" className="icon-button message-edit" aria-label="Edit message" onClick={() => setEditing(selection.id)}><Pencil size={13} aria-hidden /></button>
+              </HoverTooltip>
+            )}
+            <Message summary={message.data.summary} body={message.data.body} remote={remote} />
+          </>
+        ) : (
           <>
             <h2 className="details-summary" data-testid="details-summary">{row?.summary ?? ''}</h2>
             {message.status === 'error' && <div role="alert" className="details-error">{message.message}</div>}
@@ -262,6 +284,7 @@ export function DetailsPanel() {
       {kind === 'wip' && <WipHeader />}
       {/* A multi-selection (K27) has no diff, so no file lists. */}
       {kind === 'multi' ? <MultiSummary /> : <FileSections panel={panel} />}
+      {kind === 'wip' && <CommitBox />}
     </div>
   );
 }

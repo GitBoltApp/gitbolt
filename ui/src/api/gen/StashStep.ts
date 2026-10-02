@@ -3,4 +3,4 @@
 /**
  * An autostash step (`OpStashStep`).
  */
-export type StashStep = "saving" | "restoring";
+export type StashStep = "saving" | "restoring" | "restoringFiles";

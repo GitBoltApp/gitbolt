@@ -29,7 +29,7 @@ describe('QueueChip (spec #2 §3.6)', () => {
     useMenu.getState().close();
     useQueue.setState({ byRepo: {} });
     useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
-    useRuntime.setState({ tabs: { t: { status: 'ready', error: null, repo: { id: 4, path: '/r', name: 'r' }, graph: null, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null } } });
+    useRuntime.setState({ tabs: { t: { status: 'ready', error: null, repo: { id: 4, path: '/r', name: 'r', worktree: '/r' }, graph: null, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null, worktree: null } } });
   });
 
   it('is hidden while the queue is idle', () => {

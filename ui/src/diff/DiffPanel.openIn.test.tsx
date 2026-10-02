@@ -13,11 +13,11 @@ const OPENERS: OpenerPayload[] = [
 ];
 const listOpeners = vi.hoisted(() => vi.fn(async (): Promise<OpenerPayload[]> => []));
 const openIn = vi.hoisted(() => vi.fn(async (_repo: number, _r: unknown): Promise<null> => null));
-vi.mock('../api/client', () => ({ api: { listOpeners, openIn }, errorMessage: (e: { message: string }) => e.message }));
+vi.mock('../api/client', () => ({ api: { listOpeners, openIn, wipHunks: vi.fn(async () => ({ base: { index: null, worktree: null }, hunks: [], binary: false, refused: null })) }, errorMessage: (e: { message: string }) => e.message }));
 const host = vi.hoisted(() => ({
   attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async () => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
-  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
-  setContextMenuHandler: vi.fn(), layout: vi.fn(),
+  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), setModifiedEditable: vi.fn(), onModifiedEdit: vi.fn(), modifiedText: vi.fn(() => null), setFileEditable: vi.fn(), onFileEdit: vi.fn(), fileText: vi.fn(() => null), keepViewOnNextShow: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
+  setContextMenuHandler: vi.fn(), layout: vi.fn(), setHunkZones: vi.fn(() => []), onDiffSelection: vi.fn(),
 }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
 
@@ -29,8 +29,8 @@ const { fakeServices } = await import('../repo/testServices');
 const { resetOpenersForTests } = await import('../openIn/openers');
 const { DiffPanel } = await import('./DiffPanel');
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
-const blob = (text: string): BlobPayload => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null });
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const blob = (text: string): BlobPayload => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null, hash: null });
 const change: FileChange = { path: 'src/app.php', oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false };
 const contents: DiffContentsPayload = { old: blob('a\nb\nc\n'), new: blob('a\nb\nC\n'), tooLarge: false, eolOnly: false, image: false };
 

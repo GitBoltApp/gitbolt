@@ -12,6 +12,8 @@ interface ActivityUi {
   view: DebugView;
   /** The command the Commands tab scrolls to and highlights (an error toast's Details, R10). */
   focusCommandId: number | null;
+  /** The op whose Activity entry is scrolled to, its server output expanded (spec #2 §12.4). */
+  focusOp: number | null;
   /** The perf overlay (fps and backend call timings) is shown; it outlives the modal. */
   perfOverlay: boolean;
   setOpen(v: boolean): void;
@@ -28,9 +30,10 @@ export const useActivityUi = create<ActivityUi>((set) => ({
   open: false,
   view: 'activity',
   focusCommandId: null,
+  focusOp: null,
   perfOverlay: false,
-  setOpen: (open) => set(open ? { open } : { open, focusCommandId: null }),
-  show: (view, focusCommandId = null) => set({ open: true, view, focusCommandId }),
+  setOpen: (open) => set(open ? { open } : { open, focusCommandId: null, focusOp: null }),
+  show: (view, focusCommandId = null) => set({ open: true, view, focusCommandId, focusOp: null }),
   setView: (view) => set({ view }),
   togglePerfOverlay: () => set((s) => ({ perfOverlay: !s.perfOverlay })),
 }));
@@ -44,6 +47,12 @@ export function openDebug(view: DebugView, focusCommandId: number | null = null)
 /** Opens the activity log (a failed fetch's toast links here, the bell, and Help → Activity log). */
 export function openActivityLog(): void {
   openDebug('activity');
+}
+
+/** Opens the activity log at op `op`'s entry, its server output expanded (spec #2 §12.4). */
+export function openActivityEntry(op: number): void {
+  useMenu.getState().close();
+  useActivityUi.setState({ open: true, view: 'activity', focusCommandId: null, focusOp: op });
 }
 
 /** Copies `text`, saying so in a toast (the Debug modal's Copy all / Copy entry, an error's Copy). */
@@ -65,7 +74,7 @@ export function relativeTime(at: number, now: number): string {
 /** One entry as plain text (the per-entry copy, and a block of "Copy all"). */
 export function entryText(e: ActivityEntry, now = Date.now()): string {
   const head = `${new Date(e.at).toLocaleString()} (${relativeTime(e.at, now)}) · ${e.label || '(no repo)'} · ${e.kind} · ${e.background ? 'background' : 'user'} · ${seconds(e.durationMs)} · ${e.outcome}`;
-  return [head, e.command, e.message, e.output.length ? e.output.join('\n') : null].filter(Boolean).join('\n');
+  return [head, e.command, e.message, e.remote.length ? e.remote.map((l) => `server: ${l.text}`).join('\n') : null, e.output.length ? e.output.join('\n') : null].filter(Boolean).join('\n');
 }
 
 export function allText(entries: ActivityEntry[], now = Date.now()): string {

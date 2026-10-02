@@ -13,4 +13,9 @@ text: string | null,
 /**
  * Raw bytes, base64, for binary images only (spec §10.4).
  */
-base64: string | null, };
+base64: string | null, 
+/**
+ * The loaded bytes' `worktree_id` (2B Deviation 12): the save base of a working-tree side.
+ * `None` when the side wasn't loaded (too large).
+ */
+hash: string | null, };

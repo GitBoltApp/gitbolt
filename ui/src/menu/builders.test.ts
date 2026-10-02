@@ -25,11 +25,11 @@ const OPENERS: OpenerPayload[] = [
 const gitlab = { host: 'gitlab.example.com', path: 'acme/shop', hostKind: 'gitlab' as const };
 const github = { host: 'github.com', path: 'owner/repo', hostKind: 'github' as const };
 const act = () => ({ copy: vi.fn(), openUrl: vi.fn(), openIn: vi.fn(), openDiff: vi.fn(), viewFile: vi.fn(), compare: vi.fn(), copyMessage: vi.fn(), showInGraph: vi.fn(), openFolder: vi.fn() });
-const envOf = (over: Partial<MenuEnv> = {}): MenuEnv => ({ forge: () => gitlab, openers: { list: OPENERS, error: null, last: null }, act: act(), headBranch: 'main', headSha: 'h'.repeat(40), inGraph: () => true, ...over });
+const envOf = (over: Partial<MenuEnv> = {}): MenuEnv => ({ forge: () => gitlab, openers: { list: OPENERS, error: null, last: null }, act: act(), headBranch: 'main', headSha: 'h'.repeat(40), inGraph: () => true, write: null, sidebar: null, labelsAt: () => [], activeWorktree: null, mainWorktree: null, inProgress: null, worktreeShown: (p) => p, ...over });
 const sha = 'a'.repeat(40);
 const diff: DiffTarget = { key: 'k|src/a b.php', path: 'src/a b.php', oldPath: null, status: 'M', old: { kind: 'object', oid: 'o'.repeat(40) }, new: { kind: 'object', oid: 'n'.repeat(40) }, view: 'diff' };
 const target = (over: Partial<FileTarget> = {}): FileTarget => ({
-  path: 'src/a b.php', root: '/r', sha, upstream: { remote: 'origin', branch: 'feature/x' }, diff, changed: true, deleted: false, list: 'commit',
+  path: 'src/a b.php', root: '/r', sha, upstream: { remote: 'origin', branch: 'feature/x' }, diff, changed: true, deleted: false, list: 'commit', wip: null,
   openIn: { worktree: '/r', path: 'src/a b.php', line: null, source: diff.new, fallback: null }, ...over,
 });
 const labels = (rows: MenuRow[]) => rows.map((r) => (r.kind === 'separator' ? '---' : r.label));
@@ -181,7 +181,7 @@ describe('the file menu (spec §7; plan 1C Task 15, file kind)', () => {
 const branch = (name: string, local: string | null, ...remotes: Array<{ remote: string; branch: string }>): CommitTarget['branch'] => ({
   name, local, remotes: remotes.map((r) => ({ fullName: `refs/remotes/${r.remote}/${r.branch}`, remote: r.remote })),
 });
-const commitTarget = (over: Partial<CommitTarget> = {}): CommitTarget => ({ sha, mrRefs: [], isWip: false, branch: null, ...over });
+const commitTarget = (over: Partial<CommitTarget> = {}): CommitTarget => ({ sha, mrRefs: [], isWip: false, isStash: false, branch: null, ...over });
 const commit = (t: CommitTarget, env: MenuEnv) => buildMenu<CommitTarget, MenuEnv>('commit', t, env);
 
 describe('the commit menu (spec §7 target table; plan 1C Task 15, commit kind)', () => {

@@ -13,6 +13,8 @@ pub struct Worktree {
     pub is_main: bool,
     pub bare: bool,
     pub prunable: bool,
+    /// git's `locked` porcelain line (with or without a reason).
+    pub locked: bool,
 }
 
 pub fn parse_worktree_list(out: &[u8]) -> Vec<Worktree> {
@@ -32,12 +34,13 @@ pub fn parse_worktree_list(out: &[u8]) -> Vec<Worktree> {
                 if let Some(wt) = cur.take() {
                     list.push(wt);
                 }
-                cur = Some(Worktree { path: PathBuf::from(value), head: None, branch: None, is_main: list.is_empty(), bare: false, prunable: false });
+                cur = Some(Worktree { path: PathBuf::from(value), head: None, branch: None, is_main: list.is_empty(), bare: false, prunable: false, locked: false });
             }
-            "HEAD" => if let Some(wt) = cur.as_mut() { wt.head = ObjectId::from_hex(value.as_bytes()).ok() },
+            "HEAD" => if let Some(wt) = cur.as_mut() { wt.head = ObjectId::from_hex(value.as_bytes()).ok().filter(|id| !id.is_null()) },
             "branch" => if let Some(wt) = cur.as_mut() { wt.branch = Some(value.to_string()) },
             "bare" => if let Some(wt) = cur.as_mut() { wt.bare = true },
             "prunable" => if let Some(wt) = cur.as_mut() { wt.prunable = true },
+            "locked" => if let Some(wt) = cur.as_mut() { wt.locked = true },
             _ => {}
         }
     }
@@ -82,5 +85,12 @@ mod tests {
         assert_eq!(wts[1].branch.as_deref(), Some("refs/heads/hotfix"));
         assert!(wts[1].path.ends_with("wt-hotfix"));
         assert!(wts[1].head.is_some());
+    }
+
+    #[test]
+    fn a_locked_worktree_is_marked_locked() {
+        let out = b"worktree /r/main\0HEAD 1111111111111111111111111111111111111111\0branch refs/heads/main\0\0worktree /r/wt-x\0HEAD 2222222222222222222222222222222222222222\0branch refs/heads/x\0locked\0\0worktree /r/wt-y\0HEAD 3333333333333333333333333333333333333333\0detached\0locked moved to a usb disk\0\0";
+        let list = parse_worktree_list(out);
+        assert_eq!(list.iter().map(|w| w.locked).collect::<Vec<_>>(), [false, true, true]);
     }
 }

@@ -144,6 +144,7 @@ fn to_changes(repo: &gix::Repository, raw: Vec<RawChange>, worktree: Option<&str
     raw.into_iter()
         .map(|c| FileChange {
             submodule: c.old_mode == SUBMODULE_MODE || c.new_mode == SUBMODULE_MODE,
+            conflict: None,
             old: side(repo, &c.old_oid, c.old_mode, false, worktree),
             new: side(repo, &c.new_oid, c.new_mode, true, worktree),
             status: c.status.to_string(),
@@ -315,7 +316,15 @@ async fn wip_unstaged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path,
     let name = wt.to_string_lossy().into_owned();
     let dirty = dirty_paths(&entries);
     let raw = drop_phantom_stat_dirty(collapse_unmerged(run(cli, wt, diff_porcelain(&[])).await?), &dirty);
+    let conflicts: HashMap<String, crate::payload::ConflictKind> = entries
+        .iter()
+        .filter(|e| e.kind == EntryKind::Unmerged)
+        .filter_map(|e| Some((e.path.clone(), crate::payload::ConflictKind::from_xy(e.index, e.worktree)?)))
+        .collect();
     let mut files = changes(repo, raw, Some((wt.to_path_buf(), name.clone()))).await?;
+    for f in files.iter_mut().filter(|f| f.status == "U") {
+        f.conflict = conflicts.get(&f.path).copied();
+    }
     let untracked: Vec<(StatusEntry, Option<Option<u32>>)> = entries.into_iter().filter(|e| e.kind == EntryKind::Untracked).map(|e| {
         let known = reuse.get(&e.path).copied();
         (e, known)
@@ -336,6 +345,7 @@ async fn wip_unstaged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path,
                         old: BlobSource::Absent,
                         new: BlobSource::Worktree { worktree: name.clone() },
                         submodule: false,
+                        conflict: None,
                     }
                 })
                 .collect::<Vec<_>>()
@@ -712,6 +722,21 @@ mod tests {
         assert_eq!(f.new, BlobSource::Worktree { worktree: name });
         assert_eq!((f.additions, f.deletions), (Some(4), Some(0)));
         assert_eq!(list.added, 4, "the M record's counts must be totalled once, not twice");
+    }
+
+    /// Spec #2 §7.1: conflicted rows say what kind of conflict they are.
+    #[tokio::test]
+    async fn unmerged_wip_rows_carry_their_conflict_kind() {
+        let r = TestRepo::new();
+        crate::testing::fixtures::wip_conflict(&r);
+        let repo = gix::ThreadSafeRepository::open(r.path()).unwrap();
+        let wt = r.path().canonicalize().unwrap();
+        let name = wt.display().to_string();
+        let list = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name, staged: false }, Some(&wt)).await.unwrap();
+        let c = list.files.iter().find(|f| f.path == "c.txt").unwrap();
+        assert_eq!(c.conflict, Some(crate::payload::ConflictKind::BothModified));
+        let side = list.files.iter().find(|f| f.path == "side.txt").unwrap();
+        assert_eq!(side.conflict, None);
     }
 
     #[tokio::test]

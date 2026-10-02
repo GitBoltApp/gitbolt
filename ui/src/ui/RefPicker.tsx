@@ -92,8 +92,15 @@ export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore,
   });
 
   const left = Math.max(4, Math.min(anchor.left, window.innerWidth - WIDTH - 4));
+  // Under the anchor, kept inside the window: an anchor low on the screen (Set upstream opens
+  // under a tall branch menu) would otherwise push the list out of view. Measured before paint.
+  const [top, setTop] = useState(anchor.bottom + 4);
+  useLayoutEffect(() => {
+    const h = ref.current?.offsetHeight ?? 0;
+    setTop(Math.max(4, Math.min(anchor.bottom + 4, window.innerHeight - h - 4)));
+  }, [anchor, shown.length]);
   return createPortal(
-    <div ref={ref} className="picker" style={{ left, top: anchor.bottom + 4 }}>
+    <div ref={ref} className="picker" style={{ left, top }}>
       <div className="picker-head">
       <input
         ref={input}

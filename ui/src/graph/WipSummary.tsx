@@ -1,11 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { type KeyboardEvent, type MouseEvent } from 'react';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { StatusCountsView } from '../files/FileList';
 import { isEditableTarget } from '../ui/keys';
-import { debounce } from '../util/debounce';
-import { readWipDraft, WIP_DRAFT_COUNTER_FROM, WIP_DRAFT_MAX, writeWipDraft } from './wipDraft';
-
-const PERSIST_MS = 300;
+import { flushDrafts, useWipDraft, WIP_DRAFT_COUNTER_FROM, WIP_DRAFT_WARN_FROM } from '../commit/draft';
 
 /** A press in the draft box bubbles to the row (K51), so it selects WIP like any press on the row
  * (plain, or with Ctrl/Shift as a row click); it is not a drag start, and the click that follows
@@ -13,24 +10,12 @@ const PERSIST_MS = 300;
 const keepClick = (e: MouseEvent) => e.stopPropagation();
 
 /**
- * The inline draft summary (K48): a compact rounded text box, "// WIP" as its placeholder, whose text
- * prefills sub-project #2's commit summary (`wipDraft.ts`). Its text is local state with a
- * debounced persist, so typing re-renders this box alone, never the memoized rows.
+ * The inline draft summary (K48): a compact rounded text box, "// WIP" as its placeholder. Its text
+ * is the WIP draft's summary, shared with the commit box (spec #2 §8.2; `commit/draft.ts`).
  */
 function DraftInput({ repoId, worktreePath }: { repoId: string; worktreePath: string }) {
-  const [text, setText] = useState(() => readWipDraft(repoId, worktreePath));
-  const persist = useMemo(() => debounce((t: string) => writeWipDraft(repoId, worktreePath, t), PERSIST_MS), [repoId, worktreePath]);
-  // Leaving (or switching worktree) never loses the last keystrokes.
-  useEffect(() => () => void persist.flush(), [persist]);
-  const lastKey = useRef(`${repoId}\0${worktreePath}`);
-  useEffect(() => {
-    const k = `${repoId}\0${worktreePath}`;
-    if (lastKey.current !== k) {
-      lastKey.current = k;
-      setText(readWipDraft(repoId, worktreePath));
-    }
-  }, [repoId, worktreePath]);
-
+  const [draft, setDraft] = useWipDraft(repoId, worktreePath);
+  const text = draft.summary;
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // Nothing typed here reaches the graph's or the app's shortcuts.
     if (!isEditableTarget(e.target)) return;
@@ -38,7 +23,7 @@ function DraftInput({ repoId, worktreePath }: { repoId: string; worktreePath: st
     if (e.key === 'Escape' || e.key === 'Enter') {
       const grid = e.currentTarget.closest<HTMLElement>('[role="grid"]');
       e.currentTarget.blur();
-      void persist.flush();
+      flushDrafts();
       if (e.key === 'Escape') {
         e.preventDefault();
         grid?.focus();
@@ -53,19 +38,17 @@ function DraftInput({ repoId, worktreePath }: { repoId: string; worktreePath: st
         type="text"
         aria-label="Commit summary draft"
         placeholder="// WIP"
-        maxLength={WIP_DRAFT_MAX}
         spellCheck={false}
         autoComplete="off"
         value={text}
         onClick={keepClick}
         onKeyDown={onKeyDown}
-        onChange={(e) => {
-          setText(e.target.value);
-          persist(e.target.value);
-        }}
-        onBlur={() => void persist.flush()}
+        onChange={(e) => setDraft({ ...draft, summary: e.target.value })}
+        onBlur={flushDrafts}
       />
-      {text.length > WIP_DRAFT_COUNTER_FROM && <span className="wip-counter" data-testid="wip-counter">{text.length}/{WIP_DRAFT_MAX}</span>}
+      {text.length > WIP_DRAFT_COUNTER_FROM && (
+        <span className={`wip-counter${text.length > WIP_DRAFT_WARN_FROM ? ' warn' : ''}`} data-testid="wip-counter">{text.length}</span>
+      )}
     </span>
   );
 }

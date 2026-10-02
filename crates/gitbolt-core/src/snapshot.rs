@@ -3,11 +3,11 @@
 use crate::error::GbError;
 use crate::git::GitCli;
 use crate::graph::{layout, LayoutNode, NodeKind, Parent};
-use crate::payload::{FileListPayload, GraphPayload, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
+use crate::payload::{FileListPayload, GraphPayload, GraphWorktree, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
 use crate::refs::{read_refs, RefKind, RepoRefs};
 use crate::remotes::HostKind;
 use crate::status::{parse_porcelain_v2, status_raw, summarize, WipCounts};
-use crate::walk::{walk, WalkOptions};
+use crate::walk::{walk, WalkOptions, WalkResult};
 use crate::worktree::{list_worktrees, Worktree};
 use gix::ObjectId;
 use std::collections::{HashMap, HashSet};
@@ -28,12 +28,39 @@ pub struct BuildOptions {
     pub wip_cache: Option<Arc<WipCache>>,
     /// Run status for every worktree even when cached (tab activation, spec §4.4).
     pub rescan: bool,
+    /// The worktree laid out as the open one: its HEAD, its WIP at row 0 (spec #2 §11.2).
+    /// `None`: the `workdir` the graph is built in.
+    pub active: Option<PathBuf>,
+    /// The handle's walk cache.
+    pub walk_cache: Option<Arc<Mutex<Option<WalkCache>>>>,
 }
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None, no_pin: false, wip_cache: None, rescan: false }
+        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None, no_pin: false, wip_cache: None, rescan: false, active: None, walk_cache: None }
     }
+}
+
+/// The last walk a handle made, reused while the tips, the window and the stash set are the same
+/// (spec #2 §11.2, Deviation 1): a switch of the active worktree re-lays out without walking.
+pub struct WalkCache {
+    key: (Vec<ObjectId>, usize, Vec<ObjectId>),
+    walked: Arc<WalkResult>,
+    /// How many walks went through this slot (the tests count them per handle: a global
+    /// counter would see the walks of tests running in parallel).
+    walks: usize,
+}
+
+impl std::fmt::Debug for WalkCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WalkCache").field("tips", &self.key.0.len()).field("limit", &self.key.1).field("commits", &self.walked.commits.len()).finish()
+    }
+}
+
+/// How many revwalks a handle's graph builds made (tests).
+#[cfg(any(test, feature = "testing"))]
+pub fn walks(cache: &Mutex<Option<WalkCache>>) -> usize {
+    cache.lock().ok().and_then(|c| c.as_ref().map(|w| w.walks)).unwrap_or(0)
 }
 
 /// One worktree's status: counts for the WIP row, and a digest of the raw porcelain output so
@@ -217,6 +244,14 @@ pub async fn build_graph(repo: gix::ThreadSafeRepository, workdir: PathBuf, cli:
 /// body`), in walk order, for find (spec §8.7).
 pub async fn build_graph_with_text(repo: gix::ThreadSafeRepository, workdir: PathBuf, cli: GitCli, opts: BuildOptions) -> Result<(GraphPayload, Vec<(ObjectId, String)>), GbError> {
     let worktrees = list_worktrees(&cli, &workdir).await?;
+    // `active` must be one of the usable worktrees (a crafted request can't lay out, or read the
+    // status of, an arbitrary directory); checked against this list, so no second listing.
+    if let Some(active) = &opts.active {
+        let wanted = canonical(active);
+        if !worktrees.iter().any(|w| !w.bare && !w.prunable && canonical(&w.path) == wanted) {
+            return Err(GbError::new(crate::error::GbErrorKind::InvalidInput, format!("{} is not a worktree of this repository", active.display())));
+        }
+    }
     let wip = collect_wip(&cli, &worktrees, opts.wip_cache.as_deref(), opts.rescan).await;
     tokio::task::spawn_blocking(move || assemble(&repo.to_thread_local(), &worktrees, &wip, &workdir, &opts))
         .await
@@ -245,7 +280,7 @@ pub(crate) fn graph_tips(refs: &RepoRefs, worktrees: &[Worktree]) -> Vec<ObjectI
 /// are `reusable` keeps them unless `rescan`; every status that does run refreshes the cache
 /// (stamped before the read, so an older read never replaces a newer one).
 async fn collect_wip(cli: &GitCli, worktrees: &[Worktree], cache: Option<&WipCache>, rescan: bool) -> Vec<(usize, WipCounts)> {
-    let jobs = worktrees.iter().enumerate().filter(|(_, w)| !w.bare && !w.prunable && w.head.is_some() && w.path.is_dir()).map(|(i, w)| async move {
+    let jobs = worktrees.iter().enumerate().filter(|(_, w)| !w.bare && !w.prunable && w.path.is_dir()).map(|(i, w)| async move {
         if !rescan
             && let Some(e) = cache.and_then(|c| c.reusable(&w.path))
         {
@@ -297,12 +332,23 @@ enum Entry {
 }
 
 fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCounts)], workdir: &Path, opts: &BuildOptions) -> Result<(GraphPayload, Vec<(ObjectId, String)>), GbError> {
-    let refs = read_refs(repo)?;
+    let mut refs = read_refs(repo)?;
     let stash_ids: HashSet<ObjectId> = refs.stashes.iter().map(|s| s.id).collect();
 
+    // The tips come from the handle's own HEAD, whichever worktree is active: the active one's
+    // HEAD is among the worktrees' anyway, and the same tips keep the walk cache valid across
+    // a switch.
     let tips = graph_tips(&refs, worktrees);
-    let walked = walk(repo, &tips, &WalkOptions { limit: opts.limit, first_parent_only: stash_ids.clone() })?;
+    let walked = cached_walk(repo, tips, &stash_ids, opts)?;
     let commits = &walked.commits;
+
+    // The active worktree's HEAD replaces the handle's (`read_refs` reads the handle's own).
+    let active = opts.active.as_deref().map(canonical);
+    if let Some(active) = &active
+        && let Some(w) = worktrees.iter().find(|w| &canonical(&w.path) == active)
+    {
+        refs.head = crate::refs::HeadInfo { branch: w.branch.clone(), target: w.head, detached: w.branch.is_none() && w.head.is_some(), unborn: w.head.is_none() };
+    }
     let index: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
 
     let pinned_ref_candidate = if opts.no_pin { None } else { opts.pinned_ref.clone().or_else(|| default_trunk(&refs)) };
@@ -328,11 +374,22 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
     // WIP placement (spec §8.6): the open worktree's WIP is "now", row 0, whatever the dates of
     // the commits below it; every other worktree's WIP docks directly above its HEAD commit,
     // several on one commit stacked by worktree name.
-    let here = canonical(workdir);
+    let here = active.unwrap_or_else(|| canonical(workdir));
     let mut current_wip = None;
     let mut wip_by_head: HashMap<usize, Vec<usize>> = HashMap::new();
+    // An unborn worktree (no HEAD yet) has changes but no commit to dock above: its WIP row has
+    // no parent and sits at the top, so the first commit is reachable.
+    let mut unborn_wip: Vec<usize> = vec![];
     for (k, (wt, _)) in wip.iter().enumerate() {
         let w = &worktrees[*wt];
+        if w.head.is_none() {
+            if current_wip.is_none() && canonical(&w.path) == here {
+                current_wip = Some(k);
+            } else {
+                unborn_wip.push(k);
+            }
+            continue;
+        }
         let Some(&ci) = w.head.and_then(|h| index.get(&h)) else { continue };
         if current_wip.is_none() && canonical(&w.path) == here {
             current_wip = Some(k);
@@ -348,6 +405,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
     }
     let mut entries = Vec::with_capacity(commits.len() + wip.len());
     entries.extend(current_wip.map(Entry::Wip));
+    entries.extend(unborn_wip.into_iter().map(Entry::Wip));
     let mut row_of_commit = vec![0u32; commits.len()];
     for (ci, slot) in row_of_commit.iter_mut().enumerate() {
         for &k in wip_by_head.get(&ci).map(Vec::as_slice).unwrap_or(&[]) {
@@ -360,9 +418,9 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
     // The topmost WIP on the pinned tip rides the trunk's lane 0: nothing else is pinned above
     // the tip, so its dashed line runs down lane 0 into the tip (any other WIP on that commit
     // takes its own lane).
-    let head_of = |k: usize| index[&worktrees[wip[k].0].head.expect("filtered")];
+    let head_of = |k: usize| worktrees[wip[k].0].head.map(|h| index[&h]);
     let pinned_wip = entries.iter().find_map(|e| match *e {
-        Entry::Wip(k) if Some(commits[head_of(k)].id) == pinned_tip && pinned.contains(&head_of(k)) => Some(k),
+        Entry::Wip(k) if head_of(k).is_some_and(|h| Some(commits[h].id) == pinned_tip && pinned.contains(&h)) => Some(k),
         _ => None,
     });
     let nodes: Vec<LayoutNode> = entries
@@ -377,7 +435,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                     time: c.committer_time,
                 }
             }
-            Entry::Wip(k) => LayoutNode { parents: vec![Parent::Row(row_of_commit[head_of(*k)])], kind: NodeKind::Wip, pinned: pinned_wip == Some(*k), time: i64::MAX },
+            Entry::Wip(k) => LayoutNode { parents: head_of(*k).map(|h| Parent::Row(row_of_commit[h])).into_iter().collect(), kind: NodeKind::Wip, pinned: pinned_wip == Some(*k), time: i64::MAX },
         })
         .collect();
     let lay = layout(&nodes, reserve_trunk);
@@ -430,7 +488,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                         author_email: String::new(),
                         author_time: 0,
                         committer_time: 0,
-                        parents: vec![wt.head.expect("filtered").to_string()],
+                        parents: wt.head.map(|h| h.to_string()).into_iter().collect(),
                         mr_refs: vec![],
                         wip: Some(WipPayload {
                             worktree_path: wt.path.display().to_string(),
@@ -448,9 +506,16 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         .collect();
 
     let texts = commits.iter().map(|c| (c.id, format!("{}\n{}", c.summary, c.body).to_lowercase())).collect();
+    // 2D-T6 begin
+    let in_progress: std::collections::BTreeMap<String, crate::in_progress::InProgress> = worktrees
+        .iter()
+        .filter(|w| !w.bare && !w.prunable)
+        .filter_map(|w| Some((w.path.display().to_string(), crate::in_progress::read(&w.path).ok()??)))
+        .collect();
+    // 2D-T6 end
     let payload = GraphPayload {
         rows,
-        labels: build_labels(&refs, worktrees, workdir, &index, &row_of_commit),
+        labels: build_labels(&refs, worktrees, &here, &index, &row_of_commit),
         max_lanes: lay.max_lanes,
         pinned_ref,
         head: HeadPayload {
@@ -461,21 +526,57 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         },
         truncated: walked.truncated,
         open_worktree: worktrees.iter().find(|w| !w.bare && !w.prunable && canonical(&w.path) == here).map(|w| w.path.display().to_string()),
+        // 2C T2: each worktree's in-progress kind, from 2D's map (one open per worktree).
+        worktrees: worktrees
+            .iter()
+            .filter(|w| !w.bare && !w.prunable)
+            .map(|w| {
+                let path = w.path.display().to_string();
+                let in_progress = in_progress.get(&path).map(|s| match s {
+                    crate::in_progress::InProgress::Merge { .. } => "merge".to_string(),
+                    crate::in_progress::InProgress::Rebase { .. } => "rebase".to_string(),
+                    crate::in_progress::InProgress::Other { what } => what.clone(),
+                });
+                GraphWorktree { path, branch: w.branch.clone(), head: w.head.map(|h| h.to_string()), is_main: w.is_main, locked: w.locked, in_progress }
+            })
+            .collect(),
+        in_progress,
     };
     Ok((payload, texts))
+}
+
+/// The walk from `tips`, served from the handle's walk cache when the tips, the window and the
+/// stash set are the ones it last walked (commits are immutable, so nothing else can differ).
+fn cached_walk(repo: &gix::Repository, tips: Vec<ObjectId>, stash_ids: &HashSet<ObjectId>, opts: &BuildOptions) -> Result<Arc<WalkResult>, GbError> {
+    let mut first_parent: Vec<ObjectId> = stash_ids.iter().copied().collect();
+    first_parent.sort();
+    let key = (tips, opts.limit, first_parent);
+    let cached = opts.walk_cache.as_ref().and_then(|c| c.lock().ok()?.as_ref().filter(|w| w.key == key).map(|w| w.walked.clone()));
+    if let Some(w) = cached {
+        return Ok(w);
+    }
+    let w = Arc::new(walk(repo, &key.0, &WalkOptions { limit: opts.limit, first_parent_only: stash_ids.clone() })?);
+    if let Some(c) = &opts.walk_cache
+        && let Ok(mut slot) = c.lock()
+    {
+        let walks = slot.as_ref().map_or(0, |s| s.walks) + 1;
+        *slot = Some(WalkCache { key, walked: w.clone(), walks });
+    }
+    Ok(w)
 }
 
 fn canonical(p: &Path) -> PathBuf {
     p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
 }
 
-fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], workdir: &Path, index: &HashMap<ObjectId, usize>, row_of_commit: &[u32]) -> Vec<RefLabel> {
-    let here = canonical(workdir);
+/// `here`: the canonical open (active) worktree.
+fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], here: &Path, index: &HashMap<ObjectId, usize>, row_of_commit: &[u32]) -> Vec<RefLabel> {
     let checked_out_elsewhere: HashMap<&str, String> = worktrees
         .iter()
         .filter(|w| canonical(&w.path) != here)
         .filter_map(|w| w.branch.as_deref().map(|b| (b, w.path.display().to_string())))
         .collect();
+    let checked_out: HashMap<&str, String> = worktrees.iter().filter_map(|w| w.branch.as_deref().map(|b| (b, w.path.display().to_string()))).collect();
     let row_of = |id: &ObjectId| index.get(id).map(|&i| row_of_commit[i]);
     let host_name = |remote: &str| refs.remote_host_names.get(remote).cloned();
     let host = |remote: &str| refs.remote_hosts.get(remote).copied().unwrap_or(HostKind::Generic);
@@ -502,6 +603,7 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], workdir: &Path, index: 
             tag: false,
             is_head: refs.head.branch.as_deref() == Some(local.full_name.as_str()),
             worktree: checked_out_elsewhere.get(local.full_name.as_str()).cloned(),
+            checked_out: checked_out.get(local.full_name.as_str()).cloned(),
         });
     }
     // Remote-only refs: one label per (commit, branch name), so the same branch on several
@@ -522,19 +624,19 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], workdir: &Path, index: 
             Some(&i) => labels[i].remotes.push(remote_label),
             None => {
                 remote_only.insert((rr.target, branch), labels.len());
-                labels.push(RefLabel { row, name: branch.to_string(), local: None, remotes: vec![remote_label], tag: false, is_head: false, worktree: None });
+                labels.push(RefLabel { row, name: branch.to_string(), local: None, remotes: vec![remote_label], tag: false, is_head: false, worktree: None, checked_out: None });
             }
         }
     }
     for t in refs.refs.iter().filter(|r| r.kind == RefKind::Tag) {
         if let Some(row) = row_of(&t.target) {
-            labels.push(RefLabel { row, name: t.short_name.clone(), local: None, remotes: vec![], tag: true, is_head: false, worktree: None });
+            labels.push(RefLabel { row, name: t.short_name.clone(), local: None, remotes: vec![], tag: true, is_head: false, worktree: None, checked_out: None });
         }
     }
     if refs.head.detached
         && let Some(row) = refs.head.target.as_ref().and_then(row_of)
     {
-        labels.push(RefLabel { row, name: "HEAD".into(), local: None, remotes: vec![], tag: false, is_head: true, worktree: None });
+        labels.push(RefLabel { row, name: "HEAD".into(), local: None, remotes: vec![], tag: false, is_head: true, worktree: None, checked_out: None });
     }
     let priority = |l: &RefLabel| if l.is_head { 0 } else if l.local.is_some() { 1 } else if !l.tag { 2 } else { 3 };
     labels.sort_by_key(|l| (l.row, priority(l)));
@@ -721,6 +823,19 @@ mod tests {
         assert!(g.rows.is_empty());
         assert!(g.head.unborn);
         assert_eq!(g.pinned_ref, None);
+    }
+
+    #[tokio::test]
+    async fn unborn_repo_with_changes_has_a_lone_parentless_wip_row() {
+        let r = TestRepo::new();
+        fixtures::unborn(&r);
+        std::fs::write(r.path().join("first.txt"), "hi\n").unwrap();
+        let g = build(&r, BuildOptions::default()).await;
+        assert!(g.head.unborn);
+        assert_eq!(g.rows.len(), 1, "only the WIP row");
+        assert_eq!(g.rows[0].kind, NodeKind::Wip);
+        assert!(g.rows[0].parents.is_empty());
+        assert_eq!(g.rows[0].wip.as_ref().unwrap().added + g.rows[0].wip.as_ref().unwrap().modified, 1);
     }
 
     #[tokio::test]
@@ -1280,7 +1395,9 @@ mod tests {
                     parents: row.parents.iter().map(|p| summary.get(p.as_str()).expect("parent in window").to_string()).collect(),
                 })
                 .collect();
-            out.push(Case { name, rows, labels: g.labels.clone(), pinned_ref: g.pinned_ref.clone() });
+            // `checked_out` names a temp dir: left out, so the vectors stay byte-stable.
+            let labels = g.labels.iter().cloned().map(|l| RefLabel { checked_out: None, ..l }).collect();
+            out.push(Case { name, rows, labels, pinned_ref: g.pinned_ref.clone() });
         }
         let json = serde_json::to_string_pretty(&serde_json::json!({
             "_comment": "Generated by gitbolt-core snapshot::tests::membership_vectors (real build_graph layouts). Regenerate: GITBOLT_UPDATE_TESTDATA=1 cargo test -p gitbolt-core membership_vectors",
@@ -1293,5 +1410,26 @@ mod tests {
             std::fs::write(&path, &json).unwrap();
         }
         assert_eq!(std::fs::read_to_string(&path).unwrap_or_default(), json, "testdata/graph-membership.json is stale: regenerate it (see this test's doc comment)");
+    }
+
+    /// Spec #2 §13.2, Deviation 1: every worktree's state, keyed as its WIP row spells it.
+    #[tokio::test]
+    async fn the_graph_carries_each_worktrees_in_progress_state() {
+        let r = TestRepo::new();
+        r.write("c.txt", "base\n");
+        r.git(&["add", "c.txt"]);
+        r.git(&["commit", "-q", "-m", "base"]);
+        r.switch_new("feature");
+        r.write("c.txt", "feature\n");
+        r.git(&["commit", "-q", "-am", "feature"]);
+        r.switch("main");
+        r.write("c.txt", "main\n");
+        r.git(&["commit", "-q", "-am", "main"]);
+        assert!(r.try_git(&["merge", "--no-edit", "feature"]).is_err());
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!(g.in_progress.len(), 1, "{:?}", g.in_progress);
+        let (path, state) = g.in_progress.iter().next().unwrap();
+        assert_eq!(Some(path.as_str()), g.open_worktree.as_deref());
+        assert!(matches!(state, crate::in_progress::InProgress::Merge { conflicted: 1, .. }));
     }
 }

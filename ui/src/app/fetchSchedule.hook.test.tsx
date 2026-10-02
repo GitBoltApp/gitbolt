@@ -17,7 +17,7 @@ const { useAppState, DEFAULT_SETTINGS } = await import('./state');
 const { useOps } = await import('./ops');
 const { ERROR_TOAST_MS, useToast } = await import('../ui/toast');
 
-const repo = { id: 4, path: '/r', name: 'r' };
+const repo = { id: 4, path: '/r', name: 'r', worktree: '/r' };
 const rt = () => useRuntime.getState().tabs.t!;
 
 beforeEach(() => {
@@ -32,16 +32,29 @@ beforeEach(() => {
 describe('runFetch', () => {
   it('a done fetch records the time and clears an earlier skip', async () => {
     useRuntime.getState().patch('t', { fetchSkipped: 'x' });
-    api.fetch.mockResolvedValue({ status: 'done', changed: true });
+    api.fetch.mockResolvedValue({ status: 'done', changed: true, server: { lines: 0, warning: null }, op: 1 });
     await runFetch('t', false);
     expect(api.fetch).toHaveBeenCalledWith(4, false);
     expect(rt().lastFetchAt).toBeGreaterThan(0);
     expect(rt().fetchSkipped).toBeNull();
   });
 
+  it('a user fetch with server output links it; a background one toasts only a warning (spec #2 §12.4)', async () => {
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true, server: { lines: 1, warning: null }, op: 4 });
+    await runFetch('t', false);
+    expect(useToast.getState().actions.map((a) => a.label)).toEqual(['Server output (1 line)']);
+    useToast.getState().dismiss();
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true, server: { lines: 1, warning: null }, op: 5 });
+    await runFetch('t', true);
+    expect(useToast.getState().message).toBeNull();
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true, server: { lines: 1, warning: 'fatal: mirror out of sync' }, op: 6 });
+    await runFetch('t', true);
+    expect(useToast.getState().message).toBe('Background fetch of r: the server reported a problem');
+  });
+
   it('a fetch that worked shows no toast, user-initiated or background', async () => {
     for (const [background, changed] of [[true, false], [false, false], [false, true]] as const) {
-      api.fetch.mockResolvedValueOnce({ status: 'done', changed });
+      api.fetch.mockResolvedValueOnce({ status: 'done', changed, server: { lines: 0, warning: null }, op: 1 });
       await runFetch('t', background);
       expect(useToast.getState().message).toBeNull();
     }
@@ -56,7 +69,7 @@ describe('runFetch', () => {
       expect(s.message).toBe('Fetch failed: Authentication failed (git@h: Permission denied (publickey).)');
       expect(s.action?.label).toBe('Activity log');
       // A quick retry that works doesn't hide the failure still on screen.
-      api.fetch.mockResolvedValueOnce({ status: 'done', changed: false });
+      api.fetch.mockResolvedValueOnce({ status: 'done', changed: false, server: { lines: 0, warning: null }, op: 1 });
       await runFetch('t', false);
       expect(useToast.getState().message).toBe('Fetch failed: Authentication failed (git@h: Permission denied (publickey).)');
       vi.advanceTimersByTime(5000);
@@ -78,7 +91,7 @@ describe('runFetch', () => {
   });
 
   it('background errors go to the bell, user errors to a toast; a cancel is quiet', async () => {
-    api.fetch.mockResolvedValueOnce({ status: 'done', changed: false });
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: false, server: { lines: 0, warning: null }, op: 1 });
     await runFetch('t', true);
     api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'boom' });
     await runFetch('t', true);
@@ -112,7 +125,7 @@ describe('runFetch', () => {
   });
 
   it('an outage reaches the bell once, not on every background tick (K30)', async () => {
-    api.fetch.mockResolvedValueOnce({ status: 'done', changed: false });
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: false, server: { lines: 0, warning: null }, op: 1 });
     await runFetch('t', true);
     for (let i = 0; i < 3; i++) {
       api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'Could not resolve host: h' });
@@ -121,7 +134,7 @@ describe('runFetch', () => {
     expect(useOps.getState().errors.map((e) => e.message)).toEqual(['Fetch failed (r): Could not resolve host: h']);
     expect(useOps.getState().unread).toBe(1);
     // Back, then down again: that's news.
-    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true });
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true, server: { lines: 0, warning: null }, op: 1 });
     await runFetch('t', true);
     api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'boom' });
     await runFetch('t', true);
@@ -141,7 +154,7 @@ function Scheduled({ repoId }: { repoId?: number }) {
 describe('useFetchScheduler', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    api.fetch.mockResolvedValue({ status: 'done', changed: false });
+    api.fetch.mockResolvedValue({ status: 'done', changed: false, server: { lines: 0, warning: null }, op: 1 });
   });
   afterEach(() => vi.useRealTimers());
 

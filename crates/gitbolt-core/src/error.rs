@@ -48,6 +48,23 @@ pub enum ErrorDetail {
     AutostashConflict { paths: Vec<String>, target: String },
     /// `git stash apply --index` refused the index: ask "Apply without restoring what was staged?"
     ApplyWithoutIndex,
+    // --- 2C T1: error details ---
+    /// A checkout (or worktree add) of a branch another worktree has checked out (spec #2 §9.3):
+    /// the toast offers [Switch to it] [Open in a new tab]. `worktree` is as the UI shows it.
+    /// (`Box<str>`, as `IndexLock.path`: `GbError` stays under clippy's `result_large_err`.)
+    CheckedOutElsewhere { branch: Box<str>, worktree: Box<str> },
+    /// A hard reset over changes (§9.4): "Reset main to a1b2c3 and discard changes to 4 files?
+    /// You can undo this." Confirmed by sending again with `discard`.
+    ResetDiscards { branch: Box<str>, to: Box<str>, files: u32 },
+    // --- end 2C T1 ---
+    // --- 2D T15 ---
+    /// Mark resolved on a file that still has conflict markers (spec #2 §13.3): ask first, then
+    /// send again with `confirmMarkers`.
+    MarkersRemain { path: Box<str> },
+    /// Take current / Take incoming over a file the user edited (review M4): "Discard your edits
+    /// to <path>?", then send again with `confirmDiscard`.
+    DiscardEdits { path: Box<str> },
+    // --- end 2D T15 ---
 }
 
 #[derive(Debug, Clone, Serialize, TS, thiserror::Error)]
@@ -94,6 +111,13 @@ impl GbError {
     pub fn stale(message: impl Into<String>) -> Self {
         Self::new(GbErrorKind::Stale, message)
     }
+
+    // --- 2C T1: checked out elsewhere ---
+    pub fn checked_out_elsewhere(branch: &str, shown: &str) -> Self {
+        Self::new(GbErrorKind::InvalidInput, format!("{branch} is checked out in {shown}."))
+            .with_detail(ErrorDetail::CheckedOutElsewhere { branch: branch.into(), worktree: shown.into() })
+    }
+    // --- end 2C T1 ---
 }
 
 /// `refs/heads/x` → `x`, `refs/remotes/o/x` → `o/x`, `refs/tags/v` → `v`; anything else as is.
@@ -211,4 +235,16 @@ mod tests {
         assert_eq!(short_ref("refs/remotes/origin/main"), "origin/main");
         assert_eq!(short_ref("refs/tags/v1"), "v1");
     }
+
+    // --- 2C T1: error details ---
+    #[test]
+    fn the_2c_details_serialize_for_the_ui() {
+        let e = GbError::checked_out_elsewhere("feature/x", "../shop-feature-x");
+        assert_eq!(e.kind, GbErrorKind::InvalidInput);
+        assert_eq!(e.message, "feature/x is checked out in ../shop-feature-x.");
+        assert_eq!(serde_json::to_value(&e).unwrap()["detail"], serde_json::json!({"kind": "checkedOutElsewhere", "branch": "feature/x", "worktree": "../shop-feature-x"}));
+        let d = ErrorDetail::ResetDiscards { branch: "main".into(), to: "a1b2c3".into(), files: 4 };
+        assert_eq!(serde_json::to_value(&d).unwrap(), serde_json::json!({"kind": "resetDiscards", "branch": "main", "to": "a1b2c3", "files": 4}));
+    }
+    // --- end 2C T1 ---
 }

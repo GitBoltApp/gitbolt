@@ -1,0 +1,19 @@
+/* Spec #2 §8.1: the commit box sits at the bottom of the WIP panel, at a fixed height. */
+.commit-box { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-top: 1px solid var(--section-border); background: var(--panel-bg1); }
+.commit-fields { display: flex; flex-direction: column; gap: 4px; }
+.commit-summary-row { display: flex; align-items: center; gap: 6px; }
+.commit-summary, .commit-description { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--wip-input-border); border-radius: 4px; background: var(--wip-input-bg); color: var(--text-normal); font: inherit; }
+.commit-summary::placeholder, .commit-description::placeholder { color: var(--wip-input-placeholder); }
+/* Grows with its text to 8 lines, then scrolls. */
+.commit-description { resize: none; field-sizing: content; min-height: calc(2lh + 10px); max-height: calc(8lh + 10px); overflow-y: auto; }
+.commit-counter { flex: none; font-size: 11px; color: var(--text-secondary); }
+.commit-counter.warn { color: var(--orange); }
+.commit-box-row { display: flex; align-items: center; gap: 8px; }
+.commit-amend { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+.commit-button { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.commit-button.primary { color: var(--text-on-accent); background: var(--blue); border: 1px solid var(--blue); border-radius: 4px; padding: 4px 10px; font: inherit; cursor: pointer; }
+.commit-button.primary:hover:not([aria-disabled="true"]) { filter: brightness(1.1); }
+.commit-button[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.commit-button .spin { animation: commit-spin 1s linear infinite; }
+@keyframes commit-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .commit-button .spin { animation: none; } }

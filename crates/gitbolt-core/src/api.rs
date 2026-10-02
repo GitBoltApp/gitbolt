@@ -60,6 +60,11 @@ pub enum Request {
         #[serde(default)]
         #[ts(optional)]
         rescan: Option<bool>,
+        /// The tab's active worktree (spec #2 §11.2): laid out as the open one. Absent: the
+        /// handle's own (the main worktree).
+        #[serde(default)]
+        #[ts(optional)]
+        active: Option<String>,
     },
     CommandLog,
     LaunchRepo,
@@ -203,6 +208,12 @@ pub enum Request {
         #[serde(default)]
         #[ts(optional)]
         confirm_autostash: Option<bool>,
+        // --- 2C T7 ---
+        /// "Apply without restoring what was staged?" was confirmed (a stash's undo applies it).
+        #[serde(default)]
+        #[ts(optional)]
+        without_index: Option<bool>,
+        // --- end 2C T7 ---
     },
     Redo {
         repo: u32,
@@ -213,6 +224,12 @@ pub enum Request {
         #[serde(default)]
         #[ts(optional)]
         confirm_autostash: Option<bool>,
+        // --- 2C T7 ---
+        /// "Apply without restoring what was staged?" was confirmed (a pop's redo applies it).
+        #[serde(default)]
+        #[ts(optional)]
+        without_index: Option<bool>,
+        // --- end 2C T7 ---
     },
     /// What Undo/Redo and the banners show for a worktree (§5.5).
     JournalState { repo: u32, worktree: String },
@@ -244,6 +261,37 @@ pub enum Request {
         drop_stash: Option<bool>,
     },
     // --- end autostash banners (2A T11) ---
+    // --- The pause (2D T2) ---
+    /// A worktree's paused merge or rebase ended outside GitBolt (Deviation 4): settles it (its
+    /// journal entry, its autostash). `WriteResult<null>`; nothing happens when none is over.
+    SettlePaused { repo: u32, worktree: String },
+    // --- end the pause (2D T2) ---
+    // --- 2D T12: conflicted files ---
+    /// A conflicted file for the merge tool (read; spec #2 §13.3): `ConflictFilePayload`, or
+    /// `null` when the path isn't conflicted.
+    ConflictFile { repo: u32, worktree: String, path: String },
+    // --- end 2D T12 ---
+    // --- 2D T15 ---
+    /// Resolve a conflicted file (spec #2 §13.3): `WriteResult<null>`. `base`: the hash
+    /// `conflictFile` reported (a `Text` save is `Stale` if the file changed since).
+    /// `confirmMarkers`: Mark resolved although conflict markers remain. `confirmDiscard`: take a
+    /// side over the user's edits to the file.
+    ResolveFile {
+        repo: u32,
+        worktree: String,
+        path: String,
+        resolution: crate::write::conflict::Resolution,
+        #[serde(default)]
+        #[ts(optional)]
+        base: Option<String>,
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_markers: Option<bool>,
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_discard: Option<bool>,
+    },
+    // --- end 2D T15 ---
     /// A test-only write (spec #2 §18 2A): tests and the harness only; the app doesn't know it.
     #[cfg(any(test, feature = "testing"))]
     TestWrite {
@@ -266,6 +314,264 @@ pub enum Request {
         #[ts(type = "number")]
         dev: u64,
     },
+    // --- 2B T6: save a working file (spec #2 §7.5) ---
+    /// `WriteResult<SaveOutcome>`; `Stale` when the file's bytes no longer hash to `base`.
+    SaveFile { repo: u32, worktree: String, path: String, text: String, base: String },
+    // --- end 2B T6 ---
+    // --- 2B T1: stage and unstage (spec #2 §7.2) ---
+    /// Stage `paths` (`git add -A`): `WriteResult<null>`. An immediate write (§3.6), not
+    /// journaled; the staging undo log records it (§7.6).
+    Stage { repo: u32, worktree: String, paths: Vec<String> },
+    /// Unstage `paths`; `oldPaths`: a rename's sources, unstaged with it (§7.2).
+    Unstage {
+        repo: u32,
+        worktree: String,
+        paths: Vec<String>,
+        #[serde(default)]
+        #[ts(optional)]
+        old_paths: Option<Vec<String>>,
+    },
+    StageAll { repo: u32, worktree: String },
+    UnstageAll { repo: u32, worktree: String },
+    // --- end 2B T1 ---
+    // --- 2B T2: the staging undo log (spec #2 §7.6) ---
+    /// Undo the worktree's newest staging step: `WriteResult<null>`. `Stale` when the index changed
+    /// outside staging (the log is then cleared).
+    StagingUndo { repo: u32, worktree: String },
+    StagingRedo { repo: u32, worktree: String },
+    /// The staging buttons' state when the WIP panel opens (read): `StagingUndoState`.
+    StagingState { repo: u32, worktree: String },
+    // --- end 2B T2 ---
+    // --- 2B T5: commit (spec #2 §8) ---
+    /// Commit (or amend) what's staged, or with `stageAll` everything (§8.1): `WriteResult<CommitOutcome>`.
+    /// A queued write; hooks and signing are git's.
+    Commit {
+        repo: u32,
+        worktree: String,
+        summary: String,
+        #[serde(default)]
+        description: String,
+        #[serde(default)]
+        amend: bool,
+        #[serde(default)]
+        stage_all: bool,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+    },
+    /// §8.3: `git commit --amend --only -F -` with `message`: `WriteResult<CommitOutcome>`.
+    EditHeadMessage {
+        repo: u32,
+        worktree: String,
+        message: String,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+    },
+    /// The HEAD pencil's force-push note (read): the upstream's short name when HEAD is on it, else `null`.
+    HeadOnUpstream { repo: u32, worktree: String },
+    // --- end 2B T5 ---
+    // --- 2C T3: branches ---
+    /// Create branch here / the toolbar Branch (spec #2 §9.1): `WriteResult<null>`.
+    CreateBranch {
+        repo: u32,
+        worktree: String,
+        name: String,
+        start: String,
+        #[serde(default)]
+        #[ts(optional)]
+        start_ref: Option<String>,
+        checkout: bool,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_autostash: Option<bool>,
+    },
+    /// Rename (§9.1): `git branch -m`. `WriteResult<null>`.
+    RenameBranch {
+        repo: u32,
+        worktree: String,
+        from: String,
+        to: String,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+    },
+    /// Set upstream (§9.1); `upstream: null` unsets it. Not journaled: `WriteResult<null>`.
+    SetUpstream { repo: u32, worktree: String, branch: String, upstream: Option<crate::write::branch::UpstreamTarget> },
+    // --- end 2C T3 ---
+    // --- 2C T8: worktrees ---
+    /// Create worktree (spec #2 §11.1): `WriteResult<WorktreeAdded>`. Not journaled.
+    WorktreeAdd { repo: u32, worktree: String, path: String, branch: crate::write::worktree::WorktreeBranch },
+    /// Remove (§11.1): `WriteResult<WorktreeRemoveOutcome>`. Runs in the main worktree.
+    WorktreeRemove {
+        repo: u32,
+        worktree: String,
+        path: String,
+        #[serde(default)]
+        force: bool,
+    },
+    /// The create dialog's default folder (§11.1), a read: `string`.
+    SuggestWorktreePath { repo: u32, branch: String },
+    // --- end 2C T8 ---
+    // --- 2C T4: delete ---
+    /// `Delete | Local | Remote | Both |` (spec #2 §9.2): `WriteResult<DeleteOutcome>`.
+    DeleteBranch {
+        repo: u32,
+        worktree: String,
+        branch: String,
+        local: bool,
+        remote: Option<crate::write::branch_delete::RemoteBranchRef>,
+        #[serde(default)]
+        force: bool,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+    },
+    // --- end 2C T4 ---
+    // --- 2D T9: integrate ---
+    /// Merge `target` into HEAD's branch, or rebase HEAD's branch onto it (spec #2 §13.1):
+    /// `WriteResult<IntegrateOutcome>`. `updateRefs`: the stacked-branches checkbox (absent: git's
+    /// own `rebase.updateRefs`).
+    Integrate {
+        repo: u32,
+        worktree: String,
+        kind: crate::write::integrate::IntegrateKind,
+        target: String,
+        #[serde(default)]
+        #[ts(optional)]
+        update_refs: Option<bool>,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        confirm: crate::write::types::Confirm,
+    },
+    /// The rebase banner's Continue, Skip, Abort (§13.2): `WriteResult<IntegrateOutcome>`.
+    RebaseControl { repo: u32, worktree: String, action: crate::write::rebase::RebaseAction },
+    // --- end 2D T9 ---
+    // --- 2D T10: integrate ---
+    /// What a merge or rebase of `target` would do (read; spec #2 §13.1): relation, predicted
+    /// conflicts, stacked branches.
+    IntegratePreview { repo: u32, worktree: String, kind: crate::write::integrate::IntegrateKind, target: String },
+    /// "Fast-forward Y to X" (§13.1): `WriteResult<IntegrateOutcome>`.
+    FastForward {
+        repo: u32,
+        worktree: String,
+        branch: String,
+        to: String,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+    },
+    /// The merge banner's Abort (§13.2): `WriteResult<IntegrateOutcome>`.
+    MergeAbort { repo: u32, worktree: String },
+    // --- end 2D T10 ---
+    // --- 2B T3: hunks and lines (spec #2 §7.3) ---
+    /// A WIP file's hunks from git, with the blobs they came from (read-only): `HunksPayload`.
+    WipHunks { repo: u32, worktree: String, path: String, staged: bool },
+    /// Stage (or, `staged`, unstage) hunks or lines of one file: `WriteResult<null>`. `Stale` when
+    /// `base` is no longer the file's.
+    StagePatch {
+        repo: u32,
+        worktree: String,
+        path: String,
+        staged: bool,
+        selection: crate::write::patch::StageSelection,
+        base: crate::hunks::WipBase,
+    },
+    // --- end 2B T3 ---
+    // --- 2B T10 ---
+    /// How many changed lines `selection` would stage (or unstage) and discard, after the
+    /// no-newline tie, for the line bar's label (read-only): `SelectionLines`.
+    SelectionLines { repo: u32, worktree: String, path: String, staged: bool, selection: crate::write::patch::StageSelection },
+    // --- end 2B T10 ---
+    // --- 2B T4: discards (spec #2 §7.2–§7.4) ---
+    /// Discard files, hunks or lines, every unstaged change, or everything: `WriteResult<null>`,
+    /// journaled with `before` and `after` snapshots, so Undo and Redo restore them.
+    Discard { repo: u32, worktree: String, scope: crate::write::discard::DiscardScope },
+    // --- end 2B T4 ---
+    // --- 2D T11: push ---
+    /// Push `branch` (spec #2 §12.3): `WriteResult<PushOutcome>`. `target` + `setUpstream`: the
+    /// no-upstream dialog. `lease`: a confirmed force-with-lease.
+    Push {
+        repo: u32,
+        worktree: String,
+        branch: String,
+        #[serde(default)]
+        #[ts(optional)]
+        target: Option<crate::write::sync::PushTarget>,
+        #[serde(default)]
+        #[ts(optional)]
+        set_upstream: Option<bool>,
+        #[serde(default)]
+        #[ts(optional)]
+        lease: Option<crate::write::sync::Lease>,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+    },
+    // --- end 2D T11 ---
+    // --- 2D T14: pull ---
+    /// Pull (spec #2 §12.2): `WriteResult<PullOutcome>`. `branch`: the Sync row on a branch that
+    /// isn't checked out (ff-only; plan 2D Deviation 13).
+    Pull {
+        repo: u32,
+        worktree: String,
+        #[serde(default)]
+        #[ts(optional)]
+        branch: Option<String>,
+        mode: crate::write::sync::PullMode,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        confirm: crate::write::types::Confirm,
+    },
+    // --- end 2D T14 ---
+    // --- 2C T5: checkout ---
+    /// Checkout (spec #2 §9.3): `WriteResult<CheckoutOutcome>`.
+    Checkout {
+        repo: u32,
+        worktree: String,
+        target: crate::write::checkout::CheckoutTarget,
+        #[serde(default)]
+        #[ts(optional)]
+        on_diverged: Option<crate::write::checkout::OnDiverged>,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_autostash: Option<bool>,
+    },
+    // --- end 2C T5 ---
+    // --- 2C T7: stashes ---
+    /// The toolbar Stash, the WIP header's and the WIP row menu's (spec #2 §10):
+    /// `WriteResult<StashPushOutcome>`. `message`: the whole WIP draft ("" for the default).
+    StashPush { repo: u32, worktree: String, message: String },
+    /// Apply, or Pop (§10): `WriteResult<StashApplyOutcome>`. `withoutIndex`: after "Apply
+    /// without restoring what was staged?". A gone `oid` is `NotFound` "That stash is gone".
+    StashApply {
+        repo: u32,
+        worktree: String,
+        oid: String,
+        pop: bool,
+        #[serde(default)]
+        #[ts(optional)]
+        without_index: Option<bool>,
+    },
+    /// Delete (§10): `WriteResult<null>`.
+    StashDrop { repo: u32, worktree: String, oid: String },
+    // --- end 2C T7 ---
+    // --- 2C T6: reset ---
+    /// `Reset X to this commit | Soft | Mixed | Hard |` (spec #2 §9.4): `WriteResult<null>`.
+    /// A hard reset over changes fails `DirtyWorktree` with `ResetDiscards` until it's sent
+    /// again with `discard` (the "discard changes to N files?" was confirmed).
+    Reset {
+        repo: u32,
+        worktree: String,
+        to: String,
+        mode: crate::write::reset::ResetMode,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        #[ts(optional)]
+        discard: Option<bool>,
+    },
+    // --- end 2C T6 ---
 }
 
 impl Request {
@@ -274,6 +580,12 @@ impl Request {
         match self {
             // Remote-tracking refs and objects.
             Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
+            Request::SaveFile { .. } => true,
+            // 2B T1.
+            Request::Stage { .. } | Request::Unstage { .. } | Request::StageAll { .. } | Request::UnstageAll { .. } => true,
+            // 2B T2.
+            Request::StagingUndo { .. } | Request::StagingRedo { .. } => true,
+            Request::StagingState { .. } => false,
             #[cfg(any(test, feature = "testing"))]
             Request::TestWrite { .. } => true,
             // Undo / redo (2A T10); a journal file isn't the repository.
@@ -282,6 +594,60 @@ impl Request {
             // Autostash banners (2A T11): × only edits the journal; Drop stash writes.
             Request::ApplyKeptStash { .. } => true,
             Request::DismissBanner { drop_stash, .. } => drop_stash.unwrap_or(false),
+            // The pause (2D T2): a write (its settle may restore an autostash).
+            Request::SettlePaused { .. } => true,
+            // --- 2D T12 ---
+            Request::ConflictFile { .. } => false,
+            // --- end 2D T12 ---
+            // --- 2D T15 ---
+            Request::ResolveFile { .. } => true,
+            // --- end 2D T15 ---
+            // --- 2B T5 ---
+            Request::Commit { .. } | Request::EditHeadMessage { .. } => true,
+            Request::HeadOnUpstream { .. } => false,
+            // --- end 2B T5 ---
+            // --- 2C T3 ---
+            Request::CreateBranch { .. } | Request::RenameBranch { .. } | Request::SetUpstream { .. } => true,
+            // --- end 2C T3 ---
+            // --- 2C T8 ---
+            Request::WorktreeAdd { .. } | Request::WorktreeRemove { .. } => true,
+            Request::SuggestWorktreePath { .. } => false,
+            // --- end 2C T8 ---
+            // --- 2C T4 ---
+            Request::DeleteBranch { .. } => true,
+            // --- end 2C T4 ---
+            // --- 2D T9: integrate ---
+            Request::Integrate { .. } | Request::RebaseControl { .. } => true,
+            // --- end 2D T9 ---
+            // --- 2D T10: integrate ---
+            Request::FastForward { .. } | Request::MergeAbort { .. } => true,
+            Request::IntegratePreview { .. } => false,
+            // --- end 2D T10 ---
+            // --- 2B T3 ---
+            Request::StagePatch { .. } => true,
+            Request::WipHunks { .. } => false,
+            // --- end 2B T3 ---
+            // --- 2B T10 ---
+            Request::SelectionLines { .. } => false,
+            // --- end 2B T10 ---
+            // --- 2B T4 ---
+            Request::Discard { .. } => true,
+            // --- end 2B T4 ---
+            // --- 2D T11 ---
+            Request::Push { .. } => true,
+            // --- end 2D T11 ---
+            // --- 2D T14 ---
+            Request::Pull { .. } => true,
+            // --- end 2D T14 ---
+            // --- 2C T5: checkout ---
+            Request::Checkout { .. } => true,
+            // --- end 2C T5 ---
+            // --- 2C T7 ---
+            Request::StashPush { .. } | Request::StashApply { .. } | Request::StashDrop { .. } => true,
+            // --- end 2C T7 ---
+            // --- 2C T6: reset ---
+            Request::Reset { .. } => true,
+            // --- end 2C T6 ---
             Request::OpenRepo { .. }
             | Request::LogFrontend { .. }
             | Request::SetDebugLogging { .. }
@@ -348,6 +714,9 @@ pub(crate) struct RepoHandle {
     pub(crate) wip: Arc<crate::snapshot::WipCache>,
     /// The last `graph` window's find state (spec §8.7); `None` until the first graph.
     pub(crate) snapshot: Mutex<Option<Arc<crate::find::FindSnapshot>>>,
+    /// The last graph walk, reused while nothing it walked from moved (spec #2 §11.2): every
+    /// tab on the repository shares it, whichever worktree it has active.
+    pub(crate) walk: Arc<Mutex<Option<crate::snapshot::WalkCache>>>,
 }
 
 /// Decides whether a write may touch a repository (spec #2 §17.2), given its canonical common
@@ -415,6 +784,8 @@ pub struct Api {
     pub(crate) data_dir: PathBuf,
     data_tmp: Option<tempfile::TempDir>,
     pub(crate) clock: crate::journal::Clock,
+    /// The staging undo logs (spec #2 §7.6), in memory: a restart clears them.
+    pub(crate) staging: crate::journal::staging::StagingLogs,
     /// The repositories (canonical common dirs) whose journals this process has recovered
     /// pending entries in: once, at the first open.
     pub(crate) recovered: Mutex<std::collections::HashSet<PathBuf>>,
@@ -503,6 +874,7 @@ impl Api {
         Self {
             cli,
             launch_repo: launch_repo.filter(|p| !p.is_empty()),
+            staging: Default::default(),
             repos: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(1),
             version: OnceCell::new(),
@@ -584,9 +956,11 @@ impl Api {
 
     /// At a repository's first open in this process: a pending entry still in a worktree's
     /// journal means GitBolt stopped mid-operation (§5.1). Every worktree's journal (the main
-    /// one's too, whichever worktree opens first), once; never while one of this process's
-    /// writes holds the repository's lock (the next open retries), and never an entry whose
-    /// owner still runs (another instance's write in flight).
+    /// one's too, whichever worktree opens first), once; not while one of this process's writes
+    /// holds the repository's lock (the next open retries). A free lock doesn't mean no write is
+    /// in flight: a push or pull releases it during its transfer (2D T1). What protects such a
+    /// write's pending entry is its owner: an entry whose owner still runs (this instance, or
+    /// another one) is never recovered.
     fn recover_journals(&self, workdir: &Path, common_dir: &Path) {
         if self.recovered.lock().expect("recovered poisoned").contains(common_dir) {
             return;
@@ -623,12 +997,19 @@ impl Api {
         } else {
             crate::reflog::read_reflog(common_dir, "refs/stash").ok().map(|l| l.into_iter().map(|e| (e.new.to_string(), e.message)).collect())
         };
+        // --- 2C T7: a recorded stash's commit, listed or not ---
+        let objects = gix::open(common_dir).ok();
+        let exists = |oid: &str| objects.as_ref().zip(gix::ObjectId::from_hex(oid.as_bytes()).ok()).is_some_and(|(r, id)| r.has_object(id));
+        // --- end 2C T7 ---
         for (git_dir, root) in worktrees {
             let store = crate::journal::JournalStore::new(&data, &git_dir, &root);
             if let Err(e) = store.update(|j| {
                 j.recover_unless(|o| o.alive(&data));
                 if let Some(stashes) = &stashes {
                     j.resolve_unrecorded(stashes);
+                    // --- 2C T7 ---
+                    j.resolve_stash_moves(stashes, exists);
+                    // --- end 2C T7 ---
                 }
             }) {
                 tracing::warn!(target: "gitbolt_core::write", "journal recovery failed for {}: {e}", root.display());
@@ -671,12 +1052,27 @@ impl Api {
     /// What Undo/Redo and the banners show; expired entries go first (§5.1).
     pub(crate) fn journal_state(&self, root: &Path) -> Result<crate::journal::JournalState, GbError> {
         let store = self.journal(root)?;
-        let busy = gix::open(root).map_err(crate::error::gix_err)?.state().and_then(crate::write::in_progress_name);
+        let repo = gix::open(root).map_err(crate::error::gix_err)?;
+        let busy = repo.state().and_then(crate::write::in_progress_name);
         let now = self.now();
-        store.update(|j| {
+        let mut state = store.update(|j| {
             j.expire(now);
             j.state(busy)
-        })
+        })?;
+        // 2C final I1: an autostash git couldn't restore (refused, conflicts, partial) stays
+        // listed; once it isn't (popped or dropped from another worktree, or outside GitBolt),
+        // its banner's Apply and Drop would fail, so it doesn't show. A recovery or stopped-push
+        // banner is for a stash that may never have been listed: those always show. A stack it
+        // can't read (reftable, an I/O error) hides nothing, as in `recover_journals`.
+        use crate::journal::BannerKind;
+        let common = repo.common_dir();
+        let listed = (!common.join("reftable").is_dir()).then(|| crate::reflog::read_reflog(common, "refs/stash").ok()).flatten();
+        if let Some(listed) = listed {
+            let listed: std::collections::HashSet<String> = listed.into_iter().map(|e| e.new.to_string()).collect();
+            let unrestored = |k: BannerKind| matches!(k, BannerKind::AutostashRefused | BannerKind::AutostashConflicts | BannerKind::AutostashPartial);
+            state.banners.retain(|b| !unrestored(b.kind) || b.stash.as_ref().is_none_or(|oid| listed.contains(oid)));
+        }
+        Ok(state)
     }
 
     /// Holds on every live watcher of the repository (one per tab's worktree).
@@ -918,7 +1314,9 @@ impl Api {
     /// (logging::install_panic_hook) has already logged it with a backtrace.
     pub async fn dispatch(&self, req: Request) -> Result<serde_json::Value, GbError> {
         let method = variant_name(&req);
-        catch_panics(&method, self.dispatch_inner(req)).await
+        // Boxed: `dispatch_inner` holds every request's future, so inline it would make each
+        // caller's future (a Tauri command's, a test's) as large as the largest request's.
+        catch_panics(&method, Box::pin(self.dispatch_inner(req))).await
     }
 
     async fn dispatch_inner(&self, req: Request) -> Result<serde_json::Value, GbError> {
@@ -958,8 +1356,14 @@ impl Api {
                 to_json(())
             }
             Request::OpenRepo { path } => to_json(self.open_repo(&path).await?),
-            Request::Graph { repo, limit, pin, rescan } => {
+            Request::Graph { repo, limit, pin, rescan, active } => {
                 let h = self.handle(repo)?;
+                // Checked against the build's own `git worktree list` (`build_graph_with_text`),
+                // so a switch's relayout runs one git process, not two.
+                let active = match active {
+                    Some(a) => Some(Path::new(&a).canonicalize().map_err(|_| GbError::new(GbErrorKind::InvalidInput, format!("{a} is not a worktree of this repository")))?),
+                    None => None,
+                };
                 let (pinned_ref, no_pin) = match pin {
                     Some(PinSetting::Off) => (None, true),
                     Some(PinSetting::Ref { name }) => (Some(name), false),
@@ -971,6 +1375,8 @@ impl Api {
                     no_pin,
                     wip_cache: Some(h.wip.clone()),
                     rescan: rescan.unwrap_or(false) || !self.status_is_watched(repo),
+                    active,
+                    walk_cache: Some(h.walk.clone()),
                 };
                 let (payload, texts) = build_graph_with_text(h.repo.clone(), h.workdir.clone(), self.cli.clone(), opts).await?;
                 {
@@ -1202,8 +1608,8 @@ impl Api {
                 to_json(())
             }
             // --- Undo / redo (2A T10) ---
-            Request::Undo { repo, worktree, entry, confirm, confirm_autostash } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Undo, entry, confirm.unwrap_or_default(), confirm_autostash.unwrap_or(false)).await?),
-            Request::Redo { repo, worktree, entry, confirm_autostash } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Redo, entry, Default::default(), confirm_autostash.unwrap_or(false)).await?),
+            Request::Undo { repo, worktree, entry, confirm, confirm_autostash, without_index } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Undo, entry, confirm.unwrap_or_default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false)).await?),
+            Request::Redo { repo, worktree, entry, confirm_autostash, without_index } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Redo, entry, Default::default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false)).await?),
             Request::JournalState { repo, worktree } => {
                 let h = self.handle(repo)?;
                 let root = self.worktree_dir(&h, &worktree).await?;
@@ -1214,6 +1620,26 @@ impl Api {
             Request::ApplyKeptStash { repo, worktree, entry, without_index, confirm_autostash } => to_json(crate::journal::autostash::apply_kept(self, repo, &worktree, entry, without_index.unwrap_or(false), confirm_autostash.unwrap_or(false)).await?),
             Request::DismissBanner { repo, worktree, entry, drop_stash } => to_json(crate::journal::autostash::dismiss(self, repo, &worktree, entry, drop_stash.unwrap_or(false)).await?),
             // --- end autostash banners (2A T11) ---
+            // --- The pause (2D T2) ---
+            Request::SettlePaused { repo, worktree } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::SettleIntent).await?),
+            // --- 2C T3 ---
+            Request::CreateBranch { repo, worktree, name, start, start_ref, checkout, expect, confirm_autostash } => {
+                let confirm = crate::write::types::Confirm { autostash: confirm_autostash.unwrap_or(false) };
+                to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::branch::CreateBranch { name, start, start_ref, checkout, confirm }).await?)
+            }
+            Request::RenameBranch { repo, worktree, from, to, expect } => to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::branch::RenameBranch { from, to }).await?),
+            Request::SetUpstream { repo, worktree, branch, upstream } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::branch::SetUpstream { branch, upstream }).await?),
+            // --- end 2C T3 ---
+            // --- end the pause (2D T2) ---
+            // --- 2D T12: conflicted files ---
+            Request::ConflictFile { repo, worktree, path } => to_json(crate::write::conflict::conflict_file(self, repo, &worktree, path).await?),
+            // --- 2D T15 ---
+            Request::ResolveFile { repo, worktree, path, resolution, base, confirm_markers, confirm_discard } => {
+                crate::blob::check_relative(&path)?;
+                to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::conflict::ResolveIntent { path, resolution, base, confirm_markers: confirm_markers.unwrap_or(false), confirm_discard: confirm_discard.unwrap_or(false) }).await?)
+            }
+            // --- end 2D T15 ---
+            // --- end 2D T12 ---
             #[cfg(any(test, feature = "testing"))]
             Request::TestWrite { repo, worktree, expect, intent } => {
                 // A workspace build unifies `testing` into the app's core: without a write guard
@@ -1223,10 +1649,116 @@ impl Api {
                 }
                 crate::write::test_intents::run(self, repo, &worktree, expect, intent).await
             }
+            Request::SaveFile { repo, worktree, path, text, base } => to_json(crate::write::files::save_file(self, repo, &worktree, path, text, base).await?),
             Request::RemoveIndexLock { repo, path, mtime_ms, ino, dev } => {
                 crate::write::index_lock::remove_index_lock(self, repo, &path, mtime_ms, ino, dev).await?;
                 to_json(())
             }
+            // --- 2B T1 ---
+            Request::Stage { repo, worktree, paths } => to_json(crate::write::stage::stage_paths(self, repo, &worktree, crate::write::stage::Which::Stage, paths, Vec::new()).await?),
+            Request::Unstage { repo, worktree, paths, old_paths } => to_json(crate::write::stage::stage_paths(self, repo, &worktree, crate::write::stage::Which::Unstage, paths, old_paths.unwrap_or_default()).await?),
+            Request::StageAll { repo, worktree } => to_json(crate::write::stage::stage_all(self, repo, &worktree, crate::write::stage::Which::Stage).await?),
+            Request::UnstageAll { repo, worktree } => to_json(crate::write::stage::stage_all(self, repo, &worktree, crate::write::stage::Which::Unstage).await?),
+            // --- end 2B T1 ---
+            // --- 2B T2 ---
+            Request::StagingUndo { repo, worktree } => to_json(crate::journal::staging::staging_undo(self, repo, &worktree, crate::journal::staging::Dir::Undo).await?),
+            Request::StagingRedo { repo, worktree } => to_json(crate::journal::staging::staging_undo(self, repo, &worktree, crate::journal::staging::Dir::Redo).await?),
+            Request::StagingState { repo, worktree } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(crate::journal::staging::read_state(self, &root)?)
+            }
+            // --- end 2B T2 ---
+            // --- 2B T5 ---
+            Request::Commit { repo, worktree, summary, description, amend, stage_all, expect } => to_json(crate::write::commit::commit(self, repo, &worktree, summary, description, amend, stage_all, expect).await?),
+            Request::EditHeadMessage { repo, worktree, message, expect } => to_json(crate::write::commit::edit_head_message(self, repo, &worktree, message, expect).await?),
+            Request::HeadOnUpstream { repo, worktree } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(crate::write::commit::head_on_upstream(&self.cli, &root).await?)
+            }
+            // --- end 2B T5 ---
+            // --- 2C T8: worktrees ---
+            Request::WorktreeAdd { repo, worktree, path, branch } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                let path = std::path::PathBuf::from(path);
+                let shown = crate::write::worktree::shown(&self.cli, &root, &path).await;
+                to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::worktree::WorktreeAdd { path, branch, shown }).await?)
+            }
+            Request::WorktreeRemove { repo, worktree, path, force } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                let cwd = crate::write::worktree::remove_cwd(&self.cli, &root).await?.display().to_string();
+                let path = std::path::PathBuf::from(path);
+                let shown = crate::write::worktree::shown(&self.cli, &root, &path).await;
+                to_json(crate::write::run_write(self, repo, &cwd, Default::default(), crate::write::worktree::WorktreeRemove { path, force, shown }).await?)
+            }
+            Request::SuggestWorktreePath { repo, branch } => {
+                let h = self.handle(repo)?;
+                to_json(crate::write::worktree::suggest(&self.cli, &h.workdir, &branch).await?)
+            }
+            // --- end 2C T8 ---
+            // --- 2C T4 ---
+            Request::DeleteBranch { repo, worktree, branch, local, remote, force, expect } => to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::branch_delete::DeleteBranch::new(branch, local, remote, force)).await?),
+            // --- end 2C T4 ---
+            // --- 2D T9: integrate ---
+            Request::Integrate { repo, worktree, kind, target, update_refs, expect, confirm } => to_json(crate::write::integrate::integrate(self, repo, &worktree, kind, target, update_refs, expect, confirm).await?),
+            Request::RebaseControl { repo, worktree, action } => to_json(crate::write::rebase::control(self, repo, &worktree, action).await?),
+            // --- end 2D T9 ---
+            // --- 2D T10: integrate ---
+            Request::IntegratePreview { repo, worktree, kind, target } => to_json(crate::write::integrate::preview(self, repo, &worktree, kind, target).await?),
+            Request::FastForward { repo, worktree, branch, to, expect } => to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::integrate::FastForwardIntent { branch, to }).await?),
+            Request::MergeAbort { repo, worktree } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::integrate::MergeAbortIntent).await?),
+            // --- end 2D T10 ---
+            // --- 2B T3 ---
+            Request::WipHunks { repo, worktree, path, staged } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(crate::hunks::wip_hunks(&self.cli, &root, &path, staged).await?)
+            }
+            Request::StagePatch { repo, worktree, path, staged, selection, base } => to_json(crate::write::stage_patch::stage_patch(self, repo, &worktree, path, staged, selection, base).await?),
+            // --- end 2B T3 ---
+            // --- 2B T10 ---
+            Request::SelectionLines { repo, worktree, path, staged, selection } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(crate::write::stage_patch::selection_lines(&self.cli, &root, &path, staged, &selection).await?)
+            }
+            // --- end 2B T10 ---
+            // --- 2B T4 ---
+            Request::Discard { repo, worktree, scope } => to_json(crate::write::discard::discard(self, repo, &worktree, scope).await?),
+            // --- end 2B T4 ---
+            // --- 2D T11 ---
+            Request::Push { repo, worktree, branch, target, set_upstream, lease, expect } => to_json(crate::write::sync::push(self, repo, &worktree, branch, target, set_upstream.unwrap_or(false), lease, expect).await?),
+            // --- end 2D T11 ---
+            // --- 2D T14 ---
+            Request::Pull { repo, worktree, branch, mode, expect, confirm } => to_json(crate::write::sync::pull(self, repo, &worktree, branch, mode, expect, confirm).await?),
+            // --- end 2D T14 ---
+            // --- 2C T5: checkout ---
+            Request::Checkout { repo, worktree, target, on_diverged, expect, confirm_autostash } => {
+                let confirm = crate::write::types::Confirm { autostash: confirm_autostash.unwrap_or(false) };
+                to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::checkout::Checkout::new(target, on_diverged, confirm)).await?)
+            }
+            // --- end 2C T5 ---
+            // --- 2C T7 ---
+            Request::StashPush { repo, worktree, message } => to_json(crate::write::stash::stash_push(self, repo, &worktree, message).await?),
+            Request::StashApply { repo, worktree, oid, pop, without_index } => to_json(crate::write::stash::stash_apply(self, repo, &worktree, oid, pop, without_index.unwrap_or(false)).await?),
+            Request::StashDrop { repo, worktree, oid } => to_json(crate::write::stash::stash_drop(self, repo, &worktree, oid).await?),
+            // --- end 2C T7 ---
+            // --- 2C T6: reset ---
+            Request::Reset { repo, worktree, to, mode, expect, discard } => {
+                // `X` for the label and the question: the worktree's branch, or `HEAD`.
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                let x = blocking(move || {
+                    let repo = gix::open(&root).map_err(crate::error::gix_err)?;
+                    Ok(crate::write::head_state(&repo)?.branch.unwrap_or_else(|| "HEAD".to_string()))
+                })
+                .await?;
+                to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::reset::Reset { to, mode, discard: discard.unwrap_or(false), x }).await?)
+            }
+            // --- end 2C T6 ---
         }
     }
 
@@ -1301,33 +1833,45 @@ impl Api {
         self.git_version().await?;
         let repo = gix::ThreadSafeRepository::discover(path)
             .map_err(|_| GbError::new(GbErrorKind::NotFound, format!("Not a git repository: {path}")))?;
-        let workdir = repo
+        let opened = repo
             .work_dir()
             .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
             .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "Bare repositories are not supported"))?;
-        let name = workdir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| workdir.display().to_string());
         let common_dir = {
             let local = repo.to_thread_local();
             local.common_dir().canonicalize().unwrap_or_else(|_| local.common_dir().to_path_buf())
         };
+        // One handle per repository (spec #2 §11.2, 2C Deviation 2): whichever worktree opens,
+        // it's the handle of its common dir, and the summary names the worktree opened.
+        let summary = |id: u32, h: &RepoHandle| RepoSummary { id, path: h.workdir.display().to_string(), name: h.name.clone(), worktree: opened.display().to_string() };
+        let open = |repos: &HashMap<u32, Arc<RepoHandle>>| repos.iter().find(|(_, h)| h.common_dir == common_dir).map(|(&id, h)| (id, h.clone()));
+        if let Some((id, h)) = open(&self.repos.lock().expect("repos poisoned")) {
+            return Ok(summary(id, &h));
+        }
+        // The handle lives in the main worktree; a bare main keeps the one opened.
+        let main = crate::worktree::list_worktrees(&self.cli, &opened).await?.into_iter().find(|w| w.is_main && !w.bare && w.path.is_dir()).map(|w| w.path.canonicalize().unwrap_or(w.path));
+        let workdir = main.unwrap_or_else(|| opened.clone());
+        let repo = if workdir == opened { repo } else { gix::ThreadSafeRepository::open(&workdir).map_err(crate::error::gix_err)? };
+        let name = workdir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| workdir.display().to_string());
         // Lock order: `repos`, then `write_locks` (nothing takes them the other way round).
         self.recover_journals(&workdir, &common_dir);
         let mut repos = self.repos.lock().expect("repos poisoned");
-        if let Some((&id, _)) = repos.iter().find(|(_, h)| h.workdir == workdir) {
-            self.writes_for(&common_dir).add_id(id);
-            return Ok(RepoSummary { id, path: workdir.display().to_string(), name });
+        if let Some((id, h)) = open(&repos) {
+            return Ok(summary(id, &h));
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        repos.insert(id, Arc::new(RepoHandle {
+        let h = Arc::new(RepoHandle {
             repo,
-            workdir: workdir.clone(),
-            name: name.clone(),
+            workdir,
+            name,
             common_dir: common_dir.clone(),
             wip: Arc::new(crate::snapshot::WipCache::watched_only()),
             snapshot: Mutex::new(None),
-        }));
+            walk: Arc::default(),
+        });
+        repos.insert(id, h.clone());
         self.writes_for(&common_dir).add_id(id);
-        Ok(RepoSummary { id, path: workdir.display().to_string(), name })
+        Ok(summary(id, &h))
     }
 
     /// The repository's write lock and queue, shared by every handle (worktree tab) of it.
@@ -1353,6 +1897,11 @@ impl Api {
     pub(crate) async fn worktree_dir(&self, h: &RepoHandle, worktree: &str) -> Result<PathBuf, GbError> {
         let invalid = || GbError::new(GbErrorKind::InvalidInput, format!("{worktree} is not a worktree of this repository"));
         let wanted = Path::new(worktree).canonicalize().map_err(|_| invalid())?;
+        // --- 2D T9 review P1: the main worktree needs no `worktree list` ---
+        if h.workdir.canonicalize().is_ok_and(|w| w == wanted) {
+            return Ok(wanted);
+        }
+        // --- end 2D T9 ---
         list_worktrees(&self.cli, &h.workdir)
             .await?
             .into_iter()
@@ -2365,32 +2914,105 @@ mod tests {
         assert_eq!(api.dispatch(list()).await.unwrap().as_array().unwrap().len(), 1, "and the next call retries");
     }
 
-    /// Review Focus 2.
+    // --- 2C T2: one handle per repository ---
+    /// Spec #2 §11.2: a linked worktree's tab reuses the repository's handle (2A Deviation 4,
+    /// one handle per worktree, is reversed: 2C Deviation 2).
     #[tokio::test]
-    async fn two_handles_of_one_repository_share_the_queue() {
+    async fn every_worktree_of_a_repository_opens_one_handle() {
         let r = TestRepo::new();
         fixtures::basic(&r);
         let api = api();
-        let main = open(&api, &r).await as u32;
-        let wt = api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": r.root().join("wt-hotfix")}}))).await.unwrap()["id"].as_u64().unwrap() as u32;
-        assert_ne!(main, wt, "handles are per worktree");
-        let (h1, h2) = (api.handle(main).unwrap(), api.handle(wt).unwrap());
-        assert_eq!(h1.common_dir, h2.common_dir);
-        let w = api.repo_writes(&h1);
-        assert!(Arc::ptr_eq(&w, &api.repo_writes(&h2)));
+        let linked = r.root().join("wt-hotfix");
+        let first = api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": linked}}))).await.unwrap();
+        let main = open(&api, &r).await;
+        assert_eq!(first["id"].as_u64().unwrap(), main, "one handle, whichever worktree opened first");
+        assert_eq!(first["path"].as_str().unwrap(), r.path().canonicalize().unwrap().display().to_string(), "the handle's path is the main worktree");
+        assert_eq!(first["worktree"].as_str().unwrap(), linked.canonicalize().unwrap().display().to_string(), "and the summary names the one opened");
+        let again = api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": r.path()}}))).await.unwrap();
+        assert_eq!(again["worktree"].as_str().unwrap(), r.path().canonicalize().unwrap().display().to_string());
+        // The queue is the repository's, and its one id hears about it (queueChanged per open id).
+        let h = api.handle(main as u32).unwrap();
         let mut rx = api.subscribe();
+        let w = api.repo_writes(&h);
         let ticket = w.queue.enqueue("commit \"x\"", crate::events::OpKind::Commit, 1);
         let mut ids = Vec::new();
         while let Ok(ev) = rx.try_recv() {
-            if let AppEvent::QueueChanged { repo, queued, .. } = ev {
-                assert_eq!(queued.len(), 1);
+            if let AppEvent::QueueChanged { repo, .. } = ev {
                 ids.push(repo);
             }
         }
-        ids.sort_unstable();
-        assert_eq!(ids, [main, wt], "both tabs see it");
+        assert_eq!(ids, [main as u32]);
         drop(ticket);
     }
+
+    #[tokio::test]
+    async fn the_graph_lays_out_the_active_worktree_as_the_open_one() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        let linked = r.root().join("wt-hotfix").canonicalize().unwrap().display().to_string();
+        let main = r.path().canonicalize().unwrap().display().to_string();
+        let g = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "active": linked}}))).await.unwrap();
+        assert_eq!(g["head"]["branch"], "refs/heads/hotfix");
+        assert_eq!(g["openWorktree"].as_str(), Some(linked.as_str()));
+        assert_eq!(g["rows"][0]["wip"]["worktreePath"].as_str(), Some(linked.as_str()), "the active worktree's WIP is row 0");
+        let wts = g["worktrees"].as_array().unwrap();
+        assert_eq!(wts.len(), 2);
+        let m = wts.iter().find(|w| w["isMain"] == true).unwrap();
+        assert_eq!((m["path"].as_str(), m["branch"].as_str()), (Some(main.as_str()), Some("refs/heads/main")));
+        let labels = g["labels"].as_array().unwrap();
+        let label = |n: &str| labels.iter().find(|l| l["name"] == n).unwrap().clone();
+        assert_eq!(label("hotfix")["checkedOut"].as_str(), Some(linked.as_str()));
+        assert_eq!(label("main")["checkedOut"].as_str(), Some(main.as_str()));
+        assert_eq!(label("hotfix")["isHead"], true);
+        assert!(label("feature/login")["checkedOut"].is_null());
+        let plain = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}))).await.unwrap();
+        assert_eq!(plain["head"]["branch"], "refs/heads/main", "without `active`: the handle's (main) worktree");
+        let bad = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "active": "/nonexistent"}}))).await;
+        assert_eq!(bad.unwrap_err().kind, GbErrorKind::InvalidInput);
+        let outside = tempfile::tempdir().unwrap();
+        let bad = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "active": outside.path()}}))).await;
+        assert_eq!(bad.unwrap_err().kind, GbErrorKind::InvalidInput, "an existing folder that isn't one of its worktrees");
+    }
+
+    #[tokio::test]
+    async fn the_sidebar_names_every_branchs_worktree_and_locked_worktrees() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        r.git(&["worktree", "lock", r.root().join("wt-hotfix").to_str().unwrap()]);
+        let api = api();
+        let id = open(&api, &r).await;
+        let s = api.dispatch(req(serde_json::json!({"method": "sidebar", "params": {"repo": id}}))).await.unwrap();
+        let local = |n: &str| s["locals"].as_array().unwrap().iter().find(|b| b["name"] == n).unwrap().clone();
+        assert_eq!(local("main")["checkedOut"].as_str(), Some(r.path().canonicalize().unwrap().display().to_string().as_str()));
+        assert!(local("hotfix")["checkedOut"].as_str().unwrap().ends_with("wt-hotfix"));
+        let wt = s["worktrees"].as_array().unwrap().iter().find(|w| w["isMain"] == false).unwrap().clone();
+        assert_eq!(wt["locked"], true);
+    }
+
+    /// Counted per handle (`snapshot::walks`): a global count would see the walks of the tests
+    /// running in parallel.
+    #[tokio::test]
+    async fn a_second_graph_over_unmoved_refs_reuses_the_walk() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        let h = api.handle(id as u32).unwrap();
+        let graph = |active: Option<String>| req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "active": active}}));
+        api.dispatch(graph(None)).await.unwrap();
+        let walks = crate::snapshot::walks(&h.walk);
+        assert_eq!(walks, 1);
+        let linked = r.root().join("wt-hotfix").canonicalize().unwrap().display().to_string();
+        api.dispatch(graph(Some(linked))).await.unwrap();
+        assert_eq!(crate::snapshot::walks(&h.walk), walks, "the switch's relayout didn't walk");
+        r.commit("moves main");
+        let g = api.dispatch(graph(None)).await.unwrap();
+        assert!(crate::snapshot::walks(&h.walk) > walks, "moved refs walk again");
+        assert_eq!(g["rows"].as_array().unwrap().iter().filter(|row| row["summary"] == "moves main").count(), 1);
+    }
+    // --- end 2C T2 ---
 
     #[tokio::test]
     async fn queue_requests_dispatch() {
@@ -2450,6 +3072,7 @@ mod tests {
             json!({"method": "logFrontend", "params": {"level": "info", "message": "x", "stack": null}}),
             json!({"method": "setDebugLogging", "params": {"debug": false}}),
             json!({"method": "logsDir"}),
+            json!({"method": "stagingState", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "diagnostics", "params": {"ui": {"userAgent": "t", "settings": {}}}}),
             json!({"method": "openLogsFolder"}),
             json!({"method": "graph", "params": {"repo": id, "limit": null}}),
@@ -2501,11 +3124,48 @@ mod tests {
             json!({"method": "journalState", "params": {"repo": id, "worktree": wt}}),
             // Autostash banners (2A T11).
             json!({"method": "dismissBanner", "params": {"repo": id, "worktree": wt, "entry": 999}}),
+            // 2B T5.
+            json!({"method": "headOnUpstream", "params": {"repo": id, "worktree": wt}}),
+            // --- 2C T8 ---
+            json!({"method": "suggestWorktreePath", "params": {"repo": id, "branch": "feature/x"}}),
+            // --- end 2C T8 ---
+            // --- 2D T10: integrate ---
+            json!({"method": "integratePreview", "params": {"repo": id, "worktree": wt, "kind": "merge", "target": "feature/login"}}),
+            // --- end 2D T10 ---
+            // --- 2D T12 ---
+            json!({"method": "conflictFile", "params": {"repo": id, "worktree": wt, "path": "file_0.txt"}}),
+            // --- end 2D T12 ---
+            // 2B T3.
+            json!({"method": "wipHunks", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "staged": false}}),
+            // 2B T10.
+            json!({"method": "selectionLines", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "staged": false, "selection": {"kind": "hunks", "hunks": [0]}}}),
         ]
     }
 
     /// The methods that write (`is_write`), which the never-write test leaves out.
-    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "applyKeptStash", "removeIndexLock"];
+    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "saveFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
+        // --- 2C T5: checkout ---
+        "checkout",
+        // --- end 2C T5 ---
+        // --- 2C T7 ---
+        "stashPush", "stashApply", "stashDrop",
+        // --- end 2C T7 ---
+        // --- 2C T6: reset ---
+        "reset",
+        // --- end 2C T6 ---
+        // --- 2B T4 ---
+        "discard",
+        // --- end 2B T4 ---
+        // --- 2D T9 / T10 ---
+        "integrate", "rebaseControl", "fastForward", "mergeAbort",
+        // --- end 2D T9 / T10 ---
+        // --- 2D T14 ---
+        "pull",
+        // --- end 2D T14 ---
+        // --- 2D T15 ---
+        "resolveFile",
+        // --- end 2D T15 ---
+    ];
 
     /// One request of each write method: the audit checks `is_write` agrees, so a read can't
     /// hide in `WRITE_METHODS`.
@@ -2523,6 +3183,64 @@ mod tests {
             json!({"method": "applyKeptStash", "params": {"repo": id, "worktree": wt, "entry": 1}}),
             // Remove stale lock (2A T12).
             json!({"method": "removeIndexLock", "params": {"repo": id, "path": "/nonexistent/.git/index.lock", "mtimeMs": 0, "ino": 0, "dev": 0}}),
+            // The pause (2D T2).
+            json!({"method": "settlePaused", "params": {"repo": id, "worktree": wt}}),
+            // --- 2C T3 ---
+            json!({"method": "createBranch", "params": {"repo": id, "worktree": wt, "name": "x", "start": "0000000000000000000000000000000000000000", "checkout": false}}),
+            json!({"method": "renameBranch", "params": {"repo": id, "worktree": wt, "from": "a", "to": "b"}}),
+            json!({"method": "setUpstream", "params": {"repo": id, "worktree": wt, "branch": "main", "upstream": null}}),
+            // --- end 2C T3 ---
+            // --- 2C T8 ---
+            json!({"method": "worktreeAdd", "params": {"repo": id, "worktree": wt, "path": "/nonexistent/x", "branch": {"kind": "existing", "name": "main"}}}),
+            json!({"method": "worktreeRemove", "params": {"repo": id, "worktree": wt, "path": "/nonexistent/x"}}),
+            // --- end 2C T8 ---
+            // Save a working file (2B T6): refused as Stale before writing.
+            json!({"method": "saveFile", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "text": "x", "base": "0"}}),
+            // 2B T1.
+            json!({"method": "stage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),
+            json!({"method": "unstage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),
+            json!({"method": "stageAll", "params": {"repo": id, "worktree": wt}}),
+            json!({"method": "unstageAll", "params": {"repo": id, "worktree": wt}}),
+            // 2B T2: both refused as Stale (nothing to undo) before writing.
+            json!({"method": "stagingUndo", "params": {"repo": id, "worktree": wt}}),
+            json!({"method": "stagingRedo", "params": {"repo": id, "worktree": wt}}),
+            // 2B T5: both refused for the empty summary before writing.
+            json!({"method": "commit", "params": {"repo": id, "worktree": wt, "summary": "", "expect": {}}}),
+            json!({"method": "editHeadMessage", "params": {"repo": id, "worktree": wt, "message": ""}}),
+            // 2C T4: refused (no such branch) before writing.
+            json!({"method": "deleteBranch", "params": {"repo": id, "worktree": wt, "branch": "x", "local": true, "remote": null}}),
+            // --- 2D T9: integrate ---
+            json!({"method": "integrate", "params": {"repo": id, "worktree": wt, "kind": "rebase", "target": "main"}}),
+            json!({"method": "rebaseControl", "params": {"repo": id, "worktree": wt, "action": "abort"}}),
+            // --- end 2D T9 ---
+            // --- 2D T10: integrate ---
+            json!({"method": "fastForward", "params": {"repo": id, "worktree": wt, "branch": "x", "to": "main"}}),
+            json!({"method": "mergeAbort", "params": {"repo": id, "worktree": wt}}),
+            // --- end 2D T10 ---
+            // 2B T3: refused as Stale (the empty base) before writing.
+            json!({"method": "stagePatch", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "staged": false, "selection": {"kind": "hunks", "hunks": [0]}, "base": {}}}),
+            // --- 2B T4 ---
+            json!({"method": "discard", "params": {"repo": id, "worktree": wt, "scope": {"kind": "paths", "paths": ["nope.txt"]}}}),
+            // --- end 2B T4 ---
+            // 2D T11: refused (no upstream) before writing.
+            json!({"method": "push", "params": {"repo": id, "worktree": wt, "branch": "main"}}),
+            // --- 2D T14 ---
+            json!({"method": "pull", "params": {"repo": id, "worktree": wt, "mode": "ffOnly"}}),
+            // --- end 2D T14 ---
+            // --- 2C T5: checkout ---
+            json!({"method": "checkout", "params": {"repo": id, "worktree": wt, "target": {"kind": "branch", "name": "main"}}}),
+            // --- end 2C T5 ---
+            // --- 2C T7 ---
+            json!({"method": "stashPush", "params": {"repo": id, "worktree": wt, "message": ""}}),
+            json!({"method": "stashApply", "params": {"repo": id, "worktree": wt, "oid": "0000000000000000000000000000000000000000", "pop": false}}),
+            json!({"method": "stashDrop", "params": {"repo": id, "worktree": wt, "oid": "0000000000000000000000000000000000000000"}}),
+            // --- end 2C T7 ---
+            // --- 2C T6: reset ---
+            json!({"method": "reset", "params": {"repo": id, "worktree": wt, "to": "0000000000000000000000000000000000000000", "mode": "soft"}}),
+            // --- end 2C T6 ---
+            // --- 2D T15 ---
+            json!({"method": "resolveFile", "params": {"repo": id, "worktree": wt, "path": "a.txt", "resolution": {"kind": "asIs"}}}),
+            // --- end 2D T15 ---
         ]
     }
 

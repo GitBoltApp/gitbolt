@@ -54,12 +54,19 @@ function PaletteDialog() {
   useEffect(() => registerKeys('menu', (e) => {
     if (!isTopModal(ref)) return; // a prompt over the palette owns Enter and the arrows
     const { results: rs, cursor: c, run: go, query: q, deferred: d, all: entries } = live.current;
-    if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing) return;
+    if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (e.shiftKey && e.key !== 'Enter') return;
     if (e.key === 'ArrowDown') setCursor(Math.min(rs.length - 1, c + 1));
     else if (e.key === 'ArrowUp') setCursor(Math.max(0, c - 1));
     // The shown results can lag the input (`useDeferredValue` on a busy main thread): Enter then
     // answers the query as typed, its best match (the cursor restarts at the top for new results).
-    else if (e.key === 'Enter') go(q === d ? rs[c] : searchPalette(q, entries)[0]);
+    else if (e.key === 'Enter') {
+      const pick = q === d ? rs[c] : searchPalette(q, entries)[0];
+      if (e.shiftKey) {
+        // Shift+Enter: the entry's alternative (an @ ref's checkout); one without does nothing.
+        if (pick?.alt) { close(); pick.alt(); }
+      } else go(pick);
+    }
     else return;
     e.preventDefault();
     return 'handled';

@@ -25,14 +25,67 @@ import type { Profile } from './gen/Profile';
 import type { ProfileMeta } from './gen/ProfileMeta';
 import type { RepoInfoPayload } from './gen/RepoInfoPayload';
 import type { Request } from './gen/Request';
+import type { SaveOutcome } from './gen/SaveOutcome';
 import type { ScannedRepo } from './gen/ScannedRepo';
 import type { QueueStatePayload } from './gen/QueueStatePayload';
 import type { JournalState } from './gen/JournalState';
+import type { IntegrateOutcome } from './gen/IntegrateOutcome';
+// --- 2D T19 ---
+import type { PullMode } from './gen/PullMode';
+import type { PullOutcome } from './gen/PullOutcome';
+// --- end 2D T19 ---
+import type { RebaseAction } from './gen/RebaseAction';
 import type { UndoOutcome } from './gen/UndoOutcome';
+import type { CommitOutcome } from './gen/CommitOutcome';
+import type { Expect } from './gen/Expect';
+// --- 2C T12 ---
+import type { CheckoutOutcome } from './gen/CheckoutOutcome';
+import type { CheckoutTarget } from './gen/CheckoutTarget';
+import type { OnDiverged } from './gen/OnDiverged';
+import type { ResetMode } from './gen/ResetMode';
+// --- end 2C T12 ---
+import type { IntegrateKind } from './gen/IntegrateKind';
+import type { IntegratePreviewPayload } from './gen/IntegratePreviewPayload';
 import type { WriteResult } from './gen/WriteResult';
+import type { StashApplyOutcome } from './gen/StashApplyOutcome';
+import type { StashPushOutcome } from './gen/StashPushOutcome';
+import type { StagingUndoState } from './gen/StagingUndoState';
+// --- 2B T3 ---
+import type { HunksPayload } from './gen/HunksPayload';
+import type { StageSelection } from './gen/StageSelection';
+import type { WipBase } from './gen/WipBase';
+// --- end 2B T3 ---
+// --- 2B T4 ---
+import type { DiscardScope } from './gen/DiscardScope';
+// --- end 2B T4 ---
+// --- 2B T10 ---
+import type { SelectionLines } from './gen/SelectionLines';
+// --- end 2B T10 ---
 import type { SidebarPayload } from './gen/SidebarPayload';
 import type { StatePayload } from './gen/StatePayload';
+// --- 2C T14 ---
+import type { WorktreeAdded } from './gen/WorktreeAdded';
+import type { WorktreeBranch } from './gen/WorktreeBranch';
+import type { WorktreeRemoveOutcome } from './gen/WorktreeRemoveOutcome';
+// --- end 2C T14 ---
+// --- 2C T11 ---
+import type { UpstreamTarget } from './gen/UpstreamTarget';
+import type { RemoteBranchRef } from './gen/RemoteBranchRef';
+import type { DeleteOutcome } from './gen/DeleteOutcome';
+// --- end 2C T11 ---
+// --- 2D T15 ---
+import type { Resolution } from './gen/Resolution';
+import type { SubmoduleBehind } from './gen/SubmoduleBehind';
+// --- end 2D T15 ---
 import { createTransport, deliver, type EventHandler, type Transport } from './transport';
+// --- 2D T17 ---
+import type { Lease } from './gen/Lease';
+import type { PushOutcome } from './gen/PushOutcome';
+import type { PushTarget } from './gen/PushTarget';
+// --- end 2D T17 ---
+// --- 2D T20 ---
+import type { ConflictFilePayload } from './gen/ConflictFilePayload';
+// --- end 2D T20 ---
 
 const handlers = new Set<EventHandler>();
 let transport: Transport | undefined;
@@ -68,8 +121,9 @@ export interface OpenInRequest { worktree: string; path: string; line: number | 
 
 export const api = {
   openRepo: (path: string) => t().call({ method: 'openRepo', params: { path } }) as Promise<RepoSummary>,
-  /** `extra` (plan 1C): the pinned trunk (spec §8.2), and `rescan` to re-read the WIP status. */
-  graph: (repo: number, limit: number | null = null, extra: { pin?: PinSetting; rescan?: boolean } = {}) =>
+  /** `extra`: the pinned trunk (spec §8.2), `rescan` to re-read the WIP status, and the tab's
+   * `active` worktree (spec #2 §11.2), laid out as the open one. */
+  graph: (repo: number, limit: number | null = null, extra: { pin?: PinSetting; rescan?: boolean; active?: string } = {}) =>
     call<GraphPayload>({ method: 'graph', params: { repo, limit, ...extra } }),
   commandLog: () => t().call({ method: 'commandLog' }) as Promise<CommandLogEntry[]>,
   launchRepo: () => t().call({ method: 'launchRepo' }) as Promise<string | null>,
@@ -145,16 +199,127 @@ export const api = {
   journalState: (repo: number, worktree: string) => call<JournalState>({ method: 'journalState', params: { repo, worktree } }),
   /** Undo `entry`, the toolbar's (spec #2 §5.4); `confirm`: "Undo anyway", the refs as the prompt
    * showed them; `confirmAutostash`: the clean-restore warning (§6.2) was confirmed. */
-  undo: (repo: number, worktree: string, entry: number, confirm: Record<string, string | null> | undefined, confirmAutostash: boolean) =>
-    call<WriteResult<UndoOutcome>>({ method: 'undo', params: { repo, worktree, entry, ...(confirm && { confirm }), confirmAutostash } }),
-  redo: (repo: number, worktree: string, entry: number, confirmAutostash: boolean) => call<WriteResult<UndoOutcome>>({ method: 'redo', params: { repo, worktree, entry, confirmAutostash } }),
+  // --- 2C T7: `withoutIndex`, "Apply without restoring what was staged?" (a stash's undo/redo) ---
+  undo: (repo: number, worktree: string, entry: number, confirm: Record<string, string | null> | undefined, confirmAutostash: boolean, withoutIndex = false) =>
+    call<WriteResult<UndoOutcome>>({ method: 'undo', params: { repo, worktree, entry, ...(confirm && { confirm }), confirmAutostash, ...(withoutIndex && { withoutIndex }) } }),
+  redo: (repo: number, worktree: string, entry: number, confirmAutostash: boolean, withoutIndex = false) =>
+    call<WriteResult<UndoOutcome>>({ method: 'redo', params: { repo, worktree, entry, confirmAutostash, ...(withoutIndex && { withoutIndex }) } }),
+  // --- end 2C T7 ---
   /** A banner's Apply / Restore (spec #2 §6.4); `withoutIndex` after "Apply without restoring
    * what was staged?"; `confirmAutostash`: a Restore's clean-restore warning was confirmed. */
   applyKeptStash: (repo: number, worktree: string, entry: number, withoutIndex: boolean, confirmAutostash: boolean) =>
     call<WriteResult<null>>({ method: 'applyKeptStash', params: { repo, worktree, entry, withoutIndex, confirmAutostash } }),
   /** A banner's × (`dropStash: false`, the stash stays) or Drop stash. */
   dismissBanner: (repo: number, worktree: string, entry: number, dropStash: boolean) => call<JournalState>({ method: 'dismissBanner', params: { repo, worktree, entry, dropStash } }),
+  // --- 2B T6 ---
+  /** Plan 2B T6: save the editable working copy (spec #2 §7.5). */
+  saveFile: (repo: number, worktree: string, path: string, text: string, base: string) =>
+    call<WriteResult<SaveOutcome>>({ method: 'saveFile', params: { repo, worktree, path, text, base } }),
+  // --- end 2B T6 ---
+  // Plan 2B T1: stage and unstage (spec #2 §7.2). Immediate writes; not journaled.
+  stage: (repo: number, worktree: string, paths: string[]) => call<WriteResult<null>>({ method: 'stage', params: { repo, worktree, paths } }),
+  /** `oldPaths`: a rename's sources, unstaged with it. */
+  unstage: (repo: number, worktree: string, paths: string[], oldPaths: string[] = []) => call<WriteResult<null>>({ method: 'unstage', params: { repo, worktree, paths, oldPaths } }),
+  stageAll: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'stageAll', params: { repo, worktree } }),
+  unstageAll: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'unstageAll', params: { repo, worktree } }),
+  // --- 2B T2 ---
+  // Plan 2B T2: the staging undo log (spec #2 §7.6).
+  stagingUndo: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'stagingUndo', params: { repo, worktree } }),
+  stagingRedo: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'stagingRedo', params: { repo, worktree } }),
+  stagingState: (repo: number, worktree: string) => call<StagingUndoState>({ method: 'stagingState', params: { repo, worktree } }),
+  // --- end 2B T2 ---
+  // Plan 2B T5: commit (spec #2 §8). Queued; hooks and signing are git's.
+  commit: (repo: number, worktree: string, r: { summary: string; description: string; amend: boolean; stageAll: boolean; expect: Expect }) =>
+    call<WriteResult<CommitOutcome>>({ method: 'commit', params: { repo, worktree, ...r } }),
+  editHeadMessage: (repo: number, worktree: string, message: string, expect: Expect) => call<WriteResult<CommitOutcome>>({ method: 'editHeadMessage', params: { repo, worktree, message, expect } }),
+  /** The upstream's short name when HEAD is on it (the pencil's force-push note), else null. */
+  headOnUpstream: (repo: number, worktree: string) => call<string | null>({ method: 'headOnUpstream', params: { repo, worktree } }),
+  // --- end Plan 2B T5 ---
+  // --- 2B T3 ---
+  // Plan 2B T3: hunks and lines (spec #2 §7.3).
+  wipHunks: (repo: number, worktree: string, path: string, staged: boolean) => call<HunksPayload>({ method: 'wipHunks', params: { repo, worktree, path, staged } }),
+  stagePatch: (repo: number, worktree: string, r: { path: string; staged: boolean; selection: StageSelection; base: WipBase }) =>
+    call<WriteResult<null>>({ method: 'stagePatch', params: { repo, worktree, ...r } }),
+  // --- end 2B T3 ---
+  // --- 2B T4 ---
+  // Plan 2B T4: discards (spec #2 §7.2–§7.4). Journaled; Undo restores the snapshot.
+  discard: (repo: number, worktree: string, scope: DiscardScope) => call<WriteResult<null>>({ method: 'discard', params: { repo, worktree, scope } }),
+  // --- end 2B T4 ---
+  // --- 2B T10 ---
+  /** The line bar's counts (spec #2 §7.3), after the no-newline tie; read-only. */
+  selectionLines: (repo: number, worktree: string, path: string, staged: boolean, selection: StageSelection) =>
+    call<SelectionLines>({ method: 'selectionLines', params: { repo, worktree, path, staged, selection } }),
+  // --- end 2B T10 ---
+  // --- 2C T14: worktrees ---
+  worktreeAdd: (repo: number, worktree: string, path: string, branch: WorktreeBranch) => call<WriteResult<WorktreeAdded>>({ method: 'worktreeAdd', params: { repo, worktree, path, branch } }),
+  worktreeRemove: (repo: number, worktree: string, path: string, force: boolean) => call<WriteResult<WorktreeRemoveOutcome>>({ method: 'worktreeRemove', params: { repo, worktree, path, force } }),
+  /** The create dialog's default folder (spec #2 §11.1). */
+  suggestWorktreePath: (repo: number, branch: string) => call<string>({ method: 'suggestWorktreePath', params: { repo, branch } }),
+  // --- end 2C T14 ---
+  // --- 2C T11: branches ---
+  /** Create branch here / the toolbar Branch (spec #2 §9.1). */
+  createBranch: (repo: number, worktree: string, b: { name: string; start: string; startRef: string | null; checkout: boolean; expect: Expect }, confirmAutostash: boolean) =>
+    call<WriteResult<null>>({ method: 'createBranch', params: { repo, worktree, name: b.name, start: b.start, startRef: b.startRef ?? undefined, checkout: b.checkout, expect: b.expect, confirmAutostash } }),
+  renameBranch: (repo: number, worktree: string, from: string, to: string, expect: Expect) => call<WriteResult<null>>({ method: 'renameBranch', params: { repo, worktree, from, to, expect } }),
+  setUpstream: (repo: number, worktree: string, branch: string, upstream: UpstreamTarget | null) => call<WriteResult<null>>({ method: 'setUpstream', params: { repo, worktree, branch, upstream } }),
+  /** `Delete | Local | Remote | Both |` (spec #2 §9.2). */
+  deleteBranch: (repo: number, worktree: string, d: { branch: string; local: boolean; remote: RemoteBranchRef | null; force: boolean; expect: Expect }) =>
+    call<WriteResult<DeleteOutcome>>({ method: 'deleteBranch', params: { repo, worktree, ...d } }),
+  // --- end 2C T11 ---
+  // --- 2C T13 ---
+  /** Stash (spec #2 §10): `message` is the WIP draft, '' for the branch-based name. */
+  stashPush: (repo: number, worktree: string, message: string) => call<WriteResult<StashPushOutcome>>({ method: 'stashPush', params: { repo, worktree, message } }),
+  stashApply: (repo: number, worktree: string, oid: string, pop: boolean, withoutIndex: boolean) =>
+    call<WriteResult<StashApplyOutcome>>({ method: 'stashApply', params: { repo, worktree, oid, pop, withoutIndex } }),
+  stashDrop: (repo: number, worktree: string, oid: string) => call<WriteResult<null>>({ method: 'stashDrop', params: { repo, worktree, oid } }),
+  // --- end 2C T13 ---
+  // --- 2D T15 ---
+  /** Resolve a conflicted file (spec #2 §13.3). `base`: `conflictFile`'s hash, for a text save. */
+  resolveFile: (repo: number, worktree: string, path: string, resolution: Resolution, base: string | undefined, confirmMarkers: boolean, confirmDiscard: boolean) =>
+    call<WriteResult<SubmoduleBehind | null>>({ method: 'resolveFile', params: { repo, worktree, path, resolution, base, confirmMarkers, confirmDiscard } }),
+  // --- end 2D T15 ---
+  // --- 2D T16 ---
+  /** Continue, skip or abort a paused rebase. */
+  rebaseControl: (repo: number, worktree: string, action: RebaseAction) => call<WriteResult<IntegrateOutcome>>({ method: 'rebaseControl', params: { repo, worktree, action } }),
+  mergeAbort: (repo: number, worktree: string) => call<WriteResult<IntegrateOutcome>>({ method: 'mergeAbort', params: { repo, worktree } }),
+  /** A paused merge or rebase ended outside GitBolt: close its journal entry. */
+  settlePaused: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'settlePaused', params: { repo, worktree } }),
+  // --- end 2D T16 ---
+  // --- 2D T17 ---
+  /** Push `branch` (spec #2 §12.3): `target` + `setUpstream` for a branch with no upstream; `lease` forces. */
+  push: (repo: number, worktree: string, branch: string, opts: { target?: PushTarget; setUpstream?: boolean; lease?: Lease; expect?: Expect } = {}) =>
+    call<WriteResult<PushOutcome>>({ method: 'push', params: { repo, worktree, branch, ...opts, expect: opts.expect ?? { head: null, refs: {} } } }),
+  // --- end 2D T17 ---
+  // --- 2D T18 ---
+  /** Merge or rebase HEAD's branch with `target` (spec #2 §13.1). `updateRefs` is explicit for a rebase. */
+  integrate: (repo: number, worktree: string, kind: IntegrateKind, target: string, opts: { updateRefs?: boolean; confirmAutostash?: boolean; expect?: Expect } = {}) =>
+    call<WriteResult<IntegrateOutcome>>({ method: 'integrate', params: { repo, worktree, kind, target, updateRefs: opts.updateRefs, expect: opts.expect ?? NO_EXPECT, confirm: { autostash: opts.confirmAutostash ?? false } } }),
+  integratePreview: (repo: number, worktree: string, kind: IntegrateKind, target: string) => call<IntegratePreviewPayload>({ method: 'integratePreview', params: { repo, worktree, kind, target } }),
+  fastForward: (repo: number, worktree: string, branch: string, to: string) => call<WriteResult<IntegrateOutcome>>({ method: 'fastForward', params: { repo, worktree, branch, to, expect: NO_EXPECT } }),
+  // --- end 2D T18 ---
+  // --- 2D T19 ---
+  /** Pull (spec #2 §12.2); `branch` defaults to HEAD's. */
+  pull: (repo: number, worktree: string, mode: PullMode, opts: { branch?: string; confirmAutostash?: boolean } = {}) =>
+    call<WriteResult<PullOutcome>>({ method: 'pull', params: { repo, worktree, mode, branch: opts.branch, expect: NO_EXPECT, confirm: { autostash: opts.confirmAutostash ?? false } } }),
+  // --- end 2D T19 ---
+  // --- 2C T12 ---
+  /** Checkout (spec #2 §9.3); `onDiverged: 'reset'` after the diverged dialog's Reset. */
+  checkout: (repo: number, worktree: string, target: CheckoutTarget, expect: Expect, confirmAutostash: boolean, onDiverged?: OnDiverged) =>
+    call<WriteResult<CheckoutOutcome>>({ method: 'checkout', params: { repo, worktree, target, expect, confirmAutostash, ...(onDiverged && { onDiverged }) } }),
+  /** Reset X to this commit (spec #2 §9.4); `discard` after "discard changes to N files?". */
+  reset: (repo: number, worktree: string, to: string, mode: ResetMode, expect: Expect, discard: boolean) =>
+    call<WriteResult<null>>({ method: 'reset', params: { repo, worktree, to, mode, expect, discard } }),
+  // --- end 2C T12 ---
+  // --- 2D T20 ---
+  /** The merge tool's data for one conflicted file (spec #2 §13.3); `null` once it isn't conflicted. */
+  conflictFile: (repo: number, worktree: string, path: string) => call<ConflictFilePayload | null>({ method: 'conflictFile', params: { repo, worktree, path } }),
+  // --- end 2D T20 ---
 };
+
+// --- 2D T18 ---
+/** `Expect` with nothing to check (the backend's own default). */
+const NO_EXPECT: Expect = { head: null, refs: {} };
+// --- end 2D T18 ---
 
 export function errorMessage(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message);

@@ -1,12 +1,13 @@
 import { ChevronDown, LoaderCircle } from 'lucide-react';
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { actionsVersion, getAction, invoke, runAction, subscribeActions, type Action } from '../app/actions';
 import { useRepoContext, type RepoCtx } from '../app/repoContext';
-import { useRuntime } from '../app/runtime';
 import { openMenuAt } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { BranchPicker } from './BranchPicker';
+import { DefaultPicker } from './DefaultPicker';
+import { RepoButton } from './RepoButton';
 import { useToolbarButtons, type ToolbarButton } from './registry';
 import './toolbar.css';
 
@@ -31,9 +32,10 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
   const queued = useQueued(ctx);
   const useView = b.useView ?? noView;
   const view = useView(ctx);
+  const [pickerAt, setPickerAt] = useState<Element | null>(null);
   const a = getAction(b.action);
   if (!a) return null;
-  const label = b.label ?? a.label;
+  const label = view?.label ?? b.label ?? a.label;
   const Icon = busy ? LoaderCircle : a.icon;
   const tip = view?.tooltip ?? tooltipOf(a);
   // Off but hoverable (aria-disabled, not `disabled`): its tooltip says why (spec #2 §5.5).
@@ -47,16 +49,21 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
       </button>
     </HoverTooltip>
   );
-  if (!b.menu?.length) return button;
-  const menu = b.menu;
+  if (!b.menu?.length && !b.picker && !b.menuRows) return button;
+  const openCaret = (el: HTMLElement) => {
+    if (b.picker) return setPickerAt(el);
+    const build = () => (b.menuRows ? b.menuRows(ctx) : menuRows(b.menu ?? []));
+    openMenuAt(el, build(), undefined, build, `${label} options`);
+  };
   return (
     <div className="tb-split">
       {button}
       <HoverTooltip content={`${label} options`}>
-        <button type="button" className="tb-btn tb-caret" aria-label={`${label} options`} aria-haspopup="menu" onClick={(e) => openMenuAt(e.currentTarget, menuRows(menu), undefined, () => menuRows(menu), `${label} options`)}>
+        <button type="button" className="tb-btn tb-caret" aria-label={`${label} options`} aria-haspopup="menu" onClick={(e) => openCaret(e.currentTarget)}>
           <ChevronDown size={12} aria-hidden />
         </button>
       </HoverTooltip>
+      {pickerAt && b.picker && <DefaultPicker picker={b.picker} anchor={pickerAt} onClose={() => setPickerAt(null)} />}
     </div>
   );
 }
@@ -68,7 +75,6 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
  */
 export function Toolbar() {
   const ctx = useRepoContext();
-  const name = useRuntime((s) => s.tabs[ctx.tabId]?.repo?.name);
   const buttons = useToolbarButtons((s) => s.buttons);
   // DOM order is the visual order: the centre group, then the end group at the far right.
   const center = buttons.filter((b) => (b.placement ?? 'center') === 'center');
@@ -77,10 +83,7 @@ export function Toolbar() {
   useSyncExternalStore(subscribeActions, actionsVersion);
   return (
     <div className="toolbar" role="toolbar" aria-label="Repository toolbar">
-      <div className="tb-field">
-        <span className="tb-caption">repository</span>
-        <span className="tb-value">{name}</span>
-      </div>
+      <RepoButton />
       <BranchPicker />
       <div className="tb-spacer" />
       {center.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}

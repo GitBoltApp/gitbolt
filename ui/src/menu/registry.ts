@@ -1,21 +1,23 @@
 import type { MenuRow } from './types';
 
-export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar';
+export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip';
 
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
-  commit: ['sync', 'integrate', 'branch', 'commit', 'forge', 'manage', 'copy', 'view'],
+  commit: ['sync', 'integrate', 'branch', 'commit', 'stash', 'forge', 'manage', 'copy', 'view'],
   // Ruling (fix round 1, item 5): spec §7 wins over 1B's own order here — Copy name, then Forge
   // link.
   tag: ['copy', 'forge', 'view'],
-  file: ['copy', 'forge', 'open', 'view'],
+  file: ['stage', 'conflict', 'copy', 'forge', 'open', 'view'],
   folder: ['copy', 'open'],
   monaco: ['copy', 'forge', 'open'],
   tab: ['edit', 'close', 'restore', 'repo'],
   column: ['columns'],
-  // The sidebar's items that aren't a branch or a tag (remote, worktree, stash), plus the "Show in
-  // graph" row every sidebar item ends with (plan 1C Task 15b).
-  sidebar: ['copy', 'forge', 'open', 'view'],
+  // The sidebar's own items (remote, worktree, stash): 2C's worktree and stash rows first (spec
+  // #2 §10, §11), then the read-only rows and "Show in graph" (plan 1C Task 15b).
+  sidebar: ['worktree', 'stash', 'copy', 'forge', 'open', 'view'],
+  // A WIP row (spec #2 §14): Switch to this worktree, Open in a new tab, then Stash.
+  wip: ['worktree', 'stash'],
 };
 
 export interface MenuContribution<T, E> {

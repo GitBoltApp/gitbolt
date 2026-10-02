@@ -151,6 +151,9 @@ export interface RepoViewState {
   /** Closes the diff, focusing `zone` instead of the graph (the file list's toggle, H5b). */
   closeDiffTo(zone: FocusZone): void;
   setFocus(zone: FocusZone): void;
+  /** Spec #2 §7.5: asked before the open file is left (`openFile`, `closeDiff`, `closeDiffTo`,
+   * `selectRow`). It returns `true` when it took over: it calls `go` itself, or never. */
+  setLeaveGuard(guard: ((go: () => void) => boolean) | null): void;
 }
 
 export type RepoViewStore = StoreApi<RepoViewState>;
@@ -264,6 +267,11 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
   let seq = 0;
   // Bumped by every section load: a superseded one (an older refresh) is dropped too.
   let sectionsSeq = 0;
+  let leaveGuard: ((go: () => void) => boolean) | null = null;
+  const guarded = <A extends unknown[]>(fn: (...a: A) => void, skip?: (...a: A) => boolean) => (...a: A): void => {
+    if (!skip?.(...a) && leaveGuard?.(() => fn(...a))) return;
+    fn(...a);
+  };
 
   return createStore<RepoViewState>((rawSet, get) => {
     /** Every update also settles what the panel shows (`panelFor`), in the same update. */
@@ -394,7 +402,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       set({ selection: { kind: 'multi', ids }, picks, parent: 0, diff: null, details: IDLE, message: IDLE, sections: [] });
     }
 
-    return {
+    const state: RepoViewState = {
       repo,
       repoPath,
       services,
@@ -581,6 +589,20 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       setFocus(zone) {
         requestFocus(zone);
       },
+
+      setLeaveGuard(guard) {
+        leaveGuard = guard;
+      },
+    };
+    // Spec #2 §7.5: leaving the open file asks the guard first.
+    return {
+      ...state,
+      // Opening the file already open (a re-click) leaves nothing behind.
+      openFile: guarded(state.openFile, (t) => t.key === get().diff?.key && t.view === get().diff?.view),
+      setView: guarded(state.setView, (v) => v === get().diff?.view),
+      closeDiff: guarded(state.closeDiff),
+      closeDiffTo: guarded(state.closeDiffTo),
+      selectRow: guarded(state.selectRow),
     };
   });
 }

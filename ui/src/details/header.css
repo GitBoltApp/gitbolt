@@ -21,3 +21,10 @@
 .mr-button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--section-border); color: var(--text-normal); transition: background-color var(--motion-fast); }
 .mr-button:hover { background: var(--hover-row); }
 .mr-button:focus-visible { outline: 1px solid var(--blue); }
+/* Spec #2 §8.3: the HEAD message pencil and the in-place editor. */
+.commit-message { position: relative; }
+.message-edit { position: absolute; top: 4px; right: 4px; }
+.commit-message:has(> .message-edit) { padding-right: 28px; }
+.head-message-editor { display: flex; flex-direction: column; gap: 6px; }
+.head-message-note { margin: 0; color: var(--status-modified); font-size: 12px; }
+.head-message-actions { display: flex; justify-content: flex-end; gap: 6px; }

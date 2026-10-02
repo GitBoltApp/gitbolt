@@ -6,6 +6,7 @@ import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileListPayload } from '../api/gen/FileListPayload';
 import { fileMenu, folderMenu, warmFileMenu } from '../menu/menuEnv';
+import { CONFLICT_TEXT } from '../details/conflicted';
 import { openContextMenu, useMenu } from '../menu/menuStore';
 import { filesKey } from '../repo/services';
 import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
@@ -90,7 +91,7 @@ export function StatusCountsView({ counts, testId, size }: { counts: StatusCount
 
 /** `onPress`/`onMenu` are the list's two stable handlers (they get the row and its index back), so a
  * row's props are all primitives or the rows' own memoized objects and `memo` can skip it. */
-interface RowProps { id: string; index: number; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; filterQuery: string; onPress: (e: MouseEvent, row: FileRow, index: number) => void; onMenu: (e: MouseEvent, row: FileRow) => void }
+interface RowProps { id: string; index: number; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; filterQuery: string; onPress: (e: MouseEvent, row: FileRow, index: number) => void; onMenu: (e: MouseEvent, row: FileRow) => void; renderActions?: (row: FileRow) => ReactNode }
 
 /** The role of a row: tree mode is a `tree` of `treeitem`s (`aria-level`, folders `aria-expanded`),
  * path mode a flat `listbox` of `option`s (review M8). */
@@ -103,7 +104,7 @@ const fileListOf = (row: HTMLElement) => row.closest('.file-list');
 /** A folder row, or a file row with its full path in an instant hover tooltip, left of the list (a rename: old,
  * ↓, new; feedback H22). A renamed file shows its new name (tree) or new path (path view); the
  * old one is in the tooltip and the diff header. */
-const Row = memo(function Row({ id, index, row, mode, active, top, height, filterQuery, onPress, onMenu }: RowProps) {
+const Row = memo(function Row({ id, index, row, mode, active, top, height, filterQuery, onPress, onMenu, renderActions }: RowProps) {
   const style = { top, height, paddingLeft: rowIndent(row.depth), gap: TREE.gap };
   const file = row.kind === 'file' ? row : null;
   const role = rowRole(mode);
@@ -116,6 +117,7 @@ const Row = memo(function Row({ id, index, row, mode, active, top, height, filte
         <span className="file-chevron" style={{ width: TREE.chevron }}>{row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
         {row.counts && <StatusCountsView counts={row.counts} testId="folder-counts" size={10} />}
+        {renderActions?.(row)}
       </div>
     );
   }
@@ -141,11 +143,12 @@ const Row = memo(function Row({ id, index, row, mode, active, top, height, filte
       {c ? <StatusIcon status={c.status} size={TREE.icon} /> : <span className="status-spacer" style={{ width: TREE.icon }} aria-hidden="true" />}
       {mode === 'path' && row.dir && <span className="file-dir">{highlightMatch(row.dir, filterQuery)}/</span>}
       <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
-      {s && (
+      {c?.conflict ? <span className="file-conflict">{CONFLICT_TEXT[c.conflict]}</span> : s && (
         <span className="file-stats">
           {c?.additions === null ? 'binary' : <><span className="added">+{c?.additions}</span> <span className="deleted">−{c?.deletions}</span></>}
         </span>
       )}
+      {renderActions?.(row)}
       {tip.tooltip}
     </div>
   );
@@ -184,7 +187,7 @@ interface Cursor { id: string; diffKey: string | null }
  * first or last file (opening it), when up/down crosses over from the other list. */
 export interface FileListHandle { hasFiles(): boolean; enter(edge: 'first' | 'last'): void }
 
-export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, onLeave, ref }: { list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
+export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, onLeave, renderActions, ref }: { renderActions?: (row: FileRow) => ReactNode; list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
   const store = useRepoViewStore();
   const openFile = useRepoView((s) => s.openFile);
   const closeDiffTo = useRepoView((s) => s.closeDiffTo);
@@ -522,6 +525,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
                 filterQuery={filterQuery}
                 onPress={onRowPress}
                 onMenu={onRowMenu}
+                renderActions={renderActions}
               />
             );
           })}

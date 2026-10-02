@@ -51,6 +51,8 @@ pub struct GitInvocation {
     stdin: Option<Vec<u8>>,
     /// On cancel or timeout: SIGTERM, then SIGKILL after this (writes); `None` = SIGKILL at once.
     term_grace: Option<Duration>,
+    /// Exit codes besides 0 that count as success (`ok_exit`).
+    ok_exit: Vec<i32>,
 }
 
 /// How long a cancelled or timed-out write has to exit after SIGTERM before SIGKILL (spec #2 §3.3).
@@ -60,7 +62,33 @@ impl GitInvocation {
     /// A write (spec #2 §3.3): no `GIT_OPTIONAL_LOCKS=0` (git's normal locks), never an editor
     /// (`GIT_EDITOR=true`, `GIT_MERGE_AUTOEDIT=no`), and a cancel that lets git clean up its
     /// `.lock` files first. Only `crate::write` can make the token (Deviation 1).
-    pub(crate) fn write<I, S>(_proof: &crate::write::WriteToken, cwd: impl Into<PathBuf>, args: I) -> Self
+    pub(crate) fn write<I, S>(proof: &crate::write::WriteToken, cwd: impl Into<PathBuf>, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        // --- 2C repo-safety ---
+        // `submodule.recurse=false`: with the user's `submodule.recurse=true`, a `reset --hard`,
+        // a `restore` or a `switch` would run inside every submodule too, discarding its
+        // uncommitted work, which no snapshot carries (safety review I3). GitBolt never recurses
+        // on a write that moves the worktree; a read is unaffected.
+        // --- end 2C repo-safety ---
+        Self::writer(proof, cwd, &["-c", "submodule.recurse=false"], args)
+    }
+
+    /// A network write (a push, a remote branch delete, a pull's fetch): `write` without the
+    /// `submodule.recurse=false` pin. That pin also overrides `push.recurseSubmodules`, which
+    /// defaults to `submodule.recurse`, and would silently drop the user's own push guard
+    /// (`check`, `on-demand`) (2C final I4). None of these touch the worktree.
+    pub(crate) fn network_write<I, S>(proof: &crate::write::WriteToken, cwd: impl Into<PathBuf>, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Self::writer(proof, cwd, &[], args)
+    }
+
+    fn writer<I, S>(_proof: &crate::write::WriteToken, cwd: impl Into<PathBuf>, pins: &[&str], args: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<OsString>,
@@ -68,7 +96,7 @@ impl GitInvocation {
         // No editor can open in any write: the env beats config for the sequence editor, and
         // the `-c` pairs cover `core.editor`/`sequence.editor` from the user's config. A caller
         // that needs a real rebase todo sets its own `GIT_SEQUENCE_EDITOR` with `.env` after.
-        let mut inv = Self::new(cwd, ["-c", "core.editor=true", "-c", "sequence.editor=true"])
+        let mut inv = Self::new(cwd, ["-c", "core.editor=true", "-c", "sequence.editor=true"].into_iter().chain(pins.iter().copied()))
             .env("GIT_EDITOR", "true")
             .env("GIT_SEQUENCE_EDITOR", "true")
             .env("GIT_MERGE_AUTOEDIT", "no");
@@ -104,12 +132,18 @@ impl GitInvocation {
         I: IntoIterator<Item = S>,
         S: Into<OsString>,
     {
-        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false, write: false, stdin: None, term_grace: None }
+        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false, write: false, stdin: None, term_grace: None, ok_exit: Vec::new() }
     }
 
     /// `None` = no timeout (network operations).
     pub fn timeout(mut self, t: Option<Duration>) -> Self {
         self.timeout = t;
+        self
+    }
+
+    /// An exit code that counts as success besides 0 (`diff --no-index` exits 1 on a difference).
+    pub fn ok_exit(mut self, code: i32) -> Self {
+        self.ok_exit.push(code);
         self
     }
 
@@ -359,7 +393,7 @@ impl GitCli {
         let stderr_bytes = stderr_bytes.ok().and_then(Result::ok).unwrap_or_default();
 
         let (exit_code, stderr_text, result) = match outcome {
-            Outcome::Done(Ok(status)) if status.success() && !pipes_closed => {
+            Outcome::Done(Ok(status)) if (status.success() || status.code().is_some_and(|c| inv.ok_exit.contains(&c))) && !pipes_closed => {
                 let msg = format!("git exited, but its output stayed open for {}s (a background process holding it); output incomplete", PIPE_GRACE.as_secs());
                 (status.code(), msg.clone(), Err(GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Io, msg) }))
             }
@@ -367,7 +401,7 @@ impl GitCli {
                 let stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
                 let redacted_stderr = redact(&stderr);
                 let code = status.code();
-                if status.success() {
+                if status.success() || code.is_some_and(|c| inv.ok_exit.contains(&c)) {
                     (code, stderr.clone(), Ok(GitOutput { stdout: stdout_bytes, stderr: redacted_stderr, command_id: id }))
                 } else {
                     let kind = classify_stderr(&stderr);
@@ -1063,5 +1097,15 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn an_ok_exit_code_counts_as_success() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("x"), "x\n").unwrap();
+        let args = ["diff", "--no-index", "--", "/dev/null", "x"];
+        assert!(cli().run(GitInvocation::new(dir.path(), args)).await.is_err(), "exit 1 is a failure by default");
+        let out = cli().run(GitInvocation::new(dir.path(), args).ok_exit(1)).await.unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("+x"));
     }
 }

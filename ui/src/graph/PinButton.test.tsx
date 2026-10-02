@@ -19,7 +19,7 @@ const sidebar = {
 const setup = (pinnedRef: string | null, pin: PinSetting | null = null, compact = false) => {
   useAppState.setState({ profile: { ...EMPTY_PROFILE, repos: { '/r': { ...EMPTY_REPO_SETTINGS, pin } } } });
   useRuntime.setState({ tabs: { t1: { graph: { pinnedRef } as unknown as GraphPayload, sidebar } as never }, refresh });
-  return render(<RepoContext.Provider value={{ tabId: 't1', repoId: 1, path: '/r', info: null }}><PinButton compact={compact} /></RepoContext.Provider>);
+  return render(<RepoContext.Provider value={{ tabId: 't1', repoId: 1, path: '/r', worktree: '/r', info: null }}><PinButton compact={compact} /></RepoContext.Provider>);
 };
 const stored = () => useAppState.getState().profile.repos['/r']?.pin;
 const pinButton = () => screen.getByRole('button', { name: /Pinned trunk/ });

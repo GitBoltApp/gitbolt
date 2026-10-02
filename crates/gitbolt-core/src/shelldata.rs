@@ -60,6 +60,15 @@ pub struct LocalBranch {
     pub is_head: bool,
     /// Checked out in another worktree (its path).
     pub worktree: Option<String>,
+    /// The worktree (any, the handle's own included) whose HEAD names it (spec #2 §11.2).
+    pub checked_out: Option<String>,
+    // --- 2D T11: push target ---
+    /// Where Push sends it (spec #2 §12.3, `remote/branch`): the push remote, else the upstream.
+    pub push_target: Option<String>,
+    /// Commits on the push target that aren't in the branch (the force confirmation's count);
+    /// `None` when that ref doesn't exist yet.
+    pub push_behind: Option<u32>,
+    // --- end 2D T11 ---
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -95,6 +104,8 @@ pub struct WorktreeItem {
     pub head: Option<String>,
     pub is_main: bool,
     pub is_current: bool,
+    /// `git worktree lock`ed: it can't be removed (spec #2 §11).
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -157,6 +168,19 @@ pub struct AppInfoPayload {
     pub git_version: String,
 }
 
+/// Commits reachable from the ref `theirs` but not from `ours_oid`, counted in process.
+fn commits_behind(repo: &gix::Repository, theirs: &str, ours_oid: &str) -> Option<u32> {
+    let tip = repo.find_reference(theirs).ok()?.peel_to_id().ok()?.detach();
+    let ours = gix::ObjectId::from_hex(ours_oid.as_bytes()).ok()?;
+    let walk = repo.rev_walk([tip]).with_hidden([ours]).all().ok()?;
+    let mut n = 0u32;
+    for c in walk {
+        c.ok()?;
+        n += 1;
+    }
+    Some(n)
+}
+
 /// `%(upstream:track,nobracket)`: "ahead 3, behind 2" | "ahead 3" | "behind 2" | "gone" | "".
 pub fn parse_track(s: &str) -> (u32, u32, bool) {
     let s = s.trim();
@@ -201,6 +225,7 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
         .filter(|w| canonical(&w.path) != here)
         .filter_map(|w| w.branch.clone().map(|b| (b, w.path.display().to_string())))
         .collect();
+    let checked_out: std::collections::HashMap<String, String> = worktrees.iter().filter_map(|w| w.branch.clone().map(|b| (b, w.path.display().to_string()))).collect();
     let mut s = SidebarPayload { locals: vec![], remotes: vec![], worktrees: vec![], stashes: vec![], tags: vec![] };
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let f: Vec<&str> = line.split('\0').collect();
@@ -231,6 +256,9 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
                 author,
                 is_head: head_branch.as_deref() == Some(full.as_str()),
                 worktree: elsewhere.get(&full).cloned(),
+                checked_out: checked_out.get(&full).cloned(),
+                push_target: None,
+                push_behind: None,
                 target,
                 full_name: full,
             });
@@ -245,6 +273,25 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
             s.tags.push(TagItem { name: name.into(), full_name: full.clone(), target, time: tip_time });
         }
     }
+    // --- 2D T11: push targets (every remote branch is listed by now) ---
+    for b in s.locals.iter_mut() {
+        let Some(t) = crate::write::sync::push_target(&local, &b.name) else { continue };
+        let label = format!("{}/{}", t.remote, t.branch);
+        let exists = s.remotes.iter().any(|g| g.name == t.remote && g.branches.iter().any(|r| r.name == t.branch));
+        let theirs = format!("refs/remotes/{label}");
+        b.push_behind = if !exists {
+            None
+        } else if b.upstream.as_deref() == Some(theirs.as_str()) {
+            // The upstream's own count, already parsed: nothing to compute.
+            Some(b.behind)
+        } else {
+            // Triangular setup: commits on the push target that the branch lacks, in process
+            // (the sidebar build spawns no git per branch).
+            commits_behind(&local, &theirs, &b.target)
+        };
+        b.push_target = Some(label);
+    }
+    // --- end 2D T11 ---
     s.worktrees = worktrees
         .iter()
         .filter(|w| !w.bare)
@@ -255,6 +302,7 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
             head: w.head.map(|id| id.to_string()),
             is_main: w.is_main,
             is_current: canonical(&w.path) == here,
+            locked: w.locked,
         })
         .collect();
     s.stashes = read_reflog(local.common_dir(), "refs/stash")?
@@ -344,6 +392,31 @@ mod tests {
         assert_eq!(parse_track("gone"), (0, 0, true));
     }
 
+    /// The push target's behind count: the upstream's own count when the target is the upstream,
+    /// and counted in process (no git spawned) when a push remote makes it triangular.
+    #[tokio::test]
+    async fn push_behind_matches_git_for_tracked_and_triangular_branches() {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.push_from_clone("dev", "late.txt", "late\n", "Pushed meanwhile");
+        r.push_from_clone("main", "late2.txt", "late\n", "Pushed meanwhile 2");
+        r.git(&["fetch", "-q", "origin"]);
+        let want = |b: &str| r.git(&["rev-list", "--count", &format!("{b}..origin/{b}")]).parse::<u32>().unwrap();
+        let (repo, workdir) = open(&r);
+        let s = sidebar(&cli(), &repo, &workdir).await.unwrap();
+        let dev = s.locals.iter().find(|b| b.name == "dev").unwrap();
+        assert_eq!((dev.push_target.as_deref(), dev.push_behind, dev.behind), (Some("origin/dev"), Some(want("dev")), want("dev")));
+        assert!(want("dev") > 0);
+        // main's upstream becomes origin/dev while its push target stays origin/main.
+        r.git(&["config", "branch.main.merge", "refs/heads/dev"]);
+        r.git(&["config", "branch.main.pushRemote", "origin"]);
+        let (repo, workdir) = open(&r);
+        let s = sidebar(&cli(), &repo, &workdir).await.unwrap();
+        let main = s.locals.iter().find(|b| b.name == "main").unwrap();
+        assert_eq!((main.push_target.as_deref(), main.push_behind), (Some("origin/main"), Some(want("main"))));
+        assert!(want("main") > 0);
+    }
+
     #[tokio::test]
     async fn sidebar_lists_every_section() {
         let r = TestRepo::new();
@@ -357,6 +430,7 @@ mod tests {
         assert!(main.is_head);
         assert_eq!(main.upstream.as_deref(), Some("refs/remotes/origin/main"));
         assert_eq!((main.ahead, main.behind), (1, 0));
+        assert_eq!((main.push_target.as_deref(), main.push_behind), (Some("origin/main"), Some(0)));
         assert_eq!(main.summary, "local only");
         assert!(main.tip_time > 0);
         let hotfix = s.locals.iter().find(|b| b.name == "hotfix").unwrap();

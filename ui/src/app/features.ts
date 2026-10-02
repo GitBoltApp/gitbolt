@@ -9,6 +9,7 @@
 import './coreActions';
 import '../toolbar/feature';
 import '../undo/feature';
+import '../stage/feature';
 import '../banner/feature';
 import '../statusbar/feature';
 import '../debug/feature';
@@ -20,3 +21,28 @@ import '../open/feature';
 import '../settings/feature';
 import '../theme/feature';
 import '../palette/feature';
+import '../worktrees/feature';
+// --- 2C T11 ---
+import '../branches/feature';
+// --- end 2C T11 ---
+// --- 2C T13 ---
+import '../stash/feature';
+// --- end 2C T13 ---
+// --- 2D T15 ---
+import '../conflicts/menus';
+// --- end 2D T15 ---
+// --- 2D T16 ---
+import '../conflicts/feature';
+// --- end 2D T16 ---
+// --- 2D T17 ---
+import '../sync/pushFeature';
+// --- end 2D T17 ---
+// --- 2D T18 ---
+import '../integrate/feature';
+// --- end 2D T18 ---
+// --- 2D T19 ---
+import '../sync/pullFeature';
+// --- end 2D T19 ---
+// --- 2C T12 ---
+import '../branches/checkoutMenus';
+// --- end 2C T12 ---

@@ -12,16 +12,20 @@ import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
 import { journalKey, useJournal } from './store';
 
-const short = (oid: string | null) => (oid ? oid.slice(0, 7) : 'nothing');
 const shortRef = (name: string) => name.replace(/^refs\/(heads|remotes|tags)\//, '');
+// HEAD's values are a branch (`refs/heads/x`) when it's on one, else a commit id.
+const isRef = (v: string | null) => !!v && v.startsWith('refs/');
+const short = (v: string | null) => (!v ? 'nothing' : isRef(v) ? shortRef(v) : v.slice(0, 7));
 
 /** §5.4's prompt: "main moved since commit "Fix x" (it's at 1a2b3c, not 4d5e6f). Undoing moves
- * it to 7a8b9c and drops the 2 commits made since." */
+ * it to 7a8b9c and drops the 2 commits made since." A snapshot restore never moves HEAD
+ * (`stays`): "HEAD moved since discard a.php (it's on feature, not main). Undoing leaves HEAD
+ * there and restores the files over it." */
 export function movedText(label: string, refs: MovedRef[]): string {
   return refs
     .map((r) => {
-      const where = r.actual ? `it's at ${short(r.actual)}` : 'it\'s gone';
-      const to = r.target ? `moves it to ${short(r.target)}` : 'deletes it';
+      const where = !r.actual ? 'it\'s gone' : `it's ${isRef(r.actual) ? 'on' : 'at'} ${short(r.actual)}`;
+      const to = r.stays ? `leaves ${shortRef(r.name)} there and restores the files over it` : r.target ? `moves it to ${short(r.target)}` : 'deletes it';
       const drops = r.dropped ? ` and drops the ${r.dropped} ${r.dropped === 1 ? 'commit' : 'commits'} made since` : '';
       return `${shortRef(r.name)} moved since ${label} (${where}, not ${short(r.expected)}). Undoing ${to}${drops}.`;
     })
@@ -33,31 +37,37 @@ export function movedText(label: string, refs: MovedRef[]): string {
 export function ownsUndo(target: EventTarget | null): boolean {
   const el = target instanceof Element ? target : null;
   if (!el) return false;
-  if (el.closest('input, textarea, [contenteditable="true"], [contenteditable=""], .monaco-editor, .diff-panel')) return true;
+  // 2D T20: the merge tool's panel too (its own undo is the output's).
+  if (el.closest('input, textarea, [contenteditable="true"], [contenteditable=""], .monaco-editor, .diff-panel, .merge-panel')) return true;
   const list = el.closest('.file-list');
   return !!list && !!list.closest('.details-panel')?.querySelector('[data-testid="wip-header"]');
 }
 
-// Keyed to the tab's path: a linked worktree's journal is its own once 2C opens linked
-// worktrees in a tab (T14 review M1, 2A final M11).
+// Keyed to the tab's active worktree: each worktree's journal is its own (T14 review M1, 2A
+// final M11; spec #2 §11.2).
 const target = (): WriteCtx | null => {
   const t = activeTab();
   const rt = activeRuntime();
-  return t?.kind === 'repo' && rt?.repo ? { tabId: t.id, repoId: rt.repo.id, worktree: rt.repo.path } : null;
+  return t?.kind === 'repo' && rt?.repo ? { tabId: t.id, repoId: rt.repo.id, worktree: rt.worktree ?? rt.repo.path } : null;
 };
 const stateOf = (ctx: WriteCtx | null): JournalState | undefined => (ctx ? useJournal.getState().states[journalKey(ctx.repoId, ctx.worktree)] : undefined);
 
 /** Undoes `top` (the entry the toolbar showed); `confirm`: "Undo anyway" with the refs as shown. */
 async function undoEntry(ctx: WriteCtx, top: JournalTop, confirm?: Record<string, string | null>): Promise<void> {
-  const out = await runWrite(ctx, (_, asked) => api.undo(ctx.repoId, ctx.worktree, Number(top.entry), confirm, asked.autostash));
+  // --- 2C T7: withoutIndex (a stash's undo/redo) ---
+  const out = await runWrite(ctx, (_, asked) => api.undo(ctx.repoId, ctx.worktree, Number(top.entry), confirm, asked.autostash, asked.withoutIndex));
+  // --- end 2C T7 ---
   if (!out) return;
   if (out.status === 'moved') {
     const ok = await confirmAction({ title: `Undo ${out.label}?`, body: movedText(out.label, out.refs), confirmLabel: 'Undo anyway', danger: true });
     if (ok) await undoEntry(ctx, top, Object.fromEntries(out.refs.map((r) => [r.name, r.actual])));
     return;
   }
+  // --- 2C T10: the entry's own note (spec #2 §9.2) ---
+  const note = out.note ? ` (${out.note})` : '';
+  // --- end 2C T10 ---
   const stays = top.kind === 'pull' ? ' (the fetched remote branches stay)' : '';
-  useToast.getState().show(`Undid ${out.label}${stays}`, { action: { label: 'Redo', run: () => { void redo(ctx); } } });
+  useToast.getState().show(`Undid ${out.label}${note || stays}`, { action: { label: 'Redo', run: () => { void redo(ctx); } } });
 }
 
 /** Worktrees with an undo or redo sent and not answered: a second press (a held Ctrl+Z, a
@@ -87,13 +97,15 @@ export async function redo(ctx: WriteCtx): Promise<void> {
   const top = s?.redo;
   if (!top || s.redoBlocked) return;
   await once(ctx, async () => {
-    const out = await runWrite(ctx, (_, asked) => api.redo(ctx.repoId, ctx.worktree, Number(top.entry), asked.autostash));
+    // --- 2C T7: withoutIndex (a stash's undo/redo) ---
+    const out = await runWrite(ctx, (_, asked) => api.redo(ctx.repoId, ctx.worktree, Number(top.entry), asked.autostash, asked.withoutIndex));
+    // --- end 2C T7 ---
     if (out?.status === 'done') useToast.getState().show(`Redid ${out.label}`);
   });
 }
 
-const view = (which: 'undo' | 'redo') => ({ repoId, path }: RepoCtx): ButtonView => {
-  const s = useJournal((st) => st.states[journalKey(repoId, path)]);
+const view = (which: 'undo' | 'redo') => ({ repoId, worktree }: RepoCtx): ButtonView => {
+  const s = useJournal((st) => st.states[journalKey(repoId, worktree)]);
   const top = which === 'undo' ? s?.undo : s?.redo;
   const blocked = which === 'undo' ? s?.undoBlocked : s?.redoBlocked;
   const key = which === 'undo' ? 'Ctrl+Z' : 'Ctrl+Shift+Z';

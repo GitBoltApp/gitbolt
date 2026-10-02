@@ -47,7 +47,7 @@ beforeEach(() => {
   useEditorSettings.setState({ settings: { stickyScroll: false } });
   useAppState.setState({ settings: DEFAULT_SETTINGS, profile: { ...EMPTY_PROFILE, name: 'Work', tabs: [tab], activeTab: 't1' } });
   useRuntime.setState({
-    tabs: { t1: { status: 'ready', error: null, repo: { id: 7, name: 'shop', path: '/r/shop' } as never, graph: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null,
+    tabs: { t1: { status: 'ready', error: null, repo: { id: 7, name: 'shop', path: '/r/shop' } as never, graph: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null, worktree: null,
       info: { remotes: [{ name: 'origin', url: 'u', host: 'code.example.com', path: 'acme/shop', hostKind: 'generic' }] } as never } },
   });
 });

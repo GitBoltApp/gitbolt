@@ -4,7 +4,7 @@ import type { RowPayload } from '../api/gen/RowPayload';
 import { labelsByRowOf, membershipOf } from './graphIndex';
 
 const row = (id: string, parents: string[]): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary: id, bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents, mrRefs: [], wip: null });
-const labels: RefLabel[] = [{ row: 0, name: 'main', local: 'refs/heads/main', remotes: [], tag: false, isHead: true, worktree: null }];
+const labels: RefLabel[] = [{ row: 0, name: 'main', local: 'refs/heads/main', remotes: [], tag: false, isHead: true, worktree: null, checkedOut: null }];
 const rows = [row('a', ['b']), row('b', [])];
 
 describe('graphIndex: once per payload, shared by the graph view and the menus', () => {

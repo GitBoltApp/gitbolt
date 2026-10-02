@@ -65,13 +65,17 @@ test.describe('fetch', () => {
     await expect(statusBar(page)).not.toContainText('Fetching…');
   });
 
-  test('Fetch all, from the Fetch dropdown, fetches too', async ({ page }) => {
+  // The Fetch dropdown is the default picker now (spec #2 §12.1): picking runs nothing, so the
+  // palette's "Fetch all" (`repo.fetch`) is the other way to fetch.
+  test('Fetch all, from the palette, fetches too', async ({ page }) => {
     const repo = freshFixture('basic');
     pushFromElsewhere(repo, 'Pushed for Fetch all');
     await page.goto(openUrl(repo));
     await expect(graph(page)).toBeVisible();
-    await page.getByRole('button', { name: 'Fetch options' }).click();
-    await page.getByRole('menuitem', { name: 'Fetch all' }).click();
+    await page.keyboard.press('Control+p');
+    await page.keyboard.type('>Fetch all');
+    await expect(page.getByRole('option').first()).toContainText('Fetch all');
+    await page.keyboard.press('Enter');
     await expect(page.getByText('Pushed for Fetch all')).toBeVisible({ timeout: 10_000 });
   });
 

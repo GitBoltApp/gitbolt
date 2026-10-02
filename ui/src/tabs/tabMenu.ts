@@ -5,8 +5,9 @@ import type { Profile } from '../api/gen/Profile';
 import type { TabState } from '../api/gen/TabState';
 import { copyText } from '../api/transport';
 import { openRepoFolder, reopenLastClosed } from '../app/coreActions';
-import { useRuntime } from '../app/runtime';
+import { useRuntime, worktreeOf } from '../app/runtime';
 import { useAppState } from '../app/state';
+import { guardTabClose } from '../diff/workingCopy';
 import { closeOthers, closeTab, closeToRight } from '../app/tabs';
 import { ICONS } from '../menu/icons';
 import { registerMenu } from '../menu/registry';
@@ -24,6 +25,7 @@ export interface TabTarget { tab: TabState; index: number }
 export interface TabEnv { tabCount: number; closedCount: number }
 
 const update = (fn: (p: Profile) => Profile) => useAppState.getState().updateProfile(fn);
+const tabIds = () => useAppState.getState().profile.tabs.map((t) => t.id);
 
 type ActionRow = Extract<MenuRow, { kind: 'action' }>;
 const row = (id: string, label: string, icon: LucideIcon, tooltip: string, run: () => void, extra: Partial<ActionRow> = {}): MenuRow =>
@@ -41,9 +43,9 @@ registerMenu<TabTarget, TabEnv>({
 registerMenu<TabTarget, TabEnv>({
   id: 'tab.close', kind: 'tab', group: 'close', order: 0,
   rows: ({ tab, index }, env) => [
-    row('tab.close', 'Close', ICONS.close, 'Close this tab', () => update((p) => closeTab(p, tab.id)), { shortcut: 'Ctrl+W' }),
-    row('tab.closeOthers', 'Close others', ICONS.closeOthers, 'Close every other tab', () => update((p) => closeOthers(p, tab.id)), env.tabCount > 1 ? {} : { disabledReason: 'This is the only tab' }),
-    row('tab.closeRight', 'Close to the right', ICONS.closeRight, 'Close the tabs to the right of this one', () => update((p) => closeToRight(p, tab.id)), index < env.tabCount - 1 ? {} : { disabledReason: 'No tabs to the right' }),
+    row('tab.close', 'Close', ICONS.close, 'Close this tab', () => guardTabClose([tab.id], () => update((p) => closeTab(p, tab.id))), { shortcut: 'Ctrl+W' }),
+    row('tab.closeOthers', 'Close others', ICONS.closeOthers, 'Close every other tab', () => guardTabClose(tabIds().filter((id) => id !== tab.id), () => update((p) => closeOthers(p, tab.id))), env.tabCount > 1 ? {} : { disabledReason: 'This is the only tab' }),
+    row('tab.closeRight', 'Close to the right', ICONS.closeRight, 'Close the tabs to the right of this one', () => guardTabClose(tabIds().slice(index + 1), () => update((p) => closeToRight(p, tab.id))), index < env.tabCount - 1 ? {} : { disabledReason: 'No tabs to the right' }),
   ],
 });
 
@@ -61,14 +63,16 @@ registerMenu<TabTarget, TabEnv>({
   id: 'tab.repo', kind: 'tab', group: 'repo', order: 0,
   when: ({ tab }) => tab.kind === 'repo' && !!tab.path,
   rows: ({ tab }) => {
-    const repo = useRuntime.getState().tabs[tab.id]?.repo ?? null;
+    const rt = useRuntime.getState().tabs[tab.id];
+    const repo = rt?.repo ?? null;
     return [
       row('tab.copyPath', 'Copy repo path', ICONS.copy, `Copy "${tab.path}"`, () => {
         void copyText(tab.path!).then(() => useToast.getState().show('Copied'), (e: unknown) => useToast.getState().show(errorMessage(e)));
       }),
       row(
-        'tab.openFolder', 'Open in file manager', ICONS.reveal, "Open the repository's folder in the file manager",
-        () => { if (repo) openRepoFolder(repo.id, repo.path); },
+        'tab.openFolder', 'Open in file manager', ICONS.reveal, "Open the tab's worktree folder in the file manager",
+        // The tab's active worktree, not the repository's main one (spec #2 §11.2).
+        () => { if (repo) openRepoFolder(repo.id, worktreeOf(rt) ?? repo.path); },
         repo ? {} : { disabledReason: 'Still loading' },
       ),
     ];

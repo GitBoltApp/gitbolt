@@ -49,9 +49,11 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
   });
 
-  test('a plain commit: Copy SHA, Copy message, Compare with working tree; no branch or forge rows; under budget', async ({ page }) => {
+  test('a plain commit: Reset early, the 2C Branch rows, then Copy SHA, Copy message, Compare with working tree; no forge rows; under budget', async ({ page }) => {
     const menu = await commitMenu(page, 'Fix typo');
-    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Copy SHA', 'Copy message', 'Compare with working tree']);
+    // Spec #2 §14: 2C's Commit-group Reset row (placed early, right after the sync rows) and its
+    // Branch group (Checkout ▸, Create worktree from ▸, Create branch here) sit above 1C's rows.
+    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Copy SHA', 'Copy message', 'Compare with working tree']);
     // The latency budgets (cold tripwire, warm median) live in menu-perf.spec.ts, so a loaded
     // machine can't fail this functional test. Here: the opening was timed, and wasn't absurd.
     const opened = await page.evaluate(() => window.__gbMenuLatency!);
@@ -78,15 +80,29 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     await copied(page, sha!);
   });
 
-  test('the WIP row gets no commit menu', async ({ page }) => {
+  test('the WIP row gets its own menu, not the commit menu', async ({ page }) => {
     // Two worktrees are dirty (the main one and wt-hotfix, fixtures.rs): either WIP row will do.
+    // Spec #2 §14: a WIP row's menu is Switch to this worktree (not on the active one's), Open in a
+    // new tab (2C), then Stash; none of the commit menu's rows.
     await page.getByRole('row').filter({ hasText: '// WIP' }).first().locator('[data-col="message"]').click({ button: 'right' });
-    await expect(page.getByTestId('context-menu')).not.toBeVisible();
+    const menu = page.getByTestId('context-menu');
+    await expect(menu).toBeVisible();
+    const labels = await rowLabels(menu);
+    expect(labels).toContain('Open in a new tab');
+    expect(labels).toContain('Stash changes');
+    expect(labels).not.toContain('Copy SHA');
+    expect(labels).not.toContain('Checkout');
   });
 
   test("a branch label chip: Copy branch name (Local, Remote), Compare with HEAD names both branches", async ({ page }) => {
     const menu = await labelMenu(page, 'Login validation');
-    await expect(rowLabels(menu)).resolves.toEqual(['Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD']);
+    // Spec #2 §14: 2D's Sync and Integrate groups, 2C's Reset, Branch and Manage rows, then 1C's.
+    await expect(rowLabels(menu)).resolves.toEqual([
+      'Pull', 'Push', 'Set upstream', 'Reset main to this commit',
+      'Fast-forward feature/login to main', 'Merge feature/login into main', 'Rebase main onto feature/login',
+      'Checkout', 'Create worktree from', 'Create branch here', 'Rename feature/login', 'Delete',
+      'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD',
+    ]);
     const compare = action(menu, 'Compare with HEAD');
     await expect(compare).not.toHaveAttribute('aria-disabled', 'true');
     await compare.hover();
@@ -140,7 +156,7 @@ test.describe('forge rows (a GitLab remote, fixtures.details)', () => {
 
   test('MR references in the message get one Open row each; the issue reference gets none', async ({ page }) => {
     const menu = await commitMenu(page, 'Rename guide and update assets');
-    await expect(rowLabels(menu)).resolves.toEqual(['Open !42', 'Open group/sub/project!7', 'Copy SHA', 'Copy message', 'Forge link', 'Compare with working tree']);
+    await expect(rowLabels(menu)).resolves.toEqual(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Open !42', 'Open group/sub/project!7', 'Copy SHA', 'Copy message', 'Forge link', 'Compare with working tree']);
     await expect(menu.getByRole('menuitem', { name: 'Open #12' })).toHaveCount(0);
   });
 

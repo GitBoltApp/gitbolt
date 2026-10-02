@@ -157,6 +157,16 @@ interface GraphRowProps {
   /** A right-click on one of the row's branch/tag label chips (the commit or tag menu, with that
    * label's own target). */
   onLabelContextMenu?: (e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => void;
+  // --- 2C T9: double-clicks and the WIP row's menu ---
+  /** A double-click on a label chip (a branch checks out, spec #2 §9.3) or on the row (another
+   * worktree's WIP row becomes the active one, §11.2). */
+  onLabelDoubleClick?: (row: RowPayload, label: RefLabel) => void;
+  onRowDoubleClick?: (row: RowPayload) => void;
+  /** A right-click on a WIP row (the `wip` menu kind). */
+  onWipContextMenu?: (e: MenuEventLike, row: RowPayload) => void;
+  // --- end 2C T9 ---
+  /** HEAD's row only: the branch being rebased (2D T18). */
+  rebasing?: string | null;
 }
 
 /**
@@ -165,7 +175,7 @@ interface GraphRowProps {
  * the view and the canvas, not every row; a hover re-renders only the rows whose membership
  * chip appears or goes, and a branch focus (J22) only the rows whose `dimmed` changes.
  */
-const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu }: GraphRowProps) {
+const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu, onLabelDoubleClick, onRowDoubleClick, onWipContextMenu, rebasing = null }: GraphRowProps) {
   const isWip = row.kind === 'wip';
   // A column at its minimum collapses its cells too (spec §8.4): icon-only chips, the avatar only.
   const authorAvatar = isCollapsed('author', cols.author);
@@ -193,7 +203,8 @@ const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start,
       }}
       onMouseEnter={() => onHover(row.id, index, true)}
       onMouseLeave={() => onHover(row.id, index, false)}
-      onContextMenu={isWip ? undefined : (e) => onContextMenu?.(e, row)}
+      onContextMenu={(e) => (isWip ? onWipContextMenu : onContextMenu)?.(e, row)}
+      onDoubleClick={onRowDoubleClick && (() => onRowDoubleClick(row))}
     >
       {/* A hidden column (spec §8.4) has width 0 and no cell. */}
       {cols.labels > 0 && (
@@ -206,7 +217,9 @@ const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start,
             compact={isCollapsed('labels', cols.labels)}
             width={cols.labels}
             line={line && { top: line.top - start, height: line.height }}
+            rebasing={rebasing}
             onContextMenu={onLabelContextMenu && ((label, e) => onLabelContextMenu(e, row, label))}
+            onDoubleClick={onLabelDoubleClick && ((label) => onLabelDoubleClick(row, label))}
           />
         </span>
       )}
@@ -265,9 +278,16 @@ export interface GraphViewProps {
    * memoized). */
   onContextMenu?: (e: MenuEventLike, row: RowPayload) => void;
   onLabelContextMenu?: (e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => void;
+  // --- 2C T9 ---
+  onLabelDoubleClick?: (row: RowPayload, label: RefLabel) => void;
+  onRowDoubleClick?: (row: RowPayload) => void;
+  onWipContextMenu?: (e: MenuEventLike, row: RowPayload) => void;
+  // --- end 2C T9 ---
+  /** The branch a rebase in the active worktree replays: drawn at HEAD's row (2D T18). */
+  rebasing?: string | null;
 }
 
-export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = NO_SELECTED, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu }: GraphViewProps) {
+export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = NO_SELECTED, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu, onLabelDoubleClick, onRowDoubleClick, onWipContextMenu, rebasing = null }: GraphViewProps) {
   const dateFormat = useAppState((s) => s.settings.dateFormat);
   const ownRef = useRef<HTMLDivElement>(null);
   const scrollRef = gridRef ?? ownRef;
@@ -562,6 +582,10 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
                   onBranchHover={onBranchHover}
                   onContextMenu={onContextMenu}
                   onLabelContextMenu={onLabelContextMenu}
+                  onLabelDoubleClick={onLabelDoubleClick}
+                  onRowDoubleClick={onRowDoubleClick}
+                  onWipContextMenu={onWipContextMenu}
+                  rebasing={rebasing && row.id === graph.head.target ? rebasing : null}
                 />
               );
             })}

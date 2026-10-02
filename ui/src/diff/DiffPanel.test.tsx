@@ -20,7 +20,7 @@ import { activeTabWith } from '../app/testShell';
 
 const host = vi.hoisted(() => ({
   attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async (_req: { path: string }) => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
-  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
+  attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), setModifiedEditable: vi.fn(), onModifiedEdit: vi.fn(), modifiedText: vi.fn(() => null), setFileEditable: vi.fn(), onFileEdit: vi.fn(), fileText: vi.fn(() => null), keepViewOnNextShow: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
   setContextMenuHandler: vi.fn(), layout: vi.fn(),
 }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
@@ -28,10 +28,10 @@ vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
 // (DiffPanel.openIn.test.tsx covers the button).
 vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null } }));
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
-const blob = (text: string | null, encoding = 'UTF-8', binary = false): BlobPayload => ({ size: text?.length ?? 8, binary, encoding, eol: 'lf', text, base64: null });
-const sized = (p: Partial<BlobPayload>): BlobPayload => ({ size: 10, binary: false, encoding: 'UTF-8', eol: 'lf', text: 'x\n', base64: null, ...p });
+const blob = (text: string | null, encoding = 'UTF-8', binary = false): BlobPayload => ({ size: text?.length ?? 8, binary, encoding, eol: 'lf', text, base64: null, hash: null });
+const sized = (p: Partial<BlobPayload>): BlobPayload => ({ size: 10, binary: false, encoding: 'UTF-8', eol: 'lf', text: 'x\n', base64: null, hash: null, ...p });
 const contents = (old: BlobPayload | null, next: BlobPayload | null, extra: Partial<DiffContentsPayload> = {}): DiffContentsPayload => ({ old, new: next, tooLarge: false, eolOnly: false, image: false, ...extra });
 const change = (path: string, status = 'M'): FileChange => ({ path, oldPath: null, status, additions: 1, deletions: 1, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false });
 const text = async () => contents(blob('a\n'), blob('b\n'));

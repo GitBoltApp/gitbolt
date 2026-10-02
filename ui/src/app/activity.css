@@ -30,3 +30,8 @@
 .activity-msg { margin: 6px 0 0; padding: 6px 8px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; white-space: pre-wrap; word-break: break-word; background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; }
 .activity-empty { color: var(--text-secondary); padding: 8px; }
 .activity-output pre { word-break: break-word; margin: 4px 0 0; white-space: pre-wrap; color: var(--text-secondary); }
+.activity-server { margin-top: 6px; }
+.activity-server pre { word-break: break-word; margin: 4px 0 0; white-space: pre-wrap; user-select: text; }
+.remote-boilerplate { color: var(--text-secondary); }
+.remote-warning { color: var(--status-modified); }
+.activity-server a { color: var(--blue); }

@@ -6,7 +6,7 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 
 const row = (id: string): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary: `commit ${id}`, bodyFirstLine: '', authorName: 'A', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
-const graphFor = (repo: number): GraphPayload => ({ rows: [row(`r${repo}c1`), row(`r${repo}c0`)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false });
+const graphFor = (repo: number): GraphPayload => ({ rows: [row(`r${repo}c1`), row(`r${repo}c0`)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [] });
 const ids: Record<string, number> = { '/a': 1, '/b': 2 };
 
 const listeners = vi.hoisted(() => new Set<(ev: AppEvent) => void>());
@@ -46,7 +46,7 @@ describe('AppShell: tabs inside <Activity> (spec §4.4, Review Focus 1)', () => 
   beforeEach(() => {
     vi.clearAllMocks();
     listeners.clear();
-    api.openRepo.mockImplementation(async (path: string) => ({ id: ids[path], path, name: path.slice(1) }));
+    api.openRepo.mockImplementation(async (path: string) => ({ id: ids[path], path, name: path.slice(1), worktree: path }));
     api.graph.mockImplementation(async (repo: number) => graphFor(repo));
     useRuntime.setState({ tabs: {} });
     useTabViews.setState({ views: {} });
@@ -104,7 +104,7 @@ describe('AppShell: tabs inside <Activity> (spec §4.4, Review Focus 1)', () => 
     expect(api.watchRepo).toHaveBeenCalledWith(1);
     const graphAt = api.graph.mock.invocationCallOrder.at(-1)!;
     expect(api.watchRepo.mock.invocationCallOrder[0]).toBeLessThan(graphAt);
-    expect(graphCalls(1).at(-1)?.[2]).toEqual({ pin: undefined });
+    expect(graphCalls(1).at(-1)?.[2]).toEqual({ pin: undefined, active: '/a' }); // the tab's worktree (2C T2)
     expect(api.openRepo).toHaveBeenCalledTimes(2);
   });
 
