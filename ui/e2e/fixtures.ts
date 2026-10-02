@@ -1,3 +1,7 @@
+import type { APIRequestContext } from '@playwright/test';
+import type { Expect } from '../src/api/gen/Expect';
+import type { GbError } from '../src/api/gen/GbError';
+import type { TestIntent } from '../src/api/gen/TestIntent';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -38,4 +42,11 @@ export function git(cwd: string, ...args: string[]): string {
     encoding: 'utf8',
     env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'E2E', GIT_AUTHOR_EMAIL: 'e2e@example.com', GIT_COMMITTER_NAME: 'E2E', GIT_COMMITTER_EMAIL: 'e2e@example.com' },
   }).trim();
+}
+
+/** `POST /test/write` (spec #2 §18 2A): a test-only write intent on a fixture repo, through the
+ * real pipeline. The harness refuses any repo that isn't a marked fixture under its root. */
+export async function testWrite(request: APIRequestContext, path: string, intent: TestIntent, extra: { worktree?: string; expect?: Expect } = {}): Promise<{ ok?: unknown; err?: GbError }> {
+  const res = await request.post(`${harnessHttp}/test/write`, { data: { path, intent, ...extra } });
+  return (await res.json()) as { ok?: unknown; err?: GbError };
 }

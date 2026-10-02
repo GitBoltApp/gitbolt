@@ -9,8 +9,16 @@ export const isGbError = (e: unknown): e is GbError =>
 export const toGbError = (e: unknown): GbError =>
   isGbError(e) ? e : { kind: 'Other', message: e instanceof Error ? e.message : String(e), commandId: null, stderr: null };
 
-export interface ErrorContext { retry?: () => void | Promise<void>; refresh?: () => void | Promise<void>; removeRecent?: () => void | Promise<void> }
-export interface ErrorAction { id: 'retry' | 'refresh' | 'remove-recent' | 'copy' | 'details'; label: string; run(): void | Promise<void> }
+/** The lock an IndexLocked error saw: its path, mtime and identity. */
+export interface IndexLockId { path: string; mtimeMs: number; ino: number; dev: number }
+export interface ErrorContext {
+  retry?: () => void | Promise<void>;
+  refresh?: () => void | Promise<void>;
+  removeRecent?: () => void | Promise<void>;
+  /** Remove stale lock (spec #2 §14): asks, then removes the lock the error saw. */
+  removeLock?: (lock: IndexLockId) => void | Promise<void>;
+}
+export interface ErrorAction { id: 'retry' | 'refresh' | 'remove-recent' | 'remove-lock' | 'copy' | 'details'; label: string; run(): void | Promise<void> }
 export interface ErrorDeps { openDetails(commandId: number): void; copy(text: string): Promise<void> }
 
 const TITLES: Record<Exclude<GbErrorKind, 'Cancelled'>, string> = {
@@ -25,6 +33,9 @@ const TITLES: Record<Exclude<GbErrorKind, 'Cancelled'>, string> = {
   GitTooOld: 'git is too old',
   Io: 'File system error',
   Other: 'Something went wrong',
+  HookFailed: 'A hook failed',
+  InProgress: 'Operation in progress',
+  Stale: 'Changed since it was shown',
 };
 
 /** Title and message for a notification, or null for errors that never notify (Cancelled). */
@@ -33,16 +44,26 @@ export function describeError(err: GbError): { title: string; message: string } 
   const title = TITLES[err.kind];
   if (err.kind === 'RefMoved') return { title, message: 'Branch changed outside GitBolt — refresh and retry' };
   if (err.kind === 'IndexLocked') {
-    // "Remove stale lock" would write to the repository; that action arrives with #2 (plan 1D, Deviation 1).
-    return { title, message: `${err.message}\nAnother git process may be running. If none is, remove .git/index.lock yourself.` };
+    // Spec #2 §14: Remove stale lock arrives with the lock's detail; without it, the hand-made way.
+    return err.detail?.kind === 'indexLock'
+      ? { title, message: `${err.message}\nAnother git program may be running.` }
+      : { title, message: `${err.message}\nAnother git process may be running. If none is, remove .git/index.lock yourself.` };
   }
+  if (err.kind === 'HookFailed') {
+    const hook = err.detail?.kind === 'hook' ? err.detail.hook : null;
+    return { title: hook ? `${hook} hook failed` : title, message: err.message };
+  }
+  // Spec #2 §15: the message is the title ("A rebase is in progress", "a.php changed since it was shown").
+  if (err.kind === 'InProgress') return { title: err.message, message: 'Finish or abort it first' };
+  if (err.kind === 'Stale') return { title: err.message, message: 'Refreshed: try again' };
   return { title, message: err.message };
 }
 
-type Slot = 'retry' | 'refresh' | 'remove-recent' | 'copy';
+type Slot = 'retry' | 'refresh' | 'remove-recent' | 'remove-lock' | 'copy';
 const SLOTS: Record<GbErrorKind, Slot[]> = {
   AuthFailed: ['retry'], NonFastForward: ['refresh'], Conflict: ['refresh'], DirtyWorktree: ['refresh'], RefMoved: ['refresh'],
-  IndexLocked: ['retry'], NotFound: ['remove-recent'], InvalidInput: [], GitTooOld: [], Io: ['copy'], Other: ['copy'], Cancelled: [],
+  IndexLocked: ['remove-lock', 'retry'], NotFound: ['remove-recent'], InvalidInput: [], GitTooOld: [], Io: ['copy'], Other: ['copy'], Cancelled: [],
+  HookFailed: ['retry'], InProgress: [], Stale: ['refresh'],
 };
 
 /** Suggested actions for one error (spec §16.1): the kind's slots the context can fill, then Details if a command is linked. */
@@ -53,6 +74,12 @@ export function actionsFor(err: GbError, ctx: ErrorContext, deps: ErrorDeps): Er
     if (slot === 'retry' && ctx.retry) out.push({ id: 'retry', label: 'Retry', run: ctx.retry });
     if (slot === 'refresh' && ctx.refresh) out.push({ id: 'refresh', label: 'Refresh', run: ctx.refresh });
     if (slot === 'remove-recent' && ctx.removeRecent) out.push({ id: 'remove-recent', label: 'Remove from recent', run: ctx.removeRecent });
+    if (slot === 'remove-lock' && ctx.removeLock && err.detail?.kind === 'indexLock') {
+      const { path, mtimeMs, ino, dev } = err.detail;
+      const lock = { path, mtimeMs, ino, dev };
+      const remove = ctx.removeLock;
+      out.push({ id: 'remove-lock', label: 'Remove stale lock', run: () => remove(lock) });
+    }
     if (slot === 'copy') {
       const d = describeError(err);
       out.push({ id: 'copy', label: 'Copy error', run: () => deps.copy([d?.title, d?.message, err.stderr].filter(Boolean).join('\n')) });

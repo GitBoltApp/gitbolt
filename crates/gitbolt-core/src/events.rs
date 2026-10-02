@@ -33,6 +33,33 @@ pub enum ChangeKind {
 pub enum OpKind {
     Fetch,
     Clone,
+    // Writes (spec #2 §3.5).
+    Commit,
+    Checkout,
+    Branch,
+    Reset,
+    Stash,
+    Discard,
+    Stage,
+    Pull,
+    Push,
+    Merge,
+    Rebase,
+    Undo,
+    Redo,
+    Worktree,
+    Resolve,
+}
+
+/// An autostash step (`OpStashStep`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum StashStep {
+    /// `git stash push`: "Saving your changes…".
+    Saving,
+    /// `git stash apply` and its drop: "Restoring your changes…".
+    Restoring,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -89,6 +116,33 @@ pub enum AppEvent {
         /// The git command that ran, argv joined for display and redacted (no environment, no
         /// askpass secrets): the activity log shows it (K101).
         command: Option<String>,
+    },
+    /// One redacted line of a write's hook or progress output (spec #2 §3.3): the UI appends it
+    /// to that op's Activity entry.
+    OpOutput {
+        #[ts(type = "number")]
+        op: u64,
+        line: String,
+    },
+    /// A write's autostash step began (`step`), or ended (`None`) (spec #2 §6). Once a step has
+    /// run ~60 s, the slow-write status says "Saving your changes…" or "Restoring your
+    /// changes…"; while one runs, the op's Cancel reads "Stop — your changes stay in stash
+    /// <message>", and stops the step (a 15-minute limit stops it too).
+    OpStashStep {
+        #[ts(type = "number")]
+        op: u64,
+        step: Option<StashStep>,
+        message: String,
+    },
+    /// A worktree's undo journal changed (a write, an undo, a banner): Undo/Redo and the banners
+    /// follow (spec #2 §3.5).
+    JournalChanged { repo: u32, worktree: String, state: crate::journal::JournalState },
+    /// The repository's action queue changed (spec #2 §3.6): the status-bar chip follows.
+    QueueChanged {
+        repo: u32,
+        running: Option<crate::write::types::QueueItem>,
+        queued: Vec<crate::write::types::QueueItem>,
+        stopped: Option<crate::write::types::QueueStop>,
     },
     /// A credential prompt is waiting for the user (spec §5.4).
     AuthWaiting {
@@ -170,5 +224,14 @@ mod tests {
         assert_eq!(serde_json::to_value(AppEvent::OpenRequested { path: "/r".into() }).unwrap(), serde_json::json!({"type": "openRequested", "path": "/r"}));
         let back: AppEvent = serde_json::from_value(serde_json::json!({"type": "refsUpdated", "repo": 4})).unwrap();
         assert_eq!(back, AppEvent::RefsUpdated { repo: 4 });
+    }
+
+    #[test]
+    fn write_op_kinds_and_op_output_serialize() {
+        assert_eq!(serde_json::to_value(OpKind::Commit).unwrap(), "commit");
+        assert_eq!(serde_json::to_value(OpKind::Undo).unwrap(), "undo");
+        assert_eq!(serde_json::to_value(OpKind::Resolve).unwrap(), "resolve");
+        let ev = AppEvent::OpOutput { op: 3, line: "lint: ok".into() };
+        assert_eq!(serde_json::to_value(&ev).unwrap(), serde_json::json!({"type": "opOutput", "op": 3, "line": "lint: ok"}));
     }
 }

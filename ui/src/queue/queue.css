@@ -1,0 +1,2 @@
+.sb-queue { white-space: nowrap; }
+.sb-queue.stopped { color: var(--orange); }

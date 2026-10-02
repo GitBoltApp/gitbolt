@@ -1,6 +1,7 @@
 //! Deterministic throwaway git repositories for tests and harness fixtures.
 
 pub mod fixtures;
+pub mod state;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -136,6 +137,10 @@ impl TestRepo {
         self.run(&self.path, args)
     }
 
+    pub fn try_git_in(&self, dir: &Path, args: &[&str]) -> Result<String, String> {
+        self.run(dir, args)
+    }
+
     fn run(&self, dir: &Path, args: &[&str]) -> Result<String, String> {
         let t = self.clock.fetch_add(60, Ordering::SeqCst);
         let date = format!("@{t} +0000");
@@ -237,6 +242,67 @@ impl Default for TestRepo {
     }
 }
 
+/// Written into a fixture's root directory. The harness's write guard (spec #2 §17.2) allows
+/// writes only to repositories inside a marked directory, and `gitbolt-harness fixture` clears
+/// only a marked directory.
+pub const FIXTURE_MARKER: &str = ".gitbolt-fixture";
+
+impl TestRepo {
+    /// An executable `.git/hooks/<name>` running `script` (give it its own `#!/bin/sh` line).
+    pub fn hook(&self, name: &str, script: &str) -> &Self {
+        use std::os::unix::fs::PermissionsExt;
+        let p = self.path.join(".git/hooks").join(name);
+        std::fs::create_dir_all(p.parent().expect("hooks dir")).expect("create hooks dir");
+        std::fs::write(&p, script).expect("write hook");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("chmod hook");
+        self
+    }
+
+    /// SSH commit signing (spec #2 §17.1), in this repo's own config: a throwaway ed25519 key
+    /// (`ssh-keygen -N ''`), `gpg.format=ssh`, `commit.gpgsign=true`, `user.signingkey`, an
+    /// allowed-signers file, and `gpg.ssh.program` = a wrapper that counts each `-Y sign` in
+    /// `<root>/sign-count`, then runs `ssh-keygen`. `false` (with the reason printed) when this
+    /// machine can't sign. TestRepo's own commits stay unsigned (`-c commit.gpgsign=false`).
+    pub fn signing_ssh(&self) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        if let Some(why) = ssh_signing_unavailable() {
+            eprintln!("skipping SSH signing: {why}");
+            return false;
+        }
+        let key = self.root.join("signing_key");
+        let made = Command::new("ssh-keygen").args(["-q", "-t", "ed25519", "-N", "", "-C", "ada@example.com", "-f"]).arg(&key).status().expect("ssh-keygen");
+        assert!(made.success(), "ssh-keygen failed");
+        let public = std::fs::read_to_string(key.with_extension("pub")).expect("public key");
+        let allowed = self.root.join("allowed_signers");
+        std::fs::write(&allowed, format!("ada@example.com {public}")).expect("allowed signers");
+        let wrapper = self.root.join("count-sign");
+        let counter = self.root.join("sign-count");
+        std::fs::write(&wrapper, format!("#!/bin/sh\ncase \"$*\" in *\"-Y sign\"*) echo sign >> '{}';; esac\nexec ssh-keygen \"$@\"\n", counter.display())).expect("wrapper");
+        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).expect("chmod wrapper");
+        for (k, v) in [
+            ("gpg.format", "ssh".to_string()),
+            ("commit.gpgsign", "true".to_string()),
+            ("user.signingkey", key.display().to_string()),
+            ("gpg.ssh.allowedSignersFile", allowed.display().to_string()),
+            ("gpg.ssh.program", wrapper.display().to_string()),
+        ] {
+            self.git(&["config", k, &v]);
+        }
+        true
+    }
+
+    /// How many times the `signing_ssh` wrapper was asked to sign.
+    pub fn sign_count(&self) -> usize {
+        std::fs::read_to_string(self.root.join("sign-count")).map(|s| s.lines().count()).unwrap_or(0)
+    }
+
+    /// Marks this repo's root as a fixture (the harness write guard, spec #2 §17.2).
+    pub fn mark_fixture(&self) -> &Self {
+        std::fs::write(self.root.join(FIXTURE_MARKER), "").expect("write fixture marker");
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,5 +386,39 @@ mod tests {
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 6);
         assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 4);
         assert!(png.ends_with(&[0xAE, 0x42, 0x60, 0x82]), "IEND chunk CRC");
+    }
+
+    #[test]
+    fn hooks_are_executable_and_run() {
+        let r = TestRepo::new();
+        r.commit("base");
+        let marker = r.root().join("hook-ran");
+        r.hook("post-commit", &format!("#!/bin/sh\ntouch {}\n", marker.display()));
+        // TestRepo's own git runs no hooks (core.hooksPath=/dev/null); plain git does.
+        std::process::Command::new("git").current_dir(r.path()).envs(isolated_git_env()).args(["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "x"]).status().unwrap();
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn signing_ssh_signs_only_commits_that_ask_and_counts_them() {
+        let r = TestRepo::new();
+        r.commit("base");
+        if !r.signing_ssh() {
+            return;
+        }
+        assert_eq!(r.sign_count(), 0, "the fixture's own commits stay unsigned");
+        let out = std::process::Command::new("git").current_dir(r.path()).envs(isolated_git_env()).args(["commit", "-q", "--allow-empty", "-m", "signed"]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(r.sign_count(), 1);
+        let verdict = r.git(&["log", "-1", "--format=%G?"]);
+        assert!(verdict == "G" || verdict == "U", "{verdict}");
+        assert_eq!(r.sign_count(), 1, "verifying isn't signing");
+    }
+
+    #[test]
+    fn mark_fixture_writes_the_marker_in_the_root() {
+        let r = TestRepo::new();
+        r.mark_fixture();
+        assert!(r.root().join(FIXTURE_MARKER).is_file());
     }
 }

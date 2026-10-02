@@ -20,6 +20,9 @@ pub struct OpEntry {
     /// User-started operations may prompt; GitBolt-started ones (background fetch) never do.
     pub interactive: bool,
     pub cancel: CancellationToken,
+    /// Each `cancelOp` press, also once the op is cancelled: a write's autostash step, which a
+    /// Cancel of the op itself doesn't stop, takes a press during it as Stop (spec #2 §6).
+    pub stop_requested: tokio::sync::Notify,
     auth_denied: AtomicBool,
     prompt_cancelled: AtomicBool,
 }
@@ -66,9 +69,14 @@ impl OpRegistry {
     /// Registers a new op; it stays registered until the returned guard is dropped.
     pub fn begin(self: &Arc<Self>, kind: OpKind, repo: Option<u32>, interactive: bool) -> OpGuard {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        let entry = Arc::new(OpEntry { id, kind, repo, interactive, cancel: CancellationToken::new(), auth_denied: AtomicBool::new(false), prompt_cancelled: AtomicBool::new(false) });
+        let entry = Arc::new(OpEntry { id, kind, repo, interactive, cancel: CancellationToken::new(), stop_requested: tokio::sync::Notify::new(), auth_denied: AtomicBool::new(false), prompt_cancelled: AtomicBool::new(false) });
         self.ops().insert(id, entry.clone());
         OpGuard { entry, registry: self.clone() }
+    }
+
+    /// Every registered op (a snapshot).
+    pub fn running(&self) -> Vec<Arc<OpEntry>> {
+        self.ops().values().cloned().collect()
     }
 
     pub fn get(&self, id: OpId) -> Option<Arc<OpEntry>> {
@@ -80,6 +88,7 @@ impl OpRegistry {
         match self.get(id) {
             Some(e) => {
                 e.cancel.cancel();
+                e.stop_requested.notify_waiters();
                 true
             }
             None => false,

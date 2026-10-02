@@ -29,3 +29,4 @@
 .activity-result { font-weight: 600; }
 .activity-msg { margin: 6px 0 0; padding: 6px 8px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; white-space: pre-wrap; word-break: break-word; background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; }
 .activity-empty { color: var(--text-secondary); padding: 8px; }
+.activity-output pre { word-break: break-word; margin: 4px 0 0; white-space: pre-wrap; color: var(--text-secondary); }

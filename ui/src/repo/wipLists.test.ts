@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FileListPayload } from '../api/gen/FileListPayload';
 import { filesKey } from './services';
 import { wipKey, WipLists, type WipSpec } from './wipLists';
@@ -139,5 +139,19 @@ describe('WipLists (K44)', () => {
     wip.setWatched(true);
     wip.prefetch(['/x']);
     expect(reads).toHaveLength(11);
+  });
+
+  it('holds a write\'s fresh lists at once, and keeps them through the event at the same version (spec #2 §3.1)', () => {
+    const fetcher = vi.fn(async () => list('v0'));
+    const wip = new WipLists(fetcher);
+    wip.setWatched(true);
+    const seen: string[][] = [];
+    wip.subscribe((wts) => seen.push([...wts]));
+    wip.put('/r', { staged: list('v2'), unstaged: list('v2'), version: 'v2' });
+    expect(wip.peek(wipKey('/r', true))?.version).toBe('v2');
+    expect(seen).toEqual([['/r']]);
+    wip.changed(['/r'], { '/r': 'v2' });
+    expect(wip.peek(wipKey('/r', false))?.version, 'already current: kept').toBe('v2');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

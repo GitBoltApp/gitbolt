@@ -31,6 +31,9 @@ export interface Action {
    * "Theme: <Name>" actions, which the menu reaches through one "Theme…" row; ruling R4). */
   menu?: false;
   run: () => void | Promise<void>;
+  /** Its shortcut is left to the focused element when this says it has its own (spec #2 §5.5:
+   * Ctrl+Z in a text box, an editable Monaco, the diff view or the WIP file list). */
+  yieldsTo?: (target: EventTarget | null) => boolean;
   /** What a failure's toast may offer besides Copy and Details (R12): Retry, Refresh, Remove from recent. */
   errorContext?: () => ErrorContext;
 }

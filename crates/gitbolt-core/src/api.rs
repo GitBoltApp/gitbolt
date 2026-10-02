@@ -164,6 +164,18 @@ pub enum Request {
     UnwatchRepo { repo: u32 },
     /// Stops every watcher (the UI's startup reset: none survive a reload); `null`.
     UnwatchAll,
+    /// The action queue (spec #2 §3.6): `QueueStatePayload`.
+    QueueState { repo: u32 },
+    /// A queued item's ×: `true` if it was still queued.
+    QueueRemove {
+        repo: u32,
+        #[ts(type = "number")]
+        id: u64,
+    },
+    /// Run the "not run" items after a stop, each re-resolving.
+    QueueResume { repo: u32 },
+    /// Drop the "not run" items.
+    QueueClear { repo: u32 },
     /// Find (spec §8.7): the loaded window's commits whose message contains `query`
     /// (case-insensitive), or, for 4+ hex characters, whose id starts with it: `string[]`.
     FindText { repo: u32, query: String },
@@ -176,6 +188,153 @@ pub enum Request {
     /// "Search older history": commits outside the window whose message or paths match `query`,
     /// newest first: `HistoryHit[]`.
     SearchHistory { repo: u32, query: String },
+    // --- Undo / redo (2A T10) ---
+    /// Undo the newest journal entry, `entry` being the one the toolbar showed (spec #2 §5.4):
+    /// `WriteResult<UndoOutcome>`. `confirm`: "Undo anyway", each moved ref as the prompt showed it.
+    Undo {
+        repo: u32,
+        worktree: String,
+        #[ts(type = "number")]
+        entry: u64,
+        #[serde(default)]
+        #[ts(optional, type = "Record<string, string | null>")]
+        confirm: Option<std::collections::BTreeMap<String, Option<String>>>,
+        /// The clean-restore warning (§6.2) was confirmed (2A T11).
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_autostash: Option<bool>,
+    },
+    Redo {
+        repo: u32,
+        worktree: String,
+        #[ts(type = "number")]
+        entry: u64,
+        /// The clean-restore warning (§6.2) was confirmed (2A T11).
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_autostash: Option<bool>,
+    },
+    /// What Undo/Redo and the banners show for a worktree (§5.5).
+    JournalState { repo: u32, worktree: String },
+    // --- end undo / redo (2A T10) ---
+    // --- Autostash banners (2A T11) ---
+    /// A banner's Apply, or a recovery banner's Restore (spec #2 §6.4, §5.1): `WriteResult<null>`.
+    /// `withoutIndex`: after "Apply without restoring what was staged?".
+    ApplyKeptStash {
+        repo: u32,
+        worktree: String,
+        #[ts(type = "number")]
+        entry: u64,
+        #[serde(default)]
+        #[ts(optional)]
+        without_index: Option<bool>,
+        /// A recovery Restore's clean-restore warning (§6.2) was confirmed.
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_autostash: Option<bool>,
+    },
+    /// A banner's × (the stash stays), or its Drop stash: `JournalState`.
+    DismissBanner {
+        repo: u32,
+        worktree: String,
+        #[ts(type = "number")]
+        entry: u64,
+        #[serde(default)]
+        #[ts(optional)]
+        drop_stash: Option<bool>,
+    },
+    // --- end autostash banners (2A T11) ---
+    /// A test-only write (spec #2 §18 2A): tests and the harness only; the app doesn't know it.
+    #[cfg(any(test, feature = "testing"))]
+    TestWrite {
+        repo: u32,
+        worktree: String,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        intent: crate::write::test_intents::TestIntent,
+    },
+    /// Remove stale lock (spec #2 §14): unlinks `path` (a worktree's `index.lock`) only if its
+    /// mtime is still `mtime_ms`, the one the error saw.
+    RemoveIndexLock {
+        repo: u32,
+        path: String,
+        #[ts(type = "number")]
+        mtime_ms: i64,
+        /// The lock's inode and device when the error saw it.
+        #[ts(type = "number")]
+        ino: u64,
+        #[ts(type = "number")]
+        dev: u64,
+    },
+}
+
+impl Request {
+    /// Whether it writes to a repository (spec #2 §17.1).
+    pub fn is_write(&self) -> bool {
+        match self {
+            // Remote-tracking refs and objects.
+            Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
+            #[cfg(any(test, feature = "testing"))]
+            Request::TestWrite { .. } => true,
+            // Undo / redo (2A T10); a journal file isn't the repository.
+            Request::Undo { .. } | Request::Redo { .. } => true,
+            Request::JournalState { .. } => false,
+            // Autostash banners (2A T11): × only edits the journal; Drop stash writes.
+            Request::ApplyKeptStash { .. } => true,
+            Request::DismissBanner { drop_stash, .. } => drop_stash.unwrap_or(false),
+            Request::OpenRepo { .. }
+            | Request::LogFrontend { .. }
+            | Request::SetDebugLogging { .. }
+            | Request::LogsDir
+            | Request::Diagnostics { .. }
+            | Request::OpenLogsFolder
+            | Request::Graph { .. }
+            | Request::CommandLog
+            | Request::LaunchRepo
+            | Request::TakeOpenRequests
+            | Request::CommitMessage { .. }
+            | Request::CommitDetails { .. }
+            | Request::Remotes { .. }
+            | Request::FileList { .. }
+            | Request::DiffContents { .. }
+            | Request::TreeFiles { .. }
+            | Request::Signature { .. }
+            | Request::Avatar { .. }
+            | Request::OpenUrl { .. }
+            | Request::ListOpeners
+            | Request::ListOpenersFor { .. }
+            | Request::ValidateEditorTemplate { .. }
+            | Request::OpenIn { .. }
+            | Request::LoadState
+            | Request::SaveSettings { .. }
+            | Request::SaveProfile { .. }
+            | Request::CreateProfile { .. }
+            | Request::SwitchProfile { .. }
+            | Request::DeleteProfile { .. }
+            | Request::AuthAnswer { .. }
+            | Request::CancelOp { .. }
+            | Request::RepoInfo { .. }
+            | Request::Sidebar { .. }
+            | Request::LastPush { .. }
+            | Request::AppInfo
+            | Request::PickFolder { .. }
+            | Request::ScanRepos { .. }
+            | Request::ScanFolders { .. }
+            | Request::SuggestReposFolder
+            | Request::WatchRepo { .. }
+            | Request::UnwatchRepo { .. }
+            | Request::UnwatchAll
+            | Request::FindText { .. }
+            | Request::FindPaths { .. }
+            | Request::LocateCommit { .. }
+            | Request::SearchHistory { .. }
+            // The queue's own controls write nothing; the writes they let run are their own requests.
+            | Request::QueueState { .. }
+            | Request::QueueRemove { .. }
+            | Request::QueueResume { .. }
+            | Request::QueueClear { .. } => false,
+        }
+    }
 }
 
 pub(crate) struct RepoHandle {
@@ -183,13 +342,20 @@ pub(crate) struct RepoHandle {
     pub(crate) workdir: PathBuf,
     /// The working directory's folder name (the fetch op's label).
     pub(crate) name: String,
-    /// Held for the duration of any network operation: spec §15 "never overlaps".
-    pub(crate) net_lock: tokio::sync::Mutex<()>,
+    /// The canonical common dir: the write lock and queue key (spec #2 §3.5).
+    pub(crate) common_dir: PathBuf,
     /// Each worktree's last status (the watcher keeps it fresh while the tab is active).
     pub(crate) wip: Arc<crate::snapshot::WipCache>,
     /// The last `graph` window's find state (spec §8.7); `None` until the first graph.
     pub(crate) snapshot: Mutex<Option<Arc<crate::find::FindSnapshot>>>,
 }
+
+/// Decides whether a write may touch a repository (spec #2 §17.2), given its canonical common
+/// dir. The app has none; the harness allows fixture repositories only (`fixture_guard`).
+pub type WriteGuard = Arc<dyn Fn(&Path) -> Result<(), GbError> + Send + Sync>;
+
+/// The harness's refusal (spec #2 §17.2, verbatim).
+pub const FIXTURE_ONLY: &str = "writes are limited to fixture repositories";
 
 pub struct Api {
     pub(crate) cli: GitCli,
@@ -239,6 +405,24 @@ pub struct Api {
     pub(crate) runtime_info: String,
     /// Paths later launches forwarded (`request_open`), until `takeOpenRequests` takes them.
     pub(crate) open_requests: Mutex<Vec<String>>,
+    /// Asked before every write; `None` (the app) allows all.
+    pub(crate) write_guard: Option<WriteGuard>,
+    /// Each repository's write lock and action queue, by canonical common dir: shared by every
+    /// handle (worktree tab) of it (spec #2 §3.5, §3.6).
+    pub(crate) write_locks: Mutex<HashMap<PathBuf, Arc<crate::write::queue::RepoWrites>>>,
+    /// GitBolt's data dir (spec #2 §5.1): the journal and temp index files. A private temp dir
+    /// unless `with_data_dir` (only the app passes `paths::data_dir()`).
+    pub(crate) data_dir: PathBuf,
+    data_tmp: Option<tempfile::TempDir>,
+    pub(crate) clock: crate::journal::Clock,
+    /// The repositories (canonical common dirs) whose journals this process has recovered
+    /// pending entries in: once, at the first open.
+    pub(crate) recovered: Mutex<std::collections::HashSet<PathBuf>>,
+    /// This instance's journal owner lock (`<data>/owners/`), taken at its first journaled
+    /// write and held for the `Api`'s life.
+    owner: Mutex<Option<crate::journal::OwnerLock>>,
+    /// The hard limit on one autostash step (spec #2 §6, 2A T11 review N3); tests shorten it.
+    pub(crate) autostash_timeout: Duration,
 }
 
 /// The most forwarded paths kept for a UI that never takes them (the oldest go first).
@@ -306,12 +490,16 @@ where
 
 /// Runs gix work on the blocking pool. A `gix::Repository` is `!Sync`, so it must never be held
 /// across an `.await` in `dispatch` (whose future has to be `Send`).
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, GbError> + Send + 'static) -> Result<T, GbError> {
+pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, GbError> + Send + 'static) -> Result<T, GbError> {
     tokio::task::spawn_blocking(f).await.map_err(|e| GbError::other(format!("task failed: {e}")))?
 }
 
 impl Api {
     pub fn new(cli: GitCli, launch_repo: Option<String>) -> Self {
+        // A test or a harness that forgets `with_data_dir` never touches the user's data dir. No
+        // writable temp dir (the app, which replaces it anyway, must not panic): a per-process one.
+        let data_tmp = tempfile::tempdir().ok();
+        let data_dir = data_tmp.as_ref().map(|t| t.path().to_path_buf()).unwrap_or_else(|| std::env::temp_dir().join(format!("gitbolt-data-{}", std::process::id())));
         Self {
             cli,
             launch_repo: launch_repo.filter(|p| !p.is_empty()),
@@ -336,6 +524,190 @@ impl Api {
             log: None,
             runtime_info: "harness".into(),
             open_requests: Mutex::new(Vec::new()),
+            write_guard: None,
+            write_locks: Mutex::new(HashMap::new()),
+            data_dir,
+            data_tmp,
+            clock: crate::journal::system_clock(),
+            recovered: Mutex::default(),
+            owner: Mutex::new(None),
+            autostash_timeout: crate::journal::autostash::AUTOSTASH_TIMEOUT,
+        }
+    }
+
+    pub fn with_data_dir(mut self, dir: PathBuf) -> Self {
+        self.data_dir = dir;
+        self.data_tmp = None;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_autostash_timeout(mut self, limit: Duration) -> Self {
+        self.autostash_timeout = limit;
+        self
+    }
+
+    pub fn with_clock(mut self, clock: crate::journal::Clock) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    pub(crate) fn now(&self) -> i64 {
+        (self.clock)()
+    }
+
+    /// `<data>/tmp`, 0700: temp index files and trace2 files.
+    pub(crate) fn tmp_dir(&self) -> Result<PathBuf, GbError> {
+        if let Some(parent) = self.data_dir.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        crate::paths::private_dir(&self.data_dir)?;
+        Ok(crate::paths::private_dir(&self.data_dir.join("tmp"))?)
+    }
+
+    /// `root`'s journal (its own git dir). It never recovers pending entries: that happens once
+    /// per process, at the repository's first open (`recover_journals`), so a write never takes
+    /// another instance's in-flight entry for a crashed one.
+    pub(crate) fn journal(&self, root: &Path) -> Result<crate::journal::JournalStore, GbError> {
+        let git_dir = gix::open(root).map_err(crate::error::gix_err)?.git_dir().canonicalize()?;
+        Ok(crate::journal::JournalStore::new(&self.data_dir, &git_dir, root))
+    }
+
+    /// This instance's journal owner, stamped on its pending entries (taken once, then held).
+    pub(crate) fn owner(&self) -> Result<crate::journal::Owner, GbError> {
+        let mut held = self.owner.lock().expect("owner poisoned");
+        if held.is_none() {
+            *held = Some(crate::journal::OwnerLock::acquire(&self.data_dir)?);
+        }
+        Ok(held.as_ref().expect("owner lock").owner.clone())
+    }
+
+    /// At a repository's first open in this process: a pending entry still in a worktree's
+    /// journal means GitBolt stopped mid-operation (§5.1). Every worktree's journal (the main
+    /// one's too, whichever worktree opens first), once; never while one of this process's
+    /// writes holds the repository's lock (the next open retries), and never an entry whose
+    /// owner still runs (another instance's write in flight).
+    fn recover_journals(&self, workdir: &Path, common_dir: &Path) {
+        if self.recovered.lock().expect("recovered poisoned").contains(common_dir) {
+            return;
+        }
+        let writes = self.writes_for(common_dir);
+        let Ok(_idle) = writes.lock.try_lock() else { return };
+        if !self.recovered.lock().expect("recovered poisoned").insert(common_dir.to_path_buf()) {
+            return;
+        }
+        // Git dir → worktree root, deduped.
+        let mut worktrees: std::collections::BTreeMap<PathBuf, PathBuf> = std::collections::BTreeMap::new();
+        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        // The main worktree: gix lists only the linked ones. Its git dir is the common dir.
+        let main_root = gix::open(common_dir).ok().and_then(|m| m.workdir().map(Path::to_path_buf)).or_else(|| common_dir.file_name().is_some_and(|n| n == ".git").then(|| common_dir.parent().map(Path::to_path_buf)).flatten());
+        if let Some(main_root) = main_root {
+            worktrees.insert(canonical(common_dir), canonical(&main_root));
+        }
+        if let Ok(repo) = gix::open(workdir) {
+            worktrees.insert(canonical(repo.git_dir()), workdir.to_path_buf());
+            for wt in repo.worktrees().unwrap_or_default() {
+                if let Ok(base) = wt.base() {
+                    worktrees.insert(canonical(wt.git_dir()), canonical(&base));
+                }
+            }
+        }
+        let data = self.data_dir.clone();
+        // The shared stash stack, newest first: records written ahead of a push that never
+        // reported back find their stash by message (2A T11 review N2). A stack it can't read
+        // (an I/O error, or reftable, which keeps no `logs/refs/stash`) resolves nothing: an
+        // empty list would drop every such record, and a stash git did store would lose its
+        // banner (2A final M4). An absent reflog is an empty stack.
+        let stashes: Option<Vec<(String, String)>> = if common_dir.join("reftable").is_dir() {
+            None
+        } else {
+            crate::reflog::read_reflog(common_dir, "refs/stash").ok().map(|l| l.into_iter().map(|e| (e.new.to_string(), e.message)).collect())
+        };
+        for (git_dir, root) in worktrees {
+            let store = crate::journal::JournalStore::new(&data, &git_dir, &root);
+            if let Err(e) = store.update(|j| {
+                j.recover_unless(|o| o.alive(&data));
+                if let Some(stashes) = &stashes {
+                    j.resolve_unrecorded(stashes);
+                }
+            }) {
+                tracing::warn!(target: "gitbolt_core::write", "journal recovery failed for {}: {e}", root.display());
+            }
+        }
+        crate::journal::OwnerLock::sweep(&data);
+    }
+
+    fn running_writes(&self) -> Vec<Arc<crate::ops::OpEntry>> {
+        self.ops.running().into_iter().filter(|o| !matches!(o.kind, crate::events::OpKind::Fetch | crate::events::OpKind::Clone)).collect()
+    }
+
+    /// Whether a write op (anything but a fetch or a clone) is registered: queued or running.
+    pub fn writes_running(&self) -> bool {
+        !self.running_writes().is_empty()
+    }
+
+    /// The app is quitting: waits up to `wait` for the running writes (every op but a fetch or
+    /// a clone) to finish, then cancels the rest and gives them `WRITE_TERM_GRACE` to stop, so
+    /// git can remove its locks (spec #2 §3.3).
+    pub async fn settle_writes(&self, wait: Duration) {
+        let writing = || self.running_writes();
+        let deadline = Instant::now() + wait;
+        while !writing().is_empty() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let left = writing();
+        if left.is_empty() {
+            return;
+        }
+        for op in &left {
+            op.cancel.cancel();
+        }
+        let deadline = Instant::now() + crate::git::WRITE_TERM_GRACE + Duration::from_millis(500);
+        while !writing().is_empty() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// What Undo/Redo and the banners show; expired entries go first (§5.1).
+    pub(crate) fn journal_state(&self, root: &Path) -> Result<crate::journal::JournalState, GbError> {
+        let store = self.journal(root)?;
+        let busy = gix::open(root).map_err(crate::error::gix_err)?.state().and_then(crate::write::in_progress_name);
+        let now = self.now();
+        store.update(|j| {
+            j.expire(now);
+            j.state(busy)
+        })
+    }
+
+    /// Holds on every live watcher of the repository (one per tab's worktree).
+    pub(crate) fn watch_holds(&self, common_dir: &Path) -> Vec<crate::watch::WatchHold> {
+        let ids: Vec<u32> = self.watchers.lock().expect("watchers poisoned").keys().copied().collect();
+        let mine: Vec<u32> = ids.into_iter().filter(|id| self.handle(*id).is_ok_and(|h| h.common_dir == common_dir)).collect();
+        let watchers = self.watchers.lock().expect("watchers poisoned");
+        mine.iter().filter_map(|id| watchers.get(id)).map(|w| w.hold()).collect()
+    }
+
+    /// The harness's reset: every queue cleared, every journal gone.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn reset_writes(&self) {
+        for w in self.write_locks.lock().expect("write locks poisoned").values() {
+            w.queue.clear();
+            w.queue.resume();
+        }
+        self.recovered.lock().expect("recovered poisoned").clear();
+        let _ = std::fs::remove_dir_all(self.data_dir.join("journal"));
+    }
+
+    pub fn with_write_guard(mut self, guard: WriteGuard) -> Self {
+        self.write_guard = Some(guard);
+        self
+    }
+
+    /// Every write asks this first (`run_write`, `remove_index_lock`).
+    pub(crate) fn check_write(&self, common_dir: &Path) -> Result<(), GbError> {
+        match &self.write_guard {
+            Some(guard) => guard(common_dir),
+            None => Ok(()),
         }
     }
 
@@ -819,6 +1191,42 @@ impl Api {
                 self.unwatch_all();
                 to_json(())
             }
+            Request::QueueState { repo } => to_json(self.repo_writes(&*self.handle(repo)?).queue.state()),
+            Request::QueueRemove { repo, id } => to_json(self.repo_writes(&*self.handle(repo)?).queue.remove(id)),
+            Request::QueueResume { repo } => {
+                self.repo_writes(&*self.handle(repo)?).queue.resume();
+                to_json(())
+            }
+            Request::QueueClear { repo } => {
+                self.repo_writes(&*self.handle(repo)?).queue.clear();
+                to_json(())
+            }
+            // --- Undo / redo (2A T10) ---
+            Request::Undo { repo, worktree, entry, confirm, confirm_autostash } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Undo, entry, confirm.unwrap_or_default(), confirm_autostash.unwrap_or(false)).await?),
+            Request::Redo { repo, worktree, entry, confirm_autostash } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Redo, entry, Default::default(), confirm_autostash.unwrap_or(false)).await?),
+            Request::JournalState { repo, worktree } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(self.journal_state(&root)?)
+            }
+            // --- end undo / redo (2A T10) ---
+            // --- Autostash banners (2A T11) ---
+            Request::ApplyKeptStash { repo, worktree, entry, without_index, confirm_autostash } => to_json(crate::journal::autostash::apply_kept(self, repo, &worktree, entry, without_index.unwrap_or(false), confirm_autostash.unwrap_or(false)).await?),
+            Request::DismissBanner { repo, worktree, entry, drop_stash } => to_json(crate::journal::autostash::dismiss(self, repo, &worktree, entry, drop_stash.unwrap_or(false)).await?),
+            // --- end autostash banners (2A T11) ---
+            #[cfg(any(test, feature = "testing"))]
+            Request::TestWrite { repo, worktree, expect, intent } => {
+                // A workspace build unifies `testing` into the app's core: without a write guard
+                // (only the harness sets one) a test write is refused, whatever was compiled in.
+                if self.write_guard.is_none() {
+                    return Err(GbError::new(GbErrorKind::InvalidInput, "test writes need a write guard (the harness)"));
+                }
+                crate::write::test_intents::run(self, repo, &worktree, expect, intent).await
+            }
+            Request::RemoveIndexLock { repo, path, mtime_ms, ino, dev } => {
+                crate::write::index_lock::remove_index_lock(self, repo, &path, mtime_ms, ino, dev).await?;
+                to_json(())
+            }
         }
     }
 
@@ -898,8 +1306,15 @@ impl Api {
             .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
             .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "Bare repositories are not supported"))?;
         let name = workdir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| workdir.display().to_string());
+        let common_dir = {
+            let local = repo.to_thread_local();
+            local.common_dir().canonicalize().unwrap_or_else(|_| local.common_dir().to_path_buf())
+        };
+        // Lock order: `repos`, then `write_locks` (nothing takes them the other way round).
+        self.recover_journals(&workdir, &common_dir);
         let mut repos = self.repos.lock().expect("repos poisoned");
         if let Some((&id, _)) = repos.iter().find(|(_, h)| h.workdir == workdir) {
+            self.writes_for(&common_dir).add_id(id);
             return Ok(RepoSummary { id, path: workdir.display().to_string(), name });
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -907,17 +1322,35 @@ impl Api {
             repo,
             workdir: workdir.clone(),
             name: name.clone(),
-            net_lock: tokio::sync::Mutex::new(()),
+            common_dir: common_dir.clone(),
             wip: Arc::new(crate::snapshot::WipCache::watched_only()),
             snapshot: Mutex::new(None),
         }));
+        self.writes_for(&common_dir).add_id(id);
         Ok(RepoSummary { id, path: workdir.display().to_string(), name })
+    }
+
+    /// The repository's write lock and queue, shared by every handle (worktree tab) of it.
+    pub(crate) fn repo_writes(&self, h: &RepoHandle) -> Arc<crate::write::queue::RepoWrites> {
+        self.writes_for(&h.common_dir)
+    }
+
+    fn writes_for(&self, common_dir: &Path) -> Arc<crate::write::queue::RepoWrites> {
+        let mut map = self.write_locks.lock().expect("write locks poisoned");
+        map.entry(common_dir.to_path_buf())
+            .or_insert_with(|| {
+                let bus = self.bus.clone();
+                Arc::new(crate::write::queue::RepoWrites::new(move |repo, s| {
+                    bus.emit(AppEvent::QueueChanged { repo, running: s.running.clone(), queued: s.queued.clone(), stopped: s.stopped.clone() });
+                }))
+            })
+            .clone()
     }
 
     /// The canonical path of `worktree`, if it's one of this repository's usable worktrees. Every
     /// request that reads a worktree goes through this, so a UI bug or a crafted request can't
     /// point GitBolt at an arbitrary directory.
-    async fn worktree_dir(&self, h: &RepoHandle, worktree: &str) -> Result<PathBuf, GbError> {
+    pub(crate) async fn worktree_dir(&self, h: &RepoHandle, worktree: &str) -> Result<PathBuf, GbError> {
         let invalid = || GbError::new(GbErrorKind::InvalidInput, format!("{worktree} is not a worktree of this repository"));
         let wanted = Path::new(worktree).canonicalize().map_err(|_| invalid())?;
         list_worktrees(&self.cli, &h.workdir)
@@ -991,6 +1424,16 @@ mod tests {
 
     fn api() -> Api {
         Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env()), Some("/launch/path".into()))
+    }
+
+    #[tokio::test]
+    async fn the_write_guard_decides_and_none_allows_everything() {
+        let r = TestRepo::new();
+        let common = r.path().join(".git");
+        assert!(api().check_write(&common).is_ok(), "no guard: the app");
+        let guarded = api().with_write_guard(Arc::new(|_: &Path| Err(GbError::new(GbErrorKind::InvalidInput, FIXTURE_ONLY))));
+        let err = guarded.check_write(&common).unwrap_err();
+        assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::InvalidInput, "writes are limited to fixture repositories"));
     }
 
     /// An unverified signature (a good one from a key that isn't trusted yet) is looked at again
@@ -1920,5 +2363,213 @@ mod tests {
         let list = || req(serde_json::json!({"method": "listOpeners"}));
         assert!(api.dispatch(list()).await.is_err(), "a failed detection is an error, not an empty list");
         assert_eq!(api.dispatch(list()).await.unwrap().as_array().unwrap().len(), 1, "and the next call retries");
+    }
+
+    /// Review Focus 2.
+    #[tokio::test]
+    async fn two_handles_of_one_repository_share_the_queue() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let main = open(&api, &r).await as u32;
+        let wt = api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": r.root().join("wt-hotfix")}}))).await.unwrap()["id"].as_u64().unwrap() as u32;
+        assert_ne!(main, wt, "handles are per worktree");
+        let (h1, h2) = (api.handle(main).unwrap(), api.handle(wt).unwrap());
+        assert_eq!(h1.common_dir, h2.common_dir);
+        let w = api.repo_writes(&h1);
+        assert!(Arc::ptr_eq(&w, &api.repo_writes(&h2)));
+        let mut rx = api.subscribe();
+        let ticket = w.queue.enqueue("commit \"x\"", crate::events::OpKind::Commit, 1);
+        let mut ids = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            if let AppEvent::QueueChanged { repo, queued, .. } = ev {
+                assert_eq!(queued.len(), 1);
+                ids.push(repo);
+            }
+        }
+        ids.sort_unstable();
+        assert_eq!(ids, [main, wt], "both tabs see it");
+        drop(ticket);
+    }
+
+    #[tokio::test]
+    async fn queue_requests_dispatch() {
+        let r = TestRepo::new();
+        r.commit("c");
+        let api = api();
+        let id = open(&api, &r).await;
+        let w = api.repo_writes(&api.handle(id as u32).unwrap());
+        let a = w.queue.enqueue("a", crate::events::OpKind::Commit, 1);
+        let b = w.queue.enqueue("b", crate::events::OpKind::Commit, 2);
+        let c = w.queue.enqueue("c", crate::events::OpKind::Commit, 3);
+        let state = api.dispatch(req(serde_json::json!({"method": "queueState", "params": {"repo": id}}))).await.unwrap();
+        assert_eq!(state["queued"].as_array().unwrap().len(), 3);
+        let b_id = state["queued"][1]["id"].as_u64().unwrap();
+        assert_eq!(api.dispatch(req(serde_json::json!({"method": "queueRemove", "params": {"repo": id, "id": b_id}}))).await.unwrap(), true);
+        w.queue.turn(a).await.unwrap().finish(Some(&GbError::other("boom")), &[]);
+        assert!(w.queue.state().stopped.is_some());
+        api.dispatch(req(serde_json::json!({"method": "queueResume", "params": {"repo": id}}))).await.unwrap();
+        assert!(w.queue.state().stopped.is_none());
+        api.dispatch(req(serde_json::json!({"method": "queueClear", "params": {"repo": id}}))).await.unwrap();
+        assert_eq!(w.queue.state(), crate::write::types::QueueStatePayload::default());
+        drop((b, c));
+    }
+
+    /// Every file under `.git` but objects (index bytes and mtime included): what a read must
+    /// never change (spec #2 §17.1).
+    fn repo_bytes(r: &TestRepo) -> Vec<(String, Vec<u8>, Option<std::time::SystemTime>)> {
+        fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, Vec<u8>, Option<std::time::SystemTime>)>) {
+            let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
+            entries.sort();
+            for p in entries {
+                let rel = p.strip_prefix(base).unwrap().display().to_string();
+                if rel == "objects" || rel.ends_with(".lock") {
+                    continue;
+                }
+                if p.is_dir() {
+                    walk(&p, base, out);
+                } else {
+                    let mtime = (rel == "index" || rel.ends_with("/index")).then(|| std::fs::metadata(&p).unwrap().modified().unwrap());
+                    out.push((rel, std::fs::read(&p).unwrap(), mtime));
+                }
+            }
+        }
+        let git = r.path().join(".git");
+        let mut out = Vec::new();
+        walk(&git, &git, &mut out);
+        out
+    }
+
+    fn read_samples(id: u32, r: &TestRepo) -> Vec<serde_json::Value> {
+        let head = r.git(&["rev-parse", "HEAD"]);
+        let wt = r.path().canonicalize().unwrap().display().to_string();
+        let root = r.root().display().to_string();
+        use serde_json::json;
+        vec![
+            json!({"method": "openRepo", "params": {"path": wt}}),
+            json!({"method": "logFrontend", "params": {"level": "info", "message": "x", "stack": null}}),
+            json!({"method": "setDebugLogging", "params": {"debug": false}}),
+            json!({"method": "logsDir"}),
+            json!({"method": "diagnostics", "params": {"ui": {"userAgent": "t", "settings": {}}}}),
+            json!({"method": "openLogsFolder"}),
+            json!({"method": "graph", "params": {"repo": id, "limit": null}}),
+            json!({"method": "commandLog"}),
+            json!({"method": "launchRepo"}),
+            json!({"method": "takeOpenRequests"}),
+            json!({"method": "commitMessage", "params": {"repo": id, "id": head}}),
+            json!({"method": "commitDetails", "params": {"repo": id, "id": head}}),
+            json!({"method": "remotes", "params": {"repo": id}}),
+            json!({"method": "fileList", "params": {"repo": id, "spec": {"kind": "wip", "worktree": wt, "staged": false}}}),
+            json!({"method": "fileList", "params": {"repo": id, "spec": {"kind": "wip", "worktree": wt, "staged": true}}}),
+            json!({"method": "diffContents", "params": {"repo": id, "path": "file_1.txt", "old": {"kind": "absent"}, "new": {"kind": "worktree", "worktree": wt}, "force": false}}),
+            json!({"method": "treeFiles", "params": {"repo": id, "id": head}}),
+            json!({"method": "signature", "params": {"repo": id, "id": head}}),
+            json!({"method": "avatar", "params": {"email": "ada@example.com"}}),
+            json!({"method": "openUrl", "params": {"url": "https://example.com"}}),
+            json!({"method": "listOpeners"}),
+            json!({"method": "listOpenersFor", "params": {"repo": id}}),
+            json!({"method": "validateEditorTemplate", "params": {"template": "code {file}"}}),
+            json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "line": null, "opener": "none", "source": null, "fallback": null}}),
+            json!({"method": "loadState"}),
+            json!({"method": "saveSettings", "params": {"settings": {}}}),
+            json!({"method": "saveProfile", "params": {"profile": {}}}),
+            json!({"method": "createProfile", "params": {"name": "p", "color": "#336699"}}),
+            json!({"method": "switchProfile", "params": {"id": "none"}}),
+            json!({"method": "deleteProfile", "params": {"id": "none"}}),
+            json!({"method": "authAnswer", "params": {"prompt": 1, "answer": null}}),
+            json!({"method": "cancelOp", "params": {"op": 1}}),
+            json!({"method": "repoInfo", "params": {"repo": id}}),
+            json!({"method": "sidebar", "params": {"repo": id}}),
+            json!({"method": "lastPush", "params": {"repo": id, "remoteRef": "refs/remotes/origin/main"}}),
+            json!({"method": "appInfo"}),
+            json!({"method": "pickFolder", "params": {"start": null}}),
+            json!({"method": "scanRepos", "params": {"root": root, "refresh": true}}),
+            json!({"method": "scanFolders", "params": {"roots": [root], "refresh": true}}),
+            json!({"method": "suggestReposFolder"}),
+            json!({"method": "watchRepo", "params": {"repo": id}}),
+            json!({"method": "unwatchRepo", "params": {"repo": id}}),
+            json!({"method": "unwatchAll"}),
+            json!({"method": "findText", "params": {"repo": id, "query": "x"}}),
+            json!({"method": "findPaths", "params": {"repo": id, "query": "file"}}),
+            json!({"method": "locateCommit", "params": {"repo": id, "sha": head}}),
+            json!({"method": "searchHistory", "params": {"repo": id, "query": "x"}}),
+            json!({"method": "queueState", "params": {"repo": id}}),
+            json!({"method": "queueRemove", "params": {"repo": id, "id": 1}}),
+            json!({"method": "queueResume", "params": {"repo": id}}),
+            json!({"method": "queueClear", "params": {"repo": id}}),
+            // Undo / redo (2A T10).
+            json!({"method": "journalState", "params": {"repo": id, "worktree": wt}}),
+            // Autostash banners (2A T11).
+            json!({"method": "dismissBanner", "params": {"repo": id, "worktree": wt, "entry": 999}}),
+        ]
+    }
+
+    /// The methods that write (`is_write`), which the never-write test leaves out.
+    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "applyKeptStash", "removeIndexLock"];
+
+    /// One request of each write method: the audit checks `is_write` agrees, so a read can't
+    /// hide in `WRITE_METHODS`.
+    fn write_samples(id: u32, r: &TestRepo) -> Vec<serde_json::Value> {
+        use serde_json::json;
+        let wt = r.path().canonicalize().unwrap().display().to_string();
+        vec![
+            json!({"method": "fetch", "params": {"repo": id, "background": false}}),
+            json!({"method": "clone", "params": {"url": "https://example.com/x.git", "dest": "/nonexistent/x"}}),
+            json!({"method": "testWrite", "params": {"repo": id, "worktree": wt, "intent": {"op": "barrier", "label": "x"}}}),
+            // Undo / redo (2A T10).
+            json!({"method": "undo", "params": {"repo": id, "worktree": wt, "entry": 1}}),
+            json!({"method": "redo", "params": {"repo": id, "worktree": wt, "entry": 1}}),
+            // Autostash banners (2A T11).
+            json!({"method": "applyKeptStash", "params": {"repo": id, "worktree": wt, "entry": 1}}),
+            // Remove stale lock (2A T12).
+            json!({"method": "removeIndexLock", "params": {"repo": id, "path": "/nonexistent/.git/index.lock", "mtimeMs": 0, "ino": 0, "dev": 0}}),
+        ]
+    }
+
+    /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
+    /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
+    /// before any repository access.
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile"];
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_read_request_writes_to_the_repository() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await as u32;
+        let before = repo_bytes(&r);
+        let mut failed = std::collections::BTreeSet::new();
+        for sample in read_samples(id, &r) {
+            let request: Request = serde_json::from_value(sample.clone()).unwrap_or_else(|e| panic!("{sample}: {e}"));
+            assert!(!request.is_write(), "{sample}");
+            if let Err(e) = api.dispatch(request).await {
+                failed.insert(format!("{}: {}", sample["method"].as_str().unwrap(), e.message));
+            }
+        }
+        api.unwatch_all();
+        assert_eq!(repo_bytes(&r), before, "a read changed the repository");
+        // Exactly the expected ones: any other never exercised its real path, and an expected one
+        // that now succeeds should leave the list.
+        let methods: std::collections::BTreeSet<&str> = failed.iter().map(|f| f.split(':').next().unwrap()).collect();
+        assert_eq!(methods, EXPECTED_FAILURES.iter().copied().collect(), "failed samples: {failed:?}");
+        for sample in write_samples(id, &r) {
+            let request: Request = serde_json::from_value(sample.clone()).unwrap_or_else(|e| panic!("{sample}: {e}"));
+            assert!(request.is_write(), "{sample}");
+        }
+    }
+
+    #[test]
+    fn the_never_write_samples_cover_every_read_request() {
+        // From the Rust type itself (not the generated file, which may be stale).
+        let ts = <Request as TS>::decl(&ts_rs::Config::default());
+        let methods: std::collections::BTreeSet<String> = regex::Regex::new(r#""method": "(\w+)""#).unwrap().captures_iter(&ts).map(|c| c[1].to_string()).collect();
+        assert!(methods.len() > 40, "{ts}");
+        let r = TestRepo::new();
+        r.commit("c");
+        let sampled: std::collections::BTreeSet<String> = read_samples(1, &r).iter().map(|s| s["method"].as_str().unwrap().to_string()).collect();
+        let missing: Vec<&String> = methods.iter().filter(|m| !sampled.contains(*m) && !WRITE_METHODS.contains(&m.as_str())).collect();
+        assert!(missing.is_empty(), "read requests the never-write test doesn't dispatch: {missing:?}");
+        let writes: std::collections::BTreeSet<String> = write_samples(1, &r).iter().map(|s| s["method"].as_str().unwrap().to_string()).collect();
+        assert_eq!(writes, WRITE_METHODS.iter().map(|m| m.to_string()).collect(), "one sample per write method");
     }
 }

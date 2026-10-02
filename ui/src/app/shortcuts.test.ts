@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { Undo2 } from 'lucide-react';
+import { describe, expect, it, vi } from 'vitest';
 import { comboOf } from './shortcuts';
 
 const ev = (init: Partial<KeyboardEvent> & { key: string; code?: string }) => ({ ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, code: '', ...init }) as KeyboardEvent;
@@ -24,5 +25,25 @@ describe('comboOf', () => {
     expect(comboOf(ev({ key: 'Control', code: 'ControlLeft', ctrlKey: true }))).toBe('');
     expect(comboOf(ev({ key: 'Shift', code: 'ShiftLeft', ctrlKey: true, shiftKey: true }))).toBe('');
     expect(comboOf(ev({ key: 'w', code: 'KeyW', ctrlKey: true, isComposing: true }))).toBe('');
+  });
+});
+
+describe('shortcutKeys and yieldsTo (spec #2 §5.5)', () => {
+  it('leaves a combo to the focused element its action yields to', async () => {
+    const { registerActions } = await import('./actions');
+    const { shortcutKeys } = await import('./shortcuts');
+    const run = vi.fn();
+    const off = registerActions([{ id: 't.undo', label: 'Undo', group: 'Edit', icon: Undo2, tooltip: 'Undo', shortcuts: ['Ctrl+Z'], yieldsTo: (t) => t instanceof HTMLInputElement, run }]);
+    const input = document.createElement('input');
+    const key = (target: EventTarget) => {
+      const e = new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true });
+      Object.defineProperty(e, 'target', { value: target });
+      return shortcutKeys(e);
+    };
+    expect(key(input)).toBeUndefined();
+    expect(run).not.toHaveBeenCalled();
+    expect(key(document.body)).toBe('handled');
+    expect(run).toHaveBeenCalledTimes(1);
+    off();
   });
 });

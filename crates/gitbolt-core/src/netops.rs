@@ -45,7 +45,7 @@ pub fn parse_progress(line: &str) -> Option<Progress> {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum SkipReason {
-    /// Another network operation on this repo is running.
+    /// The action queue is busy, or a user op cancelled this background fetch.
     Busy,
     /// A GitBolt-started fetch needed credentials; the next user-started op prompts.
     AuthRequired,
@@ -161,12 +161,29 @@ fn display_command(args: &[&str]) -> String {
 impl Api {
     /// `git fetch --all` for repo `id` (spec §15), with no upkeep after it (`NO_UPKEEP`). `background` fetches are GitBolt-started: they
     /// never prompt, and a credential prompt makes them `skipped: authRequired`.
+    ///
+    /// Not behind the harness's write guard (§17.2), like a clone (2A final M2): neither touches
+    /// the worktree, the index or a local branch (a fetch writes remote-tracking refs, a clone
+    /// only a folder of its own), and the e2e specs open and clone repositories outside the
+    /// marked fixture root.
     pub(crate) async fn fetch(&self, id: u32, background: bool) -> Result<FetchOutcome, GbError> {
         let h = self.handle(id)?;
-        let Ok(_net) = h.net_lock.try_lock() else {
-            return Ok(FetchOutcome::Skipped { reason: SkipReason::Busy });
-        };
+        let writes = self.repo_writes(&h);
         let op = self.ops.begin(OpKind::Fetch, Some(id), !background);
+        // Spec #2 §3.6. A background fetch isn't a queue item: it runs only when the queue is
+        // idle, and a user op cancels it. A user's fetch is one (Deviation 8): it holds the
+        // running slot, never the write lock.
+        let (_background, slot) = if background {
+            match writes.queue.try_background(op.cancel.clone()) {
+                Some(bg) => (Some(bg), None),
+                None => return Ok(FetchOutcome::Skipped { reason: SkipReason::Busy }),
+            }
+        } else {
+            // Cancelled while it waits (`cancelOp`, or the queue's ×), it leaves the queue at
+            // once: `Cancelled`, which the UI keeps quiet, with no op started.
+            let ticket = writes.queue.enqueue(&format!("fetch {}", h.name), OpKind::Fetch, op.id).cancel_on(op.cancel.clone());
+            (None, Some(writes.queue.turn(ticket).await?))
+        };
         self.bus.emit(AppEvent::OpStarted { op: op.id, kind: OpKind::Fetch, repo: Some(id), label: h.name.clone(), interactive: op.interactive });
         let mut command = None;
         let res = async {
@@ -185,7 +202,10 @@ impl Api {
                 .detach_terminal()
                 .stream_stderr(tx)
                 .envs(self.net_env(op.id))
-                .env("GIT_NO_LAZY_FETCH", "0"); // a network op may lazy-fetch (a clone's checkout needs it)
+                .env("GIT_NO_LAZY_FETCH", "0") // a network op may lazy-fetch (a clone's checkout needs it)
+                // Every queued user op cancels a background fetch (spec #2 §3.6): SIGTERM first,
+                // so git drops its ref locks rather than leaving them for the next fetch.
+                .term_grace(crate::git::WRITE_TERM_GRACE);
             let out = self.cli.run(inv).await;
             let _ = progress.await;
             out?;
@@ -199,12 +219,19 @@ impl Api {
                 }
                 (OpOutcome::Ok, Ok(FetchOutcome::Done { changed }))
             }
+            // Cancelled by a user op (spec #2 §3.6): the next interval retries; nothing to show.
+            // Any other cancel of a background fetch (no UI offers one: it shows nowhere, K30)
+            // reports the same, since the token can't tell who cancelled it.
+            Err(e) if background && e.kind == GbErrorKind::Cancelled && !op.prompt_cancelled() => (OpOutcome::Skipped, Ok(FetchOutcome::Skipped { reason: SkipReason::Busy })),
             Err(e) if e.kind == GbErrorKind::Cancelled || op.prompt_cancelled() => (OpOutcome::Cancelled, Err(user_cancelled(e, &op))),
             Err(_) if op.auth_denied() => (OpOutcome::Skipped, Ok(FetchOutcome::Skipped { reason: SkipReason::AuthRequired })),
             Err(e) => (OpOutcome::Failed, Err(e)),
         };
         let message = result.as_ref().err().map(|e| e.message.clone());
         self.bus.emit(AppEvent::OpFinished { op: op.id, kind: OpKind::Fetch, repo: Some(id), outcome, message, command });
+        if let Some(slot) = slot {
+            slot.finish(result.as_ref().err(), &[]);
+        }
         result
     }
 
@@ -238,7 +265,8 @@ impl Api {
             .detach_terminal()
             .stream_stderr(tx)
             .envs(self.net_env(op.id))
-            .env("GIT_NO_LAZY_FETCH", "0"); // a network op may lazy-fetch (a clone's checkout needs it)
+            .env("GIT_NO_LAZY_FETCH", "0") // a network op may lazy-fetch (a clone's checkout needs it)
+            .term_grace(crate::git::WRITE_TERM_GRACE); // git removes its own junk on SIGTERM
         let res = self.cli.run(inv).await;
         let _ = progress.await;
         let (outcome, message) = match &res {
@@ -264,6 +292,7 @@ mod tests {
     use crate::log::CommandLog;
     use crate::testing::{fixtures, isolated_git_env, TestRepo};
     use std::sync::Arc;
+    use std::time::Duration;
 
     fn api() -> Api {
         Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env()), None)
@@ -399,18 +428,161 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_fetch_while_another_network_op_runs_is_skipped() {
+    async fn a_background_fetch_is_skipped_while_the_queue_is_busy() {
         let r = TestRepo::new();
         fixtures::basic(&r);
         let api = api();
         let id = open(&api, &r).await;
         let mut rx = api.subscribe();
-        let h = api.handle(id).unwrap();
-        let busy = h.net_lock.lock().await;
+        let w = api.repo_writes(&api.handle(id).unwrap());
+        let slot = w.queue.turn(w.queue.enqueue("commit", OpKind::Commit, 99)).await.unwrap();
+        drain(&mut rx);
         assert_eq!(api.fetch(id, true).await.unwrap(), FetchOutcome::Skipped { reason: SkipReason::Busy });
         assert!(drain(&mut rx).is_empty(), "a skipped fetch never starts an op");
-        drop(busy);
+        slot.finish(None, &[]);
         assert!(matches!(api.fetch(id, true).await.unwrap(), FetchOutcome::Done { .. }));
+    }
+
+    /// Spec #2 §3.6: enqueuing a user op cancels a running background fetch, silently.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_user_op_cancels_a_running_background_fetch() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        r.git(&["remote", "set-url", "origin", "ssh://fake/never.git"]);
+        // The stand-in ssh marks that the fetch's transfer is running, then hangs.
+        let started = r.root().join("ssh-started");
+        r.git(&["config", "core.sshCommand", &format!("touch '{}'; sleep 10; false", started.display())]);
+        let api = Arc::new(api());
+        let id = open(&api, &r).await;
+        let mut rx = api.subscribe();
+        let a2 = api.clone();
+        let fetch = tokio::spawn(async move { a2.fetch(id, true).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !started.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the background fetch is running");
+        let w = api.repo_writes(&api.handle(id).unwrap());
+        let ticket = w.queue.enqueue("commit", OpKind::Commit, 99);
+        let out = tokio::time::timeout(Duration::from_secs(3), fetch).await.expect("cancelled promptly").unwrap().unwrap();
+        assert_eq!(out, FetchOutcome::Skipped { reason: SkipReason::Busy });
+        let finished: Vec<OpOutcome> = drain(&mut rx)
+            .into_iter()
+            .filter_map(|e| match e {
+                AppEvent::OpFinished { outcome, .. } => Some(outcome),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(finished, [OpOutcome::Skipped]);
+        w.queue.turn(ticket).await.unwrap().finish(None, &[]);
+    }
+
+    /// 2A final review I1: the cancel a user op sends a background fetch is a write's (SIGTERM,
+    /// then SIGKILL), so a fetch stopped inside its ref transaction leaves no `.lock` behind.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cancelled_fetch_leaves_no_ref_lock_behind() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        push_from_elsewhere(&r, "fresh");
+        // The hook runs while git holds the ref locks ("prepared"): it marks that, then hangs.
+        let hooks = r.root().join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let started = r.root().join("tx-prepared");
+        let hook = hooks.join("reference-transaction");
+        std::fs::write(&hook, format!("#!/bin/sh\nif [ \"$1\" = prepared ]; then touch '{}'; sleep 30; fi\nexit 0\n", started.display())).unwrap();
+        std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        r.git(&["config", "core.hooksPath", hooks.to_str().unwrap()]);
+        let api = Arc::new(api());
+        let id = open(&api, &r).await;
+        let a2 = api.clone();
+        let fetch = tokio::spawn(async move { a2.fetch(id, true).await });
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !started.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the fetch reached its ref transaction");
+        let locks = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
+            let mut out = Vec::new();
+            let mut stack = vec![dir.to_path_buf()];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else if p.extension().is_some_and(|x| x == "lock") {
+                        out.push(p);
+                    }
+                }
+            }
+            out
+        };
+        let git_dir = r.path().join(".git");
+        assert!(!locks(&git_dir).is_empty(), "the hook runs with the ref locks held");
+        let w = api.repo_writes(&api.handle(id).unwrap());
+        let ticket = w.queue.enqueue("commit", OpKind::Commit, 99);
+        let out = tokio::time::timeout(Duration::from_secs(5), fetch).await.expect("stopped within the grace").unwrap().unwrap();
+        assert_eq!(out, FetchOutcome::Skipped { reason: SkipReason::Busy });
+        assert_eq!(locks(&git_dir), Vec::<std::path::PathBuf>::new(), "git removed its locks on SIGTERM");
+        w.queue.turn(ticket).await.unwrap().finish(None, &[]);
+    }
+
+    /// A user's fetch cancelled while it waits leaves the queue at once, quietly: no op starts,
+    /// and the running item and the later ones carry on.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_queued_fetch_cancelled_before_its_turn_leaves_the_queue_at_once() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = Arc::new(api());
+        let id = open(&api, &r).await;
+        let w = api.repo_writes(&api.handle(id).unwrap());
+        let running = w.queue.turn(w.queue.enqueue("commit", OpKind::Commit, 99)).await.unwrap();
+        let mut rx = api.subscribe();
+        let a2 = api.clone();
+        let fetch = tokio::spawn(async move { a2.fetch(id, false).await });
+        let op = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Some(i) = w.queue.state().queued.first() {
+                    return i.op;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the fetch is queued");
+        let later = w.queue.enqueue("later", OpKind::Commit, 100);
+        let cancel = serde_json::from_value::<Request>(serde_json::json!({"method": "cancelOp", "params": {"op": op}})).unwrap();
+        api.dispatch(cancel).await.unwrap();
+        let err = tokio::time::timeout(Duration::from_secs(3), fetch).await.expect("no waiting for the running op").unwrap().unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Cancelled);
+        let s = w.queue.state();
+        assert_eq!(s.queued.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["later"], "the fetch is gone");
+        assert_eq!(s.running.map(|i| i.op), Some(99), "the running op carries on");
+        assert!(s.stopped.is_none(), "the queue doesn't stop");
+        assert!(!drain(&mut rx).iter().any(|e| matches!(e, AppEvent::OpStarted { .. } | AppEvent::OpFinished { .. })), "no op started");
+        running.finish(None, &[]);
+        w.queue.turn(later).await.unwrap().finish(None, &[]);
+    }
+
+    #[tokio::test]
+    async fn a_users_fetch_is_a_queue_item() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        let mut rx = api.subscribe();
+        api.fetch(id, false).await.unwrap();
+        let queued: Vec<String> = drain(&mut rx)
+            .into_iter()
+            .filter_map(|e| match e {
+                AppEvent::QueueChanged { queued, .. } => queued.first().map(|i| i.label.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(queued.first().map(String::as_str), Some("fetch repo"));
     }
 
     #[tokio::test]
@@ -441,6 +613,22 @@ mod tests {
         let mut rx = api.subscribe();
         assert!(api.fetch(id, true).await.is_err());
         assert!(drain(&mut rx).iter().any(|e| matches!(e, AppEvent::OpFinished { outcome: crate::events::OpOutcome::Failed, message: Some(_), .. })));
+    }
+
+    /// A user's fetch that fails with nothing queued behind it leaves the queue open: no
+    /// "Stopped" chip, and the retry runs at once.
+    #[tokio::test]
+    async fn a_failed_users_fetch_with_nothing_queued_doesnt_stop_the_queue() {
+        let r = TestRepo::new();
+        r.commit("a");
+        r.git(&["remote", "add", "origin", r.root().join("missing.git").to_str().unwrap()]);
+        let api = api();
+        let id = open(&api, &r).await;
+        assert!(api.fetch(id, false).await.is_err());
+        let w = api.repo_writes(&api.handle(id).unwrap());
+        assert_eq!(w.queue.state(), crate::write::types::QueueStatePayload::default());
+        let retry = tokio::time::timeout(Duration::from_secs(10), api.fetch(id, false)).await.expect("the retry runs at once");
+        assert!(retry.is_err(), "and fails the same way");
     }
 
     /// `scripts/fake-ssh` (K96): an ssh stand-in that fails like a dead agent, asks a passphrase

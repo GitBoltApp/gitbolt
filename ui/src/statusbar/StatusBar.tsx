@@ -9,6 +9,7 @@ import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { openMenuAt } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
+import { QueueChip } from '../queue/QueueChip';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { setZoom, useZoom, ZOOM_STEPS } from '../ui/zoom';
@@ -42,9 +43,13 @@ function zoomRows(current: number): MenuRow[] {
 
 /** The running network op the bar shows: the first clone (rarely more than one runs). A fetch
  * shows here only when it's the user's and slow (below); a background one is only logged (K30). */
-const firstOp = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops).find((o) => o.kind !== 'fetch');
+const firstOp = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops).find((o) => o.kind === 'clone');
 /** The user's running fetch (or the background one a user's Fetch waits on). */
 const userFetch = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops).find((o) => o.kind === 'fetch' && (o.interactive || o.shown));
+
+/** A user's running write (spec #2 §3.3): the bar shows it after `SLOW_FETCH_MS`, with Cancel. */
+const userWrite = (ops: ReturnType<typeof useOps.getState>['ops']) => Object.values(ops).find((o) => o.interactive && o.kind !== 'fetch' && o.kind !== 'clone');
+const capitalized = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** How long a user's fetch runs on its button alone (K30) before the bar shows its progress and a
  * Cancel (K96: a stuck remote can be stopped). Most fetches are done well before. */
@@ -63,6 +68,24 @@ function useSlow(op: OpInfo | undefined): OpInfo | undefined {
   return op && op.op === slowId ? op : undefined;
 }
 
+/** How long an autostash step runs before the slow-write status names it (spec #2 §6: a big
+ * worktree's stash, or a slow clean/smudge filter). */
+export const SLOW_STASH_MS = 60_000;
+const STEP_TEXT = { saving: 'Saving your changes…', restoring: 'Restoring your changes…' } as const;
+
+/** The write's status text: its label, or after `SLOW_STASH_MS` of one step, that step. */
+function useWriteText(op: OpInfo | undefined): string | undefined {
+  const [slowAt, setSlowAt] = useState<number | null>(null);
+  const at = op?.stash?.at;
+  useEffect(() => {
+    if (at === undefined) return;
+    const t = setTimeout(() => setSlowAt(at), Math.max(0, at + SLOW_STASH_MS - Date.now()));
+    return () => clearTimeout(t);
+  }, [at]);
+  if (!op) return undefined;
+  return op.stash && op.stash.at === slowAt ? STEP_TEXT[op.stash.step] : `${capitalized(op.label)}…`;
+}
+
 /**
  * The status bar (spec §6.5), in the app's `statusBar` slot: zoom, a running clone or a slow fetch
  * of the user's (or the auth prompt one waits on) with Cancel, the active tab's fetch-skipped
@@ -74,6 +97,8 @@ export function StatusBar() {
   const skipped = useRuntime((s) => (activeTab ? s.tabs[activeTab]?.fetchSkipped ?? null : null));
   const task = useOps((s) => firstOp(s.ops));
   const fetching = useSlow(useOps((s) => userFetch(s.ops)));
+  const writing = useSlow(useOps((s) => userWrite(s.ops)));
+  const writeText = useWriteText(writing);
   const prompt = useOps((s) => s.prompts[0]);
   const unread = useOps((s) => s.unread);
   const git = useAppInfo((s) => s.info?.gitVersion);
@@ -86,6 +111,7 @@ export function StatusBar() {
           {zoom}%
         </button>
       </HoverTooltip>
+      <QueueChip />
       {prompt ? (
         <span className="sb-item sb-auth">
           Waiting for authentication…
@@ -102,6 +128,16 @@ export function StatusBar() {
           <LoaderCircle size={12} className="sb-spin" aria-hidden />
           {`Fetching ${fetching.label}…${fetching.percent !== null ? ` ${fetching.percent}%` : ''}`}
           <button type="button" className="sb-link" onClick={() => cancel(fetching.op)}>Cancel</button>
+        </span>
+      ) : writing ? (
+        <span className="sb-item sb-task">
+          <LoaderCircle size={12} className="sb-spin" aria-hidden />
+          {writeText}
+          {/* During an autostash step, Cancel is a Stop: git's step is stopped, and the
+              changes stay in the stash, whose banner then offers Apply (spec #2 §6). */}
+          <button type="button" className="sb-link" onClick={() => cancel(writing.op)}>
+            {writing.stash ? `Stop — your changes stay in stash ${writing.stash.message}` : 'Cancel'}
+          </button>
         </span>
       ) : null}
       {skipped && <span className="sb-item sb-warn"><TriangleAlert size={12} aria-hidden /> {skipped}</span>}

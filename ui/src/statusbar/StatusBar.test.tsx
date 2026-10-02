@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
   cancelOp: vi.fn(async () => null),
+  queueState: vi.fn(async () => ({ running: null, queued: [], stopped: null })),
   appInfo: vi.fn(async () => ({ appVersion: '0.1.0', gitVersion: '2.47.1' })),
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () => {} }));
 vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 
-const { StatusBar, SLOW_FETCH_MS } = await import('./StatusBar');
+const { StatusBar, SLOW_FETCH_MS, SLOW_STASH_MS } = await import('./StatusBar');
 const { useOps } = await import('../app/ops');
 const { useRuntime } = await import('../app/runtime');
 const { EMPTY_PROFILE, useAppState } = await import('../app/state');
@@ -126,5 +127,45 @@ describe('StatusBar (spec §6.5)', () => {
     fireEvent.click(bell());
     expect(labels()).toEqual(['Fetch failed (b): two', 'Fetch failed (a): one', '-', 'Activity log…', 'Clear notifications']);
     expect(bell()).toHaveAccessibleName('Notifications');
+  });
+
+  it('shows a write still running after 2 s, with Cancel (spec #2 §3.3)', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<StatusBar />);
+      act(() => useOps.getState().apply({ type: 'opStarted', op: 7, kind: 'commit', repo: 1, label: 'commit "Fix x"', interactive: true }));
+      expect(screen.queryByText(/Commit "Fix x"…/)).toBeNull();
+      act(() => { vi.advanceTimersByTime(SLOW_FETCH_MS); });
+      expect(screen.getByText(/Commit "Fix x"…/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(api.cancelOp).toHaveBeenCalledWith(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a slow autostash step says so, and its Stop leaves the changes in the stash (spec #2 §6)', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<StatusBar />);
+      act(() => useOps.getState().apply({ type: 'opStarted', op: 8, kind: 'checkout', repo: 1, label: 'checkout side', interactive: true }));
+      act(() => useOps.getState().apply({ type: 'opStashStep', op: 8, step: 'saving', message: 'autostash before checkout side' }));
+      act(() => { vi.advanceTimersByTime(SLOW_FETCH_MS); });
+      expect(screen.getByText(/Checkout side…/)).toBeInTheDocument();
+      const stop = screen.getByRole('button', { name: 'Stop — your changes stay in stash autostash before checkout side' });
+      act(() => { vi.advanceTimersByTime(SLOW_STASH_MS); });
+      expect(screen.getByText(/Saving your changes…/)).toBeInTheDocument();
+      fireEvent.click(stop);
+      expect(api.cancelOp).toHaveBeenCalledWith(8);
+      // The restore is its own step: its minute starts again.
+      act(() => useOps.getState().apply({ type: 'opStashStep', op: 8, step: null, message: 'autostash before checkout side' }));
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      act(() => useOps.getState().apply({ type: 'opStashStep', op: 8, step: 'restoring', message: 'autostash before checkout side' }));
+      expect(screen.getByText(/Checkout side…/)).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(SLOW_STASH_MS); });
+      expect(screen.getByText(/Restoring your changes…/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

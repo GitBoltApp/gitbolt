@@ -9,10 +9,12 @@
 .tb-spacer { flex: 1; }
 .tb-split { display: flex; align-items: center; }
 .tb-btn { all: unset; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 44px; height: 38px; align-self: center; padding: 0 6px; box-sizing: border-box; border-radius: 4px; color: var(--text-normal); font-size: 11px; cursor: pointer; transition: background-color var(--motion-fast); }
-.tb-btn:hover:not(:disabled) { background: var(--hover-row); color: var(--text-selected); }
+.tb-btn:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--hover-row); color: var(--text-selected); }
 .tb-btn:focus-visible { outline: 1px solid var(--blue); }
-.tb-btn:disabled { opacity: 0.6; cursor: default; }
+.tb-btn:disabled, .tb-btn[aria-disabled="true"] { opacity: 0.6; cursor: default; }
 .tb-caret { min-width: 16px; padding: 0 2px; }
 .spin { animation: gb-spin 1s linear infinite; }
 @keyframes gb-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.tb-btn { position: relative; }
+.tb-queued { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MAX_ACTIVITY, MAX_ERRORS, useOps } from './ops';
+import { appendCapped, MAX_ACTIVITY, MAX_ERRORS, OUTPUT_CAP, useOps } from './ops';
 
 describe('ops store', () => {
   beforeEach(() => useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0, activity: [] }));
@@ -48,8 +48,8 @@ describe('ops store', () => {
       vi.setSystemTime(22_000);
       apply({ type: 'opFinished', op: 6, kind: 'fetch', repo: 2, outcome: 'ok', message: null, command: null });
       expect(useOps.getState().activity).toEqual([
-        { at: 22_000, kind: 'fetch', label: 'shop', background: false, durationMs: 800, outcome: 'ok', message: null, command: null },
-        { at: 21_200, kind: 'fetch', label: 'shop', background: true, durationMs: 20_200, outcome: 'failed', message: 'Could not resolve host: h', command: null },
+        { at: 22_000, kind: 'fetch', label: 'shop', background: false, durationMs: 800, outcome: 'ok', message: null, command: null, output: [] },
+        { at: 21_200, kind: 'fetch', label: 'shop', background: true, durationMs: 20_200, outcome: 'failed', message: 'Could not resolve host: h', command: null, output: [] },
       ]);
       expect(useOps.getState().errors).toEqual([]);
     } finally {
@@ -75,5 +75,41 @@ describe('ops store', () => {
     expect(errors[0].message).toBe(`e${MAX_ERRORS + 4}`);
     useOps.getState().clearErrors();
     expect(useOps.getState()).toMatchObject({ errors: [], unread: 0 });
+  });
+});
+
+describe('write op output (spec #2 §3.5)', () => {
+  it('collects opOutput lines into the finished op\'s Activity entry, capped at 64 KB', () => {
+    useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0, activity: [], outputs: {} });
+    const s = useOps.getState();
+    s.apply({ type: 'opStarted', op: 9, kind: 'commit', repo: 1, label: 'commit "x"', interactive: true });
+    s.apply({ type: 'opOutput', op: 9, line: 'lint: ok' });
+    s.apply({ type: 'opOutput', op: 9, line: 'tests: ok' });
+    s.apply({ type: 'opFinished', op: 9, kind: 'commit', repo: 1, outcome: 'ok', message: null, command: null });
+    expect(useOps.getState().activity[0].output).toEqual(['lint: ok', 'tests: ok']);
+    expect(useOps.getState().outputs[9]).toBeUndefined();
+  });
+
+  it('caps the output', () => {
+    let lines: string[] = [];
+    for (let i = 0; i < 2000; i++) lines = appendCapped(lines, 'x'.repeat(100));
+    expect(lines.join('\n').length).toBeLessThanOrEqual(OUTPUT_CAP + 100);
+    expect(lines[lines.length - 1]).toBe('… output truncated at 64 KB');
+  });
+
+  it('gives stage/unstage no Activity entry (Commands only, spec #2 §3.5)', () => {
+    useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0, activity: [], outputs: {} });
+    const s = useOps.getState();
+    s.apply({ type: 'opStarted', op: 3, kind: 'stage', repo: 1, label: 'stage a.php', interactive: true });
+    s.apply({ type: 'opFinished', op: 3, kind: 'stage', repo: 1, outcome: 'ok', message: null, command: null });
+    expect(useOps.getState().activity).toEqual([]);
+  });
+
+  it('logs a failed stage', () => {
+    useOps.setState({ ops: {}, prompts: [], errors: [], unread: 0, activity: [], outputs: {} });
+    const s = useOps.getState();
+    s.apply({ type: 'opStarted', op: 4, kind: 'stage', repo: 1, label: 'stage a.php', interactive: true });
+    s.apply({ type: 'opFinished', op: 4, kind: 'stage', repo: 1, outcome: 'failed', message: 'boom', command: null });
+    expect(useOps.getState().activity).toHaveLength(1);
   });
 });

@@ -7,7 +7,8 @@ import type { TabState } from '../api/gen/TabState';
  * module instead of editing the layout files every lane shares:
  * - app slots, in `AppShell`: `header` (above the tabs: the tab bar), `statusBar` (below them),
  *   `overlay` (modals and dialogs: About, the profile dialog, the auth prompt, the palette);
- * - tab slots, given the tab: `toolbar` (a repo tab's top row), `sidebar` (left of its center),
+ * - tab slots, given the tab: `toolbar` (a repo tab's top row), `banner` (between the toolbar and
+ *   the panels: autostash, crash-recovery and conflict banners, spec #2 §3.7), `sidebar` (left of its center),
  *   both inside the tab's `RepoContext` and `RepoViewContext`; `graphOverlay` (floats over the
  *   graph panel, hidden with it while a file is open: the find box, spec §8.7); `openTab` (the
  *   whole page of an Open tab, spec §13).
@@ -17,7 +18,7 @@ import type { TabState } from '../api/gen/TabState';
  * `import.meta.hot?.dispose(registerAppSlot(…))` (see `coreActions.ts`).
  */
 export type AppSlotName = 'header' | 'statusBar' | 'overlay';
-export type TabSlotName = 'toolbar' | 'sidebar' | 'openTab' | 'graphOverlay';
+export type TabSlotName = 'toolbar' | 'banner' | 'sidebar' | 'openTab' | 'graphOverlay';
 export interface TabSlotProps { tab: TabState }
 
 interface Entry<P> { id: string; order: number; Component: ComponentType<P> }
@@ -28,7 +29,7 @@ interface SlotState {
 
 const useSlots = create<SlotState>(() => ({
   app: { header: [], statusBar: [], overlay: [] },
-  tab: { toolbar: [], sidebar: [], openTab: [], graphOverlay: [] },
+  tab: { toolbar: [], banner: [], sidebar: [], openTab: [], graphOverlay: [] },
 }));
 
 function add<P>(list: Entry<P>[], entry: Entry<P>): Entry<P>[] {

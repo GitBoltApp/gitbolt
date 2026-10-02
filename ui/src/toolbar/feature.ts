@@ -4,6 +4,7 @@ import { isShownFetch, useOps } from '../app/ops';
 import type { RepoCtx } from '../app/repoContext';
 import { registerTabSlot } from '../app/slots';
 import { ICONS } from '../menu/icons';
+import { useQueuedKind } from '../queue/store';
 import { registerToolbarButton } from './registry';
 import { Toolbar } from './Toolbar';
 
@@ -28,7 +29,7 @@ const offs = [
       },
     },
   ]),
-  registerToolbarButton({ action: 'repo.fetch', label: 'Fetch', order: 10, menu: ['repo.fetch'], useBusy: useFetching }),
+  registerToolbarButton({ action: 'repo.fetch', label: 'Fetch', order: 10, menu: ['repo.fetch'], useBusy: useFetching, useQueued: ({ repoId }) => useQueuedKind(repoId, 'fetch') }),
   // Search (spec §6.3) runs find's `edit.find` (W3-D: the graph's FindBox, or Monaco's find while
   // a diff is open). Until that action is registered, no button renders (no placeholder UI).
   registerToolbarButton({ action: 'edit.find', label: 'Search', placement: 'end', order: 20 }),

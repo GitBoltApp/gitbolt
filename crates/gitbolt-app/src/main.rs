@@ -47,6 +47,7 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook) -> Ap
         Arc::new(|url: &str| tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| GbError::other(format!("couldn't open {url}: {e}"))))
     });
     let api = Api::new(cli.with_command_hook(child_env.clone()), launch)
+        .with_data_dir(paths::data_dir())
         .with_url_opener(url_opener)
         .with_openers(Arc::new(detect_system), launcher(child_env.clone(), shell_env));
     let api = match system_chooser(child_env) {
@@ -208,6 +209,7 @@ fn main() {
     let warm = backend.clone();
     let forward = backend.clone();
     let exit_api = backend.clone();
+    let exit_settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     tauri::Builder::default()
         // Never in caret-browsing mode, even if "Turn on" was once clicked in Chrome's F7
         // dialog (Chrome keeps it in the profile). The F7 command itself is blocked in the
@@ -320,7 +322,23 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building GitBolt")
-        .run(move |_app, event| {
+        .run(move |app, event| {
+            // A write still running at quit (a long hook, signing): up to 3 s to finish, then
+            // it's cancelled (SIGTERM first, so git removes its locks) and the exit goes on.
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &event
+                && !exit_settled.load(std::sync::atomic::Ordering::SeqCst)
+                && exit_api.writes_running()
+            {
+                api.prevent_exit();
+                let (backend, handle, settled) = (exit_api.clone(), app.clone(), exit_settled.clone());
+                let code = code.unwrap_or(0);
+                tauri::async_runtime::spawn(async move {
+                    backend.settle_writes(std::time::Duration::from_secs(3)).await;
+                    settled.store(true, std::sync::atomic::Ordering::SeqCst);
+                    handle.exit(code);
+                });
+                return;
+            }
             if let tauri::RunEvent::Exit = event {
                 if let Err(e) = exit_store.flush_now() {
                     tracing::warn!("saving settings on exit failed: {e}");

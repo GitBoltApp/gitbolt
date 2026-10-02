@@ -16,6 +16,7 @@ const { RepoContext } = await import('../app/repoContext');
 const { useRuntime } = await import('../app/runtime');
 const { EMPTY_PROFILE, useAppState } = await import('../app/state');
 const { useOps } = await import('../app/ops');
+const useQueueModule = await import('../queue/store');
 const { useMenu } = await import('../menu/menuStore');
 const { useToast } = await import('../ui/toast');
 
@@ -153,5 +154,29 @@ describe('Toolbar (spec §6.3)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Branch: main' }));
     fireEvent.click(screen.getByText('feature/login'));
     expect(useToast.getState().message).toBe('Not in the loaded history');
+  });
+
+  it('shows a queued badge on a button whose op waits in the queue (spec #2 §3.6)', () => {
+    const { useQueue } = useQueueModule;
+    act(() => useQueue.getState().set(4, { running: { id: 1, label: 'commit', kind: 'commit', op: 9 }, queued: [{ id: 2, label: 'fetch r', kind: 'fetch', op: 10 }], stopped: null }));
+    renderToolbar();
+    expect(screen.getByRole('button', { name: 'Fetch' }).querySelector('.tb-queued')).not.toBeNull();
+    act(() => useQueue.getState().set(4, { running: null, queued: [], stopped: null }));
+    expect(screen.getByRole('button', { name: 'Fetch' }).querySelector('.tb-queued')).toBeNull();
+  });
+
+  it('a button\'s view can disable it with a reason, keeping its tooltip reachable', async () => {
+    const run = vi.fn();
+    const offA = registerActions([{ id: 't.view', label: 'Undo', group: 'Edit', icon: Search, tooltip: 'Undo', run }]);
+    const offB = registerToolbarButton({ action: 't.view', order: 99, useView: () => ({ tooltip: 'Nothing to undo', disabled: true }) });
+    renderToolbar();
+    const b = screen.getByRole('button', { name: 'Undo' });
+    expect(b).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(b);
+    expect(run).not.toHaveBeenCalled();
+    fireEvent.mouseEnter(b);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Nothing to undo');
+    offA();
+    offB();
   });
 });

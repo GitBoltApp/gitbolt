@@ -8,14 +8,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
-use gitbolt_core::api::{Api, Request};
+use gitbolt_core::api::{Api, Request, WriteGuard, FIXTURE_ONLY};
 use gitbolt_core::error::{GbError, GbErrorKind};
 use gitbolt_core::events::AppEvent;
 use gitbolt_core::git::GitCli;
 use gitbolt_core::log::CommandLog;
 use gitbolt_core::openers::{ArgStyle, ExecArg, LaunchCommand, Opener, OpenerKind};
 use gitbolt_core::settings::SettingsStore;
-use gitbolt_core::testing::isolated_git_env;
+use gitbolt_core::testing::{isolated_git_env, FIXTURE_MARKER};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast::error::RecvError;
@@ -77,6 +77,29 @@ pub struct HarnessOptions {
     /// Binary git runs as GIT_ASKPASS. `None` means the harness binary (this one, or the one cargo
     /// built next to a test binary).
     pub askpass_exe: Option<PathBuf>,
+    /// Writes are allowed only to marked fixture repositories under this directory (spec #2 §17.2).
+    /// `None` = the system temp dir, where `just e2e`'s global setup and `freshFixture` build them.
+    pub fixture_root: Option<PathBuf>,
+}
+
+/// The harness's write guard (spec #2 §17.2): allowed only for a repository whose common dir sits
+/// under `root` and inside a directory holding `FIXTURE_MARKER`, which only
+/// `gitbolt-harness fixture` and `TestRepo::mark_fixture` write. Paths are canonical, so a
+/// symlink out of the root doesn't count.
+pub fn fixture_guard(root: PathBuf) -> WriteGuard {
+    let root = root.canonicalize().unwrap_or(root);
+    Arc::new(move |common_dir: &std::path::Path| {
+        let refused = || GbError::new(GbErrorKind::InvalidInput, FIXTURE_ONLY);
+        let dir = common_dir.canonicalize().map_err(|_| refused())?;
+        // Strictly below the root: a stray marker in the root itself (e.g. /tmp) must not
+        // authorise every repository under it (T4 review).
+        let marked = dir.starts_with(&root) && dir.ancestors().take_while(|a| a.starts_with(&root) && *a != root.as_path()).any(|a| a.join(FIXTURE_MARKER).is_file());
+        if marked {
+            Ok(())
+        } else {
+            Err(refused())
+        }
+    })
 }
 
 /// Everything one harness server owns: the `Api` it serves, its settings store and the
@@ -170,6 +193,8 @@ impl Harness {
         }
         let next_pick = picks.clone();
         let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
+            // The journal and temp index files: the harness's own, never ~/.local/share.
+            .with_data_dir(runtime_tmp.path().join("data"))
             .with_url_opener(Arc::new(|url: &str| {
                 tracing::info!("openUrl {url}");
                 Ok(())
@@ -177,7 +202,8 @@ impl Harness {
             .with_open_cache(open_cache.path().to_path_buf())
             .with_folder_picker(Arc::new(move |_start: Option<&std::path::Path>| next_pick.next()))
             .with_home(Some(home.clone()))
-            .with_store(store.clone());
+            .with_store(store.clone())
+            .with_write_guard(fixture_guard(opts.fixture_root.clone().unwrap_or_else(std::env::temp_dir)));
         let api = Arc::new(with_fake_openers(api, launches.clone()));
         // Askpass (spec §5.4), in the private temp dir: git runs `askpass_exe` (the harness binary
         // itself unless a test names one), which asks this server over its socket.
@@ -197,9 +223,11 @@ impl Harness {
 
     /// `POST /test/reset`: the state a fresh app launch would see (default settings, with
     /// background fetch off, and one default profile), no recorded launches, no queued picks, no
-    /// cached repo scans, no file watchers and no forwarded paths waiting.
+    /// cached repo scans, no file watchers, no queued writes or journals, and no forwarded paths
+    /// waiting.
     pub fn reset(&self) {
         self.api.unwatch_all();
+        self.api.reset_writes();
         self.store.reset();
         harness_defaults(&self.store);
         self.launches.clear();
@@ -213,7 +241,8 @@ impl Harness {
 /// `POST /test/emit` (a JSON `AppEvent`, put on the bus; `openRequested` is also queued for
 /// `takeOpenRequests`, as the app's single-instance guard does), `POST /test/reset`,
 /// `POST /test/next-pick` (`{"path": string | null}`: the folder picker's next answer),
-/// `GET /test/watched` (the ids of the repos with a live file watcher, sorted), and
+/// `GET /test/watched` (the ids of the repos with a live file watcher, sorted),
+/// `POST /test/write` (a test-only write intent, behind the fixture guard), and
 /// `ANY /test/auth/*` (a git remote that always answers 401).
 pub async fn serve(listener: tokio::net::TcpListener, harness: Harness) {
     let app = Router::new()
@@ -225,6 +254,7 @@ pub async fn serve(listener: tokio::net::TcpListener, harness: Harness) {
         .route("/test/next-pick", post(test_next_pick))
         .route("/test/auth/{*rest}", any(test_auth))
         .route("/test/watched", get(test_watched))
+        .route("/test/write", post(test_write))
         .with_state(Arc::new(harness));
     // Small frames go out at once (no Nagle wait for the previous frame's delayed ACK).
     let listener = listener.tap_io(|tcp| {
@@ -272,6 +302,37 @@ async fn test_auth() -> impl IntoResponse {
 /// tests, Playwright's request context) send none.
 fn foreign_origin(headers: &HeaderMap) -> bool {
     headers.get(header::ORIGIN).is_some_and(|origin| !origin.to_str().is_ok_and(origin_allowed))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestWriteBody {
+    path: String,
+    #[serde(default)]
+    worktree: Option<String>,
+    #[serde(default)]
+    expect: gitbolt_core::write::types::Expect,
+    intent: gitbolt_core::write::test_intents::TestIntent,
+}
+
+/// `POST /test/write`: a test-only write intent (spec #2 §18 2A) on the repository at `path`
+/// (opened if it isn't), in `worktree` (default: `path`). Answers `{ok}` or `{err}` like the
+/// socket. The write guard applies: only marked fixtures under the fixture root.
+async fn test_write(State(h): State<Arc<Harness>>, headers: HeaderMap, Json(b): Json<TestWriteBody>) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let reply = async {
+        let opened = h.api.dispatch(Request::OpenRepo { path: b.path.clone() }).await?;
+        let repo = opened["id"].as_u64().unwrap_or_default() as u32;
+        let worktree = b.worktree.unwrap_or_else(|| opened["path"].as_str().unwrap_or(&b.path).to_string());
+        h.api.dispatch(Request::TestWrite { repo, worktree, expect: b.expect, intent: b.intent }).await
+    }
+    .await;
+    match reply {
+        Ok(v) => Json(serde_json::json!({ "ok": v })).into_response(),
+        Err(e) => Json(serde_json::json!({ "err": e })).into_response(),
+    }
 }
 
 async fn test_watched(State(h): State<Arc<Harness>>, headers: HeaderMap) -> Response {
@@ -387,4 +448,75 @@ async fn respond(api: &Api, text: &str) -> serde_json::Value {
 fn error_reply(id: serde_json::Value, message: String) -> serde_json::Value {
     let err = GbError::new(GbErrorKind::InvalidInput, message);
     serde_json::json!({"id": id, "err": err})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitbolt_core::testing::{TestRepo, FIXTURE_MARKER};
+
+    #[test]
+    fn the_guard_allows_only_marked_repositories_under_the_root() {
+        let root = tempfile::tempdir().unwrap();
+        let guard = fixture_guard(root.path().to_path_buf());
+        let marked = TestRepo::init_at(&root.path().join("basic"));
+        marked.mark_fixture();
+        assert!(guard(&marked.path().join(".git")).is_ok());
+        let wt = marked.root().join("wt-x");
+        marked.commit("c");
+        marked.git(&["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "x"]);
+        assert!(guard(&marked.path().join(".git")).is_ok(), "the common dir decides, whichever worktree writes");
+
+        let unmarked = TestRepo::init_at(&root.path().join("plain"));
+        let err = guard(&unmarked.path().join(".git")).unwrap_err();
+        assert_eq!(err.message, gitbolt_core::api::FIXTURE_ONLY);
+
+        let elsewhere = tempfile::tempdir().unwrap();
+        let outside = TestRepo::init_at(elsewhere.path());
+        outside.mark_fixture();
+        assert!(guard(&outside.path().join(".git")).is_err(), "a marker outside the root doesn't count");
+
+        // A symlink inside the root that points out of it doesn't count either.
+        let link = root.path().join("link");
+        std::os::unix::fs::symlink(outside.root(), &link).unwrap();
+        assert!(guard(&link.join("repo/.git")).is_err());
+        assert!(!root.path().join(FIXTURE_MARKER).exists());
+
+        // A stray marker in the root itself doesn't authorise everything under it.
+        std::fs::write(root.path().join(FIXTURE_MARKER), "").unwrap();
+        assert!(guard(&unmarked.path().join(".git")).is_err(), "the root's own marker doesn't count");
+    }
+
+    #[tokio::test]
+    async fn test_writes_reach_marked_fixtures_only() {
+        let h = Harness::for_tests().await;
+        let plain = TestRepo::new();
+        let c = plain.commit("c");
+        let id = h.api.dispatch(Request::OpenRepo { path: plain.path().display().to_string() }).await.unwrap()["id"].as_u64().unwrap() as u32;
+        let intent = || gitbolt_core::write::test_intents::TestIntent::MoveRef { name: "refs/heads/x".into(), to: Some(c.clone()) };
+        let wt = plain.path().canonicalize().unwrap().display().to_string();
+        let err = h.api.dispatch(Request::TestWrite { repo: id, worktree: wt.clone(), expect: Default::default(), intent: intent() }).await.unwrap_err();
+        assert_eq!(err.message, gitbolt_core::api::FIXTURE_ONLY);
+        plain.mark_fixture();
+        h.api.dispatch(Request::TestWrite { repo: id, worktree: wt, expect: Default::default(), intent: intent() }).await.unwrap();
+        assert_eq!(plain.git(&["rev-parse", "x"]), c);
+    }
+
+    /// A reset leaves no journal behind: the next test starts with nothing to undo.
+    #[tokio::test]
+    async fn reset_clears_the_journals_and_queues() {
+        let h = Harness::for_tests().await;
+        let r = TestRepo::new();
+        let c = r.commit("c");
+        r.mark_fixture();
+        let id = h.api.dispatch(Request::OpenRepo { path: r.path().display().to_string() }).await.unwrap()["id"].as_u64().unwrap() as u32;
+        let wt = r.path().canonicalize().unwrap().display().to_string();
+        let intent = gitbolt_core::write::test_intents::TestIntent::MoveRef { name: "refs/heads/x".into(), to: Some(c) };
+        let res = h.api.dispatch(Request::TestWrite { repo: id, worktree: wt.clone(), expect: Default::default(), intent }).await.unwrap();
+        assert!(res["journal"]["undo"].is_object());
+        h.reset();
+        let noop = gitbolt_core::write::test_intents::TestIntent::Sleep { label: "noop".into(), ms: 0, fail: false };
+        let res = h.api.dispatch(Request::TestWrite { repo: id, worktree: wt, expect: Default::default(), intent: noop }).await.unwrap();
+        assert!(res["journal"]["undo"].is_null(), "{res}");
+    }
 }

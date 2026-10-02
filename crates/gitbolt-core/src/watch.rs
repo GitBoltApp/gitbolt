@@ -458,6 +458,49 @@ struct Shared {
     degraded: AtomicBool,
     /// How many inotify watches are in place.
     watches: AtomicUsize,
+    /// `WatchHold`s alive (writes running): events are gathered, not reported (spec #2 §3.2).
+    holds: AtomicUsize,
+    released: tokio::sync::Notify,
+    /// What the last write left for the loop to take as its own baseline.
+    absorbed: std::sync::Mutex<Absorbed>,
+    /// The common dir and the worktrees, for `absorb_git` (set at launch, kept by `respec`).
+    layout: std::sync::Mutex<(PathBuf, Vec<WatchedWorktree>)>,
+}
+
+#[derive(Default)]
+struct Absorbed {
+    digests: HashMap<PathBuf, u64>,
+    git: Option<GitState>,
+}
+
+/// A write in progress (spec #2 §3.2 step 10, §13.4). While one lives, the watcher reports
+/// nothing. On release, what it gathered meanwhile is judged against what the write absorbed,
+/// so only changes the write didn't make (and didn't report itself) reach the UI.
+pub(crate) struct WatchHold {
+    shared: Arc<Shared>,
+}
+
+impl WatchHold {
+    /// `root`'s status digest after the write (from the write's own status read).
+    pub(crate) fn absorb(&self, root: PathBuf, digest: u64) {
+        self.shared.absorbed.lock().expect("absorbed poisoned").digests.insert(root, digest);
+    }
+
+    /// The refs/HEAD/stash/config snapshot as the write left it.
+    pub(crate) fn absorb_git(&self) {
+        let (common, worktrees) = self.shared.layout.lock().expect("layout poisoned").clone();
+        let state = git_state(&common, &worktrees);
+        self.shared.absorbed.lock().expect("absorbed poisoned").git = Some(state);
+    }
+}
+
+impl Drop for WatchHold {
+    fn drop(&mut self) {
+        if self.shared.holds.fetch_sub(1, Ordering::SeqCst) == 1 {
+            // A stored permit if the loop isn't waiting yet: it never misses the release.
+            self.shared.released.notify_one();
+        }
+    }
 }
 
 /// The live watch of one repository. Dropping it stops the watch (no event is emitted after the
@@ -482,9 +525,14 @@ struct Handles {
 }
 
 impl RepoWatcher {
+    pub(crate) fn hold(&self) -> WatchHold {
+        self.shared.holds.fetch_add(1, Ordering::SeqCst);
+        WatchHold { shared: self.shared.clone() }
+    }
+
     fn pending(wip: Arc<WipCache>) -> (Self, Handles) {
         static SERIAL: AtomicU64 = AtomicU64::new(0);
-        let shared = Arc::new(Shared { serial: SERIAL.fetch_add(1, Ordering::Relaxed), wakeups: AtomicU64::new(0), degraded: AtomicBool::new(false), watches: AtomicUsize::new(0) });
+        let shared = Arc::new(Shared { serial: SERIAL.fetch_add(1, Ordering::Relaxed), wakeups: AtomicU64::new(0), degraded: AtomicBool::new(false), watches: AtomicUsize::new(0), holds: AtomicUsize::new(0), released: tokio::sync::Notify::new(), absorbed: Default::default(), layout: std::sync::Mutex::new((PathBuf::new(), Vec::new())) });
         let stop = CancellationToken::new();
         let (ready_tx, ready) = watch::channel(false);
         let (tx, rx) = mpsc::unbounded_channel();
@@ -570,6 +618,7 @@ fn launch(spec: WatchSpec, cli: GitCli, wip: Arc<WipCache>, bus: EventBus, h: Ha
     let mut watches = Watches { w, applied: WatchPlan::default(), max: tuning.max_watches, full: false };
     watches.sync(&base);
     h.shared.watches.store(watches.applied.len(), Ordering::SeqCst);
+    *h.shared.layout.lock().expect("layout poisoned") = (spec.common_dir.clone(), spec.worktrees.clone());
     let git = git_state(&spec.common_dir, &spec.worktrees);
     let state = Loop {
         truncated: base.truncated,
@@ -641,7 +690,10 @@ impl Loop {
             if self.own_overflow(&first) {
                 continue;
             }
-            let Some(events) = gather(first, &mut rx, &self.stop).await else { return };
+            let Some(mut events) = gather(first, &mut rx, &self.stop).await else { return };
+            if !self.wait_released(&mut rx, &mut events).await {
+                return;
+            }
             let mut batch = Batch::default();
             for ev in events.iter().filter(|ev| !self.own_overflow(ev)) {
                 batch.add(ev, &self.spec);
@@ -673,7 +725,37 @@ impl Loop {
         own
     }
 
+    /// While a write holds the watch, keeps gathering. `false` once stopped.
+    async fn wait_released(&self, rx: &mut mpsc::UnboundedReceiver<notify::Event>, events: &mut Vec<notify::Event>) -> bool {
+        while self.shared.holds.load(Ordering::SeqCst) > 0 {
+            tokio::select! {
+                _ = self.stop.cancelled() => return false,
+                _ = self.shared.released.notified() => {}
+                ev = rx.recv() => match ev {
+                    Some(e) => events.push(e),
+                    None => return false,
+                },
+            }
+        }
+        true
+    }
+
+    /// A finished write's digests become this watcher's own last reads, and its git snapshot the
+    /// baseline. `true` when the git snapshot was replaced.
+    fn take_absorbed(&mut self) -> bool {
+        let a = std::mem::take(&mut *self.shared.absorbed.lock().expect("absorbed poisoned"));
+        self.digests.extend(a.digests);
+        match a.git {
+            Some(g) => {
+                self.git = g;
+                true
+            }
+            None => false,
+        }
+    }
+
     async fn handle(&mut self, batch: Batch) {
+        let rebased = self.take_absorbed();
         for g in &batch.gone {
             self.watches.forget(g);
         }
@@ -705,11 +787,11 @@ impl Loop {
         status.retain(|r| r.is_dir());
         let mut changed = self.refresh_status(&status, false, &batch.touched, batch.overflow).await;
         let git_kinds = [ChangeKind::Refs, ChangeKind::Head, ChangeKind::Stash, ChangeKind::Config];
-        if batch.overflow || git_kinds.iter().any(|k| kinds.contains(k)) {
+        if batch.overflow || rebased || git_kinds.iter().any(|k| kinds.contains(k)) {
             let (c, w) = (self.spec.common_dir.clone(), self.spec.worktrees.clone());
             if let Ok(next) = tokio::task::spawn_blocking(move || git_state(&c, &w)).await {
-                if batch.overflow {
-                    // Lost events: report only what the snapshot shows changed.
+                if batch.overflow || rebased {
+                    // Lost events, or a write's own changes: report only what the snapshot shows changed.
                     kinds.retain(|k| !git_kinds.contains(k));
                     kinds.extend(changed_kinds(&self.git, &next));
                 }
@@ -757,6 +839,7 @@ impl Loop {
             self.untracked.remove(r);
         }
         self.spec.worktrees = next;
+        *self.shared.layout.lock().expect("layout poisoned") = (self.spec.common_dir.clone(), self.spec.worktrees.clone());
         self.replan().await;
         (added, removed)
     }
@@ -1347,6 +1430,58 @@ mod tests {
         api.watchers.lock().unwrap().insert(id, w);
         let rx = api.subscribe();
         (api, id, rx)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hold_defers_changes_until_it_is_released() {
+        let r = TestRepo::new();
+        r.commit("c");
+        let (api, id, mut rx) = watched(&r).await;
+        let hold = with_watcher(&api, id, |w| w.hold());
+        r.write("new.txt", "x\n");
+        assert!(next_change(&mut rx, Duration::from_millis(700)).await.is_none(), "held while the write runs");
+        drop(hold);
+        let (kinds, worktrees) = next_change(&mut rx, Duration::from_secs(3)).await.expect("reported once released");
+        assert!(kinds.contains(&ChangeKind::Worktree), "{kinds:?}");
+        assert_eq!(worktrees, vec![canonical(r.path())]);
+    }
+
+    /// Spec #2 §3.2 step 10: the write refreshed the cache itself, so the watcher's own pass
+    /// afterwards finds nothing new.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn what_a_write_absorbed_is_never_reported() {
+        let r = TestRepo::new();
+        let c = r.commit("c");
+        let (api, id, mut rx) = watched(&r).await;
+        let h = api.handle(id).unwrap();
+        let hold = with_watcher(&api, id, |w| w.hold());
+        r.write("new.txt", "x\n");
+        r.git(&["update-ref", "refs/heads/x", &c]);
+        let root = r.path().canonicalize().unwrap();
+        let lists = read_and_keep_lists(&h.repo, &api.cli, &h.wip, &root).await.unwrap();
+        hold.absorb(root, lists.digest);
+        hold.absorb_git();
+        drop(hold);
+        assert!(next_change(&mut rx, Duration::from_millis(900)).await.is_none(), "the write's own echo");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_outside_change_after_the_write_is_still_reported() {
+        let r = TestRepo::new();
+        let c = r.commit("c");
+        let (api, id, mut rx) = watched(&r).await;
+        let h = api.handle(id).unwrap();
+        let hold = with_watcher(&api, id, |w| w.hold());
+        r.write("mine.txt", "x\n");
+        let root = r.path().canonicalize().unwrap();
+        let lists = read_and_keep_lists(&h.repo, &api.cli, &h.wip, &root).await.unwrap();
+        hold.absorb(root, lists.digest);
+        hold.absorb_git();
+        r.write("theirs.txt", "y\n");
+        r.git(&["update-ref", "refs/heads/outside", &c]);
+        drop(hold);
+        let (kinds, _) = next_change(&mut rx, Duration::from_secs(3)).await.expect("the outside change");
+        assert!(kinds.contains(&ChangeKind::Worktree) && kinds.contains(&ChangeKind::Refs), "{kinds:?}");
     }
 
     fn with_watcher<T>(api: &Api, id: u32, f: impl FnOnce(&RepoWatcher) -> T) -> T {

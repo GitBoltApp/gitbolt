@@ -40,11 +40,13 @@ const blockBrowserChords: KeyHandler = (e) => {
  * action runs it and goes no further. So an open menu (the `menu` layer) or anything above
  * claims its keys first, and within the app layer, the only Ctrl+W binding is here (it closes
  * the open file if there is one, else the tab; `coreActions.ts`). Ctrl chords work even while
- * typing in a text box (spec §11.1).
+ * typing in a text box (spec §11.1), except where the action yields to the focused element
+ * (`Action.yieldsTo`: Ctrl+Z belongs to a text box's own undo, spec #2 §5.5).
  */
 export const shortcutKeys: KeyHandler = (e) => {
   const action = actionForCombo(comboOf(e));
   if (!action) return;
+  if (action.yieldsTo?.(e.target)) return;
   e.preventDefault();
   // A held combo repeats the action but logs only its first press (no log line per repeat).
   invoke(action, { quiet: e.repeat });

@@ -34,7 +34,7 @@ function ActivityView() {
         <button type="button" className="activity-copy-all" disabled={shown.length === 0} onClick={() => void copyAndSay(allText(shown, now))}>Copy all</button>
       </div>
       <ol className="activity-list">
-        {shown.length === 0 && <li className="activity-empty">{errorsOnly ? 'No failures' : 'No activity yet: every finished fetch and clone appears here'}</li>}
+        {shown.length === 0 && <li className="activity-empty">{errorsOnly ? 'No failures' : 'No activity yet: every finished operation appears here'}</li>}
         {shown.map((e, i) => {
           const Icon = ICON[e.outcome];
           return (
@@ -50,6 +50,12 @@ function ActivityView() {
                 <button type="button" className="icon-button" aria-label="Copy entry" onClick={() => void copyAndSay(entryText(e, now))}><Copy size={13} /></button>
               </div>
               {(e.command || e.message) && <pre className="activity-msg">{e.command && <span className="activity-cmd">$ {e.command}{e.message ? '\n' : ''}</span>}{e.message}</pre>}
+              {e.output.length > 0 && (
+                <details className="activity-output">
+                  <summary>Output ({e.output.length} {e.output.length === 1 ? 'line' : 'lines'})</summary>
+                  <pre>{e.output.join('\n')}</pre>
+                </details>
+              )}
             </li>
           );
         })}

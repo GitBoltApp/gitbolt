@@ -18,6 +18,12 @@ pub fn cache_dir() -> PathBuf {
     dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("gitbolt")
 }
 
+/// `~/.local/share/gitbolt` (spec #2 §5.1): the undo journal and temp index files. Only
+/// `gitbolt-app` points the `Api` here; the harness and tests use a temp dir.
+pub fn data_dir() -> PathBuf {
+    dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("gitbolt")
+}
+
 /// Where the askpass socket lives: `$XDG_RUNTIME_DIR` (per-user, 0700), else a private
 /// `gitbolt-<uid>` folder in the temp dir (see [`private_dir`]).
 pub fn runtime_dir() -> std::io::Result<PathBuf> {
@@ -30,7 +36,7 @@ pub fn runtime_dir() -> std::io::Result<PathBuf> {
 /// `path` as a folder only this user can use: created `0700` if it's missing; if it's there, it
 /// must be a real folder (not a symlink someone planted in a shared temp dir) owned by this user,
 /// and its mode is set back to `0700`. In a sticky temp dir nobody else can then swap it out.
-fn private_dir(path: &Path) -> std::io::Result<PathBuf> {
+pub(crate) fn private_dir(path: &Path) -> std::io::Result<PathBuf> {
     use std::io::{Error, ErrorKind};
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
     match std::fs::DirBuilder::new().mode(0o700).create(path) {
@@ -58,7 +64,7 @@ mod tests {
 
     #[test]
     fn locations_are_absolute_and_namespaced() {
-        for dir in [super::config_dir(), super::cache_dir()] {
+        for dir in [super::config_dir(), super::cache_dir(), super::data_dir()] {
             assert!(dir.is_absolute(), "{}", dir.display());
             assert!(dir.ends_with("gitbolt"), "{}", dir.display());
         }

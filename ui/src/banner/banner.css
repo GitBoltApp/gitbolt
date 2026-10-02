@@ -1,0 +1,8 @@
+/* The repo tab's `banner` slot (spec #2 §6.4): between the toolbar and the panels. */
+.banners { display: flex; flex-direction: column; flex: none; border-bottom: 1px solid var(--section-border); }
+.banner { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--panel-bg1); color: var(--text-normal); font-size: 12px; }
+.banner-autostashConflicts, .banner-autostashRefused, .banner-autostashPartial, .banner-autostashStopped { border-left: 3px solid var(--orange); }
+.banner-recovery { border-left: 3px solid var(--blue); }
+.banner-text { flex: 1; min-width: 0; }
+.banner-action { all: unset; cursor: pointer; color: var(--link); padding: 0 4px; }
+.banner-action:focus-visible { outline: 1px solid var(--focus-outline); }

@@ -2,7 +2,7 @@ import { copyAndSay as copy, openDebug } from '../app/activityLog';
 import { actionsFor, describeError, toGbError, type ErrorAction, type ErrorContext } from '../errors/describe';
 import { ERROR_TOAST_MS, useToast, type ToastAction } from '../ui/toast';
 
-const CONTEXT_ACTIONS: ReadonlySet<ErrorAction['id']> = new Set(['retry', 'refresh', 'remove-recent']);
+const CONTEXT_ACTIONS: ReadonlySet<ErrorAction['id']> = new Set(['retry', 'refresh', 'remove-recent', 'remove-lock']);
 
 /**
  * A user's action failed (R12): the existing toast, for `ERROR_TOAST_MS`, with `describeError`'s

@@ -45,6 +45,57 @@ pub struct GitInvocation {
     envs: Vec<(OsString, OsString)>,
     stderr_lines: Option<UnboundedSender<String>>,
     detach: bool,
+    /// Built by `GitInvocation::write`: git's normal locks (no `GIT_OPTIONAL_LOCKS=0`).
+    write: bool,
+    /// Fed to git's stdin, then closed; `None` = `/dev/null`.
+    stdin: Option<Vec<u8>>,
+    /// On cancel or timeout: SIGTERM, then SIGKILL after this (writes); `None` = SIGKILL at once.
+    term_grace: Option<Duration>,
+}
+
+/// How long a cancelled or timed-out write has to exit after SIGTERM before SIGKILL (spec #2 §3.3).
+pub const WRITE_TERM_GRACE: Duration = Duration::from_secs(2);
+
+impl GitInvocation {
+    /// A write (spec #2 §3.3): no `GIT_OPTIONAL_LOCKS=0` (git's normal locks), never an editor
+    /// (`GIT_EDITOR=true`, `GIT_MERGE_AUTOEDIT=no`), and a cancel that lets git clean up its
+    /// `.lock` files first. Only `crate::write` can make the token (Deviation 1).
+    pub(crate) fn write<I, S>(_proof: &crate::write::WriteToken, cwd: impl Into<PathBuf>, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        // No editor can open in any write: the env beats config for the sequence editor, and
+        // the `-c` pairs cover `core.editor`/`sequence.editor` from the user's config. A caller
+        // that needs a real rebase todo sets its own `GIT_SEQUENCE_EDITOR` with `.env` after.
+        let mut inv = Self::new(cwd, ["-c", "core.editor=true", "-c", "sequence.editor=true"])
+            .env("GIT_EDITOR", "true")
+            .env("GIT_SEQUENCE_EDITOR", "true")
+            .env("GIT_MERGE_AUTOEDIT", "no");
+        inv.args.extend(args.into_iter().map(Into::into));
+        inv.write = true;
+        inv.term_grace = Some(WRITE_TERM_GRACE);
+        inv
+    }
+
+    /// Bytes for git's stdin (`commit -F -`, `update-index -z --index-info`, `--pathspec-from-file=-`):
+    /// paths never go on argv when there can be many.
+    pub fn stdin(mut self, bytes: impl Into<Vec<u8>>) -> Self {
+        self.stdin = Some(bytes.into());
+        self
+    }
+
+    pub fn is_write(&self) -> bool {
+        self.write
+    }
+
+    /// A write's cancel for a command that isn't a write (a fetch, a clone): SIGTERM, then
+    /// SIGKILL after `grace`, so git can remove the ref locks it holds (`refs/remotes/…lock`,
+    /// `packed-refs.lock`). The environment stays a read's (`GIT_OPTIONAL_LOCKS=0`).
+    pub(crate) fn term_grace(mut self, grace: Duration) -> Self {
+        self.term_grace = Some(grace);
+        self
+    }
 }
 
 impl GitInvocation {
@@ -53,7 +104,7 @@ impl GitInvocation {
         I: IntoIterator<Item = S>,
         S: Into<OsString>,
     {
-        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false }
+        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false, write: false, stdin: None, term_grace: None }
     }
 
     /// `None` = no timeout (network operations).
@@ -162,7 +213,7 @@ impl GitCli {
         &self.log
     }
 
-    pub async fn run(&self, inv: GitInvocation) -> Result<GitOutput, GbError> {
+    pub async fn run(&self, mut inv: GitInvocation) -> Result<GitOutput, GbError> {
         let id = self.log.next_id();
         let started = Instant::now();
         let started_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
@@ -192,15 +243,23 @@ impl GitCli {
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .envs(inv.envs.iter().map(|(k, v)| (k, v)))
             .env("GIT_TERMINAL_PROMPT", "0")
-            .env("LC_ALL", "C")
-            // GitBolt only reads: this disables *optional* locks (e.g. the stat-info refresh a
-            // plain `git status` writes back into `.git/index`), not the locking real write
-            // operations (checkout, commit, ...) still need and will keep taking in later plans.
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .stdin(Stdio::null())
+            .env("LC_ALL", "C");
+        if !inv.write {
+            // Reads only (the never-write invariant, core §5.2): this disables *optional* locks
+            // (the stat refresh `git status` writes back into `.git/index`). Writes
+            // (`GitInvocation::write`) take git's normal locks.
+            cmd.env("GIT_OPTIONAL_LOCKS", "0");
+        } else {
+            // An inherited `GIT_OPTIONAL_LOCKS=0` (login-shell or process env) must not survive.
+            cmd.env_remove("GIT_OPTIONAL_LOCKS");
+        }
+        let input = inv.stdin.take();
+        cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            // A write dropped mid-run must get SIGTERM first (git removes its locks), so its
+            // stop is `DropStop`'s alone; a read may die at once.
+            .kill_on_drop(inv.term_grace.is_none());
         // GitBolt's own environment (openers::PRIVATE_ENV) must never leak into a child, the
         // same guarantee `openers::launch_command` gives an opener/chooser/URL-open launch, and
         // regardless of whether a command hook is installed.
@@ -241,11 +300,23 @@ impl GitCli {
                     exit_code: None,
                     stderr: truncate_utf8(&redacted_err, STDERR_LOG_LIMIT).to_string(),
                 });
-                return Err(GbError { kind: GbErrorKind::Io, message: redacted_err.clone(), command_id: Some(id), stderr: Some(redacted_err) });
+                return Err(GbError { kind: GbErrorKind::Io, message: redacted_err.clone(), command_id: Some(id), stderr: Some(redacted_err), detail: None });
             }
         };
 
         let pid = child.id();
+        // If this future is dropped before the end (an app quit, an aborted task), the group
+        // still stops: SIGTERM then SIGKILL for a write, SIGKILL for a read.
+        let mut drop_stop = DropStop { pid, grace: inv.term_grace, armed: true };
+        let stdin_task = match (input, child.stdin.take()) {
+            (Some(bytes), Some(mut pipe)) => Some(tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                // git may exit without reading it all (an error): a closed pipe isn't our failure.
+                let _ = pipe.write_all(&bytes).await;
+                let _ = pipe.shutdown().await;
+            })),
+            _ => None,
+        };
         // stdout and stderr are read concurrently with the wait, so neither pipe can fill up and
         // stall git, and stderr can stream line by line (progress) while git runs.
         let mut stdout = child.stdout.take().expect("stdout is piped");
@@ -266,8 +337,10 @@ impl GitCli {
             _ = async { match inv.timeout { Some(d) => tokio::time::sleep(d).await, None => std::future::pending().await } } => Outcome::TimedOut(inv.timeout.unwrap_or_default()),
         };
         if !matches!(outcome, Outcome::Done(_)) {
-            kill_group(pid);
-            let _ = child.wait().await;
+            stop_group(pid, &mut child, inv.term_grace).await;
+        }
+        if let Some(t) = stdin_task {
+            t.abort();
         }
         // A background process git left behind that still holds a pipe must not hang us: one
         // shared grace, then the readers are aborted and the straggler (in git's process group)
@@ -281,6 +354,7 @@ impl GitCli {
             err_task.abort();
             kill_group(pid);
         }
+        drop_stop.armed = false;
         let stdout_bytes = stdout_bytes.ok().and_then(Result::ok).unwrap_or_default();
         let stderr_bytes = stderr_bytes.ok().and_then(Result::ok).unwrap_or_default();
 
@@ -296,11 +370,14 @@ impl GitCli {
                 if status.success() {
                     (code, stderr.clone(), Ok(GitOutput { stdout: stdout_bytes, stderr: redacted_stderr, command_id: id }))
                 } else {
+                    let kind = classify_stderr(&stderr);
+                    let detail = if kind == GbErrorKind::IndexLocked { index_lock_detail(&stderr) } else { None };
                     let err = GbError {
-                        kind: classify_stderr(&stderr),
+                        kind,
                         message: first_message_line(&redacted_stderr).unwrap_or_else(|| format!("git exited with status {}", code.unwrap_or(-1))),
                         command_id: Some(id),
                         stderr: Some(redacted_stderr),
+                        detail,
                     };
                     (code, stderr, Err(err))
                 }
@@ -344,10 +421,57 @@ fn wait_failed(id: u64, e: &std::io::Error) -> GbError {
 /// a stranger's group. The window is tiny (we kill on timeout/cancel while the child is still
 /// ours, before `wait` reaps it, and a zombie leader keeps its pid and group alive), so no extra
 /// guard is added.
-fn kill_group(pid: Option<u32>) {
+fn signal_group(pid: Option<u32>, signal: nix::sys::signal::Signal) {
     if let Some(pid) = pid {
-        let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGKILL);
+        let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid as i32), signal);
     }
+}
+
+fn kill_group(pid: Option<u32>) {
+    signal_group(pid, nix::sys::signal::Signal::SIGKILL);
+}
+
+/// Stops the process group of a run whose future was dropped unfinished. A write gets SIGTERM,
+/// then SIGKILL after its grace, from a detached thread (the runtime may be going away); a read
+/// gets SIGKILL at once.
+struct DropStop {
+    pid: Option<u32>,
+    grace: Option<Duration>,
+    armed: bool,
+}
+
+impl Drop for DropStop {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let pid = self.pid;
+        match self.grace {
+            Some(grace) => {
+                signal_group(pid, nix::sys::signal::Signal::SIGTERM);
+                let _ = std::thread::Builder::new().name("git-drop-stop".into()).spawn(move || {
+                    std::thread::sleep(grace);
+                    kill_group(pid);
+                });
+            }
+            None => kill_group(pid),
+        }
+    }
+}
+
+/// Stops a cancelled or timed-out command's process group. A read is killed at once; a write
+/// gets SIGTERM, so git removes its `.lock` files, then SIGKILL after `grace` (spec #2 §3.3).
+async fn stop_group(pid: Option<u32>, child: &mut tokio::process::Child, grace: Option<Duration>) {
+    if let Some(grace) = grace {
+        signal_group(pid, nix::sys::signal::Signal::SIGTERM);
+        if tokio::time::timeout(grace, child.wait()).await.is_ok() {
+            // The leader is gone, but a TERM-ignoring straggler in its group could still hold a lock.
+            kill_group(pid);
+            return;
+        }
+    }
+    kill_group(pid);
+    let _ = child.wait().await;
 }
 
 /// Collects stderr (up to `STDERR_KEEP`) and, with `lines`, streams it: see
@@ -412,11 +536,29 @@ pub fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
     Some((major, minor, patch))
 }
 
+/// An `index.lock` failure's lock file and its mtime now, for Remove stale lock (spec #2 §14).
+/// The parse relies on English stderr: every run sets `LC_ALL=C`.
+/// Other locks (`HEAD.lock`, a ref's) get no detail: only the index lock is offered.
+fn index_lock_detail(stderr: &str) -> Option<crate::error::ErrorDetail> {
+    const START: &str = "Unable to create '";
+    let at = stderr.find(START)? + START.len();
+    let end = at + stderr[at..].find("': File exists")?;
+    let path = &stderr[at..end];
+    if !path.ends_with("/index.lock") {
+        return None;
+    }
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime_ms = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
+    Some(crate::error::ErrorDetail::IndexLock { path: path.into(), mtime_ms, ino: meta.ino(), dev: meta.dev() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::error::GbErrorKind;
     use crate::testing::{isolated_git_env, TestRepo};
+    use crate::write::WriteToken;
     use std::time::Instant;
 
     #[test]
@@ -797,5 +939,129 @@ mod tests {
         let cli = GitCli::new(log).with_shell_env(crate::shellenv::ShellEnv::fixed(vars.clone()));
         assert!(cli.shell_env().is_some());
         assert_eq!(*cli.child_env().await.unwrap(), vars);
+    }
+
+    /// Spec #2 §3.3: a write takes git's normal locks and never waits on an editor; a read keeps
+    /// the never-write `GIT_OPTIONAL_LOCKS=0`.
+    #[tokio::test]
+    async fn a_write_takes_normal_locks_and_never_waits_on_an_editor() {
+        let r = TestRepo::new();
+        let alias = "alias.env=!printf '%s|%s|%s' \"${GIT_OPTIONAL_LOCKS-unset}\" \"$GIT_EDITOR\" \"$GIT_MERGE_AUTOEDIT\"";
+        let out = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", alias, "env"])).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "unset|true|no");
+        // An inherited GIT_OPTIONAL_LOCKS=0 doesn't survive in a write.
+        let inherited = GitCli::new(Arc::new(CommandLog::new(10))).with_env([isolated_git_env(), vec![("GIT_OPTIONAL_LOCKS".into(), "0".into())]].concat());
+        let out = inherited.run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", alias, "env"])).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "unset|true|no");
+        let read = cli().run(GitInvocation::new(r.path(), ["-c", alias, "env"])).await.unwrap();
+        assert!(String::from_utf8_lossy(&read.stdout).starts_with("0|"), "reads keep GIT_OPTIONAL_LOCKS=0");
+        assert!(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["status"]).is_write());
+        assert!(!GitInvocation::new(r.path(), ["status"]).is_write());
+    }
+
+    #[tokio::test]
+    async fn stdin_reaches_git() {
+        let r = TestRepo::new();
+        let out = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["hash-object", "--stdin"]).stdin(b"hello\n".to_vec())).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ce013625030ba8dba906f756967f9e9ca394464a");
+    }
+
+    /// A cancelled write gets SIGTERM first, so git can remove its own `.lock` files (§3.3).
+    #[tokio::test]
+    async fn a_cancelled_write_gets_sigterm_first() {
+        let r = TestRepo::new();
+        let marker = r.root().join("got-term");
+        let alias = format!("alias.slow=!trap 'touch {}; exit 143' TERM; sleep 5 & wait", marker.display());
+        let token = CancellationToken::new();
+        let t2 = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            t2.cancel();
+        });
+        let started = Instant::now();
+        let err = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", alias.as_str(), "slow"]).cancel(token)).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Cancelled);
+        assert!(marker.exists(), "the write's process group got SIGTERM");
+        assert!(started.elapsed() < Duration::from_millis(1500), "{:?}", started.elapsed());
+    }
+
+    /// One that ignores SIGTERM is killed anyway, after the grace.
+    #[tokio::test]
+    async fn a_write_that_ignores_sigterm_is_killed_after_the_grace() {
+        let r = TestRepo::new();
+        let marker = r.root().join("survived");
+        let alias = format!("alias.stubborn=!trap '' TERM; sleep 4; touch {}", marker.display());
+        let token = CancellationToken::new();
+        let t2 = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            t2.cancel();
+        });
+        let started = Instant::now();
+        let err = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", alias.as_str(), "stubborn"]).cancel(token)).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Cancelled);
+        let took = started.elapsed();
+        assert!(took >= WRITE_TERM_GRACE && took < Duration::from_millis(3800), "{took:?}");
+        tokio::time::sleep(Duration::from_millis(4200)).await;
+        assert!(!marker.exists(), "SIGKILL ended the group");
+    }
+
+    /// A write whose future is dropped mid-run (an app quit, an aborted task) still stops its
+    /// whole group: SIGTERM first (git removes its locks), then SIGKILL after the grace.
+    #[tokio::test]
+    async fn a_dropped_write_gets_sigterm_then_sigkill() {
+        let r = TestRepo::new();
+        let termed = r.root().join("got-term");
+        let survived = r.root().join("survived");
+        let polite = format!("alias.slow=!trap 'touch {}; exit 143' TERM; sleep 5 & wait", termed.display());
+        let stubborn = format!("alias.stubborn=!trap '' TERM; sleep 4; touch {}", survived.display());
+        let cli = cli();
+        let a = cli.run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", polite.as_str(), "slow"]));
+        let b = cli.run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", stubborn.as_str(), "stubborn"]));
+        assert!(tokio::time::timeout(Duration::from_millis(300), async { tokio::join!(a, b) }).await.is_err(), "both still running");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !termed.exists() {
+            assert!(Instant::now() < deadline, "the dropped write's group never got SIGTERM");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(4500)).await;
+        assert!(!survived.exists(), "SIGKILL ended the TERM-ignoring group after the grace");
+    }
+
+    /// No editor in any write: `sequence.editor` / `core.editor` from the user's config (here an
+    /// inherited GIT_SEQUENCE_EDITOR and a repo config) can't open one.
+    #[tokio::test]
+    async fn a_write_never_opens_a_sequence_editor() {
+        let r = TestRepo::new();
+        let alias = "alias.seq=!printf '%s|%s' \"$GIT_SEQUENCE_EDITOR\" \"$GIT_EDITOR\"";
+        let vim = GitCli::new(Arc::new(CommandLog::new(10))).with_env([isolated_git_env(), vec![("GIT_SEQUENCE_EDITOR".into(), "vim".into())]].concat());
+        let out = vim.run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", alias, "seq"])).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "true|true");
+        let out = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", "sequence.editor=vim", "config", "sequence.editor"])).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "vim", "a later -c still shows; the earlier pair is the default");
+        let out = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["config", "--get-all", "sequence.editor"])).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "true");
+    }
+
+    /// Spec #2 §14: an IndexLocked failure carries the lock and its mtime, for Remove stale lock.
+    #[tokio::test]
+    async fn an_index_lock_failure_names_the_lock_and_its_mtime() {
+        let r = TestRepo::new();
+        r.commit("c");
+        let lock = r.path().join(".git/index.lock");
+        std::fs::write(&lock, "").unwrap();
+        let err = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["update-index", "--refresh"])).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::IndexLocked);
+        let mtime = std::fs::metadata(&lock).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        match err.detail {
+            Some(crate::error::ErrorDetail::IndexLock { path, mtime_ms, ino, dev }) => {
+                use std::os::unix::fs::MetadataExt;
+                let m = std::fs::metadata(&lock).unwrap();
+                assert_eq!((ino, dev), (m.ino(), m.dev()));
+                assert_eq!(std::path::Path::new(&*path).canonicalize().unwrap(), lock.canonicalize().unwrap());
+                assert_eq!(mtime_ms, mtime);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

@@ -9,6 +9,10 @@ import type { RepoCtx } from '../app/repoContext';
  */
 export type ToolbarPlacement = 'center' | 'end';
 
+/** What a button shows for its tab right now, when that's more than its action says: the
+ * undo tooltip and its disabled reason (spec #2 §5.5). */
+export interface ButtonView { tooltip: string; disabled: boolean }
+
 export interface ToolbarButton {
   /** The action it runs. */
   action: string;
@@ -22,6 +26,11 @@ export interface ToolbarButton {
   menu?: string[];
   /** A hook: true while what the button starts is running for this tab (a spinner; disabled). */
   useBusy?: (ctx: RepoCtx) => boolean;
+  /** A hook: an op this button starts waits in the queue (spec #2 §3.6): a small badge. */
+  useQueued?: (ctx: RepoCtx) => boolean;
+  /** A hook: the button's tooltip and whether it's disabled, for this tab (`null`: the action's).
+   * A disabled view stays hoverable, so its reason shows. */
+  useView?: (ctx: RepoCtx) => ButtonView | null;
 }
 
 export const useToolbarButtons = create<{ buttons: ToolbarButton[] }>(() => ({ buttons: [] }));

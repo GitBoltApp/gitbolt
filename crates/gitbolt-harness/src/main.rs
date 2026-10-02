@@ -1,10 +1,6 @@
-use gitbolt_core::testing::{fixtures, TestRepo};
+use gitbolt_core::testing::{fixtures, TestRepo, FIXTURE_MARKER};
 use std::path::{Path, PathBuf};
 use tracing_subscriber::EnvFilter;
-
-/// Written into a fixture's root directory once it has been built, so a later
-/// run recognizes the directory as safe to blow away and rebuild.
-const FIXTURE_MARKER: &str = ".gitbolt-fixture";
 
 fn main() {
     // First: when git runs this binary as GIT_ASKPASS (spec §5.4), it only asks the running
@@ -30,7 +26,8 @@ async fn harness_main() {
             // See `Harness::new`: fake openers, recorded launches, a logging URL opener, no
             // avatars, a temporary open-in cache.
             let config_dir = args.iter().position(|a| a == "--config-dir").and_then(|i| args.get(i + 1)).map(PathBuf::from);
-            let harness = gitbolt_harness::Harness::new(gitbolt_harness::HarnessOptions { config_dir, ..Default::default() }).await;
+            let fixture_root = args.iter().position(|a| a == "--fixture-root").and_then(|i| args.get(i + 1)).map(PathBuf::from);
+            let harness = gitbolt_harness::Harness::new(gitbolt_harness::HarnessOptions { config_dir, fixture_root, ..Default::default() }).await;
             gitbolt_harness::serve(listener, harness).await;
         }
         Some("fixture") if args.len() == 3 => {
@@ -55,7 +52,7 @@ async fn harness_main() {
             println!("{}", repo.path().display());
         }
         _ => {
-            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock> <dir>");
+            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock> <dir>");
             std::process::exit(2);
         }
     }

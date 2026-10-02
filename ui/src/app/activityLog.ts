@@ -21,7 +21,7 @@ interface ActivityUi {
   togglePerfOverlay(): void;
 }
 
-/** The activity log (K30, K96, K101): every finished fetch and clone, background ones included. It
+/** The activity log (K30, K96, K101): every finished operation, background ones included. It
  * is a modal panel (`ActivityModal`), opened from the bell, Help → Activity log and the failed-fetch
  * toast. 1D (R9) makes it the one Debug modal: Activity | Commands | Actions. */
 export const useActivityUi = create<ActivityUi>((set) => ({
@@ -65,7 +65,7 @@ export function relativeTime(at: number, now: number): string {
 /** One entry as plain text (the per-entry copy, and a block of "Copy all"). */
 export function entryText(e: ActivityEntry, now = Date.now()): string {
   const head = `${new Date(e.at).toLocaleString()} (${relativeTime(e.at, now)}) · ${e.label || '(no repo)'} · ${e.kind} · ${e.background ? 'background' : 'user'} · ${seconds(e.durationMs)} · ${e.outcome}`;
-  return [head, e.command, e.message].filter(Boolean).join('\n');
+  return [head, e.command, e.message, e.output.length ? e.output.join('\n') : null].filter(Boolean).join('\n');
 }
 
 export function allText(entries: ActivityEntry[], now = Date.now()): string {

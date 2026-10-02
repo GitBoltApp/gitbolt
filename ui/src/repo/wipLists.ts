@@ -121,7 +121,26 @@ export class WipLists {
     if (hit.size > 0) for (const l of this.listeners) l(hit);
   }
 
-  /** Called with the worktrees whose lists `changed` dropped. Returns the unsubscribe. */
+  /** A write's fresh lists (spec #2 §3.1): held at once, so the panel never waits on the
+   * watcher. The write's `repoChanged` at the same version then keeps them. Reads in flight
+   * from before the write are too old to hold. */
+  put(worktree: string, lists: { staged: FileListPayload; unstaged: FileListPayload; version: string }): void {
+    this.gens.set(worktree, (this.gens.get(worktree) ?? 0) + 1);
+    const [unstaged, staged] = [wipKey(worktree, false), wipKey(worktree, true)];
+    this.inflight.delete(unstaged);
+    this.inflight.delete(staged);
+    if (this.watched) {
+      this.unversioned.delete(worktree);
+      this.held.set(unstaged, { ...lists.unstaged, version: lists.version });
+      this.held.set(staged, { ...lists.staged, version: lists.version });
+    } else {
+      this.held.delete(unstaged);
+      this.held.delete(staged);
+    }
+    for (const l of this.listeners) l(new Set([worktree]));
+  }
+
+  /** Called with the worktrees whose lists `changed` or `put` replaced. Returns the unsubscribe. */
   subscribe(listener: (worktrees: ReadonlySet<string>) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

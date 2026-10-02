@@ -8,6 +8,8 @@
  */
 import './coreActions';
 import '../toolbar/feature';
+import '../undo/feature';
+import '../banner/feature';
 import '../statusbar/feature';
 import '../debug/feature';
 import '../auth/feature';

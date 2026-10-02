@@ -13,6 +13,7 @@ import './toolbar.css';
 const tooltipOf = (a: Action) => (a.shortcuts?.[0] ? `${a.tooltip} (${a.shortcuts[0]})` : a.tooltip);
 const usable = (a: Action) => !a.when || a.when();
 const notBusy = () => false;
+const noView = () => null;
 
 /** A split button's dropdown: its actions as menu rows (the usable ones). */
 function menuRows(ids: string[]): MenuRow[] {
@@ -26,15 +27,23 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
   // Called on every render (a registration's hook never changes), before any return.
   const useBusy = b.useBusy ?? notBusy;
   const busy = useBusy(ctx);
+  const useQueued = b.useQueued ?? notBusy;
+  const queued = useQueued(ctx);
+  const useView = b.useView ?? noView;
+  const view = useView(ctx);
   const a = getAction(b.action);
   if (!a) return null;
   const label = b.label ?? a.label;
   const Icon = busy ? LoaderCircle : a.icon;
+  const tip = view?.tooltip ?? tooltipOf(a);
+  // Off but hoverable (aria-disabled, not `disabled`): its tooltip says why (spec #2 §5.5).
+  const off = view ? view.disabled : !usable(a);
   const button = (
-    <HoverTooltip content={tooltipOf(a)}>
-      <button type="button" className="tb-btn" aria-label={label} aria-busy={busy || undefined} disabled={busy || !usable(a)} onClick={() => runAction(a.id)}>
+    <HoverTooltip content={tip}>
+      <button type="button" className="tb-btn" aria-label={label} aria-busy={busy || undefined} disabled={busy} aria-disabled={off || undefined} onClick={() => { if (!off) runAction(a.id); }}>
         <Icon size={16} className={busy ? 'spin' : undefined} aria-hidden />
         <span>{label}</span>
+        {queued && <span className="tb-queued" aria-hidden />}
       </button>
     </HoverTooltip>
   );

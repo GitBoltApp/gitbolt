@@ -14,6 +14,7 @@ pub mod find;
 pub mod git;
 pub mod logging;
 pub mod instance;
+pub mod journal;
 pub mod graph;
 pub mod links;
 pub mod log;
@@ -40,6 +41,7 @@ pub mod tree;
 pub mod walk;
 pub mod watch;
 pub mod worktree;
+pub mod write;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

@@ -4,6 +4,9 @@ import { onEvent } from '../api/client';
 import type { AppEvent } from '../api/gen/AppEvent';
 import type { OpKind } from '../api/gen/OpKind';
 import type { OpOutcome } from '../api/gen/OpOutcome';
+import type { StashStep } from '../api/gen/StashStep';
+import { applyQueueEvent } from '../queue/store';
+import { applyJournalEvent } from '../undo/store';
 
 /** A running network op (fetch, clone), from `opStarted` until `opFinished`. `interactive`: the
  * user started it (a background fetch is `false` and shows nowhere but the activity log, K30).
@@ -11,6 +14,8 @@ import type { OpOutcome } from '../api/gen/OpOutcome';
 export interface OpInfo {
   op: number; kind: OpKind; repo: number | null; label: string; phase: string | null; percent: number | null;
   interactive: boolean; shown: boolean; startedAt: number;
+  /** A write's autostash step running now (`opStashStep`), since `at` (spec #2 §6). */
+  stash?: { step: StashStep; message: string; at: number } | null;
 }
 /** An askpass prompt waiting for the user (spec §5.4), from `authWaiting` until `authResolved`. */
 export interface AuthPrompt { prompt: number; op: number; repo: number | null; text: string; secret: boolean }
@@ -22,6 +27,23 @@ export interface ActivityEntry {
   at: number; kind: OpKind; label: string; background: boolean; durationMs: number; outcome: OpOutcome; message: string | null;
   /** The git command that ran, redacted (K101). */
   command: string | null;
+  /** The op's hook and progress output (opOutput), at most `OUTPUT_CAP` bytes (spec #2 §3.5). */
+  output: string[];
+}
+export const OUTPUT_CAP = 64 * 1024;
+const TRUNCATED = '… output truncated at 64 KB';
+
+/** Byte size of each array `appendCapped` returned (a line costs O(1), not a re-sum). */
+const bytes = new WeakMap<string[], number>();
+
+/** `lines` plus `line`, or plus the truncation note (once) past `OUTPUT_CAP` bytes. */
+export function appendCapped(lines: string[], line: string): string[] {
+  if (lines[lines.length - 1] === TRUNCATED) return lines;
+  const size = bytes.get(lines) ?? 0;
+  const add = new TextEncoder().encode(line).length + 1;
+  const next = size + add > OUTPUT_CAP ? [...lines, TRUNCATED] : [...lines, line];
+  bytes.set(next, size + add);
+  return next;
 }
 export const MAX_ERRORS = 100;
 export const MAX_ACTIVITY = 200;
@@ -33,8 +55,10 @@ interface OpsState {
   errors: BgError[];
   /** Errors since the bell was last opened. */
   unread: number;
-  /** Every finished fetch and clone, background ones included: newest first, at most `MAX_ACTIVITY`. */
+  /** Every finished operation, background ones included: newest first, at most `MAX_ACTIVITY`. */
   activity: ActivityEntry[];
+  /** The output of each running op, until its `opFinished` moves it into the Activity entry. */
+  outputs: Record<number, string[]>;
   apply(ev: AppEvent): void;
   /** A user's Fetch found this (background) fetch running: the Fetch button shows it as busy. */
   showOp(op: number): void;
@@ -58,6 +82,7 @@ export const useOps = create<OpsState>((set) => ({
   errors: [],
   unread: 0,
   activity: [],
+  outputs: {},
   apply(ev) {
     switch (ev.type) {
       case 'opStarted':
@@ -66,6 +91,12 @@ export const useOps = create<OpsState>((set) => ({
       case 'opProgress':
         // `opProgress` carries only the op id: an op this store never saw start has nothing to update.
         set((s) => (s.ops[ev.op] ? { ops: { ...s.ops, [ev.op]: { ...s.ops[ev.op], phase: ev.phase, percent: ev.percent } } } : s));
+        break;
+      case 'opStashStep':
+        set((s) => (s.ops[ev.op] ? { ops: { ...s.ops, [ev.op]: { ...s.ops[ev.op], stash: ev.step ? { step: ev.step, message: ev.message, at: Date.now() } : null } } } : s));
+        break;
+      case 'opOutput':
+        set((s) => ({ outputs: { ...s.outputs, [ev.op]: appendCapped(s.outputs[ev.op] ?? [], ev.line) } }));
         break;
       case 'opFinished':
         set((s) => {
@@ -76,11 +107,16 @@ export const useOps = create<OpsState>((set) => ({
           const entry: ActivityEntry = {
             at: now, kind: ev.kind, label: done?.label ?? '', background: done ? !done.interactive : false,
             durationMs: done ? now - done.startedAt : 0, outcome: ev.outcome, message: ev.message, command: ev.command,
+            output: s.outputs[ev.op] ?? [],
           };
+          const outputs = { ...s.outputs };
+          delete outputs[ev.op];
           // A finished op's askpass child is gone, so a prompt of its that's still listed (its
           // `authResolved` lost to a reconnect) would never close.
           const prompts = s.prompts.some((p) => p.op === ev.op) ? s.prompts.filter((p) => p.op !== ev.op) : s.prompts;
-          return { ops, prompts, activity: [entry, ...s.activity].slice(0, MAX_ACTIVITY) };
+          // A successful stage or unstage appears only in the Commands tab (spec #2 §3.5).
+          if (ev.kind === 'stage' && ev.outcome === 'ok') return { ops, prompts, outputs };
+          return { ops, prompts, outputs, activity: [entry, ...s.activity].slice(0, MAX_ACTIVITY) };
         });
         break;
       case 'authWaiting':
@@ -110,5 +146,9 @@ export const useOps = create<OpsState>((set) => ({
 /** One subscription for the app's lifetime (`AppShell`): op and auth events matter whichever
  * tab is showing, so this is the one listener that isn't per tab. */
 export function useGlobalEvents(): void {
-  useEffect(() => onEvent((ev) => useOps.getState().apply(ev)), []);
+  useEffect(() => onEvent((ev) => {
+    useOps.getState().apply(ev);
+    applyQueueEvent(ev);
+    applyJournalEvent(ev);
+  }), []);
 }

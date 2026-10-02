@@ -33,12 +33,18 @@ async fn next_json(ws: &mut Ws) -> Value {
     serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap()
 }
 
-/// One request, one reply (no events are emitted in these tests, so the next frame is it).
+/// One request, one reply. Events (e.g. `queueChanged`, sent when a repo opens) can arrive
+/// first, so frames without an `id` are skipped.
 async fn call(ws: &mut Ws, id: u32, req: Value) -> Value {
     send(ws, json!({"id": id, "req": req})).await;
-    let reply = next_json(ws).await;
-    assert_eq!(reply["id"], id, "{reply}");
-    reply
+    loop {
+        let reply = next_json(ws).await;
+        if reply.get("event").is_some() {
+            continue;
+        }
+        assert_eq!(reply["id"], id, "{reply}");
+        return reply;
+    }
 }
 
 #[tokio::test]

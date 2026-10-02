@@ -106,6 +106,7 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
       <RepoViewContext value={view.store}>
         <div className="repo-tab" data-testid="repo-tab">
           <TabSlot name="toolbar" tab={tab} />
+          <TabSlot name="banner" tab={tab} />
           <div className="repo-body">
             <PanelErrorBoundary name="Sidebar"><TabSlot name="sidebar" tab={tab} /></PanelErrorBoundary>
             <div className="center-slot">

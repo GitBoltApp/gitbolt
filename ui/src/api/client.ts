@@ -26,6 +26,10 @@ import type { ProfileMeta } from './gen/ProfileMeta';
 import type { RepoInfoPayload } from './gen/RepoInfoPayload';
 import type { Request } from './gen/Request';
 import type { ScannedRepo } from './gen/ScannedRepo';
+import type { QueueStatePayload } from './gen/QueueStatePayload';
+import type { JournalState } from './gen/JournalState';
+import type { UndoOutcome } from './gen/UndoOutcome';
+import type { WriteResult } from './gen/WriteResult';
 import type { SidebarPayload } from './gen/SidebarPayload';
 import type { StatePayload } from './gen/StatePayload';
 import { createTransport, deliver, type EventHandler, type Transport } from './transport';
@@ -114,6 +118,11 @@ export const api = {
   suggestReposFolder: () => call<string | null>({ method: 'suggestReposFolder' }),
   /** `git fetch --all` (spec §15). `background`: GitBolt's own timer, which never prompts. */
   fetch: (repo: number, background: boolean) => call<FetchOutcome>({ method: 'fetch', params: { repo, background } }),
+  /** The action queue (spec #2 §3.6). */
+  queueState: (repo: number) => call<QueueStatePayload>({ method: 'queueState', params: { repo } }),
+  queueRemove: (repo: number, id: number) => call<boolean>({ method: 'queueRemove', params: { repo, id } }),
+  queueResume: (repo: number) => call<null>({ method: 'queueResume', params: { repo } }),
+  queueClear: (repo: number) => call<null>({ method: 'queueClear', params: { repo } }),
   /** Ends a running network op (its git process group); it finishes as `cancelled`. */
   cancelOp: (op: number) => call<null>({ method: 'cancelOp', params: { op } }),
   /** The answer to an askpass prompt (spec §5.4); `null` cancels it. */
@@ -130,6 +139,21 @@ export const api = {
   logsDir: () => call<string | null>({ method: 'logsDir' }),
   diagnostics: (ui: UiDiagnostics) => call<string>({ method: 'diagnostics', params: { ui } }),
   openLogsFolder: () => call<null>({ method: 'openLogsFolder' }),
+  // Plan 2A: the write foundation (spec #2 §3–§6).
+  /** Remove stale lock (spec #2 §14): only if `path`'s mtime is still `mtimeMs`. */
+  removeIndexLock: (repo: number, lock: { path: string; mtimeMs: number; ino: number; dev: number }) => call<null>({ method: 'removeIndexLock', params: { repo, ...lock } }),
+  journalState: (repo: number, worktree: string) => call<JournalState>({ method: 'journalState', params: { repo, worktree } }),
+  /** Undo `entry`, the toolbar's (spec #2 §5.4); `confirm`: "Undo anyway", the refs as the prompt
+   * showed them; `confirmAutostash`: the clean-restore warning (§6.2) was confirmed. */
+  undo: (repo: number, worktree: string, entry: number, confirm: Record<string, string | null> | undefined, confirmAutostash: boolean) =>
+    call<WriteResult<UndoOutcome>>({ method: 'undo', params: { repo, worktree, entry, ...(confirm && { confirm }), confirmAutostash } }),
+  redo: (repo: number, worktree: string, entry: number, confirmAutostash: boolean) => call<WriteResult<UndoOutcome>>({ method: 'redo', params: { repo, worktree, entry, confirmAutostash } }),
+  /** A banner's Apply / Restore (spec #2 §6.4); `withoutIndex` after "Apply without restoring
+   * what was staged?"; `confirmAutostash`: a Restore's clean-restore warning was confirmed. */
+  applyKeptStash: (repo: number, worktree: string, entry: number, withoutIndex: boolean, confirmAutostash: boolean) =>
+    call<WriteResult<null>>({ method: 'applyKeptStash', params: { repo, worktree, entry, withoutIndex, confirmAutostash } }),
+  /** A banner's × (`dropStash: false`, the stash stays) or Drop stash. */
+  dismissBanner: (repo: number, worktree: string, entry: number, dropStash: boolean) => call<JournalState>({ method: 'dismissBanner', params: { repo, worktree, entry, dropStash } }),
 };
 
 export function errorMessage(e: unknown): string {
