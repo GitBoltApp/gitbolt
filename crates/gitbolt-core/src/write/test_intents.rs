@@ -446,7 +446,7 @@ impl WriteIntent for MergeStop {
         if res.is_err()
             && let Ok(Some(crate::in_progress::InProgress::Merge { merge_head, .. })) = crate::in_progress::read(cx.root)
         {
-            cx.paused = Some(crate::write::Pause { kind: crate::journal::PausedKind::Merge, target: self.target.clone(), target_oid: Some(merge_head), put_back: Vec::new() });
+            cx.paused = Some(crate::write::Pause { kind: crate::journal::PausedKind::Merge, target: self.target.clone(), target_oid: Some(merge_head), put_back: Vec::new(), picked: Vec::new(), irebase: None });
             return Ok(());
         }
         res.map(|_| ())

@@ -1,0 +1,5 @@
+/* The annotated tag's message box (TagNameInput.tsx): floated under the name input like its
+   note, so no row moves; the note follows it in the same column. */
+.tag-inline-below { position: absolute; left: 0; top: calc(100% + 3px); z-index: 5; display: flex; flex-direction: column; gap: 3px; width: max(100%, 320px); }
+.tag-inline-message { box-sizing: border-box; width: 100%; padding: 4px 6px; font: inherit; resize: none; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--blue); border-radius: 3px; outline: none; box-shadow: 0 1px 4px var(--shadow-popup); user-select: text; }
+.tag-inline-below .branch-inline-note { position: static; }

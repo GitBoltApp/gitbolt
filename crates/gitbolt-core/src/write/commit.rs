@@ -53,6 +53,9 @@ pub(crate) struct Commit {
     pub amend: bool,
     pub stage_all: bool,
     detached: OnceLock<bool>,
+    /// 3C T5 (Ruling 9): made at an interactive rebase's Edit stop. It's part of the paused
+    /// rebase there, not an entry of its own. Decided in `plan`, before the entry is written.
+    paused: OnceLock<bool>,
 }
 
 async fn write_tree(cx: &mut WriteCx<'_>) -> Result<String, GbError> {
@@ -119,7 +122,7 @@ impl WriteIntent for Commit {
         format!("{} \"{}\"", if self.amend { "amend" } else { "commit" }, self.summary)
     }
     fn undo(&self) -> Option<UndoKind> {
-        undo_for(&self.detached)
+        if self.paused.get() == Some(&true) { None } else { undo_for(&self.detached) }
     }
     fn rewrite(&self) -> Option<crate::write::rewrites::RewriteKind> {
         self.amend.then_some(crate::write::rewrites::RewriteKind::Amend)
@@ -127,16 +130,29 @@ impl WriteIntent for Commit {
     fn runs_hooks(&self) -> bool {
         true
     }
-    /// In a merge, Commit makes the merge commit (§13.2); any other operation refuses it in `plan`.
+    /// In a merge, Commit makes the merge commit (§13.2); at an interactive rebase's Edit stop it
+    /// commits there (3C T5); any other operation refuses it in `plan`.
     fn allowed_in_progress(&self) -> bool {
         true
     }
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
+        // --- 3C T5: an Edit stop takes commits (Split's pieces) ---
+        let edit_stop = pre.before.in_progress == Some("rebase")
+            && matches!(crate::in_progress::read(pre.root)?, Some(crate::in_progress::InProgress::Rebase { edit_stop: Some(_), conflicted: 0, .. }));
+        // Fix round 1 (M4): only GitBolt's own interactive rebase, whose pause records the commits
+        // made there; one started in a terminal is finished there.
+        if edit_stop && !crate::write::irebase::split::gitbolt_owns_the_pause(pre)? {
+            return Err(GbError::new(GbErrorKind::InvalidInput, crate::write::irebase::split::NOT_OURS));
+        }
+        let at_edit_stop = edit_stop;
         if let Some(what) = pre.before.in_progress
             && what != "merge"
+            && !at_edit_stop
         {
             return Err(GbError::in_progress(what));
         }
+        let _ = self.paused.set(at_edit_stop);
+        // --- end 3C T5 ---
         if self.summary.trim().is_empty() {
             return Err(GbError::new(GbErrorKind::InvalidInput, "Write a commit summary"));
         }
@@ -179,7 +195,16 @@ impl WriteIntent for Commit {
             return Err(e);
         }
         cx.touch(ChangeKind::Index);
-        Ok(CommitOutcome { oid: head_oid(cx.root)? })
+        let oid = head_oid(cx.root)?;
+        // 3C T5: a commit at an Edit stop is the paused rebase's own.
+        // Fix round 1 (M3): the commit exists whatever happens to the record: a failure here is a
+        // warning, never a failed commit.
+        if self.paused.get() == Some(&true)
+            && let Err(e) = crate::write::irebase::split::record_made(cx, &oid)
+        {
+            tracing::warn!(target: "gitbolt_core::write", "recording {oid} on the paused rebase: {e}");
+        }
+        Ok(CommitOutcome { oid })
     }
 }
 
@@ -226,7 +251,7 @@ impl WriteIntent for EditHeadMessage {
 
 #[allow(clippy::too_many_arguments)] // the request's fields, as dispatch passes them
 pub(crate) async fn commit(api: &Api, repo: u32, worktree: &str, summary: String, description: String, amend: bool, stage_all: bool, expect: Expect) -> Result<WriteResult<CommitOutcome>, GbError> {
-    run_write(api, repo, worktree, expect, Commit { summary, description, amend, stage_all, detached: OnceLock::new() }).await
+    run_write(api, repo, worktree, expect, Commit { summary, description, amend, stage_all, detached: OnceLock::new(), paused: OnceLock::new() }).await
 }
 
 pub(crate) async fn edit_head_message(api: &Api, repo: u32, worktree: &str, message: String, expect: Expect) -> Result<WriteResult<CommitOutcome>, GbError> {

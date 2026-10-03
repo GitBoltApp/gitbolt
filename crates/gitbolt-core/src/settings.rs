@@ -85,6 +85,9 @@ pub struct AppSettings {
     pub debug_logging: bool,
     /// The toolbar Fetch/Pull button's default operation (spec #2 §12.1).
     pub sync_button: SyncButtonMode,
+    /// "Push tags with branches" (spec #3 §3.9): every push adds `--follow-tags`, sending the
+    /// annotated tags on the pushed commits that the remote lacks. Off by default.
+    pub push_follow_tags: bool,
     /// Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
     /// the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
     #[ts(type = "Record<string, (string | null)[]>")]
@@ -141,6 +144,7 @@ impl Default for AppSettings {
             gravatar: true,
             debug_logging: false,
             sync_button: SyncButtonMode::FetchAll,
+            push_follow_tags: false,
             graph_color_overrides: BTreeMap::new(),
             window: None,
         }

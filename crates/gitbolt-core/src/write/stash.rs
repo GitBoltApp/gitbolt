@@ -58,7 +58,7 @@ async fn at(cli: &GitCli, root: &Path, n: usize) -> Option<String> {
 /// `Dropped stash@{n} (<oid>)` is checked after (review M1): another process's stash dropped
 /// in between is stored back at once, and the drop refused. `cancellable: false`: the op's
 /// Cancel can't stop it midway (the multi-line push's drop/store pair).
-async fn drop_at(cx: &mut WriteCx<'_>, n: usize, oid: &str, cancellable: bool) -> Result<(), GbError> {
+pub(crate) async fn drop_at(cx: &mut WriteCx<'_>, n: usize, oid: &str, cancellable: bool) -> Result<(), GbError> {
     if at(&cx.api.cli, cx.root, n).await.as_deref() != Some(oid) {
         return Err(GbError::stale("The stash list changed; nothing was dropped"));
     }

@@ -29,6 +29,11 @@ export function bannerText(b: Banner): string {
       return `Your changes from before ${b.label} were partly restored; the stash still has everything.`;
     case 'autostashStopped':
       return `${capitalized(b.label)} didn't run: saving your changes was stopped. They're in stash "${b.stashMessage}".`;
+    case 'abortedWork':
+      return `Your edits from the stop are in stash "${b.stashMessage}": the rebase was aborted.${b.target ? ` Your commits from the stop are on ${b.target}.` : ''}`;
+    case 'abortInterrupted':
+      // 3C final fix M6: the abort may have run before GitBolt stopped.
+      return `GitBolt stopped before it could ${b.label}: the abort may not have run; your work is in the working tree or the stash "${b.stashMessage}"${b.target ? `, and your commits from the stop are on ${b.target}` : ''}.`;
     case 'recovery':
       return `GitBolt stopped during ${b.label}. Your changes are safe in ${b.snapshot ? 'a snapshot' : 'the autostash'}.`;
   }
@@ -71,7 +76,7 @@ function Row({ b, w }: { b: Banner; w: WriteCtx }) {
   const show = () => {
     if (stash && !selectCommit(w.tabId, stash)) useToast.getState().show('Not in the loaded history');
   };
-  const applies = b.kind === 'autostashRefused' || b.kind === 'autostashPartial' || b.kind === 'autostashStopped' || (b.kind === 'recovery' && !b.snapshot && !!stash);
+  const applies = b.kind === 'autostashRefused' || b.kind === 'autostashPartial' || b.kind === 'autostashStopped' || b.kind === 'abortedWork' || b.kind === 'abortInterrupted' || (b.kind === 'recovery' && !b.snapshot && !!stash);
   return (
     <div className={`banner banner-${b.kind}`} role="status">
       <span className="banner-text">{bannerText(b)}</span>

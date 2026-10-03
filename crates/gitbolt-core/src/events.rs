@@ -53,6 +53,8 @@ pub enum OpKind {
     Resolve,
     // Saving a working file (2B, Deviation 11).
     Save,
+    // Restore a file from a commit (3A).
+    Restore,
 }
 
 /// An autostash step (`OpStashStep`).

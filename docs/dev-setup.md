@@ -328,7 +328,7 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
 ## Packaging (`just package`)
 
 - Builds the `.deb` into `target/release/bundle/deb/`. `scripts/fix-deb.sh` then rewrites its
-  `Depends`: dpkg-shlibdeps results plus `libgtk-4-1` and `git (>= 1:2.30)`, without the
+  `Depends`: dpkg-shlibdeps results plus `libgtk-4-1` and `git (>= 1:2.40)`, without the
   `libgtk-3-0` the alpha CLI always adds (upstream draft: `docs/upstream/tauri-cli-cef-gtk-depends.md`).
   `scripts/check-deb.sh` verifies that, that `chrome-sandbox` is root:root 4755, and that the
   package carries the hicolor PNGs, the scalable SVG and a desktop entry with

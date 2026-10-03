@@ -12,8 +12,7 @@ export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().th
 
 /**
  * The diff toolbar (spec §10.1), laid out per H9: File View / Diff View centred; on
- * the right, [Blame | History] (sub-project #3 adds them before prev/next; nothing renders
- * now: no placeholders), [prev | next], [Hunk | Inline | Split], [whitespace | wrap]. The left
+ * the right, [Blame | History] (`history`: sub-project #3's group, before prev/next), [prev | next], [Hunk | Inline | Split], [whitespace | wrap]. The left
  * column holds `leading` at its far left: the controller's "Open in…" (J1), there for images too.
  * Every pick goes through `useDiffPrefs`, which persists it (plan 1B amendment 3).
  *
@@ -22,7 +21,7 @@ export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().th
  * `textTools`: the text-diff groups apply at all. Not for an image diff (H26), unless it's an
  * SVG's Source, which is a text diff.
  */
-export function DiffToolbar({ target, canDiff, canStep, textTools = true, leading, staging }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; leading?: ReactNode; staging?: ReactNode }) {
+export function DiffToolbar({ target, canDiff, canStep, textTools = true, leading, staging, history }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode }) {
   const prefs = useDiffPrefs((s) => s.prefs);
   const setPrefs = useDiffPrefs((s) => s.set);
   const setView = useRepoView((s) => s.setView);
@@ -38,6 +37,7 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, leadin
       </div>
       <div className="diff-toolbar-end">
         {staging}
+        {history}
         {textTools && (
           <>
             <div className="diff-toolbar-group" role="group" aria-label="Changes">

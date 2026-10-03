@@ -9,10 +9,12 @@ import type { RowPayload } from '../api/gen/RowPayload';
 import { createCommitMessageCache } from '../api/commitMessages';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { EditorContextMenuEvent } from '../diff/monaco/host';
+import { renderHook } from '@testing-library/react';
+import { closeCenterView, openCenterView, registerCenterView, useCenterViewEditorFile, type CenterViewEditorFile } from '../repo/centerView';
 import { createRepoViewStore, fileViewTarget, targetFor } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { useToast } from '../ui/toast';
-import { commitTargetOf, compare, primaryBranchOf, copyMessage, fileMenuEnv, fileTargetOf, folderTargetOf, monacoTargetOf, rootOfSpec, sidebarItemMenu, sidebarRemoteMenu, splitRemoteRef, upstreamOf, type FileTarget, type MenuEnv } from './menuEnv';
+import { commitTargetOf, compare, primaryBranchOf, copyMessage, fileMenuEnv, fileTargetOf, folderTargetOf, monacoMenu, monacoTargetFor, monacoTargetOf, rootOfSpec, sidebarItemMenu, sidebarRemoteMenu, splitRemoteRef, upstreamOf, type FileTarget, type MenuEnv } from './menuEnv';
 import { buildMenu } from './registry';
 
 // `compare`/`copyMessage` reach the real clipboard (api/transport); fix round 1, item 7's unit
@@ -238,6 +240,46 @@ describe('monacoTargetOf (the Monaco menu\'s target)', () => {
   });
 });
 
+// 3A final review: a right-click in a center view's editor (File History's file) while the view
+// is on top builds its menu from the view's file, never from the open file hidden under it.
+describe('monacoMenu with a center view on top', () => {
+  registerCenterView('menu-probe', () => null);
+  const g = graphOf(labels);
+  const store = createRepoViewStore(1, '/repo', g, fakeServices());
+  const change = (path: string) => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object' as const, oid: 'a'.repeat(40) }, new: { kind: 'object' as const, oid: 'b'.repeat(40) }, submodule: false });
+  const hidden = targetFor(change('src/hidden.php'), { kind: 'commit', id: 'c0', parent: 0 });
+  const viewFile: CenterViewEditorFile = { target: fileViewTarget('src/story.txt', 'c1', { kind: 'commit', id: 'c1', parent: 0 }), root: '/wt/history' };
+  const event: EditorContextMenuEvent = { path: 'src/story.txt', side: 'file', line: 3, selection: null, selectionText: '', x: 0, y: 0 };
+  const copyLocation = (rows: MenuRow[]) => rows.find((r) => r.kind === 'action' && r.id === 'monaco.copyLocation');
+  beforeEach(() => {
+    useTabViews.setState({ views: { t9: { repo: 1, services: fakeServices(), store } } });
+    store.setState({ diff: hidden });
+    openCenterView('t9', 'menu-probe', {});
+  });
+  afterEach(() => { closeCenterView('t9'); useTabViews.setState({ views: {} }); });
+
+  it("the view's file at its commit, in its worktree; no staging rows", () => {
+    const { unmount } = renderHook(() => useCenterViewEditorFile('t9', viewFile));
+    expect(copyLocation(monacoMenu(store, event, 't9')())).toMatchObject({ tooltip: 'Copy "src/story.txt:3"' });
+    // The tab found from the store alone, too.
+    expect(copyLocation(monacoMenu(store, event)())).toMatchObject({ tooltip: 'Copy "src/story.txt:3"' });
+    const t = monacoTargetFor(store.getState(), viewFile.target, event, viewFile.root);
+    expect(t).toMatchObject({ path: 'src/story.txt', sha: 'c1', lines: [3, 3], upstream: { remote: 'origin', branch: 'main' } });
+    expect(t.openIn).toEqual({ worktree: '/wt/history', path: 'src/story.txt', line: 3, source: { kind: 'atCommit', commit: 'c1' }, fallback: null });
+    unmount();
+  });
+
+  it("no file in the view (none shown yet, or a view without an editor): no menu; a file opened over the view: that file's", () => {
+    const { rerender, unmount } = renderHook(({ f }) => useCenterViewEditorFile('t9', f), { initialProps: { f: null as CenterViewEditorFile | null } });
+    expect(monacoMenu(store, event, 't9')()).toEqual([]);
+    rerender({ f: viewFile });
+    unmount();
+    expect(monacoMenu(store, event, 't9')()).toEqual([]);
+    store.getState().openFile(targetFor(change('src/peek.php'), { kind: 'commit', id: 'c0', parent: 0 }));
+    expect(copyLocation(monacoMenu(store, { ...event, path: 'src/peek.php', side: 'modified' }, 't9')())).toMatchObject({ tooltip: 'Copy "src/peek.php:3"' });
+  });
+});
+
 // Plan 1C Task 15b: the sidebar's configured upstream, and the sidebar item menus.
 describe('upstreamOf with the sidebar (configured upstreams)', () => {
   const g = graphOf(labels);
@@ -359,3 +401,17 @@ describe('the 2C menu env (spec #2 §9, §11.2)', () => {
   });
 });
 // --- end 2C T9 ---
+// --- 3D T3 ---
+describe('stackOf (spec #3 §3.11)', () => {
+  it("finds the stack a branch is in, from the store's graph and the base", () => {
+    const g: GraphPayload = {
+      ...graphOf([]),
+      rows: [row('c', ['b']), row('b', ['a']), row('a', ['x']), row('m', ['x']), row('x', [])],
+      labels: [label(0, 'feature/c', true, []), label(1, 'feature/b', true, []), label(2, 'feature/a', true, []), label(3, 'main', false, [remote('origin', 'main')])],
+    };
+    const env = fileMenuEnv(createRepoViewStore(1, '/repo', g, fakeServices()));
+    expect(env.stackOf?.('feature/b')).toEqual({ branches: ['feature/a', 'feature/b', 'feature/c'], base: 'refs/remotes/origin/main', leftBehind: [] });
+    expect(env.stackOf?.('main')).toBeNull();
+  });
+});
+// --- end 3D T3 ---

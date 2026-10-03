@@ -214,6 +214,13 @@ pub enum Request {
         #[ts(optional)]
         without_index: Option<bool>,
         // --- end 2C T7 ---
+        // --- 3B T2 ---
+        /// "Undo the stopped cherry-pick?" was confirmed (`ErrorDetail::UndoStoppedPick`): the
+        /// stopped "without committing" pick's changes are discarded.
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_discard: Option<bool>,
+        // --- end 3B T2 ---
     },
     Redo {
         repo: u32,
@@ -463,6 +470,35 @@ pub enum Request {
         #[ts(optional)]
         message: Option<String>,
     },
+    // --- 3B T1: cherry-pick and revert ---
+    /// Cherry-pick `oids` onto HEAD's branch, oldest first (spec #3 §3.7): `WriteResult<SequenceOutcome>`.
+    /// `oids`: newest first, as the graph lists them. `noCommit`: "without committing".
+    CherryPick {
+        repo: u32,
+        worktree: String,
+        oids: Vec<String>,
+        #[serde(default)]
+        #[ts(as = "Option<bool>", optional)]
+        no_commit: bool,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        confirm: crate::write::types::Confirm,
+    },
+    /// Revert `oids` on HEAD's branch, newest first (spec #3 §3.7), the same way.
+    Revert {
+        repo: u32,
+        worktree: String,
+        oids: Vec<String>,
+        #[serde(default)]
+        #[ts(as = "Option<bool>", optional)]
+        no_commit: bool,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        confirm: crate::write::types::Confirm,
+    },
+    // --- end 3B T1 ---
     /// Who a commit here is made as (read; ux round 1): `CommitIdentity`, or `null` when git
     /// has none (it would refuse the commit).
     CommitIdentity { repo: u32, worktree: String },
@@ -470,6 +506,48 @@ pub enum Request {
     /// What a merge or rebase of `target` would do (read; spec #2 §13.1): relation, predicted
     /// conflicts, stacked branches.
     IntegratePreview { repo: u32, worktree: String, kind: crate::write::integrate::IntegrateKind, target: String },
+    // --- 3C T1 ---
+    /// The interactive rebase editor's plan (read; spec #3 §3.3): `RebasePlanPayload`.
+    RebasePlan { repo: u32, worktree: String, branch: String, base: String },
+    // --- end 3C T1 ---
+    // --- 3C T7 ---
+    /// Conflict prediction for the editor's plan (read; spec #3 §3.2): `Prediction`.
+    PredictRebase { repo: u32, worktree: String, base: String, rows: Vec<crate::write::irebase::types::RebaseRow> },
+    // --- end 3C T7 ---
+    // --- 3C T3 ---
+    /// The interactive rebase editor's Start (spec #3 §3.3): `WriteResult<IntegrateOutcome>`. `rows`
+    /// newest first; `expect`: full ref → oid of every branch involved and of the base's ref.
+    InteractiveRebase {
+        repo: u32,
+        worktree: String,
+        branch: String,
+        base: String,
+        #[serde(default)]
+        expect: std::collections::BTreeMap<String, String>,
+        rows: Vec<crate::write::irebase::types::RebaseRow>,
+        #[serde(default)]
+        chips: Vec<crate::write::irebase::types::ChipPlan>,
+        #[serde(default)]
+        confirm: crate::write::types::Confirm,
+    },
+    // --- end 3C T3 ---
+    // --- 3C T5 ---
+    /// Split this commit at an Edit stop (spec #3 §3.5): `WriteResult<null>`.
+    SplitCommit { repo: u32, worktree: String },
+    // --- end 3C T5 ---
+    // --- 3C T6 ---
+    /// "Edit message" on an older commit of the current branch (spec #3 §3.6): `WriteResult<IntegrateOutcome>`.
+    RewordCommit {
+        repo: u32,
+        worktree: String,
+        oid: String,
+        message: String,
+        #[serde(default)]
+        expect: crate::write::types::Expect,
+        #[serde(default)]
+        confirm: crate::write::types::Confirm,
+    },
+    // --- end 3C T6 ---
     /// "Fast-forward Y to X" (§13.1): `WriteResult<IntegrateOutcome>`.
     FastForward {
         repo: u32,
@@ -592,6 +670,70 @@ pub enum Request {
         discard: Option<bool>,
     },
     // --- end 2C T6 ---
+    // --- 3A T2: File History and Blame (spec #3 §3.10) ---
+    /// One page of `path`'s history, newest first (read): `FileHistoryPage`. `rev`: where the
+    /// walk starts (absent: the worktree's HEAD); `skip`: the rows already loaded; `limit`: the
+    /// page size (the UI's is 200, at most 1000).
+    FileHistory {
+        repo: u32,
+        worktree: String,
+        path: String,
+        #[serde(default)]
+        #[ts(optional)]
+        rev: Option<String>,
+        #[serde(default)]
+        skip: u32,
+        limit: u32,
+    },
+    /// `path` at `rev`, line by line (read): `BlamePayload`.
+    Blame { repo: u32, worktree: String, rev: String, path: String },
+    // --- end 3A T2 ---
+    // --- 3A T3: restore a file from a commit (spec #3 §3.8) ---
+    /// `git restore --source=<sha> --worktree -- <path>`, or a path `sha` lacks deleted: unstaged,
+    /// the index untouched, journaled with before/after snapshots (`WriteResult<null>`). Over the
+    /// file's own changes it fails `DirtyWorktree` with `RestoreOverChanges` until sent with `confirm`.
+    RestoreFile {
+        repo: u32,
+        worktree: String,
+        sha: String,
+        path: String,
+        #[serde(default)]
+        #[ts(optional)]
+        confirm: Option<bool>,
+    },
+    // --- end 3A T3 ---
+    // --- 3B T3: tags ---
+    /// Create tag here (spec #3 §3.9): lightweight, or annotated with `message`: `WriteResult<null>`.
+    CreateTag {
+        repo: u32,
+        worktree: String,
+        name: String,
+        target: String,
+        #[serde(default)]
+        #[ts(optional)]
+        message: Option<String>,
+    },
+    /// `Delete | Local | Remote | Both |` on a tag: `WriteResult<null>`.
+    DeleteTag {
+        repo: u32,
+        worktree: String,
+        name: String,
+        #[serde(default)]
+        local: bool,
+        #[serde(default)]
+        #[ts(optional)]
+        remote: Option<String>,
+    },
+    /// Push one tag, or every tag (`tag` absent), to `remote`: `WriteResult<TagPushOutcome>`.
+    PushTags {
+        repo: u32,
+        worktree: String,
+        remote: String,
+        #[serde(default)]
+        #[ts(optional)]
+        tag: Option<String>,
+    },
+    // --- end 3B T3 ---
 }
 
 impl Request {
@@ -618,6 +760,12 @@ impl Request {
             Request::SettlePaused { .. } => true,
             // --- 2D T12 ---
             Request::ConflictFile { .. } => false,
+            // --- 3A T2 ---
+            Request::FileHistory { .. } | Request::Blame { .. } => false,
+            // --- end 3A T2 ---
+            // --- 3A T3 ---
+            Request::RestoreFile { .. } => true,
+            // --- end 3A T3 ---
             // --- end 2D T12 ---
             // --- 2D T15 ---
             Request::ResolveFile { .. } => true,
@@ -638,11 +786,25 @@ impl Request {
             // --- end 2C T4 ---
             // --- 2D T9: integrate ---
             Request::Integrate { .. } | Request::RebaseControl { .. } | Request::PickControl { .. } => true,
+            // --- 3B T1 ---
+            Request::CherryPick { .. } | Request::Revert { .. } => true,
+            // --- end 3B T1 ---
             Request::CommitIdentity { .. } => false,
             // --- end 2D T9 ---
             // --- 2D T10: integrate ---
             Request::FastForward { .. } | Request::MergeAbort { .. } => true,
             Request::IntegratePreview { .. } => false,
+            Request::RebasePlan { .. } => false,
+            Request::PredictRebase { .. } => false,
+            // --- 3C T3 ---
+            Request::InteractiveRebase { .. } => true,
+            // --- end 3C T3 ---
+            // --- 3C T5 ---
+            Request::SplitCommit { .. } => true,
+            // --- end 3C T5 ---
+            // --- 3C T6 ---
+            Request::RewordCommit { .. } => true,
+            // --- end 3C T6 ---
             // --- end 2D T10 ---
             // --- 2B T3 ---
             Request::StagePatch { .. } => true,
@@ -669,6 +831,9 @@ impl Request {
             // --- 2C T6: reset ---
             Request::Reset { .. } => true,
             // --- end 2C T6 ---
+            // --- 3B T3 ---
+            Request::CreateTag { .. } | Request::DeleteTag { .. } | Request::PushTags { .. } => true,
+            // --- end 3B T3 ---
             Request::OpenRepo { .. }
             | Request::LogFrontend { .. }
             | Request::SetDebugLogging { .. }
@@ -1631,8 +1796,8 @@ impl Api {
                 to_json(())
             }
             // --- Undo / redo (2A T10) ---
-            Request::Undo { repo, worktree, entry, confirm, confirm_autostash, without_index } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Undo, entry, confirm.unwrap_or_default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false)).await?),
-            Request::Redo { repo, worktree, entry, confirm_autostash, without_index } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Redo, entry, Default::default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false)).await?),
+            Request::Undo { repo, worktree, entry, confirm, confirm_autostash, without_index, confirm_discard } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Undo, entry, confirm.unwrap_or_default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false), confirm_discard.unwrap_or(false)).await?),
+            Request::Redo { repo, worktree, entry, confirm_autostash, without_index } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Redo, entry, Default::default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false), false).await?),
             Request::JournalState { repo, worktree } => {
                 let h = self.handle(repo)?;
                 let root = self.worktree_dir(&h, &worktree).await?;
@@ -1656,6 +1821,13 @@ impl Api {
             // --- end the pause (2D T2) ---
             // --- 2D T12: conflicted files ---
             Request::ConflictFile { repo, worktree, path } => to_json(crate::write::conflict::conflict_file(self, repo, &worktree, path).await?),
+            // --- 3A T2 ---
+            Request::FileHistory { repo, worktree, path, rev, skip, limit } => to_json(crate::history::file_history(self, repo, &worktree, path, rev, skip, limit).await?),
+            Request::Blame { repo, worktree, rev, path } => to_json(crate::history::blame(self, repo, &worktree, rev, path).await?),
+            // --- end 3A T2 ---
+            // --- 3A T3 ---
+            Request::RestoreFile { repo, worktree, sha, path, confirm } => to_json(crate::write::restore::restore_file(self, repo, &worktree, sha, path, confirm.unwrap_or(false)).await?),
+            // --- end 3A T3 ---
             // --- 2D T15 ---
             Request::ResolveFile { repo, worktree, path, resolution, base, confirm_markers, confirm_discard } => {
                 crate::blob::check_relative(&path)?;
@@ -1729,6 +1901,10 @@ impl Api {
             Request::Integrate { repo, worktree, kind, target, update_refs, expect, confirm } => to_json(crate::write::integrate::integrate(self, repo, &worktree, kind, target, update_refs, expect, confirm).await?),
             Request::RebaseControl { repo, worktree, action, message } => to_json(crate::write::rebase::control(self, repo, &worktree, action, message).await?),
             Request::PickControl { repo, worktree, action, message } => to_json(crate::write::pick::control(self, repo, &worktree, action, message).await?),
+            // --- 3B T1 ---
+            Request::CherryPick { repo, worktree, oids, no_commit, expect, confirm } => to_json(crate::write::sequence::sequence(self, repo, &worktree, crate::write::sequence::SequenceKind::CherryPick, oids, no_commit, expect, confirm).await?),
+            Request::Revert { repo, worktree, oids, no_commit, expect, confirm } => to_json(crate::write::sequence::sequence(self, repo, &worktree, crate::write::sequence::SequenceKind::Revert, oids, no_commit, expect, confirm).await?),
+            // --- end 3B T1 ---
             Request::CommitIdentity { repo, worktree } => {
                 let h = self.handle(repo)?;
                 let root = self.worktree_dir(&h, &worktree).await?;
@@ -1737,6 +1913,17 @@ impl Api {
             // --- end 2D T9 ---
             // --- 2D T10: integrate ---
             Request::IntegratePreview { repo, worktree, kind, target } => to_json(crate::write::integrate::preview(self, repo, &worktree, kind, target).await?),
+            Request::RebasePlan { repo, worktree, branch, base } => to_json(crate::write::irebase::plan::rebase_plan(self, repo, &worktree, &branch, &base).await?),
+            Request::PredictRebase { repo, worktree, base, rows } => to_json(crate::write::irebase::predict::predict(self, repo, &worktree, &base, rows).await?),
+            // --- 3C T3 ---
+            Request::InteractiveRebase { repo, worktree, branch, base, expect, rows, chips, confirm } => to_json(crate::write::irebase::run::interactive_rebase(self, repo, &worktree, branch, base, expect, rows, chips, confirm).await?),
+            // --- end 3C T3 ---
+            // --- 3C T5 ---
+            Request::SplitCommit { repo, worktree } => to_json(crate::write::irebase::split::split(self, repo, &worktree).await?),
+            // --- end 3C T5 ---
+            // --- 3C T6 ---
+            Request::RewordCommit { repo, worktree, oid, message, expect, confirm } => to_json(crate::write::irebase::reword::reword_commit(self, repo, &worktree, oid, message, expect, confirm).await?),
+            // --- end 3C T6 ---
             Request::FastForward { repo, worktree, branch, to, expect } => to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::integrate::FastForwardIntent { branch, to }).await?),
             Request::MergeAbort { repo, worktree } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::integrate::MergeAbortIntent).await?),
             // --- end 2D T10 ---
@@ -1788,6 +1975,11 @@ impl Api {
                 to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::reset::Reset { to, mode, discard: discard.unwrap_or(false), x }).await?)
             }
             // --- end 2C T6 ---
+            // --- 3B T3 ---
+            Request::CreateTag { repo, worktree, name, target, message } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::tags::CreateTag { name, target, message }).await?),
+            Request::DeleteTag { repo, worktree, name, local, remote } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::tags::DeleteTag { name, local, remote }).await?),
+            Request::PushTags { repo, worktree, remote, tag } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::tags::PushTags { remote, tag }).await?),
+            // --- end 3B T3 ---
         }
     }
 
@@ -3091,7 +3283,28 @@ mod tests {
         out
     }
 
+    /// Every path under `.git/objects`, which `repo_bytes` leaves out: a read that writes an
+    /// object (a tree, a commit) adds one.
+    fn object_files(r: &TestRepo) -> Vec<String> {
+        fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                out.push(p.strip_prefix(base).unwrap().display().to_string());
+                if p.is_dir() {
+                    walk(&p, base, out);
+                }
+            }
+        }
+        let objects = r.path().join(".git/objects");
+        let mut out = Vec::new();
+        walk(&objects, &objects, &mut out);
+        out.sort();
+        out
+    }
+
+    /// Run against `fixtures::basic` (feature/login, v1.0).
     fn read_samples(id: u32, r: &TestRepo) -> Vec<serde_json::Value> {
+        let login = r.git(&["rev-parse", "feature/login"]);
         let head = r.git(&["rev-parse", "HEAD"]);
         let wt = r.path().canonicalize().unwrap().display().to_string();
         let root = r.root().display().to_string();
@@ -3169,6 +3382,16 @@ mod tests {
             json!({"method": "wipHunks", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "staged": false}}),
             // 2B T10.
             json!({"method": "selectionLines", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "staged": false, "selection": {"kind": "hunks", "hunks": [0]}}}),
+            // --- 3C T1 ---
+            json!({"method": "rebasePlan", "params": {"repo": id, "worktree": wt, "branch": "feature/login", "base": "v1.0"}}),
+            // --- end 3C T1 ---
+            // --- 3A T2 ---
+            json!({"method": "fileHistory", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "skip": 0, "limit": 200}}),
+            json!({"method": "blame", "params": {"repo": id, "worktree": wt, "rev": head, "path": "file_0.txt"}}),
+            // --- end 3A T2 ---
+            // --- 3C T7 ---
+            json!({"method": "predictRebase", "params": {"repo": id, "worktree": wt, "base": "v1.0", "rows": [{"oid": login, "action": "pick"}]}}),
+            // --- end 3C T7 ---
         ]
     }
 
@@ -3197,6 +3420,24 @@ mod tests {
         // --- end 2D T15 ---
         // ux round 1: a cherry-pick or revert's Continue / Skip / Abort
         "pickControl",
+        // --- 3A T3 ---
+        "restoreFile",
+        // --- end 3A T3 ---
+        // --- 3B T3 ---
+        "createTag", "deleteTag", "pushTags",
+        // --- end 3B T3 ---
+        // --- 3C T3 ---
+        "interactiveRebase",
+        // --- end 3C T3 ---
+        // --- 3C T5 ---
+        "splitCommit",
+        // --- end 3C T5 ---
+        // --- 3C T6 ---
+        "rewordCommit",
+        // --- end 3C T6 ---
+        // 3B T1
+        "cherryPick",
+        "revert",
     ];
 
     /// One request of each write method: the audit checks `is_write` agrees, so a read can't
@@ -3275,6 +3516,22 @@ mod tests {
             // --- 2D T15 ---
             json!({"method": "resolveFile", "params": {"repo": id, "worktree": wt, "path": "a.txt", "resolution": {"kind": "asIs"}}}),
             // --- end 2D T15 ---
+            // --- 3A T3 ---
+            json!({"method": "restoreFile", "params": {"repo": id, "worktree": wt, "sha": "0000000000000000000000000000000000000000", "path": "file_1.txt"}}),
+            // --- end 3A T3 ---
+            // 3B T3: refused (a bad name, no such tag) before writing.
+            json!({"method": "createTag", "params": {"repo": id, "worktree": wt, "name": "a..b", "target": "0000000000000000000000000000000000000000"}}),
+            json!({"method": "deleteTag", "params": {"repo": id, "worktree": wt, "name": "nope", "local": true}}),
+            json!({"method": "pushTags", "params": {"repo": id, "worktree": wt, "remote": "origin", "tag": "nope"}}),
+            // 3C T3: refused (x isn't checked out) before writing.
+            json!({"method": "interactiveRebase", "params": {"repo": id, "worktree": wt, "branch": "x", "base": "main", "rows": []}}),
+            // 3C T5: refused in `plan` (nothing is in progress).
+            json!({"method": "splitCommit", "params": {"repo": id, "worktree": wt}}),
+            // 3C T6: refused (an empty message) before writing.
+            json!({"method": "rewordCommit", "params": {"repo": id, "worktree": wt, "oid": "0000000000000000000000000000000000000000", "message": ""}}),
+            // 3B T1: refused (nothing to apply) before writing.
+            json!({"method": "cherryPick", "params": {"repo": id, "worktree": wt, "oids": []}}),
+            json!({"method": "revert", "params": {"repo": id, "worktree": wt, "oids": []}}),
         ]
     }
 
@@ -3290,16 +3547,25 @@ mod tests {
         let api = api();
         let id = open(&api, &r).await as u32;
         let before = repo_bytes(&r);
+        let objects_before = object_files(&r);
         let mut failed = std::collections::BTreeSet::new();
         for sample in read_samples(id, &r) {
             let request: Request = serde_json::from_value(sample.clone()).unwrap_or_else(|e| panic!("{sample}: {e}"));
             assert!(!request.is_write(), "{sample}");
-            if let Err(e) = api.dispatch(request).await {
-                failed.insert(format!("{}: {}", sample["method"].as_str().unwrap(), e.message));
+            match api.dispatch(request).await {
+                Err(e) => {
+                    failed.insert(format!("{}: {}", sample["method"].as_str().unwrap(), e.message));
+                }
+                // --- 3C T7 ---
+                // The prediction must really run merge-tree, or the object check below proves nothing.
+                Ok(v) if sample["method"] == "predictRebase" => assert!(v["off"].is_null(), "{v}"),
+                // --- end 3C T7 ---
+                Ok(_) => {}
             }
         }
         api.unwatch_all();
         assert_eq!(repo_bytes(&r), before, "a read changed the repository");
+        assert_eq!(object_files(&r), objects_before, "a read wrote to the object store");
         // Exactly the expected ones: any other never exercised its real path, and an expected one
         // that now succeeds should leave the list.
         let methods: std::collections::BTreeSet<&str> = failed.iter().map(|f| f.split(':').next().unwrap()).collect();
@@ -3317,7 +3583,7 @@ mod tests {
         let methods: std::collections::BTreeSet<String> = regex::Regex::new(r#""method": "(\w+)""#).unwrap().captures_iter(&ts).map(|c| c[1].to_string()).collect();
         assert!(methods.len() > 40, "{ts}");
         let r = TestRepo::new();
-        r.commit("c");
+        fixtures::basic(&r);
         let sampled: std::collections::BTreeSet<String> = read_samples(1, &r).iter().map(|s| s["method"].as_str().unwrap().to_string()).collect();
         let missing: Vec<&String> = methods.iter().filter(|m| !sampled.contains(*m) && !WRITE_METHODS.contains(&m.as_str())).collect();
         assert!(missing.is_empty(), "read requests the never-write test doesn't dispatch: {missing:?}");

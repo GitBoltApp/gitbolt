@@ -26,6 +26,8 @@ const { useRuntime, migrateLinked } = await import('./runtime');
 const { tabStore } = await import('./tabStores');
 const { useAppState, EMPTY_PROFILE, EMPTY_REPO_SETTINGS } = await import('./state');
 const { readWipDraft, writeWipDraft } = await import('../commit/draft');
+const { centerViewOf, openCenterView, registerCenterView } = await import('../repo/centerView');
+registerCenterView('runtimeProbe', () => null);
 
 const ready = (id = 1) => ({ status: 'ready' as const, error: null, repo: { id, path: '/r', name: 'r', worktree: '/r' }, graph: null, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null, worktree: null });
 
@@ -113,6 +115,14 @@ describe('runtime', () => {
     useRuntime.getState().drop('t');
     expect(tabStore('t')).toBeUndefined();
     expect(useRuntime.getState().tabs.t).toBeUndefined();
+  });
+
+  it('a closed tab\'s center view goes with it (spec #3)', () => {
+    openCenterView('t', 'runtimeProbe', {});
+    openCenterView('u', 'runtimeProbe', {});
+    useRuntime.getState().drop('t');
+    expect(centerViewOf('t')).toBeNull();
+    expect(centerViewOf('u')).not.toBeNull();
   });
 
   it('open: a tab closed while its openRepo runs leaves no runtime and no recent entry, success or failure', async () => {

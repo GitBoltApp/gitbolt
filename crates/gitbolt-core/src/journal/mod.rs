@@ -123,6 +123,15 @@ pub enum KeptReason {
     /// 2D T2: the autostash of a paused merge or rebase (§13.2): it waits for completion or
     /// abort, with no banner of its own (the conflict banner covers it), across restarts.
     Paused,
+    /// 3C fix round 1 (I2): the work done at an interactive rebase's stop (edits, commits made
+    /// there), saved before its Abort reset it. The stash is the only copy: Drop is refused.
+    AbortedWork,
+    /// Fix round 2: the stash an interactive rebase's Abort listed before running (no banner
+    /// while its owner runs, as `Pending`).
+    AbortRunning,
+    /// Fix round 2: GitBolt stopped during that Abort (`AbortRunning` found at load): the
+    /// abort may not have run, and the work may still be in the worktree.
+    AbortInterrupted,
 }
 
 impl KeptReason {
@@ -183,6 +192,10 @@ pub enum EntryState {
 pub enum PausedKind {
     Merge,
     Rebase,
+    // --- 3B T1: GitBolt's own cherry-pick or revert, stopped (spec #3 §3.7) ---
+    CherryPick,
+    Revert,
+    // --- end 3B T1 ---
 }
 
 /// What a paused entry waits with.
@@ -209,8 +222,48 @@ pub struct PausedOp {
     /// (review N6).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub put_back: Vec<(String, String)>,
+    // --- 3B T1 fix: the picked commits ---
+    /// A cherry-pick's or revert's commits (full oids): settle counts it completed only when
+    /// every commit the branch gained is one of theirs, never someone else's work.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub picked: Vec<String>,
+    // --- end 3B T1 fix ---
     // --- end 2D T9 ---
+    // --- 3C T4 ---
+    /// An interactive rebase's session (`None` for every other pause).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub irebase: Option<IrebaseState>,
+    // --- end 3C T4 ---
 }
+
+// --- 3C T4 ---
+/// An interactive rebase's session, carried by its pause (spec #3 §3.4) to the Continue that
+/// ends it, in this process or a later one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IrebaseState {
+    /// The session directory (todo, message files, scripts): removed when the rebase ends.
+    pub dir: String,
+    /// Branches (full name, tip before) to delete once the rebase completes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub delete_after: Vec<(String, String)>,
+    /// Edit rows' new messages: the row's original oid → its message file.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub edit_messages: std::collections::BTreeMap<String, String>,
+    /// 3C T5: commits GitBolt made at an Edit stop (Split's pieces, full oids). Newly authored,
+    /// unlike every replayed commit: completion counts them as the rebase's own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub made: Vec<String>,
+    /// Fix round 1 (I1): the branches the todo's `update-ref` lines move or create (full name,
+    /// value at the Start; `None`: created).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub update_refs: Vec<(String, Option<String>)>,
+    /// Fix round 1 (I1): the moves a Continue made once git completed (chip deletes, `update-ref`
+    /// moves), recorded as they happened: settle keeps them in either verdict.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved: Vec<RefMove>,
+}
+// --- end 3C T4 ---
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -297,7 +350,28 @@ pub struct JournalEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     // --- end 2C T1 ---
+    // --- 3B T2: a stopped "without committing" pick ---
+    /// A cherry-pick or revert "without committing" that stopped on conflicts: what git calls it
+    /// (`cherry-pick`, `revert`). Its Undo discards P, unmerged paths included, after a question,
+    /// with no autostash; it has no `after` snapshot (an unmerged index can't be snapshotted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_pick: Option<StoppedPick>,
+    // --- end 3B T2 ---
 }
+
+// --- 3B T2 ---
+/// A "without committing" pick that stopped on conflicts (`JournalEntry::stopped_pick`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoppedPick {
+    /// What git calls it: `cherry-pick` or `revert`.
+    pub op: String,
+    /// The paths the commits it applied, and the one it stopped on, changed (with the paths the
+    /// run changed outside P, fix round 1): the pick's own, discarded without a stash. The rest
+    /// of P, commits that never ran, keeps the usual autostash rule.
+    pub paths: Vec<String>,
+}
+// --- end 3B T2 ---
 
 /// A GitBolt instance that writes journals: the process (pid and start time, so a reused pid
 /// isn't taken for it) and the `Api` in it. It's alive while it holds the exclusive `flock` on
@@ -453,6 +527,12 @@ pub enum BannerKind {
     /// A Stop interrupted saving the changes: the operation didn't run, and the changes are in
     /// the stash (Apply / Show, no Drop).
     AutostashStopped,
+    /// 3C fix round 1 (I2): an interactive rebase's Abort kept the work from its stop in the
+    /// stash (Apply / Show, no Drop).
+    AbortedWork,
+    /// Fix round 2: GitBolt stopped during that Abort: the work is still in the worktree if the
+    /// abort didn't run, and in the stash either way.
+    AbortInterrupted,
 }
 
 /// One banner in the tab's `banner` slot (§6.4). The UI writes the copy from these fields.
@@ -526,6 +606,7 @@ impl Journal {
             owner: None,
             paused: None,
             note: None,
+            stopped_pick: None, // 3B T2
         }
     }
 
@@ -590,7 +671,7 @@ impl Journal {
     /// its op restores it, and says so if it's gone. `true` when one went.
     pub fn forget_kept_stash(&mut self, oid: &str) -> bool {
         let n = self.kept.len();
-        self.kept.retain(|k| k.oid.as_deref() != Some(oid) || matches!(k.reason, KeptReason::Pending | KeptReason::Paused));
+        self.kept.retain(|k| k.oid.as_deref() != Some(oid) || matches!(k.reason, KeptReason::Pending | KeptReason::Paused | KeptReason::AbortRunning));
         self.kept.len() != n
     }
 
@@ -643,6 +724,10 @@ impl Journal {
         for k in &mut self.kept {
             if k.reason == KeptReason::Pending && !k.owner.as_ref().is_some_and(&alive) {
                 k.reason = KeptReason::Interrupted;
+                k.owner = None;
+            }
+            if k.reason == KeptReason::AbortRunning && !k.owner.as_ref().is_some_and(&alive) {
+                k.reason = KeptReason::AbortInterrupted;
                 k.owner = None;
             }
         }
@@ -789,7 +874,9 @@ impl Journal {
                 KeptReason::PartialRestore | KeptReason::Stopped { phase: StashPhase::Apply } => (BannerKind::AutostashPartial, 0, false),
                 KeptReason::Stopped { phase: StashPhase::Push } => (BannerKind::AutostashStopped, 0, false),
                 KeptReason::Interrupted => (BannerKind::Recovery, 0, false),
-                KeptReason::Pending | KeptReason::Paused => continue,
+                KeptReason::AbortedWork => (BannerKind::AbortedWork, 0, false),
+                KeptReason::AbortInterrupted => (BannerKind::AbortInterrupted, 0, false),
+                KeptReason::Pending | KeptReason::Paused | KeptReason::AbortRunning => continue,
             };
             banners.push(Banner { entry: k.id, kind, label: k.label.clone(), stash: Some(oid.clone()), stash_message: Some(k.message.clone()), target: k.target.clone(), snapshot: false, files, can_drop: k.reason.droppable(), binary });
         }
@@ -1153,6 +1240,20 @@ mod tests {
         assert!(j.kept_mut(gone).is_none());
     }
 
+    /// 3C fix round 2: an interactive rebase's Abort that never reported back. No banner while
+    /// its owner runs; found at load, its own banner (the abort may not have run).
+    #[test]
+    fn an_abort_that_never_reported_back_gets_its_own_banner() {
+        let mut j = Journal::empty("/r");
+        let mut k = kept("w", KeptReason::AbortRunning);
+        k.owner = Some(Owner { pid: 1, start: 2, instance: 3 });
+        let id = j.keep(k);
+        assert!(j.state(None).banners.is_empty(), "no banner while it runs");
+        j.recover_unless(|_| false);
+        let b = &j.state(None).banners[0];
+        assert_eq!((b.kind, b.entry, b.stash.as_deref()), (BannerKind::AbortInterrupted, id, Some("w")));
+    }
+
     #[test]
     fn a_kept_stash_shows_its_banner_until_removed() {
         let mut j = Journal::empty("/r");
@@ -1264,7 +1365,7 @@ mod tests {
         let id = j.begin(new_entry("merge feature into main", UndoKind::Rewind), now);
         let e = j.entry_mut(id).unwrap();
         e.state = EntryState::Paused;
-        e.paused = Some(PausedOp { kind: PausedKind::Merge, target: "feature".into(), refs_before: Default::default(), autostash: Some(stash), target_oid: None, put_back: Vec::new() });
+        e.paused = Some(PausedOp { kind: PausedKind::Merge, target: "feature".into(), refs_before: Default::default(), autostash: Some(stash), target_oid: None, put_back: Vec::new(), picked: Vec::new(), irebase: None });
         (id, stash)
     }
 

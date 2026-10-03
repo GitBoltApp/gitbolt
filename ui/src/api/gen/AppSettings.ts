@@ -28,6 +28,11 @@ debugLogging: boolean,
  */
 syncButton: SyncButtonMode, 
 /**
+ * "Push tags with branches" (spec #3 §3.9): every push adds `--follow-tags`, sending the
+ * annotated tags on the pushed commits that the remote lacks. Off by default.
+ */
+pushFollowTags: boolean, 
+/**
  * Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
  * the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
  */

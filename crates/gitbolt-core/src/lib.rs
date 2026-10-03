@@ -16,6 +16,7 @@ pub mod logging;
 pub mod instance;
 pub mod journal;
 pub mod graph;
+pub mod history;
 pub mod hunks;
 pub mod in_progress;
 pub mod links;

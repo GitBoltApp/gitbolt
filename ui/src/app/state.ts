@@ -14,7 +14,7 @@ import { debounce } from '../util/debounce';
  */
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1, activeProfile: 'default', theme: 'default-dark', editorFontSize: 13,
-  fetchIntervalSecs: 60, prune: true, commitLimit: 2000, dateFormat: 'ymd12h', gravatar: true, debugLogging: false, syncButton: 'fetchAll', graphColorOverrides: {},
+  fetchIntervalSecs: 60, prune: true, commitLimit: 2000, dateFormat: 'ymd12h', gravatar: true, debugLogging: false, syncButton: 'fetchAll', pushFollowTags: false, graphColorOverrides: {},
 };
 /** Mirrors `Profile::default()` (Rust). */
 export const EMPTY_PROFILE: Profile = {

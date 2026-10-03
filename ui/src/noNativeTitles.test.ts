@@ -13,6 +13,12 @@ const FILES = [
   'files/FileList.tsx',
   'details/DetailsPanel.tsx',
   'graph/GraphView.tsx',
+  'tags/TagNameInput.tsx',
+  'history/FileHistory.tsx',
+  'history/BlameGutter.tsx',
+  'history/HistoryButtons.tsx',
+  'irebase/RebaseEditor.tsx',
+  'irebase/ChipColumn.tsx',
 ];
 
 describe('no native title tooltips', () => {

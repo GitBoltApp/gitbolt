@@ -111,6 +111,15 @@ describe('SettingsView', () => {
     expect(useAppState.getState().settings.fetchIntervalSecs).toBe(0);
   });
 
+  it('Push tags with branches writes the app setting, off by default', () => {
+    show();
+    tabTo('Fetch');
+    const box = screen.getByLabelText('Push tags with branches');
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    expect(useAppState.getState().settings.pushFollowTags).toBe(true);
+  });
+
   it('shows a hand-edited fetch interval clamped', () => {
     useAppState.setState({ settings: { ...DEFAULT_SETTINGS, fetchIntervalSecs: 1 } });
     show('fetchInterval');

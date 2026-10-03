@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GbError } from '../api/gen/GbError';
 import type { WriteResult } from '../api/gen/WriteResult';
+import type { Confirmed } from './client';
 
 const fresh = vi.hoisted(() => ({ state: null as unknown }));
 vi.mock('../api/client', () => ({ api: { journalState: async () => fresh.state }, errorMessage: String, onEvent: () => () => {} }));
@@ -134,6 +135,42 @@ describe('runWrite 2C (spec #2 §9.4)', () => {
     expect(vi.mocked(confirmAction).mock.calls[0][1]).toBeNull();
   });
 
+  // --- 3A T3 ---
+  it('a restore over the file\'s own changes arms "Click again to replace your changes to <path>", then sends with the discard flag', async () => {
+    const { confirmAction } = await import('../ui/ConfirmDialog');
+    vi.mocked(confirmAction).mockClear();
+    const err: GbError = { kind: 'DirtyWorktree', message: 'Replace your changes to src/a.txt?', commandId: null, stderr: null, detail: { kind: 'restoreOverChanges', path: 'src/a.txt' } };
+    const asked: boolean[] = [];
+    const send = vi.fn(async (_c: boolean, a: Confirmed) => {
+      asked.push(a.discard);
+      if (!a.discard) throw err;
+      return { outcome: null, journal: null, staging: null, wip: null } as never;
+    });
+    confirm.answer = true;
+    await runWrite(ctx, send);
+    expect(vi.mocked(confirmAction).mock.calls.at(-1)![0]).toMatchObject({ arm: 'Click again to replace your changes to src/a.txt', tone: 'warn' });
+    expect(asked).toEqual([false, true]);
+  });
+  // --- end 3A T3 ---
+  // --- 3B T6 ---
+  it("Undo of a stopped no-commit pick arms the core's own words, then sends with the discard flag", async () => {
+    const { confirmAction } = await import('../ui/ConfirmDialog');
+    vi.mocked(confirmAction).mockClear();
+    const message = 'Undo the stopped cherry-pick? Its changes are discarded, including anything you resolved since.';
+    const arm = "Click again to undo: discards the stopped cherry-pick's changes";
+    const err: GbError = { kind: 'Conflict', message, commandId: null, stderr: null, detail: { kind: 'undoStoppedPick', op: 'cherry-pick', arm } };
+    const asked: boolean[] = [];
+    const send = vi.fn(async (_c: boolean, a: Confirmed) => {
+      asked.push(a.discard);
+      if (!a.discard) throw err;
+      return { outcome: null, journal: null, staging: null, wip: null } as never;
+    });
+    confirm.answer = true;
+    await runWrite(ctx, send);
+    expect(vi.mocked(confirmAction).mock.calls.at(-1)![0]).toMatchObject({ body: message, arm, caption: 'Its changes are discarded, including anything you resolved since.', danger: true });
+    expect(asked).toEqual([false, true]);
+  });
+  // --- end 3B T6 ---
   it('lets the caller handle a failure itself', async () => {
     const err: GbError = { kind: 'InvalidInput', message: 'x is checked out in ../r-x.', commandId: null, stderr: null, detail: { kind: 'checkedOutElsewhere', branch: 'x', worktree: '../r-x' } };
     const handle = vi.fn(() => true);

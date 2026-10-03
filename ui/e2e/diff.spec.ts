@@ -156,13 +156,17 @@ test.describe('diff viewer controls', () => {
     await expect(d.locator('.diff-hidden-lines')).toHaveCount(0);
   });
 
-  test("toolbar (H9): File/Diff centred; prev/next, the modes, then the toggles at the far right", async ({ page }) => {
+  test("toolbar (H9): File/Diff centred; Blame | History, prev/next, the modes, then the toggles at the far right", async ({ page }) => {
+    // Centring needs a ~930 px centre panel with #3's Blame | History (narrower, File/Diff moves
+    // left of centre: the next test): 1400 px less the 400 px details panel.
+    await page.setViewportSize({ width: 1400, height: 720 });
     await open(page, 'src/app.php');
     const d = diff(page);
     const bar = (await d.getByRole('toolbar', { name: 'Diff options' }).boundingBox())!;
     const views = (await d.getByRole('button', { name: 'File View' }).locator('..').boundingBox())!;
     const box = async (l: Locator) => (await l.boundingBox())!;
-    const [prev, next, modes, ws, wrap] = await Promise.all([
+    const [history, prev, next, modes, ws, wrap] = await Promise.all([
+      box(d.getByRole('group', { name: 'History' })),
       box(d.getByRole('button', { name: 'Previous change' })),
       box(d.getByRole('button', { name: 'Next change' })),
       box(d.getByRole('group', { name: 'View mode' })),
@@ -170,9 +174,9 @@ test.describe('diff viewer controls', () => {
       box(d.getByRole('button', { name: 'Word wrap' })),
     ]);
     expect(Math.abs(views.x + views.width / 2 - (bar.x + bar.width / 2))).toBeLessThanOrEqual(2);
-    // Left to right after the centre: prev, next, the modes, whitespace, wrap.
-    expect(views.x + views.width).toBeLessThan(prev.x);
-    expect([prev.x < next.x, next.x < modes.x, modes.x + modes.width <= ws.x, ws.x < wrap.x]).toEqual([true, true, true, true]);
+    // Left to right after the centre: Blame | History, prev, next, the modes, whitespace, wrap.
+    expect(views.x + views.width).toBeLessThan(history.x);
+    expect([history.x + history.width <= prev.x, prev.x < next.x, next.x < modes.x, modes.x + modes.width <= ws.x, ws.x < wrap.x]).toEqual([true, true, true, true, true]);
     // Only the toolbar's padding (8 px) past the last toggle.
     expect(bar.x + bar.width - (wrap.x + wrap.width)).toBeLessThanOrEqual(9);
     for (const name of ['Ignore whitespace', 'Word wrap', 'Previous change', 'Next change']) await expect(d.getByRole('button', { name })).toHaveText('');
@@ -195,10 +199,11 @@ test.describe('diff viewer controls', () => {
   });
 
   test('toolbar: at narrow centre widths nothing overlaps, and every control stays inside the bar', async ({ page }) => {
-    // With the default 400 px details panel: 1060 px gives a 660 px centre (just under the
-    // 760 px wrapping breakpoint) and 900 px a 500 px one. At 720 px the panel
+    // With the default 400 px details panel: 1280 px gives an 880 px centre (one row, too narrow
+    // to centre File/Diff View: it moves left), 1060 px a 660 px one (just under the 760 px
+    // wrapping breakpoint) and 900 px a 500 px one. At 720 px the panel
     // clamps to 400 (innerWidth − CENTER_MIN), so the centre is CENTER_MIN, 320 px.
-    for (const width of [1060, 900, 720]) {
+    for (const width of [1280, 1060, 900, 720]) {
       await page.setViewportSize({ width, height: 700 });
       await open(page, 'src/app.php');
       const d = diff(page);
@@ -207,6 +212,7 @@ test.describe('diff viewer controls', () => {
       await expect(d.getByRole('toolbar', { name: 'Diff options' }).getByRole('group', { name: 'Open in' })).toBeVisible();
       const boxes = await Promise.all([
         d.getByRole('toolbar', { name: 'Diff options' }).getByRole('group', { name: 'Open in' }),
+        d.getByRole('toolbar', { name: 'Diff options' }).getByRole('group', { name: 'History' }),
         d.getByRole('button', { name: 'Previous change' }),
         d.getByRole('button', { name: 'Next change' }),
         d.getByRole('button', { name: 'File View' }).locator('..'),

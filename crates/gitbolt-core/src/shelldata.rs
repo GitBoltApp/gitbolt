@@ -95,6 +95,11 @@ pub struct RemoteGroup {
     pub host: Option<String>,
     pub host_kind: HostKind,
     pub branches: Vec<RemoteBranch>,
+    /// The branch `refs/remotes/<name>/HEAD` names (`refs/remotes/origin/main`), when set: the
+    /// stack base (spec #3 §3.11).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub default_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -230,10 +235,18 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
         .collect();
     let checked_out: std::collections::HashMap<String, String> = worktrees.iter().filter_map(|w| w.branch.clone().map(|b| (b, w.path.display().to_string()))).collect();
     let mut s = SidebarPayload { locals: vec![], remotes: vec![], worktrees: vec![], stashes: vec![], tags: vec![] };
+    let mut defaults: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let f: Vec<&str> = line.split('\0').collect();
-        if f.len() != FIELDS.len() || !f[1].is_empty() {
-            continue; // malformed, or a symbolic ref (origin/HEAD)
+        if f.len() != FIELDS.len() {
+            continue; // malformed
+        }
+        if !f[1].is_empty() {
+            // A symbolic ref: `refs/remotes/<r>/HEAD` names that remote's default branch.
+            if let Some(remote) = f[0].strip_prefix("refs/remotes/").and_then(|s| s.strip_suffix("/HEAD")) {
+                defaults.insert(remote.to_string(), f[1].to_string());
+            }
+            continue;
         }
         let peeled = !f[5].is_empty();
         let target_type = if peeled { f[4] } else { f[2] };
@@ -271,12 +284,17 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
             let branch = RemoteBranch { name: rest[remote.len() + 1..].to_string(), full_name: full.clone(), target, tip_time, summary, author };
             match s.remotes.iter_mut().find(|g| g.name == remote) {
                 Some(g) => g.branches.push(branch),
-                None => s.remotes.push(RemoteGroup { host: host_of(&remote), host_kind: host_kind_of(&remote), name: remote, branches: vec![branch] }),
+                None => s.remotes.push(RemoteGroup { host: host_of(&remote), host_kind: host_kind_of(&remote), name: remote, branches: vec![branch], default_branch: None }),
             }
         } else if let Some(name) = full.strip_prefix("refs/tags/") {
             s.tags.push(TagItem { name: name.into(), full_name: full.clone(), target, time: tip_time });
         }
     }
+    // --- 3D T1: each remote's default branch (`for-each-ref` sorts `HEAD` before the branches) ---
+    for g in s.remotes.iter_mut() {
+        g.default_branch = defaults.remove(&g.name);
+    }
+    // --- end 3D T1 ---
     // --- 2D T11: push targets (every remote branch is listed by now) ---
     for b in s.locals.iter_mut() {
         let Some(t) = crate::write::sync::push_target(&local, &b.name) else { continue };
@@ -421,6 +439,18 @@ mod tests {
         assert!(want("main") > 0);
     }
 
+    /// No `refs/remotes/<r>/HEAD`: no default branch (the UI falls back to main/master/trunk).
+    #[tokio::test]
+    async fn a_remote_without_a_head_has_no_default_branch() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        r.git(&["remote", "set-head", "origin", "-d"]);
+        let (repo, workdir) = open(&r);
+        let s = sidebar(&cli(), &repo, &workdir).await.unwrap();
+        assert_eq!(s.remotes[0].default_branch, None);
+        assert_eq!(serde_json::to_value(&s.remotes[0]).unwrap().get("defaultBranch"), None, "absent, not null");
+    }
+
     #[tokio::test]
     async fn sidebar_lists_every_section() {
         let r = TestRepo::new();
@@ -443,6 +473,8 @@ mod tests {
         assert_eq!(s.remotes[0].name, "origin");
         let rnames: Vec<&str> = s.remotes[0].branches.iter().map(|b| b.name.as_str()).collect();
         assert_eq!(rnames, vec!["feature/login", "main"], "origin/HEAD (symbolic) is skipped");
+        // `fixtures::basic` set origin's HEAD to main (spec #3 §3.11's stack base).
+        assert_eq!(s.remotes[0].default_branch.as_deref(), Some("refs/remotes/origin/main"));
         assert_eq!(s.worktrees.len(), 2);
         assert!(s.worktrees[0].is_main && s.worktrees[0].is_current);
         assert!(!s.worktrees[1].is_current);

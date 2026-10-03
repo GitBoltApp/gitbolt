@@ -53,7 +53,9 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     const menu = await commitMenu(page, 'Fix typo');
     // Spec #2 §14: 2C's Commit-group Reset row (placed early, right after the sync rows) and its
     // Branch group (Checkout ▸, Create worktree from ▸, Create branch here) sit above 1C's rows.
-    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Copy SHA', 'Copy message', 'Compare with working tree']);
+    // Spec #3 §4.3: the Commit group gains Revert, Create tag here and Interactive rebase from here
+    // (no Cherry-pick: Fix typo is already on main).
+    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Revert this commit', 'Create tag here', 'Interactive rebase from here', 'Copy SHA', 'Copy message', 'Compare with working tree']);
     // The latency budgets (cold tripwire, warm median) live in menu-perf.spec.ts, so a loaded
     // machine can't fail this functional test. Here: the opening was timed, and wasn't absurd.
     const opened = await page.evaluate(() => window.__gbMenuLatency!);
@@ -98,11 +100,15 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     const menu = await labelMenu(page, 'Login validation');
     // Spec #2 §14: 2D's Sync and Integrate groups, 2C's Reset, Branch and Manage rows, then 1C's.
     // UX round 1: only what can apply. feature/login is merged into main (behind it): only the
-    // fast-forward, no merge or rebase; nothing to push.
+    // fast-forward, no merge or rebase; nothing to push. Spec #3 §4.3: the interactive rebase
+    // still applies (main's commits above feature/login), and the Commit group gains Revert,
+    // Create tag here and Interactive rebase from here (no Cherry-pick: it's on main).
     const expected = [
       'Pull', 'Set upstream', 'Reset main to this commit',
-      'Fast-forward feature/login to main',
-      'Checkout', 'Create worktree from', 'Create branch here', 'Rename feature/login', 'Delete',
+      'Fast-forward feature/login to main', 'Interactive rebase main onto feature/login',
+      'Checkout', 'Create worktree from', 'Create branch here',
+      'Revert this commit', 'Create tag here', 'Interactive rebase from here',
+      'Rename feature/login', 'Delete',
       'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD',
     ];
     await expect(rowLabels(menu)).resolves.toEqual(expected);
@@ -145,9 +151,10 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     await expect(branchRow.getByRole('button', { name: /^Copy "/ })).toHaveCount(0);
   });
 
-  test('a tag label chip: Copy tag name only (no forge on a generic remote)', async ({ page }) => {
+  test('a tag label chip: Push (v1.0 is local only), Delete, Copy tag name; no forge on a generic remote', async ({ page }) => {
     const menu = await labelMenu(page, 'Add readme');
-    await expect(rowLabels(menu)).resolves.toEqual(['Copy tag name']);
+    // Spec #3 §3.9: a tag's menu gains Push <t> to <remote> and Delete.
+    await expect(rowLabels(menu)).resolves.toEqual(['Push v1.0 to origin', 'Delete', 'Copy tag name']);
     await action(menu, 'Copy tag name').click();
     await copied(page, 'v1.0');
   });
@@ -161,7 +168,8 @@ test.describe('forge rows (a GitLab remote, fixtures.details)', () => {
 
   test("MR references in the message get one Open row each, the issue reference none; Forge link on a plain commit: no known branch, so the label copies the permalink and there's no ⎇", async ({ page }) => {
     const menu = await commitMenu(page, 'Rename guide and update assets');
-    await expect(rowLabels(menu)).resolves.toEqual(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Open !42', 'Open group/sub/project!7', 'Copy SHA', 'Copy message', 'Forge link', 'Compare with working tree']);
+    // Spec #3 §4.3's Commit group (Revert, Create tag here, Interactive rebase from here) sits above the Forge rows.
+    await expect(rowLabels(menu)).resolves.toEqual(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Revert this commit', 'Create tag here', 'Interactive rebase from here', 'Open !42', 'Open group/sub/project!7', 'Copy SHA', 'Copy message', 'Forge link', 'Compare with working tree']);
     await expect(menu.getByRole('menuitem', { name: 'Open #12' })).toHaveCount(0);
     const forge = action(menu, 'Forge link');
     const sha = await row(page, 'Rename guide and update assets').getByTestId('sha').textContent();

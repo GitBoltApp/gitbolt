@@ -7,6 +7,7 @@ import type { RepoInfoPayload } from '../api/gen/RepoInfoPayload';
 import type { RepoSummary } from '../api/gen/RepoSummary';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import { useAppState } from './state';
+import { closeCenterView } from '../repo/centerView';
 import { dropTabView, feedTabView } from './tabStores';
 import { withActiveSidebar } from '../worktrees/active';
 import { openRepoTab, setTabRepo, touchRecent } from './tabs';
@@ -140,6 +141,8 @@ export const useRuntime = create<RuntimeState>((set, get) => ({
   },
   drop(tabId) {
     dropTabView(tabId);
+    // Spec #3: a closed tab's center view (File History, the rebase editor) goes with it.
+    closeCenterView(tabId);
     if (!(tabId in get().tabs)) return;
     set((s) => {
       const tabs = { ...s.tabs };

@@ -92,6 +92,15 @@ impl WriteIntent for PickControl {
             Ok(_) => Ok(PickOutcome::Done),
             Err(e) => match crate::in_progress::read(cx.root).ok().flatten() {
                 Some(InProgress::CherryPick { conflicted, .. } | InProgress::Revert { conflicted, .. }) if conflicted > 0 && self.action != RebaseAction::Abort => Ok(PickOutcome::Stopped { files: conflicted }),
+                // --- 3B T1 fix round 1 ---
+                // A Continue or Skip that failed on the next commit with nothing in progress (an
+                // untracked file in the way) leaves `.git/sequencer/`: dropped, the commits stay.
+                None if self.action != RebaseAction::Abort && crate::write::sequence::quit_leftover_sequencer(cx, self.what).await => {
+                    let mut e = e;
+                    e.message = format!("{} (the rest of the {} wasn't applied)", e.message.trim_end(), self.what);
+                    Err(e)
+                }
+                // --- end 3B T1 fix round 1 ---
                 _ => Err(e),
             },
         }

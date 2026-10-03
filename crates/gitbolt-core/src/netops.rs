@@ -216,7 +216,7 @@ impl Api {
             let (tx, progress) = forward_progress(self.bus.clone(), op.id);
             // A background fetch leaves FETCH_HEAD alone: a `git fetch <remote> <branch>` the user
             // ran by hand (then `git merge FETCH_HEAD`) isn't replaced behind their back, and a
-            // failed background fetch doesn't empty it (git ≥ 2.29; spec minimum 2.30).
+            // failed background fetch doesn't empty it (git ≥ 2.29; the minimum is 2.40).
             let fetch_head = background.then_some("--no-write-fetch-head");
             let args: Vec<&str> = ["fetch", "--all", prune, "--no-prune-tags"].into_iter().chain(fetch_head).chain(NO_UPKEEP).chain(["--progress"]).collect();
             command = Some(display_command(&args));

@@ -6,6 +6,7 @@ import { useAppState } from '../app/state';
 import { activateTab, tabLabel } from '../app/tabs';
 import { SETTINGS, useSettingsUi } from '../settings/schema';
 import { checkoutLocal, checkoutRemote } from '../branches/checkout';
+import { openFileHistory } from '../history/open';
 import { useToast } from '../ui/toast';
 import type { PaletteEntry } from './search';
 
@@ -40,7 +41,7 @@ export async function fileEntries(tabId: string): Promise<PaletteEntry[]> {
   }
   if (!fileCache.has(key)) fileCache.set(key, listTreeFiles(tabId, head).catch(() => { fileCache.delete(key); return []; }));
   const paths = await fileCache.get(key)!;
-  return paths.map((p): PaletteEntry => ({ id: `file:${p}`, group: 'file', label: p, run: () => void openFileView(tabId, head, p) }));
+  return paths.map((p): PaletteEntry => ({ id: `file:${p}`, group: 'file', label: p, detail: 'Shift+Enter: file history', run: () => void openFileView(tabId, head, p), alt: () => void openFileHistory(tabId, { path: p, rev: head }, false) }));
 }
 
 export function settingEntries(): PaletteEntry[] {

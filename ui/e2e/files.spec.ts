@@ -201,16 +201,20 @@ test.describe('file list and diff takeover', () => {
     await row.click({ button: 'right', position: { x: 40, y: 10 } });
     const menu = page.getByTestId('context-menu');
     await expect(menu).toBeVisible();
-    // At the pointer.
+    // At the pointer: its top-left there, or flipped up (spec §7) so its bottom-left is, when it
+    // wouldn't fit below. 3A's rows make it too tall to fit under this row at 720 px.
     const m = (await menu.boundingBox())!;
+    const vh = page.viewportSize()!.height;
     expect(Math.abs(m.x - (box.x + 40))).toBeLessThan(2);
-    expect(Math.abs(m.y - (box.y + 10))).toBeLessThan(2);
+    const fitsBelow = box.y + 10 + m.height + 4 <= vh;
+    expect(Math.abs((fitsBelow ? m.y : m.y + m.height) - (box.y + 10))).toBeLessThan(2);
     // The latency budgets (cold tripwire, warm median) live in menu-perf.spec.ts, so a loaded
     // machine can't fail this functional test. Here: the opening was timed, and wasn't absurd.
     const opened = await page.evaluate(() => window.__gbMenuLatency!);
     expect(opened).toBeGreaterThanOrEqual(0);
     expect(opened).toBeLessThan(2000);
-    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Copy path', 'Forge link', 'Open in', 'View']);
+    // 3A (spec #3 §3.8, §4.2): Restore from <sha6> first, File history and Blame last.
+    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText([`Restore from ${sha.slice(0, 6)}`, 'Copy path', 'Forge link', 'Open in', 'View', 'File history', 'Blame']);
     await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
     // Every row's tooltip shows at once.
     await menu.getByRole('menuitem', { name: /^Copy path/ }).hover();

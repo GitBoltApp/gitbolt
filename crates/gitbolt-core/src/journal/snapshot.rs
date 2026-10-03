@@ -90,7 +90,14 @@ fn head_info(root: &Path) -> Result<(Option<String>, String), GbError> {
 /// skip-worktree one. Intent-to-add entries are carried as absent from the index (a snapshot
 /// restores them as plain untracked files; their content is in W).
 fn check_index(root: &Path, paths: &[&String]) -> Result<(), GbError> {
+    check_index_with(root, paths, false).map(|_| ())
+}
+
+/// 3B T2: `check_index`, but with `unmerged_ok` a conflicted path of `paths` is returned instead
+/// of refused (the Undo of a stopped "without committing" pick clears its stages).
+fn check_index_with(root: &Path, paths: &[&String], unmerged_ok: bool) -> Result<BTreeSet<String>, GbError> {
     use gix::index::entry::Flags;
+    let mut unmerged = BTreeSet::new();
     let repo = gix::open(root).map_err(gix_err)?;
     let index = repo.index_or_empty().map_err(gix_err)?;
     let want: BTreeSet<&[u8]> = paths.iter().map(|p| p.as_bytes()).collect();
@@ -100,13 +107,17 @@ fn check_index(root: &Path, paths: &[&String]) -> Result<(), GbError> {
             continue;
         }
         if e.stage_raw() != 0 {
+            if unmerged_ok {
+                unmerged.insert(path.to_str_lossy().into_owned());
+                continue;
+            }
             return Err(GbError::new(GbErrorKind::InProgress, format!("{path} has merge conflicts: resolve conflicts first")));
         }
         if e.flags.contains(Flags::SKIP_WORKTREE) {
             return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path} is skip-worktree: a snapshot can't carry it")));
         }
     }
-    Ok(())
+    Ok(unmerged)
 }
 
 /// `update-index -z --index-info` lines setting each of `paths` to its stage-0 entry in this
@@ -362,12 +373,21 @@ async fn checkout_from(cx: &SnapshotCx<'_>, index: &Path, tree: &str, paths: &BT
 }
 
 pub(crate) async fn restore(cx: &SnapshotCx<'_>, snap: &Snapshot) -> Result<(), GbError> {
+    restore_with(cx, snap, false).await
+}
+
+/// `restore`; with `unmerged_ok` (3B T2: the Undo of a stopped "without committing" pick, after
+/// its question) a conflicted path of P is restored too: its stages are cleared in the same
+/// `update-index` that writes P's entries from I.
+pub(crate) async fn restore_with(cx: &SnapshotCx<'_>, snap: &Snapshot, unmerged_ok: bool) -> Result<(), GbError> {
     // Preflight: everything that can be checked without writing is, before anything is written.
     let (w_tree, i_tree, u_tree) = trees(cx.root, snap)?;
     let tracked: Vec<&String> = snap.paths.iter().filter(|p| !snap.untracked.contains(p)).collect();
     let untracked: Vec<&String> = snap.untracked.iter().collect();
-    check_index(cx.root, &tracked)?;
+    let unmerged = check_index_with(cx.root, &tracked, unmerged_ok)?;
     let (index_lines, _) = tree_info(cx.root, &i_tree, &tracked)?;
+    // A mode-0 line removes every stage of its path; I's line for it follows.
+    let index_lines: Vec<u8> = unmerged.iter().flat_map(|p| format!("0 {ZERO_OID}\t{p}\0").into_bytes()).chain(index_lines).collect();
     let (_, in_w) = tree_info(cx.root, &w_tree, &tracked)?;
     let in_u = match &u_tree {
         Some(u) => tree_present(cx.root, u, &untracked)?,
@@ -705,6 +725,36 @@ mod tests {
         let err = create(&cx, "x", &strings(&["f.txt"]), &[]).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::InProgress);
         assert!(err.message.contains("resolve conflicts"));
+    }
+
+    /// 3B T2: `restore` refuses a conflicted path of P; `restore_with(unmerged_ok)` clears its
+    /// stages and restores it.
+    #[tokio::test]
+    async fn only_restore_with_unmerged_ok_restores_over_a_conflicted_path() {
+        let r = TestRepo::new();
+        r.write("f.txt", "base\n");
+        r.git(&["add", "."]);
+        r.git(&["commit", "-q", "-m", "base"]);
+        r.git(&["checkout", "-q", "-b", "other"]);
+        r.write("f.txt", "other\n");
+        r.git(&["commit", "-qam", "other"]);
+        r.git(&["checkout", "-q", "-"]);
+        r.write("f.txt", "mine\n");
+        r.git(&["commit", "-qam", "mine"]);
+        let tmp = tempfile::tempdir().unwrap();
+        let (cli, token) = (cli(), WriteToken::for_tests());
+        let cx = SnapshotCx { cli: &cli, token: &token, root: r.path(), tmp: tmp.path() };
+        let snap = create(&cx, "x", &strings(&["f.txt"]), &[]).await.unwrap();
+        let _ = std::process::Command::new("git").current_dir(r.path()).args(["merge", "other"]).output();
+        assert_eq!(r.git(&["diff", "--name-only", "--diff-filter=U"]), "f.txt");
+        let err = restore(&cx, &snap).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::InProgress);
+        assert_eq!(r.git(&["diff", "--name-only", "--diff-filter=U"]), "f.txt", "refused before writing");
+        restore_with(&cx, &snap, true).await.unwrap();
+        assert_eq!(r.git(&["diff", "--name-only", "--diff-filter=U"]), "");
+        assert_eq!(r.git(&["ls-files", "-s", "f.txt"]).split_whitespace().nth(2), Some("0"), "stage 0 only");
+        assert_eq!(std::fs::read_to_string(r.path().join("f.txt")).unwrap(), "mine\n");
+        assert_eq!(r.git(&["diff", "HEAD", "--name-only"]), "");
     }
 
     /// Intent-to-add degrades: the file comes back with its content as an untracked file.

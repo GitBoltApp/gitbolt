@@ -13,7 +13,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::UnboundedSender;
 pub use tokio_util::sync::CancellationToken;
 
-pub const MIN_GIT: (u32, u32, u32) = (2, 30, 0);
+pub const MIN_GIT: (u32, u32, u32) = (2, 40, 0);
 pub const LOCAL_TIMEOUT: Duration = Duration::from_secs(60);
 /// How much of a command's stderr is kept in memory (a long clone's progress can be large).
 const STDERR_KEEP: usize = 1 << 20;
@@ -437,10 +437,7 @@ impl GitCli {
         let out = self.run(GitInvocation::new(std::env::temp_dir(), ["--version"])).await?;
         let text = String::from_utf8_lossy(&out.stdout);
         let v = parse_version(&text).ok_or_else(|| GbError::other(format!("unrecognized git version: {text}")))?;
-        if v < MIN_GIT {
-            return Err(GbError::new(GbErrorKind::GitTooOld, format!("git {}.{}.{} is too old; GitBolt needs {}.{} or newer", v.0, v.1, v.2, MIN_GIT.0, MIN_GIT.1)));
-        }
-        Ok(v)
+        require_min(v)
     }
 }
 
@@ -568,6 +565,15 @@ pub fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
     let minor = parts.next()??;
     let patch = parts.next().flatten().unwrap_or(0);
     Some((major, minor, patch))
+}
+
+/// `v` against the minimum (spec #3 §5: 2.40, for `update-ref` todo lines and `merge-tree
+/// --write-tree --merge-base`): `GitTooOld` below it, which the UI's blocking screen shows.
+pub fn require_min(v: (u32, u32, u32)) -> Result<(u32, u32, u32), GbError> {
+    if v < MIN_GIT {
+        return Err(GbError::new(GbErrorKind::GitTooOld, format!("git {}.{}.{} is too old; GitBolt needs {}.{} or newer", v.0, v.1, v.2, MIN_GIT.0, MIN_GIT.1)));
+    }
+    Ok(v)
 }
 
 /// An `index.lock` failure's lock file and its mtime now, for Remove stale lock (spec #2 §14).
@@ -798,6 +804,19 @@ mod tests {
         assert_eq!(parse_version("git version 2.39.2.windows.1"), Some((2, 39, 2)));
         assert_eq!(parse_version("git version 2.43"), Some((2, 43, 0)));
         assert_eq!(parse_version("nonsense"), None);
+    }
+
+    /// Spec #3 §5, §7: the startup check refuses git older than 2.40 (the old minimum, 2.30,
+    /// included) with `GitTooOld`, whose message the blocking screen shows.
+    #[test]
+    fn refuses_git_older_than_2_40() {
+        let err = require_min((2, 39, 9)).unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::GitTooOld);
+        assert_eq!(err.message, "git 2.39.9 is too old; GitBolt needs 2.40 or newer");
+        assert!(require_min((2, 30, 0)).is_err(), "the old minimum is refused now");
+        assert!(require_min((2, 38, 0)).is_err(), "2.38 lacks merge-tree --merge-base");
+        assert_eq!(require_min((2, 40, 0)).unwrap(), (2, 40, 0));
+        assert_eq!(require_min((3, 0, 0)).unwrap(), (3, 0, 0));
     }
 
     #[tokio::test]

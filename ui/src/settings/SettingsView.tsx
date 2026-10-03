@@ -229,6 +229,7 @@ function SettingsDialog() {
                     <Select<number> id="input-fetchInterval" aria-labelledby="label-fetchInterval" value={fetchSecs} onChange={(v) => setSettings({ fetchIntervalSecs: v })} options={FETCH_CHOICES.some(([v]) => v === fetchSecs) ? FETCH_CHOICES : [...FETCH_CHOICES, [fetchSecs, `Every ${Math.round(fetchSecs / 60)} min`]]} />
                   </Row>
                   <Row id="prune"><input id="input-prune" type="checkbox" checked={settings.prune} onChange={(e) => setSettings({ prune: e.target.checked })} /></Row>
+                  <Row id="pushFollowTags"><input id="input-pushFollowTags" type="checkbox" checked={settings.pushFollowTags} onChange={(e) => setSettings({ pushFollowTags: e.target.checked })} /></Row>
                 </>}
                 {s === 'Editor' && <>
                   <Row id="editor"><EditorPicker id="editor" value={profile.editor} inherit={false} onChange={(v) => updateProfile((p) => ({ ...p, editor: v }))} /></Row>

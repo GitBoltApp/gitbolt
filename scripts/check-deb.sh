@@ -7,7 +7,7 @@ deps=$(dpkg-deb -f "$deb" Depends)
 echo "Depends: $deps"
 grep -Eq '(^|, )libgtk-3-0' <<<"$deps" && fail "declares GTK 3 (run scripts/fix-deb.sh)"
 grep -Eq '(^|, )libgtk-4-1' <<<"$deps" || fail "missing libgtk-4-1"
-grep -Eq '(^|, )git( |,|$)' <<<"$deps" || fail "missing git"
+grep -Eq '(^|, )git \(>= 1:2\.40\)' <<<"$deps" || fail "missing git (>= 1:2.40)"
 contents=$(dpkg-deb -c "$deb")
 line=$(grep '/chrome-sandbox$' <<<"$contents") || fail "no chrome-sandbox in the payload"
 [[ $line == -rwsr-xr-x\ root/root* || $line == -rwsr-xr-x\ 0/0* ]] || fail "chrome-sandbox is not root:root 4755: $line"

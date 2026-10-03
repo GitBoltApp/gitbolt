@@ -124,6 +124,11 @@ impl WriteIntent for PushIntent {
         if self.set_upstream {
             args.push("-u".into());
         }
+        // --- 3B T4: "Push tags with branches" (spec #3 §3.9) ---
+        if cx.api.store.state().settings.push_follow_tags {
+            args.push("--follow-tags".into());
+        }
+        // --- end 3B T4 ---
         if let Some(lease) = &self.lease {
             args.push(format!("--force-with-lease=refs/heads/{}:{}", target.branch, lease.oid.clone().unwrap_or_default()));
         }
@@ -429,10 +434,10 @@ impl WriteIntent for PullIntent {
                     _ => integrate::run_merge(cx, &self.upstream_ref, &self.upstream).await?,
                 };
                 match done {
-                    IntegrateOutcome::Stopped { kind, files } => PullResult::Stopped { kind, files },
+                    IntegrateOutcome::Stopped { kind, files, .. } => PullResult::Stopped { kind, files },
                     IntegrateOutcome::Done { commits, .. } if self.mode == PullMode::Rebase => PullResult::Rebased { commits },
                     IntegrateOutcome::Done { commits, .. } => PullResult::Merged { commits },
-                    IntegrateOutcome::UpToDate | IntegrateOutcome::Aborted => PullResult::UpToDate { ahead },
+                    IntegrateOutcome::UpToDate { .. } | IntegrateOutcome::Aborted { .. } => PullResult::UpToDate { ahead },
                 }
             }
         };
@@ -860,7 +865,7 @@ mod tests {
         let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
         let res = api.dispatch(req).await.unwrap();
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(r.git(&["rev-parse", "dev"]), r.git(&["rev-parse", "origin/dev"]));
         let store = crate::write::rewrites::RewriteStore::new(data.path(), &r.path().join(".git"));
         assert!(store.peek().is_empty(), "the undo dropped it, not just hid it");
@@ -904,7 +909,7 @@ mod tests {
         assert_eq!(r.git(&["rev-parse", "main"]), r.git(&["rev-parse", "origin/main"]));
         assert_eq!(res["journal"]["undo"]["label"], "pull main");
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(r.git(&["rev-parse", "main"]), before);
         assert_ne!(r.git(&["rev-parse", "origin/main"]), before, "the fetched remote branch stays");
     }
@@ -1083,7 +1088,7 @@ mod tests {
         let res = api.dispatch(pull(id, &r, Some("main"), PullMode::FfOnly)).await.unwrap();
         assert_eq!(res["journal"]["undo"]["label"], "pull main");
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(r.git(&["rev-parse", "main"]), before);
         assert_eq!(r.git(&["branch", "--show-current"]), "dev");
     }
@@ -1118,4 +1123,28 @@ mod tests {
         assert_eq!(err.message, "feature/new has no upstream; set one from Push ▾");
     }
     // --- end 2D T14 ---
+
+    // --- 3B T4 ---
+    /// Spec #3 §3.9: "Push tags with branches" (`--follow-tags`), off by default: an annotated tag
+    /// on the pushed commits goes along only when it's on.
+    #[tokio::test]
+    async fn follow_tags_sends_the_branchs_annotated_tags_only_when_set() {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.switch("dev");
+        r.commit("more dev");
+        r.tag("v-dev", "HEAD");
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let origin = r.root().join("origin.git");
+        api.dispatch(push(id, &r, "dev")).await.unwrap();
+        assert!(r.try_git_in(&origin, &["rev-parse", "--verify", "-q", "refs/tags/v-dev"]).is_err(), "off by default");
+        r.commit("again");
+        let mut s = api.store().state().settings;
+        s.push_follow_tags = true;
+        api.store().save_settings(s);
+        api.dispatch(push(id, &r, "dev")).await.unwrap();
+        assert_eq!(r.git_in(&origin, &["rev-parse", "refs/tags/v-dev"]), r.git(&["rev-parse", "refs/tags/v-dev"]));
+    }
+    // --- end 3B T4 ---
 }

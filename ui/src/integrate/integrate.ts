@@ -67,8 +67,8 @@ export async function startIntegrate(ctx: WriteCtx, kind: IntegrateKind, target:
       release();
       return void useToast.getState().show(`${target} is already merged into ${x}`);
     }
-    const stacked = rebase && p.updateRefsSupported ? p.stacked : [];
-    updateRefs = rebase && p.updateRefsSupported ? p.updateRefsDefault : undefined;
+    const stacked = rebase ? p.stacked : [];
+    updateRefs = rebase ? p.updateRefsDefault : undefined;
     const refused = rebase ? p.lossyMerge : null;
     const verb = rebase ? `Rebasing ${x} onto ${target}` : `Merging ${target} into ${x}`;
     const conflicts = p.conflicts.length ? `${verb} will conflict in ${files(p.conflicts.length)}.` : null;

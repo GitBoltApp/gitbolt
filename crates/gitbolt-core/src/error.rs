@@ -65,6 +65,22 @@ pub enum ErrorDetail {
     /// to <path>?", then send again with `confirmDiscard`.
     DiscardEdits { path: Box<str> },
     // --- end 2D T15 ---
+    // --- 3A T3 ---
+    /// Restore a file from a commit over the file's own changes (spec #3 §3.8): "Click again to
+    /// replace your changes to <path>", then send again with `confirm`.
+    RestoreOverChanges { path: Box<str> },
+    // --- end 3A T3 ---
+    // --- 3B T2 ---
+    /// Undo of a "without committing" pick that stopped on conflicts discards its changes, a
+    /// resolution included: ask (`message`), arm in place with `arm`, then send again with
+    /// `confirmDiscard`. `op`: `cherry-pick` or `revert`.
+    UndoStoppedPick { op: Box<str>, arm: Box<str> },
+    // --- end 3B T2 ---
+    // --- 3C fix round 3 ---
+    /// An interactive rebase's Abort failed part-way (git reset, then stopped): the work from
+    /// the stop is kept, its commits on `branch`, its edits in the stash `stash`.
+    AbortKeptWork { stash: Option<Box<str>>, branch: Option<Box<str>> },
+    // --- end 3C fix round 3 ---
 }
 
 #[derive(Debug, Clone, Serialize, TS, thiserror::Error)]
@@ -247,4 +263,11 @@ mod tests {
         assert_eq!(serde_json::to_value(&d).unwrap(), serde_json::json!({"kind": "resetDiscards", "branch": "main", "to": "a1b2c3", "files": 4}));
     }
     // --- end 2C T1 ---
+    // --- 3A T3 ---
+    #[test]
+    fn the_restore_detail_serializes_for_the_ui() {
+        let d = ErrorDetail::RestoreOverChanges { path: "src/a b.txt".into() };
+        assert_eq!(serde_json::to_value(&d).unwrap(), serde_json::json!({"kind": "restoreOverChanges", "path": "src/a b.txt"}));
+    }
+    // --- end 3A T3 ---
 }

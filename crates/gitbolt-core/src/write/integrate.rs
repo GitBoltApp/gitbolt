@@ -29,13 +29,62 @@ pub enum IntegrateKind {
 #[ts(export)]
 pub enum IntegrateOutcome {
     /// `commits` rebased (or merged in); `fast_forward`: git fast-forwarded the branch.
-    Done { commits: u32, fast_forward: bool },
+    Done {
+        commits: u32,
+        fast_forward: bool,
+        /// 3C fix round 1 (R1): it completed, but something after it didn't (a chip marked
+        /// delete that moved meanwhile is kept): the toast says so.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        warning: Option<String>,
+        /// 3C final fix (M4): a reword of an older commit (spec #3 §3.6): the reworded commit's
+        /// new oid, for the details panel to select.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        rewritten: Option<String>,
+    },
     /// Nothing to do ("Current branch main is up to date", "Already up to date").
-    UpToDate,
+    UpToDate {
+        /// As `Done`'s.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        warning: Option<String>,
+    },
     /// Stopped on conflicts (§13.2): the banner and the Conflicted section take over.
-    Stopped { kind: PausedKind, files: u32 },
+    Stopped {
+        kind: PausedKind,
+        files: u32,
+        /// 3C final fix (M1, M2): something GitBolt meant to do at the stop didn't happen (a
+        /// commit-msg hook refused a new message): the toast says so.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        warning: Option<String>,
+    },
     /// Abort ran: the branch is back where it was.
-    Aborted,
+    Aborted {
+        /// 3C fix round 1 (I2): the work done at an interactive rebase's stop, kept as a stash
+        /// (its oid) before the abort reset it: "Your work from the stop is in a stash".
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        stash: Option<String>,
+        /// Fix round 2: the branch the commits made at the stop were kept on.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        branch: Option<String>,
+        /// Fix round 2: a conflict stop: how many files' changes the abort discarded (fix round
+        /// 3: the conflicted files and the user's unstaged edits; not what git merged cleanly).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        discarded: Option<u32>,
+    },
+}
+
+impl IntegrateOutcome {
+    pub(crate) const UP_TO_DATE: IntegrateOutcome = IntegrateOutcome::UpToDate { warning: None };
+    pub(crate) const ABORTED: IntegrateOutcome = IntegrateOutcome::Aborted { stash: None, branch: None, discarded: None };
+    pub(crate) fn done(commits: u32, fast_forward: bool) -> IntegrateOutcome {
+        IntegrateOutcome::Done { commits, fast_forward, warning: None, rewritten: None }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -272,18 +321,18 @@ pub(crate) async fn run_merge(cx: &mut WriteCx<'_>, target: &str, label: &str) -
     if let Err(e) = res {
         return match crate::in_progress::read(cx.root).ok().flatten() {
             Some(crate::in_progress::InProgress::Merge { conflicted, merge_head, .. }) => {
-                cx.paused = Some(Pause { kind: PausedKind::Merge, target: label.to_string(), target_oid: Some(merge_head).filter(|m| !m.is_empty()), put_back: Vec::new() });
-                Ok(IntegrateOutcome::Stopped { kind: PausedKind::Merge, files: conflicted })
+                cx.paused = Some(Pause { kind: PausedKind::Merge, target: label.to_string(), target_oid: Some(merge_head).filter(|m| !m.is_empty()), put_back: Vec::new(), picked: Vec::new(), irebase: None });
+                Ok(IntegrateOutcome::Stopped { kind: PausedKind::Merge, files: conflicted, warning: None })
             }
             _ => Err(e),
         };
     }
     let after = gix::open(cx.root).map_err(gix_err)?.head_id().map_err(gix_err)?.detach();
     if after == before {
-        return Ok(IntegrateOutcome::UpToDate);
+        return Ok(IntegrateOutcome::UP_TO_DATE);
     }
     let (commits, _) = relation(&repo, after, before)?;
-    Ok(IntegrateOutcome::Done { commits, fast_forward: after == theirs })
+    Ok(IntegrateOutcome::done(commits, after == theirs))
 }
 
 pub(crate) struct FastForwardIntent {
@@ -317,7 +366,7 @@ impl WriteIntent for FastForwardIntent {
         let old_id = ObjectId::from_hex(old.as_bytes()).map_err(gix_err)?;
         // Review M6: already there.
         if old_id == to {
-            return Ok(IntegrateOutcome::UpToDate);
+            return Ok(IntegrateOutcome::UP_TO_DATE);
         }
         if !is_ancestor(&repo, old_id, to) {
             return Err(GbError::new(GbErrorKind::NonFastForward, format!("{} has commits {} doesn't have", self.branch, short_ref(&self.to))));
@@ -325,7 +374,7 @@ impl WriteIntent for FastForwardIntent {
         let (commits, _) = relation(&repo, to, old_id)?;
         cx.cas(&[RefMove { name, old: Some(old), new: Some(to.to_string()) }], &format!("merge {}: Fast-forward", self.to)).await?;
         cx.touch(ChangeKind::Refs);
-        Ok(IntegrateOutcome::Done { commits, fast_forward: true })
+        Ok(IntegrateOutcome::done(commits, true))
     }
 }
 
@@ -355,7 +404,7 @@ impl WriteIntent for MergeAbortIntent {
         for k in [ChangeKind::Worktree, ChangeKind::Index, ChangeKind::State] {
             cx.touch(k);
         }
-        Ok(IntegrateOutcome::Aborted)
+        Ok(IntegrateOutcome::ABORTED)
     }
 }
 
@@ -375,8 +424,6 @@ pub struct IntegratePreviewPayload {
     pub stacked: Vec<StackedBranch>,
     /// The checkbox's default: ticked unless `rebase.updateRefs=false`.
     pub update_refs_default: bool,
-    /// git ≥ 2.38 has `--update-refs`; older, the checkbox isn't shown.
-    pub update_refs_supported: bool,
     /// Rebase only: why it would be refused, before the user presses Rebase (review N4): a merge
     /// commit with changes of its own, which a rebase would drop.
     pub lossy_merge: Option<String>,
@@ -425,7 +472,6 @@ pub(crate) async fn preview(api: &Api, repo: u32, worktree: &str, kind: Integrat
         .filter(|w| w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != here)
         .filter_map(|w| Some((w.branch?, w.path.display().to_string())))
         .collect();
-    let supported = api.git_version().await.is_ok_and(|v| v >= (2, 38, 0));
     let (rt, tn) = (root.clone(), target.clone());
     let (mut payload, rebasing) = blocking(move || {
         let r = gix::open(&rt).map_err(gix_err)?;
@@ -438,7 +484,7 @@ pub(crate) async fn preview(api: &Api, repo: u32, worktree: &str, kind: Integrat
         };
         let update_refs_default = r.config_snapshot().boolean("rebase.updateRefs") != Some(false);
         let conflicts = if behind == 0 { Vec::new() } else { predicted_conflicts(&r, head, y)? };
-        Ok((IntegratePreviewPayload { ahead, behind, merged: behind == 0, conflicts, stacked, update_refs_default, update_refs_supported: supported, lossy_merge: None }, rebasing))
+        Ok((IntegratePreviewPayload { ahead, behind, merged: behind == 0, conflicts, stacked, update_refs_default, lossy_merge: None }, rebasing))
     })
     .await?;
     if let Some((x, head, y)) = rebasing {
@@ -490,7 +536,7 @@ pub(crate) mod tests {
         assert_eq!(res["outcome"], serde_json::json!({"status": "done", "commits": 2, "fastForward": false}));
         assert_eq!(res["journal"]["undo"]["label"], "merge clean into main");
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(r.git(&["rev-parse", "main"]), before);
     }
 
@@ -536,7 +582,7 @@ pub(crate) mod tests {
         assert_eq!(res["journal"]["undo"]["label"], "fast-forward feature/a to feature/c");
         assert!(r.git(&["reflog", "-1", "feature/a"]).contains("merge feature/c: Fast-forward"));
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(r.git(&["rev-parse", "feature/a"]), a);
         assert_eq!(api.dispatch(ff("feature/c", "main")).await.unwrap_err().kind, GbErrorKind::InvalidInput, "checked out here");
         assert_eq!(api.dispatch(ff("feature/b", "main")).await.unwrap_err().kind, GbErrorKind::NonFastForward, "has commits main doesn't");

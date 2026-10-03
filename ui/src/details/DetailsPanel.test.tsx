@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SPLIT } from './detailsSplit';
 import type { DiffSpec } from '../api/gen/DiffSpec';
@@ -69,6 +69,47 @@ describe('DetailsPanel', () => {
     await act(async () => store.getState().selectRow(1));
     expect(await screen.findByText('Second')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
+  });
+
+  it('the pencil shows on an older commit of HEAD\'s branch too, not on its first commit nor mid rebase (spec #3 §3.6)', async () => {
+    const C = 'c'.repeat(40);
+    const chain: GraphPayload = { ...graph, rows: [wipRow, { ...commit(A, 'Second'), parents: [B] }, { ...commit(B, 'First'), parents: [C] }, commit(C, 'Root')] };
+    const store = createRepoViewStore(1, '/r', chain, loadedServices());
+    renderPanel(store);
+    await act(async () => store.getState().selectRow(2));
+    expect(await screen.findByRole('button', { name: 'Edit message' })).toBeTruthy();
+    await act(async () => store.getState().selectRow(3));
+    await waitFor(() => expect(screen.queryByText('First')).toBeNull());
+    expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
+    store.setState((s) => ({ graph: { ...s.graph, inProgress: { '/r': { kind: 'other', what: 'revert' } } } }));
+    await act(async () => store.getState().selectRow(2));
+    expect(await screen.findByText('First')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
+  });
+
+  it('no pencil on a merge, a commit not under HEAD, or a trunk commit below the fork (3C T13 fix 1 I1, M7)', async () => {
+    const [X, S, N, M, R] = ['1', '2', '3', '4', '5'].map((c) => c.repeat(40));
+    // feature (HEAD): A ← X (merge of S) ← M (main's tip) ← R; S on feature; N on another branch.
+    const rows = [wipRow, { ...commit(A, 'Tip'), parents: [X] }, { ...commit(N, 'Elsewhere'), parents: [M] }, { ...commit(X, 'Merge'), parents: [M, S] }, { ...commit(S, 'Side'), parents: [M] }, { ...commit(M, 'Trunk'), parents: [R] }, commit(R, 'Root')];
+    const label = (row: number, local: string) => ({ row, name: local.slice(11), local, remotes: [], tag: false, isHead: false, worktree: null, checkedOut: null });
+    const g: GraphPayload = { ...graph, rows, labels: [label(1, 'refs/heads/feature'), label(5, 'refs/heads/main')], head: { branch: 'refs/heads/feature', target: A, detached: false, unborn: false } };
+    const summaries = Object.fromEntries(rows.map((r) => [r.id, r.summary]));
+    const services = fakeServices({
+      details: new Loader(async (id) => ({ id, parents: [], signed: false, coAuthors: [], author: { name: 'G', email: 'g@example.com', time: 0 }, committer: { name: 'G', email: 'g@example.com', time: 0 } }), new Lru(8)),
+      messages: createCommitMessageCache(async (id) => ({ id, summary: summaries[id] ?? '', body: '' })),
+      files: new Loader(async () => list('a.txt'), new Lru(8)),
+    });
+    const store = createRepoViewStore(1, '/r', g, services);
+    renderPanel(store);
+    const pencilAt = async (index: number, summary: string) => {
+      await act(async () => store.getState().selectRow(index));
+      await screen.findByText(summary);
+      return screen.queryByRole('button', { name: 'Edit message' });
+    };
+    expect(await pencilAt(4, 'Side')).toBeTruthy();
+    expect(await pencilAt(3, 'Merge')).toBeNull();
+    expect(await pencilAt(2, 'Elsewhere')).toBeNull();
+    expect(await pencilAt(5, 'Trunk')).toBeNull();
   });
 
   it('a Ctrl+click on a second commit shows the compare header at once, no hint step (K15); a plain click leaves it', async () => {

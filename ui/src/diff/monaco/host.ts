@@ -3,6 +3,7 @@ import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../diffPrefs';
 import { useEditorSettings } from '../editorSettings';
 import { clampEditorFont, diffEditorOptions, EDITOR_SCROLLBAR, fileViewOptions } from '../options';
 import { enableDeletedLineCopy } from './deletedCopy';
+import { FileMarginStrip, type FileMargin } from './fileMargin';
 import { deletedLineAt, LineGutter, type LineGutterSpec } from './lineGutter';
 import { captureAnchor, restoreAnchor, type ScrollAnchor } from './scrollAnchor';
 import { monaco } from './setup';
@@ -12,6 +13,7 @@ import { ensureLanguage, ensureTheme } from './shiki';
 
 export interface DiffShowRequest { /** The target's key (repo/worktree and path): what `modifiedText` checks. */ identity?: string; path: string; original: string; modified: string; language: string; prefs: DiffPrefs; hunkZones?: HunkZoneRequest }
 export type { LineGutterSpec };
+export type { FileMargin };
 /** A hunk's header row (spec #2 §7.3): after modified line `after` (0: above line 1). */
 export interface HunkZone { after: number }
 /** A WIP diff's hunk header rows, shown with the diff (Hunk mode only): `zones` is waited for with
@@ -70,6 +72,9 @@ export interface MonacoHost {
   showFile(req: FileShowRequest): Promise<void>;
   /** File View's word wrap, applied in place: the model (and so the scroll position) is kept. */
   setFileWordWrap(on: boolean): void;
+  /** File View's margin strip (spec #3 §3.10, the blame gutter): `width` px reserved left of the
+   * text, with a node laid over it; 0 removes it. `null` for 0, or before the file editor exists. */
+  setFileMargin(width: number): FileMargin | null;
   /** Puts the keyboard in the attached editor: the diff's modified side, else the file editor.
    * A no-op while neither is attached. */
   focus(): void;
@@ -205,6 +210,7 @@ class Host implements MonacoHost {
   private fileWrap = DEFAULT_DIFF_PREFS.wordWrap;
   private computedCount = 0;
   private menu: ((e: EditorContextMenuEvent) => void) | null = null;
+  private margin: FileMarginStrip | null = null;
   private diffPath = '';
   private diffIdentity: string | undefined;
   private fileIdentity: string | undefined;
@@ -540,7 +546,7 @@ class Host implements MonacoHost {
     this.filePath = req.path;
     this.fileIdentity = req.identity;
     this.setFileEditable(false);
-    ed.updateOptions(fileViewOptions(this.fileWrap, this.menu === null, sticky(), fontSize()));
+    ed.updateOptions({ ...fileViewOptions(this.fileWrap, this.menu === null, sticky(), fontSize()), ...this.margin?.options() });
     const model = monaco.editor.createModel(req.text, lang);
     ed.setModel(model);
     this.fileShown = { path: req.path, text: req.text };
@@ -625,6 +631,11 @@ class Host implements MonacoHost {
   setFileWordWrap(on: boolean): void {
     this.fileWrap = on;
     this.file?.updateOptions({ wordWrap: on ? 'on' : 'off' });
+  }
+
+  setFileMargin(width: number): FileMargin | null {
+    if (!this.file) return null;
+    return (this.margin ??= new FileMarginStrip(this.file)).set(width);
   }
 
   focus(): void {

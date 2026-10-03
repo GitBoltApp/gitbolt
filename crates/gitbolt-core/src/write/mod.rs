@@ -34,12 +34,18 @@ pub(crate) mod rewrites;
 // --- 2C T6: modules ---
 pub(crate) mod reset;
 // --- end 2C T6 ---
+// --- 3A T3 ---
+pub(crate) mod restore;
+// --- end 3A T3 ---
 pub(crate) mod progress;
 pub mod remote_output;
 pub(crate) mod stage;
 // --- 2D T11: push ---
 pub(crate) mod sync;
 // --- end 2D T11 ---
+// --- 3B T3: tags ---
+pub(crate) mod tags;
+// --- end 3B T3 ---
 // --- 2C T8 ---
 pub(crate) mod worktree;
 // --- end 2C T8 ---
@@ -47,7 +53,13 @@ pub(crate) mod worktree;
 pub mod integrate;
 pub mod rebase;
 // --- end 2D T9 / T10 ---
+// --- 3C ---
+pub mod irebase;
+// --- end 3C ---
 pub mod pick;
+// --- 3B T1: cherry-pick and revert ---
+pub(crate) mod sequence;
+// --- end 3B T1 ---
 pub(crate) mod stage_patch;
 // --- 2C T7: stashes ---
 pub(crate) mod stash;
@@ -631,6 +643,10 @@ pub(crate) struct Pause {
     /// `PausedOp::put_back`.
     pub put_back: Vec<(String, String)>,
     // --- end 2D T9 ---
+    /// `PausedOp::picked` (3B T1 fix).
+    pub picked: Vec<String>,
+    /// 3C: an interactive rebase's session, for `PausedOp::irebase`.
+    pub irebase: Option<crate::journal::IrebaseState>,
 }
 
 /// `SettlePaused` (Deviation 4): runs nothing itself. A paused op that ended outside GitBolt
@@ -666,8 +682,8 @@ struct Completing<'m> {
     moves: &'m [RefMove],
 }
 
-/// Settles the worktree's paused merge or rebase if it's no longer in progress, at one of two
-/// points (§13.2):
+/// Settles the worktree's paused merge, rebase, cherry-pick or revert if it's no longer in
+/// progress, at one of two points (§13.2):
 /// - right after preflight, when this write found no operation in progress (it ended outside
 ///   GitBolt): the pause settles against that state, before this write changes anything;
 /// - step 7b, after verify, when this write started mid-operation (`completing`): the Commit or
@@ -675,8 +691,11 @@ struct Completing<'m> {
 ///   made the completing commit itself and holds no snapshot (review M1).
 ///
 /// It's completed only when HEAD, on its branch, is a merge commit whose first parent is the
-/// old tip (a rebase: the branch moved onto its target); anything else is an abort outside
+/// old tip (a rebase: the branch moved onto its target; a cherry-pick or revert: the branch
+/// gained only the pick's own commits, see `completed`); anything else is an abort outside
 /// GitBolt, and the entry goes (review M2). Its autostash is restored either way.
+/// 3B T1 fix round 1: a pick that failed part-way outside GitBolt leaves `.git/sequencer/`
+/// with nothing in progress; settling drops it (`--quit`, the commits stay).
 async fn settle_paused(cx: &mut WriteCx<'_>, completing: Option<Completing<'_>>) -> Settled {
     match settle_paused_inner(cx, completing).await {
         Ok(s) => s,
@@ -705,6 +724,19 @@ async fn settle_paused_inner(cx: &mut WriteCx<'_>, completing: Option<Completing
     if still.is_some() {
         return Ok(Settled::default());
     }
+    // --- 3B T1 fix round 1: a pick's sequencer leftover ---
+    let quit = match op.kind {
+        PausedKind::CherryPick => Some("cherry-pick"),
+        PausedKind::Revert => Some("revert"),
+        _ => None,
+    };
+    // 3B final fix (5): one whose todo still lists commits is the user's to go on with.
+    if let Some(what) = quit
+        && !crate::write::sequence::sequencer_has_todo(cx.root).await
+    {
+        crate::write::sequence::quit_leftover_sequencer(cx, what).await;
+    }
+    // --- end 3B T1 fix round 1 ---
     let (head_after, now) = observe(cx.root, op.refs_before.keys().cloned().collect()).await?;
     let completed = completed(cx, &entry, &op, &now, completing.is_some()).await;
     let (head_after, moves) = if completed {
@@ -737,6 +769,16 @@ async fn settle_paused_inner(cx: &mut WriteCx<'_>, completing: Option<Completing
     } else {
         (entry.head_before.clone(), Vec::new())
     };
+    // 3C fix round 1 (I1): the moves an interactive rebase's Continue recorded as it made them
+    // (its chip deletes, the chips git's `update-ref` lines moved) are this entry's in either
+    // verdict: a completion that left the branch where it was still deleted or moved them, and
+    // the Undo must put them back.
+    let mut moves = moves;
+    for m in op.irebase.iter().flat_map(|s| s.moved.iter()) {
+        if !moves.iter().any(|x| x.name == m.name) {
+            moves.push(m.clone());
+        }
+    }
     let branch = entry.head_before.branch.as_ref().map(|b| format!("refs/heads/{b}"));
     let absorb = completing.filter(|_| completed && cx.snapshot.is_none() && cx.after.is_none()).and_then(|c| {
         let made_it = c.moves.iter().any(|m| Some(&m.name) == branch.as_ref() && m.new == head_after.oid);
@@ -767,6 +809,10 @@ async fn settle_paused_inner(cx: &mut WriteCx<'_>, completing: Option<Completing
         (true, claimed)
     })?;
     cx.journal_changed |= found;
+    // 3C T4: the rebase is over (completed or aborted): its session goes.
+    if found && let Some(s) = &op.irebase {
+        crate::write::irebase::run::remove_session(std::path::Path::new(&s.dir));
+    }
     let Some(k) = claimed else { return Ok(Settled::default()) };
     let stop = crate::journal::autostash::restore_paused(cx, k).await;
     Ok(Settled { stop, restored: Some(entry.label) })
@@ -795,7 +841,9 @@ async fn completed(cx: &WriteCx<'_>, entry: &crate::journal::JournalEntry, op: &
         return false;
     }
     let root = cx.root.to_path_buf();
-    let (kind, target, target_oid) = (op.kind, op.target.clone(), op.target_oid.clone());
+    let (kind, target, target_oid, picked) = (op.kind, op.target.clone(), op.target_oid.clone(), op.picked.clone());
+    // 3C T5: commits made at an interactive rebase's Edit stop (Split's pieces).
+    let made = op.irebase.as_ref().map(|s| s.made.clone()).unwrap_or_default();
     blocking(move || {
         let repo = gix::open(&root).map_err(gix_err)?;
         let oid = |hex: &str| gix::ObjectId::from_hex(hex.as_bytes()).map_err(gix_err);
@@ -813,9 +861,22 @@ async fn completed(cx: &WriteCx<'_>, entry: &crate::journal::JournalEntry, op: &
                 if !((inside || new != target) && is_ancestor(&repo, target, new) && !is_ancestor(&repo, old, new)) {
                     return Ok(false);
                 }
-                let theirs = authored(&repo, old, target)?;
+                let mut theirs = authored(&repo, old, target)?;
+                theirs.extend(authored_commits(&repo, &made)?);
                 authored(&repo, new, target)?.is_subset(&theirs)
             }
+            // --- 3B T1: picks ---
+            // A cherry-pick or revert only adds commits on top of the old tip: completed once the
+            // branch moved forward from it. An abort put it back (`old == new`, refused above).
+            // Fix round 1: and only with commits of the pick's own. An abort in a terminal and new
+            // work there moves the branch forward too: that's an abort, and its Undo (a Rewind)
+            // would delete that work.
+            PausedKind::CherryPick => is_ancestor(&repo, old, new) && authored(&repo, new, old)?.is_subset(&authored_commits(&repo, &picked)?),
+            // 3B final fix (1): GitBolt's own Continue commits the panel's message, which the user
+            // may have rewritten (the "This reverts commit" line gone): ended by it (`inside`),
+            // no more new commits than the revert's own counts. Ended outside, each must say so.
+            PausedKind::Revert => is_ancestor(&repo, old, new) && if inside { at_most(&repo, new, old, picked.len())? } else { reverts_only(&repo, new, old, &picked)? },
+            // --- end 3B T1 ---
         })
     })
     .await
@@ -836,6 +897,59 @@ fn authored(repo: &gix::Repository, tip: gix::ObjectId, base: gix::ObjectId) -> 
     }
     Ok(out)
 }
+
+// --- 3B T1 fix: a pick's completion ---
+/// `authored` of the commits themselves: what git keeps of each when it cherry-picks it.
+fn authored_commits(repo: &gix::Repository, oids: &[String]) -> Result<Authored, GbError> {
+    let mut out = BTreeSet::new();
+    for hex in oids {
+        let c = repo.find_commit(gix::ObjectId::from_hex(hex.as_bytes()).map_err(gix_err)?).map_err(gix_err)?;
+        let a = c.author().map_err(gix_err)?;
+        out.insert((a.email.to_vec(), a.time.to_string()));
+    }
+    Ok(out)
+}
+
+/// The commits `tip` has beyond `base` are reverts of `oids`: no more of them than `oids`, and
+/// each says "This reverts commit <one of them>" (git's message, kept through `--no-edit`). The
+/// oid may be abbreviated, 7 hex digits or more (`revert.reference`'s style, fix round 2).
+pub(crate) fn reverts_only(repo: &gix::Repository, tip: gix::ObjectId, base: gix::ObjectId, oids: &[String]) -> Result<bool, GbError> {
+    let mut count = 0;
+    for info in repo.rev_walk([tip]).with_hidden([base]).all().map_err(gix_err)? {
+        count += 1;
+        if count > oids.len() {
+            return Ok(false);
+        }
+        let c = repo.find_commit(info.map_err(gix_err)?.id).map_err(gix_err)?;
+        let message = c.message_raw().map_err(gix_err)?.to_string();
+        if !reverts_one_of(&message, oids) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+/// 3B final fix (1): `tip` has no more than `n` commits beyond `base`.
+fn at_most(repo: &gix::Repository, tip: gix::ObjectId, base: gix::ObjectId, n: usize) -> Result<bool, GbError> {
+    let mut count = 0;
+    for info in repo.rev_walk([tip]).with_hidden([base]).all().map_err(gix_err)? {
+        info.map_err(gix_err)?;
+        count += 1;
+        if count > n {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// `message` has a "This reverts commit <hex>" line whose hex, 7 digits or more, starts one of
+/// `oids`.
+fn reverts_one_of(message: &str, oids: &[String]) -> bool {
+    message.match_indices("This reverts commit ").any(|(i, m)| {
+        let hex = message[i + m.len()..].chars().take_while(|c| c.is_ascii_hexdigit()).collect::<String>().to_ascii_lowercase();
+        hex.len() >= 7 && oids.iter().any(|o| o.to_ascii_lowercase().starts_with(&hex))
+    })
+}
+// --- end 3B T1 fix ---
 
 /// `a` is `b` or one of its ancestors (gix: no git process, nothing in the command log).
 pub(crate) fn is_ancestor(repo: &gix::Repository, a: gix::ObjectId, b: gix::ObjectId) -> bool {
@@ -1105,7 +1219,7 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
             // 2D T2: the entry waits, with what completion compares against (`known`: preflight's
             // refs plus the old value of every ref the write CAS-moved).
             Some(p) => {
-                let paused = PausedOp { kind: p.kind, target: p.target.clone(), refs_before: known.clone(), autostash: stash.as_ref().map(|st| st.id), target_oid: p.target_oid.clone(), put_back: p.put_back.clone() };
+                let paused = PausedOp { kind: p.kind, target: p.target.clone(), refs_before: known.clone(), autostash: stash.as_ref().map(|st| st.id), target_oid: p.target_oid.clone(), put_back: p.put_back.clone(), picked: p.picked.clone(), irebase: p.irebase.clone() };
                 s.update(|j| {
                     if let Some(e) = j.entry_mut(id) {
                         e.state = EntryState::Paused;

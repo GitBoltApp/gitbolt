@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import { registerKeys } from '../ui/keyRouter';
 import { isEditableTarget, markEditorKey } from '../ui/keys';
+import { centerViewOf, centerViewOnTop } from './centerView';
 import type { RepoViewStore } from './store';
 
 /** Whether `e` (an Esc) belongs to something before the app: an editor overlay (Monaco's find
@@ -57,20 +58,26 @@ const isTextInput = (t: Element | null) => isEditableTarget(t) && !within(t, '.m
  *   (menu, tooltip, overlay) could have claimed it first.
  * Neither acts while `root` (the view) isn't shown: plan 1C keeps hidden tabs' views mounted in
  * `<Activity>`. When the action runs, the key goes no further, from wherever the keydown's target
- * is — including `<body>`, after a click on non-focusable content (I1).
+ * is — including `<body>`, after a click on non-focusable content (I1). While a center view is
+ * on top in the tab (spec #3: `centerViewOnTop`, so also over the file it was opened over), Esc
+ * is the view's: neither handler acts. A file opened over the view closes as it does over the
+ * graph, back to the view.
  */
-export function useAppEscape(store: RepoViewStore, root?: RefObject<HTMLElement | null>) {
+export function useAppEscape(store: RepoViewStore, root?: RefObject<HTMLElement | null>, tabId?: string) {
   useEffect(() => {
     const visible = (e: KeyboardEvent) => !e.defaultPrevented && root?.current?.checkVisibility?.() !== false;
     const mine = (e: KeyboardEvent) => isPlainEscape(e) && visible(e);
     // Whether a file is open is the store's `diff`, never the DOM: a closed diff panel may stay
     // mounted, hidden (its editor too). Owners are asked only while one is open.
+    const viewOwnsEscape = () => tabId !== undefined && centerViewOnTop(centerViewOf(tabId), store.getState().diff);
     const offOverlay = registerKeys('overlay', (e) => {
+      if (viewOwnsEscape()) return;
       if (!mine(e) || store.getState().diff === null || ![...owners].some((owns) => owns(e))) return;
       markEditorKey(e);
       return 'native';
     });
     const offApp = registerKeys('app', (e) => {
+      if (viewOwnsEscape()) return;
       if (!mine(e)) return;
       const target = e.target instanceof Element ? e.target : null;
       if (isTextInput(target)) return;
@@ -88,5 +95,5 @@ export function useAppEscape(store: RepoViewStore, root?: RefObject<HTMLElement 
       offOverlay();
       offApp();
     };
-  }, [store, root]);
+  }, [store, root, tabId]);
 }

@@ -4,7 +4,8 @@ import { expect, test, type Page, confirmArmed } from './test';
 const isAncestor = (repo: string, a: string, b: string) => { try { git(repo, 'merge-base', '--is-ancestor', a, b); return true; } catch { return false; } };
 const labelMenu = async (page: Page, name: string, item: string) => {
   await page.getByRole('grid', { name: 'Commit graph' }).getByText(name, { exact: true }).first().click({ button: 'right' });
-  await page.getByRole('menuitem', { name: item }).click();
+  // Exact: 3C's "Interactive rebase X onto Y" sits right under "Rebase X onto Y".
+  await page.getByRole('menuitem', { name: item, exact: true }).click();
 };
 
 test.describe('integrate (spec #2 §13.1, §13.4)', () => {

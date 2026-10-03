@@ -298,6 +298,31 @@ pub fn wip_staging(r: &TestRepo) {
     r.write("new.txt", "fresh 1\nfresh 2\nfresh 3\n");
 }
 
+/// File History and Blame (spec #3 §3.10, e2e flow 5). `story.txt` (8 lines) is started by Ada,
+/// its middle rewritten by Grace, moved under `src/` (line 6 changed) by Linus, and its opening
+/// sharpened by Ada; one unrelated commit sits in between. Blame at HEAD has six groups:
+/// [1 Sharpen] [2 Start] [3-4 Middle] [5 Start] [6 Move] [7-8 Start].
+pub fn file_history(r: &TestRepo) {
+    let story = |lines: [&str; 8]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+    let mut v = ["Once upon a time", "there was a repository.", "It had a few commits", "and a branch or two.", "Nobody blamed anyone,", "until the day it moved.", "The end.", "(really)"];
+    r.write("story.txt", &story(v));
+    r.commit_all_as("Start the story", "Ada Lovelace", "ada@example.com");
+    r.write("other.txt", "unrelated\n");
+    r.commit_all_as("Unrelated change", "Linus Torvalds", "linus@example.com");
+    v[2] = "It grew a middle part";
+    v[3] = "with a twist or two.";
+    r.write("story.txt", &story(v));
+    r.commit_all_as("Add the middle", "Grace Hopper", "grace@example.com");
+    std::fs::create_dir_all(r.path().join("src")).expect("create src");
+    r.git(&["mv", "story.txt", "src/story.txt"]);
+    v[5] = "until the day it moved under src.";
+    r.write("src/story.txt", &story(v));
+    r.commit_all_as("Move the story under src", "Linus Torvalds", "linus@example.com");
+    v[0] = "Once upon a sharper time";
+    r.write("src/story.txt", &story(v));
+    r.commit_all_as("Sharpen the opening", "Ada Lovelace", "ada@example.com");
+}
+
 /// A merge stopped on a conflict in `c.txt` (both modified), plus an unstaged edit of `side.txt`.
 pub fn wip_conflict(r: &TestRepo) {
     r.git(&["config", "user.name", "Ada Lovelace"]);
@@ -448,6 +473,43 @@ pub fn worktrees(r: &TestRepo) {
 }
 // --- end 2C T10 ---
 
+// --- 3C T1: the interactive rebase's fixture ---
+/// Spec #3 §7: `feature/a` → `feature/b` → `feature/c`, stacked on `main`. `main..feature/c` holds
+/// 8 commits and one merge (`side`, merged into feature/b, then deleted). `C1` rewrites the line
+/// `A2` added to `notes.txt`, so C1 moved below A2 conflicts. `B2` adds two files (Split's e2e).
+/// main moved on. HEAD: feature/c.
+pub fn irebase(r: &TestRepo) {
+    r.write("notes.txt", "one\n");
+    r.git(&["add", "notes.txt"]);
+    r.git(&["commit", "-q", "-m", "Base"]);
+    r.switch_new("feature/a");
+    r.commit("A1 Add parser");
+    r.write("notes.txt", "one\ntwo\n");
+    r.git(&["commit", "-q", "-am", "A2 Edit notes"]);
+    r.commit("A3 Add tests");
+    r.switch_new("feature/b");
+    r.commit("B1 Add lexer");
+    r.switch_new("side");
+    r.commit("S1 Side work");
+    r.switch("feature/b");
+    r.merge("side", "Merge side");
+    r.git(&["branch", "-q", "-D", "side"]);
+    r.write("lexer.txt", "lexer\n");
+    r.write("lexer_test.txt", "lexer test\n");
+    r.git(&["add", "lexer.txt", "lexer_test.txt"]);
+    r.git(&["commit", "-q", "-m", "B2 Refine lexer"]);
+    r.switch_new("feature/c");
+    r.write("notes.txt", "one\ntwo, revised\nthree\n");
+    r.git(&["commit", "-q", "-am", "C1 Edit notes again"]);
+    r.commit("C2 Polish");
+    r.switch("main");
+    r.write("main.txt", "main\n");
+    r.git(&["add", "main.txt"]);
+    r.git(&["commit", "-q", "-m", "Main moves"]);
+    r.switch("feature/c");
+}
+// --- end 3C T1 ---
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,4 +574,14 @@ mod tests {
         assert_eq!(r.git(&["rev-list", "--count", "main..topic"]), "60");
         assert_eq!(r.git(&["rev-list", "--count", "topic..main"]), "1");
     }
+
+    #[test]
+    fn file_history_moves_the_story_under_src() {
+        let r = TestRepo::new();
+        file_history(&r);
+        let log = r.git(&["log", "--follow", "--format=%s", "--", "src/story.txt"]);
+        assert_eq!(log.lines().collect::<Vec<_>>(), ["Sharpen the opening", "Move the story under src", "Add the middle", "Start the story"]);
+        assert!(r.git(&["status", "--porcelain"]).is_empty());
+    }
 }
+

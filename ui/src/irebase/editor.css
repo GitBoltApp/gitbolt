@@ -1,0 +1,104 @@
+/* Spec #3 §4.1: the interactive rebase editor, in the graph's place. Tokens only
+   (theme/themes.test.ts). Every cell keeps its width, so a dot, a ⚠ or a chip appearing never
+   shifts the row. Action colours: Pick --green, Reword/Squash/Fixup --orange, Drop --red,
+   Edit --blue (tokens.css has no --positive / --warning / --danger / --accent). */
+.irebase { --irebase-chips-w: 140px; display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--app-bg0); outline: none; }
+
+.irebase-header { flex: none; display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 4px 10px; background: var(--file-bar-bg); border-bottom: 1px solid var(--section-border); }
+.irebase-header h2 { flex: none; margin: 0; font-size: 13px; font-weight: 600; color: var(--text-selected); white-space: nowrap; }
+.irebase-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); white-space: nowrap; }
+.irebase-title .irebase-chip { display: inline; vertical-align: baseline; padding: 1px 5px; margin: 0 2px; overflow: visible; }
+.irebase-warn { display: inline-flex; align-items: center; gap: 4px; color: var(--orange); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.irebase-note { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.irebase-cancel-top { margin-left: auto; flex: none; }
+
+.irebase-moved { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--text-selected); background: color-mix(in srgb, var(--orange) 18%, var(--panel-bg0)); border-bottom: 1px solid var(--section-border); }
+
+.irebase-rows { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 4px 0; outline: none; }
+.irebase-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px var(--irebase-chips-w) 92px 16px 22px 1fr 12px 18px;
+  column-gap: 6px;
+  align-items: start;
+  min-height: 30px;
+  padding: 0 10px 0 4px;
+  box-sizing: border-box;
+  color: var(--text-normal);
+  background: var(--app-bg0);
+  cursor: default;
+  user-select: none;
+}
+.irebase-row:hover { background: color-mix(in srgb, var(--blue) 10%, var(--app-bg0)); }
+.irebase-row.is-selected { background: color-mix(in srgb, var(--blue) 20%, var(--app-bg0)); color: var(--text-selected); }
+.irebase-rows.dragging .irebase-row { transition: transform 150ms; }
+@media (prefers-reduced-motion: reduce) { .irebase-rows.dragging .irebase-row { transition: none; } }
+
+.irebase-handle { display: inline-grid; place-items: center; height: 30px; color: var(--text-disabled); cursor: grab; touch-action: none; }
+.irebase-row:hover .irebase-handle { color: var(--text-secondary); }
+.irebase-rows.dragging .irebase-handle { cursor: grabbing; }
+
+.irebase-chips { display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; }
+.irebase-chip { display: inline-flex; align-items: center; height: var(--graph-chip-h, 20px); padding: 0 5px; border-radius: 3px; background: color-mix(in srgb, var(--graph-0) 30%, transparent); color: var(--text-selected); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 12px; }
+
+.irebase-action { display: flex; min-width: 0; --act: var(--green); }
+.irebase-action.is-reword, .irebase-action.is-squash, .irebase-action.is-fixup { --act: var(--orange); }
+.irebase-action.is-drop { --act: var(--red); }
+.irebase-action.is-edit { --act: var(--blue); }
+.irebase-action button { padding: 2px 6px 2px 8px; font-size: 12px; font-weight: 600; color: var(--act); background: color-mix(in srgb, var(--act) 14%, var(--app-bg0)); border-color: color-mix(in srgb, var(--act) 45%, transparent); }
+.irebase-action button:hover { background: color-mix(in srgb, var(--act) 24%, var(--app-bg0)); }
+.irebase-action.is-base { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding-left: 8px; }
+
+.irebase-fold { display: inline-grid; place-items: center; color: var(--orange); }
+.irebase-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.irebase-dot { display: inline-grid; place-items: center; color: var(--blue); font-weight: 700; }
+.irebase-conflict { display: inline-grid; place-items: center; color: var(--yellow); }
+/* A prediction under way keeps the previous marks, dimmed, until its answer replaces them. */
+.irebase-rows.predicting .irebase-conflict { opacity: 0.4; }
+
+/* Cells start at the row's top and keep its 30 px, so the message editor growing the row moves
+   none of them (no layout shift). */
+.irebase-row > .irebase-handle, .irebase-row > .irebase-chips, .irebase-row > .irebase-action, .irebase-row > .irebase-fold,
+.irebase-row > .irebase-summary, .irebase-row > .irebase-dot, .irebase-row > .irebase-conflict { height: 30px; }
+.irebase-row > .irebase-action { align-items: center; }
+.irebase-row > .irebase-summary { line-height: 30px; }
+.irebase-row > .avatar { margin-top: 5px; }
+
+/* Row states: Drop struck through, folded (Squash / Fixup into a row below) dimmed. */
+.irebase-row.is-drop .irebase-summary { text-decoration: line-through; color: var(--text-disabled); }
+.irebase-row.is-drop .avatar { opacity: 0.5; }
+.irebase-row.is-folded > :not(.irebase-action):not(.irebase-fold):not(.irebase-handle) { opacity: 0.6; }
+
+/* The message editor spans the summary column and grows the row. */
+.irebase-message-editor { grid-column: 6 / 7; padding: 4px 0; min-width: 0; }
+
+/* The base's tip: read-only, dimmed. */
+.irebase-base { cursor: default; opacity: 0.6; border-top: 1px dashed var(--section-border); }
+.irebase-base:hover { background: var(--app-bg0); }
+.irebase-base .irebase-handle { cursor: default; }
+.irebase-base .irebase-summary { grid-column: 6 / -1; }
+
+.irebase-footer { flex: none; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 10px; background: var(--file-bar-bg); border-top: 1px solid var(--section-border); }
+.irebase-keys { flex: 1; min-width: 0; font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- 3C T11: the chip column (spec #3 §4.1). The graph's label-chip look; the × and the "+"
+   take their room always and only show on the row's hover (visibility, never display), so
+   nothing shifts. The name input floats over the row (its containing block is the row, so the
+   clipped chip list doesn't clip it). ---- */
+.irebase-chip-list { display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; }
+.irebase-chip-wrap { display: inline-flex; align-items: center; gap: 1px; min-width: 0; flex: none; max-width: 100%; color: var(--text-secondary); }
+.irebase-chip[draggable="true"] { cursor: grab; }
+.irebase-chip.is-deleted { text-decoration: line-through; opacity: 0.6; }
+.irebase-chip.is-locked { background: color-mix(in srgb, var(--graph-0) 18%, transparent); color: var(--text-normal); }
+.irebase-chip.is-rebased { font-weight: 700; box-shadow: inset 0 0 0 1px var(--graph-0); background: color-mix(in srgb, var(--graph-0) 45%, transparent); }
+.irebase-chip.is-base { background: color-mix(in srgb, var(--graph-1) 30%, transparent); }
+.irebase-chip-x, .irebase-chip-add { all: unset; flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 3px; color: var(--text-secondary); cursor: pointer; visibility: hidden; }
+.irebase-row:hover .irebase-chip-x, .irebase-row:hover .irebase-chip-add,
+.irebase-chip-x:focus-visible, .irebase-chip-add:focus-visible { visibility: visible; }
+.irebase-chip-x:hover, .irebase-chip-add:hover { background: var(--control-hover-bg); color: var(--text-selected); }
+.irebase-chip-x:focus-visible, .irebase-chip-add:focus-visible { outline: 1px solid var(--focus-outline); }
+.irebase-chip-wrap.is-deleted .irebase-chip-x { visibility: visible; color: var(--red); }
+.irebase-row.chip-over { box-shadow: inset 0 0 0 2px var(--blue); }
+.irebase-chip-input { position: absolute; left: 28px; top: 3px; z-index: 3; display: flex; flex-direction: column; gap: 2px; }
+.irebase-chip-input input { width: 120px; box-sizing: border-box; height: 24px; padding: 0 6px; font: inherit; font-size: 12px; color: var(--text-selected); background: var(--wip-input-bg); border: 1px solid var(--focus-outline); border-radius: 3px; outline: none; }
+.irebase-chip-error { padding: 2px 6px; font-size: 11px; color: var(--text-selected); background: color-mix(in srgb, var(--red) 35%, var(--panel-bg1)); border-radius: 3px; box-shadow: 0 1px 4px var(--shadow-popup); white-space: nowrap; }

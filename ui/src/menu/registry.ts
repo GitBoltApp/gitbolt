@@ -1,23 +1,28 @@
 import type { MenuRow } from './types';
 
-export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip';
+export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection';
 
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   commit: ['sync', 'integrate', 'branch', 'commit', 'stash', 'forge', 'manage', 'copy', 'view'],
-  // Ruling (fix round 1, item 5): spec §7 wins over 1B's own order here — Copy name, then Forge
-  // link.
-  tag: ['copy', 'forge', 'view'],
-  file: ['stage', 'conflict', 'copy', 'forge', 'open', 'view'],
+  // Spec #3 §4.3: the tag's Push (3B) and Delete (3B), then 1B's rows. Ruling (fix round 1, item
+  // 5): spec §7 wins over 1B's own order here — Copy name, then Forge link.
+  tag: ['sync', 'manage', 'copy', 'forge', 'view'],
+  // 3A: 'restore' (from a commit) after the WIP groups, 'history' (File history, Blame) last.
+  file: ['stage', 'conflict', 'restore', 'copy', 'forge', 'open', 'view', 'history'],
   folder: ['copy', 'open'],
   monaco: ['copy', 'forge', 'open'],
   tab: ['edit', 'close', 'restore', 'repo'],
   column: ['columns'],
   // The sidebar's own items (remote, worktree, stash): 2C's worktree and stash rows first (spec
-  // #2 §10, §11), then the read-only rows and "Show in graph" (plan 1C Task 15b).
-  sidebar: ['worktree', 'stash', 'copy', 'forge', 'open', 'view'],
+  // #2 §10, §11), then the read-only rows and "Show in graph" (plan 1C Task 15b). A remote's
+  // "Push all tags" (3B) comes first.
+  sidebar: ['sync', 'worktree', 'stash', 'copy', 'forge', 'open', 'view'],
   // A WIP row (spec #2 §14): Switch to this worktree, Open in a new tab, then Stash.
   wip: ['worktree', 'stash'],
+  // Two or more selected commits (spec #3 §4.3): 3C's Squash, 3B's Cherry-pick and Revert,
+  // 3C's "Interactive rebase from here".
+  selection: ['squash', 'commit', 'rebase'],
 };
 
 export interface MenuContribution<T, E> {

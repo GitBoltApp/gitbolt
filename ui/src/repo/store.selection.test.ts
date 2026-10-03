@@ -3,7 +3,7 @@ import type { FileChange } from '../api/gen/FileChange';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { filesKey } from './services';
-import { createRepoViewStore, fileViewTarget, selectedIndex, targetFor, type RepoViewStore } from './store';
+import { createRepoViewStore, fileViewTarget, inCommitSelection, selectedCommits, selectedIndex, targetFor, type RepoViewStore } from './store';
 import { recordingServices as fakeServices } from './testServices';
 
 // K27 (spec §9.4): the graph's selection. Click order sets a compare's direction; Ctrl+click
@@ -160,12 +160,12 @@ describe('selection: multi-select (K27)', () => {
     click(3);
     click(1, { ctrl: true });
     click(2, { ctrl: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [A, B, C] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [A, B, C] });
     expect(st().sections).toEqual([]);
     expect([st().details, st().message, st().diff]).toEqual([{ status: 'idle' }, { status: 'idle' }, null]);
     expect(picks(s)).toEqual({ rows: [3, 1, 2], anchor: 2, cursor: 2 });
     // The panel shows it at once: there's nothing to load.
-    expect(st().panel?.selection).toEqual({ kind: 'multi', ids: [A, B, C] });
+    expect(st().panel?.selection).toMatchObject({ kind: 'multi', ids: [A, B, C] });
     expect(st().panelPending).toBe(false);
   });
 
@@ -173,7 +173,7 @@ describe('selection: multi-select (K27)', () => {
     const { st, click } = setup();
     for (const i of [5, 4, 3, 2, 1]) click(i, { ctrl: i !== 5 });
     click(0, { ctrl: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: ['wip:/r', A, B, C, D, E] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: ['wip:/r', A, B, C, D, E] });
   });
 
   it('Ctrl+click on a selected row removes it: 3 → a compare of the other two, in click order', () => {
@@ -226,12 +226,12 @@ describe('selection: Shift ranges (K27)', () => {
     const { st, click, s } = setup();
     click(1);
     click(4, { shift: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [A, B, C, D] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [A, B, C, D] });
     expect(picks(s)).toEqual({ rows: [1, 2, 3, 4], anchor: 1, cursor: 4 });
     // Upwards too, from the same anchor.
     click(5);
     click(3, { shift: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [C, D, E] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [C, D, E] });
     expect(picks(s)).toEqual({ rows: [5, 4, 3], anchor: 5, cursor: 3 });
   });
 
@@ -262,7 +262,7 @@ describe('selection: Shift ranges (K27)', () => {
     click(1);
     click(3, { ctrl: true });
     click(5, { shift: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [C, D, E] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [C, D, E] });
   });
 
   it('Shift+Ctrl+click adds the range to the selection', () => {
@@ -270,7 +270,7 @@ describe('selection: Shift ranges (K27)', () => {
     click(1);
     click(3, { ctrl: true });
     click(5, { ctrl: true, shift: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [A, C, D, E] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [A, C, D, E] });
     expect(picks(s)).toEqual({ rows: [1, 3, 4, 5], anchor: 3, cursor: 5 });
   });
 
@@ -285,7 +285,7 @@ describe('selection: Shift ranges (K27)', () => {
     click(2);
     click(selectedIndex(st()) + 1, { shift: true });
     click(selectedIndex(st()) + 1, { shift: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [B, C, D] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [B, C, D] });
     click(selectedIndex(st()) - 1, { shift: true });
     expect(st().selection).toEqual({ kind: 'compare', from: B, to: C });
   });
@@ -317,7 +317,7 @@ describe('selection: leaving and refreshing (K27)', () => {
     expect(picks(s)).toEqual({ rows: [2, 0], anchor: 0, cursor: 0 });
     expect(st().selection).toEqual({ kind: 'compare', from: A, to: C });
     click(1, { ctrl: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [C, B, A] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [C, B, A] });
     // A refresh that drops one of three: the two left are a compare, in pick order; the anchor
     // and cursor (the dropped row) move to the row picked last of those left.
     st().setGraph({ ...graph, rows: [row(E), row(A), row(C)] });
@@ -336,9 +336,9 @@ describe('selection: leaving and refreshing (K27)', () => {
     st().setGraph({ ...graph, rows: [row(A), row(B), row(C), row(D), row(E)] });
     click(0);
     click(4, { shift: true });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [A, B, C, D, E] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [A, B, C, D, E] });
     st().setGraph({ ...graph, rows: [row(A), row(C), row(D), row(E)] });
-    expect(st().selection).toEqual({ kind: 'multi', ids: [A, C, D, E] });
+    expect(st().selection).toMatchObject({ kind: 'multi', ids: [A, C, D, E] });
   });
 
   it('compareCommits: from → to, with the anchor and the keyboard on `from`', () => {
@@ -382,5 +382,72 @@ describe('selection: leaving and refreshing (K27)', () => {
     expect(picks(s)).toEqual({ rows: [], anchor: null, cursor: null });
     st().exitCompare();
     expect([st().selection, st().sections]).toEqual([{ kind: 'none' }, []]);
+  });
+});
+
+describe('the multi-selection names its anchor (spec #3 §4.3, the 3B/3C contract)', () => {
+  it('a Shift range: the row it started from; Ctrl+clicks: the row clicked last', () => {
+    const { st, click } = setup();
+    click(1);
+    click(4, { shift: true });
+    expect(st().selection).toEqual({ kind: 'multi', ids: [A, B, C, D], anchor: A });
+    click(3);
+    click(1, { ctrl: true });
+    click(2, { ctrl: true });
+    expect(st().selection).toEqual({ kind: 'multi', ids: [A, B, C], anchor: B });
+  });
+
+  it("a refresh keeps the anchor, or moves it to the row picked last when the anchor's row went", () => {
+    const { st, click } = setup();
+    for (const i of [1, 2, 3, 4]) click(i, { ctrl: i !== 1 });
+    st().setGraph({ ...graph, rows: graph.rows.filter((r) => r.id !== A) });
+    expect(st().selection).toEqual({ kind: 'multi', ids: [B, C, D], anchor: D });
+    // Two left: a compare, in pick order (K27).
+    st().setGraph({ ...graph, rows: graph.rows.filter((r) => r.id !== A && r.id !== D) });
+    expect(st().selection).toMatchObject({ kind: 'compare', from: B, to: C });
+  });
+
+  it("the anchor's own row going moves it to the row picked last", () => {
+    const { st, click } = setup();
+    for (const i of [1, 2, 3, 4]) click(i, { ctrl: i !== 1 });
+    expect(st().selection).toMatchObject({ anchor: D });
+    st().setGraph({ ...graph, rows: graph.rows.filter((r) => r.id !== D) });
+    expect(st().selection).toEqual({ kind: 'multi', ids: [A, B, C], anchor: C });
+  });
+});
+
+describe('selectedCommits and inCommitSelection (spec #3 §4.3)', () => {
+  const M = 'f'.repeat(40);
+  const S = '5'.repeat(40);
+  const g2: GraphPayload = { ...graph, rows: [wipRow('/r'), row(A), { ...row(M), kind: 'merge', parents: [A, B] }, row(B), { ...row(S), kind: 'stash' }, row(C)] };
+
+  it('one commit, a compare\'s two, a range: newest first; WIP rows and stash nodes left out; merges flagged', () => {
+    const { st, click } = setup(g2);
+    expect(selectedCommits(st())).toEqual([]);
+    click(1);
+    expect(selectedCommits(st())).toEqual([{ oid: A, summary: 'a', merge: false }]);
+    click(3);
+    click(1, { ctrl: true });
+    expect(selectedCommits(st()).map((c) => c.oid)).toEqual([A, B]);
+    click(0);
+    click(5, { shift: true });
+    expect(selectedCommits(st())).toEqual([
+      { oid: A, summary: 'a', merge: false },
+      { oid: M, summary: 'f', merge: true },
+      { oid: B, summary: 'b', merge: false },
+      { oid: C, summary: 'c', merge: false },
+    ]);
+  });
+
+  it('only the rows of a selection of two or more commits are in it', () => {
+    const { st, click } = setup();
+    click(1);
+    expect(inCommitSelection(st(), A)).toBe(false);
+    click(2, { ctrl: true });
+    expect(inCommitSelection(st(), A)).toBe(true);
+    expect(inCommitSelection(st(), C)).toBe(false);
+    click(0);
+    click(1, { ctrl: true });
+    expect(inCommitSelection(st(), A)).toBe(false);
   });
 });

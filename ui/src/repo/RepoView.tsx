@@ -10,10 +10,12 @@ import { displayedOrder } from '../files/fileListPrefs';
 import { GraphView } from '../graph/GraphView';
 import { rebasingChip } from '../integrate/rebasing';
 import type { RowDim } from '../graph/rowDim';
-import { commitMenu, labelMenu, monacoMenu, warmCommitMenu, wipMenu } from '../menu/menuEnv';
+import { graphRowMenu, labelMenu, monacoMenu, warmCommitMenu, wipMenu } from '../menu/menuEnv';
 import { graphLabelDoubleClick, graphRowDoubleClick } from '../graph/rowActions';
 import { useRowEditor } from '../graph/rowEditor';
 import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
+import { useRepoContext } from '../app/repoContext';
+import { CenterViewHost, centerViewOnTop, useCenterView, useCenterViewHasEditor } from './centerView';
 import { useAppEscape } from './escape';
 import { useFocusZone } from './focus';
 import { LazyDiffPanel } from './LazyDiffPanel';
@@ -110,7 +112,7 @@ function ConnectedGraph() {
   const services = useRepoView((s) => s.services);
   useEffect(() => warmCommitMenu(services), [services]);
   const onContextMenu = useCallback((e: MenuEventLike, row: RowPayload) => {
-    openContextMenu(e, commitMenu(store, row));
+    openContextMenu(e, graphRowMenu(store, row));
   }, [store]);
   const onLabelContextMenu = useCallback((e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => {
     openContextMenu(e, labelMenu(store, row, label));
@@ -154,9 +156,14 @@ function DetailsBoundary() {
 }
 
 function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
+  const { tabId } = useRepoContext();
+  const view = useCenterView(tabId);
+  const center = view !== null;
   const store = useRepoViewStore();
   const diff = useRepoView((s) => s.diff);
   const diffOpen = diff !== null;
+  // The later of the view and the file is on top (`centerViewOnTop`).
+  const viewOnTop = centerViewOnTop(view, diff);
   // The last file opened: what the kept (hidden) diff panel holds while none is (J16). `session`
   // counts the opens, so the panel knows a reopen from a switch while open.
   const [kept, setKept] = useState<{ target: DiffTarget; session: number; closed: boolean } | null>(null);
@@ -180,7 +187,7 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
   // details panel per pointer event.
   const rightPanelRef = useRef<HTMLElement>(null);
   // Esc, from wherever the focus is (feedback J4): one handler on `window`, not per zone.
-  useAppEscape(store, viewRef);
+  useAppEscape(store, viewRef, tabId);
   // The kept diff panel may unmount with the view while hidden, when its own attach cleanup has
   // already run (J16): let the shared editor go of its box. Outside the panel's `<Activity>`, so
   // it runs on this unmount; a microtask, once the view's DOM is gone.
@@ -191,14 +198,16 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
   // identity changes on every file switch, and re-registering the same handler each time would be
   // wasted work. Deferred behind it so this never triggers Monaco's own lazy chunk (spec §10.3)
   // on a tab that never opens a diff; by the time it flips, `LazyDiffPanel` is already loading it.
-  const diffEverOpened = kept !== null;
+  // A center view's editor (File History's file) needs it too, a diff opened or not.
+  const viewEditor = useCenterViewHasEditor(tabId);
+  const menuWanted = kept !== null || viewEditor;
   useEffect(() => {
-    if (!diffEverOpened) return;
+    if (!menuWanted) return;
     let live = true;
     void loadMonacoHost().then((host) => {
       if (!live) return;
       host.setContextMenuHandler((e) => {
-        const build = monacoMenu(store, e);
+        const build = monacoMenu(store, e, tabId);
         const rows = build();
         if (rows.length > 0) useMenu.getState().show(rows, e.x, e.y, performance.now(), build);
       });
@@ -207,13 +216,13 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
       live = false;
       void loadMonacoHost().then((host) => host.setContextMenuHandler(null)).catch(() => {});
     };
-  }, [diffEverOpened, store]);
+  }, [menuWanted, store, tabId]);
   // Ctrl+W closes the open file from anywhere, even with focus on <body> (I1), else the tab: the
   // app's shortcut (`app/coreActions.ts`), acting on the active tab's store.
   return (
     <div ref={viewRef} className="repo-view" data-testid="repo-view">
       <main className="center-panel">
-        <Activity mode={diffOpen ? 'hidden' : 'visible'}>
+        <Activity mode={diffOpen || center ? 'hidden' : 'visible'}>
           <PanelErrorBoundary name="Graph"><ConnectedGraph /></PanelErrorBoundary>
           {graphOverlay}
         </Activity>
@@ -221,8 +230,17 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
             reopen wakes the same panel and editor (no lazy-chunk suspense, no re-attach). Hidden,
             it runs no effects: no keys, observers, timers or focus. */}
         {kept && (
-          <Activity mode={diffOpen ? 'visible' : 'hidden'}>
+          <Activity mode={diffOpen && !viewOnTop ? 'visible' : 'hidden'}>
             <PanelErrorBoundary name="Diff" resetKey={diff?.key ?? kept.target.key}><LazyDiffPanel target={diff ?? kept.target} session={kept.session} /></PanelErrorBoundary>
+          </Activity>
+        )}
+        {/* Spec #3: a center view (File History, …) takes the graph's place. The later of it and
+            a file is on top. A view opened over a file hides it until the view closes; a file
+            opened over the view wins: the view waits mounted underneath, hidden with its state
+            kept (3C's edited rebase plan), and comes back when the file closes. */}
+        {center && (
+          <Activity mode={viewOnTop ? 'visible' : 'hidden'}>
+            <CenterViewHost tabId={tabId} />
           </Activity>
         )}
       </main>

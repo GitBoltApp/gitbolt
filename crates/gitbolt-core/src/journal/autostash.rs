@@ -32,7 +32,7 @@ pub(crate) enum AutostashRule {
     /// (git would refuse); otherwise git carries the changes.
     Overlap,
     /// Merge, rebase, pull (2D): any tracked change, or `untracked ∩ touched`.
-    #[allow(dead_code)] // first users: 2D's merge, rebase and pull
+    #[allow(dead_code)] // its 3B user (cherry-pick, revert) moved to `Touching` in T1 fix round 1
     AnyTracked,
     // --- 2D T14: a merge's prediction ---
     /// `AnyTracked` for a merge or rebase of `target` into HEAD: the worktree ends at their
@@ -56,6 +56,12 @@ pub(crate) enum AutostashRule {
     /// along). Built by `precheck::MoveCheck::rule_over`.
     With(Box<AutostashRule>, Swept),
     // --- end 2C repo-safety ---
+    // --- 3B T1 fix ---
+    /// `AnyTracked` where `touched` is given, not diffed against a target: the paths a
+    /// cherry-pick's or revert's commits change. An untracked file there would stop git part-way
+    /// ("would be overwritten"), so it's stashed too.
+    Touching(Vec<String>),
+    // --- end 3B T1 fix ---
 }
 
 // --- 2C repo-safety ---
@@ -121,7 +127,7 @@ pub(crate) async fn plan(api: &Api, root: &Path, tmp: &Path, spec: &AutostashSpe
     };
     // --- end 2D T14 ---
     let mut touched: BTreeSet<String> = match (&base, target) {
-        (AutostashRule::Paths(p), _) => p.iter().cloned().collect(),
+        (AutostashRule::Paths(p), _) | (AutostashRule::Touching(p), _) => p.iter().cloned().collect(),
         (_, Some(target)) => {
             let repo = gix::open(root).map_err(gix_err)?;
             match repo.head_id() {
@@ -132,6 +138,18 @@ pub(crate) async fn plan(api: &Api, root: &Path, tmp: &Path, spec: &AutostashSpe
         (_, None) => BTreeSet::new(),
     };
     touched.extend(swept); // 2C repo-safety (M1)
+    // --- 3B T1 fix round 2 ---
+    // `Touching`: an untracked path where a pick puts a directory (`d` against `d/x`), or under
+    // a path where it puts a file (`d/y` against `d`), stops git as surely as one at the path.
+    if matches!(base, AutostashRule::Touching(_)) {
+        let collide = |u: &str| {
+            let u = u.trim_end_matches('/');
+            touched.iter().any(|t| t.starts_with(&format!("{u}/")) || u.starts_with(&format!("{t}/")))
+        };
+        let more: Vec<String> = dirty.untracked.iter().filter(|u| !touched.contains(*u) && collide(u)).cloned().collect();
+        touched.extend(more);
+    }
+    // --- end 3B T1 fix round 2 ---
     // --- 2D T14: a rebase checks out its target first ---
     let checkout_touched: BTreeSet<String> = match (&base, spec.target) {
         (AutostashRule::Rebased, Some(t)) => {
@@ -156,7 +174,7 @@ pub(crate) async fn plan(api: &Api, root: &Path, tmp: &Path, spec: &AutostashSpe
     // 2C repo-safety: ignored files the move sweeps away need the stash whatever else is dirty.
     let needed = match base {
         AutostashRule::Overlap | AutostashRule::Paths(_) | AutostashRule::With(..) => !overlap.is_empty() || !ignored.is_empty(),
-        AutostashRule::AnyTracked | AutostashRule::Merged | AutostashRule::Rebased => !dirty.tracked.is_empty() || dirty.untracked.iter().any(|p| touched.contains(p) || checkout_touched.contains(p)) || !ignored.is_empty(),
+        AutostashRule::AnyTracked | AutostashRule::Merged | AutostashRule::Rebased | AutostashRule::Touching(_) => !dirty.tracked.is_empty() || dirty.untracked.iter().any(|p| touched.contains(p) || checkout_touched.contains(p)) || !ignored.is_empty(),
     };
     if !needed {
         return Ok(None);
@@ -483,7 +501,7 @@ pub(crate) async fn restore_paused(cx: &mut WriteCx<'_>, k: KeptStash) -> Option
 fn actionable(k: &KeptStash) -> Result<String, GbError> {
     match (&k.oid, k.reason) {
         (_, KeptReason::Paused) => Err(GbError::new(GbErrorKind::InvalidInput, "That stash waits for the merge or rebase to finish")),
-        (_, KeptReason::Pending) | (None, _) => Err(GbError::new(GbErrorKind::InvalidInput, "That stash's operation is still running")),
+        (_, KeptReason::Pending | KeptReason::AbortRunning) | (None, _) => Err(GbError::new(GbErrorKind::InvalidInput, "That stash's operation is still running")),
         (Some(oid), _) => Ok(oid.clone()),
     }
 }

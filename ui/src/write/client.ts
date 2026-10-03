@@ -68,6 +68,19 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
     return { flag: 'discard', req: { title: 'Discard your edits?', body: `The side you chose replaces ${d.path}, and Undo can't bring the edits back.`, confirmLabel: 'Discard edits', arm: `Click again to replace your edits to ${d.path}`, caption: "Undo can't bring the edits back.", danger: true } };
   }
   // --- end 2D T15 ---
+  // --- 3A T3 ---
+  // Restore a file from a commit over its own changes (spec #3 §3.8): undoable, so a warning.
+  if (d?.kind === 'restoreOverChanges' && !asked.discard) {
+    return { flag: 'discard', req: { title: 'Replace your changes?', body: `${d.path} has changes of its own. Restoring replaces them; you can undo this.`, confirmLabel: 'Restore', arm: `Click again to replace your changes to ${d.path}`, caption: `${d.path} has changes of its own.`, tone: 'warn' } };
+  }
+  // --- end 3A T3 ---
+  // --- 3B T6 ---
+  // Undo of a "without committing" pick stopped on conflicts discards its changes, a resolution
+  // included (3B T2): the core's own question and arm, then `confirmDiscard`.
+  if (d?.kind === 'undoStoppedPick' && !asked.discard) {
+    return { flag: 'discard', req: { title: `Undo the stopped ${d.op}?`, body: err.message, confirmLabel: 'Undo', arm: d.arm, caption: 'Its changes are discarded, including anything you resolved since.', danger: true } };
+  }
+  // --- end 3B T6 ---
   return null;
 }
 

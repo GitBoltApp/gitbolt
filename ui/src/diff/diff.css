@@ -18,7 +18,10 @@
 .monaco-host { position: absolute; inset: 0; }
 .diff-message { display: grid; place-items: center; align-content: center; gap: 8px; flex: 1; color: var(--text-secondary); }
 .diff-message p { margin: 0; }
-.diff-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); background: var(--app-bg0); flex: none; }
+/* The sides never narrower than their content: with room, File/Diff View is centred; without
+   (the end group with #3's Blame | History is ~380 px, so centring needs a ~930 px panel), it
+   moves left of centre rather than under the end group. */
+.diff-toolbar { display: grid; grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); background: var(--app-bg0); flex: none; }
 .diff-toolbar-start, .diff-toolbar-end { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .diff-toolbar-end { justify-self: end; gap: 10px; }
 .diff-toolbar-group { display: flex; align-items: center; gap: 2px; }
@@ -27,12 +30,12 @@
    when even that doesn't fit, rather than overlapping File/Diff View. */
 @container diff-panel (max-width: 760px) {
   .diff-toolbar { display: flex; flex-wrap: wrap; row-gap: 4px; }
-  .diff-toolbar-end { margin-left: auto; }
+  .diff-toolbar-end { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; }
 }
 .diff-toolbar .segmented > button { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
 .diff-toolbar button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 .diff-toolbar .segmented > button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
-.diff-toolbar button:disabled { opacity: 0.4; cursor: default; }
+.diff-toolbar button:disabled, .diff-toolbar button[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 .diff-toolbar .icon-button:disabled:hover { background: none; color: var(--text-secondary); }
 .diff-banner { padding: 4px 12px; background: color-mix(in srgb, var(--yellow) 18%, transparent); color: var(--text-selected); flex: none; }
 .text-button { all: unset; cursor: pointer; padding: 3px 10px; border-radius: 4px; background: var(--blue); color: var(--text-on-accent); }

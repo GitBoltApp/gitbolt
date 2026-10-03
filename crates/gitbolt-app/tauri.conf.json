@@ -32,7 +32,7 @@
     "longDescription": "A fast desktop Git client.",
     "icon": ["icons/128x128@2x.png", "icons/32x32.png", "icons/64x64.png", "icons/128x128.png", "icons/icon.png"],
     "linux": {
-      "deb": { "depends": ["libgtk-4-1", "git (>= 1:2.30)"], "section": "vcs", "files": { "/usr/share/icons/hicolor/scalable/apps/gitbolt.svg": "icons/source.svg" } }
+      "deb": { "depends": ["libgtk-4-1", "git (>= 1:2.40)"], "section": "vcs", "files": { "/usr/share/icons/hicolor/scalable/apps/gitbolt.svg": "icons/source.svg" } }
     }
   }
 }

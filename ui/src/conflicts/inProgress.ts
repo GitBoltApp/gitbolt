@@ -30,6 +30,11 @@ export interface OperationView {
   kind: InProgress['kind'];
   /** A rebase's stopped commit: its message prefills the box when git wrote none. */
   stoppedAt: string | null;
+  /** At an interactive rebase's Edit stop (spec #3 §3.5): the commit git made there; `null` otherwise. */
+  editStop: string | null;
+  /** 3C T13 fix 1 (A1): an Edit stop of a rebase started outside GitBolt (in a terminal): the core
+   * refuses Commit and Split there, so they hide. */
+  editElsewhere?: boolean;
   /** The status block's accessible name. */
   region: string;
   /** "Rebasing feature/x onto main (step 1 of 2)". */
@@ -64,6 +69,7 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
       return {
         kind: 'merge',
         stoppedAt: null,
+        editStop: null,
         region: 'Merge in progress',
         title: `Merging ${y} into ${branch ? branchOf(branch) : 'HEAD'}`,
         detail: null,
@@ -78,18 +84,29 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
     case 'rebase': {
       // A rebase git started has only the onto oid: a branch there names it, as the user typed it.
       const onto = paused?.target ?? nameAt(p.onto) ?? short(p.onto);
+      // --- 3C T13: an Edit stop (its message is HEAD's: the commit's subject) ---
+      const edit = p.editStop && p.conflicted === 0 ? p.editStop : null;
+      // `gitbolt`: GitBolt started this rebase (its interactive rebase), not a terminal.
+      const elsewhere = !!edit && !p.gitbolt;
+      // --- end 3C T13 ---
+      // 3C final fixes: a new message a hook refused (M1, M2); an Edit row whose pick conflicted
+      // (I1: git won't stop for it again, so this stop is the Edit's).
+      const failed = p.messageFailed ? `The new message wasn't applied: ${p.messageFailed.replace(/\.+$/, '')}. Type it again to retry, or Continue to keep the old one.` : null;
+      const stillPaused = p.editConflict ? 'This commit was set to Edit: make any other changes now, then Continue.' : 'No conflicted files left: it is paused. Continue to go on.';
       return {
         kind: 'rebase',
         stoppedAt: p.stoppedAt,
+        editStop: edit,
+        editElsewhere: elsewhere,
         region: 'Rebase in progress',
         title: `Rebasing ${branchOf(p.headName)} onto ${onto} (step ${p.step} of ${p.total})`,
-        detail: at(p.stoppedAt, 'Stopped at'),
+        detail: edit ? `Stopped to edit ${short(edit)} ${p.message.split('\n')[0]}`.trimEnd() : at(p.stoppedAt, 'Stopped at'),
         // No conflicted file left: still paused (a cancelled Continue, a killed run, a failing hook).
-        hint: p.conflicted ? resolveFirst(p.conflicted) : 'No conflicted files left: it is paused. Continue to go on.',
+        hint: elsewhere ? 'Finish this rebase where you started it.' : failed ?? (edit ? 'Amend it, or split it into smaller commits, then Continue.' : p.conflicted ? resolveFirst(p.conflicted) : stillPaused),
         conflicted: p.conflicted,
         primary: 'Continue rebase',
-        skip: true,
-        stop: `rebase:${p.stoppedAt ?? ''}:${p.step}`,
+        skip: !edit,
+        stop: `rebase:${edit ?? p.stoppedAt ?? ''}:${p.step}`,
         message: withoutComments(p.message),
       };
     }
@@ -100,6 +117,7 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
       return {
         kind: p.kind,
         stoppedAt: null,
+        editStop: null,
         region: pick ? 'Cherry-pick in progress' : 'Revert in progress',
         title: at(p.head, pick ? 'Cherry-picking' : 'Reverting') ?? `A ${name} is in progress`,
         detail: null,
@@ -112,6 +130,6 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
       };
     }
     default:
-      return { kind: 'other', stoppedAt: null, region: 'Operation in progress', title: `${/^[aeiou]/.test(p.what) ? 'An' : 'A'} ${p.what} is in progress`, detail: null, hint: 'Finish it in a terminal.', conflicted: 0, primary: null, skip: false, stop: p.what, message: '' };
+      return { kind: 'other', stoppedAt: null, editStop: null, region: 'Operation in progress', title: `${/^[aeiou]/.test(p.what) ? 'An' : 'A'} ${p.what} is in progress`, detail: null, hint: 'Finish it in a terminal.', conflicted: 0, primary: null, skip: false, stop: p.what, message: '' };
   }
 }

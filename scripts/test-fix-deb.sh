@@ -16,7 +16,7 @@ Package: gitbolt
 Version: 0.1.0
 Architecture: amd64
 Maintainer: fix-deb self-test <test@example.invalid>
-Depends: libgtk-4-1, git (>= 1:2.30), libgtk-3-0
+Depends: libgtk-4-1, git (>= 1:2.40), libgtk-3-0
 Description: fix-deb self-test
 EOT
 dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/t.deb" >/dev/null
@@ -27,7 +27,7 @@ deps=$(dpkg-deb -f "$work/t.deb" Depends)
 fail() { echo "test-fix-deb: FAIL: $*" >&2; exit 1; }
 grep -Eq '(^|, )libgtk-3-0' <<<"$deps" && fail "GTK 3 still declared: $deps"
 grep -Eq '(^|, )libgtk-4-1' <<<"$deps" || fail "lost libgtk-4-1: $deps"
-grep -Eq '(^|, )git \(>= 1:2\.30\)' <<<"$deps" || fail "lost the git requirement: $deps"
+grep -Eq '(^|, )git \(>= 1:2\.40\)' <<<"$deps" || fail "lost the git requirement: $deps"
 grep -Eq '(^|, )libc6 \(>= ' <<<"$deps" || fail "no dpkg-shlibdeps result: $deps"
 [ "$(data_sum)" = "$before" ] || fail "the data member changed"
 dpkg-deb -c "$work/t.deb" | grep -Eq '^-rwsr-xr-x (root/root|0/0) .*/chrome-sandbox$' || { dpkg-deb -c "$work/t.deb" >&2; fail "chrome-sandbox lost root:root 4755"; }

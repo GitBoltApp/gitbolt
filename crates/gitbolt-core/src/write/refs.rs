@@ -18,10 +18,12 @@ pub(crate) enum Backend {
     Cli,
 }
 
-/// The ref's object id, `None` when it doesn't exist (a symbolic ref is followed).
+/// The ref's object id, `None` when it doesn't exist. A symbolic ref is followed; an annotated
+/// tag's ref gives its tag object, not the commit it peels to (3B T3: a tag's CAS and its Undo
+/// keep the tag object).
 pub(crate) fn read_ref(repo: &gix::Repository, name: &str) -> Result<Option<String>, GbError> {
     let found = repo.try_find_reference(name).map_err(gix_err)?;
-    Ok(found.and_then(|mut r| r.peel_to_id().ok().map(|id| id.detach().to_string())))
+    Ok(found.and_then(|mut r| r.follow_to_object().ok().map(|id| id.detach().to_string())))
 }
 
 /// Why the CLI must make the edit (spec #2 §3.4), or `None` when gix can.
@@ -335,5 +337,18 @@ mod tests {
             }
             assert_eq!(at(&r, "refs/heads/x").as_deref(), Some(c1.as_str()));
         }
+    }
+
+    /// 3B T3 (Deviation 8): an annotated tag's ref names its tag object. A CAS or an Undo of it
+    /// must keep that object, never the commit it peels to.
+    #[test]
+    fn read_ref_keeps_an_annotated_tags_own_object() {
+        let (r, _c1, c2) = repo();
+        r.tag("v1", &c2);
+        let object = r.git(&["rev-parse", "refs/tags/v1"]);
+        assert_ne!(object, c2);
+        let g = gix::open(r.path()).unwrap();
+        assert_eq!(read_ref(&g, "refs/tags/v1").unwrap().as_deref(), Some(object.as_str()));
+        assert_eq!(read_ref(&g, "HEAD").unwrap().as_deref(), Some(c2.as_str()), "a symbolic ref is still followed");
     }
 }

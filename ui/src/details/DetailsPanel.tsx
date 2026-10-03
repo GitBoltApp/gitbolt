@@ -1,5 +1,5 @@
 import { Pencil } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref, type RefObject } from 'react';
 import type { CommitDetailsPayload } from '../api/gen/CommitDetailsPayload';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import { copyText } from '../api/transport';
@@ -10,6 +10,8 @@ import { shortSha } from '../format/sha';
 import { perf } from '../perf';
 import { useFocusZone } from '../repo/focus';
 import { filesKey } from '../repo/services';
+import { useRuntime } from '../app/runtime';
+import { rewordableOlder } from './rewordable';
 import { openWorktree, useRepoView, useRepoViewStore, type FileSection, type PanelContent } from '../repo/store';
 import { useToast } from '../ui/toast';
 import { Avatar } from '../avatars/Avatar';
@@ -117,6 +119,19 @@ function CommitDetails({ panel, ratio, ref }: { panel: PanelContent; ratio: numb
   const worktree = useRepoView((s) => openWorktree(s));
   // Spec #2 §8.3: the open worktree's HEAD; 2D hides the pencil mid merge or rebase (the backend refuses it).
   const canEdit = useRepoView((s) => selection.kind === 'commit' && s.graph.head.target === selection.id && !s.graph.inProgress?.[openWorktree(s)] && !s.graph.worktrees.find((w) => w.path === openWorktree(s))?.inProgress);
+  // --- 3C T13: an older commit of HEAD's branch (spec #3 §3.6): reworded in place (`rewordableOlder`
+  // says which). Worked out once per graph payload and selection (fix 1 M1), not per store update. ---
+  const busy = useRepoView((s) => !!s.graph.inProgress?.[openWorktree(s)] || !!s.graph.worktrees.find((w) => w.path === openWorktree(s))?.inProgress);
+  const graph = useRepoView((s) => s.graph);
+  const indexById = useRepoView((s) => s.indexById);
+  const sidebar = useRuntime((st) => st.tabs[tabId]?.sidebar ?? null);
+  const selectedId = selection.kind === 'commit' ? selection.id : null;
+  const olderFor = useMemo(
+    () => (selectedId ? rewordableOlder({ graph, indexById, remotes: sidebar?.remotes ?? [], locals: sidebar?.locals ?? [] }, selectedId) : null),
+    [graph, indexById, sidebar, selectedId],
+  );
+  const older = busy ? null : olderFor;
+  // --- end 3C T13 ---
   const [editing, setEditing] = useState<string | null>(null); // the commit id being edited
   useEffect(() => { if (selection.kind !== 'commit' || selection.id !== editing) setEditing(null); }, [selection, editing]);
   const readyId = details.status === 'ready' && message.status === 'ready' ? details.data.id : null;
@@ -131,12 +146,12 @@ function CommitDetails({ panel, ratio, ref }: { panel: PanelContent; ratio: numb
       {details.status === 'ready' && <CommitHeader d={details.data} />}
       {details.status === 'error' && <div role="alert" className="details-error">{details.message}</div>}
       <div className="commit-message message-box" data-testid="commit-message">
-        {editing && message.status === 'ready' && canEdit ? (
-          <HeadMessageEditor ctx={{ tabId, repoId, worktree }} head={editing} message={message.data} onDone={() => setEditing(null)} />
+        {editing && message.status === 'ready' && (canEdit || older) ? (
+          <HeadMessageEditor ctx={{ tabId, repoId, worktree }} head={editing} older={older ?? undefined} message={message.data} onDone={() => setEditing(null)} />
         ) : message.status === 'ready' ? (
           <>
-            {canEdit && selection.kind === 'commit' && (
-              <HoverTooltip content="Edit the commit message">
+            {(canEdit || older) && selection.kind === 'commit' && (
+              <HoverTooltip content={older ? 'Edit the commit message (rebases the commits above it)' : 'Edit the commit message'}>
                 <button type="button" className="icon-button message-edit" aria-label="Edit message" onClick={() => setEditing(selection.id)}><Pencil size={13} aria-hidden /></button>
               </HoverTooltip>
             )}

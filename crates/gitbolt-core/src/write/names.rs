@@ -35,6 +35,12 @@ pub fn branch_name_error(name: &str) -> Option<&'static str> {
     gix::refs::FullName::try_from(full.as_str()).is_err().then_some("Not a valid branch name")
 }
 
+/// The same ref-name rules for a tag (`git tag` refuses a leading `-` too), said of a tag:
+/// `ui/src/tags/tagName.ts`'s words.
+pub fn tag_name_error(name: &str) -> Option<String> {
+    branch_name_error(name).map(|m| m.replace("branch", "tag"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::branch_name_error;
@@ -53,5 +59,14 @@ mod tests {
         assert_eq!(branch_name_error("HEAD"), Some("HEAD isn't a branch name"));
         assert_eq!(branch_name_error("-x"), Some("A branch name can't start with -"));
         assert_eq!(branch_name_error("@"), Some("A branch name can't be @ or contain @{"));
+    }
+
+    #[test]
+    fn tag_names_follow_the_same_rules_said_of_a_tag() {
+        assert_eq!(super::tag_name_error("").as_deref(), Some("Enter a tag name"));
+        assert_eq!(super::tag_name_error("a..b").as_deref(), Some("A tag name can't contain .."));
+        assert_eq!(super::tag_name_error("-x").as_deref(), Some("A tag name can't start with -"));
+        assert_eq!(super::tag_name_error("v1.2.0"), None);
+        assert_eq!(super::tag_name_error("release/ü-1"), None);
     }
 }

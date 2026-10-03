@@ -27,6 +27,7 @@ import type { RepoInfoPayload } from './gen/RepoInfoPayload';
 import type { Request } from './gen/Request';
 import type { SaveOutcome } from './gen/SaveOutcome';
 import type { ScannedRepo } from './gen/ScannedRepo';
+import type { SequenceOutcome } from './gen/SequenceOutcome';
 import type { QueueStatePayload } from './gen/QueueStatePayload';
 import type { JournalState } from './gen/JournalState';
 import type { IntegrateOutcome } from './gen/IntegrateOutcome';
@@ -40,6 +41,10 @@ import type { CommitIdentity } from './gen/CommitIdentity';
 import type { UndoOutcome } from './gen/UndoOutcome';
 import type { CommitOutcome } from './gen/CommitOutcome';
 import type { Expect } from './gen/Expect';
+import type { RebasePlanPayload } from './gen/RebasePlanPayload';
+import type { RebaseRow } from './gen/RebaseRow';
+import type { ChipPlan } from './gen/ChipPlan';
+import type { Prediction } from './gen/Prediction';
 // --- 2C T12 ---
 import type { CheckoutOutcome } from './gen/CheckoutOutcome';
 import type { CheckoutTarget } from './gen/CheckoutTarget';
@@ -87,6 +92,9 @@ import type { PushTarget } from './gen/PushTarget';
 // --- end 2D T17 ---
 // --- 2D T20 ---
 import type { ConflictFilePayload } from './gen/ConflictFilePayload';
+import type { BlamePayload } from './gen/BlamePayload';
+import type { FileHistoryPage } from './gen/FileHistoryPage';
+import type { TagPushOutcome } from './gen/TagPushOutcome';
 // --- end 2D T20 ---
 
 const handlers = new Set<EventHandler>();
@@ -202,8 +210,9 @@ export const api = {
   /** Undo `entry`, the toolbar's (spec #2 §5.4); `confirm`: "Undo anyway", the refs as the prompt
    * showed them; `confirmAutostash`: the clean-restore warning (§6.2) was confirmed. */
   // --- 2C T7: `withoutIndex`, "Apply without restoring what was staged?" (a stash's undo/redo) ---
-  undo: (repo: number, worktree: string, entry: number, confirm: Record<string, string | null> | undefined, confirmAutostash: boolean, withoutIndex = false) =>
-    call<WriteResult<UndoOutcome>>({ method: 'undo', params: { repo, worktree, entry, ...(confirm && { confirm }), confirmAutostash, ...(withoutIndex && { withoutIndex }) } }),
+  // 3B T6: `confirmDiscard`, "Undo the stopped cherry-pick?" (`undoStoppedPick`) was confirmed.
+  undo: (repo: number, worktree: string, entry: number, confirm: Record<string, string | null> | undefined, confirmAutostash: boolean, withoutIndex = false, confirmDiscard = false) =>
+    call<WriteResult<UndoOutcome>>({ method: 'undo', params: { repo, worktree, entry, ...(confirm && { confirm }), confirmAutostash, ...(withoutIndex && { withoutIndex }), ...(confirmDiscard && { confirmDiscard }) } }),
   redo: (repo: number, worktree: string, entry: number, confirmAutostash: boolean, withoutIndex = false) =>
     call<WriteResult<UndoOutcome>>({ method: 'redo', params: { repo, worktree, entry, confirmAutostash, ...(withoutIndex && { withoutIndex }) } }),
   // --- end 2C T7 ---
@@ -320,6 +329,55 @@ export const api = {
   /** The merge tool's data for one conflicted file (spec #2 §13.3); `null` once it isn't conflicted. */
   conflictFile: (repo: number, worktree: string, path: string) => call<ConflictFilePayload | null>({ method: 'conflictFile', params: { repo, worktree, path } }),
   // --- end 2D T20 ---
+  // --- 3A T2 ---
+  /** One page of `path`'s history from `rev` (null: the worktree's HEAD), newest first (spec #3 §3.10). */
+  fileHistory: (repo: number, worktree: string, path: string, rev: string | null, skip: number, limit: number) =>
+    call<FileHistoryPage>({ method: 'fileHistory', params: { repo, worktree, path, rev: rev ?? undefined, skip, limit } }),
+  /** `path` at `rev`, line by line (spec #3 §3.10). */
+  blame: (repo: number, worktree: string, rev: string, path: string) => call<BlamePayload>({ method: 'blame', params: { repo, worktree, rev, path } }),
+  // --- end 3A T2 ---
+  // --- 3A T3 ---
+  /** Restore `path` as in `sha` into the working tree, unstaged (spec #3 §3.8); `confirm` after "replace your changes?". */
+  restoreFile: (repo: number, worktree: string, sha: string, path: string, confirm: boolean) =>
+    call<WriteResult<null>>({ method: 'restoreFile', params: { repo, worktree, sha, path, confirm } }),
+  // --- end 3A T3 ---
+  // --- 3B T7: tags ---
+  /** Create tag here (spec #3 §3.9): `message` null for a lightweight tag. */
+  createTag: (repo: number, worktree: string, t: { name: string; target: string; message: string | null }) =>
+    call<WriteResult<null>>({ method: 'createTag', params: { repo, worktree, name: t.name, target: t.target, message: t.message ?? undefined } }),
+  /** `Delete | Local | Remote | Both |` on a tag. */
+  deleteTag: (repo: number, worktree: string, d: { name: string; local: boolean; remote: string | null }) =>
+    call<WriteResult<null>>({ method: 'deleteTag', params: { repo, worktree, name: d.name, local: d.local, remote: d.remote ?? undefined } }),
+  /** Push one tag, or every tag (`tag` null), to `remote`. */
+  pushTags: (repo: number, worktree: string, remote: string, tag: string | null) =>
+    call<WriteResult<TagPushOutcome>>({ method: 'pushTags', params: { repo, worktree, remote, tag: tag ?? undefined } }),
+  // --- end 3B T7 ---
+  // --- 3C T9 ---
+  /** The interactive rebase editor's plan (spec #3 §3.3): `branch`'s commits since `base`, its chips, the tips it expects. */
+  rebasePlan: (repo: number, worktree: string, branch: string, base: string) => call<RebasePlanPayload>({ method: 'rebasePlan', params: { repo, worktree, branch, base } }),
+  // --- end 3C T9 ---
+  // --- 3C T10 ---
+  /** Start the interactive rebase (spec #3 §3.3): rows newest first; `expect` from the plan. */
+  interactiveRebase: (repo: number, worktree: string, req: { branch: string; base: string; expect: Record<string, string>; rows: RebaseRow[]; chips: ChipPlan[]; confirmAutostash?: boolean }) =>
+    call<WriteResult<IntegrateOutcome>>({ method: 'interactiveRebase', params: { repo, worktree, branch: req.branch, base: req.base, expect: req.expect, rows: req.rows, chips: req.chips, confirm: { autostash: req.confirmAutostash ?? false } } }),
+  /** Conflict prediction for a plan (spec #3 §3.2; a read). */
+  predictRebase: (repo: number, worktree: string, base: string, rows: RebaseRow[]) => call<Prediction>({ method: 'predictRebase', params: { repo, worktree, base, rows } }),
+  // --- end 3C T10 ---
+  // --- 3C T13 ---
+  /** Split the stopped commit at an Edit stop (spec #3 §3.5): `git reset HEAD^`, inside the paused rebase. */
+  splitCommit: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'splitCommit', params: { repo, worktree } }),
+  /** Reword an older commit of HEAD's branch in place (spec #3 §3.6); `confirmAutostash` after the clean-restore question. */
+  rewordCommit: (repo: number, worktree: string, oid: string, message: string, expect: Expect, confirmAutostash = false) =>
+    call<WriteResult<IntegrateOutcome>>({ method: 'rewordCommit', params: { repo, worktree, oid, message, expect, confirm: { autostash: confirmAutostash } } }),
+  // --- end 3C T13 ---
+  // --- 3B T6: cherry-pick and revert ---
+  /** Cherry-pick `oids` (newest first, as the graph lists them) onto HEAD's branch, oldest first (spec #3 §3.7). */
+  cherryPick: (repo: number, worktree: string, oids: string[], opts: { noCommit: boolean; confirmAutostash?: boolean; expect?: Expect }) =>
+    call<WriteResult<SequenceOutcome>>({ method: 'cherryPick', params: { repo, worktree, oids, noCommit: opts.noCommit, expect: opts.expect ?? NO_EXPECT, confirm: { autostash: opts.confirmAutostash ?? false } } }),
+  /** Revert `oids` (newest first) on HEAD's branch, newest first. */
+  revert: (repo: number, worktree: string, oids: string[], opts: { noCommit: boolean; confirmAutostash?: boolean; expect?: Expect }) =>
+    call<WriteResult<SequenceOutcome>>({ method: 'revert', params: { repo, worktree, oids, noCommit: opts.noCommit, expect: opts.expect ?? NO_EXPECT, confirm: { autostash: opts.confirmAutostash ?? false } } }),
+  // --- end 3B T6 ---
 };
 
 // --- 2D T18 ---

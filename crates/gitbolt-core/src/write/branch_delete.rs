@@ -164,17 +164,25 @@ impl WriteIntent for DeleteBranch {
 impl DeleteBranch {
     async fn delete_local(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
         let old = cx.before.refs.get(&self.full()).cloned().flatten();
-        let before = config::branch_config(&cx.api.cli, cx.root, &self.branch).await?;
-        cx.cas(&[RefMove { name: self.full(), old, new: None }], &format!("branch: deleted {}", self.branch)).await?;
-        if !before.is_empty() {
-            let section = format!("branch.{}", self.branch);
-            let inv = cx.git(["config", "--local", "--remove-section", section.as_str()]);
-            cx.run_git(inv).await?;
-            cx.record_config(config::changes(&before, &config::BranchConfig::new()))?;
-        }
-        cx.touch(ChangeKind::Refs);
-        Ok(())
+        let changes = delete_local_branch(cx, &self.branch, old).await?;
+        cx.record_config(changes)
     }
+}
+
+/// A local branch's delete (spec #2 §9.2): the CAS, then its `branch.<name>` section. Returns
+/// the config changes for the caller's journal entry (a paused rebase records them on its own).
+pub(crate) async fn delete_local_branch(cx: &mut WriteCx<'_>, branch: &str, old: Option<String>) -> Result<Vec<crate::journal::ConfigChange>, GbError> {
+    let full = format!("refs/heads/{branch}");
+    let before = config::branch_config(&cx.api.cli, cx.root, branch).await?;
+    cx.cas(&[RefMove { name: full, old, new: None }], &format!("branch: deleted {branch}")).await?;
+    cx.touch(ChangeKind::Refs);
+    if before.is_empty() {
+        return Ok(Vec::new());
+    }
+    let section = format!("branch.{branch}");
+    let inv = cx.git(["config", "--local", "--remove-section", section.as_str()]);
+    cx.run_git(inv).await?;
+    Ok(config::changes(&before, &config::BranchConfig::new()))
 }
 
 #[cfg(test)]

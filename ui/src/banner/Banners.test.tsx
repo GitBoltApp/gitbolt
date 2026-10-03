@@ -94,6 +94,11 @@ describe('banners (spec #2 §6.4, §5.1)', () => {
     expect(screen.queryByRole('button', { name: 'Drop stash' })).toBeNull();
   });
 
+  it('an interrupted abort says it may not have run, and where the work is (3C final fix M6)', () => {
+    show([{ ...base, kind: 'abortInterrupted', label: 'abort the rebase of feature/x', stashMessage: 'GitBolt: work from the aborted rebase of feature/x', target: 'feature/x-rebase-work' }]);
+    expect(notices().textContent).toContain('GitBolt stopped before it could abort the rebase of feature/x: the abort may not have run; your work is in the working tree or the stash "GitBolt: work from the aborted rebase of feature/x", and your commits from the stop are on feature/x-rebase-work.');
+  });
+
   it('× dismisses and keeps the stash', async () => {
     show([{ ...base, kind: 'autostashConflicts', files: 1, canDrop: true }]);
     api.dismissBanner.mockResolvedValue(state([]));

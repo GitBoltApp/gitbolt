@@ -26,7 +26,7 @@ export const harnessHttp = `http://127.0.0.1:${process.env.GITBOLT_E2E_PORT_BASE
 /** The harness's WebSocket (what the UI talks to). */
 export const harnessWs = `${harnessHttp.replace(/^http/, 'ws')}/ws`;
 
-type FixtureName = 'basic' | 'unborn' | 'long_labels' | 'wide' | 'details' | 'long_history' | 'diff_view' | 'merge_lock' | 'wip_staging' | 'wip_conflict' | 'worktrees' | 'sync' | 'conflicts' | 'stack' | 'rebase60';
+type FixtureName = 'basic' | 'unborn' | 'long_labels' | 'wide' | 'details' | 'long_history' | 'diff_view' | 'merge_lock' | 'wip_staging' | 'wip_conflict' | 'worktrees' | 'sync' | 'conflicts' | 'stack' | 'rebase60' | 'file_history' | 'irebase';
 
 /** Written last into a template's folder: the template is complete. Holds the repo's path,
  * relative to the template's folder. */

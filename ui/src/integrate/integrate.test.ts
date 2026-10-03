@@ -9,7 +9,7 @@ vi.mock('../ui/ConfirmDialog', () => ({ confirmWith: (...a: unknown[]) => confir
 
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 const ok = (outcome: unknown) => ({ outcome, journal: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [], paused: null }, staging: { undo: null, redo: null, off: null }, wip: null });
-const preview = (p: Partial<{ ahead: number; conflicts: string[]; stacked: Array<{ name: string; worktree: string | null }>; merged: boolean; lossyMerge: string | null }>) => ({ ahead: 1, behind: 1, merged: false, conflicts: [], stacked: [], updateRefsDefault: true, updateRefsSupported: true, lossyMerge: null, ...p });
+const preview = (p: Partial<{ ahead: number; conflicts: string[]; stacked: Array<{ name: string; worktree: string | null }>; merged: boolean; lossyMerge: string | null }>) => ({ ahead: 1, behind: 1, merged: false, conflicts: [], stacked: [], updateRefsDefault: true, lossyMerge: null, ...p });
 
 describe('integrate (spec #2 §13.1)', () => {
   beforeEach(() => { vi.restoreAllMocks(); ask.mockReset(); confirm.mockReset(); });

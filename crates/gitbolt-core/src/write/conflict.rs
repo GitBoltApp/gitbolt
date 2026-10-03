@@ -236,6 +236,20 @@ fn labels(repo: &gix::Repository, state: Option<&crate::in_progress::InProgress>
             let replayed = stopped_at.as_deref().map(|s| format!("{} {}", short(s), subject(s)).trim_end().to_string()).unwrap_or_default();
             ConflictLabels { current: paused_target.unwrap_or_else(|| short(onto)), incoming: replayed }
         }
+        // --- 3B T6 ---
+        // A cherry-pick or revert (spec #3 §3.7): Current is HEAD's branch, Incoming the commit
+        // picked, or for a revert that commit's parent side (git's own marker words).
+        Some(InProgress::CherryPick { head, .. } | InProgress::Revert { head, .. }) => {
+            let current = repo.head_name().ok().flatten().map(|n| n.shorten().to_string()).unwrap_or_else(|| "HEAD".into());
+            let named = head.as_deref().map(|h| format!("{} {}", short(h), subject(h)).trim_end().to_string());
+            let incoming = match (state, named) {
+                (Some(InProgress::Revert { .. }), Some(n)) => format!("parent of {n}"),
+                (_, Some(n)) => n,
+                (_, None) => "Incoming".into(),
+            };
+            ConflictLabels { current, incoming }
+        }
+        // --- end 3B T6 ---
         _ => ConflictLabels { current: "Current".into(), incoming: "Incoming".into() },
     }
 }
@@ -772,6 +786,29 @@ mod tests {
         let onto = &r.git(&["rev-parse", "main"])[..7];
         assert_eq!(f["labels"], serde_json::json!({"current": onto, "incoming": format!("{replayed} Feature edits")}));
     }
+
+    // --- 3B T6 ---
+    /// Spec #3 §3.7: a stopped cherry-pick's Current is HEAD's branch and Incoming the commit being
+    /// picked; a revert's Incoming is that commit's parent side, as git's markers say it.
+    #[tokio::test]
+    async fn pick_and_revert_labels_are_named_for_the_user() {
+        let (r, api, id, _data) = setup(true).await;
+        r.git(&["rebase", "--abort"]);
+        r.switch("main");
+        assert!(r.try_git(&["cherry-pick", "feature/x"]).is_err());
+        let picked = &r.git(&["rev-parse", "feature/x"])[..7];
+        let f = file(&api, id, &r, "a.txt").await;
+        assert_eq!(f["labels"], serde_json::json!({"current": "main", "incoming": format!("{picked} Feature edits")}));
+        r.git(&["cherry-pick", "--abort"]);
+        // Revert "Main edits" under a branch that changed the same lines since.
+        r.write("a.txt", "rewritten\n");
+        r.git(&["commit", "-q", "-am", "Rewrite"]);
+        assert!(r.try_git(&["revert", "--no-edit", "main~1"]).is_err());
+        let reverted = &r.git(&["rev-parse", "main~1"])[..7];
+        let f = file(&api, id, &r, "a.txt").await;
+        assert_eq!(f["labels"], serde_json::json!({"current": "main", "incoming": format!("parent of {reverted} Main edits")}));
+    }
+    // --- end 3B T6 ---
 
     #[test]
     fn markers_parse_into_segments_with_the_nonce() {

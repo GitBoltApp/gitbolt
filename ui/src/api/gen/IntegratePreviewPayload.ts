@@ -24,10 +24,6 @@ stacked: Array<StackedBranch>,
  */
 updateRefsDefault: boolean, 
 /**
- * git ≥ 2.38 has `--update-refs`; older, the checkbox isn't shown.
- */
-updateRefsSupported: boolean, 
-/**
  * Rebase only: why it would be refused, before the user presses Rebase (review N4): a merge
  * commit with changes of its own, which a rebase would drop.
  */

@@ -56,7 +56,7 @@ const stateOf = (ctx: WriteCtx | null): JournalState | undefined => (ctx ? useJo
 /** Undoes `top` (the entry the toolbar showed); `confirm`: "Undo anyway" with the refs as shown. */
 async function undoEntry(ctx: WriteCtx, top: JournalTop, confirm?: Record<string, string | null>, origin: Origin | null = currentOrigin()): Promise<void> {
   // --- 2C T7: withoutIndex (a stash's undo/redo) ---
-  const out = await runWrite(ctx, (_, asked) => api.undo(ctx.repoId, ctx.worktree, Number(top.entry), confirm, asked.autostash, asked.withoutIndex), { origin });
+  const out = await runWrite(ctx, (_, asked) => api.undo(ctx.repoId, ctx.worktree, Number(top.entry), confirm, asked.autostash, asked.withoutIndex, asked.discard), { origin });
   // --- end 2C T7 ---
   if (!out) return;
   if (out.status === 'moved') {

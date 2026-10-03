@@ -20,11 +20,13 @@ import { projectRemote, type ProjectRemote } from '../forge/urls';
 import { isAncestorIn } from '../graph/ancestry';
 import { labelsByRowOf, membershipOf } from '../graph/graphIndex';
 import { loadOpeners, openersSnapshot, openVersion, openWith, parseListSpec, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
+import { centerViewEditorFile, centerViewOf, centerViewOnTop } from '../repo/centerView';
 import type { RepoServices } from '../repo/services';
 import type { SideItem } from '../sidebar/model';
 import { wipKey } from '../repo/wipLists';
-import { openWorktree, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
+import { inCommitSelection, openWorktree, selectedCommits, type CommitRef, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
 import { useToast } from '../ui/toast';
+import { stackBase, stackFor, stacksOf, type Stack } from '../stacks/detect';
 import './builders';
 import { refreshMenuOn } from './menuStore';
 import { buildMenu } from './registry';
@@ -112,6 +114,23 @@ export interface MenuEnv {
    * the menus hide what can't apply (a fast-forward of a branch that isn't behind). `null`, or
    * omitted: unknown, and the row shows, checked after the click. */
   isAncestor?(a: string, b: string): boolean | null;
+  // --- 3D T3 ---
+  /** The stack `branch` is in (spec #3 §3.11: the straight path through it), from the loaded
+   * graph and the stack base; `null`: not stacked. Omitted: unknown. */
+  stackOf?(branch: string): Stack | null;
+  // --- end 3D T3 ---
+  // --- 3B T5 ---
+  /** The loaded row of commit `sha`: its summary and whether it's a merge. `null`: not in the
+   * loaded graph (rows that need it show, and the backend checks after the click). */
+  commitInfo?(sha: string): { summary: string; merge: boolean } | null;
+  /** The repository's remotes by name: the tab's repo info, else the sidebar's groups. */
+  remoteNames?: string[];
+  // --- end 3B T5 ---
+  // --- 3B final fixes ---
+  /** The active worktree's conflicted (unmerged) files, from its WIP row: 0 when none or not
+   * loaded. A stop without committing leaves them with nothing in progress. */
+  conflicted?: number;
+  // --- end 3B final fixes ---
 }
 
 /** A folder row the folder menu is for. */
@@ -263,6 +282,19 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
     worktreeShown: (path) => worktreeDisplay(main, path),
     // --- end 2C T9 ---
     isAncestor: (a, b) => isAncestorIn(s.graph.rows, s.indexById, a, b),
+    // --- 3D T3 ---
+    stackOf: (branch) => stackFor(stacksOf(s.graph, stackBase(s.graph, sidebarFor(s.repo, active)?.remotes ?? [])), branch, head.branch?.replace(/^refs\/heads\//, '') ?? null),
+    // --- end 3D T3 ---
+    // --- 3B T5 ---
+    commitInfo: (sha) => {
+      const r = s.graph.rows[s.indexById.get(sha) ?? -1];
+      return r ? { summary: r.summary, merge: r.parents.length > 1 } : null;
+    },
+    remoteNames: rt?.info?.remotes.map((r) => r.name) ?? sidebarFor(s.repo, active)?.remotes.map((g) => g.name) ?? [],
+    // --- end 3B T5 ---
+    // --- 3B final fixes ---
+    conflicted: s.graph.rows.find((r) => r.kind === 'wip' && r.wip?.worktreePath === active)?.wip?.conflicted ?? 0,
+    // --- end 3B final fixes ---
     forge: (remote) => {
       const r = projectRemote(remote === undefined ? remotes : remotes.filter((x) => x.name === remote), useAppState.getState().profile.hostOverrides);
       return r && r.hostKind !== 'generic' ? r : null;
@@ -470,6 +502,22 @@ export function commitMenu(store: RepoViewStore, row: RowPayload, branch: Branch
   return () => buildMenu<CommitTarget, MenuEnv>('commit', commitTargetOf(row, branch ?? primaryBranchOf(store.getState(), row)), fileMenuEnv(store));
 }
 
+// --- 3B T5: the selection's menu ---
+/** Two or more selected commits (spec #3 §4.3), newest first: the `selection` kind's target. */
+export interface SelectionTarget { commits: CommitRef[] }
+
+/** A right-click on a graph row: inside a selection of two or more commits, the selection's menu
+ * (the row's own when none of its rows applies); elsewhere, the row's commit menu. */
+export function graphRowMenu(store: RepoViewStore, row: RowPayload): () => MenuRow[] {
+  const own = commitMenu(store, row);
+  if (!inCommitSelection(store.getState(), row.id)) return own;
+  return () => {
+    const rows = buildMenu<SelectionTarget, MenuEnv>('selection', { commits: selectedCommits(store.getState()) }, fileMenuEnv(store));
+    return rows.length > 0 ? rows : own();
+  };
+}
+// --- end 3B T5 ---
+
 // --- 2C T9: the wip menu ---
 /** A right-click on a WIP row (spec #2 §14): the `wip` kind. */
 export function wipMenu(store: RepoViewStore, row: RowPayload): () => MenuRow[] {
@@ -498,8 +546,12 @@ export function labelMenu(store: RepoViewStore, row: RowPayload, label: RefLabel
  * installed then) or the diff's list has no matching, loaded section (a stale event from an
  * editor mid-teardown). Exported (fix round 1, item 7) for a direct unit test. */
 export function monacoTargetOf(s: RepoViewState, e: EditorContextMenuEvent): MonacoTarget | null {
-  const diff = s.diff;
-  if (!diff) return null;
+  return s.diff ? monacoTargetFor(s, s.diff, e) : null;
+}
+
+/** `monacoTargetOf` for an editor showing `diff` (the open file, or a center view's editor file),
+ * in worktree `root` when given (else the one its list implies). Exported for its unit test. */
+export function monacoTargetFor(s: RepoViewState, diff: DiffTarget, e: EditorContextMenuEvent, given?: string): MonacoTarget {
   const onOld = e.side === 'original';
   const path = onOld ? (diff.oldPath ?? diff.path) : diff.path;
   const lines: [number, number] = e.selection ? [e.selection.startLine, e.selection.endLine] : [e.line, e.line];
@@ -511,7 +563,7 @@ export function monacoTargetOf(s: RepoViewState, e: EditorContextMenuEvent): Mon
   // `object`/`worktree`/`absent`; `atCommit` is only File View's "unchanged file" case).
   const { sha, branch } = spec ? commitsOf(s, spec, diff, onOld) : { sha: null, branch: null };
   const inWorktree = spec && (spec.kind === 'wip' || spec.kind === 'worktree') ? spec.worktree : null;
-  const root = inWorktree ?? worktreeOf(diff) ?? (spec ? rootOfSpec(s, spec) : s.repoPath);
+  const root = given ?? inWorktree ?? worktreeOf(diff) ?? (spec ? rootOfSpec(s, spec) : s.repoPath);
   return {
     path,
     sha,
@@ -526,12 +578,19 @@ export function monacoTargetOf(s: RepoViewState, e: EditorContextMenuEvent): Mon
 /** The builder for `MonacoHost.setContextMenuHandler`'s callback (installed while a tab is
  * active, plan 1C Task 15). There's no DOM `contextmenu` event to build from (the editor's own
  * was already suppressed by the host), so the caller shows the rows itself: `const build =
- * monacoMenu(store, e); const rows = build(); if (rows.length) useMenu.getState().show(rows, e.x,
+ * monacoMenu(store, e, tabId); const rows = build(); if (rows.length) useMenu.getState().show(rows, e.x,
  * e.y, performance.now(), build);`. */
-export function monacoMenu(store: RepoViewStore, e: EditorContextMenuEvent): () => MenuRow[] {
+export function monacoMenu(store: RepoViewStore, e: EditorContextMenuEvent, tabId: string | null = tabIdOf(store)): () => MenuRow[] {
   afterOpening(store);
   return () => {
-    const t = monacoTargetOf(store.getState(), e);
+    // A center view on top in the tab (File History…): its own editor's file, never the one
+    // hidden under it, and no staging rows (spec #3 §4.2's file is read-only).
+    const s = store.getState();
+    if (tabId !== null && centerViewOnTop(centerViewOf(tabId), s.diff)) {
+      const file = centerViewEditorFile(tabId);
+      return file ? buildMenu<MonacoTarget, MenuEnv>('monaco', monacoTargetFor(s, file.target, e, file.root), fileMenuEnv(store)) : [];
+    }
+    const t = monacoTargetOf(s, e);
     // A WIP diff's Stage/Unstage/Discard rows first (spec #2 §7.3), then Copy and the rest.
     return joinGroups(stagingRows(e), t ? buildMenu<MonacoTarget, MenuEnv>('monaco', t, fileMenuEnv(store)) : []);
   };

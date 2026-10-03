@@ -46,3 +46,18 @@ import '../sync/pullFeature';
 // --- 2C T12 ---
 import '../branches/checkoutMenus';
 // --- end 2C T12 ---
+// --- 3D T3 ---
+import '../stacks/feature';
+// --- end 3D T3 ---
+// --- 3B T7 ---
+import '../tags/feature';
+// --- end 3B T7 ---
+// --- 3A T4 ---
+import '../history/feature';
+// --- end 3A T4 ---
+// --- 3C ---
+import '../irebase/feature';
+// --- end 3C ---
+// --- 3B T6 ---
+import '../pick/feature';
+// --- end 3B T6 ---

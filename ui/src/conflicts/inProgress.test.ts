@@ -3,7 +3,7 @@ import type { InProgress } from '../api/gen/InProgress';
 import { operationView, withoutComments } from './inProgress';
 
 const merge = (message: string, conflicted: number): InProgress => ({ kind: 'merge', mergeHead: 'f'.repeat(40), message, conflicted });
-const rebase = (o: Partial<Extract<InProgress, { kind: 'rebase' }>> = {}): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/main', step: 2, total: 5, stoppedAt: 'a1b2c3d'.padEnd(40, '0'), conflicted: 1, message: 'Fix x\n\n# Conflicts:\n#\tc.txt\n', ...o });
+const rebase = (o: Partial<Extract<InProgress, { kind: 'rebase' }>> = {}): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/main', step: 2, total: 5, stoppedAt: 'a1b2c3d'.padEnd(40, '0'), editStop: null, editConflict: false, messageFailed: null, gitbolt: true, conflicted: 1, message: 'Fix x\n\n# Conflicts:\n#\tc.txt\n', ...o });
 
 describe('the commit panel\'s operation status (spec #2 §13.2, ux round 1)', () => {
   it('names the merge for the user, by short names', () => {
@@ -39,6 +39,33 @@ describe('the commit panel\'s operation status (spec #2 §13.2, ux round 1)', ()
     const head = 'd'.repeat(40);
     expect(operationView({ kind: 'cherryPick', head, message: 'Pick me\n', conflicted: 1 }, null, 'main', () => 'Pick me')).toMatchObject({ region: 'Cherry-pick in progress', title: 'Cherry-picking ddddddd Pick me', primary: 'Continue cherry-pick', skip: true, message: 'Pick me\n' });
     expect(operationView({ kind: 'revert', head, message: 'Revert "x"\n', conflicted: 0 }, null, 'main', () => null)).toMatchObject({ region: 'Revert in progress', title: 'Reverting ddddddd', primary: 'Continue revert', hint: 'No conflicted files left: Continue to commit the revert.' });
+  });
+
+  it('an Edit stop: "Stopped to edit", Continue / Abort only, its commit as editStop', () => {
+    const v = operationView(rebase({ conflicted: 0, editStop: 'a1b2c3d'.padEnd(40, '0'), message: 'Fix x\n\nWhy.\n' }), null, null, () => null);
+    expect(v.detail).toBe('Stopped to edit a1b2c3d Fix x');
+    expect(v.hint).toBe('Amend it, or split it into smaller commits, then Continue.');
+    expect(v.skip).toBe(false);
+    expect(v.editStop).toBe('a1b2c3d'.padEnd(40, '0'));
+    expect(operationView(rebase(), null, null, () => null).editStop).toBeNull();
+  });
+
+  it('an Edit stop of a rebase started in a terminal says to finish it there (fix 1 A1)', () => {
+    const p = rebase({ conflicted: 0, editStop: 'a1b2c3d'.padEnd(40, '0'), message: 'Fix x\n', gitbolt: false });
+    expect(operationView(p, null, null, () => null)).toMatchObject({ editElsewhere: true, hint: 'Finish this rebase where you started it.', skip: false });
+    expect(operationView({ ...p, gitbolt: true } as InProgress, null, null, () => null).editElsewhere).toBe(false);
+  });
+
+  it('an Edit row whose pick conflicted: resolved, its stop is the Edit\'s (3C final fix I1)', () => {
+    const p = rebase({ editConflict: true, message: 'Fix x, edited\n' });
+    expect(operationView(p, null, null, () => null)).toMatchObject({ hint: 'Resolve 1 conflicted file first', message: 'Fix x, edited\n' });
+    expect(operationView({ ...p, conflicted: 0 } as InProgress, null, null, () => null).hint).toBe('This commit was set to Edit: make any other changes now, then Continue.');
+  });
+
+  it('a new message a hook refused says so, and how to retry or keep the old one (3C final fix M1, M2, ruling)', () => {
+    const want = "The new message wasn't applied: Rejected: no BAD messages. Type it again to retry, or Continue to keep the old one.";
+    expect(operationView(rebase({ conflicted: 0, stoppedAt: null, messageFailed: 'Rejected: no BAD messages.' }), null, null, () => null).hint).toBe(want);
+    expect(operationView(rebase({ conflicted: 0, editStop: 'a1b2c3d'.padEnd(40, '0'), messageFailed: 'Rejected: no BAD messages.' }), null, null, () => null).hint).toBe(want);
   });
 
   it('another operation says where to finish it, and has no controls', () => {

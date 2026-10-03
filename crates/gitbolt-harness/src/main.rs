@@ -53,13 +53,15 @@ async fn harness_main() {
                 "stack" => fixtures::stack(&repo),
                 "rebase60" => fixtures::rebase60(&repo),
                 "worktrees" => fixtures::worktrees(&repo),
+                "irebase" => fixtures::irebase(&repo),
+                "file_history" => fixtures::file_history(&repo),
                 other => panic!("unknown fixture {other}"),
             }
             std::fs::write(root.join(FIXTURE_MARKER), "").expect("write fixture marker");
             println!("{}", repo.path().display());
         }
         _ => {
-            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|sync|conflicts|stack|rebase60|worktrees> <dir>");
+            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|sync|conflicts|stack|rebase60|worktrees|irebase|file_history> <dir>");
             std::process::exit(2);
         }
     }

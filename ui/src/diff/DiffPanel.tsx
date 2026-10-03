@@ -19,6 +19,7 @@ import { useImageSources } from '../image/sources';
 import { useEscapeOwner } from '../repo/escape';
 import { useFocusZone } from '../repo/focus';
 import { HoverTooltip } from '../ui/HoverTooltip';
+import { HistoryButtons } from '../history/HistoryButtons';
 import { OpenInButton } from '../openIn/OpenInMenu';
 import { contentKey, type RepoServices } from '../repo/services';
 import { contentsRequest, useRepoView, useRepoViewStore, type DiffTarget, type Loadable } from '../repo/store';
@@ -398,6 +399,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
         textTools={!imageDiff || svgSource}
         leading={<OpenInButton target={shown} line={openLine} />}
         staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
+        history={<HistoryButtons target={shown} />}
       />
       <div className="diff-body">
         <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} editable={editable} onEdit={onEdit} draft={bodyCopy?.draft} />

@@ -69,9 +69,34 @@ pub(crate) struct UndoIntent {
     /// "Apply without restoring what was staged?" was confirmed (a stash's apply, 2C T7 M2).
     pub(crate) without_index: bool,
     // --- end 2C T7 ---
+    // --- 3B T2 ---
+    /// "Undo the stopped cherry-pick?" was confirmed: its changes are discarded.
+    pub(crate) confirm_discard: bool,
+    // --- end 3B T2 ---
 }
 
+// --- 3B T2 fix round 1 (D) ---
+/// `snap` over `paths` alone (a stopped pick's attempted commits' paths): what its Undo restores.
+fn only(snap: &crate::journal::Snapshot, paths: &[String]) -> crate::journal::Snapshot {
+    let keep = |p: &String| paths.contains(p);
+    crate::journal::Snapshot {
+        commit: snap.commit.clone(),
+        paths: snap.paths.iter().filter(|p| keep(p)).cloned().collect(),
+        untracked: snap.untracked.iter().filter(|p| keep(p)).cloned().collect(),
+        modes: snap.modes.iter().filter(|(p, _)| keep(p)).map(|(p, m)| (p.clone(), *m)).collect(),
+    }
+}
+// --- end 3B T2 fix round 1 ---
+
 impl UndoIntent {
+    // --- 3B T2 ---
+    /// The undo of a "without committing" pick that stopped on conflicts: `cherry-pick` or
+    /// `revert`. It discards P, unmerged paths included, after its own question.
+    fn stopped_pick(&self) -> Option<&crate::journal::StoppedPick> {
+        self.entry.stopped_pick.as_ref().filter(|_| self.dir == Direction::Undo && self.entry.undo == UndoKind::Restore)
+    }
+    // --- end 3B T2 ---
+
     fn verb(&self) -> &'static str {
         match self.dir {
             Direction::Undo => "undo",
@@ -440,7 +465,28 @@ impl WriteIntent for UndoIntent {
             // `dirty ∩ P`, dirty meaning changed since the operation (or its undo) left P:
             // the restore overwrites only P, and P as that snapshot holds it loses nothing.
             UndoKind::Restore => match self.snapshot() {
+                // --- 3B T2: a stopped pick asks, and its changes (P) aren't autostashed ---
+                Some(s) if self.stopped_pick().is_some() => {
+                    let stopped = self.stopped_pick().cloned().unwrap_or_default();
+                    let op = stopped.op.as_str();
+                    if !self.confirm_discard {
+                        return Err(GbError::new(GbErrorKind::Conflict, format!("Undo the stopped {op}? Its changes are discarded, including anything you resolved since.")).with_detail(crate::error::ErrorDetail::UndoStoppedPick { op: op.into(), arm: format!("Click again to undo: discards the stopped {op}'s changes").into() }));
+                    }
+                    // Only the attempted commits' paths are restored (fix round 1, D): the rest of
+                    // P belongs to commits that never ran, so whatever is there now is the user's,
+                    // and it's left alone. What's in the way is still stashed (a repository
+                    // refuses; untracked files where a file goes back).
+                    let paths = restore_in_the_way(&only(s, &stopped.paths)).await?;
+                    (!paths.is_empty()).then(|| AutostashSpec { rule: AutostashRule::Paths(paths), target: None, op: self.label(), target_name: Some(self.label()) })
+                }
+                // --- end 3B T2 ---
                 Some(s) => {
+                    // 3B T2 fix round 1 (G): a conflicted path of P can't be stashed or restored
+                    // over (only a stopped pick's Undo does that): refused in words up front.
+                    let unmerged = crate::write::precheck::dirty(&pre.api.cli, pre.root).await?.unmerged;
+                    if let Some(p) = unmerged.iter().find(|p| s.paths.contains(*p)) {
+                        return Err(GbError::new(GbErrorKind::InProgress, format!("{p} has merge conflicts: resolve conflicts first")));
+                    }
                     let mut paths = match self.left() {
                         Some(left) => crate::write::precheck::changed_since(&pre.api.cli, pre.root, left).await?,
                         None => s.paths.clone(),
@@ -615,7 +661,7 @@ impl WriteIntent for UndoIntent {
             UndoKind::Rename => Box::pin(crate::write::branch::undo_rename(cx, &self.entry, self.dir == Direction::Undo)).await,
             // --- end 2C T3 ---
             UndoKind::Restore => match snap {
-                Some(snap) => match Box::pin(snapshot::restore(&cx.snapshots(), snap)).await {
+                Some(snap) => match Box::pin(snapshot::restore_with(&cx.snapshots(), &self.stopped_pick().map_or_else(|| snap.clone(), |st| only(snap, &st.paths)), self.stopped_pick().is_some())).await {
                     Ok(()) => {
                         cx.touch(ChangeKind::Worktree);
                         cx.touch(ChangeKind::Index);
@@ -644,7 +690,14 @@ impl WriteIntent for UndoIntent {
         // --- 2C T1: config replay, the note ---
         // Every kind replays the entry's `branch.<name>.*` changes (Deviation 10).
         crate::write::config::apply(cx, &self.entry.config, self.dir == Direction::Undo).await?;
-        store.update(|j| j.shift(id, self.dir == Direction::Undo))?;
+        // 3B T2 fix round 1 (F): an undone stopped pick has no `after` to redo to: it goes.
+        let gone = self.stopped_pick().is_some();
+        store.update(|j| {
+            j.shift(id, self.dir == Direction::Undo);
+            if gone {
+                j.drop_entry(id);
+            }
+        })?;
         Ok(UndoOutcome::Done { label: self.entry.label.clone(), note: self.entry.note.clone() })
         // --- end 2C T1 ---
     }
@@ -652,7 +705,7 @@ impl WriteIntent for UndoIntent {
 
 /// `Undo` / `Redo`: the entry the toolbar showed must still be the top one.
 #[allow(clippy::too_many_arguments)] // 2C T7: `without_index`
-pub(crate) async fn undo_or_redo(api: &Api, repo: u32, worktree: &str, dir: Direction, entry: u64, confirm: BTreeMap<String, Option<String>>, autostash_ok: bool, without_index: bool) -> Result<WriteResult<UndoOutcome>, GbError> {
+pub(crate) async fn undo_or_redo(api: &Api, repo: u32, worktree: &str, dir: Direction, entry: u64, confirm: BTreeMap<String, Option<String>>, autostash_ok: bool, without_index: bool, confirm_discard: bool) -> Result<WriteResult<UndoOutcome>, GbError> {
     let h = api.handle(repo)?;
     let root = api.worktree_dir(&h, worktree).await?;
     let journal = api.journal(&root)?.load()?;
@@ -661,7 +714,7 @@ pub(crate) async fn undo_or_redo(api: &Api, repo: u32, worktree: &str, dir: Dire
         Direction::Redo => journal.redo_top(),
     };
     let entry = top.filter(|e| e.id == entry).cloned().ok_or_else(|| GbError::stale("The undo history changed; refreshed"))?;
-    run_write(api, repo, worktree, Expect::default(), UndoIntent { dir, entry, confirm, autostash_ok, without_index }).await
+    run_write(api, repo, worktree, Expect::default(), UndoIntent { dir, entry, confirm, autostash_ok, without_index, confirm_discard }).await
 }
 
 #[cfg(test)]
@@ -729,7 +782,7 @@ mod tests {
     }
 
     async fn undo(api: &Api, id: u32, r: &TestRepo, entry: u64, confirm: Option<BTreeMap<String, Option<String>>>) -> Result<serde_json::Value, GbError> {
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r), entry, confirm, confirm_autostash: None, without_index: None }).await
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r), entry, confirm, confirm_autostash: None, without_index: None, confirm_discard: None }).await
     }
 
     async fn redo(api: &Api, id: u32, r: &TestRepo, entry: u64) -> Result<serde_json::Value, GbError> {
@@ -852,7 +905,7 @@ mod tests {
         r.write("file_2.txt", "edited after the fast-forward\n");
         let err = undo(&api, id, &r, entry, None).await.unwrap_err();
         assert_eq!(err.detail, Some(crate::error::ErrorDetail::AutostashConflict { paths: vec!["file_2.txt".into()], target: "main".into() }), "the undo deletes a file you changed: ask");
-        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None }).await.unwrap();
+        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None, confirm_discard: None }).await.unwrap();
         assert!(done(&res));
         assert_eq!(r.git(&["rev-parse", "main"]), r.git(&["rev-parse", "ahead~1"]), "rewound");
         assert!(r.git(&["stash", "list", "--format=%gs"]).contains("autostash before undo fast-forward to ahead"));
@@ -877,7 +930,7 @@ mod tests {
         let (m1, m2) = (mtime("file_1.txt"), mtime("untracked.txt"));
         let err = undo(&api, id, &r, entry, None).await.unwrap_err();
         assert_eq!(err.detail, Some(crate::error::ErrorDetail::AutostashConflict { paths: vec!["file_0.txt".into()], target: "undo discard file_0.txt".into() }));
-        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None }).await.unwrap();
+        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None, confirm_discard: None }).await.unwrap();
         assert!(done(&res));
         assert_eq!(r.git(&["stash", "list", "--format=%gs"]), "On main: autostash before undo discard file_0.txt");
         assert_eq!(r.git(&["stash", "show", "--include-untracked", "--name-only", "stash@{0}"]), "file_0.txt", "only the path the restore overwrites");
@@ -901,7 +954,7 @@ mod tests {
         r.write("dir/a.txt", "edited after the discard\n");
         let err = undo(&api, id, &r, entry, None).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::Conflict, "the restore overwrites a file you changed: ask");
-        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None }).await.unwrap();
+        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None, confirm_discard: None }).await.unwrap();
         assert!(done(&res));
         assert_eq!(r.git(&["stash", "show", "--include-untracked", "--name-only", "stash@{0}"]), "dir/a.txt", "only the edited file");
         assert_eq!(r.git(&["show", "stash@{0}^3:dir/a.txt"]), "edited after the discard", "the edit is kept in the stash");
@@ -956,7 +1009,7 @@ mod tests {
         assert_eq!(res["journal"]["banners"][0]["kind"], "autostashRefused");
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
         r.write("d.txt", &d_lines(Some("again")));
-        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None }).await.unwrap();
+        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None, confirm_discard: None }).await.unwrap();
         assert!(done(&res));
         let kinds: Vec<&str> = res["journal"]["banners"].as_array().unwrap().iter().map(|b| b["kind"].as_str().unwrap()).collect();
         assert_eq!(kinds, ["autostashRefused", "autostashConflicts"]);
@@ -1036,7 +1089,7 @@ mod tests {
         std::fs::write(r.path().join(".git/info/exclude"), "new.txt\n").unwrap();
         let err = undo(&api, id, &r, entry, None).await.unwrap_err();
         assert_eq!(err.detail, Some(crate::error::ErrorDetail::AutostashConflict { paths: vec!["new.txt".into()], target: "undo discard new.txt".into() }));
-        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None }).await.unwrap();
+        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None, confirm_discard: None }).await.unwrap();
         assert!(done(&res));
         assert_eq!(std::fs::read_to_string(r.path().join("new.txt")).unwrap(), "untracked, discarded\n", "the snapshot is back");
         assert_eq!(r.git(&["show", "stash@{0}^3:new.txt"]), "made again, then ignored", "the ignored file is in the stash");
@@ -1055,7 +1108,7 @@ mod tests {
         let entry = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
         r.write("file_0.txt", "edited since\n");
         now.store(1_000 + crate::journal::SNAPSHOT_TTL_MS + 1, Ordering::SeqCst);
-        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None }).await;
+        let res = api.dispatch(Request::Undo { repo: id, worktree: wt(&r), entry, confirm: None, confirm_autostash: Some(true), without_index: None, confirm_discard: None }).await;
         assert_eq!(res.unwrap_err().kind, GbErrorKind::Stale);
         assert_eq!(r.git(&["stash", "list"]), "");
         assert_eq!(std::fs::read_to_string(r.path().join("file_0.txt")).unwrap(), "edited since\n");
@@ -1296,7 +1349,7 @@ mod tests {
     }
 
     async fn undo_confirmed(api: &Api, id: u32, r: &TestRepo, entry: u64) -> serde_json::Value {
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r), entry, confirm: None, confirm_autostash: Some(true), without_index: None }).await.unwrap()
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r), entry, confirm: None, confirm_autostash: Some(true), without_index: None, confirm_discard: None }).await.unwrap()
     }
 
     /// Safety review I1: a discarded folder's undo writes `notes/a.txt` back, and `checkout-index

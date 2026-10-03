@@ -223,11 +223,14 @@ test.describe('sidebar item menus', () => {
     await expect(menu(page)).toBeVisible();
     // Spec #2 §14: the Sync, Commit (Reset), Integrate, Branch and Manage groups come first. Only
     // what can apply (UX round 1): hotfix has no upstream (no Pull), is checked out in wt-hotfix
-    // (no Fast-forward) and isn't on a remote, so it can't be deleted (no Delete).
+    // (no Fast-forward) and isn't on a remote, so it can't be deleted (no Delete). Spec #3 §4.3:
+    // Cherry-pick and Create tag here; no Revert or Interactive rebase from here (hotfix's tip
+    // isn't on main), no Interactive rebase main onto hotfix (main is in its history).
     expect(await labels(page)).toEqual([
       'Push', 'Set upstream', 'Reset main to this commit',
       'Merge hotfix into main', 'Rebase main onto hotfix',
-      'Checkout', 'Create worktree from', 'Create branch here', 'Rename hotfix',
+      'Checkout', 'Create worktree from', 'Create branch here',
+      'Cherry-pick onto main', 'Create tag here', 'Rename hotfix',
       'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD', 'Show in graph',
     ]);
     await action(page, 'Copy SHA').hover();
@@ -255,7 +258,8 @@ test.describe('sidebar item menus', () => {
     await copied(page, `origin/${name}`);
     await page.keyboard.press('Escape');
     await panel(page, 'Remote').getByRole('treeitem').first().click({ button: 'right' });
-    expect(await labels(page)).toEqual(['Copy remote name', 'Copy URL']);
+    // Spec #3 §3.9: a remote's menu gains Push all tags, first.
+    expect(await labels(page)).toEqual(['Push all tags to origin', 'Copy remote name', 'Copy URL']);
     await action(page, 'Copy remote name').click();
     await copied(page, 'origin');
   });

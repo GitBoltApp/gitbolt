@@ -56,7 +56,8 @@ fn oid(hex: &str) -> Option<ObjectId> {
 }
 
 /// One `git rebase …` (start, `--continue` or `--skip`) through the progress tap.
-/// - Stopped on conflicts (or by a failing hook or signer), it pauses: `cx.paused` names
+/// - Stopped on conflicts (or by a failing hook or signer, or at an `edit` stop, which git exits
+///   0 from), it pauses: `cx.paused` names
 ///   `target` for the banner, and records the `onto` git stopped with, which settle judges
 ///   completion against.
 /// - A Cancel of a rebase it started aborts it (review M2): `rebase --abort` puts the branch
@@ -68,8 +69,11 @@ fn oid(hex: &str) -> Option<ObjectId> {
 ///   it, the ones it fast-forwarded by: one `rev-list --count` (review N5: the counter also
 ///   counts dropped picks).
 ///
-/// `onto`: the target's oid, when the caller has it (the start resolved it in `plan`).
-pub(crate) async fn run_rebase(cx: &mut WriteCx<'_>, args: Vec<String>, target: &str, onto: Option<ObjectId>) -> Result<IntegrateOutcome, GbError> {
+/// `onto`: the target's oid, when the caller has it (the start resolved it in `plan`). `envs`:
+/// extra environment for git (3C: the interactive rebase's sequence editor). A stop that came
+/// with git failing (a conflict, a failed `exec`) leaves git's error in `failed` (3C final fix
+/// M2: a reword script's hook output).
+pub(crate) async fn run_rebase_stop(cx: &mut WriteCx<'_>, args: Vec<String>, target: &str, onto: Option<ObjectId>, envs: Vec<(std::ffi::OsString, std::ffi::OsString)>, failed: &mut Option<GbError>) -> Result<IntegrateOutcome, GbError> {
     // Preflight read both, under this lock: no git process, no repository open (review P1).
     let head_before = cx.before.head.oid.clone();
     let resumed = cx.before.in_progress == Some("rebase");
@@ -88,11 +92,29 @@ pub(crate) async fn run_rebase(cx: &mut WriteCx<'_>, args: Vec<String>, target: 
         _ => None,
     });
     let tap = progress::tap(cx.api.bus.clone(), cx.op.id, "Rebasing", branch, cx.output(), progress::TICK, ticker);
-    let inv = cx.git_to(args, tap.tx.clone());
+    let inv = cx.git_to(args, tap.tx.clone()).envs(envs);
     let res = cx.run_git(inv).await;
     let last = tap.finish().await;
     for k in [ChangeKind::Worktree, ChangeKind::Index, ChangeKind::Head, ChangeKind::Refs, ChangeKind::State] {
         cx.touch(k);
+    }
+    // 3C T4: an `edit` stop (or a `break`) exits 0 with the rebase still in progress: it's a
+    // pause, never a completion.
+    // M2: a state that can't be read after exit 0 isn't taken for a completion either.
+    let stopped = match &res {
+        Ok(_) => match crate::in_progress::read(cx.root) {
+            Ok(Some(InProgress::Rebase { conflicted, onto, .. })) => Some((conflicted, onto)),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::warn!(target: "gitbolt_core::write", "reading the rebase's state after it ran: {e}");
+                Some((0, onto.map(|o| o.to_string()).unwrap_or_default()))
+            }
+        },
+        Err(_) => None,
+    };
+    if let Some((conflicted, onto)) = stopped {
+        cx.paused = Some(Pause { kind: PausedKind::Rebase, target: target.to_string(), target_oid: Some(onto).filter(|o| !o.is_empty()), put_back: Vec::new(), picked: Vec::new(), irebase: None });
+        return Ok(IntegrateOutcome::Stopped { kind: PausedKind::Rebase, files: conflicted, warning: None });
     }
     match res {
         Ok(_) => {
@@ -111,14 +133,14 @@ pub(crate) async fn run_rebase(cx: &mut WriteCx<'_>, args: Vec<String>, target: 
             })
             .await?;
             if !resumed && new == old {
-                return Ok(IntegrateOutcome::UpToDate);
+                return Ok(IntegrateOutcome::UP_TO_DATE);
             }
-            let (Some(new), Some(from)) = (new, ff.or(onto)) else { return Ok(IntegrateOutcome::Done { commits: 0, fast_forward: false }) };
+            let (Some(new), Some(from)) = (new, ff.or(onto)) else { return Ok(IntegrateOutcome::done(0, false)) };
             // Review N5: from the history, not git's counter, which also counts the picks it
             // dropped ("patch contents already upstream") and `update-ref` steps. One short
             // read, where a walk here would cost a debug build ~10 ms (review P1).
             let commits = crate::write::precheck::commits_not_in(&cx.api.cli, cx.root, &new.to_string(), &from.to_string()).await?;
-            Ok(IntegrateOutcome::Done { commits, fast_forward: ff.is_some() })
+            Ok(IntegrateOutcome::done(commits, ff.is_some()))
         }
         Err(e) => {
             let cancelled = e.kind == GbErrorKind::Cancelled || cx.op.cancel.is_cancelled();
@@ -136,17 +158,23 @@ pub(crate) async fn run_rebase(cx: &mut WriteCx<'_>, args: Vec<String>, target: 
             match crate::in_progress::read(cx.root).ok().flatten() {
                 Some(InProgress::Rebase { .. }) if cancelled && resumed => Err(e),
                 Some(InProgress::Rebase { conflicted, onto, .. }) => {
-                    cx.paused = Some(Pause { kind: PausedKind::Rebase, target: target.to_string(), target_oid: Some(onto).filter(|o| !o.is_empty()), put_back: Vec::new() });
+                    cx.paused = Some(Pause { kind: PausedKind::Rebase, target: target.to_string(), target_oid: Some(onto).filter(|o| !o.is_empty()), put_back: Vec::new(), picked: Vec::new(), irebase: None });
                     if cancelled {
                         Err(e)
                     } else {
-                        Ok(IntegrateOutcome::Stopped { kind: PausedKind::Rebase, files: conflicted })
+                        *failed = Some(e);
+                        Ok(IntegrateOutcome::Stopped { kind: PausedKind::Rebase, files: conflicted, warning: None })
                     }
                 }
                 _ => Err(pre_rebase_refused(e)),
             }
         }
     }
+}
+
+/// `run_rebase_stop`, git's environment as the write sets it.
+pub(crate) async fn run_rebase(cx: &mut WriteCx<'_>, args: Vec<String>, target: &str, onto: Option<ObjectId>) -> Result<IntegrateOutcome, GbError> {
+    run_rebase_stop(cx, args, target, onto, Vec::new(), &mut None).await
 }
 
 /// A rebase isn't traced (`traces_hooks`): `pre-rebase`, the one hook that refuses a rebase
@@ -324,8 +352,7 @@ impl WriteIntent for RebaseIntent {
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<IntegrateOutcome, GbError> {
         let branch = cx.before.head.branch.clone().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "Check out a branch to rebase it"))?;
         let Planned { target, merges, update_refs_config } = *self.planned.get().ok_or_else(|| GbError::new(GbErrorKind::Other, "rebase ran without its plan"))?;
-        let supported = cx.api.git_version().await.is_ok_and(|v| v >= (2, 38, 0));
-        let wanted = supported && self.update_refs.or(update_refs_config).unwrap_or(false);
+        let wanted = self.update_refs.or(update_refs_config).unwrap_or(false);
         let (stacked, keep) = if wanted { update_ref_sets(cx, &branch, target).await? } else { (Vec::new(), Vec::new()) };
         // Merges stay merges (review I2); the update-refs flag is always explicit, so git's own
         // `rebase.updateRefs` can't move a merged-in branch either.
@@ -333,9 +360,7 @@ impl WriteIntent for RebaseIntent {
         if merges {
             args.push("--rebase-merges".into());
         }
-        if supported {
-            args.push(if wanted && !stacked.is_empty() { "--update-refs" } else { "--no-update-refs" }.into());
-        }
+        args.push(if wanted && !stacked.is_empty() { "--update-refs" } else { "--no-update-refs" }.into());
         if self.fork_point {
             args.push("--fork-point".into());
         }
@@ -389,9 +414,13 @@ struct RebaseControl {
 /// Continue commits the stopped pick with the commit panel's message (the UI sends one only when
 /// the user edited it): git reads it from its own message file (`rebase-merge/message`, or
 /// `rebase-apply/final-commit`), so it goes there. At an `edit` stop (`rebase-merge/amend` names
-/// the commit git made) with nothing staged, Continue won't commit again, so the message is
-/// amended into HEAD, but only while HEAD is still that commit (git's own check): a commit the
-/// user made, split or reworded there is left alone. An unchanged message touches nothing.
+/// the commit git made), git's Continue amends HEAD keeping its message, so the message is
+/// amended into HEAD here, but only while HEAD is still that commit (git's own check): a commit
+/// the user made, split or reworded there is left alone. With nothing staged it's the message
+/// alone (`--only`); with staged changes (3C final fix I2) they go in too, as Continue's own
+/// amend would have put them (then nothing's left staged, so git's Continue doesn't amend
+/// again). At the stop of a Reword row whose message a hook refused (3C final ruling), the same
+/// amend applies a message typed there. An unchanged message touches nothing.
 async fn use_message(cx: &mut WriteCx<'_>, message: &str) -> Result<(), GbError> {
     let root = cx.root.to_path_buf();
     let (git_dir, head, head_message) = blocking(move || {
@@ -404,14 +433,30 @@ async fn use_message(cx: &mut WriteCx<'_>, message: &str) -> Result<(), GbError>
     let text = format!("{}\n", message.trim_end());
     let same = |old: &str| old.replace("\r\n", "\n").trim_end() == text.trim_end();
     let merge = git_dir.join("rebase-merge");
-    if let Ok(amend) = std::fs::read_to_string(merge.join("amend")) {
+    // The commit to amend: an `edit` stop's (git's `amend`), or (3C final ruling) the commit a
+    // Reword row's refused message was for, at that stop: git commits nothing there itself.
+    // A refused reword's amend is the message alone: staged changes stay staged (re-review).
+    let (amend, refused) = match std::fs::read_to_string(merge.join("amend")) {
+        Ok(a) => (Some(a), false),
+        Err(_) => (crate::in_progress::refused(&git_dir).map(|(oid, _)| oid), true),
+    };
+    if let Some(amend) = amend {
         let staged = cx.api.cli.run(GitInvocation::new(cx.root, ["diff", "--cached", "--name-only"])).await?;
-        if staged.stdout.iter().all(u8::is_ascii_whitespace) {
-            if head.as_deref() == Some(amend.trim()) && !head_message.as_deref().is_some_and(same) {
-                let inv = cx.git(["commit", "-q", "--amend", "--only", "--allow-empty", "-F", "-"]).stdin(text.into_bytes());
-                cx.run_git(inv).await?;
-                cx.touch(ChangeKind::Head);
+        let nothing_staged = staged.stdout.iter().all(u8::is_ascii_whitespace);
+        let at_stop = head.as_deref() == Some(amend.trim());
+        if at_stop && !head_message.as_deref().is_some_and(same) {
+            let args: &[&str] = if nothing_staged || refused { &["commit", "-q", "--amend", "--only", "--allow-empty", "-F", "-"] } else { &["commit", "-q", "--amend", "--allow-empty", "-F", "-"] };
+            let inv = cx.git(args.iter().copied()).stdin(text.into_bytes());
+            cx.run_git(inv).await?;
+            cx.touch(ChangeKind::Head);
+            cx.touch(ChangeKind::Index);
+            if refused {
+                crate::write::irebase::run::refused_message_applied(&git_dir);
             }
+            // git's `amend` stays on the commit it made: an Abort keeps this one as the stop's work.
+            return Ok(());
+        }
+        if nothing_staged {
             return Ok(());
         }
     }
@@ -450,6 +495,12 @@ impl WriteIntent for RebaseControl {
         if cx.before.in_progress != Some("rebase") {
             return Err(GbError::new(GbErrorKind::InvalidInput, "No rebase is in progress"));
         }
+        // --- 3C T4: GitBolt's interactive rebase ---
+        // Its session (Edit messages, chip deletes), and its pins: git re-reads the saved todo
+        // (`# dropped` lines included) with the comment char of this invocation.
+        let session = crate::write::irebase::run::session_of_pause(cx)?;
+        let pins: Vec<String> = if session.is_some() { crate::write::irebase::run::GIT_PINS.iter().map(|s| s.to_string()).collect() } else { Vec::new() };
+        // --- end 3C T4 ---
         match self.action {
             RebaseAction::Continue | RebaseAction::Skip => {
                 let step = if self.action == RebaseAction::Continue { "--continue" } else { "--skip" };
@@ -459,19 +510,66 @@ impl WriteIntent for RebaseControl {
                 if let Some(m) = self.message.as_deref().filter(|m| self.action == RebaseAction::Continue && !m.trim().is_empty()) {
                     use_message(cx, m).await?;
                 }
-                let out = run_rebase(cx, vec!["rebase".into(), step.into()], &self.target, None).await?;
+                let mut args = pins;
+                args.extend(["rebase".to_string(), step.into()]);
+                let mut failed = None;
+                let out = run_rebase_stop(cx, args, &self.target, None, Vec::new(), &mut failed).await?;
                 if matches!(out, IntegrateOutcome::Done { .. }) {
                     put_back(cx, &keep).await?;
                 }
-                Ok(out)
+                // --- 3C T4: an interactive rebase's deletes, or its next Edit message ---
+                match &session {
+                    Some(s) => crate::write::irebase::run::after_step(cx, s, out, failed.as_ref()).await,
+                    None => Ok(out),
+                }
+                // --- end 3C T4 ---
             }
             RebaseAction::Abort => {
-                let inv = cx.git(["rebase", "--abort"]);
-                cx.run_git(inv).await?;
+                use crate::write::irebase::split;
+                // 3C T5: a Split's pieces, never committed again, would stop the abort.
+                let gone = if session.is_some() { split::clear_leftovers(cx).await? } else { Vec::new() };
+                // 3C fix round 1 (I2): the work done at the stop goes into a kept stash first.
+                // Fix round 2: commits on a branch, edits in a stash, both before the abort.
+                let work = match &session {
+                    Some(s) => match split::keep_work(cx, s).await {
+                        Ok(w) => Some(w),
+                        Err(e) => {
+                            split::put_back(cx.root, &gone);
+                            return Err(e);
+                        }
+                    },
+                    None => None,
+                };
+                let mut args = pins;
+                args.extend(["rebase".to_string(), "--abort".into()]);
+                let inv = cx.git(args);
+                let res = cx.run_git(inv).await;
+                if let Err(e) = res {
+                    // Fix round 3: roll back only an abort that reset nothing.
+                    match &work {
+                        Some(w) if !split::untouched(cx, w).await => {
+                            split::finish_kept_work(cx, w, true).await;
+                            for k in [ChangeKind::Worktree, ChangeKind::Index, ChangeKind::Head, ChangeKind::State] {
+                                cx.touch(k);
+                            }
+                            return Err(split::kept_error(e, w));
+                        }
+                        Some(w) => split::finish_kept_work(cx, w, false).await,
+                        None => {}
+                    }
+                    split::put_back(cx.root, &gone);
+                    return Err(e);
+                }
+                if let Some(w) = &work {
+                    split::finish_kept_work(cx, w, true).await;
+                }
                 for k in [ChangeKind::Worktree, ChangeKind::Index, ChangeKind::Head, ChangeKind::State] {
                     cx.touch(k);
                 }
-                Ok(IntegrateOutcome::Aborted)
+                Ok(match work {
+                    Some(w) => IntegrateOutcome::Aborted { stash: w.stash, branch: w.branch, discarded: w.discarded },
+                    None => IntegrateOutcome::ABORTED,
+                })
             }
         }
     }
@@ -585,7 +683,7 @@ mod tests {
         }
         assert_eq!(res["journal"]["undo"]["label"], "rebase feature/c onto main");
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(tips(&r), before, "undo moved the stacked branches back too");
         assert_eq!(r.git(&["branch", "--show-current"]), "feature/c");
     }
@@ -778,7 +876,7 @@ mod tests {
         let j = journal(data.path(), &r);
         assert_eq!(j.undo.last().unwrap().refs.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), vec!["refs/heads/feature"]);
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(r.git(&["rev-parse", "other"]), other, "the other worktree's commit stays");
         assert!(r.git_in(&w, &["status", "--porcelain"]).is_empty());
     }
@@ -846,7 +944,7 @@ mod tests {
         assert_ne!(r.git(&["rev-parse", "stk"]), stk);
         assert_eq!(r.git(&["rev-parse", "stk"]), r.git(&["rev-parse", "feature^1"]));
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
-        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
         assert_eq!(r.git(&["rev-parse", "stk"]), stk);
     }
 

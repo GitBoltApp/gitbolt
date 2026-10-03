@@ -16,7 +16,7 @@ runtime"). `tauri-runtime-cef` 3.0.0-alpha.4 runs on `tauri-winit-gtk4`, whose b
 `libgtk-4.so.1`, and doesn't load GTK 3. `interface/rust.rs:1467` appends these dependencies after
 `bundle.linux.deb.depends` / `rpm.depends`, so an app can add GTK 4 but can't remove GTK 3:
 
-    Depends: libgtk-4-1, git (>= 1:2.30), libgtk-3-0
+    Depends: libgtk-4-1, git (>= 1:2.40), libgtk-3-0
 
 ### Expected
 

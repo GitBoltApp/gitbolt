@@ -23,8 +23,9 @@ export type Selection =
   | { kind: 'wip'; index: number; worktree: string; name: string | null }
   | { kind: 'compare'; from: string; to: string }
   | { kind: 'compareWorktree'; from: string; worktree: string }
-  /** Three or more rows (K27): their ids, top row (newest) first. No diff, no file lists. */
-  | { kind: 'multi'; ids: readonly string[] };
+  /** Three or more rows (K27): their ids, top row (newest) first, and the id of the row a Shift
+   * range starts from (spec #3 §4.3). No diff, no file lists. */
+  | { kind: 'multi'; ids: readonly string[]; anchor: string };
 
 /** What the center panel shows (spec §10.1). `key` is stable for the same file in the same diff. */
 export interface DiffTarget {
@@ -193,6 +194,30 @@ export function selectedIndex(s: RepoViewState): number {
     default:
       return -1;
   }
+}
+
+/** One selected commit (spec #3 §4.3): what the selection's menu and 3C's editor preset use. */
+export interface CommitRef { oid: string; summary: string; merge: boolean }
+
+/** The selected commits in graph order (newest first): a single commit, a compare's two, a
+ * multi-selection's. WIP rows and stash nodes are left out; empty when no commit is selected. */
+export function selectedCommits(s: Pick<RepoViewState, 'selection' | 'picks' | 'graph'>): CommitRef[] {
+  const k = s.selection.kind;
+  const rows = k === 'commit' ? [s.selection.index] : k === 'compare' || k === 'compareWorktree' || k === 'multi' ? s.picks.rows : [];
+  return [...rows]
+    .sort((a, b) => a - b)
+    .map((i) => s.graph.rows[i])
+    .filter((r) => r !== undefined && (r.kind === 'commit' || r.kind === 'merge'))
+    .map((r) => ({ oid: r.id, summary: r.summary, merge: r.parents.length > 1 }));
+}
+
+/** Whether commit `id`'s row is part of a selection holding two or more commits: a right-click
+ * there opens the selection's menu (spec #3 §4.3). */
+export function inCommitSelection(s: Pick<RepoViewState, 'selection' | 'picks' | 'graph' | 'indexById'>, id: string): boolean {
+  const i = s.indexById.get(id);
+  const k = s.selection.kind;
+  if (i === undefined || (k !== 'compare' && k !== 'compareWorktree' && k !== 'multi') || !s.picks.rows.includes(i)) return false;
+  return selectedCommits(s).length >= 2;
 }
 
 /** The open worktree (the tab's own, dirty or not), spelled as its WIP row's `worktreePath`:
@@ -399,7 +424,8 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       }
       ++seq;
       const ids = [...rows].sort((a, b) => a - b).map((i) => g[i].id);
-      set({ selection: { kind: 'multi', ids }, picks, parent: 0, diff: null, details: IDLE, message: IDLE, sections: [] });
+      const anchorId = g[anchor ?? cursor]?.id ?? ids[0];
+      set({ selection: { kind: 'multi', ids, anchor: anchorId }, picks, parent: 0, diff: null, details: IDLE, message: IDLE, sections: [] });
     }
 
     const state: RepoViewState = {
@@ -446,7 +472,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         } else if (selection.kind === 'multi') {
           // The rows still there, by commit id, in their new order.
           const ids = selection.ids.filter((id) => indexById.has(id)).sort((a, b) => indexById.get(a)! - indexById.get(b)!);
-          selection = ids.length === 0 ? { kind: 'none' } : { kind: 'multi', ids };
+          selection = ids.length === 0 ? { kind: 'none' } : { kind: 'multi', ids, anchor: ids.includes(selection.anchor) ? selection.anchor : ids[0] };
         }
         const p = prev.picks;
         const picks = p === NO_PICKS ? NO_PICKS : { rows: p.rows.map(remap).filter((i) => i !== null), anchor: remap(p.anchor), cursor: remap(p.cursor) };

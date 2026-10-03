@@ -424,16 +424,16 @@ describe('DiffPanel', () => {
     expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!)).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: true });
     fireEvent.click(button('Hunk'));
     expect(useDiffPrefs.getState().prefs.mode).toBe('hunk');
-    // No placeholder UI (plan 1B global constraints).
-    expect(screen.queryByRole('button', { name: /Blame|History|Edit/ })).toBeNull();
+    // No placeholder UI (plan 1B global constraints); Blame | History are #3's real buttons.
+    expect(screen.queryByRole('button', { name: /Edit/ })).toBeNull();
   });
 
-  it("the toolbar layout (H9): File/Diff View centred; then prev/next, the modes and the toggles on the right", async () => {
+  it("the toolbar layout (H9): File/Diff View centred; then Blame | History, prev/next, the modes and the toggles on the right", async () => {
     renderPanel(targetFor(change('a.txt'), spec), text);
     await waitFor(() => expect(host.showDiff).toHaveBeenCalled());
     const bar = screen.getByRole('toolbar', { name: 'Diff options' });
     const names = [...bar.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent);
-    expect(names).toEqual(['File View', 'Diff View', 'Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']);
+    expect(names).toEqual(['File View', 'Diff View', 'Blame', 'History', 'Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']);
     expect(bar.querySelector('.diff-toolbar-end')).toContainElement(button('Previous change'));
     // Prev/next are arrow icons with a hover tooltip, like the toggles (no native title).
     for (const [name, tip] of [['Previous change', 'Previous change (Shift+F7)'], ['Next change', 'Next change (F7)']]) {
