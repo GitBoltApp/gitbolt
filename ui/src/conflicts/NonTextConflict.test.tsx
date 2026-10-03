@@ -17,7 +17,7 @@ describe('non-text conflicts (spec #2 §13.3)', () => {
   it('names what each side did, and resolves by button, with the base it read', async () => {
     const onResolved = vi.fn();
     render(<NonTextConflict ctx={ctx} file={file('deletedByUs')} onResolved={onResolved} />);
-    expect(screen.getByText('Deleted in main, modified in feature/x')).toBeInTheDocument();
+    expect(screen.getByText('Deleted in main (current), modified in feature/x (incoming)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Take incoming' }));
     expect(resolve).toHaveBeenCalledWith(ctx, 'gone.txt', { kind: 'incoming' }, 'x', undefined);
     await waitFor(() => expect(onResolved).toHaveBeenCalledTimes(1));
@@ -33,7 +33,7 @@ describe('non-text conflicts (spec #2 §13.3)', () => {
     resolve.mockResolvedValueOnce(false);
     const onResolved = vi.fn();
     render(<NonTextConflict ctx={ctx} file={file('bothModified')} onResolved={onResolved} />);
-    expect(screen.getByText('Changed in both main and feature/x (not text)')).toBeInTheDocument();
+    expect(screen.getByText('Changed in both main (current) and feature/x (incoming) (not text)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Take current' }));
     await waitFor(() => expect(resolve).toHaveBeenLastCalledWith(ctx, 'gone.txt', { kind: 'current' }, 'x', undefined));
     expect(onResolved).not.toHaveBeenCalled();

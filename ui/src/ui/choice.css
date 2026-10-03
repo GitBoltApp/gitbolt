@@ -2,3 +2,18 @@
 .modal-check { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
 .modal-check-detail { color: var(--text-normal); }
 .choice-actions .choice-cancel { order: 99; }
+/* Confirm buttons: green outlined (filled on hover), red solid for danger; the focused one is ringed. */
+.modal-actions button.positive { color: var(--green); background: transparent; border-color: var(--green); }
+.modal-actions button.positive:hover:not(:disabled) { color: var(--text-on-accent); background: var(--green); }
+.modal-actions button.danger { color: var(--text-selected); }
+.modal-actions button:focus-visible, .modal-actions button:focus { outline: 2px solid var(--text-selected); outline-offset: 2px; }
+/* The anchored popovers (spec §ui confirms, boards G and H): round-1 button language, the safe
+   choice a solid green, a risky one red outlined (it arms in place before it goes). */
+.arm-popover .modal-actions button { padding: 4px 12px; }
+.arm-popover .modal-actions button.primary.positive { color: var(--text-on-accent); background: var(--stats-added); border-color: var(--green); }
+.arm-popover .modal-actions button.danger { color: color-mix(in srgb, var(--red) 60%, var(--text-selected)); background: transparent; border-color: var(--red); }
+.arm-popover .modal-actions button.danger:hover { background: color-mix(in srgb, var(--red) 20%, transparent); }
+.arm-popover .modal-actions button.warn { color: color-mix(in srgb, var(--orange) 55%, var(--text-selected)); background: transparent; border-color: var(--orange); }
+.arm-popover .modal-actions button.warn:hover { background: color-mix(in srgb, var(--orange) 20%, transparent); }
+.arm-popover .modal-actions button.choice-cancel, .arm-popover .modal-actions button.choice-quiet { color: var(--text-normal); background: var(--control-bg); border-color: var(--section-border); }
+.arm-popover .modal-actions button:focus { outline-offset: 1px; }

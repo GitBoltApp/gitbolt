@@ -170,6 +170,7 @@ function SettingsDialog() {
       title: 'Reset settings to their defaults?',
       body: 'Date format, commits loaded, density, avatars, background fetch, pruning and sticky scroll go back to how GitBolt ships. Your editor, git config and host settings stay.',
       confirmLabel: 'Reset',
+      arm: 'Click again to reset every setting here to its default',
       danger: true,
     });
     if (!ok) return;

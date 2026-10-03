@@ -1,28 +1,61 @@
-import { describe, expect, it } from 'vitest';
-import { bannerText } from './inProgress';
+import { render, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { InProgress } from '../api/gen/InProgress';
+import { readWipDraft, writeWipDraft } from '../commit/draft';
 
-describe('the conflict banner (spec #2 §13.2)', () => {
-  it('names the merge for the user', () => {
-    expect(bannerText({ kind: 'merge', mergeHead: 'f'.repeat(40), message: "Merge branch 'feature/x'\n", conflicted: 2 }, { entry: 1, kind: 'merge', label: 'merge feature/x into main', target: 'feature/x' }, 'main', () => null)).toBe('Merging feature/x into main: 2 conflicted files.');
-    expect(bannerText({ kind: 'merge', mergeHead: 'f'.repeat(40), message: "Merge branch 'other'\n", conflicted: 1 }, null, 'main', () => null)).toBe('Merging other into main: 1 conflicted file.');
+const h = vi.hoisted(() => ({
+  inProgress: null as unknown,
+  settlePaused: vi.fn(),
+  selectCommit: vi.fn(),
+}));
+
+vi.mock('../api/client', () => ({ api: { settlePaused: h.settlePaused } }));
+vi.mock('../app/graphNav', () => ({ selectCommit: h.selectCommit }));
+vi.mock('../app/ops', () => ({ useOps: (sel: (s: { ops: object }) => unknown) => sel({ ops: {} }) }));
+vi.mock('../undo/store', () => ({ journalKey: () => 'k', useJournal: (sel: (s: { states: object }) => unknown) => sel({ states: {} }) }));
+vi.mock('../app/runtime', () => ({
+  useRuntime: (sel: (s: unknown) => unknown) => sel({ tabs: { t: { repo: { id: 1, path: '/r' }, worktree: '/r' } } }),
+  worktreeOf: () => '/r',
+}));
+vi.mock('../repo/store', () => ({
+  useRepoView: (sel: (s: unknown) => unknown) =>
+    sel({ repoPath: '/r', graph: { rows: [{ id: 'wip:/r', wip: { worktreePath: '/r' } }], labels: [], inProgress: { '/r': h.inProgress }, worktrees: [{ path: '/r', branch: 'main' }], head: { branch: 'other' } } }),
+}));
+vi.mock('../write/client', () => ({ runWrite: async (_c: unknown, send: () => Promise<unknown>) => send() }));
+
+const merge = (conflicted: number, head = 'f'): InProgress => ({ kind: 'merge', mergeHead: head.repeat(40), message: "Merge branch 'feature/x'\n", conflicted });
+
+async function show(tab = 't') {
+  const { ConflictBanner } = await import('./ConflictBanner');
+  return render(<ConflictBanner tab={{ id: tab } as never} />);
+}
+
+describe('the operation watcher (ux round 1: no window-wide bar)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    writeWipDraft('/r', '/r', { summary: 'Mine', description: '' });
   });
-  it('names the rebase step and the stopped commit', () => {
-    expect(bannerText({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/main', step: 2, total: 5, stoppedAt: 'a1b2c3d'.padEnd(40, '0'), conflicted: 1 }, { entry: 1, kind: 'rebase', label: 'rebase main onto origin/main', target: 'origin/main' }, null, () => 'Fix x')).toBe('Rebasing main onto origin/main: step 2 of 5, stopped at a1b2c3d Fix x.');
+
+  it('draws nothing: the status and the buttons are the commit panel\'s', async () => {
+    h.inProgress = merge(2);
+    const { container } = await show();
+    expect(container).toBeEmptyDOMElement();
   });
-  it('names the branches by their short names: the graph spells them as full refs', () => {
-    expect(bannerText({ kind: 'merge', mergeHead: 'f'.repeat(40), message: "Merge branch 'feature/x'\n", conflicted: 3 }, null, 'refs/heads/main', () => null)).toBe('Merging feature/x into main: 3 conflicted files.');
+
+  it('adds MERGE_MSG to the WIP draft once per merge (§8.2)', async () => {
+    h.inProgress = merge(1);
+    await show();
+    await waitFor(() => expect(readWipDraft('/r', '/r')).toEqual({ summary: 'Mine', description: "Merge branch 'feature/x'" }));
   });
-  it('a rebase git started names its onto commit by the branch there, else by its short oid', () => {
-    const rebase = { kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/feature/x', step: 1, total: 1, stoppedAt: 'a1b2c3d'.padEnd(40, '0'), conflicted: 1 } as const;
-    expect(bannerText(rebase, null, null, () => 'Feature edits', (sha) => (sha === 'b'.repeat(40) ? 'main' : null))).toBe('Rebasing feature/x onto main: step 1 of 1, stopped at a1b2c3d Feature edits.');
-    expect(bannerText(rebase, null, null, () => 'Feature edits')).toBe('Rebasing feature/x onto bbbbbbb: step 1 of 1, stopped at a1b2c3d Feature edits.');
-  });
-  it('another operation says where to finish it', () => {
-    expect(bannerText({ kind: 'other', what: 'cherry-pick' }, null, 'main', () => null)).toBe('A cherry-pick is in progress; finish it in a terminal.');
-  });
-  it('says it is paused when no conflicted file is left (a cancelled Continue, a kill, a failing hook)', () => {
-    const rebase = { kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/main', step: 1, total: 2, stoppedAt: 'c'.repeat(40), conflicted: 0 } as const;
-    expect(bannerText(rebase, null, null, () => null)).toContain('it is paused: Continue to go on');
-    expect(bannerText({ kind: 'merge', mergeHead: 'f'.repeat(40), message: "Merge branch 'x'\n", conflicted: 0 }, null, 'main', () => null)).toContain('no conflicted files left; commit the merge');
+
+  it('selects the WIP row once per stop, so its commit panel shows the operation', async () => {
+    h.inProgress = merge(1, 'a');
+    const first = await show('t');
+    await waitFor(() => expect(h.selectCommit).toHaveBeenCalledWith('t', 'wip:/r'));
+    first.unmount();
+    h.selectCommit.mockClear();
+    await show('t');
+    expect(h.selectCommit).not.toHaveBeenCalled();
   });
 });

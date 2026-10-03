@@ -36,6 +36,10 @@ describe('ActivityModal (K101)', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     act(() => openActivityLog());
     const dialog = screen.getByRole('dialog', { name: 'Activity' });
+    // A quiet background fetch is hidden by default.
+    expect(screen.getByLabelText('Hide background')).toBeChecked();
+    expect(dialog.querySelectorAll('li.activity-entry')).toHaveLength(1);
+    fireEvent.click(screen.getByLabelText('Hide background'));
     const items = dialog.querySelectorAll('li.activity-entry');
     expect(items).toHaveLength(2);
     expect(items[0]).toHaveTextContent('Permission denied');
@@ -53,6 +57,35 @@ describe('ActivityModal (K101)', () => {
     expect(dialog.querySelectorAll('li.activity-entry')).toHaveLength(1);
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('one compact row per entry: details collapsed unless failed, a click expands; identical background runs share a ×N row', () => {
+    finish(1, 'shop', false, 'ok', null, 'git fetch --all --prune');
+    finish(2, 'shop', false, 'ok', null, 'git fetch --all --prune');
+    finish(3, 'shop', false, 'ok', null, 'git fetch --all --prune');
+    finish(4, 'shop', true, 'ok', null, 'git fetch origin');
+    finish(5, 'shop', true, 'failed', 'fatal: nope', 'git fetch origin');
+    render(<ActivityModal />);
+    act(() => openActivityLog());
+    const dialog = screen.getByRole('dialog', { name: 'Activity' });
+    const rows = () => [...dialog.querySelectorAll('li.activity-entry')];
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0]).toHaveTextContent('fatal: nope'); // a failure is expanded
+    expect(rows()[1]).not.toHaveTextContent('$ git fetch origin'); // a success isn't
+    const toggle = rows()[1].querySelector('button[aria-expanded]')!;
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(rows()[1].querySelector('.debug-label')!); // the whole row is the disclosure
+    expect(rows()[1]).toHaveTextContent('$ git fetch origin');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(toggle);
+    expect(rows()[1]).not.toHaveTextContent('$ git fetch origin');
+    expect(dialog).toHaveTextContent('2 of 5');
+    fireEvent.click(screen.getByLabelText('Hide background'));
+    expect(rows()).toHaveLength(3);
+    expect(rows()[2]).toHaveTextContent('×3');
+    expect(dialog).toHaveTextContent('5 of 5');
+    fireEvent.click(rows()[2].querySelector('button[aria-label="Copy entry"]')!);
+    expect(copyText.mock.calls[0][0].match(/background/g)).toHaveLength(3);
   });
 
   it('R9: one modal, named Activity, with Activity | Commands | Actions tabs', async () => {

@@ -12,7 +12,7 @@ import type { EditorContextMenuEvent } from '../diff/monaco/host';
 import { createRepoViewStore, fileViewTarget, targetFor } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { useToast } from '../ui/toast';
-import { commitTargetOf, compare, copyMessage, fileMenuEnv, fileTargetOf, folderTargetOf, monacoTargetOf, rootOfSpec, sidebarItemMenu, sidebarRemoteMenu, splitRemoteRef, upstreamOf, type FileTarget, type MenuEnv } from './menuEnv';
+import { commitTargetOf, compare, primaryBranchOf, copyMessage, fileMenuEnv, fileTargetOf, folderTargetOf, monacoTargetOf, rootOfSpec, sidebarItemMenu, sidebarRemoteMenu, splitRemoteRef, upstreamOf, type FileTarget, type MenuEnv } from './menuEnv';
 import { buildMenu } from './registry';
 
 // `compare`/`copyMessage` reach the real clipboard (api/transport); fix round 1, item 7's unit
@@ -241,7 +241,7 @@ describe('monacoTargetOf (the Monaco menu\'s target)', () => {
 // Plan 1C Task 15b: the sidebar's configured upstream, and the sidebar item menus.
 describe('upstreamOf with the sidebar (configured upstreams)', () => {
   const g = graphOf(labels);
-  const local = (name: string, upstream: string | null, gone = false) => ({ name, fullName: `refs/heads/${name}`, target: 't', upstream, ahead: 0, behind: 0, gone, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null });
+  const local = (name: string, upstream: string | null, gone = false) => ({ name, fullName: `refs/heads/${name}`, target: 't', upstream, ahead: 0, behind: 0, gone, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, rewritten: null });
   const sidebarOf = (locals: ReturnType<typeof local>[]) => ({ locals, remotes: [{ name: 'origin', host: null, hostKind: 'gitlab' as const, branches: [] }, { name: 'up/stream', host: null, hostKind: 'generic' as const, branches: [] }], worktrees: [], stashes: [], tags: [] });
 
   it('splits a remote ref by the sidebar remote names (a name may hold "/")', () => {
@@ -295,7 +295,8 @@ describe('the sidebar item menus', () => {
 
   it("a local branch: the branch label's commit menu (its upstream as the Remote copy) and Show in graph", () => {
     const rows = sidebarItemMenu(store(), item('local', { name: 'main', target: 'c0', branch: branchLocal }))();
-    expect(labelsOf(rows)).toEqual(['Copy branch name', 'Copy SHA', 'Copy message', 'Forge link', '---', 'Compare with HEAD', '---', 'Show in graph']);
+    // main is HEAD: nothing to compare with HEAD, so the working tree instead.
+    expect(labelsOf(rows)).toEqual(['Copy branch name', 'Copy SHA', 'Copy message', 'Forge link', '---', 'Compare with working tree', '---', 'Show in graph']);
     const copy = rows.find((r) => r.kind === 'action' && r.label === 'Copy branch name') as Extract<MenuRow, { kind: 'action' }>;
     expect(copy.variants!.find((v) => v.id === 'remote')!.disabledReason).toBeUndefined();
     expect(copy.variants!.find((v) => v.id === 'local')!.disabledReason).toBeUndefined();
@@ -305,7 +306,7 @@ describe('the sidebar item menus', () => {
     const rows = sidebarItemMenu(store(), item('remote', { name: 'topic', remote: 'origin', target: 't1', branch: { name: 'topic', fullName: 'refs/remotes/origin/topic', target: 't1', tipTime: 0, summary: '', author: '' } }))();
     const copy = rows.find((r) => r.kind === 'action' && r.label === 'Copy branch name') as Extract<MenuRow, { kind: 'action' }>;
     expect(copy.tooltip).toBe('Copy "origin/topic"');
-    expect(copy.variants!.find((v) => v.id === 'local')!.disabledReason).toBe('No local branch');
+    expect(copy.variants!.map((v) => v.id)).toEqual(['remote']);
   });
 
   it('a tag, a stash and a worktree', () => {
@@ -339,6 +340,19 @@ describe('the 2C menu env (spec #2 §9, §11.2)', () => {
     expect(env.inProgress).toBe('rebase');
     expect(env.worktreeShown('/r-x')).toBe('../r-x');
     expect(env.labelsAt(graph.rows[1].id).map((l) => l.name)).toEqual(graph.labels.filter((l) => l.row === 1).map((l) => l.name));
+  });
+  it("a row's primary branch is its first branch chip; tags and bare commits have none (commit row menu = chip menu)", () => {
+    const g = graphOf([...labels, label(3, 'v0', false, [], { tag: true })]);
+    const store = createRepoViewStore(3, '/r', g, fakeServices());
+    const s = store.getState();
+    expect(primaryBranchOf(s, g.rows[1])).toEqual({ name: 'main', local: 'refs/heads/main', remotes: [{ fullName: 'refs/remotes/origin/main', remote: 'origin' }] });
+    // lone and the tag v1 share row 6: the branch, not the tag.
+    expect(primaryBranchOf(s, g.rows[6])?.name).toBe('lone');
+    expect(primaryBranchOf(s, g.rows[3])).toBeNull(); // only a tag
+    expect(primaryBranchOf(s, g.rows[2])).toBeNull(); // no labels
+    // The env's ancestry, from the same rows: c2 is in main's history, t0 isn't.
+    expect(fileMenuEnv(store).isAncestor?.('c2', 'c0')).toBe(true);
+    expect(fileMenuEnv(store).isAncestor?.('t0', 'c0')).toBe(false);
   });
   it('marks stash rows', () => {
     expect(commitTargetOf({ id: 's', kind: 'stash', mrRefs: [] } as unknown as RowPayload).isStash).toBe(true);

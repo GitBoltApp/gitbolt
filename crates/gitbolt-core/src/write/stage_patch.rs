@@ -502,4 +502,23 @@ mod tests {
         assert_eq!(err.kind, crate::error::GbErrorKind::InvalidInput);
         assert_eq!(r.git(&["diff", "--cached"]), "");
     }
+
+    /// UX report: staging the only hunk of `basic`'s file_1.txt moves it to Staged and out of
+    /// Unstaged, in the write's own lists and in a fresh read.
+    #[tokio::test]
+    async fn staging_the_only_hunk_leaves_nothing_unstaged() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        crate::testing::fixtures::basic(&r);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let res = patch(&api, id, &r, "file_1.txt", false, json!({ "kind": "hunks", "hunks": [0] })).await.unwrap();
+        let paths = |side: &str| -> Vec<String> { res["wip"][side]["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap().to_string()).collect() };
+        assert_eq!(paths("staged"), ["file_1.txt"]);
+        let raw = r.git(&["-c", "diff.autoRefreshIndex=false", "diff", "--raw", "--numstat"]);
+        let status = r.git(&["status", "--porcelain=v2"]);
+        assert!(paths("unstaged").is_empty(), "unstaged: {:?}\nraw: {raw}\nstatus: {status}", paths("unstaged"));
+        let list = call(&api, "fileList", json!({ "repo": id, "spec": { "kind": "wip", "worktree": wt(r.path()), "staged": false } })).await.unwrap();
+        assert_eq!(list["files"], json!([]), "a fresh read agrees");
+    }
 }

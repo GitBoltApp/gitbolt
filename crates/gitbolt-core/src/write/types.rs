@@ -80,7 +80,8 @@ pub struct WriteResult<T> {
 pub struct StagingUndoState {
     pub undo: Option<String>,
     pub redo: Option<String>,
-    /// Why staging undo is off ("Staging undo is off while files are conflicted").
+    /// Why staging undo is off (files are conflicted and no resolution is in the log: "Stage and
+    /// unstage can't be undone while files are conflicted.").
     pub off: Option<String>,
 }
 

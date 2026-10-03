@@ -105,6 +105,21 @@ vi.mock('./setup', () => {
         mouseUps.push(cb);
         return { dispose() {} };
       },
+      onDidLayoutChange: () => ({ dispose() {} }),
+      // View zones added through the API (the hunk header rows): their place, ordinal and node, and
+      // whether the editor had rendered since its last model when each was added.
+      apiZones: new Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>(),
+      renderedSinceModel: false,
+      changeViewZones: (cb: (acc: { addZone(z: { afterLineNumber: number; heightInPx: number; ordinal?: number; domNode: HTMLElement }): string; removeZone(id: string): void }) => void) => {
+        cb({
+          addZone: (z) => {
+            const id = `z${ed.apiZones.size + 1}-${Math.random()}`;
+            ed.apiZones.set(id, { after: z.afterLineNumber, height: z.heightInPx, ordinal: z.ordinal, domNode: z.domNode, renderedFirst: ed.renderedSinceModel });
+            return id;
+          },
+          removeZone: (id) => void ed.apiZones.delete(id),
+        });
+      },
       getSelection: vi.fn((): unknown => null),
       setPosition: vi.fn(),
       setScrollTop: vi.fn((top: number) => {
@@ -112,8 +127,8 @@ vi.mock('./setup', () => {
         ed.scrollTop = Math.max(0, Math.min(top, ed.getScrollHeight() - 500));
         if (ed.scrollTop !== before) ed.scrolled();
       }),
-      render: vi.fn(),
-      getLayoutInfo: () => ({ height: 500 }),
+      render: vi.fn(() => { ed.renderedSinceModel = true; }),
+      getLayoutInfo: () => ({ height: 500, contentWidth: 800, verticalScrollbarWidth: 10 }),
       getOption: () => 19,
       focus: vi.fn(),
       hasTextFocus: vi.fn(() => false),
@@ -160,6 +175,8 @@ vi.mock('./setup', () => {
       setModel: vi.fn((vm: { model: { original: { getLineCount(): number }; modified: { getLineCount(): number } } }) => {
         original.model = vm.model.original;
         modified.model = vm.model.modified;
+        original.renderedSinceModel = false;
+        modified.renderedSinceModel = false;
         // A new model starts at the top, as in Monaco.
         original.scrollTop = 0;
         modified.scrollTop = 0;
@@ -225,7 +242,7 @@ const copyText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
 vi.mock('../../api/transport', () => ({ copyText }));
 vi.mock('shiki/wasm', () => ({ default: {} }));
 
-interface FakeCodeEditor { isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
+interface FakeCodeEditor { apiZones: Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>; isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
 interface FakeViewModel { model: { original: { text: string; dispose: ReturnType<typeof vi.fn> }; modified: { text: string; dispose: ReturnType<typeof vi.fn> } }; computed: boolean; dispose: ReturnType<typeof vi.fn>; finish(): void }
 interface FakeState {
   defined: Set<string>;
@@ -710,6 +727,53 @@ describe('MonacoHost', () => {
     expect(stale.model.modified.dispose).toHaveBeenCalled();
   });
 
+  // K7 (↑/↓ through crlf.txt, data.bin, ünï.txt): crlf.txt's show still computing when its view
+  // went (a binary's message replaced it), ünï.txt's view attaches (hiding what the editor holds)
+  // and its own show only starts a moment later, in a passive effect. crlf.txt's result landing in
+  // between showed it, un-hidden, under ünï.txt's header.
+  it("an attach drops a show still in flight: the previous view's diff never lands, un-hidden, under the attaching one (K7)", async () => {
+    const { host, state } = await fresh();
+    const first = document.createElement('div');
+    host.attachDiff(first);
+    await host.showDiff(diffReq('a.txt'));
+    state.diffAutoUpdate = false;
+    const older = host.showDiff(diffReq('crlf.txt'));
+    await vi.waitFor(() => expect(state.diffs[0].createViewModel).toHaveBeenCalledTimes(2));
+    host.detachDiff(first);
+    const second = document.createElement('div');
+    const next = diffReq('ünï.txt');
+    host.attachDiff(second, next);
+    const el = second.firstElementChild as HTMLElement;
+    expect(el.style.opacity).toBe('0');
+    const stale = state.diffs[0].createViewModel.mock.results[1].value;
+    stale.finish();
+    await older;
+    expect(el.style.opacity).toBe('0');
+    expect(state.diffs[0].setModel).not.toHaveBeenCalledWith(stale);
+    expect(stale.dispose).toHaveBeenCalled();
+    state.diffAutoUpdate = true;
+    await host.showDiff(next);
+    expect(el.style.opacity).toBe('');
+    // File View too.
+    const box = document.createElement('div');
+    host.attachFile(box);
+    await host.showFile({ path: 'a.txt', text: 'one\n', language: 'plaintext', wordWrap: false });
+    let release!: () => void;
+    gate.wait = new Promise<void>((r) => { release = r; });
+    const olderFile = host.showFile({ path: 'b.rs', text: 'fn b() {}\n', language: 'rust', wordWrap: false });
+    host.detachFile(box);
+    const other = document.createElement('div');
+    host.attachFile(other, { path: 'c.txt', text: 'three\n' });
+    const fileEl = other.firstElementChild as HTMLElement;
+    release();
+    await olderFile;
+    expect(fileEl.style.opacity).toBe('0');
+    expect(state.files[0].setModel).not.toHaveBeenCalledWith(expect.objectContaining({ text: 'fn b() {}\n' }));
+    await host.showFile({ path: 'c.txt', text: 'three\n', language: 'plaintext', wordWrap: false });
+    expect(state.files[0].setModel).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'three\n' }));
+    expect(fileEl.style.opacity).toBe('');
+  });
+
   it('Inline and Split open at the first change, 3 lines of context above it, unless it is on the first screen; Hunk opens at the top', async () => {
     const { host, state } = await fresh();
     host.attachDiff(document.createElement('div'));
@@ -733,6 +797,39 @@ describe('MonacoHost', () => {
     state.lineChanges = [];
     await host.showDiff(diffReq('e.txt'));
     expect(scroll()).toHaveBeenCalledTimes(calls);
+  });
+
+  it("Hunk mode's header rows are laid out with the diff, before it renders; Inline and Split have none (spec #2 §7.3)", async () => {
+    const { host, state } = await fresh();
+    host.attachDiff(document.createElement('div'));
+    const placed = vi.fn();
+    let release!: (z: { after: number }[]) => void;
+    const zones = new Promise<{ after: number }[]>((r) => { release = r; });
+    const hunk = { mode: 'hunk', ignoreWhitespace: false, wordWrap: false } as const;
+    const shown = host.showDiff({ ...diffReq('a.txt', 'plaintext', hunk), hunkZones: { zones, placed } });
+    // The diff waits for its rows: nothing is attached until they're in.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.diffs[0].setModel).not.toHaveBeenCalled();
+    release([{ after: 1 }, { after: 16 }]);
+    await shown;
+    const mod = state.diffs[0].modified;
+    const rows = [...mod.apiZones.values()];
+    expect(rows.map((z) => [z.after, z.height, z.renderedFirst])).toEqual([[1, 24, false], [16, 24, false]]);
+    // After Monaco's own zones at the same line (the "N hidden lines" bar).
+    expect(rows.every((z) => (z.ordinal ?? 0) > 10000)).toBe(true);
+    const nodes = placed.mock.lastCall?.[0] as HTMLElement[];
+    expect(nodes.map((n) => [n.className, n.parentElement?.className])).toEqual([['hunk-row', 'hunk-zone'], ['hunk-row', 'hunk-zone']]);
+    expect(nodes[0].parentElement?.style.minWidth).toBe('786px');
+    // Inline and Split: no rows between lines; back in Hunk, they're laid out again.
+    host.setDiffPrefs({ ...hunk, mode: 'split' });
+    expect(mod.apiZones.size).toBe(0);
+    expect(placed).toHaveBeenLastCalledWith([]);
+    host.setDiffPrefs(hunk);
+    expect(mod.apiZones.size).toBe(2);
+    expect(placed.mock.lastCall?.[0]).toHaveLength(2);
+    // A show without rows (another diff) clears them.
+    await host.showDiff(diffReq('b.txt', 'plaintext', hunk));
+    expect(mod.apiZones.size).toBe(0);
   });
 
   it('a click on a deleted line (Inline, Hunk) copies it, Shift+click the whole deleted block; with a toast', async () => {

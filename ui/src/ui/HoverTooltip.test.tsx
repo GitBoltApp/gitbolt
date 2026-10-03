@@ -106,6 +106,17 @@ describe('HoverTooltip', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
+  it('shows on a bare mouseover: the enter React never synthesizes when the element left was removed from under the pointer', () => {
+    render(<div><span>gone</span><HoverTooltip content="tip"><button type="button"><svg data-testid="icon" /></button></HoverTooltip></div>);
+    // Chrome's mouseover after the hovered node was removed: no mouseout, a React-managed relatedTarget.
+    fireEvent.mouseOver(screen.getByTestId('icon'), { relatedTarget: screen.getByText('gone') });
+    expect(screen.getByRole('tooltip')).toHaveTextContent('tip');
+    // A press still hides it, and moving within the trigger doesn't bring it back.
+    fireEvent.mouseDown(screen.getByRole('button'));
+    fireEvent.mouseOver(screen.getByRole('button'), { relatedTarget: screen.getByTestId('icon') });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
   it('an interactive tooltip stays open while the pointer moves into it, and scrolls without closing', () => {
     render(<HoverTooltip content="tip" interactive><span>target</span></HoverTooltip>);
     const target = screen.getByText('target');

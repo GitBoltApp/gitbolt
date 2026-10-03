@@ -16,12 +16,16 @@ test-ui:
 gen-types:
     cargo test -p gitbolt-core export_bindings
 
-# Set GITBOLT_E2E_PORT_BASE (e.g. `GITBOLT_E2E_PORT_BASE=7600 just e2e`) to run this from
-# several git worktrees at once without port collisions -- see docs/dev-setup.md. Unset, ports
-# default to 7433 (harness) / 1420 (Vite), unchanged.
-e2e:
+# The Playwright suites (Chromium, its @budget latency tests, then WebKit; one worker) against a
+# production build of the UI, rebuilt only when ui/src changes. Arguments go to Playwright:
+# `just e2e --project=chromium --project=chromium-budget`, `just e2e e2e/diff.spec.ts`.
+# GITBOLT_E2E_TRACE=1 keeps a trace of each failure (off by default:
+# recording them doubles the CPU time); GITBOLT_E2E_DEV=1 tests the Vite dev server instead. Set
+# GITBOLT_E2E_PORT_BASE (e.g. `GITBOLT_E2E_PORT_BASE=7600 just e2e`) to run this from several
+# worktrees at once without port collisions. See docs/dev-setup.md.
+e2e *args:
     cargo build -p gitbolt-harness
-    cd ui && npx playwright test
+    cd ui && npx playwright test {{args}}
 
 # The theme and zoom pixel baselines (Chromium, recorded on the dev machine): opt-in, since fonts
 # and antialiasing differ between machines. Add `-- --update-snapshots` to re-record them.

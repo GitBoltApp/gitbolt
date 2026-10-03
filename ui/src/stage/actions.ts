@@ -50,8 +50,10 @@ export const unstageAll = (ctx: WriteCtx) => writeAndFollow(ctx, () => api.unsta
 export const discardPaths = (ctx: WriteCtx, paths: string[]) => writeAndFollow(ctx, () => api.discard(ctx.repoId, ctx.worktree, { kind: 'paths', paths }));
 export const discardUnstaged = (ctx: WriteCtx) => writeAndFollow(ctx, () => api.discard(ctx.repoId, ctx.worktree, { kind: 'unstaged' }));
 
-export async function discardAll(ctx: WriteCtx): Promise<boolean> {
-  const ok = await confirmAction({ title: 'Discard all changes?', body: 'Staged, unstaged and untracked changes are removed. You can undo this.', confirmLabel: 'Discard all', danger: true });
+/** `count`: the changed files the panel shows, for the armed label. */
+export async function discardAll(ctx: WriteCtx, count?: number): Promise<boolean> {
+  const arm = count ? `Click again to discard ${count} ${count === 1 ? 'file' : 'files'}` : 'Click again to discard every change';
+  const ok = await confirmAction({ title: 'Discard all changes?', body: 'Staged, unstaged and untracked changes are removed. You can undo this.', confirmLabel: 'Discard all', arm, danger: true });
   return ok && writeAndFollow(ctx, () => api.discard(ctx.repoId, ctx.worktree, { kind: 'all' }));
 }
 // --- end 2B T9 ---

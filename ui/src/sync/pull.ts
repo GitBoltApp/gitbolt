@@ -5,6 +5,7 @@ import type { PullMode } from '../api/gen/PullMode';
 import type { PullOutcome } from '../api/gen/PullOutcome';
 import type { SyncButtonMode } from '../api/gen/SyncButtonMode';
 import type { MenuRow } from '../menu/types';
+import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
 import { ERROR_TOAST_MS, useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
@@ -27,7 +28,7 @@ export function syncView(mode: SyncButtonMode, b: LocalBranch | undefined, head:
   return { label: 'Pull', tooltip: `Pull ${upstreamOf(b)} into ${b.name} (${MODE_TEXT[mode]})`, disabled: false };
 }
 
-async function done(ctx: WriteCtx, o: PullOutcome): Promise<void> {
+async function done(ctx: WriteCtx, o: PullOutcome, origin: Origin | null): Promise<void> {
   const r = o.result;
   const say = (text: string) => showServerResult(text, `${text}; the server reported a problem`, o.server, o.op);
   switch (r.status) {
@@ -52,11 +53,11 @@ async function done(ctx: WriteCtx, o: PullOutcome): Promise<void> {
         body: `${o.branch} and ${o.upstream} have diverged (${r.ahead} ahead, ${r.behind} behind).`,
         note: r.conflicts ? `Merging would conflict in ${files(r.conflicts)}.` : undefined,
         choices: [{ id: 'rebase', label: 'Rebase', primary: true }, { id: 'merge', label: 'Merge' }],
-      });
+      }, origin);
       if (answer.choice !== 'rebase' && answer.choice !== 'merge') return;
       const kind = answer.choice;
       // Locally: the fetch just happened, so no second one.
-      const out = await runWrite(ctx, (_, asked) => api.integrate(ctx.repoId, ctx.worktree, kind, o.upstream, { confirmAutostash: asked.autostash }));
+      const out = await runWrite(ctx, (_, asked) => api.integrate(ctx.repoId, ctx.worktree, kind, o.upstream, { confirmAutostash: asked.autostash }), { origin });
       if (out?.status === 'done') say(`Pulled ${commits(r.behind)} into ${o.branch} (${kind})`);
     }
   }
@@ -64,21 +65,26 @@ async function done(ctx: WriteCtx, o: PullOutcome): Promise<void> {
 
 /** Pull `branch` (the checked-out one by default) in `mode` (spec #2 §12.2). */
 export async function pull(ctx: WriteCtx, mode: PullMode, branch?: string): Promise<void> {
+  // Where it started: a diverged pull asks there, after the fetch (spec §ui confirms).
+  const origin = currentOrigin();
   const out = await runWrite(ctx, (_, asked) => api.pull(ctx.repoId, ctx.worktree, mode, { branch, confirmAutostash: asked.autostash }));
-  if (out) await done(ctx, out);
+  if (out) await done(ctx, out, origin);
 }
 
-/** The Sync group's `Pull | ff-only | rebase | merge |` (§12.2): the label click is ff-only. */
-export function pullRow(b: LocalBranch, run: (mode: PullMode) => void): MenuRow {
-  const noUpstream = b.upstream ? undefined : `${b.name} has no upstream; set one from Push ▾`;
-  const away = b.isHead ? undefined : `Check out ${b.name} first`;
+/** The Sync group's `Pull | ff-only | rebase | merge |` (§12.2): the label click is ff-only. Not
+ * offered without an upstream to pull from (none, or gone); rebase and merge only for the
+ * checked-out branch (another is fast-forwarded in place). */
+export function pullRow(b: LocalBranch, run: (mode: PullMode) => void): MenuRow | null {
+  if (!b.upstream || b.gone) return null;
   const up = upstreamOf(b);
   return {
-    kind: 'action', id: 'sync.pull', label: 'Pull', icon: GitPullRequest, tooltip: `Pull ${up ?? 'its upstream'} into ${b.name} (fast-forward only)`, run: () => run('ffOnly'), disabledReason: noUpstream,
+    kind: 'action', id: 'sync.pull', label: 'Pull', icon: GitPullRequest, tooltip: `Pull ${up ?? 'its upstream'} into ${b.name} (fast-forward only)`, run: () => run('ffOnly'),
     variants: [
-      { id: 'ffOnly', label: 'ff-only', tooltip: 'Fast-forward only', run: () => run('ffOnly'), disabledReason: noUpstream },
-      { id: 'rebase', label: 'rebase', tooltip: `Rebase ${b.name} onto ${up}`, run: () => run('rebase'), disabledReason: noUpstream ?? away },
-      { id: 'merge', label: 'merge', tooltip: `Merge ${up} into ${b.name}`, run: () => run('ffOrMerge'), disabledReason: noUpstream ?? away },
+      { id: 'ffOnly', label: 'ff-only', tooltip: 'Fast-forward only', run: () => run('ffOnly') },
+      ...(b.isHead ? [
+        { id: 'rebase', label: 'rebase', tooltip: `Rebase ${b.name} onto ${up}`, run: () => run('rebase') },
+        { id: 'merge', label: 'merge', tooltip: `Merge ${up} into ${b.name}`, run: () => run('ffOrMerge') },
+      ] : []),
     ],
   };
 }

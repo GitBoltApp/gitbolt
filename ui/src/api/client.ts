@@ -35,6 +35,8 @@ import type { PullMode } from './gen/PullMode';
 import type { PullOutcome } from './gen/PullOutcome';
 // --- end 2D T19 ---
 import type { RebaseAction } from './gen/RebaseAction';
+import type { PickOutcome } from './gen/PickOutcome';
+import type { CommitIdentity } from './gen/CommitIdentity';
 import type { UndoOutcome } from './gen/UndoOutcome';
 import type { CommitOutcome } from './gen/CommitOutcome';
 import type { Expect } from './gen/Expect';
@@ -279,8 +281,12 @@ export const api = {
     call<WriteResult<SubmoduleBehind | null>>({ method: 'resolveFile', params: { repo, worktree, path, resolution, base, confirmMarkers, confirmDiscard } }),
   // --- end 2D T15 ---
   // --- 2D T16 ---
-  /** Continue, skip or abort a paused rebase. */
-  rebaseControl: (repo: number, worktree: string, action: RebaseAction) => call<WriteResult<IntegrateOutcome>>({ method: 'rebaseControl', params: { repo, worktree, action } }),
+  /** Continue, skip or abort a paused rebase. `message`: Continue commits the stopped pick with it. */
+  rebaseControl: (repo: number, worktree: string, action: RebaseAction, message?: string) => call<WriteResult<IntegrateOutcome>>({ method: 'rebaseControl', params: { repo, worktree, action, message } }),
+  /** The same for a cherry-pick or revert in progress (ux round 1). */
+  pickControl: (repo: number, worktree: string, action: RebaseAction, message?: string) => call<WriteResult<PickOutcome>>({ method: 'pickControl', params: { repo, worktree, action, message } }),
+  /** Who a commit in `worktree` is made as (git's resolution); `null`: git has no identity. */
+  commitIdentity: (repo: number, worktree: string) => call<CommitIdentity | null>({ method: 'commitIdentity', params: { repo, worktree } }),
   mergeAbort: (repo: number, worktree: string) => call<WriteResult<IntegrateOutcome>>({ method: 'mergeAbort', params: { repo, worktree } }),
   /** A paused merge or rebase ended outside GitBolt: close its journal entry. */
   settlePaused: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'settlePaused', params: { repo, worktree } }),

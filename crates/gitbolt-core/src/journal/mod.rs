@@ -6,6 +6,7 @@
 //! GitBolt's own operations; CAS (spec §4) protects them from outside changes.
 
 pub(crate) mod autostash;
+pub(crate) mod resolve_step;
 pub(crate) mod snapshot;
 pub(crate) mod staging;
 pub(crate) mod undo;
@@ -954,7 +955,7 @@ fn migrate_v1(v: &mut serde_json::Value) {
 }
 
 /// Temp file (0600) + fsync + rename + directory fsync.
-fn write_private(path: &Path, bytes: &[u8]) -> Result<(), GbError> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), GbError> {
     static SEQ: AtomicU32 = AtomicU32::new(0);
     let dir = path.parent().ok_or_else(|| GbError::other("journal path has no parent"))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();

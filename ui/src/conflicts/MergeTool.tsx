@@ -1,6 +1,6 @@
 // Reached only through repo/LazyDiffPanel.tsx's lazy import: the editors pull in Monaco.
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { copyText } from '../api/transport';
 import type { ConflictFilePayload } from '../api/gen/ConflictFilePayload';
@@ -17,9 +17,11 @@ import { useKeys } from '../ui/keyRouter';
 import { ERROR_TOAST_MS, useToast } from '../ui/toast';
 import type { WriteCtx } from '../write/client';
 import { writeCtx } from '../write/ctx';
+import { ariaChecked, CHECK_GLYPH } from './checkBox';
 import { createMergeEditors, type MergeEditors } from './editors';
 import { dropDraft, draftKey, getDraft, isPristine, patchDraft, putDraft, registerLive, sameSegments, saveMerge } from './mergeDrafts';
-import { emptyPicks, nextRegion, regionLines, sideHasLines, sideState, takeAll, toggleHunk, toggleLine, type ConflictSegment, type Picks, type Side } from './model';
+import { emptyPicks, nextRegion, regionLines, sideHasLines, sideState, takeAll, toggleHunk, toggleLine, type CheckState, type ConflictSegment, type Picks, type Side } from './model';
+import { leaveResolved } from './leaveResolved';
 import { NonTextConflict } from './NonTextConflict';
 import './mergeTool.css';
 
@@ -32,9 +34,10 @@ type Loaded = { status: 'loading' } | { status: 'error'; message: string } | { s
 
 /**
  * §13.3's merge tool: Current | Incoming side by side, the output below.
- * - The panes show each side's whole file, its regions tinted, with a checkbox per region (a view
- *   zone above it) and per conflicting line (the glyph margin; Space on the pane's cursor line);
- *   a header checkbox takes a side everywhere.
+ * - The panes show each side's whole file, its regions tinted. In the gutter: the hunk column
+ *   (tinted along each region, its checkbox on the first line) and each conflicting line's take
+ *   (+) / drop (−) button (Space on the pane's cursor line does the same). A header checkbox takes
+ *   a side everywhere.
  * - A tick rebuilds only its region in the output (an undoable edit that takes the ticks back
  *   too); hand edits elsewhere stay.
  * - The work (ticks and output) is kept per (tab, path) in `mergeDrafts`, across a hidden tab,
@@ -43,7 +46,7 @@ type Loaded = { status: 'loading' } | { status: 'error'; message: string } | { s
  *   arrows step the regions.
  * - A conflict that isn't text on both sides gets the buttons instead (`NonTextConflict`).
  */
-export function MergeTool({ ctx, path, onResolved }: { ctx: WriteCtx; path: string; onResolved?: () => void }) {
+export function MergeTool({ ctx, path, onResolved, initial }: { ctx: WriteCtx; path: string; onResolved?: () => void; initial?: ConflictFilePayload | null }) {
   const key = draftKey(ctx.tabId, ctx.worktree, path);
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   const [picks, setPicksState] = useState<Picks>({});
@@ -68,32 +71,44 @@ export function MergeTool({ ctx, path, onResolved }: { ctx: WriteCtx; path: stri
   const file = loaded.status === 'ready' ? loaded.file : null;
   const textual = !!file?.text && !!file.current && !!file.incoming;
 
-  useEffect(() => {
+  /** `initial` (the panel's prefetch) is used once, for the first read only. */
+  const initialUsed = useRef(false);
+  // A layout effect: an `initial` payload is in place before the first paint, so a file switch
+  // never shows the loading line between the two files.
+  useLayoutEffect(() => {
     const id = `${key}|${reloads}`;
     if (fetched.current === id) return;
     let live = true;
+    const adopt = (f: ConflictFilePayload | null) => {
+      fetched.current = id;
+      let p = f ? emptyPicks(f.segments) : {};
+      const d = getDraft(key);
+      if (d && f && sameSegments(d.segments, f.segments)) {
+        p = d.picks;
+        if (d.base === undefined) patchDraft(key, { base: f.base });
+      } else if (d) {
+        dropDraft(key);
+        if (!isPristine(d)) toast(f ? `The conflict in ${path} changed: your merge of it was dropped` : `${path} isn't conflicted any more: your merge of it was dropped`);
+      }
+      picksRef.current = p;
+      setPicksState(p);
+      resetting.current = false;
+      setLoaded({ status: 'ready', file: f });
+    };
+    const fromInitial = !initialUsed.current && reloads === 0 && initial !== undefined;
+    initialUsed.current = true;
+    if (fromInitial) {
+      adopt(initial);
+      return;
+    }
     setLoaded({ status: 'loading' });
     api.conflictFile(ctx.repoId, ctx.worktree, path).then(
-      (f) => {
-        if (!live) return;
-        fetched.current = id;
-        let p = f ? emptyPicks(f.segments) : {};
-        const d = getDraft(key);
-        if (d && f && sameSegments(d.segments, f.segments)) {
-          p = d.picks;
-          if (d.base === undefined) patchDraft(key, { base: f.base });
-        } else if (d) {
-          dropDraft(key);
-          if (!isPristine(d)) toast(f ? `The conflict in ${path} changed: your merge of it was dropped` : `${path} isn't conflicted any more: your merge of it was dropped`);
-        }
-        picksRef.current = p;
-        setPicksState(p);
-        resetting.current = false;
-        setLoaded({ status: 'ready', file: f });
-      },
+      (f) => { if (live) adopt(f); },
       (e: unknown) => { if (live) setLoaded({ status: 'error', message: errorMessage(e) }); },
     );
     return () => { live = false; };
+    // `initial` is read only on the first run (`initialUsed`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.repoId, ctx.worktree, path, key, reloads]);
 
   /** The editors' state into the draft: created when there's work (or `force`, for a save),
@@ -240,7 +255,7 @@ export function MergeTool({ ctx, path, onResolved }: { ctx: WriteCtx; path: stri
     // M5: a side with no lines in any region has nothing to take.
     const has = sideHasLines(file.segments, side);
     const s = sideState(file.segments, picks, side);
-    return <input type="checkbox" aria-label="Take all from this side" disabled={!has} checked={has && s === 'all'} ref={(el) => { if (el) el.indeterminate = has && s === 'some'; }} onChange={(ev) => take(side, ev.target.checked)} />;
+    return <SideCheck side={side} label="Take all from this side" disabled={!has} state={has ? s : 'none'} onToggle={() => take(side, s !== 'all')} />;
   };
   // N6: no file to write over (conflictFile found none): saving can only be Stale.
   const deleted = file.base === null;
@@ -265,18 +280,25 @@ export function MergeTool({ ctx, path, onResolved }: { ctx: WriteCtx; path: stri
       </div>
       <section className="merge-output" role="region" aria-label="Output">
         <header>
-          <span className="merge-side">Output</span>
-          {file.eol === 'mixed' && <span className="merge-note" role="note">Mixed line endings: lines you type get one ending</span>}
-          {deleted && (
-            <>
-              <span className="merge-note merge-deleted" role="alert">{path} was deleted on disk: copy the output, restore the file (Take current or Take incoming), then paste it in</span>
-              <button type="button" onClick={copyOutput}>Copy output</button>
-            </>
-          )}
-          <span className="merge-count" aria-live="polite">{count}</span>
-          <HoverTooltip content="Previous conflict (Shift+F7)"><button type="button" className="icon-button" aria-label="Previous conflict" onClick={() => step(-1)}><ChevronUp size={14} /></button></HoverTooltip>
-          <HoverTooltip content="Next conflict (F7)"><button type="button" className="icon-button" aria-label="Next conflict" onClick={() => step(1)}><ChevronDown size={14} /></button></HoverTooltip>
-          <HoverTooltip content={deleted ? `${path} was deleted on disk` : 'Save (Ctrl+S)'}><button type="button" className="primary" aria-disabled={deleted || undefined} disabled={saving} onClick={() => { if (!deleted) void save(); }}>Save and mark resolved</button></HoverTooltip>
+          <div className="merge-output-start">
+            <span className="merge-side">Output</span>
+            {file.eol === 'mixed' && <span className="merge-note" role="note">Mixed line endings: lines you type get one ending</span>}
+            {deleted && (
+              <>
+                <span className="merge-note merge-deleted" role="alert">{path} was deleted on disk: copy the output, restore the file (Take current or Take incoming), then paste it in</span>
+                <button type="button" onClick={copyOutput}>Copy output</button>
+              </>
+            )}
+          </div>
+          <div className="merge-nav">
+            <span className="merge-count" aria-live="polite">{count}</span>
+            <HoverTooltip content="Previous conflict (Shift+F7)"><button type="button" className="icon-button" aria-label="Previous conflict" onClick={() => step(-1)}><ChevronUp size={14} /></button></HoverTooltip>
+            <HoverTooltip content="Next conflict (F7)"><button type="button" className="icon-button" aria-label="Next conflict" onClick={() => step(1)}><ChevronDown size={14} /></button></HoverTooltip>
+          </div>
+          {/* Saved with conflicts left, it arms in place (spec §ui confirms, board D). */}
+          <div className="merge-output-end" data-arm-grow="left">
+            <HoverTooltip content={deleted ? `${path} was deleted on disk` : 'Save (Ctrl+S)'}><button type="button" className="merge-save" aria-disabled={deleted || undefined} disabled={saving} onClick={() => { if (!deleted) void save(); }}>Save and mark resolved</button></HoverTooltip>
+          </div>
         </header>
         <div ref={outputEl} className="merge-editor" />
       </section>
@@ -284,17 +306,58 @@ export function MergeTool({ ctx, path, onResolved }: { ctx: WriteCtx; path: stri
   );
 }
 
+/** "Take all from this side": the hunk column's checkbox (`checkBox.ts`), as a React control. */
+function SideCheck({ side, label, state, disabled, onToggle }: { side: Side; label: string; state: CheckState; disabled: boolean; onToggle: () => void }) {
+  return <button type="button" role="checkbox" className={`merge-check merge-check-${side}`} aria-label={label} aria-checked={ariaChecked(state)} disabled={disabled} onClick={onToggle} dangerouslySetInnerHTML={{ __html: CHECK_GLYPH }} />;
+}
+
+/** What the panel shows: the file whose tool is up (`id`: worktree and path), and its payload
+ * when it was read ahead. */
+export interface ShownConflict { id: string; path: string; file?: ConflictFilePayload | null }
+/** How long a switch keeps the previous file up while the next one is read. */
+export const SWITCH_WAIT_MS = 200;
+
+/**
+ * Another file picked: the previous file's tool stays up until the next one's conflict is read
+ * (or `SWITCH_WAIT_MS` passed), then the next one comes in with it, in one commit. No empty frame
+ * between the two (a delete/modify prompt and a binary one swap their text and buttons in place).
+ */
+export function useShownConflict(ctx: WriteCtx | null, path: string): ShownConflict {
+  const id = ctx ? `${ctx.worktree}|${path}` : '';
+  const [shown, setShown] = useState<ShownConflict>({ id, path });
+  useEffect(() => {
+    if (!ctx || shown.id === id) return;
+    let live = true;
+    const go = (file?: ConflictFilePayload | null) => {
+      if (!live) return;
+      live = false;
+      setShown({ id, path, file });
+    };
+    const timer = setTimeout(() => go(), SWITCH_WAIT_MS);
+    // A failed read: the tool reads it again and shows the error (with Retry).
+    api.conflictFile(ctx.repoId, ctx.worktree, path).then((f) => go(f), () => go());
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [ctx, id, path, shown.id]);
+  return shown;
+}
+
 /** The center panel for a conflicted WIP file (spec #2 §13.3), in place of the diff: the
  * header (path, ×) and the merge tool. It's the `diff` focus zone, as the diff panel is. A save
- * that resolves the file closes it; leaving unsaved work asks first (2B T11's leave guard). */
+ * that resolves the file moves to the next conflicted file, or closes (`leaveResolved`); leaving
+ * unsaved work asks first (2B T11's leave guard). */
 export function MergeToolPanel({ target }: { target: DiffTarget }) {
   const { tabId } = useRepoContext();
   const closeDiff = useRepoView((s) => s.closeDiff);
   const store = useRepoViewStore();
+  const services = useRepoView((s) => s.services);
   const ref = useRef<HTMLElement>(null);
   const zone = useFocusZone('diff', ref);
   const worktree = target.new.kind === 'worktree' ? target.new.worktree : undefined;
   const ctx = useMemo(() => writeCtx(tabId, worktree), [tabId, worktree]);
+  const shown = useShownConflict(ctx, target.path);
   useEffect(() => installLeaveGuard(tabId, store), [tabId, store]);
   useEffect(() => installWindowCloseGuard(), []);
   // Esc closes the file (the app's), but Monaco's own overlays (find, a hover, …) close first.
@@ -303,7 +366,7 @@ export function MergeToolPanel({ target }: { target: DiffTarget }) {
     <section ref={ref} className="merge-panel" role="region" aria-label="Merge tool" tabIndex={-1} {...zone}>
       <DiffHeader target={target} encoding="" onClose={closeDiff} />
       {ctx
-        ? <MergeTool key={`${ctx.worktree}|${target.path}`} ctx={ctx} path={target.path} onResolved={closeDiff} />
+        ? <MergeTool key={shown.id} ctx={ctx} path={shown.path} initial={shown.file} onResolved={() => leaveResolved(store, services, shown.path)} />
         : <div className="merge-message" role="alert">Couldn't open the merge tool: this repository's tab isn't open.</div>}
     </section>
   );

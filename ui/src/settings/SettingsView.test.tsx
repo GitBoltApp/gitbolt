@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, EMPTY_PROFILE } from '../app/state';
+import { armClock, press } from '../ui/arm/armTesting';
 
 const api = vi.hoisted(() => ({
   saveSettings: vi.fn(async () => null),
@@ -198,7 +199,12 @@ describe('SettingsView', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(useAppState.getState().settings.dateFormat).toBe('dmy24h');
     fireEvent.click(screen.getByRole('button', { name: /Reset settings to defaults/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Reset' }));
+    // A fresh press past the settle answers it (spec §ui confirms).
+    const clock = armClock();
+    const reset = await screen.findByRole('button', { name: 'Reset' });
+    clock.settle();
+    press(reset);
+    clock.restore();
     await waitFor(() => expect(useAppState.getState().settings.dateFormat).toBe('ymd12h'));
     expect(useAppState.getState().settings.prune).toBe(true);
     expect(useAppState.getState().settings.fetchIntervalSecs).toBe(60);

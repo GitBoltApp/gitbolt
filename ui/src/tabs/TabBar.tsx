@@ -68,7 +68,7 @@ export function TabBar() {
   const runtimes = useRuntime((s) => s.tabs);
   const renaming = useTabUi((s) => s.renaming);
   const update = useAppState((s) => s.updateProfile);
-  const { drag, onPointerDown, consumeClick } = useTabDrag((from, to) => update((p) => moveTab(p, from, to)));
+  const { drag, onPointerDown, consumeClick, tabStyle } = useTabDrag((from, to) => update((p) => moveTab(p, from, to)));
   const tablistRef = useRef<HTMLDivElement>(null);
 
   /** Roving tabindex (spec §6.2): ArrowLeft/Right/Home/End move DOM focus among the tabs
@@ -97,10 +97,10 @@ export function TabBar() {
           <FolderPlus size={16} aria-hidden />
         </button>
       </HoverTooltip>
-      <div className="tabs" role="tablist" aria-label="Repositories" ref={tablistRef}>
+      <div className={`tabs${drag ? ' reordering' : ''}`} role="tablist" aria-label="Repositories" ref={tablistRef}>
         {tabs.map((t, i) => {
           const label = tabLabel(t, runtimes[t.id]?.repo?.name);
-          const dragging = drag?.from === i;
+          const lifted = drag?.from === i;
           return (
             <div
               key={t.id}
@@ -108,8 +108,8 @@ export function TabBar() {
               aria-selected={t.id === active}
               tabIndex={t.id === active ? 0 : -1}
               data-tab-id={t.id}
-              className={`tab${dragging ? ' dragging' : ''}${drag && drag.to === i && !dragging ? ' drop-target' : ''}`}
-              style={dragging ? { transform: `translateX(${drag.dx}px)` } : undefined}
+              className={`tab${lifted ? ` lifted${drag.phase === 'drag' ? ' dragging' : ''}` : ''}`}
+              style={tabStyle(i)}
               onPointerDown={(e) => { if (!isEditableTarget(e.target)) onPointerDown(e, i); }}
               onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
               onClick={() => { if (!consumeClick()) update((p) => activateTab(p, t.id)); }}

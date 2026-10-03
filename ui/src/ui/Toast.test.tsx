@@ -7,6 +7,16 @@ import { useToast } from './toast';
 describe('Toast', () => {
   afterEach(() => act(() => useToast.getState().dismiss()));
 
+  it('warnings and toasts with links go to the top; plain notices stay at the bottom', () => {
+    render(<Toast />);
+    act(() => useToast.getState().show('Copied'));
+    expect(screen.getByRole('status')).not.toHaveClass('toast-top');
+    act(() => useToast.getState().show('Failed', { action: { label: 'Retry', run: () => {} } }));
+    expect(screen.getByRole('status')).toHaveClass('toast-top');
+    act(() => useToast.getState().show('Careful', { tone: 'warning' }));
+    expect(screen.getByRole('alert')).toHaveClass('toast-top');
+  });
+
   it('keeps the single `action` working', () => {
     const run = vi.fn();
     render(<Toast />);

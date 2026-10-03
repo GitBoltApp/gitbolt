@@ -28,6 +28,7 @@ test.describe('compare two commits', () => {
     await expect(page.getByTestId('file-counts')).toHaveAccessibleName('6 modified · 1 added · 2 deleted · 1 renamed');
     // No A/B markers on the rows.
     await expect(page.locator('.compare-marker')).toHaveCount(0);
+    await expect(page.getByTestId('compare-a')).toHaveCount(0);
 
     // The swap reverses FROM and TO; the summaries and the file list follow.
     await page.getByRole('button', { name: 'Swap' }).click();

@@ -9,6 +9,7 @@ import type { GbError } from '../api/gen/GbError';
 import { registerUnsaved, type UnsavedWork } from '../diff/workingCopy';
 import { chooseAction, confirmAction } from '../ui/ConfirmDialog';
 import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { leaveResolved } from './leaveResolved';
 import { anyPicked, buildOutput, eolText, unpickedCount, type Picks, type Segment } from './model';
 import { resolveFile } from './resolve';
 
@@ -168,8 +169,11 @@ export async function saveMerge(key: string, confirmed = false): Promise<boolean
   try {
     const n = unpickedCount(d.segments, d.picks, new Set(d.edited));
     if (n > 0 && !confirmed) {
-      const body = n === 1 ? '1 conflict has no lines picked. Save it empty?' : `${n} conflicts have no lines picked. Save them empty?`;
-      if (!(await confirmAction({ title: 'Save with empty conflicts?', body, confirmLabel: 'Save' }))) return false;
+      const body = n === 1
+        ? '1 conflict is still unresolved (nothing picked or typed): it will be saved empty.'
+        : `${n} conflicts are still unresolved (nothing picked or typed): they will be saved empty.`;
+      const arm = `Click again to save with ${n} unresolved ${n === 1 ? 'conflict' : 'conflicts'}`;
+      if (!(await confirmAction({ title: 'Mark resolved with unresolved conflicts?', body, confirmLabel: 'Mark resolved anyway', arm, caption: body, tone: 'warn' }))) return false;
     }
     // Monaco holds one line ending per model: an output nobody typed in goes out as built, so a
     // mixed-EOL file keeps each line's own (the 2D EOL ruling).
@@ -194,7 +198,7 @@ export async function saveMerge(key: string, confirmed = false): Promise<boolean
   const pick = await chooseAction({
     title: err.message,
     body: `${d.path} changed since the merge tool read it. Reload it from disk (your ticks stay while the conflict is the same; hand edits are lost), or overwrite it with your merge?`,
-    choices: [{ id: 'reload', label: 'Reload from disk' }, { id: 'overwrite', label: 'Overwrite', danger: true }],
+    choices: [{ id: 'reload', label: 'Reload from disk' }, { id: 'overwrite', label: 'Overwrite', danger: true, arm: `Click again to overwrite ${d.path} with your merge` }],
   });
   if (pick === 'reload') reloadDraft(key);
   if (pick !== 'overwrite') return false;
@@ -249,7 +253,11 @@ const watchedWip = new WeakMap<RepoServices, () => void>();
 const offViews = useTabViews.subscribe((s) => {
   for (const [tabId, v] of Object.entries(s.views)) {
     if (watchedWip.has(v.services)) continue;
-    watchedWip.set(v.services, v.services.wip.subscribe((wts) => pruneResolved(tabId, v.services, wts)));
+    // The drafts first: the open file then leaves with no unsaved work left to ask about.
+    watchedWip.set(v.services, v.services.wip.subscribe((wts) => {
+      pruneResolved(tabId, v.services, wts);
+      leaveResolved(v.store, v.services);
+    }));
   }
 });
 const offTabs = useAppState.subscribe((s, prev) => {

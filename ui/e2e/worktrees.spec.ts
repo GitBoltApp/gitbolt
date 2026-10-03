@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test, type Page } from './test';
+import { expect, test, type Page, confirmArmed } from './test';
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Commit graph' }).filter({ visible: true });
 // The Worktrees panel's row (a Local branch row can carry the same name).
@@ -11,7 +11,7 @@ const repoButton = (page: Page) => page.getByTestId('tb-repo').filter({ visible:
 const headChip = (page: Page) => grid(page).locator('.ref-label-head').first();
 
 test.describe('the active worktree (spec #2 §11.2)', () => {
-  test('double-clicking a worktree row switches in place, under 50 ms, with no reload', async ({ page }) => {
+  test('double-clicking a worktree row switches in place, under 50 ms, with no reload', { tag: '@budget' }, async ({ page }) => {
     const repo = freshFixture('worktrees');
     await page.goto(openUrl(repo));
     await expect(grid(page)).toBeVisible();
@@ -102,10 +102,10 @@ test.describe('worktree create and remove (spec #2 §11.1)', () => {
     await page.goto(openUrl(repo));
     await page.getByRole('treeitem', { name: 'wt-hotfix' }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Remove…' }).click();
-    await expect(page.getByRole('alertdialog')).toContainText('Remove worktree ../wt-hotfix? Its folder is deleted; branch hotfix stays.');
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click();
+    // The row arms in place (board A); once the menu is gone, the dirty question is a popover there.
+    await confirmArmed(page.getByRole('menuitem', { name: 'Click again to remove ../wt-hotfix: its folder is deleted' }));
     await expect(page.getByRole('alertdialog')).toContainText("has changes that aren't committed");
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click();
+    await confirmArmed(page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }));
     await expect.poll(() => existsSync(wt)).toBe(false);
     expect(git(repo, 'branch', '--list', 'hotfix')).toContain('hotfix');
   });
@@ -119,8 +119,8 @@ test.describe('worktree create and remove (spec #2 §11.1)', () => {
     await page.getByRole('tab').first().click();
     await page.getByRole('treeitem', { name: 'wt-hotfix' }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Remove…' }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click();
+    await confirmArmed(page.getByRole('menuitem', { name: /^Click again to remove/ }));
+    await confirmArmed(page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }));
     await page.getByRole('tab').last().click();
     await expect(repoButton(page)).not.toContainText('wt-hotfix');
     await expect(page.getByRole('alert')).toHaveCount(0);

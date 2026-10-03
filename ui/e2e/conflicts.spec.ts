@@ -1,5 +1,5 @@
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test } from './test';
+import { expect, test, confirmArmed, armedOverlay } from './test';
 import { fileRow } from './wip';
 
 const stop = (repo: string, ...args: string[]) => {
@@ -11,30 +11,55 @@ const stop = (repo: string, ...args: string[]) => {
 };
 
 test.describe('conflicts (spec #2 §13.2)', () => {
-  test('a stopped merge shows the banner; Commit is disabled until resolved; Abort ends it', async ({ page }) => {
+  test('a stopped merge shows in the commit panel; Commit and merge is disabled until resolved; Abort ends it', async ({ page }) => {
     const repo = freshFixture('conflicts');
     stop(repo, 'merge', '--no-edit', 'feature/x');
     await page.goto(openUrl(repo));
-    const banner = page.getByRole('region', { name: 'Merge in progress' });
-    await expect(banner).toContainText('Merging feature/x into main: 3 conflicted files.');
-    await expect(banner.getByRole('button', { name: 'Commit' })).toHaveAttribute('aria-disabled', 'true');
+    // Ux round 1: no window-wide bar; the WIP is selected and its commit panel holds the merge.
+    const status = page.getByRole('region', { name: 'Merge in progress' });
+    await expect(status).toContainText('Merging feature/x into main');
+    await expect(status).toContainText('Resolve 3 conflicted files first');
+    const box = page.getByTestId('commit-box');
+    await expect(box.getByRole('button', { name: 'Commit and merge' })).toHaveAttribute('aria-disabled', 'true');
     expect(git(repo, 'diff', '--name-only', '--diff-filter=U').split('\n')).toEqual(['a.txt', 'gone.txt', 'logo.bin']);
-    await banner.getByRole('button', { name: 'Abort' }).click();
-    await expect(banner).toBeHidden();
+    // Abort arms in place (spec §ui confirms, board D); the second click runs it.
+    await box.getByRole('button', { name: 'Abort merge' }).click();
+    await confirmArmed(armedOverlay(page, 'Click again to abort the merge'));
+    await expect(status).toBeHidden();
     expect(git(repo, 'status', '--porcelain')).toBe('');
   });
 
-  test('a rebase stopped by git shows Continue, Skip and Abort', async ({ page }) => {
+  test('a rebase stopped by git: its message in the box, Continue rebase, Skip and Abort', async ({ page }) => {
     const repo = freshFixture('conflicts');
     git(repo, 'switch', '-q', 'feature/x');
     stop(repo, 'rebase', 'main');
     await page.goto(openUrl(repo));
-    const banner = page.getByRole('region', { name: 'Rebase in progress' });
-    await expect(banner).toContainText(/Rebasing feature\/x onto main: step 1 of 1, stopped at [0-9a-f]{7} Feature edits\./);
-    await expect(banner.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
-    await expect(banner.getByRole('button', { name: 'Skip' })).toBeEnabled();
-    await banner.getByRole('button', { name: 'Abort' }).click();
-    await expect(banner).toBeHidden();
+    const status = page.getByRole('region', { name: 'Rebase in progress' });
+    await expect(status).toContainText('Rebasing feature/x onto main (step 1 of 1)');
+    await expect(status).toContainText(/Stopped at [0-9a-f]{7} Feature edits/);
+    const box = page.getByTestId('commit-box');
+    await expect(box.getByRole('textbox', { name: 'Commit summary' })).toHaveValue('Feature edits');
+    await expect(box.getByRole('button', { name: 'Continue rebase' })).toHaveAttribute('aria-disabled', 'true');
+    await expect(box.getByRole('button', { name: 'Skip' })).toBeEnabled();
+    await box.getByRole('button', { name: 'Abort rebase' }).click();
+    await confirmArmed(armedOverlay(page, 'Click again to abort the rebase'));
+    await expect(status).toBeHidden();
+  });
+
+  test('Continue rebase commits the stopped pick with the message as edited', async ({ page }) => {
+    const repo = freshFixture('conflicts');
+    git(repo, 'switch', '-q', 'feature/x');
+    stop(repo, 'rebase', 'main');
+    await page.goto(openUrl(repo));
+    const box = page.getByTestId('commit-box');
+    await expect(box.getByRole('textbox', { name: 'Commit summary' })).toHaveValue('Feature edits');
+    git(repo, 'add', '-A');
+    const status = page.getByRole('region', { name: 'Rebase in progress' });
+    await expect(status).toContainText('No conflicted files left: it is paused. Continue to go on.');
+    await box.getByRole('textbox', { name: 'Commit summary' }).fill('Feature edits, resolved');
+    await box.getByRole('button', { name: 'Continue rebase' }).click();
+    await expect(status).toBeHidden();
+    expect(git(repo, 'log', '-1', '--format=%s')).toBe('Feature edits, resolved');
   });
 
   // --- 2D T20 ---
@@ -45,7 +70,8 @@ test.describe('conflicts (spec #2 §13.2)', () => {
     await page.getByRole('grid', { name: 'Commit graph' }).getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
     await fileRow(page, 'conflicted', 'a.txt').click();
     const tool = page.getByRole('region', { name: 'Merge tool' });
-    await expect(tool.getByText('Current: main')).toBeVisible();
+    // The first open loads Monaco's chunk, which a cold dev server can take over 5 s to serve.
+    await expect(tool.getByText('Current: main')).toBeVisible({ timeout: 15_000 });
     await expect(tool.getByText('Incoming: feature/x')).toBeVisible();
     const current = tool.getByRole('region', { name: 'Current' });
     const incoming = tool.getByRole('region', { name: 'Incoming' });
@@ -56,17 +82,18 @@ test.describe('conflicts (spec #2 §13.2)', () => {
         .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top))
         .map((l) => (l.textContent ?? '').replace(/\u00a0/g, ' '))
         .join('\n'));
-    // A hunk checkbox (its view zone, real Monaco): conflict 1 from Incoming.
+    // A hunk checkbox (a glyph-margin widget, real Monaco): conflict 1 from Incoming.
     await incoming.getByRole('checkbox', { name: 'Take conflict 1 from Incoming' }).click();
     await expect.poll(outputText).toContain('incoming three');
     // Conflict 2 has nothing picked: the save asks first.
     await page.keyboard.press('Control+S');
     const ask = page.getByRole('alertdialog');
-    await expect(ask).toContainText('1 conflict has no lines picked. Save it empty?');
+    await expect(ask).toContainText('1 conflict is still unresolved (nothing picked or typed): it will be saved empty.');
+    await expect(ask.getByRole('button', { name: 'Mark resolved anyway' })).toBeVisible();
     await ask.getByRole('button', { name: 'Cancel' }).click();
     await expect(ask).toBeHidden();
-    // A line's checkbox in the glyph margin: conflict 1's Current line joins it, before Incoming's.
-    await current.locator('.merge-check').first().click();
+    // A line's green + in the gutter: conflict 1's Current line joins it, before Incoming's.
+    await current.locator('.merge-line-btn.take').first().click();
     await expect.poll(outputText).toMatch(/current three\s+incoming three/);
     // The region is rebuilt: unticking Incoming's hunk leaves Current's line alone.
     await incoming.getByRole('checkbox', { name: 'Take conflict 1 from Incoming' }).click();
@@ -90,14 +117,16 @@ test.describe('conflicts (spec #2 §13.2)', () => {
     expect(text).toContain('current fifteen');
     expect(text).not.toContain('incoming three');
     expect(text).toContain('hand edit');
-    await fileRow(page, 'conflicted', 'logo.bin').click();
-    await tool.getByRole('button', { name: 'Take incoming' }).click();
-    await expect.poll(() => git(repo, 'diff', '--name-only', '--diff-filter=U')).not.toContain('logo.bin');
-    await fileRow(page, 'conflicted', 'gone.txt').click();
-    await expect(tool.getByText('Deleted in main, modified in feature/x')).toBeVisible();
+    // UX round 2: a resolved file moves the tool to the next conflicted one (gone.txt, then
+    // logo.bin), and closes it once none is left.
+    await expect(tool.getByText('Deleted in main (current), modified in feature/x (incoming)')).toBeVisible();
     await tool.getByRole('button', { name: 'Delete file' }).click();
+    await expect.poll(() => git(repo, 'diff', '--name-only', '--diff-filter=U')).not.toContain('gone.txt');
+    await expect(tool.getByText('Changed in both main (current) and feature/x (incoming) (not text)')).toBeVisible();
+    await tool.getByRole('button', { name: 'Take incoming' }).click();
     await expect.poll(() => git(repo, 'diff', '--name-only', '--diff-filter=U')).toBe('');
-    await expect(page.getByRole('region', { name: 'Merge in progress' }).getByRole('button', { name: 'Commit' })).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(tool).toBeHidden();
+    await expect(page.getByTestId('commit-box').getByRole('button', { name: 'Commit and merge' })).not.toHaveAttribute('aria-disabled', 'true');
   });
   // --- end 2D T20 ---
 });

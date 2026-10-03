@@ -50,8 +50,8 @@ function HeadActions({ ctx, which, files, guardConflicts }: { ctx: WriteCtx; whi
     <span className="wip-head-actions" onClick={(e) => e.stopPropagation()}>
       {which === 'unstaged' && !files.every((f) => f.submodule) && <ActionIcon label="Discard unstaged" tip={tip('Discard unstaged changes')} icon={Trash2} danger disabled={committing} onClick={() => void discardUnstaged(ctx)} />}
       {which === 'unstaged'
-        ? <ActionIcon label="Stage all" tip={tip('Stage all changes')} icon={ListPlus} disabled={committing} onClick={() => void (guardConflicts ? stagePaths(ctx, files.map((f) => f.path)) : stageAll(ctx))} />
-        : <ActionIcon label="Unstage all" tip={tip('Unstage all changes')} icon={ListMinus} disabled={committing} onClick={() => void unstageAll(ctx)} />}
+        ? <ActionIcon label="Stage all" tip={tip('Stage all changes')} icon={ListPlus} positive text="Stage All Changes" shortText="Stage all" disabled={committing} onClick={() => void (guardConflicts ? stagePaths(ctx, files.map((f) => f.path)) : stageAll(ctx))} />
+        : <ActionIcon label="Unstage all" tip={tip('Unstage all changes')} icon={ListMinus} danger text="Unstage All Changes" shortText="Unstage all" disabled={committing} onClick={() => void unstageAll(ctx)} />}
     </span>
   );
 }
@@ -72,6 +72,7 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
 }) {
   const label = section.title ?? which;
   const list = section.list;
+  const [toolsSlot, setToolsSlot] = useState<HTMLElement | null>(null);
   const ready = list.status === 'ready' ? list.data : null;
   const counts = ready ? countByStatus(ready.files) : null;
   // A collapsed section stays mounted, hidden, so its folders and keyboard cursor survive.
@@ -86,7 +87,7 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
     [ctx?.tabId, ctx?.repoId, ctx?.worktree, ready, which],
   );
   let body: ReactNode = null;
-  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} sharedMode onLeave={onLeave} renderActions={renderActions} />;
+  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} sharedMode toolsSlot={toolsSlot} onLeave={onLeave} renderActions={renderActions} />;
   else if (list.status === 'error' && !collapsed) body = <div role="alert" className="file-section-status">{list.message}</div>;
   return (
     <section
@@ -113,6 +114,7 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
             {ready.deleted > 0 && <span className="deleted">−{ready.deleted}</span>}
           </span>
         )}
+        <span className="wip-head-tools" ref={setToolsSlot} onClick={(e) => e.stopPropagation()} />
         {ctx && ready && ready.files.length > 0 && which !== 'conflicted' && <HeadActions ctx={ctx} which={which} files={ready.files} guardConflicts={guardConflicts} />}
       </div>
       <div className="wip-section-body" hidden={collapsed}>{body}</div>

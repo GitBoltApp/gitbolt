@@ -517,7 +517,8 @@ test.describe('image diff', () => {
     // Difference: its own black rendering, framed.
     await modeButton(page, 'Difference').click();
     await expect(d.locator('.image-frame')).toHaveCount(1);
-    same(await box('.image-frame'), await box('[data-testid="image-difference"]'));
+    // The difference is drawn once both images are read back: the frame follows its box.
+    await expect(async () => same(await box('.image-frame'), await box('[data-testid="image-difference"]'))).toPass();
     expect(await style('.image-frame', 'boxShadow')).toMatch(/0px 0px 0px 1px$/);
     expect(await style('.image-viewport', 'backgroundColor')).toBe('rgb(28, 30, 35)');
   });

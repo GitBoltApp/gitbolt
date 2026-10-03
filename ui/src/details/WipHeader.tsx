@@ -1,8 +1,11 @@
-import { Archive, ArrowRightLeft, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Trash2 } from 'lucide-react';
+import { useRef } from 'react';
+import { StashIcon } from '../icons/stash';
 import { useRepoContext } from '../app/repoContext';
 import { useRepoView } from '../repo/store';
 import { setActiveWorktree } from '../worktrees/active';
 import { HoverTooltip } from '../ui/HoverTooltip';
+import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';
 import { stashPushFor } from '../stash/actions';
 import { discardAll, useWipCtx } from '../stage/actions';
 import { ActionIcon } from '../stage/RowActions';
@@ -47,11 +50,27 @@ export function WipHeader() {
     return sel?.kind === 'wip' && !!s.graph.worktrees.find((w) => w.path === sel.worktree)?.inProgress;
   });
   const committing = useCommitting(wipCtx?.repoId ?? -1, wipCtx?.worktree ?? '');
+  // An armed Discard all says how many files, of which worktree: a different count or worktree
+  // disarms it.
+  const ref = useRef<HTMLElement>(null);
+  useDisarmOnChange(ref, `${count}\0${selection?.kind === 'wip' ? selection.worktree : ''}`);
   if (selection?.kind !== 'wip') return null;
   return (
-    <header className="wip-header panel-bar" data-testid="wip-header">
+    // Armed, Discard all grows rightwards over the header's text, which dims (board B).
+    <header ref={ref} className="wip-header panel-bar" data-testid="wip-header" data-arm-dim="">
+      {/* Left, centre, right: the centre stays centred whatever the sides hold. */}
+      {/* --- 2B T9: Discard all (it arms in place, spec §ui confirms) --- */}
+      {wipCtx && (
+        <span className="wip-head-left" data-arm-grow="right">
+          <ActionIcon label="Discard all" tip={committing ? COMMIT_QUEUED : midOp ? 'Abort instead' : count === 0 ? 'Nothing to discard' : 'Discard all changes'} icon={Trash2} danger disabled={committing || midOp || count === 0} onClick={() => void discardAll(wipCtx, count)} />
+        </span>
+      )}
+      {/* --- end 2B T9 --- */}
+      <span className="wip-head-centre">
       <span>{count} file {count === 1 ? 'change' : 'changes'}</span>
       {branch && <>{' '}<span>on</span>{' '}<HoverTooltip content={`Worktree ${selection.name}`} disabled={!selection.name}><span className="wip-branch">{branch}</span></HoverTooltip></>}
+      </span>
+      <span className="wip-head-right">
       {/* --- 2C T10: another worktree's WIP: make it the tab's --- */}
       {tabId && selection.worktree !== worktree && (
         <HoverTooltip content="Make this the tab's worktree">
@@ -65,18 +84,12 @@ export function WipHeader() {
       {tabId && count > 0 && (
         <HoverTooltip content="Stash every change, named from the WIP message">
           <button type="button" className="icon-button" aria-label="Stash" onClick={() => void stashPushFor({ tabId, repoId, worktree: selection.worktree })}>
-            <Archive size={14} aria-hidden />
+            <StashIcon size={14} aria-hidden />
           </button>
         </HoverTooltip>
       )}
       {/* --- end 2C T13 --- */}
-      {/* --- 2B T9: Discard all (the one confirmed discard) --- */}
-      {wipCtx && (
-        <span className="wip-head-actions">
-          <ActionIcon label="Discard all" tip={committing ? COMMIT_QUEUED : midOp ? 'Abort instead' : count === 0 ? 'Nothing to discard' : 'Discard all changes'} icon={Trash2} danger disabled={committing || midOp || count === 0} onClick={() => void discardAll(wipCtx)} />
-        </span>
-      )}
-      {/* --- end 2B T9 --- */}
+      </span>
     </header>
   );
 }

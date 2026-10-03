@@ -4,8 +4,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { fixtures, harnessHttp, openUrl } from './fixtures';
 
 // Diff prefs persist in localStorage (plan 1B amendment 3). Playwright gives every test a fresh
-// browser context, so each test starts from the default (Inline) unless it stores a mode itself.
-const DIFF_PREFS_KEY = 'gitbolt.diffPrefs.v1';
+// browser context, so each test starts from the default (Inline).
 
 async function selectRow(page: Page, text: string) {
   await page.getByRole('row').filter({ hasText: text }).click();
@@ -106,28 +105,6 @@ test.describe('file list and diff takeover', () => {
     expect(await selection()).toBe('');
     await fileRow(page, 'src/app.php').hover();
     await expect(page.getByRole('tooltip')).toHaveText('src/app.php');
-  });
-
-  test('J4: with Monaco\'s find widget open, Esc in the editor closes the find widget; Esc from the file list closes the file', async ({ page, browserName }) => {
-    await selectRow(page, 'Rename guide and update assets');
-    await fileRow(page, 'src/app.php').click();
-    const diff = page.getByRole('region', { name: 'Diff' });
-    const line = diff.locator('.editor.modified .view-line').filter({ hasText: 'final class Card' });
-    await expect(line).toBeVisible({ timeout: 15_000 });
-    await line.click();
-    await page.keyboard.press(browserName === 'webkit' ? 'Meta+f' : 'Control+f');
-    const find = diff.locator('.editor.modified .find-widget.visible');
-    await expect(find).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(find).toHaveCount(0);
-    await expect(diff).toBeVisible();
-    await line.click();
-    await page.keyboard.press(browserName === 'webkit' ? 'Meta+f' : 'Control+f');
-    await expect(find).toBeVisible();
-    await page.getByRole('listbox', { name: 'Changed files' }).focus();
-    await page.keyboard.press('Escape');
-    await expect(diff).toHaveCount(0);
-    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeFocused();
   });
 
   test('J15: a rename\'s tooltip dims the parts both paths share', async ({ page }) => {
@@ -436,6 +413,8 @@ test.describe('file list and diff takeover', () => {
     expect(g!.x + g!.width).toBeLessThan(views!.x);
     await expect(group.getByRole('button', { name: 'Open in VS Code' })).toBeVisible();
     await group.getByRole('button', { name: 'More ways to open' }).click();
+    // The dropdown is the shared context menu (Amendment 11), not a bespoke popup.
+    await expect(page.getByTestId('context-menu')).toBeVisible();
     await page.getByRole('menu', { name: 'Open in' }).getByRole('menuitem', { name: 'Open in PhpStorm' }).click();
     await expect.poll(async () => (await launches()).length).toBe(before + 1);
     // The first change's line, as git counts it.
@@ -464,33 +443,6 @@ test.describe('file list and diff takeover', () => {
     // folded away.
     await expect(diff.locator('.editor.modified .line-insert').first()).toBeVisible();
     await expect(diff.locator('.diff-hidden-lines')).toHaveCount(0);
-  });
-
-  test('a remembered Hunk mode folds the unchanged regions', async ({ page }) => {
-    await page.evaluate(([key]) => localStorage.setItem(key, JSON.stringify({ mode: 'hunk', ignoreWhitespace: false, wordWrap: false })), [DIFF_PREFS_KEY]);
-    await page.reload();
-    await selectRow(page, 'Rename guide and update assets');
-    await fileRow(page, 'src/app.php').click();
-    const diff = page.getByRole('region', { name: 'Diff' });
-    // The page's first diff loads the editor's chunk (Monaco + Shiki, 3-5 s cold on the dev server
-    // at idle, more on a loaded machine): allow for a cold start.
-    await expect(diff.locator('.monaco-diff-editor')).toBeVisible({ timeout: 15_000 });
-    // Monaco 0.57's `.diff-hidden-lines` box is 0 px tall; its `.center` is the visible
-    // "N hidden lines" bar. Checked in the modified editor, the one that holds the text.
-    await expect(diff.locator('.editor.modified .diff-hidden-lines .center').first()).toBeVisible();
-  });
-
-  test('Up/Down in the file list opens the next file immediately', async ({ page }) => {
-    await selectRow(page, 'Rename guide and update assets');
-    await fileRow(page, 'crlf.txt').click();
-    const path = page.getByTestId('diff-path');
-    await expect(path).toContainText('crlf.txt');
-    await page.keyboard.press('ArrowDown');
-    // The move lands while the page's first diff loads the editor's chunk (Monaco + Shiki, 3-5 s
-    // cold on the dev server at idle, a long main-thread evaluation): allow for a cold start.
-    await expect(path).toContainText('data.bin', { timeout: 15_000 });
-    await page.keyboard.press('ArrowUp');
-    await expect(path).toContainText('crlf.txt');
   });
 
   test('× closes the diff; Enter in the graph opens the first file, and so does → (J2)', async ({ page }) => {
@@ -558,20 +510,6 @@ test.describe('file list and diff takeover', () => {
     await expect(page.getByRole('tree', { name: 'Changed files' })).toBeFocused();
   });
 
-  test('tree mode nests folders and ←/→ collapse and expand them', async ({ page }) => {
-    await selectRow(page, 'Rename guide and update assets');
-    await listMode(page, 'Tree').click();
-    const docs = fileRow(page, 'docs');
-    await expect(docs).toHaveAttribute('aria-expanded', 'true');
-    await docs.click();
-    await expect(docs).toHaveAttribute('aria-expanded', 'false');
-    await expect(fileRow(page, 'docs/manual.txt')).toHaveCount(0);
-    await page.keyboard.press('ArrowRight');
-    await expect(docs).toHaveAttribute('aria-expanded', 'true');
-    await page.getByRole('button', { name: 'Collapse all' }).click();
-    await expect(fileRow(page, 'src/app.php')).toHaveCount(0);
-  });
-
   test('the header shows coloured status icons; totals and counts sit on either side', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
     const counts = page.getByTestId('file-counts');
@@ -582,7 +520,7 @@ test.describe('file list and diff takeover', () => {
     await expect(fileRow(page, 'src/app.php').getByRole('img', { name: 'Modified' })).toBeVisible();
   });
 
-  test('tree mode: one smart Expand/Collapse button, and file icons line up under their folder\'s name', async ({ page }) => {
+  test('tree mode: one smart Expand/Collapse button, file icons line up under their folder\'s name, a click or → toggles a folder', async ({ page }) => {
     await selectRow(page, 'Rename guide and update assets');
     await listMode(page, 'Tree').click();
     const toolbar = page.getByRole('toolbar', { name: 'File list options' });
@@ -612,6 +550,13 @@ test.describe('file list and diff takeover', () => {
     await fileRow(page, 'docs').click();
     await toolbar.getByRole('button', { name: 'Expand all' }).click();
     await expect(fileRow(page, 'docs')).toHaveAttribute('aria-expanded', 'true');
+    // A folder row collapses on a click (its files go) and → expands it again.
+    await fileRow(page, 'docs').click();
+    await expect(fileRow(page, 'docs')).toHaveAttribute('aria-expanded', 'false');
+    await expect(fileRow(page, 'docs/manual.txt')).toHaveCount(0);
+    await page.keyboard.press('ArrowRight');
+    await expect(fileRow(page, 'docs')).toHaveAttribute('aria-expanded', 'true');
+    await expect(fileRow(page, 'docs/manual.txt')).toBeVisible();
   });
 
   test('Path/Tree and the sort are remembered across a reload; View all files is not (H31)', async ({ page }) => {

@@ -7,7 +7,8 @@ import { deleteRow } from './delete';
 import { renameBranch } from './rename';
 import { pickUpstream } from './upstream';
 
-export const anchorNow = (): DOMRect => (document.querySelector('.ctx-menu')?.getBoundingClientRect() ?? new DOMRect(200, 200, 0, 0));
+/** Where a picker chained off the open menu goes: the menu's own top-left, so it replaces the menu (RefPicker opens 4px under its anchor's bottom). */
+export const anchorNow = (): DOMRect => { const r = document.querySelector('.ctx-menu')?.getBoundingClientRect(); return r ? new DOMRect(r.left, r.top - 4, 0, 0) : new DOMRect(200, 200, 0, 0); };
 
 export const offBranchMenus = [
   registerMenu<CommitTarget, MenuEnv>({
@@ -16,7 +17,7 @@ export const offBranchMenus = [
     rows: (t, env) => [{
       kind: 'action', id: 'branch.createHere', label: 'Create branch here', icon: GitBranchPlus,
       tooltip: t.branch ? `Create a branch at ${t.branch.name}` : `Create a branch at ${t.sha.slice(0, 7)}`,
-      run: () => { void createBranchAt(env.write!, { sha: t.sha, ref: t.branch?.local ?? t.branch?.remotes[0]?.fullName ?? null }, 'menu'); },
+      run: () => { void createBranchAt(env.write!, { sha: t.sha, ref: t.branch?.local ?? t.branch?.remotes[0]?.fullName ?? null }); },
     }],
   }),
   registerMenu<CommitTarget, MenuEnv>({

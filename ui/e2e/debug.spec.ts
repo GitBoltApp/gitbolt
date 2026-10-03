@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 // Plan 1D lane W2-B (T8, T9 UI, R9-R11): the Activity modal is the one Debug modal, with
@@ -9,11 +9,31 @@ const debugDialog = (page: Page) => page.getByRole('dialog', { name: 'Activity' 
 async function runFromPalette(page: Page, query: string) {
   await page.keyboard.press('Control+p');
   await page.keyboard.type(`>${query}`);
+  // Enter runs the highlighted row: wait until the list has caught up with the query. (Pressed
+  // straight after it paints: the highlight is the new list's top row from that frame on.)
+  await expect(page.getByRole('dialog', { name: 'Command palette' }).getByRole('option').first()).toContainText(query);
   await page.keyboard.press('Enter');
 }
 
+/** How many `commandLog` requests (the Commands tab's load and poll) the backend has answered in
+ * this test. Counted from the page's socket, watched from before the page opens it. */
+const commandLogReplies = { n: 0 };
+
 test.describe('the Debug modal', () => {
   test.beforeEach(async ({ page }) => {
+    commandLogReplies.n = 0;
+    const asked = new Set<number>();
+    const frame = (payload: string | Buffer) => { try { return JSON.parse(String(payload)) as { id?: number; req?: { method?: string } }; } catch { return {}; } };
+    page.on('websocket', (ws) => {
+      ws.on('framesent', ({ payload }) => {
+        const m = frame(payload);
+        if (m.req?.method === 'commandLog' && m.id !== undefined) asked.add(m.id);
+      });
+      ws.on('framereceived', ({ payload }) => {
+        const m = frame(payload);
+        if (m.id !== undefined && asked.has(m.id)) commandLogReplies.n++;
+      });
+    });
     await page.goto(openUrl(fixtures.basic));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
   });
@@ -56,6 +76,9 @@ test.describe('the Debug modal', () => {
     await runFromPalette(page, 'Activity log');
     const dialog = debugDialog(page);
     await expect(dialog.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
+    // The filter bar: inline checkboxes, quiet background ops hidden by default.
+    await expect(dialog.getByLabel('Errors only')).not.toBeChecked();
+    await expect(dialog.getByLabel('Hide background')).toBeChecked();
     await expect(dialog.getByRole('button', { name: 'Open logs folder' })).toBeDisabled();
     await dialog.getByRole('button', { name: 'Copy diagnostics' }).click();
     await expect(page.getByRole('status')).toHaveText('Diagnostics copied');
@@ -72,6 +95,14 @@ test.describe('the Debug modal', () => {
     await expect(overlay).toBeVisible();
     await expect(overlay).toContainText('fps');
     await expect(overlay.locator('tr').first()).toContainText(' ms');
+    // The Debug tools' own traffic (the Commands tab's poll, the log file writes) isn't listed:
+    // checked once the tab's first load and one interval poll have both been answered.
+    const answered = commandLogReplies.n;
+    await runFromPalette(page, 'Debug');
+    await expect(debugDialog(page).locator('li.debug-entry').first()).toBeVisible();
+    await expect.poll(() => commandLogReplies.n, { timeout: 10_000 }).toBeGreaterThanOrEqual(answered + 2);
+    for (const m of ['commandLog', 'logFrontend', 'logsDir', 'diagnostics']) await expect(overlay).not.toContainText(m);
+    await page.keyboard.press('Escape');
     await runFromPalette(page, 'Activity log');
     await debugDialog(page).getByRole('button', { name: 'Perf overlay' }).click();
     await expect(overlay).toHaveCount(0);

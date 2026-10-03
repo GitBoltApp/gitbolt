@@ -12,7 +12,7 @@ import { registerToolbarButton } from '../toolbar/registry';
 import { runWrite } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { offSyncMenu, registerSyncRows } from './menus';
-import { branchOf, defaultRemote, forcePush, headBranchOf, pushBranch, pushTooltip } from './push';
+import { branchOf, defaultRemote, forcePush, headBranchOf, nothingToPush, pushBranch, pushLabel, pushTooltip } from './push';
 import { PushUpstreamDialog } from './PushUpstreamDialog';
 
 
@@ -67,17 +67,18 @@ const offs = [
   registerSyncRows(10, (t, env) => {
     const local = t.branch?.local ? env.sidebar?.locals.find((b) => b.fullName === t.branch!.local) : undefined;
     const ctx = env.write;
-    if (!local || !ctx) return [];
+    if (!local || !ctx || nothingToPush(local)) return [];
+    const target = local.pushTarget;
     return [{
       kind: 'action', id: 'sync.push', label: 'Push', icon: ArrowUpFromLine,
-      tooltip: local.pushTarget ? `Push ${local.name} to ${local.pushTarget}` : `Push ${local.name} to a remote and track it`,
+      tooltip: pushLabel(local),
       run: () => { void pushBranch(ctx, local); },
-      variants: [{
+      // Force needs a push target to replace: a branch with none only has the plain push.
+      variants: target ? [{
         id: 'sync.push.force', label: 'force-with-lease', icon: ShieldAlert,
-        tooltip: local.pushTarget ? `Replace ${local.pushTarget} with ${local.name}, only if nobody else pushed since your last fetch` : `${local.name} has no push target`,
-        disabledReason: local.pushTarget ? undefined : `${local.name} has no push target`,
+        tooltip: `Replace ${target} with ${local.name}, only if nobody else pushed since your last fetch`,
         run: () => { void forcePush(ctx, local); },
-      }],
+      }] : [],
     }];
   }),
 ];

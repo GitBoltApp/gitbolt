@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Copy, ExternalLink, GitCommit, GitBranch } from 'lucide-react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ArmLayer } from '../ui/arm/ArmLayer';
+import { armClock, press } from '../ui/arm/armTesting';
+import { disarm, holdOrigin, useArm } from '../ui/arm/store';
+import { confirmAction } from '../ui/ConfirmDialog';
 import { TooltipHost } from '../ui/TooltipHost';
 import { useTooltip } from '../ui/tooltipStore';
 import { BLUR_SETTLE_MS, ContextMenu, inTriangle, remap, SUBMENU_GRACE_MS } from './ContextMenu';
@@ -525,5 +529,104 @@ describe('ContextMenu: the anchor toggles it', () => {
     await new Promise((r) => setTimeout(r, 5));
     fireEvent.click(toggle); // e.g. Enter on the focused button
     expect(useMenu.getState().rows).not.toBeNull();
+  });
+});
+
+describe('ContextMenu: an armed row (spec §ui confirms, board A)', () => {
+  let clock: ReturnType<typeof armClock>;
+  beforeEach(() => { clock = armClock(); });
+  afterEach(() => { act(() => { disarm(); useMenu.getState().close(); }); clock.restore(); });
+  const asking = (ran: () => void, arm = 'Click again to delete feature/x') => () => {
+    void confirmAction({ title: 'Delete?', body: 'b', confirmLabel: 'Delete', arm, danger: true }).then((ok) => { if (ok) ran(); });
+  };
+  const openArmed = (rows: MenuRow[]) => {
+    render(<><ContextMenu /><ArmLayer /><p>outside</p></>);
+    act(() => useMenu.getState().show(rows, 10, 10));
+  };
+
+  it('the first pick arms the row in place and the menu stays; the second runs it and closes the menu', async () => {
+    const ran = vi.fn();
+    openArmed([action('delete', asking(ran)), action('other')]);
+    fireEvent.click(screen.getByText('DELETE'));
+    const row = screen.getByRole('menuitem', { name: 'Click again to delete feature/x' });
+    expect(row).toHaveAttribute('data-armed', 'danger');
+    expect(screen.getByRole('menu')).toBeVisible();
+    // A double click's second click doesn't confirm, nor a press before the settle.
+    fireEvent.pointerDown(row);
+    fireEvent.click(row, { detail: 2 });
+    press(row);
+    await Promise.resolve();
+    expect(ran).not.toHaveBeenCalled();
+    clock.settle();
+    press(row);
+    await vi.waitFor(() => expect(ran).toHaveBeenCalledOnce());
+    expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
+  });
+
+  it('a click on another row only disarms (the menu stays, that row does not run); Esc disarms too', async () => {
+    const ran = vi.fn();
+    const other = vi.fn();
+    openArmed([action('delete', asking(ran)), action('other', other)]);
+    fireEvent.click(screen.getByText('DELETE'));
+    const next = screen.getByText('OTHER').closest('[role="menuitem"]')!;
+    fireEvent.pointerDown(next);
+    fireEvent.click(next);
+    expect(useArm.getState().armed).toBeNull();
+    expect(other).not.toHaveBeenCalled();
+    expect(screen.getByRole('menu')).toBeVisible();
+
+    fireEvent.click(screen.getByText('DELETE'));
+    expect(useArm.getState().armed).not.toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useArm.getState().armed).toBeNull();
+    expect(screen.getByRole('menu')).toBeVisible();
+    await Promise.resolve();
+    expect(ran).not.toHaveBeenCalled();
+  });
+
+  it('Enter arms the active row and a second, fresh Enter runs it; a held Enter never does', async () => {
+    const ran = vi.fn();
+    openArmed([action('delete', asking(ran))]);
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(screen.getByRole('menuitem', { name: 'Click again to delete feature/x' })).toBeInTheDocument();
+    clock.settle();
+    fireEvent.keyDown(window, { key: 'Enter', repeat: true });
+    await Promise.resolve();
+    expect(ran).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: 'Enter' });
+    await vi.waitFor(() => expect(ran).toHaveBeenCalledOnce());
+  });
+
+  it('a refresh of its rows (the plan may have changed) disarms the row', () => {
+    openArmed([action('delete', asking(() => {}))]);
+    fireEvent.click(screen.getByText('DELETE'));
+    expect(useArm.getState().armed).not.toBeNull();
+    act(() => useMenu.setState({ rows: [action('delete', asking(() => {}))] }));
+    expect(useArm.getState().armed).toBeNull();
+  });
+
+
+  it('a press outside disarms and closes the menu', () => {
+    openArmed([action('delete', asking(() => {}))]);
+    fireEvent.click(screen.getByText('DELETE'));
+    fireEvent.pointerDown(screen.getByText('outside'));
+    expect(useArm.getState().armed).toBeNull();
+    expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
+  });
+
+  it('a held row keeps its menu open until the action knows whether to ask (an integrate preview)', async () => {
+    let finish!: (ask: boolean) => void;
+    const ran = vi.fn();
+    openArmed([action('rebase', () => {
+      const release = holdOrigin();
+      void new Promise<boolean>((r) => { finish = r; }).then((ask) => {
+        if (ask) { const p = confirmAction({ title: 'Rebase?', body: 'b', confirmLabel: 'Rebase', arm: 'Click again to rebase onto main (2 commits)' }); release(); void p.then((ok) => ok && ran()); } else { release(); ran(); }
+      });
+    })]);
+    fireEvent.click(screen.getByText('REBASE'));
+    expect(screen.getByRole('menu')).toBeVisible();
+    await act(async () => { finish(true); });
+    expect(screen.getByRole('menuitem', { name: 'Click again to rebase onto main (2 commits)' })).toHaveAttribute('data-armed', 'positive');
+    expect(screen.getByRole('menu')).toBeVisible();
   });
 });

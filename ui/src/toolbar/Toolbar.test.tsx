@@ -21,7 +21,7 @@ const { useMenu } = await import('../menu/menuStore');
 const { useToast } = await import('../ui/toast');
 
 const branch = (name: string, target: string, over: Partial<LocalBranch> = {}): LocalBranch => ({
-  name, fullName: `refs/heads/${name}`, target, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, ...over,
+  name, fullName: `refs/heads/${name}`, target, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, rewritten: null, ...over,
 });
 
 const ctx = { tabId: 't', repoId: 4, path: '/r', worktree: '/r', info: null };

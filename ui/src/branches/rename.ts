@@ -13,7 +13,8 @@ export async function renameBranch(ctx: WriteCtx, name: string, oid: string): Pr
     label: 'New name',
     initial: name,
     confirmLabel: 'Rename',
-    validate: (v) => (v === name ? 'Type a new name' : branchNameError(v) ?? (locals.some((b) => b.name === v) ? `A branch named ${v} already exists` : null)),
+    requireChange: true,
+    validate: (v) => (v === name ? null : branchNameError(v) ?? (locals.some((b) => b.name === v) ? `A branch named ${v} already exists` : null)),
   });
   if (!answer) return;
   const to = answer.value;

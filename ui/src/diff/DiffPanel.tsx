@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { flushSync } from 'react-dom';
 import { useRepoContext } from '../app/repoContext';
 import { WipStagingUndo } from '../stage/UndoButtons';
-import { isWipKey } from '../repo/wipLists';
+import { isWipKey, wipKey } from '../repo/wipLists';
 import { comboOf } from '../app/shortcuts';
 import { registerKeys } from '../ui/keyRouter';
 import { errorMessage } from '../api/client';
@@ -31,12 +31,13 @@ import { highlightLanguage } from './language';
 import { loadMonacoHost } from './monaco/load';
 import { loadedHost, TextDiff } from './TextDiff';
 import { HunkActions, wipSideOf } from './hunkActions';
+import { wipHunkZones } from './wipHunks';
 import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty, saveWorkingCopy, suspendCopy, trackCopy, useWorkingCopy } from './workingCopy';
 import './diff.css';
 
 /** The target's contents. A cached (e.g. prefetched) file is ready on the first render, so
  * Up/Down through prefetched files never shows a loading frame. */
-export function useContents(services: RepoServices, target: DiffTarget, force: boolean, epoch = 0): Loadable<DiffContentsPayload> {
+export function useContents(services: RepoServices, target: DiffTarget, force: boolean, epoch: number | string = 0): Loadable<DiffContentsPayload> {
   const key = contentKey(contentsRequest(target, force));
   const [state, setState] = useState<{ key: string; value: Loadable<DiffContentsPayload> }>({ key: '', value: { status: 'idle' } });
   useEffect(() => {
@@ -203,7 +204,8 @@ function ImageBody({ target, contents: c, onSourceChange }: { target: DiffTarget
 
 /** `banner`: whether the line-endings banner may show. Not while the header (and so the editor)
  * still shows the previous file: it's this file's (K7). */
-function Body({ target, contents, forced, banner, onLoadAnyway, onShown, shownSeq = 0, onSourceChange, editable = false, onEdit, draft }: { shownSeq?: number; target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
+function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange, editable = false, onEdit, draft }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
+  const { repoId } = useRepoContext();
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
   const c = contents.data;
@@ -239,9 +241,9 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, shownSe
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} → {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
         ? <FileView identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} />
-        : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} />}
+        : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wipSideOf(target) ? () => wipHunkZones(repoId, target) : undefined} />}
       {/* Spec #2 §7.3: hunk and line buttons on a WIP text diff. */}
-      {target.view === 'diff' && wipSideOf(target) && <HunkActions target={target} shownSeq={shownSeq} />}
+      {target.view === 'diff' && wipSideOf(target) && <HunkActions target={target} />}
     </>
   );
 }
@@ -300,7 +302,11 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const { tabId, repoId } = useRepoContext();
   const store = useRepoViewStore();
   const epoch = useWorkingCopy((s) => s.epoch[tabId] ?? 0);
-  const live = useContents(services, target, forcedFor(target), epoch);
+  // A WIP file's sides are read again when its list moves (a stage, a discard, the watcher): a
+  // discard changes the working-tree side, whose source (and so key) stays the same.
+  const wipSide = wipSideOf(target);
+  const wipVersion = useRepoView((s) => (wipSide ? s.services.wip.peek(wipKey(wipSide.worktree, wipSide.staged))?.version ?? null : null));
+  const live = useContents(services, target, forcedFor(target), `${epoch}|${wipVersion ?? ''}`);
   // The body renders the presented file: the target, or the previous one while it loads.
   const body = usePresented(target, live, session);
   const forced = forcedFor(body.target);
@@ -329,8 +335,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // `flushSync`, so that render commits in the task that swapped the editor, before a paint.
   const bodyId = `${body.target.key}|${body.target.view}`;
   const [editorShown, setEditorShown] = useState<string | null>(null);
-  const [shownSeq, setShownSeq] = useState(0);
-  const onShown = () => flushSync(() => { setEditorShown(bodyId); setShownSeq((n) => n + 1); });
+  const onShown = () => flushSync(() => setEditorShown(bodyId));
   // Still on its way: the target's contents are loading, or its editor hasn't shown it yet (a cold
   // first load, a slow diff). The progress line shows only if that lasts.
   const pending = live.status === 'loading' || live.status === 'idle' || (showsEditor(body.target, body.contents) && editorShown !== bodyId);
@@ -395,7 +400,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
         staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
       />
       <div className="diff-body">
-        <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} shownSeq={shownSeq} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} editable={editable} onEdit={onEdit} draft={bodyCopy?.draft} />
+        <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} editable={editable} onEdit={onEdit} draft={bodyCopy?.draft} />
       </div>
     </section>
   );

@@ -4,6 +4,7 @@ import { useMenu } from '../menu/menuStore';
 import { isDismissKey } from '../ui/HoverTooltip';
 import { registerKeys } from '../ui/keyRouter';
 import { useFocusTrap } from '../ui/useFocusTrap';
+import { escapeDisarms } from '../ui/arm/store';
 
 /**
  * The open dialogs, oldest first. Only the topmost one acts on keys (one owner per key, R6): an
@@ -50,6 +51,8 @@ export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => 
       if (!isTopModal(ref)) return;
       // A dropdown (ui/Select) opened from the dialog owns the keys: Esc closes it, not the dialog.
       if (useMenu.getState().rows) return;
+      // Esc disarms an armed control inside the dialog (spec §ui confirms); the dialog stays.
+      if (escapeDisarms(e)) return 'handled';
       if (isDismissKey(e)) {
         close();
         e.preventDefault();

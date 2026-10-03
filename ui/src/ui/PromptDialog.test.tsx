@@ -25,6 +25,17 @@ describe('promptText', () => {
   });
 });
 
+describe('promptText unchanged value', () => {
+  it('shows no error for the untouched initial value, but still blocks it with requireChange', () => {
+    render(<PromptDialog />);
+    act(() => { void promptText({ title: 'Rename main', label: 'New name', initial: 'main', confirmLabel: 'Rename', requireChange: true, validate: (v) => (v === 'bad' ? 'Nope' : null) }); });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Rename' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'New name' }), { target: { value: 'bad' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Nope');
+  });
+});
+
 describe('promptText reuse', () => {
   it('a new prompt with the same title starts from fresh form state', async () => {
     render(<PromptDialog />);

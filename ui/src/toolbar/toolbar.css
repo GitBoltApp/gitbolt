@@ -25,3 +25,7 @@
 .tb-default-picker-title { max-width: 18rem; padding: 4px 12px 6px; color: var(--text-secondary); font-size: 11px; white-space: normal; }
 .tb-default-picker-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer; }
 .tb-default-picker-row[data-active="true"] { background: var(--hover-row); color: var(--text-selected); }
+.tb-radio { flex: none; position: relative; box-sizing: border-box; width: 14px; height: 14px; border: 1.5px solid var(--text-secondary); border-radius: 50%; }
+.tb-radio[data-on="true"] { border-color: var(--green); }
+.tb-radio[data-on="true"]::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; background: var(--green); }
+.tb-default-picker-row[aria-checked="true"] { color: var(--green); }

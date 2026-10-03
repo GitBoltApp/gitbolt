@@ -15,7 +15,7 @@ const { RepoContext } = await import('../app/repoContext');
 const { useRuntime } = await import('../app/runtime');
 const { EMPTY_PROFILE, EMPTY_REPO_SETTINGS, useAppState } = await import('../app/state');
 
-const branch = (name: string, isHead = false): LocalBranch => ({ name, fullName: `refs/heads/${name}`, target: name.padEnd(40, '0'), upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null });
+const branch = (name: string, isHead = false): LocalBranch => ({ name, fullName: `refs/heads/${name}`, target: name.padEnd(40, '0'), upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, rewritten: null });
 const ctx = { tabId: 't', repoId: 4, path: '/r', worktree: '/r', info: null };
 const profile = () => useAppState.getState().profile;
 const panel = (name: string) => screen.getByRole('region', { name });
@@ -187,6 +187,19 @@ describe('Sidebar item menus (plan 1C Task 15b)', () => {
     expect(rowsOpen()).toContain('Copy message');
     fireEvent.contextMenu(within(panel('Worktrees')).getByRole('treeitem', { name: 'w' }));
     expect(rowsOpen()).toContain('Open in file manager');
+  });
+
+  it('a right-click outlines its row while the menu is open and never moves the active row (UX round 2)', () => {
+    renderIt();
+    const items = () => within(panel('Local')).getAllByRole('treeitem');
+    const activeAt = () => items().findIndex((r) => r.dataset.active === 'true');
+    const before = activeAt();
+    const other = before === 0 ? 1 : 0;
+    fireEvent.contextMenu(items()[other]);
+    expect(items()[other]).toHaveAttribute('data-context', 'true');
+    expect(activeAt()).toBe(before);
+    act(() => useMenu.getState().close());
+    expect(items()[other]).not.toHaveAttribute('data-context');
   });
 
   it('a plain folder row has no menu', () => {

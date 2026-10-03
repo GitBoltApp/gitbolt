@@ -1,12 +1,47 @@
 /* Spec #2 §7.1: a row's actions show on hover and on the active row, at its right edge. */
-.row-actions { display: inline-flex; gap: 2px; margin-left: auto; visibility: hidden; }
-.file-stats + .row-actions { margin-left: 0; }
-.file-row:hover .row-actions, .file-row[aria-selected="true"] .row-actions { visibility: visible; }
+/* Overlaid at the row's right edge (the name truncates under it), so showing it never moves the text. */
+.row-actions { position: absolute; right: 8px; top: 0; bottom: 0; display: none; align-items: center; gap: 4px; padding-left: 6px; background: var(--panel-bg0); }
+.file-row:hover .row-actions, .file-row[aria-selected="true"] .row-actions { display: inline-flex; }
+/* An armed Discard keeps the row's actions up while the pointer is on its overlay. */
+.row-actions:has([data-armed]) { display: inline-flex; }
+.file-row:hover .row-actions { background: linear-gradient(var(--hover-row), var(--hover-row)), var(--panel-bg0); }
+.file-row[aria-selected="true"] .row-actions { background: linear-gradient(var(--selected-row), var(--selected-row)), var(--panel-bg0); }
 .row-action { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 18px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--text-secondary); cursor: pointer; }
 .row-action:hover { background: var(--control-hover-bg); color: var(--text-normal); }
-.row-action.danger:hover { color: var(--red); }
+.row-action.danger { color: var(--red); }
+.row-action.danger:hover { background: var(--red); color: var(--text-selected); }
+.row-action.positive { color: var(--green); }
+.row-action.positive:hover { background: var(--green); color: var(--app-bg0); }
+.row-action.has-text { width: auto; height: 24px; padding: 0 10px; gap: 5px; border: 1px solid currentColor; border-radius: 4px; font: inherit; font-size: 12px; white-space: nowrap; }
+.row-action.has-text:hover { border-color: transparent; }
+.row-action.has-text:not(.danger):not(.positive):hover { border-color: currentColor; }
+/* Rows and the squarer icon buttons get a bigger target. */
+.row-actions .row-action:not(.has-text), .row-action.has-text.narrow { min-width: 22px; height: 22px; }
+.row-actions .row-action.has-text { height: 22px; box-sizing: border-box; }
+.row-actions .row-action:not(.has-text), .wip-head-left .row-action { border: 1px solid transparent; }
+.row-action.danger:not(.has-text), .row-action.positive:not(.has-text) { border: 1px solid currentColor; }
+.row-action.danger:not(.has-text):hover, .row-action.positive:not(.has-text):hover { border-color: transparent; }
+/* A narrow panel: the text buttons fall back to 24px icon buttons. */
+.wip-sections { container-type: inline-size; }
+@container (max-width: 280px) {
+  .row-action.has-text .row-action-text { display: none; }
+  .row-action.has-text { width: 24px; padding: 0; }
+}
 .row-action[aria-disabled="true"] { opacity: 0.4; cursor: default; }
-.wip-head-actions { display: inline-flex; gap: 2px; margin-left: auto; }
+.wip-head-actions { display: inline-flex; gap: 6px; flex: none; }
+.wip-head-actions .row-action { height: 24px; box-sizing: border-box; }
+.wip-head-actions .row-action:not(.has-text) { width: 24px; }
 
 .wip-view-bar { position: relative; }
 .staging-undo { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; gap: 2px; }
+
+/* Header buttons: full label, then "Stage all" under 460px, then icon only under 340px. */
+.row-action-short { display: none; }
+@container (max-width: 460px) {
+  .wip-head-actions .row-action-text { display: none; }
+  .wip-head-actions .row-action-short { display: inline; }
+}
+@container (max-width: 340px) {
+  .wip-head-actions .row-action-short { display: none; }
+  .wip-head-actions .row-action.has-text { width: 24px; padding: 0; }
+}

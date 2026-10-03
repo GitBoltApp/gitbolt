@@ -8,11 +8,11 @@ import { removeWorktree } from './remove';
 
 const row = (r: Omit<Extract<MenuRow, { kind: 'action' }>, 'kind'>): MenuRow => ({ kind: 'action', ...r });
 
-const switchRow = (id: string, label: string, path: string, env: MenuEnv): MenuRow => row({
+/** Switch to: not offered on the worktree that's already the active one. */
+const switchRows = (id: string, label: string, path: string, env: MenuEnv): MenuRow[] => (path === env.activeWorktree ? [] : [row({
   id, label, icon: ArrowRightLeft, tooltip: `Make ${env.worktreeShown(path)} this tab's worktree (its WIP, commit box and Undo)`,
   run: () => env.write && setActiveWorktree(env.write.tabId, path),
-  disabledReason: path === env.activeWorktree ? 'Already the active worktree' : undefined,
-});
+})]);
 const openTabRow = (id: string, path: string, env: MenuEnv): MenuRow => row({
   id, label: 'Open in a new tab', icon: SquarePlus, tooltip: `Open ${env.worktreeShown(path)} in its own tab (the same repository, already loaded)`,
   run: () => { if (env.write) void openWorktreeTab(env.write.tabId, path); },
@@ -22,26 +22,28 @@ const openTabRow = (id: string, path: string, env: MenuEnv): MenuRow => row({
 const sidebarRows: MenuContribution<SidebarTarget, MenuEnv> = {
   id: 'sidebar.worktree', kind: 'sidebar', group: 'worktree', order: 0,
   when: (t) => t.what === 'worktree',
-  rows: (t, env) => (t.what === 'worktree' ? [switchRow('sidebar.worktree.switch', 'Switch to', t.path, env), openTabRow('sidebar.worktree.openTab', t.path, env)] : []),
+  rows: (t, env) => (t.what === 'worktree' ? [...switchRows('sidebar.worktree.switch', 'Switch to', t.path, env), openTabRow('sidebar.worktree.openTab', t.path, env)] : []),
 };
 
 /** A WIP row (§14): Switch to this worktree (not on the active one's), Open in a new tab. */
 const wipRows: MenuContribution<WipTarget, MenuEnv> = {
   id: 'wip.worktree', kind: 'wip', group: 'worktree', order: 0,
-  rows: (t, env) => [...(t.active ? [] : [switchRow('wip.switch', 'Switch to this worktree', t.worktree, env)]), openTabRow('wip.openTab', t.worktree, env)],
+  rows: (t, env) => [...(t.active ? [] : switchRows('wip.switch', 'Switch to this worktree', t.worktree, env)), openTabRow('wip.openTab', t.worktree, env)],
 };
 
 export const offWorktreeMenus: Array<() => void> = [registerMenu(sidebarRows), registerMenu(wipRows)];
 
 // --- 2C T14 ---
-/** Remove (sidebar worktree row): greyed for the main and locked worktrees, with the reason. */
+/** Remove (sidebar worktree row): never on the main worktree; greyed for a locked one, with the
+ * reason (unlocking it makes it removable). */
 const removeRows: MenuContribution<SidebarTarget, MenuEnv> = {
   id: 'sidebar.worktree.remove', kind: 'sidebar', group: 'worktree', order: 10,
   when: (t, env) => t.what === 'worktree' && !!env.write,
   rows: (t, env) => {
     if (t.what !== 'worktree') return [];
     const w = env.sidebar?.worktrees.find((x) => x.path === t.path);
-    const why = w?.isMain ? "The main worktree can't be removed" : w?.locked ? 'Locked: unlock it first' : undefined;
+    if (w?.isMain) return [];
+    const why = w?.locked ? 'Locked: unlock it first' : undefined;
     return [row({ id: 'sidebar.worktree.remove', label: 'Remove…', icon: FolderX, tooltip: `Delete ${env.worktreeShown(t.path)}'s folder (its branch stays)`, run: () => { void removeWorktree(env.write!, t.path, t.branch); }, disabledReason: why })];
   },
 };
@@ -56,8 +58,10 @@ const createRows: MenuContribution<CommitTarget, MenuEnv> = {
     const sub: MenuRow[] = env.labelsAt(t.sha).flatMap((l): MenuRow[] => {
       if (l.tag) return [];
       if (l.local) {
+        // A branch checked out in a worktree can't get another one: not listed.
+        if (l.checkedOut) return [];
         const name = l.local.replace(/^refs\/heads\//, '');
-        return [row({ id: `wt:${l.local}`, label: name, icon: FolderPlus, tooltip: `A worktree on ${name}`, run: () => openCreateWorktree({ tabId, at: t.sha, branch: { kind: 'existing', name } }), disabledReason: l.checkedOut ? `Checked out in ${env.worktreeShown(l.checkedOut)}` : undefined })];
+        return [row({ id: `wt:${l.local}`, label: name, icon: FolderPlus, tooltip: `A worktree on ${name}`, run: () => openCreateWorktree({ tabId, at: t.sha, branch: { kind: 'existing', name } }) })];
       }
       const r = l.remotes[0];
       if (!r) return [];

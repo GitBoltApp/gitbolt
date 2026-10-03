@@ -14,8 +14,10 @@ import type { WriteCtx } from '../write/client';
 import { withActiveSidebar } from '../worktrees/active';
 import { worktreeDisplay } from '../worktrees/paths';
 import type { EditorContextMenuEvent } from '../diff/monaco/host';
+import { stagingRows } from '../diff/stagingMenu';
 import { useRuntime } from '../app/runtime';
 import { projectRemote, type ProjectRemote } from '../forge/urls';
+import { isAncestorIn } from '../graph/ancestry';
 import { labelsByRowOf, membershipOf } from '../graph/graphIndex';
 import { loadOpeners, openersSnapshot, openVersion, openWith, parseListSpec, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
 import type { RepoServices } from '../repo/services';
@@ -106,6 +108,10 @@ export interface MenuEnv {
   /** `../shop-x`, as messages name a worktree. */
   worktreeShown(path: string): string;
   // --- end 2C T9 ---
+  /** Whether commit `a` is an ancestor of (or is) `b`, from the loaded rows (graph/ancestry.ts):
+   * the menus hide what can't apply (a fast-forward of a branch that isn't behind). `null`, or
+   * omitted: unknown, and the row shows, checked after the click. */
+  isAncestor?(a: string, b: string): boolean | null;
 }
 
 /** A folder row the folder menu is for. */
@@ -178,7 +184,9 @@ const remoteListeners = new Set<() => void>();
 
 function loadRemotes(services: RepoServices): void {
   if (services.remotesSnapshot()) return;
-  services.remotes().then(() => remoteListeners.forEach((f) => f()), () => {});
+  // Through a promise, so a transport that throws (none, in unit tests) rejects instead, as
+  // `refreshOpeners` does: the graph's warm-up runs this in an effect.
+  Promise.resolve().then(() => services.remotes()).then(() => remoteListeners.forEach((f) => f()), () => {});
 }
 
 /** Loads what the file menu shows ahead of the first right-click: the openers, the remotes,
@@ -187,6 +195,15 @@ export function warmFileMenu(services: RepoServices, graph?: GraphPayload): void
   loadOpeners().catch(() => {});
   loadRemotes(services);
   if (graph) membershipOf(graph.rows, labelsByRowOf(graph.labels), graph.pinnedRef);
+}
+
+/** Loads what the commit and label menus read ahead of the first right-click: the openers and the
+ * remotes (their Open !N and Forge link rows). A right-click no longer selects the row, so the
+ * details panel no longer starts the remotes' load; without this, the first menu painted without
+ * those rows and gained them under the pointer, shifting Copy SHA and the rows below. */
+export function warmCommitMenu(services: RepoServices): void {
+  loadOpeners().catch(() => {});
+  loadRemotes(services);
 }
 
 /** After the menu has painted (the next frame, then a task): nothing reaches the backend before
@@ -245,6 +262,7 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
     inProgress: s.graph.worktrees.find((w) => w.path === active)?.inProgress ?? null,
     worktreeShown: (path) => worktreeDisplay(main, path),
     // --- end 2C T9 ---
+    isAncestor: (a, b) => isAncestorIn(s.graph.rows, s.indexById, a, b),
     forge: (remote) => {
       const r = projectRemote(remote === undefined ? remotes : remotes.filter((x) => x.name === remote), useAppState.getState().profile.hostOverrides);
       return r && r.hostKind !== 'generic' ? r : null;
@@ -435,11 +453,21 @@ export function folderMenu(store: RepoViewStore, spec: DiffSpec, path: string, i
   return () => buildMenu<FolderTarget, MenuEnv>('folder', folderTargetOf(store.getState(), spec, path, inside), fileMenuEnv(store));
 }
 
-/** A right-click on a graph row, or on a branch label chip (`branch` set): plan 1C Task 15. WIP
- * rows get no commit menu (`commitTargetOf`'s `isWip`; the builders gate on it too). */
+/** The row's primary branch: its first branch chip (HEAD's sorts first), as a right-click on that
+ * chip would see it. A row with only tags, a detached HEAD or no labels has none. */
+export function primaryBranchOf(s: RepoViewState, row: RowPayload): BranchRef | null {
+  const labels = labelsByRowOf(s.graph.labels).get(s.indexById.get(row.id) ?? -1) ?? [];
+  const l = labels.find((x) => !x.tag && (x.local !== null || x.remotes.length > 0));
+  return l ? branchRefOf(l) : null;
+}
+
+/** A right-click on a graph row, or on a branch label chip (`branch` set): plan 1C Task 15. A row
+ * with a branch gets that branch's chip menu (its primary branch, `primaryBranchOf`), which has
+ * every commit row too; one without, the commit menu. WIP rows get no commit menu
+ * (`commitTargetOf`'s `isWip`; the builders gate on it too). */
 export function commitMenu(store: RepoViewStore, row: RowPayload, branch: BranchRef | null = null): () => MenuRow[] {
   afterOpening(store);
-  return () => buildMenu<CommitTarget, MenuEnv>('commit', commitTargetOf(row, branch), fileMenuEnv(store));
+  return () => buildMenu<CommitTarget, MenuEnv>('commit', commitTargetOf(row, branch ?? primaryBranchOf(store.getState(), row)), fileMenuEnv(store));
 }
 
 // --- 2C T9: the wip menu ---
@@ -504,7 +532,8 @@ export function monacoMenu(store: RepoViewStore, e: EditorContextMenuEvent): () 
   afterOpening(store);
   return () => {
     const t = monacoTargetOf(store.getState(), e);
-    return t ? buildMenu<MonacoTarget, MenuEnv>('monaco', t, fileMenuEnv(store)) : [];
+    // A WIP diff's Stage/Unstage/Discard rows first (spec #2 §7.3), then Copy and the rest.
+    return joinGroups(stagingRows(e), t ? buildMenu<MonacoTarget, MenuEnv>('monaco', t, fileMenuEnv(store)) : []);
   };
 }
 

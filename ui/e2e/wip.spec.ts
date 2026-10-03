@@ -128,7 +128,7 @@ test("the checked-out worktree's WIP is row 0 (\"now\") above newer commits; a l
   // anyway, and wt-hotfix's sits right on its HEAD.
   await expect(r.nth(0)).toContainText('// WIP');
   await expect(r.nth(0)).not.toContainText('wt-hotfix');
-  await expect(r.nth(1)).toContainText('On main: Experiment');
+  await expect(r.nth(1)).toContainText('Experiment');
   await expect(r.nth(2)).toContainText('wt-hotfix');
   await expect(r.nth(3)).toContainText('Hotfix: null check');
   await expect(r.nth(4)).toContainText("Merge branch 'feature/login'");

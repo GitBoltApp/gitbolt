@@ -19,6 +19,8 @@
 .sb-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px; white-space: nowrap; cursor: default; box-sizing: border-box; user-select: none; }
 .sb-row:hover { background: var(--hover-row); }
 .sb-list:focus .sb-row[data-active="true"] { outline: 1px solid var(--blue); outline-offset: -1px; }
+/* The row a context menu is open for (UX round 2: a right-click never moves the active row). */
+.sb-row[data-context="true"] { outline: 1px solid var(--blue); outline-offset: -1px; }
 .sb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sb-count { font-weight: 700; color: var(--count-blue); }
 .sb-item.is-head { background: var(--checked-out-row); color: var(--text-selected); font-weight: 600; }
@@ -42,3 +44,4 @@
 .hc-summary { margin-bottom: 4px; }
 .hc-meta { font-size: 11px; color: var(--text-secondary); }
 .sb-panel.is-collapsed { flex-shrink: 0; }
+.sb-dim { color: var(--text-secondary); font-size: 11px; }

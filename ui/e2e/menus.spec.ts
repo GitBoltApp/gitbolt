@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 // Plan 1C Task 15 (lane W2-D): the commit, branch/tag label and Monaco context menus, over 1B's
@@ -94,15 +94,24 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     expect(labels).not.toContain('Checkout');
   });
 
-  test("a branch label chip: Copy branch name (Local, Remote), Compare with HEAD names both branches", async ({ page }) => {
+  test("a branch label chip: Copy branch name (Local, Remote), Compare with HEAD names both branches; main's own chip compares with the working tree; a local-only branch has no Remote", async ({ page }) => {
     const menu = await labelMenu(page, 'Login validation');
     // Spec #2 §14: 2D's Sync and Integrate groups, 2C's Reset, Branch and Manage rows, then 1C's.
-    await expect(rowLabels(menu)).resolves.toEqual([
-      'Pull', 'Push', 'Set upstream', 'Reset main to this commit',
-      'Fast-forward feature/login to main', 'Merge feature/login into main', 'Rebase main onto feature/login',
+    // UX round 1: only what can apply. feature/login is merged into main (behind it): only the
+    // fast-forward, no merge or rebase; nothing to push.
+    const expected = [
+      'Pull', 'Set upstream', 'Reset main to this commit',
+      'Fast-forward feature/login to main',
       'Checkout', 'Create worktree from', 'Create branch here', 'Rename feature/login', 'Delete',
       'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD',
-    ]);
+    ];
+    await expect(rowLabels(menu)).resolves.toEqual(expected);
+    await page.keyboard.press('Escape');
+    // The commit row's own menu is its primary chip's.
+    const rowMenu = await commitMenu(page, 'Login validation');
+    await expect(rowLabels(rowMenu)).resolves.toEqual(expected);
+    await page.keyboard.press('Escape');
+    await labelMenu(page, 'Login validation');
     const compare = action(menu, 'Compare with HEAD');
     await expect(compare).not.toHaveAttribute('aria-disabled', 'true');
     await compare.hover();
@@ -122,22 +131,18 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     await labelMenu(page, 'Login validation');
     await variant(action(menu, 'Copy branch name'), /^Copy "origin\/feature\/login"/).click();
     await copied(page, 'origin/feature/login');
-  });
 
-  test("main's own chip, on its tip commit: Compare with HEAD is disabled (already there)", async ({ page }) => {
-    const menu = await labelMenu(page, "Merge branch 'feature/login'");
-    await expect(action(menu, 'Compare with HEAD')).toHaveAttribute('aria-disabled', 'true');
-    await action(menu, 'Compare with HEAD').hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Already at HEAD');
-  });
+    // main's own chip, on its tip commit: no Compare with HEAD (already there), Compare with
+    // working tree instead.
+    const labels = await rowLabels(await labelMenu(page, "Merge branch 'feature/login'"));
+    expect(labels).not.toContain('Compare with HEAD');
+    expect(labels).toContain('Compare with working tree');
+    await page.keyboard.press('Escape');
 
-  test('a local-only branch: Copy branch name Remote is disabled ("not on a remote")', async ({ page }) => {
-    const menu = await labelMenu(page, 'Hotfix: null check');
-    const branchRow = action(menu, 'Copy branch name');
-    // The variant's aria-label is its tooltip ("This branch isn't on a remote"); the shown
-    // tooltip, once hovered, prefers its shorter `disabledReason` ("Not on a remote").
-    await variant(branchRow, /isn't on a remote/).hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Not on a remote');
+    // A local-only branch: Copy branch name has no Remote.
+    const branchRow = action(await labelMenu(page, 'Hotfix: null check'), 'Copy branch name');
+    await expect(variant(branchRow, 'Copy the local branch name')).toBeVisible();
+    await expect(branchRow.getByRole('button', { name: /^Copy "/ })).toHaveCount(0);
   });
 
   test('a tag label chip: Copy tag name only (no forge on a generic remote)', async ({ page }) => {
@@ -154,18 +159,13 @@ test.describe('forge rows (a GitLab remote, fixtures.details)', () => {
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
   });
 
-  test('MR references in the message get one Open row each; the issue reference gets none', async ({ page }) => {
+  test("MR references in the message get one Open row each, the issue reference none; Forge link on a plain commit: no known branch, so the label copies the permalink and there's no ⎇", async ({ page }) => {
     const menu = await commitMenu(page, 'Rename guide and update assets');
     await expect(rowLabels(menu)).resolves.toEqual(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Open !42', 'Open group/sub/project!7', 'Copy SHA', 'Copy message', 'Forge link', 'Compare with working tree']);
     await expect(menu.getByRole('menuitem', { name: 'Open #12' })).toHaveCount(0);
-  });
-
-  test("Forge link on a plain commit: no known branch, so the label copies the permalink and ⎇ is disabled", async ({ page }) => {
-    const menu = await commitMenu(page, 'Rename guide and update assets');
     const forge = action(menu, 'Forge link');
     const sha = await row(page, 'Rename guide and update assets').getByTestId('sha').textContent();
-    await variant(forge, "Copy the branch's link").hover();
-    await expect(page.getByRole('tooltip')).toHaveText("Right-click a branch label for its page");
+    await expect(forge.getByRole('button', { name: "Copy the branch's link" })).toHaveCount(0);
     await forge.click();
     await copied(page, `https://gitlab.example.com/group/project/-/commit/${sha}`);
   });
@@ -177,7 +177,8 @@ test.describe('the Monaco context menu', () => {
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
   });
 
-  test("replaces Monaco's own once a diff is open, and offers Copy, Copy location, Forge link and Open in", async ({ page }) => {
+  // One page, one diff (each part was a test of its own, paying for a page and Monaco).
+  test("replaces Monaco's own once a diff is open, and offers Copy, Copy location, Forge link and Open in; a selection makes Copy and Copy location active; a multi-line selection's location is its range (fix round 1, item 7)", async ({ page }) => {
     await row(page, 'Rename guide and update assets').click();
     await page.getByRole('listbox', { name: 'Changed files' }).getByRole('option').and(page.locator('[data-path="src/app.php"]')).click();
     const d = page.getByRole('region', { name: 'Diff' });
@@ -196,35 +197,22 @@ test.describe('the Monaco context menu', () => {
     await expect(menu).toBeHidden();
     // The editor, not the file, has focus and closes on its own Escape path (the file stays open).
     await expect(d).toBeVisible();
-  });
 
-  test('a selection makes Copy and Copy location active, and copies it', async ({ page }) => {
-    await row(page, 'Rename guide and update assets').click();
-    await page.getByRole('listbox', { name: 'Changed files' }).getByRole('option').and(page.locator('[data-path="src/app.php"]')).click();
-    const d = page.getByRole('region', { name: 'Diff' });
-    await expect(d.locator('.editor.modified .line-insert').first()).toBeVisible({ timeout: 15_000 });
-    const line = d.locator('.editor.modified .view-line').filter({ hasText: 'Suit: string' }).getByText('Suit', { exact: true });
-    await line.dblclick();
-    await line.click({ button: 'right' });
-    const menu = page.getByTestId('context-menu');
+    // A selection makes Copy and Copy location active, and Copy copies it.
+    const word = line.getByText('Suit', { exact: true });
+    await word.dblclick();
+    await word.click({ button: 'right' });
     await expect(menu).toBeVisible();
     await action(menu, 'Copy').click();
     await copied(page, 'Suit');
-  });
 
-  test('a multi-line selection: Copy location shows and copies the range, its Abs variant the absolute path (fix round 1, item 7)', async ({ page }) => {
-    await row(page, 'Rename guide and update assets').click();
-    await page.getByRole('listbox', { name: 'Changed files' }).getByRole('option').and(page.locator('[data-path="src/app.php"]')).click();
-    const d = page.getByRole('region', { name: 'Diff' });
-    await expect(d.locator('.editor.modified .line-insert').first()).toBeVisible({ timeout: 15_000 });
-    // php_source's v2 (fixtures.rs): line 5 is "enum Suit: string …"; two lines down is line 7
-    // ("#[Attribute]"), giving a 5-7 range.
-    const line = d.locator('.editor.modified .view-line').filter({ hasText: 'Suit: string' });
+    // A multi-line selection: php_source's v2 (fixtures.rs): line 5 is "enum Suit: string …";
+    // two lines down is line 7 ("#[Attribute]"), giving a 5-7 range. Copy location shows and
+    // copies it; its Abs variant the absolute path.
     await line.click();
     await page.keyboard.press('Shift+ArrowDown');
     await page.keyboard.press('Shift+ArrowDown');
     await line.click({ button: 'right' });
-    const menu = page.getByTestId('context-menu');
     await expect(menu).toBeVisible();
     const loc = action(menu, 'Copy location');
     const rel = loc.getByRole('button').first();
@@ -235,23 +223,5 @@ test.describe('the Monaco context menu', () => {
     await line.click({ button: 'right' });
     await variant(action(menu, 'Copy location'), /absolute path/).click();
     await copied(page, `${fixtures.details}/src/app.php:5-7`);
-  });
-});
-
-test.describe("the diff header's Open in dropdown (Amendment 11: the shared menu system)", () => {
-  test('opens as the shared context menu, not a bespoke popup', async ({ page }) => {
-    await page.goto(openUrl(fixtures.details));
-    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-    await row(page, 'Rename guide and update assets').click();
-    await page.getByRole('listbox', { name: 'Changed files' }).getByRole('option').and(page.locator('[data-path="src/app.php"]')).click();
-    const toggle = page.getByRole('button', { name: 'More ways to open' });
-    await toggle.click();
-    const menu = page.getByTestId('context-menu');
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem')).not.toHaveCount(0);
-    // Focus restoration on Escape/Tab/a pick is the shared `ContextMenu`'s own behaviour, already
-    // covered unit-side (OpenInMenu.test.tsx); here it's enough that this *is* that menu.
-    await page.keyboard.press('Escape');
-    await expect(menu).toBeHidden();
   });
 });

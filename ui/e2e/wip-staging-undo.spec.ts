@@ -16,7 +16,7 @@ test.describe('the staging undo log (spec #2 §7.6)', () => {
     await expect(fileRow(page, 'staged', 'new.txt')).toBeVisible();
   });
 
-  test('Ctrl+Z in the file list is staging undo, < 100 ms best of 3; the toolbar Undo is untouched', async ({ page }) => {
+  test('Ctrl+Z in the file list is staging undo, < 100 ms best of 3; the toolbar Undo is untouched', { tag: '@budget' }, async ({ page }) => {
     const repo = await openWip(page);
     const runs: number[] = [];
     for (let i = 0; i < 3; i++) {

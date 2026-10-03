@@ -28,7 +28,7 @@ async function dragSelect(page: Page, el: import('@playwright/test').Locator) {
   await page.mouse.up();
 }
 
-test('the diff header filename selects in the one selection colour, and Ctrl+C copies it', async ({ page, browserName }) => {
+test('the diff header filename selects in the one selection colour, and Ctrl+C copies it; in the editor, Ctrl+C copies its selection, Ctrl+A then Ctrl+C the whole side (H19)', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'clipboard permissions are granted on Chromium only');
   await openAppPhp(page);
   const name = diff(page).getByTestId('diff-path').locator('strong');
@@ -47,11 +47,9 @@ test('the diff header filename selects in the one selection colour, and Ctrl+C c
   // Left to the browser's own copy (H19): the same path as right-click -> Copy, which works in the
   // real window. The app doesn't take the key and route it through the Tauri clipboard plugin.
   expect(await page.evaluate(() => (window as unknown as { copyKeys: boolean[] }).copyKeys)).toEqual([false]);
-});
 
-test('Ctrl+C in the editor copies its selection, Ctrl+A then Ctrl+C the whole side (H19)', async ({ page, browserName }) => {
-  test.skip(browserName !== 'chromium', 'clipboard permissions are granted on Chromium only');
-  await openAppPhp(page);
+  // In the editor (H19): Ctrl+C copies its selection, Ctrl+A then Ctrl+C the whole side. (The same
+  // page and diff: this was a test of its own, paying for both.)
   await page.evaluate(() => navigator.clipboard.writeText('before'));
   const word = diff(page).locator('.editor.modified .view-line').filter({ hasText: 'function' }).first().getByText('function', { exact: true }).first();
   await word.dblclick();

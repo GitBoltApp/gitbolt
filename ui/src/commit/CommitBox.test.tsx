@@ -10,7 +10,10 @@ describe('the commit button (spec #2 §8.1)', () => {
     expect(commitButton({ ...base, staged: 3, unstaged: 2 }).label).toBe('Commit changes to 3 files');
     expect(commitButton({ ...base, unstaged: 2 })).toMatchObject({ label: 'Stage all & commit', stageAll: true });
     expect(commitButton({ ...base, amend: true })).toMatchObject({ label: 'Amend previous commit', disabled: false, stageAll: false });
-    expect(commitButton({ ...base, inMerge: true, staged: 1 }).label).toBe('Commit merge');
+    expect(commitButton({ ...base, inMerge: true, staged: 1 }).label).toBe('Commit and merge');
+    // Ux round 1: the label while the summary is empty.
+    expect(commitButton({ ...base, staged: 1, summary: ' ' }).label).toBe('Type a message to commit');
+    expect(commitButton({ ...base, unstaged: 2, summary: '' })).toMatchObject({ label: 'Type a message to commit', stageAll: true, disabled: true });
   });
 
   it('says why it is disabled', () => {
@@ -23,7 +26,7 @@ describe('the commit button (spec #2 §8.1)', () => {
 });
 
 const h = vi.hoisted(() => ({ commit: vi.fn(), runWrite: vi.fn() }));
-vi.mock('../api/client', () => ({ api: { commit: h.commit } }));
+vi.mock('../api/client', () => ({ api: { commit: h.commit, commitIdentity: async () => ({ name: 'Ada Lovelace', email: 'ada@example.com' }) } }));
 vi.mock('../write/client', () => ({ runWrite: h.runWrite }));
 vi.mock('../app/repoContext', () => ({ useRepoContext: () => ({ tabId: 't' }) }));
 vi.mock('../stage/actions', () => ({ useWipCtx: () => ({ tabId: 't', repoId: 1, worktree: '/r' }) }));

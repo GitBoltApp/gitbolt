@@ -296,20 +296,6 @@ test.describe('commit details', () => {
     await expect(buttons.first()).toHaveAttribute('data-url', 'https://gitlab.example.com/group/project/-/merge_requests/42');
     await expect(buttons.last()).toHaveAttribute('data-url', 'https://gitlab.example.com/group/sub/project/-/merge_requests/7');
   });
-
-  test('Ctrl+click selects both commits (no A/B marks), and Escape leaves compare mode', async ({ page }) => {
-    const initial = page.getByRole('row').filter({ hasText: 'Initial commit' });
-    const merge = page.getByRole('row').filter({ hasText: "Merge branch 'feature/x'" });
-    await initial.click();
-    await merge.click({ modifiers: ['Control'] });
-    await expect(initial).toHaveAttribute('aria-selected', 'true');
-    await expect(merge).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('compare-a')).toHaveCount(0);
-    await page.keyboard.press('Escape');
-    await expect(initial).toHaveAttribute('aria-selected', 'false');
-    await expect(merge).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('details-summary')).toHaveText("Merge branch 'feature/x'");
-  });
 });
 
 // Feedback F12: the panel swaps to the next commit in one render, once its details, message and

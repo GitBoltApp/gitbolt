@@ -14,9 +14,9 @@ use crate::blob::{decode_blob, worktree_id};
 use crate::error::{gix_err, ErrorDetail, GbError, GbErrorKind};
 use crate::events::{ChangeKind, OpKind};
 use crate::git::GitInvocation;
-use crate::journal::UndoKind;
+use crate::journal::{resolve_step, UndoKind};
 use crate::payload::{ConflictKind, Eol};
-use crate::write::{WriteClass, WriteCx, WriteIntent};
+use crate::write::{Staging, WriteClass, WriteCx, WriteIntent};
 use gix::bstr::ByteSlice;
 use serde::Serialize;
 use ts_rs::TS;
@@ -575,17 +575,49 @@ impl WriteIntent for ResolveIntent {
     fn allowed_in_progress(&self) -> bool {
         true
     }
+    /// A resolution is a staging undo step (ux round 2), recorded by `run` itself.
+    fn staging(&self) -> Staging {
+        Staging::Own
+    }
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<Option<SubmoduleBehind>, GbError> {
         let p = self.path.as_str();
-        let mut behind = None;
-        let root = cx.root;
         // Under the lock: a double send, or a row resolved elsewhere, must not act again (a
         // second Take current would `git rm` the resolved file).
-        let (r, path) = (root.to_path_buf(), p.to_string());
+        let (r, path) = (cx.root.to_path_buf(), p.to_string());
         let stages = blocking(move || read_stages(&r, &path)).await?;
         if stages.iter().all(Option::is_none) {
             return Err(GbError::stale(format!("{p} isn't conflicted anymore")));
         }
+        // The staging undo step: the path's stages and file, kept before anything changes. Best
+        // effort: a file that can't be kept (unreadable, say) is still resolved, just not undoable.
+        let before = resolve_step::capture(cx, p).await.inspect_err(|e| tracing::warn!(target: "gitbolt_core::write", "resolve {p}: not undoable: {e}"));
+        let behind = self.act(cx, &stages).await?;
+        let after = if before.is_ok() { resolve_step::capture(cx, p).await.inspect_err(|e| tracing::warn!(target: "gitbolt_core::write", "resolve {p}: not undoable: {e}")).ok() } else { None };
+        match (before.ok(), after) {
+            (Some(before), Some(after)) => crate::journal::staging::record_resolve(cx, self.undo_label(), p, before, after),
+            _ => cx.api.staging.with(cx.root, |l| l.redo.clear()),
+        }
+        Ok(behind)
+    }
+}
+
+impl ResolveIntent {
+    /// The staging undo log's label: "resolve a.txt with incoming", "mark a.txt resolved".
+    fn undo_label(&self) -> String {
+        let p = &self.path;
+        match self.resolution {
+            Resolution::Text { .. } => format!("resolve {p}"),
+            Resolution::Current => format!("resolve {p} with current"),
+            Resolution::Incoming => format!("resolve {p} with incoming"),
+            Resolution::Delete => format!("resolve {p} by deleting it"),
+            Resolution::AsIs => format!("mark {p} resolved"),
+        }
+    }
+
+    async fn act(&self, cx: &mut WriteCx<'_>, stages: &Stages) -> Result<Option<SubmoduleBehind>, GbError> {
+        let p = self.path.as_str();
+        let mut behind = None;
+        let root = cx.root;
         // A submodule's conflict is resolved in the index alone: its files are never touched.
         let gitlink = stages.iter().flatten().any(|s| s.gitlink);
         let add = |cx: &WriteCx<'_>| literal(cx.git(["add", "--", p]));
@@ -619,7 +651,7 @@ impl WriteIntent for ResolveIntent {
                     }
                     side => {
                         refuse_repo_in_the_way(root, p)?;
-                        self.ask_before_discarding(cx, &stages).await?;
+                        self.ask_before_discarding(cx, stages).await?;
                         if side.is_some() {
                             let inv = literal(cx.git(["checkout", flag, "--", p]));
                             cx.run_git(inv).await?;
@@ -639,7 +671,7 @@ impl WriteIntent for ResolveIntent {
                 } else {
                     refuse_repo_in_the_way(root, p)?;
                     // Review M-e: a Delete loses hand edits as surely as a Take.
-                    self.ask_before_discarding(cx, &stages).await?;
+                    self.ask_before_discarding(cx, stages).await?;
                     rm(cx)
                 };
                 cx.run_git(inv).await?;
@@ -657,9 +689,7 @@ impl WriteIntent for ResolveIntent {
         cx.touch(ChangeKind::Worktree);
         Ok(behind)
     }
-}
 
-impl ResolveIntent {
     /// "Discard your edits to <path>?" unless answered yes already.
     async fn ask_before_discarding(&self, cx: &WriteCx<'_>, stages: &Stages) -> Result<(), GbError> {
         let p = self.path.as_str();

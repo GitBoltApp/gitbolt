@@ -25,6 +25,13 @@
 .commit-message { position: relative; }
 .message-edit { position: absolute; top: 4px; right: 4px; }
 .commit-message:has(> .message-edit) { padding-right: 28px; }
+/* Ux round 1: while editing, the commit box's one text box takes the message box's place, so
+   there's no second box behind it. */
+.commit-message.message-box:has(> .head-message-editor) { background: none; padding: 2px; }
+/* The message section is the split's share of the panel: while editing it's at least as tall as
+   the editor, so Save always shows; the description starts at two lines here. */
+.commit-details:has(.head-message-editor) { min-height: max-content; }
+.head-message-editor .commit-description { min-height: calc(2lh + 10px); }
 .head-message-editor { display: flex; flex-direction: column; gap: 6px; }
 .head-message-note { margin: 0; color: var(--status-modified); font-size: 12px; }
 .head-message-actions { display: flex; justify-content: flex-end; gap: 6px; }

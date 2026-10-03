@@ -8,7 +8,8 @@ const offs = [
     const local = t.branch?.local ? env.sidebar?.locals.find((b) => b.fullName === t.branch!.local) : undefined;
     const ctx = env.write;
     if (!local || !ctx) return [];
-    return [pullRow(local, (mode) => { void pull(ctx, mode, local.isHead ? undefined : local.name); })];
+    const row = pullRow(local, (mode) => { void pull(ctx, mode, local.isHead ? undefined : local.name); });
+    return row ? [row] : [];
   }),
 ];
 pushHooks.pull = (ctx, branch) => { void pull(ctx, 'ffOnly', branch === headBranchOf(ctx.tabId) ? undefined : branch); };

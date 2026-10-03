@@ -207,17 +207,17 @@ describe('the commit menu (spec §7 target table; plan 1C Task 15, commit kind)'
     expect(commit(commitTarget({ isWip: true }), envOf())).toEqual([]);
   });
 
-  it('Copy branch name | Local | Remote |, greying out what the branch lacks', () => {
+  it('Copy branch name | Local | Remote |, with only the names the branch has', () => {
     const env = envOf();
     const t = commitTarget({ branch: branch('topic', null, { remote: 'origin', branch: 'topic' }) });
     const row = find(commit(t, env), 'Copy branch name');
     row.run();
     expect(env.act.copy).toHaveBeenLastCalledWith('topic');
-    expect(variant(row, 'local').disabledReason).toBe('No local branch');
+    expect(row.variants?.map((v) => v.id)).toEqual(['remote']);
     variant(row, 'remote').run();
     expect(env.act.copy).toHaveBeenLastCalledWith('origin/topic');
     const local = commitTarget({ branch: branch('topic', 'refs/heads/topic') });
-    expect(variant(find(commit(local, env), 'Copy branch name'), 'remote').disabledReason).toBe('Not on a remote');
+    expect(find(commit(local, env), 'Copy branch name').variants?.map((v) => v.id)).toEqual(['local']);
   });
 
   it('Copy SHA | Short | Full |, and Copy message loads then copies the full message', () => {
@@ -231,7 +231,7 @@ describe('the commit menu (spec §7 target table; plan 1C Task 15, commit kind)'
     expect(env.act.copyMessage).toHaveBeenLastCalledWith(sha);
   });
 
-  it('Forge link on a branch tip: the label copies the branch link, ⎇/◉ copy theirs, Open opens; a branch off the remote greys out ⎇', () => {
+  it('Forge link on a branch tip: the label copies the branch link, ⎇/◉ copy theirs, Open opens; a branch off the remote has no ⎇', () => {
     const env = envOf();
     const t = commitTarget({ branch: branch('feature/x', 'refs/heads/feature/x', { remote: 'origin', branch: 'feature/x' }) });
     const row = find(commit(t, env), 'Forge link');
@@ -244,21 +244,22 @@ describe('the commit menu (spec §7 target table; plan 1C Task 15, commit kind)'
     variant(row, 'open').run();
     expect(env.act.openUrl).toHaveBeenLastCalledWith(branchUrl);
     const local = commitTarget({ branch: branch('local-only', 'refs/heads/local-only') });
-    expect(variant(find(commit(local, env), 'Forge link'), 'branch').disabledReason).toBe("This branch isn't on the remote");
+    expect(find(commit(local, env), 'Forge link').variants?.map((v) => v.id)).toEqual(['commit', 'open']);
   });
 
-  it('Forge link on a plain commit: the permalink, no ⎇ ("right-click a branch label")', () => {
+  it('Forge link on a plain commit: the permalink, no ⎇', () => {
     const env = envOf();
     const row = find(commit(commitTarget(), env), 'Forge link');
-    expect(variant(row, 'branch').disabledReason).toBe('Right-click a branch label for its page');
+    expect(row.variants?.map((v) => v.id)).toEqual(['commit', 'open']);
     row.run();
     expect(env.act.copy).toHaveBeenLastCalledWith(`https://gitlab.example.com/acme/shop/-/commit/${sha}`);
   });
 
-  it("Compare with HEAD is disabled at HEAD; Compare with working tree always runs", () => {
+  it("Compare with HEAD isn't offered at HEAD (Compare with working tree is); Compare with working tree runs", () => {
     const env = envOf({ headSha: sha });
     const t = commitTarget({ branch: branch('main', 'refs/heads/main') });
-    expect(find(commit(t, env), 'Compare with HEAD').disabledReason).toBe('Already at HEAD');
+    expect(labels(commit(t, env))).not.toContain('Compare with HEAD');
+    expect(labels(commit(t, env))).toContain('Compare with working tree');
     const env2 = envOf();
     find(commit(commitTarget(), env2), 'Compare with working tree').run();
     expect(env2.act.compare).toHaveBeenLastCalledWith(sha, 'worktree');

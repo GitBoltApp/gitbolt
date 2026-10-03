@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test, type Page } from './test';
+import { expect, test, type Page, confirmArmed } from './test';
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
 const chip = (page: Page, name: string) => grid(page).locator('.ref-label', { hasText: name }).first();
@@ -21,7 +21,7 @@ function advance(repo: string, branch: string): void {
 }
 
 test.describe('checkout (spec #2 §9.3)', () => {
-  test('double-clicking a branch chip checks it out within 300 ms; undo switches back', async ({ page }) => {
+  test('double-clicking a branch chip checks it out within 300 ms; undo switches back', { tag: '@budget' }, async ({ page }) => {
     const repo = freshFixture('basic');
     git(repo, 'stash', 'push', '-q', '-u', '-m', 'park the fixture changes');
     await page.goto(openUrl(repo));
@@ -64,19 +64,29 @@ test.describe('checkout (spec #2 §9.3)', () => {
     await page.goto(openUrl(repo));
     await page.getByRole('treeitem', { name: 'feature/login' }).last().dblclick();
     await expect(page.getByRole('alertdialog')).toContainText('feature/login and origin/feature/login have diverged (1 ahead, 1 behind).');
-    await page.getByRole('button', { name: 'Reset feature/login to origin/feature/login' }).click();
+    await confirmArmed(page.getByRole('button', { name: 'Reset feature/login to origin/feature/login' }));
     await expect.poll(() => git(repo, 'rev-parse', 'feature/login')).toBe(git(repo, 'rev-parse', 'origin/feature/login'));
     await page.getByRole('button', { name: 'Undo' }).click();
     await expect.poll(() => git(repo, 'rev-parse', 'feature/login')).toBe(mine);
   });
 
-  test('a branch checked out in another worktree offers to switch to it', async ({ page }) => {
+  test('double-clicking a branch checked out in another worktree switches to that worktree, no toast', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
     await chip(page, 'hotfix').dblclick();
-    await expect(page.getByText('hotfix is checked out in ../wt-hotfix.')).toBeVisible();
-    await page.getByRole('button', { name: 'Switch to it' }).click();
     await expect(page.getByTestId('tb-repo')).toContainText('wt-hotfix');
+    await expect(page.getByText('hotfix is checked out in ../wt-hotfix.')).toHaveCount(0);
+    expect(head(repo)).toBe('main'); // nothing checked out
+  });
+
+  test("double-clicking main's sidebar row, checked out in the main worktree, switches back to it", async ({ page }) => {
+    const repo = freshFixture('basic');
+    await page.goto(openUrl(repo));
+    await chip(page, 'hotfix').dblclick();
+    await expect(page.getByTestId('tb-repo')).toContainText('wt-hotfix');
+    await page.getByRole('treeitem', { name: 'main', exact: true }).first().dblclick();
+    await expect(page.getByTestId('tb-repo')).not.toContainText('wt-hotfix');
+    expect(head(repo)).toBe('main');
   });
 
   test('the branch picker and the palette check out', async ({ page }) => {
@@ -119,7 +129,7 @@ test.describe('reset (spec #2 §9.4)', () => {
     // The fixture's main worktree is dirty (file_1.txt): Hard asks.
     await resetRow('Hard');
     await expect(page.getByRole('alertdialog')).toContainText('and discard changes to 1 file? You can undo this.');
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Reset' }).click();
+    await confirmArmed(page.getByRole('alertdialog').getByRole('button', { name: 'Reset' }));
     await expect.poll(() => git(repo, 'status', '--porcelain', '--untracked-files=no')).toBe('');
     await page.getByRole('button', { name: 'Undo' }).click();
     await expect.poll(() => git(repo, 'status', '--porcelain', '--untracked-files=no')).toContain('file_1.txt');

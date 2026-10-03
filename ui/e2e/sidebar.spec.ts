@@ -30,6 +30,9 @@ test.describe('sidebar', () => {
   });
 
   test('the filter filters every panel; counts follow it; Esc clears', async ({ page }) => {
+    // Off the window's corner, where the pointer starts: the hamburger there shows its tooltip,
+    // and a shown tooltip takes the first Esc (key router's tooltip layer), not the filter.
+    await page.getByLabel('Filter branches').hover();
     await page.keyboard.press('Control+Alt+f');
     await expect(page.getByLabel('Filter branches')).toBeFocused();
     await page.keyboard.type('login');
@@ -145,23 +148,27 @@ test.describe('sidebar', () => {
   });
   // K56: the sidebar never grows its own scrollbar; only the panel bodies scroll. The harness has
   // no webview zoom, so CSS zoom on the root stands in (it gives the same fractional layout).
-  for (const z of [1, 1.2, 1.25]) {
-    for (const h of [900, 600, 400]) {
-      test(`the sidebar does not overflow at zoom ${z * 100}% and ${h}px tall`, async ({ page }) => {
+  // One page for the nine sizes (each was a test of its own, paying for a page).
+  test('the sidebar does not overflow at zoom 100%, 120% and 125%, 900, 600 and 400 px tall', async ({ page }) => {
+    for (const z of [1, 1.2, 1.25]) {
+      for (const h of [900, 600, 400]) {
+        const at = `zoom ${z * 100}%, ${h}px tall`;
         await page.setViewportSize({ width: 1280, height: h });
         await page.evaluate((zoom) => { document.documentElement.style.zoom = String(zoom); }, z);
         await expect(panel(page, 'Tags')).toBeVisible();
+        // The panels re-laid out for the new size (a resize observer, then a render).
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
         const m = await page.evaluate(() => {
           const el = document.querySelector('.sidebar')!;
           const stack = el.querySelector('.sb-stack')!;
           return { sh: el.scrollHeight, ch: el.clientHeight, ssh: stack.scrollHeight, sch: stack.clientHeight };
         });
         // WebKit rounds a fractional box height up in scrollHeight but down in clientHeight (233.35px gives 234 vs 233), so allow that 1px on both.
-        expect(m.sh).toBeLessThanOrEqual(m.ch + 1);
-        expect(m.ssh).toBeLessThanOrEqual(m.sch + 1);
-      });
+        expect(m.sh, at).toBeLessThanOrEqual(m.ch + 1);
+        expect(m.ssh, at).toBeLessThanOrEqual(m.sch + 1);
+      }
     }
-  }
+  });
 
   test('collapsed panel headers are separated by 1px borders; counts are bold light blue (K55)', async ({ page }) => {
     for (const n of ['Stashes', 'Tags']) if ((await panel(page, n).getByRole('tree').count()) > 0) await panel(page, n).getByRole('button', { name: n, exact: true }).click();
@@ -211,14 +218,16 @@ test.describe('sidebar item menus', () => {
     await expect(panel(page, 'Local').getByRole('tree')).toBeVisible();
   });
 
-  test('a branch: the branch label menu, every row with an instant tooltip; Show in graph selects its tip', async ({ page }) => {
+  test('a branch: the branch label menu, every row with an instant tooltip; Show in graph selects its tip; the current branch compares with the working tree, not HEAD', async ({ page }) => {
     await item(page, 'Local', 'hotfix').click({ button: 'right' });
     await expect(menu(page)).toBeVisible();
-    // Spec #2 §14: the Sync, Commit (Reset), Integrate, Branch and Manage groups come first.
+    // Spec #2 §14: the Sync, Commit (Reset), Integrate, Branch and Manage groups come first. Only
+    // what can apply (UX round 1): hotfix has no upstream (no Pull), is checked out in wt-hotfix
+    // (no Fast-forward) and isn't on a remote, so it can't be deleted (no Delete).
     expect(await labels(page)).toEqual([
-      'Pull', 'Push', 'Set upstream', 'Reset main to this commit',
-      'Fast-forward hotfix to main', 'Merge hotfix into main', 'Rebase main onto hotfix',
-      'Checkout', 'Create worktree from', 'Create branch here', 'Rename hotfix', 'Delete',
+      'Push', 'Set upstream', 'Reset main to this commit',
+      'Merge hotfix into main', 'Rebase main onto hotfix',
+      'Checkout', 'Create worktree from', 'Create branch here', 'Rename hotfix',
       'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD', 'Show in graph',
     ]);
     await action(page, 'Copy SHA').hover();
@@ -231,11 +240,10 @@ test.describe('sidebar item menus', () => {
     await action(page, 'Show in graph').click();
     await expect(menu(page)).toBeHidden();
     await expect(page.getByRole('row', { selected: true })).toHaveCount(1);
-  });
-
-  test('the current branch cannot be compared with HEAD', async ({ page }) => {
+    // The current branch has no Compare with HEAD (it is HEAD), only Compare with working tree.
     await item(page, 'Local', 'main').click({ button: 'right' });
-    await expect(action(page, 'Compare with HEAD')).toHaveAttribute('aria-disabled', 'true');
+    await expect(action(page, 'Compare with working tree')).toBeVisible();
+    await expect(action(page, 'Compare with HEAD')).toHaveCount(0);
   });
 
   test('a remote branch copies origin/<name>; the remote folder copies its name', async ({ page }) => {

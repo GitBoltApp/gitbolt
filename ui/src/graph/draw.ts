@@ -1,5 +1,6 @@
 import type { RowPayload } from '../api/gen/RowPayload';
 import { initials } from '../format/initials';
+import { STASH_ICON_BOX, STASH_ICON_STROKE, traceStashIcon } from '../icons/stash';
 import { laneX, pathLength, segmentPath, tracePath, type Metrics, type PathOp } from './geometry';
 import { connectorLine, dashLength, dashOffset, ringDash, snapScroll } from './pixels';
 import { decodeSegment } from './segments';
@@ -74,6 +75,16 @@ export const PACKED_ALPHA = 0.5;
 
 /** A commit node's radius; every node of the zone and the strip is this size. */
 export const nodeRadius = (m: Metrics) => m.rowH * 0.36;
+/** A stash node's half side: its dotted square, about a commit node's circle. */
+export const stashHalf = (m: Metrics) => nodeRadius(m) * 0.95;
+/** The share of the stash square the icon fills. */
+export const STASH_ICON_FILL = 0.8;
+/** A dash for a square of half side `s` that divides its perimeter evenly (`ringDash`'s rule). */
+const squareDash = (s: number, target: number) => {
+  const p = 8 * s;
+  return p / (2 * Math.max(2, Math.round(p / (2 * target))));
+};
+
 /** The collapse zone's width: a node, a gap either side and the rail. */
 export const zoneWidth = (m: Metrics) => Math.ceil(2 * nodeRadius(m)) + 2 * ZONE_GAP + RAIL_W;
 
@@ -281,14 +292,30 @@ function drawNode(ctx: CanvasRenderingContext2D, o: DrawOptions, row: RowPayload
     return;
   }
   if (kind === 'stash') {
-    const s = m.rowH * 0.28;
-    ctx.setLineDash([2, 2]);
+    // A dotted square holding the stash (paper tray) icon, in the lane colour (the
+    // icon is the toolbar's and the sidebar's, icons/stash.ts): unlike the WIP's dotted ring,
+    // it reads as a stash at a glance. Butt caps and a dash that divides the perimeter evenly,
+    // as the ring's.
+    const s = stashHalf(m);
+    const d = squareDash(s, WIP_RING_DASH);
+    ctx.lineCap = 'butt';
+    ctx.setLineDash([d, d]);
     ctx.strokeStyle = c;
     ctx.fillStyle = o.nodeFill;
     ctx.rect(x - s, y - s, 2 * s, 2 * s);
     ctx.fill();
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.lineCap = 'round';
+    const [lw, join] = [ctx.lineWidth, ctx.lineJoin];
+    const size = 2 * s * STASH_ICON_FILL;
+    ctx.lineWidth = Math.max(1, STASH_ICON_STROKE * (size / STASH_ICON_BOX) * 1.2);
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    traceStashIcon(ctx, x, y, size);
+    ctx.stroke();
+    ctx.lineWidth = lw;
+    ctx.lineJoin = join;
     return;
   }
   const r = nodeRadius(m);

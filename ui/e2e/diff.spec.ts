@@ -235,9 +235,11 @@ test.describe('diff viewer controls', () => {
   // (crlf.txt): app.php swaps in whole. Neither ws.txt (4 lines) nor crlf.txt (3) shows a line
   // past 5. Hunk: app.php's line 20 sits inside its collapsed region and 52 is shown; Inline and
   // Split show line 10 (its first change, line 5, is on the first screen: no reveal).
-  for (const [mode, marker, hidden] of [['Hunk', '52', '20'], ['Inline', '10', null], ['Split', '10', null]] as const) {
-    test(`${mode} mode: switching files swaps in the new diff whole, never a blank editor, Loading${hidden ? ' or the full file' : ''}`, async ({ page }) => {
+  // One page for the three modes (each was a test of its own, paying for a page and Monaco).
+  test('every mode: switching files swaps in the new diff whole, never a blank editor, Loading or (Hunk) the full file', async ({ page }) => {
+    for (const [mode, marker, hidden] of [['Hunk', '52', '20'], ['Inline', '10', null], ['Split', '10', null]] as const) {
       for (const from of ['ws.txt', 'crlf.txt']) {
+        const at = `${mode}, from ${from}`;
         await open(page, from);
         const d = diff(page);
         await d.getByRole('button', { name: mode }).click();
@@ -248,17 +250,17 @@ test.describe('diff viewer controls', () => {
         await fileRow(page, 'src/app.php').click();
         await expect(d.locator('.editor.modified .margin-view-overlays .line-numbers').filter({ hasText: new RegExp(`^${marker}$`) })).toBeVisible();
         const frames = await stop();
-        expect(frames.filter((f) => f.phase === 'post').length).toBeGreaterThan(3);
-        expect(frames.filter((f) => f.lines.length === 0 || f.busy)).toEqual([]);
-        if (hidden) expect(frames.filter((f) => f.lines.includes(hidden))).toEqual([]);
+        expect(frames.filter((f) => f.phase === 'post').length, at).toBeGreaterThan(3);
+        expect(frames.filter((f) => f.lines.length === 0 || f.busy), at).toEqual([]);
+        if (hidden) expect(frames.filter((f) => f.lines.includes(hidden)), at).toEqual([]);
         // Header and editor switch together: app.php's path only over app.php's diff, the
         // previous path only over the previous diff.
-        expect(frames.filter((f) => (f.path === 'src/app.php') !== f.lines.includes(marker))).toEqual([]);
-        expect(frames.at(-1)).toMatchObject({ path: 'src/app.php' });
-        expect(frames.at(-1)!.lines).toContain('5');
+        expect(frames.filter((f) => (f.path === 'src/app.php') !== f.lines.includes(marker)), at).toEqual([]);
+        expect(frames.at(-1), at).toMatchObject({ path: 'src/app.php' });
+        expect(frames.at(-1)!.lines, at).toContain('5');
       }
-    });
-  }
+    }
+  });
 
   // H6: close the file, select another commit, open a file there (Split): the one editor is shared,
   // and it still holds the first commit's diff. It must never be painted under the new header.
@@ -286,27 +288,32 @@ test.describe('diff viewer controls', () => {
   // `visibility: visible` on its two inner editors, which a descendant's own value wins over. This
   // samples what is actually painted (`checkVisibility`: laid out, visible, no ancestor at
   // opacity 0), text and images, in every frame from the click on.
-  for (const [first, second, stale, fresh] of [
-    ['ws.txt', 'src/app.php', 'fn main() {', 'enum Suit'],
-    ['crlf.txt', 'docs/manual.txt', 'second', 'Step one.'],
-    ['src/app.php', 'logo.png', 'enum Suit', 'img:6×4'],
-    ['logo.png', 'icon.svg', 'img:6×4', 'img:16×16'],
-    ['icon.svg', 'logo.png', 'img:16×16', 'img:6×4'],
-  ] as const) {
-    test(`K7: ${first}, ×, then ${second}: ${first} is never painted again`, async ({ page }) => {
+  // The five pairs in one page (each was a test of its own, paying for a page and Monaco).
+  test('K7: a file, ×, then another: the first is never painted again (text and image pairs)', async ({ page }) => {
+    for (const [first, second, stale, fresh] of [
+      ['ws.txt', 'src/app.php', 'fn main() {', 'enum Suit'],
+      ['crlf.txt', 'docs/manual.txt', 'second', 'Step one.'],
+      ['src/app.php', 'logo.png', 'enum Suit', 'img:6×4'],
+      ['logo.png', 'icon.svg', 'img:6×4', 'img:16×16'],
+      ['icon.svg', 'logo.png', 'img:16×16', 'img:6×4'],
+    ] as const) {
+      const at = `${first}, ×, then ${second}`;
       await open(page, first);
-      await expect.poll(() => painted(page), { timeout: 15_000 }).toContain(stale);
+      await expect.poll(() => painted(page), { timeout: 15_000, message: at }).toContain(stale);
       await diff(page).getByRole('button', { name: 'Close diff' }).click();
       await expect(diff(page)).toHaveCount(0);
       const stop = await samplePainted(page);
       await fileRow(page, second).click();
-      await expect.poll(() => painted(page), { timeout: 15_000 }).toContain(fresh);
+      await expect.poll(() => painted(page), { timeout: 15_000, message: at }).toContain(fresh);
       const frames = await stop();
-      expect(frames.length).toBeGreaterThan(6);
-      expect(frames.filter((f) => f.includes(stale))).toEqual([]);
-      expect(frames.at(-1)).toContain(fresh);
-    });
-  }
+      expect(frames.length, at).toBeGreaterThan(6);
+      expect(frames.filter((f) => f.includes(stale)), at).toEqual([]);
+      expect(frames.at(-1), at).toContain(fresh);
+      // Closed before the next pair: a click on the open file's own row would close it.
+      await diff(page).getByRole('button', { name: 'Close diff' }).click();
+      await expect(diff(page)).toHaveCount(0);
+    }
+  });
 
   // K7 via the editor's older content: the image in between leaves the editor holding ws.txt,
   // which must stay unpainted when app.php reopens the text diff.
@@ -327,11 +334,12 @@ test.describe('diff viewer controls', () => {
   // focused, though Monaco forces its inner editors visible; shown, it's the editor again.
   test('K7: the hidden held editor takes no click and no focus; shown, it takes both', async ({ page }) => {
     // A certain hidden gap: the held editor stays hidden until app.php is presented, and that
-    // first waits for its PHP grammar, which the dev server serves as a module. Hold it ~400 ms.
+    // first waits for its PHP grammar, a chunk of its own (the dev server's pre-bundled module, or
+    // the production build's asset). Hold it ~400 ms.
     // (Holding the file's contents wouldn't do: the panel shows "Loading…" instead, the editor
     // detached, and app.php is prefetched as ws.txt's neighbour anyway.)
     let held = 0;
-    await page.route(/\/\.vite\/deps\/php-[^/]*\.js/, async (route) => {
+    await page.route(/\/(\.vite\/deps|assets)\/php-[^/]*\.js/, async (route) => {
       held++;
       await new Promise((r) => setTimeout(r, 400));
       await route.continue();
@@ -417,7 +425,7 @@ test.describe('diff viewer controls', () => {
     expect(orphaned).toEqual([]);
   });
 
-  test('Esc closes the file even from inside the editor with a selection; an open find widget closes first', async ({ page, browserName }) => {
+  test('Esc closes the file even from inside the editor with a selection; an open find widget closes first; from the file list it closes the file (J4)', async ({ page, browserName }) => {
     await open(page, 'src/app.php');
     await computed(page);
     const d = diff(page);
@@ -445,6 +453,16 @@ test.describe('diff viewer controls', () => {
     await page.keyboard.press('Escape');
     await expect(d).toHaveCount(0);
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+    // J4: with the find widget still open, Esc from the file list closes the file, and the graph
+    // has the keyboard.
+    await open(page, 'src/app.php');
+    await d.locator('.editor.modified .view-line').filter({ hasText: 'final class Card' }).click();
+    await page.keyboard.press(browserName === 'webkit' ? 'Meta+f' : 'Control+f');
+    await expect(find).toBeVisible();
+    await page.getByRole('listbox', { name: 'Changed files' }).focus();
+    await page.keyboard.press('Escape');
+    await expect(d).toHaveCount(0);
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeFocused();
   });
 
   test("diff colours are forest green and brick red, lighter for whole lines", async ({ page }) => {
@@ -499,7 +517,7 @@ test.describe('diff viewer controls', () => {
     await expect.poll(() => longLine.count()).toBeGreaterThan(1);
   });
 
-  test('F7 and Shift+F7 move between changes', async ({ page }) => {
+  test('F7 and Shift+F7 move between changes, and wrap at the ends', async ({ page }) => {
     await open(page, 'src/app.php');
     const d = diff(page);
     await d.getByRole('button', { name: 'Split' }).click();
@@ -516,19 +534,8 @@ test.describe('diff viewer controls', () => {
     await expect(active).toHaveText('5');
     await d.getByRole('button', { name: 'Next change' }).click();
     await expect(active).toHaveText('55');
-  });
-
-  test('F7 wraps from the last change to the first, and Shift+F7 back', async ({ page }) => {
-    // src/app.php has exactly two changes, at lines 5 and 55.
-    await open(page, 'src/app.php');
-    const d = diff(page);
-    await computed(page);
-    const active = d.locator('.editor.modified .active-line-number');
-    await d.getByTestId('diff-path').click();
-    await page.keyboard.press('F7');
-    await expect(active).toHaveText('5');
-    await page.keyboard.press('F7');
-    await expect(active).toHaveText('55');
+    // src/app.php has exactly two changes, at lines 5 and 55: F7 wraps from the last to the first,
+    // and Shift+F7 back.
     await page.keyboard.press('F7');
     await expect(active).toHaveText('5');
     await page.keyboard.press('Shift+F7');
@@ -570,7 +577,7 @@ test.describe('diff viewer controls', () => {
     await expect(d.locator('.editor.modified .active-line-number')).toHaveText(String(Number(line) + 2));
   });
 
-  test('closing and reopening a file wakes the kept panel fast: the reopen is well under the cold open (J16)', async ({ page }) => {
+  test('closing and reopening a file wakes the kept panel fast: the reopen is well under the cold open (J16)', { tag: '@budget' }, async ({ page }) => {
     const ready: number[] = [];
     page.on('console', (m) => {
       const t = /\[gitbolt\] diff ready in (\d+) ms/.exec(m.text());

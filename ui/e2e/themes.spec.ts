@@ -28,7 +28,8 @@ test('Default Dark by default', async ({ page }) => {
 test("index.html paints the mirrored theme's background and scheme on its own, before the app's module runs (I1)", async ({ page }) => {
   await page.addInitScript((bg) => localStorage.setItem('gitbolt.theme.v1', JSON.stringify({ id: 'light', kind: 'light', bg })), THEMES.light.colors['app-bg0']);
   // No app module at all: only the inline <head> script can have set these.
-  await page.route('**/src/main.tsx*', (r) => r.abort());
+  // (The dev server's /src/main.tsx, or the production build's entry chunk.)
+  await page.route(/\/(src\/main\.tsx|assets\/index-[^/]*\.js)(\?|$)/, (r) => r.abort());
   await page.goto(openUrl(fixtures.basic));
   const root = await page.evaluate(() => ({ theme: document.documentElement.dataset.theme, scheme: document.documentElement.style.colorScheme, bg: document.documentElement.style.getPropertyValue('--app-bg0') }));
   expect(root).toEqual({ theme: 'light', scheme: 'light', bg: THEMES.light.colors['app-bg0'] });

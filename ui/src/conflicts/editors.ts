@@ -10,8 +10,9 @@ import { loadMonacoHost } from '../diff/monaco/load';
 import { monaco } from '../diff/monaco/setup';
 import { ensureLanguage } from '../diff/monaco/shiki';
 import { currentEditorTheme } from '../theme/editorThemes';
+import { createCheckBox } from './checkBox';
 import type { Span } from './mergeDrafts';
-import { buildOutput, changeHits, emptyPicks, eolText, hunkState, regionText, type ConflictSegment, type OutRegion, type Picks, type Side } from './model';
+import { buildOutput, changeHits, emptyPicks, eolText, hunkState, regionText, type CheckState, type ConflictSegment, type OutRegion, type Picks, type Side } from './model';
 
 type Editor = MonacoNs.editor.IStandaloneCodeEditor;
 type Model = MonacoNs.editor.ITextModel;
@@ -40,7 +41,8 @@ export interface MergeEditors {
   snapshot(): OutputState;
   /** The output's cursor line (1-based). */
   cursorLine(): number;
-  /** A hunk's checkbox (`'hunk'`) or a line's (its index in the region) was clicked in a pane. */
+  /** A hunk's checkbox or column (`'hunk'`), or a line's button (its index in the region), was
+   * clicked in a pane. */
   onToggle(cb: ToggleCb): void;
   /** A hand edit in the output. */
   onEdit(cb: () => void): void;
@@ -50,7 +52,7 @@ export interface MergeEditors {
   /** Space in a pane: ticks the pane cursor's line, when `target` is in a pane and that line is
    * a conflict's. True when it did. */
   toggleAtCursor(target: EventTarget | null): boolean;
-  /** The panes' checkboxes and the tints, as `picks` says. */
+  /** The panes' checkboxes, line buttons and tints, as `picks` says. */
   setChecks(picks: Picks): void;
   /** Brings region `id` into view in all three, with the output's cursor at its start. */
   reveal(id: number): void;
@@ -59,12 +61,13 @@ export interface MergeEditors {
 
 /** Monaco's `ScrollType.Immediate`. */
 const SCROLL_IMMEDIATE = 1;
-/** A region header's height in a pane (as the diff's hunk zones, `HUNK_ZONE_PX`). */
-const ZONE_PX = 24;
+/** The panes' line-decorations lane, which holds each conflict line's take/drop button. */
+export const LINE_BUTTONS_PX = 22;
 const SIDE_NAME: Record<Side, string> = { current: 'Current', incoming: 'Incoming' };
 
-/** Options for the three editors: the diff host's fixed ones (options.ts), plus the glyph margin
- * the line checkboxes live in. Plain data, so it's unit-testable. */
+/** Options for the three editors: the diff host's fixed ones (options.ts), plus, in the panes,
+ * the glyph margin (the hunk column) and a wider line-decorations lane (the line buttons). Plain
+ * data, so it's unit-testable. */
 export function mergeEditorOptions(readOnly: boolean, stickyScroll: boolean, fontSize: number) {
   return {
     readOnly,
@@ -77,6 +80,7 @@ export function mergeEditorOptions(readOnly: boolean, stickyScroll: boolean, fon
     stickyScroll: { enabled: stickyScroll },
     folding: false,
     glyphMargin: readOnly,
+    ...(readOnly ? { lineDecorationsWidth: LINE_BUTTONS_PX } : {}),
     scrollBeyondLastLine: false,
     wordWrap: 'off' as const,
   };
@@ -147,69 +151,86 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
     }),
   ];
 
-  // --- The panes: tints, line checkboxes (glyph margin), a hunk checkbox above each region ---
+  // --- The panes' gutter, left to right: the hunk column (the glyph margin: tinted along each
+  // region, its checkbox on the region's first line), the line numbers, then each line's take (+)
+  // or drop (−) button (the line-decorations lane). No inserted rows: the lines stay in place. ---
   const toggles: ToggleCb[] = [];
   const fire = (id: number, side: Side, line: number | 'hunk') => { for (const cb of toggles) cb(id, side, line); };
   const paneDecos: Record<Side, MonacoNs.editor.IEditorDecorationsCollection> = {
     current: paneEd.current.createDecorationsCollection(),
     incoming: paneEd.incoming.createDecorationsCollection(),
   };
-  const boxes: Record<Side, Map<number, HTMLInputElement>> = { current: new Map(), incoming: new Map() };
+  const heads: Record<Side, Map<number, { node: HTMLElement; set: (s: CheckState) => void }>> = { current: new Map(), incoming: new Map() };
+  const LEFT = monaco.editor.GlyphMarginLane.Left;
+  const takes = (id: number, side: Side) => (byId.get(id)?.[side].length ?? 0) > 0;
   for (const side of ['current', 'incoming'] as const) {
     const ed = paneEd[side];
-    ed.changeViewZones((acc) => {
-      panes[side].regions.forEach((r, n) => {
-        const node = document.createElement('div');
-        node.className = `merge-zone merge-zone-${side}`;
-        const label = document.createElement('label');
-        const has = (byId.get(r.id)?.[side].length ?? 0) > 0;
-        if (has) {
-          const box = document.createElement('input');
-          box.type = 'checkbox';
-          box.setAttribute('aria-label', `Take conflict ${n + 1} from ${SIDE_NAME[side]}`);
-          box.addEventListener('change', () => fire(r.id, side, 'hunk'));
-          boxes[side].set(r.id, box);
-          label.append(box);
-        }
-        const text = document.createElement('span');
-        text.setAttribute('aria-hidden', 'true');
-        text.textContent = has ? `Conflict ${n + 1}` : `Conflict ${n + 1}: nothing in ${SIDE_NAME[side]}`;
-        label.append(text);
-        node.append(label);
-        // Monaco's mouse handler would take the press (and capture the pointer), so the
-        // checkbox never got its click: the zone keeps its presses to itself.
-        for (const t of ['pointerdown', 'mousedown'] as const) node.addEventListener(t, (e) => e.stopPropagation());
-        acc.addZone({ afterLineNumber: r.start - 1, heightInPx: ZONE_PX, domNode: node, suppressMouseDown: true });
-      });
+    panes[side].regions.forEach((r, n) => {
+      if (r.lines === 0 || !takes(r.id, side)) return;
+      // A real checkbox (keyboard, assistive tech; `checkBox.ts`): a glyph-margin widget on the
+      // first line.
+      const node = document.createElement('div');
+      node.className = `merge-hunk merge-hunk-${side} merge-hunk-head`;
+      const box = createCheckBox(`Take conflict ${n + 1} from ${SIDE_NAME[side]}`, side, () => fire(r.id, side, 'hunk'));
+      node.append(box.el);
+      // Monaco's mouse handler would take the press (and capture the pointer), so the checkbox
+      // never got its click: the widget keeps its presses to itself.
+      for (const t of ['pointerdown', 'mousedown'] as const) node.addEventListener(t, (e) => e.stopPropagation());
+      node.addEventListener('click', (e) => { if (e.target === node) box.el.click(); });
+      heads[side].set(r.id, { node, set: box.set });
+      const range = new monaco.Range(r.start, 1, r.start, 1);
+      ed.addGlyphMarginWidget({ getId: () => `merge-hunk-${side}-${r.id}`, getDomNode: () => node, getPosition: () => ({ lane: LEFT, zIndex: 10, range }) });
     });
-    // Monaco hides its view-zone layer from assistive tech; these zones hold the hunk
-    // checkboxes, real controls, so the layer is exposed (read-only panes add no other zone).
-    ed.getDomNode()?.querySelector('.view-zones')?.removeAttribute('aria-hidden');
+    // Monaco hides its margin from assistive tech; the hunk checkboxes there are real controls, so
+    // the glyph-margin widgets' layer is exposed (the line numbers' own layer stays hidden).
+    const dom = ed.getDomNode();
+    for (let el = dom?.querySelector('.glyph-margin-widgets')?.parentElement ?? null; el && el !== dom; el = el.parentElement) el.removeAttribute('aria-hidden');
     subs.push(ed.onMouseDown((e) => {
-      if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !e.target.position) return;
+      const t = e.target.type;
+      const column = t === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN;
+      if ((!column && t !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) || !e.target.position) return;
       const at = regionAt(panes[side], e.target.position.lineNumber);
-      if (at) fire(at.id, side, at.index);
+      if (!at) return;
+      // The tinted column takes the whole hunk; a line's button, that line.
+      if (!column) fire(at.id, side, at.index);
+      else if (takes(at.id, side)) fire(at.id, side, 'hunk');
     }));
   }
 
+  const HUNK_CLASS: Record<string, string> = { all: ' on', some: ' some', none: '' };
   const paintPanes = () => {
     for (const side of ['current', 'incoming'] as const) {
       const decos: MonacoNs.editor.IModelDeltaDecoration[] = [];
+      const lineCount = paneEd[side].getModel()?.getLineCount() ?? 1;
       for (const r of panes[side].regions) {
+        const seg = byId.get(r.id);
+        if (r.lines === 0) {
+          // Nothing on this side: a rule where its lines would go.
+          const below = r.start > 1;
+          const n = Math.min(lineCount, below ? r.start - 1 : 1);
+          decos.push({ range: new monaco.Range(n, 1, n, 1), options: { isWholeLine: true, className: `merge-pane-gap-${below ? 'below' : 'above'} merge-pane-gap-${side}` } });
+          continue;
+        }
         const flags = lastPicks[r.id]?.[side] ?? [];
+        const state = seg && lastPicks[r.id] ? hunkState(seg, lastPicks[r.id], side) : 'none';
+        const hunk = `merge-hunk merge-hunk-${side}${HUNK_CLASS[state]}`;
         for (let i = 0; i < r.lines; i++) {
           const on = !!flags[i];
           decos.push({
             range: new monaco.Range(r.start + i, 1, r.start + i, 1),
-            options: { isWholeLine: true, className: `merge-${side}-line${on ? ' picked' : ''}`, glyphMarginClassName: `merge-check${on ? ' on' : ''}` },
+            options: {
+              isWholeLine: true,
+              className: `merge-${side}-line${on ? ' picked' : ''}`,
+              glyphMarginClassName: hunk,
+              glyphMargin: { position: LEFT },
+              linesDecorationsClassName: `merge-line-btn ${on ? 'drop' : 'take'}`,
+            },
           });
         }
-        const box = boxes[side].get(r.id);
-        const seg = byId.get(r.id);
-        if (box && seg && lastPicks[r.id]) {
-          const s = hunkState(seg, lastPicks[r.id], side);
-          box.checked = s === 'all';
-          box.indeterminate = s === 'some';
+        const head = heads[side].get(r.id);
+        if (head) {
+          head.node.className = `${hunk} merge-hunk-head`;
+          head.set(state);
         }
       }
       paneDecos[side].set(decos);
@@ -419,6 +440,8 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
       const el = target instanceof Node ? target : null;
       for (const side of ['current', 'incoming'] as const) {
         if (!el || !paneEd[side].getContainerDomNode().contains(el)) continue;
+        // A hunk's checkbox has the focus: Space is its own (a button's click).
+        if (el instanceof Element && el.closest('.merge-check')) return false;
         const at = regionAt(panes[side], paneEd[side].getPosition()?.lineNumber ?? 0);
         if (!at) return false;
         fire(at.id, side, at.index);

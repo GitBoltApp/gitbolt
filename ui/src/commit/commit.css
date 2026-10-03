@@ -1,19 +1,56 @@
 /* Spec #2 §8.1: the commit box sits at the bottom of the WIP panel, at a fixed height. */
 .commit-box { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-top: 1px solid var(--section-border); background: var(--panel-bg1); }
-.commit-fields { display: flex; flex-direction: column; gap: 4px; }
-.commit-summary-row { display: flex; align-items: center; gap: 6px; }
-.commit-summary, .commit-description { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--wip-input-border); border-radius: 4px; background: var(--wip-input-bg); color: var(--text-normal); font: inherit; }
+
+/* Ux round 1: the summary and the description read as ONE text box: one border,
+   one background, no line between them, and the focus ring on the box, not on either field. */
+.commit-fields { display: flex; flex-direction: column; border: 1px solid var(--wip-input-border); border-radius: 6px; background: var(--wip-input-bg); transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
+.commit-fields:focus-within { border-color: var(--focus-outline); box-shadow: 0 0 0 1px var(--focus-outline); }
+.commit-summary-row { display: flex; align-items: center; gap: 6px; padding-right: 8px; }
+.commit-summary, .commit-description { width: 100%; box-sizing: border-box; margin: 0; border: 0; outline: none; background: transparent; color: var(--text-normal); font: inherit; }
 .commit-summary::placeholder, .commit-description::placeholder { color: var(--wip-input-placeholder); }
-/* Grows with its text to 8 lines, then scrolls. */
-.commit-description { resize: none; field-sizing: content; min-height: calc(2lh + 10px); max-height: calc(8lh + 10px); overflow-y: auto; }
-.commit-counter { flex: none; font-size: 11px; color: var(--text-secondary); }
+.commit-summary:disabled, .commit-description:disabled { color: var(--text-disabled); }
+/* The summary is the headline: ~1.2x the body text. */
+.commit-summary { padding: 8px 8px 4px; font-size: 1.2em; line-height: 1.3; color: var(--text-selected); }
+/* At least 4 lines; grows with its text to 8, then scrolls. */
+.commit-description { padding: 2px 8px 8px; resize: none; field-sizing: content; line-height: 1.4; min-height: calc(4lh + 10px); max-height: calc(8lh + 10px); overflow-y: auto; }
+.commit-counter { flex: none; font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .commit-counter.warn { color: var(--orange); }
-.commit-box-row { display: flex; align-items: center; gap: 8px; }
-.commit-amend { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
-.commit-button { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
-.commit-button.primary { color: var(--text-on-accent); background: var(--blue); border: 1px solid var(--blue); border-radius: 4px; padding: 4px 10px; font: inherit; cursor: pointer; }
-.commit-button.primary:hover:not([aria-disabled="true"]) { filter: brightness(1.1); }
-.commit-button[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+
+.commit-box-row { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+.commit-amend { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); user-select: none; }
+
+/* Who the commit is made as: muted, after the Amend box, truncated rather than wrapped. */
+.commit-identity { flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.commit-identity-name { flex: none; color: var(--text-normal); }
+.commit-identity-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.commit-identity.warn { color: var(--orange); }
+
+/* Ux round 1 buttons. Positive (commit, continue, save): a deep green (the added-lines
+   green, ~5:1 under white text; 4.6:1 on hover), white text; disabled,
+   a green tint with light green text, readable (>= 4.5:1 on its fill), not just faded. */
+.commit-positive, .commit-neutral, .commit-danger { display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; padding: 4px 12px; border: 1px solid transparent; border-radius: 4px; font: inherit; cursor: pointer; user-select: none; transition: background-color var(--motion-fast), border-color var(--motion-fast); }
+.commit-positive { color: var(--text-on-accent); background: var(--stats-added); border-color: color-mix(in srgb, var(--stats-added) 60%, var(--green)); font-weight: 600; }
+.commit-positive:hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--stats-added) 88%, var(--green)); }
+.commit-positive[aria-disabled="true"] { cursor: default; color: color-mix(in srgb, var(--green) 75%, var(--text-selected)); background: color-mix(in srgb, var(--green) 14%, var(--panel-bg1)); border-color: color-mix(in srgb, var(--green) 45%, var(--panel-bg1)); }
+.commit-neutral { color: var(--text-normal); background: var(--control-bg); border-color: var(--section-border); }
+.commit-neutral:hover:not([aria-disabled="true"]) { background: var(--control-hover-bg); }
+/* Destructive (abort): red outlined, always red. */
+.commit-danger { color: color-mix(in srgb, var(--red) 60%, var(--text-selected)); background: transparent; border-color: var(--red); }
+.commit-danger:hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--red) 20%, transparent); }
+.commit-neutral[aria-disabled="true"], .commit-danger[aria-disabled="true"] { cursor: default; color: var(--text-disabled); border-color: var(--section-border); }
+.commit-positive:focus-visible, .commit-neutral:focus-visible, .commit-danger:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
+
+/* The commit box's own: full width, a little taller. */
+.commit-button { width: 100%; min-height: 30px; padding: 6px 12px; }
 .commit-button .spin { animation: commit-spin 1s linear infinite; }
 @keyframes commit-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .commit-button .spin { animation: none; } }
+
+/* §13.2, ux round 1: an operation in progress, at the top of the commit box. */
+.commit-op { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-left: 3px solid var(--orange); border-radius: 4px; background: var(--panel-bg0); font-size: 12px; }
+.commit-op-title { color: var(--text-normal); font-weight: 600; }
+.commit-op-detail { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-op-hint { color: var(--text-secondary); }
+.commit-op-hint.conflicted { color: var(--orange); }
+.commit-op-actions { display: flex; gap: 6px; }
+.commit-op-actions > * { flex: 1; }

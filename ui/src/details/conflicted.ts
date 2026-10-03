@@ -1,15 +1,4 @@
-import type { ConflictKind } from '../api/gen/ConflictKind';
 import type { FileListPayload } from '../api/gen/FileListPayload';
-
-export const CONFLICT_TEXT: Record<ConflictKind, string> = {
-  bothModified: 'both modified',
-  bothAdded: 'both added',
-  bothDeleted: 'both deleted',
-  addedByUs: 'added by us',
-  addedByThem: 'added by them',
-  deletedByUs: 'deleted by us',
-  deletedByThem: 'deleted by them',
-};
 
 const totals = (files: FileListPayload['files']): FileListPayload => ({
   files,

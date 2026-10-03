@@ -1,5 +1,5 @@
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test, type Page } from './test';
+import { expect, test, type Page, confirmArmed } from './test';
 
 const isAncestor = (repo: string, a: string, b: string) => { try { git(repo, 'merge-base', '--is-ancestor', a, b); return true; } catch { return false; } };
 const labelMenu = async (page: Page, name: string, item: string) => {
@@ -15,7 +15,7 @@ test.describe('integrate (spec #2 §13.1, §13.4)', () => {
     await labelMenu(page, 'main', 'Rebase feature/c onto main');
     const dialog = page.getByRole('alertdialog');
     await expect(dialog.getByRole('checkbox', { name: /Also move 2 stacked branches/ })).toBeChecked();
-    await dialog.getByRole('button', { name: 'Rebase', exact: true }).click();
+    await confirmArmed(dialog.getByRole('button', { name: 'Rebase', exact: true }));
     await expect.poll(() => isAncestor(repo, 'main', 'feature/a')).toBe(true);
     expect(isAncestor(repo, 'main', 'feature/b')).toBe(true);
     expect(isAncestor(repo, 'main', 'feature/c')).toBe(true);
@@ -38,13 +38,14 @@ test.describe('integrate (spec #2 §13.1, §13.4)', () => {
     expect(seen.some((s) => /^Rebasing topic \(\d+\/60\)…/.test(s))).toBe(true);
   });
 
-  test('a conflicting merge confirms with the predicted count', async ({ page }) => {
+  test('a conflicting merge arms its row with the predicted count', async ({ page }) => {
     // HEAD is main; feature/x conflicts in a.txt (text), logo.bin (binary) and gone.txt (delete/modify).
     const repo = freshFixture('conflicts');
     await page.goto(openUrl(repo));
     await labelMenu(page, 'feature/x', 'Merge feature/x into main');
-    await expect(page.getByRole('alertdialog')).toContainText('Merging feature/x into main will conflict in 3 files.');
-    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Click again to merge feature/x (conflicts in 3 files)' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menuitem', { name: 'Merge feature/x into main' })).toBeVisible();
     expect(git(repo, 'status', '--porcelain')).toBe('');
   });
 });

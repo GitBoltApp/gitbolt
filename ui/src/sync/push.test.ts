@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import type { LocalBranch } from '../api/gen/LocalBranch';
+import { useRuntime } from '../app/runtime';
 import { useToast } from '../ui/toast';
-import { forceText, pushBranch, pushHooks, pushTooltip } from './push';
+import { forceText, nothingToPush, pushBranch, pushHooks, pushLabel, pushTooltip } from './push';
 
 const confirm = vi.fn(async () => true);
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: (...a: unknown[]) => confirm(...(a as [])) }));
+const ask = vi.fn(async (_req: { title: string; choices: { id: string; label: string; danger?: boolean; arm?: string }[] }) => ({ choice: null as string | null, checked: false }));
+vi.mock('../ui/ChoiceDialog', () => ({ askChoice: (...a: unknown[]) => ask(...(a as [never])) }));
 
-const main: LocalBranch = { name: 'main', fullName: 'refs/heads/main', target: 'a'.repeat(40), upstream: 'origin/main', ahead: 1, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: true, worktree: null, checkedOut: null, pushTarget: 'origin/main', pushBehind: 3 };
+const main: LocalBranch = { name: 'main', fullName: 'refs/heads/main', target: 'a'.repeat(40), upstream: 'origin/main', ahead: 1, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: true, worktree: null, checkedOut: null, pushTarget: 'origin/main', pushBehind: 3, rewritten: null };
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 
 describe('push (spec #2 §12.3)', () => {
@@ -17,6 +20,15 @@ describe('push (spec #2 §12.3)', () => {
     expect(pushTooltip(main, 'main')).toEqual({ tooltip: 'Push main to origin/main', disabled: false });
     expect(pushTooltip({ ...main, upstream: null, pushTarget: null }, 'main').tooltip).toBe('Push main to origin and track it');
     expect(pushTooltip(undefined, null)).toEqual({ tooltip: 'HEAD is detached', disabled: true });
+  });
+
+  it('nothing to push: the upstream is the push target and has every commit', () => {
+    expect(nothingToPush({ ...main, ahead: 0 })).toBe(true);
+    expect(nothingToPush({ ...main, upstream: 'refs/remotes/origin/main', ahead: 0 })).toBe(true);
+    expect(nothingToPush(main)).toBe(false);
+    expect(nothingToPush({ ...main, ahead: 0, upstream: null, pushTarget: null })).toBe(false); // publishes it
+    expect(nothingToPush({ ...main, ahead: 0, pushTarget: 'fork/main' })).toBe(false); // triangular: unknown
+    expect(nothingToPush({ ...main, ahead: 0, gone: true })).toBe(false);
   });
 
   it('the force confirmation counts what it replaces', () => {
@@ -30,17 +42,55 @@ describe('push (spec #2 §12.3)', () => {
     expect(pushTooltip({ ...main, pushTarget: null }, 'main', 'up').tooltip).toBe('Push main to up and track it');
   });
 
-  it('a rejection offers Pull and Force push…', async () => {
+  it('a rejection is a choice: Pull first, then Force push, which arms (board G)', async () => {
     pushHooks.pull = vi.fn();
     vi.spyOn(api, 'push').mockRejectedValue({ kind: 'NonFastForward', message: 'rejected', commandId: 4, stderr: null });
+    ask.mockResolvedValueOnce({ choice: 'pull', checked: false });
     await pushBranch(ctx, main);
-    const t = useToast.getState();
-    expect(t.message).toBe("origin/main has commits main doesn't have");
-    expect(t.actions.map((a) => a.label)).toEqual(['Pull', 'Force push…', 'Details']);
+    await vi.waitFor(() => expect(pushHooks.pull).toHaveBeenCalledWith(ctx, 'main'));
+    const req = ask.mock.calls[0][0];
+    expect(req.title).toBe("origin/main has commits main doesn't have");
+    expect(req.choices.map((c) => c.label)).toEqual(['Pull', 'Force push (with lease)', 'Details']);
+    expect(req.choices[1]).toMatchObject({ danger: true, arm: 'Click again to force push: replaces 3 commits' });
+  });
+
+  it('Force push picked in the popover sends the lease read with the count it showed, without asking again', async () => {
+    const sidebar = (oid: string) => ({ tabs: { t: { sidebar: { locals: [main], remotes: [{ name: 'origin', branches: [{ name: 'main', target: oid }] }] } } } } as never);
+    useRuntime.setState(sidebar('b'.repeat(40)));
+    const push = vi.spyOn(api, 'push').mockRejectedValueOnce({ kind: 'NonFastForward', message: 'rejected', commandId: 4, stderr: null });
+    push.mockResolvedValueOnce({ outcome: { remote: 'origin', dst: 'main', branch: 'main', forced: null, upToDate: false, server: [], op: 1 }, journal: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [] }, staging: { undo: null, redo: null, off: null }, wip: null } as never);
+    // A background fetch moves origin/main while the question is up: the lease stays the one shown.
+    ask.mockImplementationOnce(async () => { useRuntime.setState(sidebar('c'.repeat(40))); return { choice: 'force', checked: false }; });
+    confirm.mockClear();
+    await pushBranch(ctx, main);
+    await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(2));
+    expect(push.mock.calls[1][3]).toMatchObject({ lease: { oid: 'b'.repeat(40) } });
+    expect(confirm).not.toHaveBeenCalled();
+    useRuntime.setState({ tabs: {} } as never);
+  });
+
+  it('a branch rewritten since its last push says Push forces with the lease (spec #2 §12.3)', () => {
+    const rebased = { ...main, rewritten: { kind: 'rebase' as const, remote: 'origin' } };
+    expect(pushTooltip(rebased, 'main').tooltip).toBe('Push (force with lease: rebased, replaces 3 commits on origin)');
+    expect(pushLabel({ ...main, rewritten: { kind: 'amend', remote: 'origin' }, pushBehind: 1 })).toBe('Push (force with lease: amended, replaces 1 commit on origin)');
+    // The remote by its real name, even with a slash in it.
+    expect(pushLabel({ ...main, pushTarget: 'team/fork/main', rewritten: { kind: 'rebase', remote: 'team/fork' } })).toBe('Push (force with lease: rebased, replaces 3 commits on team/fork)');
+    // No force needed (the remote has nothing the branch lacks): the plain tooltip.
+    expect(pushLabel({ ...rebased, pushBehind: 0 })).toBe('Push main to origin/main');
+    expect(pushLabel({ ...rebased, pushBehind: null })).toBe('Push main to origin/main');
+    // Rewritten with nothing ahead: Push stays in the menu, it replaces the remote's commits.
+    expect(nothingToPush({ ...main, ahead: 0, rewritten: { kind: 'rebase', remote: 'origin' } })).toBe(false);
+    expect(nothingToPush({ ...main, ahead: 0, pushBehind: 3 })).toBe(true);
+  });
+
+  it('a force-push with the rewrite lease toasts why', async () => {
+    vi.spyOn(api, 'push').mockResolvedValue({ outcome: { op: 9, branch: 'feature/login', remote: 'origin', dst: 'feature/login', upToDate: false, server: { lines: 0, warning: null }, forced: 'rebase' }, journal: { undo: null, redo: null, undoBlocked: "Push can't be undone", redoBlocked: null, banners: [], paused: null }, staging: { undo: null, redo: null, off: null }, wip: null } as never);
+    await pushBranch(ctx, { ...main, name: 'feature/login', fullName: 'refs/heads/feature/login', rewritten: { kind: 'rebase', remote: 'origin' } });
+    expect(useToast.getState().message).toBe('Force-pushed feature/login (with lease): it was rebased');
   });
 
   it('success toasts the target with the server output link', async () => {
-    vi.spyOn(api, 'push').mockResolvedValue({ outcome: { op: 9, branch: 'main', remote: 'origin', dst: 'main', upToDate: false, server: { lines: 1, warning: null } }, journal: { undo: null, redo: null, undoBlocked: "Push can't be undone", redoBlocked: null, banners: [], paused: null }, staging: { undo: null, redo: null, off: null }, wip: null } as never);
+    vi.spyOn(api, 'push').mockResolvedValue({ outcome: { op: 9, branch: 'main', remote: 'origin', dst: 'main', upToDate: false, server: { lines: 1, warning: null }, forced: null }, journal: { undo: null, redo: null, undoBlocked: "Push can't be undone", redoBlocked: null, banners: [], paused: null }, staging: { undo: null, redo: null, off: null }, wip: null } as never);
     await pushBranch(ctx, main);
     expect(useToast.getState().message).toBe('Pushed main to origin/main');
     expect(useToast.getState().actions[0].label).toBe('Server output (1 line)');

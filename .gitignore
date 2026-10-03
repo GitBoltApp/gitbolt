@@ -8,3 +8,4 @@ node_modules/
 /ui/e2e/.fixtures.json
 *.snap.new
 /crates/*/gen/schemas
+/ui/dist-e2e

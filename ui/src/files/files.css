@@ -26,6 +26,8 @@
 .file-row { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; white-space: nowrap; cursor: pointer; box-sizing: border-box; padding-right: 8px; }
 .file-row:hover { background: var(--hover-row); }
 .file-row[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
+/* The row a context menu is open for (UX round 2: a right-click never selects). */
+.file-row[data-context="true"] { outline: 1px solid var(--blue); outline-offset: -1px; }
 .file-row.unchanged .file-name { color: var(--text-secondary); }
 .file-dir { color: var(--text-disabled); overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
 .file-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -65,10 +67,23 @@
    the counts; the title never shrinks. */
 .wip-section-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
 .wip-section-head .file-totals { flex: 0 100 auto; min-width: 0; overflow: hidden; white-space: nowrap; margin-left: auto; }
+/* One control height (--ctl-h) across a header: tools and actions, 6px apart. Totals push the group right. */
+.wip-section-head { --ctl-h: 24px; gap: 6px; }
+.wip-head-tools { display: inline-flex; gap: 6px; flex: none; margin-left: auto; }
+.wip-section-head .file-totals ~ .wip-head-tools { margin-left: 0; }
+.wip-section.collapsed .wip-head-tools { display: none; }
+.head-tool { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: var(--ctl-h); height: var(--ctl-h); border: 1px solid var(--section-border); border-radius: 4px; color: var(--text-secondary); }
+.head-tool:hover:not(:disabled) { color: var(--text-selected); background: var(--control-hover-bg); }
+.head-tool:disabled { cursor: default; opacity: 0.5; }
+.head-tool:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
+.head-tool[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 /* K60: with both sections open the drag handle's line is the one divider above Staged. */
 .split-resizer + .wip-section > .wip-section-head { border-top: 0; }
 /* The WIP header bar: `N file changes on [branch]`. */
-.wip-header { justify-content: center; }
+.wip-header { justify-content: stretch; }
+.wip-head-left { justify-self: start; display: inline-flex; }
+.wip-head-centre { justify-self: center; min-width: 0; display: inline-flex; align-items: center; gap: 4px; }
+.wip-head-right { justify-self: end; display: inline-flex; align-items: center; gap: 6px; }
 .wip-switch { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 11px; padding: 1px 8px; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; cursor: pointer; }
 .wip-switch:hover { color: var(--text-selected); background: var(--hover-row); }
 .wip-switch:focus-visible { outline: 1px solid var(--blue); }
@@ -78,3 +93,5 @@
 
 .file-conflict { margin-left: auto; color: var(--status-conflicted); font-size: 11px; }
 .file-conflict + .row-actions { margin-left: 0; }
+/* A conflicted row's tooltip: under its path, the conflict with its sides named. */
+.conflict-tip { margin-top: 3px; color: var(--status-conflicted); }

@@ -30,6 +30,7 @@ pub(crate) mod patch;
 pub(crate) mod precheck;
 pub(crate) mod queue;
 pub(crate) mod refs;
+pub(crate) mod rewrites;
 // --- 2C T6: modules ---
 pub(crate) mod reset;
 // --- end 2C T6 ---
@@ -46,6 +47,7 @@ pub(crate) mod worktree;
 pub mod integrate;
 pub mod rebase;
 // --- end 2D T9 / T10 ---
+pub mod pick;
 pub(crate) mod stage_patch;
 // --- 2C T7: stashes ---
 pub(crate) mod stash;
@@ -97,7 +99,8 @@ pub(crate) enum Staging {
     Step,
     /// Leaves the index alone (saving a file, a worktree-only discard): the log stays.
     Keep,
-    /// Staging undo and redo, which move steps themselves.
+    /// Staging undo and redo, which move steps themselves, and a conflict resolution, which
+    /// records its own step (its path's stages and file, `journal::resolve_step`).
     Own,
     /// Moves HEAD or rewrites the index (commit, checkout, reset, stash, merge, a journal undo):
     /// the log is cleared. The default, so a new intent can't leave a stale log behind.
@@ -217,6 +220,11 @@ pub(crate) trait WriteIntent: Send + Sync {
     /// write before preflight: nothing is journaled.
     fn transfer_first(&self, _net: &mut NetCx<'_>) -> impl Future<Output = Result<(), GbError>> + Send {
         async { Ok(()) }
+    }
+    /// It rewrites the branch it moves (rebase, amend): a pushed branch it rewrites may get a
+    /// rewrite mark, so the next Push forces with the lease recorded now (§12.3).
+    fn rewrite(&self) -> Option<rewrites::RewriteKind> {
+        None
     }
     /// The staging undo log's part in this write (§7.6).
     #[allow(dead_code)] // read by 2B T2 in `run_write`
@@ -734,6 +742,10 @@ async fn settle_paused_inner(cx: &mut WriteCx<'_>, completing: Option<Completing
         let made_it = c.moves.iter().any(|m| Some(&m.name) == branch.as_ref() && m.new == head_after.oid);
         c.entry.filter(|_| made_it)
     });
+    // A rebase that completed is a rewrite (§12.3's rewrite marks), whichever write ended it.
+    if completed && op.kind == PausedKind::Rebase {
+        rewrites::record(cx.api, &cx.h.common_dir, cx.root, Some(rewrites::RewriteKind::Rebase), &moves).await;
+    }
     let owner = cx.api.owner()?;
     let (found, claimed) = store.update(|j| {
         // Review M5: only the entry this load saw, still paused (another instance may have
@@ -1123,6 +1135,9 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
         };
         journal_changed |= finalized.unwrap_or(false);
     }
+    // §12.3: a rewrite of a pushed branch records its lease; any move drops a mark it ended.
+    let rewrite = if result.is_ok() && cx.paused.is_none() { intent.rewrite() } else { None };
+    rewrites::record(api, &h.common_dir, root, rewrite, &moves).await;
     let kinds = std::mem::take(&mut cx.kinds);
     Ran { result, moves, head_before: before.head.clone(), head_after, kinds, journal_changed, lock: cx.lock.take(), holds: std::mem::take(&mut cx.holds) }
 }

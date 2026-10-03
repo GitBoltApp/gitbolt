@@ -443,9 +443,29 @@ pub enum Request {
         #[serde(default)]
         confirm: crate::write::types::Confirm,
     },
-    /// The rebase banner's Continue, Skip, Abort (§13.2): `WriteResult<IntegrateOutcome>`.
-    RebaseControl { repo: u32, worktree: String, action: crate::write::rebase::RebaseAction },
+    /// The commit panel's Continue, Skip, Abort for a rebase (§13.2): `WriteResult<IntegrateOutcome>`.
+    /// `message`: what Continue commits the stopped pick with; absent, git's own.
+    RebaseControl {
+        repo: u32,
+        worktree: String,
+        action: crate::write::rebase::RebaseAction,
+        #[serde(default)]
+        #[ts(optional)]
+        message: Option<String>,
+    },
     // --- end 2D T9 ---
+    /// The same for a cherry-pick or revert in progress (ux round 1): `WriteResult<PickOutcome>`.
+    PickControl {
+        repo: u32,
+        worktree: String,
+        action: crate::write::rebase::RebaseAction,
+        #[serde(default)]
+        #[ts(optional)]
+        message: Option<String>,
+    },
+    /// Who a commit here is made as (read; ux round 1): `CommitIdentity`, or `null` when git
+    /// has none (it would refuse the commit).
+    CommitIdentity { repo: u32, worktree: String },
     // --- 2D T10: integrate ---
     /// What a merge or rebase of `target` would do (read; spec #2 §13.1): relation, predicted
     /// conflicts, stacked branches.
@@ -459,7 +479,7 @@ pub enum Request {
         #[serde(default)]
         expect: crate::write::types::Expect,
     },
-    /// The merge banner's Abort (§13.2): `WriteResult<IntegrateOutcome>`.
+    /// The commit panel's Abort merge (§13.2): `WriteResult<IntegrateOutcome>`.
     MergeAbort { repo: u32, worktree: String },
     // --- end 2D T10 ---
     // --- 2B T3: hunks and lines (spec #2 §7.3) ---
@@ -617,7 +637,8 @@ impl Request {
             Request::DeleteBranch { .. } => true,
             // --- end 2C T4 ---
             // --- 2D T9: integrate ---
-            Request::Integrate { .. } | Request::RebaseControl { .. } => true,
+            Request::Integrate { .. } | Request::RebaseControl { .. } | Request::PickControl { .. } => true,
+            Request::CommitIdentity { .. } => false,
             // --- end 2D T9 ---
             // --- 2D T10: integrate ---
             Request::FastForward { .. } | Request::MergeAbort { .. } => true,
@@ -1564,7 +1585,9 @@ impl Api {
             }
             Request::Sidebar { repo } => {
                 let h = self.handle(repo)?;
-                to_json(crate::shelldata::sidebar(&self.cli, &h.repo, &h.workdir).await?)
+                let mut s = crate::shelldata::sidebar(&self.cli, &h.repo, &h.workdir).await?;
+                crate::write::rewrites::annotate(&self.data_dir, &h.common_dir, &h.repo.to_thread_local(), &mut s.locals);
+                to_json(s)
             }
             Request::LastPush { repo, remote_ref } => {
                 let h = self.handle(repo)?;
@@ -1704,7 +1727,13 @@ impl Api {
             // --- end 2C T4 ---
             // --- 2D T9: integrate ---
             Request::Integrate { repo, worktree, kind, target, update_refs, expect, confirm } => to_json(crate::write::integrate::integrate(self, repo, &worktree, kind, target, update_refs, expect, confirm).await?),
-            Request::RebaseControl { repo, worktree, action } => to_json(crate::write::rebase::control(self, repo, &worktree, action).await?),
+            Request::RebaseControl { repo, worktree, action, message } => to_json(crate::write::rebase::control(self, repo, &worktree, action, message).await?),
+            Request::PickControl { repo, worktree, action, message } => to_json(crate::write::pick::control(self, repo, &worktree, action, message).await?),
+            Request::CommitIdentity { repo, worktree } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(crate::write::commit::identity(&self.cli, &root).await?)
+            }
             // --- end 2D T9 ---
             // --- 2D T10: integrate ---
             Request::IntegratePreview { repo, worktree, kind, target } => to_json(crate::write::integrate::preview(self, repo, &worktree, kind, target).await?),
@@ -3102,6 +3131,7 @@ mod tests {
             json!({"method": "authAnswer", "params": {"prompt": 1, "answer": null}}),
             json!({"method": "cancelOp", "params": {"op": 1}}),
             json!({"method": "repoInfo", "params": {"repo": id}}),
+            json!({"method": "commitIdentity", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "sidebar", "params": {"repo": id}}),
             json!({"method": "lastPush", "params": {"repo": id, "remoteRef": "refs/remotes/origin/main"}}),
             json!({"method": "appInfo"}),
@@ -3165,6 +3195,8 @@ mod tests {
         // --- 2D T15 ---
         "resolveFile",
         // --- end 2D T15 ---
+        // ux round 1: a cherry-pick or revert's Continue / Skip / Abort
+        "pickControl",
     ];
 
     /// One request of each write method: the audit checks `is_write` agrees, so a read can't
@@ -3213,6 +3245,8 @@ mod tests {
             json!({"method": "integrate", "params": {"repo": id, "worktree": wt, "kind": "rebase", "target": "main"}}),
             json!({"method": "rebaseControl", "params": {"repo": id, "worktree": wt, "action": "abort"}}),
             // --- end 2D T9 ---
+            // ux round 1: refused (no cherry-pick or revert in progress) before writing.
+            json!({"method": "pickControl", "params": {"repo": id, "worktree": wt, "action": "abort"}}),
             // --- 2D T10: integrate ---
             json!({"method": "fastForward", "params": {"repo": id, "worktree": wt, "branch": "x", "to": "main"}}),
             json!({"method": "mergeAbort", "params": {"repo": id, "worktree": wt}}),

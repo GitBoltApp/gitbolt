@@ -1,3 +1,4 @@
+import { stashLabel } from '../sidebar/stashLabel';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Clock, GitBranch, GitGraph, MessageSquare, User } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
@@ -14,6 +15,7 @@ import { Avatar } from '../avatars/Avatar';
 import { avatars } from '../avatars/avatarStore';
 import { buildMenu } from '../menu/registry';
 import { openContextMenu, openMenuAt, type MenuEventLike } from '../menu/menuStore';
+import { useContextTarget } from '../menu/contextTarget';
 import { isEditableTarget } from '../ui/keys';
 import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
@@ -32,6 +34,7 @@ import { anchoredScrollTop } from './anchor';
 import { useGraphMetrics } from './metrics';
 import { connectorLine, useDevicePixelRatio } from './pixels';
 import { RefLabels } from './RefLabels';
+import type { RowEditor } from './rowEditor';
 import { WipSummary } from './WipSummary';
 import { dimAllBut, ROW_DIM_CLASS, rowDimKindClass, strongerDim, useBranchFocus, type DimKind, type RowDim } from './rowDim';
 import './graph.css';
@@ -72,7 +75,7 @@ function MessageCell({ row, repoId, width, messages, dim }: { row: RowPayload; r
   });
   return (
     <span role="gridcell" data-col="message" className={`col-msg${dim}`} style={{ width }} {...triggerProps}>
-      {isWip ? <WipSummary row={row} repoId={repoId} /> : <><span className="msg-summary">{row.summary}</span>{row.bodyFirstLine && <span className="dim msg-body">{row.bodyFirstLine}</span>}</>}
+      {isWip ? <WipSummary row={row} repoId={repoId} /> : <><span className="msg-summary">{row.kind === "stash" ? stashLabel(row.summary).text : row.summary}</span>{row.kind === "stash" && stashLabel(row.summary).branch && <span className="dim msg-body">{stashLabel(row.summary).branch}</span>}{row.bodyFirstLine && <span className="dim msg-body">{row.bodyFirstLine}</span>}</>}
       {tooltip}
     </span>
   );
@@ -167,7 +170,16 @@ interface GraphRowProps {
   // --- end 2C T9 ---
   /** HEAD's row only: the branch being rebased (2D T18). */
   rebasing?: string | null;
+  /** A context menu is open for this row (a right-click on it or one of its chips): the
+   * temporary "context" outline, which never changes the selection (UX round 2). */
+  context?: boolean;
+  /** This row's inline editor (rowEditor.ts), shown in its Branch/Tag cell over the chips. */
+  editor?: RowEditor;
 }
+
+/** An inline editor's narrowest: room for a branch name even in a narrow Branch/Tag column (it
+ * then floats over the graph column). */
+const EDITOR_MIN_W = 200;
 
 /**
  * One virtual row. Memoized: its props are all stable across scroll events (rows, memoized
@@ -175,7 +187,7 @@ interface GraphRowProps {
  * the view and the canvas, not every row; a hover re-renders only the rows whose membership
  * chip appears or goes, and a branch focus (J22) only the rows whose `dimmed` changes.
  */
-const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu, onLabelDoubleClick, onRowDoubleClick, onWipContextMenu, rebasing = null }: GraphRowProps) {
+const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu, onLabelDoubleClick, onRowDoubleClick, onWipContextMenu, rebasing = null, context = false, editor }: GraphRowProps) {
   const isWip = row.kind === 'wip';
   // A column at its minimum collapses its cells too (spec §8.4): icon-only chips, the avatar only.
   const authorAvatar = isCollapsed('author', cols.author);
@@ -191,15 +203,15 @@ const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start,
       role="row"
       aria-rowindex={index + 1}
       aria-selected={selected}
-      className="graph-row"
+      className={context ? 'graph-row is-context' : 'graph-row'}
       // `top`, not `transform: translateY`: a transform would make each row its own
       // stacking context and trap the hover-expanded label chip under the canvas.
       style={{ top: start, height: rowH }}
-      // Modifiers apply to the primary button only (K27). Any other press (a right-click for the
-      // commit menu) keeps a selection this row is part of, else selects the row alone.
+      // Only the primary button selects, with its modifiers (K27). A right-click opens the row's
+      // menu without touching the selection or the details panel (UX round 2): the row shows the
+      // `context` outline instead while its menu is open.
       onMouseDown={(e) => {
         if (e.button === 0) onSelect(index, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
-        else if (!selected) onSelect(index, PLAIN);
       }}
       onMouseEnter={() => onHover(row.id, index, true)}
       onMouseLeave={() => onHover(row.id, index, false)}
@@ -209,6 +221,12 @@ const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start,
       {/* A hidden column (spec §8.4) has width 0 and no cell. */}
       {cols.labels > 0 && (
         <span role="gridcell" data-col="labels" className="col-labels" style={{ width: cols.labels }} onMouseDown={onLabelsMouseDown}>
+          {editor && (
+            // Over the chips (which stay, so nothing moves), in the row's stacking context above the canvas.
+            <span className="row-editor" style={{ width: Math.max(EDITOR_MIN_W, cols.labels - 8) }} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}>
+              {editor.render()}
+            </span>
+          )}
           <RefLabels
             labels={labels}
             color={row.color}
@@ -218,6 +236,7 @@ const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start,
             width={cols.labels}
             line={line && { top: line.top - start, height: line.height }}
             rebasing={rebasing}
+            sha={row.id}
             onContextMenu={onLabelContextMenu && ((label, e) => onLabelContextMenu(e, row, label))}
             onDoubleClick={onLabelDoubleClick && ((label) => onLabelDoubleClick(row, label))}
           />
@@ -285,9 +304,11 @@ export interface GraphViewProps {
   // --- end 2C T9 ---
   /** The branch a rebase in the active worktree replays: drawn at HEAD's row (2D T18). */
   rebasing?: string | null;
+  /** An inline editor open on one row (rowEditor.ts): GraphView only places it. */
+  rowEditor?: RowEditor | null;
 }
 
-export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = NO_SELECTED, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu, onLabelDoubleClick, onRowDoubleClick, onWipContextMenu, rebasing = null }: GraphViewProps) {
+export function GraphView({ graph, repoId, messages, selected: controlled, alsoSelected = NO_SELECTED, onSelect, onUnhandledKey, gridRef, gridProps, rowDim = null, onContextMenu, onLabelContextMenu, onLabelDoubleClick, onRowDoubleClick, onWipContextMenu, rebasing = null, rowEditor = null }: GraphViewProps) {
   const dateFormat = useAppState((s) => s.settings.dateFormat);
   const ownRef = useRef<HTMLDivElement>(null);
   const scrollRef = gridRef ?? ownRef;
@@ -305,6 +326,14 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   const [ownSelected, setOwnSelected] = useState(-1);
   const selected = controlled ?? ownSelected;
   const toast = useToast((s) => s.show);
+  // The row a context menu is open for (its outline), and the menu handlers that mark it. Stable:
+  // they reach the latest props through a ref, so the memoized rows keep the same callbacks.
+  const [contextRow, openContextFor] = useContextTarget<string>();
+  const menus = useRef({ onContextMenu, onLabelContextMenu, onWipContextMenu });
+  menus.current = { onContextMenu, onLabelContextMenu, onWipContextMenu };
+  const rowMenu = useCallback((e: MenuEventLike, row: RowPayload) => openContextFor(row.id, () => menus.current.onContextMenu?.(e, row)), [openContextFor]);
+  const labelMenu = useCallback((e: MouseEvent<HTMLElement>, row: RowPayload, label: RefLabel) => openContextFor(row.id, () => menus.current.onLabelContextMenu?.(e, row, label)), [openContextFor]);
+  const wipMenu = useCallback((e: MenuEventLike, row: RowPayload) => openContextFor(row.id, () => menus.current.onWipContextMenu?.(e, row)), [openContextFor]);
   // Display density (H1): row geometry for the rows, the virtualizer and the canvas. The cell
   // paddings and chip height are CSS variables on :root (theme/density.ts, read by graph.css).
   const metrics = useGraphMetrics();
@@ -500,7 +529,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
     const el = row ? document.getElementById(graphRowId(row.id)) : null;
     if (!row || !el || row.kind === 'wip' || !onContextMenu) return false;
     const r = el.getBoundingClientRect();
-    onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: r.left, clientY: r.bottom, timeStamp: performance.now() }, row);
+    rowMenu({ preventDefault() {}, stopPropagation() {}, clientX: r.left, clientY: r.bottom, timeStamp: performance.now() }, row);
     return true;
   };
 
@@ -580,12 +609,14 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
                   onCopySha={copySha}
                   dimmed={dim?.dimmed(item.index) ?? false}
                   onBranchHover={onBranchHover}
-                  onContextMenu={onContextMenu}
-                  onLabelContextMenu={onLabelContextMenu}
+                  onContextMenu={onContextMenu && rowMenu}
+                  onLabelContextMenu={onLabelContextMenu && labelMenu}
                   onLabelDoubleClick={onLabelDoubleClick}
                   onRowDoubleClick={onRowDoubleClick}
-                  onWipContextMenu={onWipContextMenu}
+                  onWipContextMenu={onWipContextMenu && wipMenu}
+                  context={row.id === contextRow}
                   rebasing={rebasing && row.id === graph.head.target ? rebasing : null}
+                  editor={rowEditor?.rowId === row.id ? rowEditor : undefined}
                 />
               );
             })}

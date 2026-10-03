@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { fireEvent, render, renderHook, waitFor } from '@testing-library/react';
 import { act, Activity } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -82,6 +82,28 @@ describe('TextDiff', () => {
     expect(host.detachDiff).not.toHaveBeenCalled();
     view.unmount();
     await waitFor(() => expect(host.detachDiff).toHaveBeenCalledWith(box));
+  });
+});
+
+describe('useShow', () => {
+  // K7: stepping ↑/↓, a file's load lands and renders the next file: that render updates the
+  // `onShown` ref at once, but its effects (the next show, and this one's cleanup) wait past a
+  // paint. The previous file's show finishing in that window reports *its* view as shown, not the
+  // next file's: else the panel's header moved on over the previous file's lines.
+  it("a show reports through the callback of the render that asked for it, not a later render's", async () => {
+    const { useShow } = await import('./TextDiff');
+    let finish!: () => void;
+    const show = vi.fn(() => new Promise<void>((r) => { finish = r; }));
+    const shownA = vi.fn();
+    const shownB = vi.fn();
+    const ref = { current: shownA as (() => void) | undefined };
+    renderHook(() => useShow(host as never, show, ['a.txt'], ref));
+    expect(show).toHaveBeenCalledTimes(1);
+    // The next file's render has run (useOnShown set the ref); its effects haven't yet.
+    ref.current = shownB;
+    await act(async () => finish());
+    expect(shownA).toHaveBeenCalledTimes(1);
+    expect(shownB).not.toHaveBeenCalled();
   });
 });
 

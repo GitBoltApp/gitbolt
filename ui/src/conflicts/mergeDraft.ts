@@ -1,3 +1,4 @@
+import type { Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { EMPTY_DRAFT, readWipDraft, withMergeMessage, writeWipDraft, type WipDraft } from '../commit/draft';
 
@@ -61,13 +62,14 @@ export function applyMergeDraft(repoPath: string, worktree: string, mergeMsg: st
 }
 
 /** Abort puts the draft back as it was (§8.2). If the user has since edited the merge message,
- * it asks first. */
-export async function restoreDraftAfterAbort(repoPath: string, worktree: string): Promise<void> {
+ * it asks first, where the Abort started (`origin`; `null`: a popover), never at whatever was
+ * clicked last. */
+export async function restoreDraftAfterAbort(repoPath: string, worktree: string, origin: Origin | null = null): Promise<void> {
   const saved = take(repoPath, worktree);
   if (!saved) return;
   const cur = readWipDraft(repoPath, worktree);
   if (!same(cur, saved.applied) && !same(cur, EMPTY_DRAFT)) {
-    const ok = await confirmAction({ title: 'Restore your earlier message?', body: 'You edited the merge message. Replace it with the commit message you had before the merge?', confirmLabel: 'Restore' });
+    const ok = await confirmAction({ title: 'Restore your earlier message?', body: 'You edited the merge message. Replace it with the commit message you had before the merge?', confirmLabel: 'Restore', arm: 'Click again to restore your earlier message' }, origin);
     if (!ok) return;
   }
   writeWipDraft(repoPath, worktree, saved.draft);

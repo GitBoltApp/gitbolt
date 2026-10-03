@@ -1,0 +1,50 @@
+/* The confirm model (spec §ui confirms): an armed control, drawn over its own space (and over
+   its neighbours when the label is longer), so nothing moves. Above dialogs, menus (900) and the
+   tooltips (1000): a tooltip left by the control it started from doesn't cover it. */
+.tone-danger { --arm: var(--red); }
+.tone-positive { --arm: var(--green); }
+.tone-warn { --arm: var(--orange); }
+
+.arm-overlay {
+  position: fixed; z-index: 1010; display: inline-flex; align-items: center; gap: 6px;
+  box-sizing: border-box; width: max-content; max-width: calc(100vw - 16px); padding: 0 10px; margin: 0;
+  border: 1px solid var(--arm); border-radius: 4px; font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden;
+  /* An opaque tint: what it covers doesn't show through. */
+  background: color-mix(in srgb, var(--arm) 22%, var(--panel-bg0));
+  color: color-mix(in srgb, var(--arm) 35%, var(--text-selected));
+  cursor: pointer; user-select: none;
+}
+.arm-overlay:hover { background: color-mix(in srgb, var(--arm) 32%, var(--panel-bg0)); }
+/* A full-width button (board D): the label centred across what it covers. */
+.arm-overlay.arm-cover { justify-content: center; }
+.arm-label { overflow: hidden; text-overflow: ellipsis; }
+.arm-icon { display: inline-flex; }
+.arm-icon svg { width: 13px; height: 13px; }
+
+/* The reason under an armed toolbar button (board E). */
+.arm-caption {
+  position: fixed; z-index: 1010; max-width: 320px; padding: 6px 10px; box-sizing: border-box;
+  background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup);
+  color: color-mix(in srgb, var(--arm) 45%, var(--text-selected)); font-size: 12px; line-height: 1.4; pointer-events: none;
+}
+
+/* What the armed overlay covers, dimmed underneath (data-arm-dim). Opacity only: no reflow. */
+.arm-dimmed > * { opacity: 0.3; }
+
+/* Announces "Click again to …" (aria-live), off screen. */
+.arm-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* G and H: a popover anchored where the action started, no backdrop. */
+.arm-popover {
+  position: fixed; z-index: 1005; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box;
+  width: max-content; min-width: 260px; max-width: min(380px, calc(100vw - 16px)); padding: 12px 14px;
+  background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow-popup);
+  color: var(--text-normal); font-size: 13px;
+}
+.arm-popover h2 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-selected); }
+.arm-popover p { margin: 0; color: var(--text-secondary); font-size: 12.5px; line-height: 1.45; }
+.arm-popover .modal-actions { margin-top: 2px; justify-content: flex-start; align-items: center; flex-wrap: wrap; }
+.arm-popover.choices .modal-actions { flex-direction: column; align-items: stretch; }
+.arm-popover .modal-check { margin-top: 0; }
+.arm-hints { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); font-size: 11px; }
+.arm-hints kbd { font-family: var(--font-mono); font-size: 11px; padding: 0 5px; border: 1px solid var(--section-border); border-radius: 3px; }

@@ -43,11 +43,19 @@ export function textWidth(name: string, font: string): number {
   return w;
 }
 
-/** A chip's estimated width: padding, the name, and its icons with the gaps between them. */
-export function chipWidth(label: RefLabel, font: string): number {
+/** A chip's estimated width: padding, the name, and its icons with the gaps between them.
+ * `iconOnly`: the chip shows no name (the compact column, a crowded detached HEAD). */
+export function chipWidth(label: RefLabel, font: string, iconOnly = false): number {
   const icons = (label.isHead ? 1 : 0) + (label.tag ? 1 : 0) + (label.local ? 1 : 0) + label.remotes.length + (label.worktree ? 1 : 0);
   const iconW = (label.isHead ? HEAD_CHECK : 0) + (label.tag ? 12 : 0) + (label.local ? ICON : 0) + label.remotes.length * ICON + (label.worktree ? ICON : 0);
+  if (iconOnly) return CHIP_PAD + iconW + Math.max(0, icons - 1) * CHIP_GAP;
   return CHIP_PAD + textWidth(label.name, font) + iconW + icons * CHIP_GAP;
+}
+
+/** The rebasing chip's estimated width (RefLabels.tsx RebasingChip): the spinner, the name and
+ * the dashed border. */
+export function rebasingWidth(name: string, font: string): number {
+  return CHIP_PAD + 12 + CHIP_GAP + textWidth(name, font) + 2;
 }
 
 /** The `+N` badge's width for `hidden` labels (its text at 11 px, 4 px padding each side). */

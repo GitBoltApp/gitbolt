@@ -51,6 +51,8 @@ pub struct PushOutcome {
     pub dst: String,
     pub up_to_date: bool,
     pub server: RemoteSummary,
+    /// It force-pushed with a rewrite mark's lease, without asking (§12.3): what rewrote it.
+    pub forced: Option<crate::write::rewrites::RewriteKind>,
 }
 
 fn config(repo: &gix::Repository, key: &str) -> Option<String> {
@@ -107,12 +109,17 @@ impl WriteIntent for PushIntent {
     }
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<PushOutcome, GbError> {
         let (root, branch, given) = (cx.root.to_path_buf(), self.branch.clone(), self.target.clone());
-        let target = crate::api::blocking(move || {
+        let (data, common, explicit) = (cx.api.data_dir.clone(), cx.h.common_dir.clone(), self.lease.is_some());
+        let (target, mark) = crate::api::blocking(move || {
             let repo = gix::open(&root).map_err(gix_err)?;
-            Ok(given.or_else(|| push_target(&repo, &branch)))
+            let Some(target) = given.or_else(|| push_target(&repo, &branch)) else { return Ok((None, None)) };
+            // §12.3: a branch GitBolt rewrote since its last push forces with the lease recorded
+            // then, when a plain push would be rejected. An explicit force keeps its own lease.
+            let mark = if explicit { None } else { crate::write::rewrites::lease_for(&data, &common, &repo, &branch, &target)? };
+            Ok::<_, GbError>((Some(target), mark))
         })
-        .await?
-        .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("{} has no upstream; set one from Push ▾", self.branch)))?;
+        .await?;
+        let target = target.ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("{} has no upstream; set one from Push ▾", self.branch)))?;
         let mut args = vec!["push".to_string(), "--progress".into()];
         if self.set_upstream {
             args.push("-u".into());
@@ -120,8 +127,19 @@ impl WriteIntent for PushIntent {
         if let Some(lease) = &self.lease {
             args.push(format!("--force-with-lease=refs/heads/{}:{}", target.branch, lease.oid.clone().unwrap_or_default()));
         }
+        // Never a force without a lease: the mark's is the remote-tracking oid at rewrite time,
+        // never the one a later fetch left (that would overwrite commits the user never saw).
+        // (`--force-if-includes` does nothing beside an explicit lease oid, so it isn't passed.)
+        if let Some((m, _)) = &mark {
+            args.push(format!("--force-with-lease=refs/heads/{}:{}", target.branch, m.lease_oid));
+        }
         args.push(target.remote.clone());
-        args.push(format!("refs/heads/{}:refs/heads/{}", self.branch, target.branch));
+        // The forced push sends the tip `lease_for` checked, not whatever the branch is by then.
+        let src = match &mark {
+            Some((_, tip)) if !self.set_upstream => tip.to_string(),
+            _ => format!("refs/heads/{}", self.branch),
+        };
+        args.push(format!("{src}:refs/heads/{}", target.branch));
         let inv = cx.net_git(args);
         // §3.5: the transfer runs outside the write lock; `network` also captures server output.
         let res = cx.network(inv).await;
@@ -130,15 +148,24 @@ impl WriteIntent for PushIntent {
             cx.touch(ChangeKind::Config);
         }
         let out = res.map_err(|mut e| {
+            // The mark's lease failed (someone pushed since the rewrite): today's rejected push,
+            // so the user picks Pull or Force push.
+            // Only git's lease rejection: a ref-lock failure keeps its own error.
+            let stale = [e.stderr.as_deref(), Some(e.message.as_str())].into_iter().flatten().any(|t| t.contains("(stale info)"));
+            if mark.is_some() && e.kind == GbErrorKind::RefMoved && stale {
+                e.kind = GbErrorKind::NonFastForward;
+            }
             // The spec's words for a rejected non-fast-forward push (§12.3).
             if e.kind == GbErrorKind::NonFastForward {
                 e.message = format!("{}/{} has commits {} doesn't have", target.remote, target.branch, self.branch);
             }
             e
         })?;
+        crate::write::rewrites::pushed(&cx.api.data_dir, &cx.h.common_dir, &self.branch);
         // `network` already emitted `opRemote`; the toast's count comes from the same lines.
         let server = remote_output::summarize(&remote_output::parse(&out.stderr));
-        Ok(PushOutcome { op: cx.op.id, branch: self.branch.clone(), remote: target.remote, dst: target.branch, up_to_date: out.stderr.contains("Everything up-to-date"), server })
+        let forced = mark.map(|(m, _)| m.kind);
+        Ok(PushOutcome { op: cx.op.id, branch: self.branch.clone(), remote: target.remote, dst: target.branch, up_to_date: out.stderr.contains("Everything up-to-date"), server, forced })
     }
 }
 
@@ -636,6 +663,227 @@ mod tests {
         pushed.unwrap();
         assert_eq!(r.git(&["rev-parse", "origin/dev"]), r.git(&["rev-parse", "dev"]));
     }
+
+    // --- ux round 2: rewrite marks (§12.3) ---
+    /// `dev` (pushed, tracking origin/dev) rebased in GitBolt onto a new local `main` commit.
+    async fn rebased_dev() -> (TestRepo, Api, tempfile::TempDir, u32, String) {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.commit("Main moves on");
+        r.switch("dev");
+        let pushed = r.git(&["rev-parse", "origin/dev"]);
+        let (api, data) = api();
+        let id = open(&api, r.path()).await;
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        api.dispatch(req).await.unwrap();
+        assert_ne!(r.git(&["rev-parse", "dev"]), pushed, "dev was rewritten");
+        (r, api, data, id, pushed)
+    }
+
+    fn origin(r: &TestRepo, branch: &str) -> String {
+        r.git_in(&r.root().join("origin.git"), &["rev-parse", branch])
+    }
+
+    /// The sidebar's `rewritten` for `branch`.
+    async fn rewritten(api: &Api, id: u32, branch: &str) -> serde_json::Value {
+        let s = api.dispatch(Request::Sidebar { repo: id }).await.unwrap();
+        let b = s["locals"].as_array().unwrap().iter().find(|b| b["name"] == branch).unwrap()["rewritten"].clone();
+        if !b.is_null() {
+            assert_eq!(b["remote"], "origin");
+        }
+        b["kind"].clone()
+    }
+
+    #[tokio::test]
+    async fn a_rebased_pushed_branch_force_pushes_with_its_lease_without_asking() {
+        let (r, api, _data, id, _) = rebased_dev().await;
+        assert_eq!(rewritten(&api, id, "dev").await, "rebase");
+        let res = api.dispatch(push(id, &r, "dev")).await.unwrap();
+        assert_eq!(res["outcome"]["forced"], "rebase");
+        assert_eq!(origin(&r, "dev"), r.git(&["rev-parse", "dev"]));
+        assert_eq!(rewritten(&api, id, "dev").await, serde_json::Value::Null, "the push spent the mark");
+    }
+
+    #[tokio::test]
+    async fn the_lease_fails_when_someone_pushed_since_the_rebase() {
+        let (r, api, _data, id, _) = rebased_dev().await;
+        r.push_from_clone("dev", "theirs.txt", "theirs\n", "Pushed meanwhile");
+        let theirs = origin(&r, "dev");
+        let err = api.dispatch(push(id, &r, "dev")).await.unwrap_err();
+        assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::NonFastForward, "origin/dev has commits dev doesn't have"), "today's rejected push");
+        assert_eq!(origin(&r, "dev"), theirs, "the remote is untouched");
+    }
+
+    /// The lease is the oid recorded at the rebase, not the one a later fetch left.
+    #[tokio::test]
+    async fn a_fetch_after_the_rebase_doesnt_widen_the_lease() {
+        let (r, api, _data, id, pushed) = rebased_dev().await;
+        r.push_from_clone("dev", "theirs.txt", "theirs\n", "Pushed meanwhile");
+        r.git(&["fetch", "-q", "origin"]);
+        let theirs = r.git(&["rev-parse", "origin/dev"]);
+        assert_ne!(theirs, pushed);
+        assert_eq!(api.dispatch(push(id, &r, "dev")).await.unwrap_err().kind, GbErrorKind::NonFastForward);
+        assert_eq!(origin(&r, "dev"), theirs, "the remote is untouched");
+        let line = api.cli.log().entries().into_iter().rev().find(|e| e.args.iter().any(|a| a.contains("force-with-lease"))).expect("a lease push ran");
+        assert!(line.args.iter().any(|a| a == &format!("--force-with-lease=refs/heads/dev:{pushed}")), "{:?}", line.args);
+    }
+
+    #[tokio::test]
+    async fn an_amended_pushed_commit_force_pushes_with_its_lease() {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.switch("dev");
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let amend = Request::Commit { repo: id, worktree: wt(r.path()), summary: "Dev work, reworded".into(), description: String::new(), amend: true, stage_all: false, expect: Default::default() };
+        api.dispatch(amend).await.unwrap();
+        assert_eq!(rewritten(&api, id, "dev").await, "amend");
+        let res = api.dispatch(push(id, &r, "dev")).await.unwrap();
+        assert_eq!(res["outcome"]["forced"], "amend");
+        assert_eq!(origin(&r, "dev"), r.git(&["rev-parse", "dev"]));
+    }
+
+    /// Review round 1 (a): a reset never forces silently, so the confirmation shows what it loses.
+    #[tokio::test]
+    async fn a_reset_of_a_pushed_branch_records_no_mark() {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.switch("dev");
+        let pushed = r.git(&["rev-parse", "dev"]);
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let reset = Request::Reset { repo: id, worktree: wt(r.path()), to: r.git(&["rev-parse", "dev~1"]), mode: crate::write::reset::ResetMode::Soft, expect: Default::default(), discard: None };
+        api.dispatch(reset).await.unwrap();
+        assert_eq!(rewritten(&api, id, "dev").await, serde_json::Value::Null);
+        assert_eq!(api.dispatch(push(id, &r, "dev")).await.unwrap_err().kind, GbErrorKind::NonFastForward, "today's rejected push");
+        assert_eq!(origin(&r, "dev"), pushed);
+    }
+
+    /// Review round 1 (b): a rebase that replaces a colleague's commit asks as today.
+    #[tokio::test]
+    async fn a_rebase_over_a_colleagues_commit_records_no_mark() {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.switch_new("shared");
+        r.commit_as("Colleague's work", "Grace Hopper", "grace@example.com");
+        r.commit("My work");
+        r.push("shared");
+        r.switch("main");
+        r.commit("Main moves on");
+        r.switch("shared");
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        api.dispatch(req).await.unwrap();
+        assert_eq!(rewritten(&api, id, "shared").await, serde_json::Value::Null);
+        assert_eq!(api.dispatch(push(id, &r, "shared")).await.unwrap_err().kind, GbErrorKind::NonFastForward);
+    }
+
+    /// Review round 1 (c): the remote's default branch never force-pushes silently, own commits
+    /// or not; with no `refs/remotes/<r>/HEAD`, main, master and trunk count as default.
+    #[tokio::test]
+    async fn a_rebase_of_the_default_branch_records_no_mark() {
+        let r = TestRepo::new();
+        r.commit("one");
+        r.add_origin();
+        r.push("main");
+        r.git(&["remote", "set-head", "origin", "main"]);
+        r.switch_new("side");
+        r.commit("side");
+        r.switch("main");
+        r.commit("two");
+        r.push("main");
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "side".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        api.dispatch(req).await.unwrap();
+        assert_eq!(rewritten(&api, id, "main").await, serde_json::Value::Null);
+        let repo = gix::open(r.path()).unwrap();
+        assert!(crate::write::rewrites::is_default_branch(&repo, "origin", "main"));
+        assert!(!crate::write::rewrites::is_default_branch(&repo, "origin", "trunk"), "the remote's HEAD decides");
+        r.git(&["remote", "set-head", "origin", "-d"]);
+        let repo = gix::open(r.path()).unwrap();
+        assert!(crate::write::rewrites::is_default_branch(&repo, "origin", "trunk") && !crate::write::rewrites::is_default_branch(&repo, "origin", "side"));
+    }
+
+    /// Review round 1 (low 3): after a fetch moved the remote-tracking ref off the lease, the
+    /// sidebar doesn't promise a force (the push would be refused).
+    #[tokio::test]
+    async fn the_sidebar_drops_the_promise_when_the_tracking_ref_left_the_lease() {
+        let (r, api, _data, id, _) = rebased_dev().await;
+        r.push_from_clone("dev", "theirs.txt", "theirs\n", "Pushed meanwhile");
+        r.git(&["fetch", "-q", "origin"]);
+        assert_eq!(rewritten(&api, id, "dev").await, serde_json::Value::Null);
+    }
+
+    /// Review round 1 (low 5): a mark the sidebar sees dead is dropped, so it can't come back.
+    #[tokio::test]
+    async fn a_dead_mark_doesnt_come_back() {
+        let (r, api, data, id, _) = rebased_dev().await;
+        let tip = r.git(&["rev-parse", "dev"]);
+        r.git(&["reset", "-q", "--hard", "main"]);
+        assert_eq!(rewritten(&api, id, "dev").await, serde_json::Value::Null);
+        r.git(&["reset", "-q", "--hard", &tip]);
+        assert_eq!(rewritten(&api, id, "dev").await, serde_json::Value::Null);
+        assert!(crate::write::rewrites::RewriteStore::new(data.path(), &r.path().join(".git")).peek().is_empty());
+    }
+
+    /// Committing more after a rebase is normal: the mark still applies.
+    #[tokio::test]
+    async fn more_commits_after_the_rebase_keep_the_mark() {
+        let (r, api, _data, id, _) = rebased_dev().await;
+        r.commit("More after the rebase");
+        assert_eq!(rewritten(&api, id, "dev").await, "rebase");
+        let res = api.dispatch(push(id, &r, "dev")).await.unwrap();
+        assert_eq!(res["outcome"]["forced"], "rebase");
+        assert_eq!(origin(&r, "dev"), r.git(&["rev-parse", "dev"]));
+    }
+
+    /// A reset outside GitBolt to somewhere else ends the mark: Push asks again.
+    #[tokio::test]
+    async fn an_outside_reset_elsewhere_drops_the_mark() {
+        let (r, api, _data, id, pushed) = rebased_dev().await;
+        r.git(&["reset", "-q", "--hard", "main"]);
+        assert_eq!(rewritten(&api, id, "dev").await, serde_json::Value::Null);
+        assert_eq!(api.dispatch(push(id, &r, "dev")).await.unwrap_err().kind, GbErrorKind::NonFastForward);
+        assert_eq!(origin(&r, "dev"), pushed, "nothing was forced");
+    }
+
+    #[tokio::test]
+    async fn undoing_the_rebase_drops_the_mark() {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.commit("Main moves on");
+        r.switch("dev");
+        let (api, data) = api();
+        let id = open(&api, r.path()).await;
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        let res = api.dispatch(req).await.unwrap();
+        let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
+        api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None }).await.unwrap();
+        assert_eq!(r.git(&["rev-parse", "dev"]), r.git(&["rev-parse", "origin/dev"]));
+        let store = crate::write::rewrites::RewriteStore::new(data.path(), &r.path().join(".git"));
+        assert!(store.peek().is_empty(), "the undo dropped it, not just hid it");
+    }
+
+    /// A rebase over commits on the remote the branch never had records nothing: those are never
+    /// leased away.
+    #[tokio::test]
+    async fn no_mark_when_the_remote_had_commits_the_branch_didnt() {
+        let r = TestRepo::new();
+        fixtures::sync(&r);
+        r.git(&["fetch", "-q", "origin"]);
+        r.commit("Main moves on");
+        r.switch("diverged");
+        let before = r.git(&["rev-parse", "diverged"]);
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        api.dispatch(req).await.unwrap();
+        assert_ne!(r.git(&["rev-parse", "diverged"]), before, "it was rebased");
+        assert_eq!(rewritten(&api, id, "diverged").await, serde_json::Value::Null);
+    }
+    // --- end ux round 2 ---
 
     // --- 2D T14: pull ---
     fn pull(id: u32, r: &TestRepo, branch: Option<&str>, mode: PullMode) -> Request {

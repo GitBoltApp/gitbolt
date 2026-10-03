@@ -119,6 +119,9 @@ test.describe('tabs', () => {
     await page.mouse.down();
     await page.mouse.move(box0.x + box0.width / 2 + 10, box0.y + 5, { steps: 3 });
     await page.mouse.move(box1.x + box1.width - 4, box1.y + 5, { steps: 5 });
+    // Mid-drag the other tab has slid left into the dragged tab's old slot; the order is unchanged.
+    await expect(tabs.nth(1)).toHaveCSS('transform', /^matrix\(1, 0, 0, 1, -\d/);
+    await expect(tabs.nth(0)).toHaveText(l0);
     await page.mouse.up();
     await expect(tabs.nth(0)).toHaveText(l1);
     await expect(tabs.nth(1)).toHaveText(l0);
@@ -187,7 +190,7 @@ test.describe('tabs', () => {
   // click to two animation frames later (the frame that paints it); a sample only counts if the
   // tab's graph rows are on screen by then. Load only ever slows a sample, so the bound is checked
   // against the best of several switches (as in menu-perf.spec.ts): a regression slows every one.
-  test('switching to a loaded tab paints in under 50 ms (best of several switches)', async ({ page, browserName }) => {
+  test('switching to a loaded tab paints in under 50 ms (best of several switches)', { tag: '@budget' }, async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'budget measured on the engine GitBolt ships (CEF = Chromium)');
     const a = freshFixture('basic');
     const b = freshFixture('long_labels');

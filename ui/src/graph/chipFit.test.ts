@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHIP_SPACING, CONNECTOR_MIN, fitCount, moreWidth } from './chipFit';
+import { CHIP_PAD, CHIP_SPACING, CONNECTOR_MIN, chipWidth, fitCount, moreWidth } from './chipFit';
 
 describe('fitCount', () => {
   const w = [80, 60, 70];
@@ -18,5 +18,13 @@ describe('fitCount', () => {
     expect(fitCount(w, 1000, true)).toBe(1);
     expect(fitCount([50], 10)).toBe(1);
     expect(fitCount([], 10)).toBe(0);
+  });
+});
+
+describe('chipWidth', () => {
+  it('an icon-only chip (a crowded detached HEAD) is just its padding and icons, far narrower than with its name', () => {
+    const head = { row: 0, name: 'HEAD', local: null, tag: false, isHead: true, worktree: null, checkedOut: null, remotes: [] };
+    expect(chipWidth(head, '12px sans-serif', true)).toBe(CHIP_PAD + 16);
+    expect(chipWidth(head, '12px sans-serif')).toBeGreaterThan(chipWidth(head, '12px sans-serif', true) + 20);
   });
 });

@@ -24,7 +24,7 @@ const offs = [
     run: () => {
       const ctx = writeCtx();
       const head = activeRuntime()?.graph?.head;
-      if (ctx && head?.target) void createBranchAt(ctx, { sha: head.target, ref: head.branch }, 'toolbar');
+      if (ctx && head?.target) void createBranchAt(ctx, { sha: head.target, ref: head.branch });
     },
   }]),
   registerToolbarButton({ action: 'branch.create', label: 'Branch', order: 30 }),

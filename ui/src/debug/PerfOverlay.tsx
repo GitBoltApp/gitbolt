@@ -6,8 +6,11 @@ import './debug.css';
 
 function Overlay() {
   const [frames, setFrames] = useState<FrameWindow>({ frames: 0, dropped: 0, fps: 0 });
+  // The app's calls only: the Debug tools' own (DEBUG_METHODS) aren't recorded, so the overlay
+  // never re-renders for its own or the Debug modal's traffic.
   const calls = useSyncExternalStore(subscribeCalls, recentCalls);
-  useEffect(() => startFrameMeter(setFrames), []);
+  // A window that reads the same as the last one keeps the state, so an idle overlay stays still.
+  useEffect(() => startFrameMeter((w) => setFrames((p) => (Math.round(p.fps) === Math.round(w.fps) && p.dropped === w.dropped ? p : w))), []);
   return (
     <section aria-label="Performance" className="perf-overlay">
       <div className="perf-fps">{frames.fps.toFixed(0)} fps · {frames.dropped} dropped</div>

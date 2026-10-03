@@ -16,16 +16,16 @@ export function LineActionBar({ rect, apply, discard, staged, canDiscard, reason
   onApply: () => void;
   onDiscard: () => void;
 }) {
-  const button = (label: string, onClick: () => void, danger = false) => (
+  const button = (label: string, onClick: () => void, tone: 'positive' | 'danger') => (
     <HoverTooltip content={reason ?? label}>
-      <button type="button" className={`line-action${danger ? ' danger' : ''}`} aria-disabled={reason !== null} onMouseDown={(e) => e.preventDefault()} onClick={() => { if (reason === null) onClick(); }}>{label}</button>
+      <button type="button" className={`line-action ${tone}`} aria-disabled={reason !== null} onMouseDown={(e) => e.preventDefault()} onClick={() => { if (reason === null) onClick(); }}>{label}</button>
     </HoverTooltip>
   );
   return createPortal(
     <div className="line-action-bar" role="toolbar" aria-label="Selected lines" style={{ top: rect.bottom + 4, left: rect.left + 24 }}>
       {staged
-        ? button(`Unstage ${lines(apply)}`, onApply)
-        : <>{button(`Stage ${lines(apply)}`, onApply)}{canDiscard && button(`Discard ${lines(discard)}`, onDiscard, true)}</>}
+        ? button(`Unstage ${lines(apply)}`, onApply, 'danger')
+        : <>{button(`Stage ${lines(apply)}`, onApply, 'positive')}{canDiscard && button(`Discard ${lines(discard)}`, onDiscard, 'danger')}</>}
     </div>,
     document.body,
   );

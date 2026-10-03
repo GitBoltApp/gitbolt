@@ -10,8 +10,9 @@ import { displayedOrder } from '../files/fileListPrefs';
 import { GraphView } from '../graph/GraphView';
 import { rebasingChip } from '../integrate/rebasing';
 import type { RowDim } from '../graph/rowDim';
-import { commitMenu, labelMenu, monacoMenu, wipMenu } from '../menu/menuEnv';
+import { commitMenu, labelMenu, monacoMenu, warmCommitMenu, wipMenu } from '../menu/menuEnv';
 import { graphLabelDoubleClick, graphRowDoubleClick } from '../graph/rowActions';
+import { useRowEditor } from '../graph/rowEditor';
 import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
 import { useAppEscape } from './escape';
 import { useFocusZone } from './focus';
@@ -106,6 +107,8 @@ function ConnectedGraph() {
   // Plan 1C Task 15: the commit menu (a plain right-click on the row) and the commit/tag menu on
   // a branch or tag label chip. Both build synchronously from the store (spec §7: no backend
   // call before a menu shows).
+  const services = useRepoView((s) => s.services);
+  useEffect(() => warmCommitMenu(services), [services]);
   const onContextMenu = useCallback((e: MenuEventLike, row: RowPayload) => {
     openContextMenu(e, commitMenu(store, row));
   }, [store]);
@@ -117,6 +120,8 @@ function ConnectedGraph() {
   const onRowDoubleClick = useCallback((row: RowPayload) => { graphRowDoubleClick(store, row); }, [store]);
   const onWipContextMenu = useCallback((e: MenuEventLike, row: RowPayload) => { openContextMenu(e, wipMenu(store, row)); }, [store]);
   // --- end 2C T9 ---
+  // An inline editor on a row (Create branch here's name input, UX round 1).
+  const rowEditor = useRowEditor(store);
   return (
     <GraphView
       graph={graph}
@@ -135,6 +140,7 @@ function ConnectedGraph() {
       onWipContextMenu={onWipContextMenu}
       rowDim={rowDim}
       rebasing={rebasing}
+      rowEditor={rowEditor}
     />
   );
 }

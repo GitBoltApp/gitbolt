@@ -8,7 +8,7 @@ const selectCommit = vi.hoisted(() => vi.fn(() => true));
 vi.mock('../app/graphNav', () => ({ selectCommit }));
 const confirm = vi.hoisted(() => ({ answer: true, asked: [] as Array<{ title: string; body: string }> }));
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async (r: { title: string; body: string }) => { confirm.asked.push(r); return confirm.answer; }) }));
-vi.mock('../app/tabStores', () => ({ tabView: () => undefined }));
+vi.mock('../app/tabStores', () => ({ tabView: () => undefined, tabStore: () => undefined }));
 const toast = vi.hoisted(() => ({ calls: [] as Array<{ e: unknown; ctx: { removeLock?: unknown } }> }));
 vi.mock('../debug/errorToast', () => ({ toastActionError: (e: unknown, ctx: { removeLock?: unknown }) => toast.calls.push({ e, ctx }) }));
 

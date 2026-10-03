@@ -1,4 +1,3 @@
-import { Circle, CircleDot } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ToolbarPicker } from './registry';
 
@@ -52,10 +51,9 @@ export function DefaultPicker({ picker, anchor, onClose }: { picker: ToolbarPick
         <div className="tb-default-picker-title">{picker.title}</div>
         {picker.options.map((o, i) => {
           const on = o.value === value;
-          const Icon = on ? CircleDot : Circle;
           return (
             <div key={o.value} role="menuitemradio" aria-checked={on} data-active={i === active} className="tb-default-picker-row" onPointerEnter={() => setActive(i)} onClick={() => pick(o.value)}>
-              <Icon size={14} aria-hidden />
+              <span className="tb-radio" data-on={on} aria-hidden />
               {o.label}
             </div>
           );

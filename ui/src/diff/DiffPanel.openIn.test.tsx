@@ -17,7 +17,7 @@ vi.mock('../api/client', () => ({ api: { listOpeners, openIn, wipHunks: vi.fn(as
 const host = vi.hoisted(() => ({
   attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async () => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
   attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), setModifiedEditable: vi.fn(), onModifiedEdit: vi.fn(), modifiedText: vi.fn(() => null), setFileEditable: vi.fn(), onFileEdit: vi.fn(), fileText: vi.fn(() => null), keepViewOnNextShow: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
-  setContextMenuHandler: vi.fn(), layout: vi.fn(), setHunkZones: vi.fn(() => []), onDiffSelection: vi.fn(),
+  setContextMenuHandler: vi.fn(), layout: vi.fn(), setLineGutter: vi.fn(), onDiffSelection: vi.fn(),
 }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
 

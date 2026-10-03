@@ -9,7 +9,8 @@ const isSubmit = (e: KeyboardEvent) => e.key === 'Enter' && (e.ctrlKey || e.meta
  * - Enter or ↓ in the summary moves to the description (caret at its start).
  * - ↑ with the caret on the description's first line moves back (caret at the summary's end).
  * - Ctrl+Enter submits from either; Esc blurs, keeping the text (or `onEscape`, e.g. Cancel).
- * The description grows to 8 lines, then scrolls (CSS `field-sizing`).
+ * One text box (ux round 1): one border around both, the focus ring on it. The description
+ * shows 4 lines, grows to 8, then scrolls (CSS `field-sizing`).
  * Keys typed here never reach the app's shortcuts (the same rule as the WIP row's box).
  */
 export function CommitFields({ value, onChange, onSubmit, onEscape, disabled = false, autoFocus = false }: { value: WipDraft; onChange: (d: WipDraft) => void; onSubmit: () => void; onEscape?: () => void; disabled?: boolean; autoFocus?: boolean }) {

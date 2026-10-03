@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, graphLayout, nodeRadius, PACKED_ALPHA, SELECTED_BAND_ALPHA, SHADE_ALPHA, SHADE_W, zoneWidth } from './draw';
+import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, graphLayout, nodeRadius, PACKED_ALPHA, SELECTED_BAND_ALPHA, SHADE_ALPHA, SHADE_W, stashHalf, zoneWidth } from './draw';
 import type { RowPayload } from '../api/gen/RowPayload';
 
 function recorder() {
@@ -29,6 +29,25 @@ describe('drawGraph', () => {
     expect(calls.filter((c) => c.startsWith('arc(')).length).toBe(2);
     expect(calls).toContain('strokeStyle=#b');
     expect(calls.some((c) => c.startsWith('setLineDash('))).toBe(true);
+  });
+
+  it('a stash node is a dotted square with the stash (paper tray) icon inside, not the WIP ring', () => {
+    const { ctx, calls } = recorder();
+    const m = { rowH: 22, laneW: 16, padX: 8 };
+    drawGraph(ctx, { rows: [row(0, 'stash', [])], first: 0, last: 1, scrollTop: 0, width: 100, height: 22, metrics: m, colors: ['#a'], nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
+    const s = stashHalf(m);
+    const at = calls.indexOf(`rect(${16 - s},${11 - s},${2 * s},${2 * s})`);
+    expect(at).toBeGreaterThan(-1);
+    expect(calls.filter((c) => c.startsWith('arc('))).toEqual([]); // no ring
+    // Dotted, with butt caps and a dash that divides the perimeter evenly.
+    const dash = calls.slice(0, at).findLast((c) => c.startsWith('setLineDash('));
+    expect(dash).toBe('setLineDash(object)');
+    expect(calls.slice(0, at)).toContain('lineCap=butt');
+    // The icon after the square, in the lane colour: the lid's rounded corners, the tray and the slot.
+    const icon = calls.slice(at);
+    expect(icon.filter((c) => c.startsWith('arcTo(')).length).toBe(6);
+    expect(icon.filter((c) => c.startsWith('moveTo(')).length).toBe(3);
+    expect(icon.filter((c) => c === 'stroke()').length).toBe(2);
   });
 
   it('draws a translucent band on every visible row, not only labeled ones', () => {
@@ -353,14 +372,16 @@ describe('drawGraph: the collapse zone, packed nodes and the minimum-width strip
     drawGraph(ctx, { ...base, rows, last: 3, width: 48, height: 75, labeledRows: new Set([0]) });
     // Centred left of the 2 px rail: (48 - 2) / 2 = 23. Merges are nodes too; a stash keeps its square.
     expect(calls.filter((c) => c.startsWith('arc(')).map((c) => c.split(',').slice(0, 3).join(','))).toEqual(['arc(23,12.5,9', 'arc(23,37.5,9']);
-    const s = 25 * 0.28;
+    const s = stashHalf({ rowH: 25, laneW: 16, padX: 8 });
     expect(calls).toContain(`rect(${23 - s},${62.5 - s},${2 * s},${2 * s})`);
     expect(calls).not.toContain(`globalAlpha=${BAND_ALPHA}`);
     // Every lane has run off: every node is packed, so dimmed (R11).
     for (const [i, c] of calls.entries()) if (c.startsWith('arc(') || c.startsWith('rect(')) expect(alphaAt(calls, i), c).toBe(`globalAlpha=${PACKED_ALPHA}`);
     expect(calls.some((c) => c.startsWith('createLinearGradient('))).toBe(false);
-    // The only line is the label connector, to the node's edge (the continuity rule).
-    expect(calls.filter((c) => c.startsWith('lineTo('))).toEqual(['lineTo(14,12.5)']);
+    // The only line is the label connector, to the node's edge (the continuity rule): every other
+    // lineTo is the stash node's icon, after its square.
+    const square = calls.indexOf(`rect(${23 - s},${62.5 - s},${2 * s},${2 * s})`);
+    expect(calls.slice(0, square).filter((c) => c.startsWith('lineTo('))).toEqual(['lineTo(14,12.5)']);
     expect(calls).toContain('fillRect(46,2,2,21)'); // the rail edge
   });
 });

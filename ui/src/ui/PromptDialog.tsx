@@ -10,6 +10,8 @@ export interface PromptRequest {
   confirmLabel: string;
   /** Live: the reason the value can't be used, or `null`. */
   validate?: (value: string) => string | null;
+  /** The confirm button stays disabled while the value equals `initial` (a rename to the same name); no error is shown for it. */
+  requireChange?: boolean;
   checkbox?: { label: string; initial: boolean };
 }
 export interface PromptAnswer { value: string; checked: boolean }
@@ -33,13 +35,16 @@ export function PromptDialog() {
 function PromptForm({ pending }: { pending: Pending }) {
   const [value, setValue] = useState(pending.initial ?? '');
   const [checked, setChecked] = useState(pending.checkbox?.initial ?? false);
+  const [tried, setTried] = useState(false);
+  const unchanged = value === (pending.initial ?? '');
   const error = pending.validate?.(value) ?? null;
+  const blocked = !!error || (!!pending.requireChange && unchanged);
   const done = (a: PromptAnswer | null) => {
     usePromptStore.setState({ pending: null });
     pending.resolve(a);
   };
   const ref = useModalKeys<HTMLDivElement>(true, () => done(null));
-  const submit = () => { if (!error) done({ value, checked }); };
+  const submit = () => { setTried(true); if (!blocked) done({ value, checked }); };
   return (
     <div className="modal-backdrop" onPointerDown={() => done(null)}>
       <div ref={ref} className="modal" role="dialog" aria-modal="true" aria-labelledby="prompt-title" onPointerDown={(e) => e.stopPropagation()}>
@@ -49,7 +54,7 @@ function PromptForm({ pending }: { pending: Pending }) {
             <span>{pending.label}</span>
             <input autoFocus aria-label={pending.label} value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} />
           </label>
-          {error && value && <p role="alert" className="modal-error">{error}</p>}
+          {error && value && (tried || !unchanged) && <p role="alert" className="modal-error">{error}</p>}
           {pending.checkbox && (
             <label className="modal-check">
               <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {pending.checkbox.label}
@@ -57,7 +62,7 @@ function PromptForm({ pending }: { pending: Pending }) {
           )}
           <div className="modal-actions">
             <button type="button" onClick={() => done(null)}>Cancel</button>
-            <button type="submit" disabled={!!error}>{pending.confirmLabel}</button>
+            <button type="submit" disabled={blocked}>{pending.confirmLabel}</button>
           </div>
         </form>
       </div>

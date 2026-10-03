@@ -1,11 +1,14 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Clock, Folder, FolderOpen, GitBranch, House, ListTree, Tag, TreePine } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Clock, Folder, FolderOpen, GitBranch, House, ListTree, Tag, TreePine } from 'lucide-react';
+import { stashLabel } from './stashLabel';
 import { memo, useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { selectCommit } from '../app/graphNav';
 import { useAppState } from '../app/state';
 import { RemoteIcon } from '../icons/brands';
+import { StashIcon } from '../icons/stash';
 import { sidebarItemMenu, sidebarRemoteMenu } from '../menu/menuEnv';
 import { openContextMenu, type MenuEventLike } from '../menu/menuStore';
+import { useContextTarget } from '../menu/contextTarget';
 import { useRepoViewStore } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
@@ -24,7 +27,7 @@ function ItemIcon({ item }: { item: SideItem }) {
     const Icon = item.worktree.isMain ? House : TreePine;
     return <Icon size={13} data-wt={item.worktree.isMain ? 'main' : 'linked'} aria-label={item.worktree.isCurrent ? 'current worktree' : undefined} aria-hidden={item.worktree.isCurrent ? undefined : true} />;
   }
-  if (item.kind === 'stash') return <Archive size={13} />;
+  if (item.kind === 'stash') return <StashIcon size={13} />;
   return <Tag size={13} />;
 }
 
@@ -85,10 +88,12 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
     if (row.type === 'item') return sidebarItemMenu(store, row.item);
     return row.remote && section.kind === 'remote' ? sidebarRemoteMenu(store, row.remote) : null;
   };
-  const onRowMenu = (e: MenuEventLike, row: FlatRow, index: number) => {
-    setCursor(index);
+  // A right-click never moves the active row (UX round 2): the row it was on gets the temporary
+  // `data-context` outline while its menu is open instead.
+  const [contextKey, openContextFor] = useContextTarget<string>();
+  const onRowMenu = (e: MenuEventLike, row: FlatRow) => {
     const build = menuOf(row);
-    if (build) openContextMenu(e, build);
+    if (build) openContextFor(row.key, () => openContextMenu(e, build));
     else e.preventDefault();
   };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -171,7 +176,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
               const style = { transform: `translateY(${vi.start}px)`, height: ROW_H, ...indent };
               if (row.type === 'folder') {
                 return (
-                  <div key={row.key} role="treeitem" aria-level={row.depth} aria-expanded={!row.collapsed} data-active={active} className="sb-row sb-folder" style={style} onClick={() => { setCursor(vi.index); activate(row); }} onContextMenu={(e) => onRowMenu(e, row, vi.index)}>
+                  <div key={row.key} role="treeitem" aria-level={row.depth} aria-expanded={!row.collapsed} data-active={active} data-context={row.key === contextKey || undefined} className="sb-row sb-folder" style={style} onClick={() => { setCursor(vi.index); activate(row); }} onContextMenu={(e) => onRowMenu(e, row)}>
                     {row.remote ? <RemoteIcon kind={row.hostKind ?? 'generic'} host={row.host} remote={row.remote} size={13} /> : row.collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
                     <span className="sb-label">{row.name}</span>
                   </div>
@@ -186,6 +191,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   aria-level={row.depth}
                   aria-label={it.kind === 'stash' ? `stash@{${it.stash.index}}: ${it.name}` : it.name}
                   data-active={active}
+                  data-context={row.key === contextKey || undefined}
                   data-kind={it.kind}
                   className={`sb-row sb-item${head ? ' is-head' : ''}`}
                   style={style}
@@ -193,10 +199,10 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   onDoubleClick={() => { sidebarDoubleClick({ tabId, store }, it); }}
                   onPointerEnter={(e) => onItemEnter(it, e.currentTarget)}
                   onPointerLeave={() => setHover(null)}
-                  onContextMenu={(e) => { setHover(null); onRowMenu(e, row, vi.index); }}
+                  onContextMenu={(e) => { setHover(null); onRowMenu(e, row); }}
                 >
                   <ItemIcon item={it} />
-                  <span className="sb-label">{it.kind === 'stash' ? `stash@{${it.stash.index}}: ${row.label}` : row.label}</span>
+                  <span className="sb-label" title={it.kind === 'stash' ? `stash@{${it.stash.index}}` : undefined}>{it.kind === 'stash' ? <StashText label={row.label} /> : row.label}</span>
                   {it.kind === 'local' && (it.branch.ahead > 0 || it.branch.behind > 0) && <span className="sb-ab" aria-label={`${it.branch.ahead} ahead, ${it.branch.behind} behind`}><span>{it.branch.ahead}<ArrowUp size={12} strokeWidth={2.5} aria-hidden /></span><span>{it.branch.behind}<ArrowDown size={12} strokeWidth={2.5} aria-hidden /></span></span>}
                 </div>
               );
@@ -209,3 +215,8 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
     </section>
   );
 });
+
+function StashText({ label }: { label: string }) {
+  const { text, branch } = stashLabel(label);
+  return <>{text}{branch && <span className="sb-dim"> {branch}</span>}</>;
+}

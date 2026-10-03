@@ -50,7 +50,7 @@ describe("the merge tool's kept work (spec #2 §13.3)", () => {
     choose.mockResolvedValueOnce('overwrite');
     const read = vi.spyOn(api, 'conflictFile').mockResolvedValueOnce({ base: 'h2' } as never);
     expect(await saveMerge(key)).toBe(true);
-    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ title: 'a.txt changed on disk', choices: [{ id: 'reload', label: 'Reload from disk' }, { id: 'overwrite', label: 'Overwrite', danger: true }] }));
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ title: 'a.txt changed on disk', choices: [{ id: 'reload', label: 'Reload from disk' }, { id: 'overwrite', label: 'Overwrite', danger: true, arm: 'Click again to overwrite a.txt with your merge' }] }));
     expect(read).toHaveBeenCalledWith(1, '/r', 'a.txt');
     expect(resolve).toHaveBeenLastCalledWith(expect.anything(), 'a.txt', { kind: 'text', text: 'one\nc\n' }, 'h2', expect.any(Function));
   });

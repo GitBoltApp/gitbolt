@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl, testWrite } from './fixtures';
-import { expect, test, type Page } from './test';
+import { expect, test, type Page, confirmArmed, armedOverlay } from './test';
 import { selectWip, timedClick } from './wip';
 
 const undoButton = (page: Page) => page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true });
@@ -14,7 +14,7 @@ async function open(page: Page, repo: string) {
 }
 
 test.describe('undo of a real commit (spec #2 §5.3, 2B)', () => {
-  test('the toolbar undoes a commit from the commit box; its changes come back staged (< 150 ms)', async ({ page }) => {
+  test('the toolbar undoes a commit from the commit box; its changes come back staged (< 150 ms)', { tag: '@budget' }, async ({ page }) => {
     const repo = freshFixture('wip_staging');
     await open(page, repo);
     await selectWip(page);
@@ -79,7 +79,7 @@ test.describe('undo (spec #2 §5.5)', () => {
     await expect(page.getByRole('tooltip')).toHaveText("Push can't be undone");
   });
 
-  test('undo of a commit lands within its budget (< 150 ms, best of 3, spec #2 §16)', async ({ page, request }) => {
+  test('undo of a commit lands within its budget (< 150 ms, best of 3, spec #2 §16)', { tag: '@budget' }, async ({ page, request }) => {
     const repo = freshFixture('basic');
     await open(page, repo);
     const times: number[] = [];
@@ -103,7 +103,7 @@ test.describe('undo (spec #2 §5.5)', () => {
     expect(Math.min(...times)).toBeLessThan(150);
   });
 
-  test('a click while another op runs shows in the chip within a frame (spec #2 §16)', async ({ page, request }) => {
+  test('a click while another op runs shows in the chip within a frame (spec #2 §16)', { tag: '@budget' }, async ({ page, request }) => {
     const repo = freshFixture('basic');
     await open(page, repo);
     await testWrite(request, repo, commit('Queued undo'));
@@ -153,7 +153,7 @@ test.describe('undo of a discard (spec #2 §5.3, 2B)', () => {
     const before = git(repo, 'status', '--porcelain');
     await graph(page).getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
     await page.getByTestId('wip-header').getByRole('button', { name: 'Discard all' }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard all' }).click();
+    await confirmArmed(armedOverlay(page, /^Click again to discard/));
     await expect.poll(() => git(repo, 'status', '--porcelain')).toBe('');
     await undoButton(page).hover();
     await expect(page.getByRole('tooltip')).toHaveText('Undo discard all changes (Ctrl+Z)');

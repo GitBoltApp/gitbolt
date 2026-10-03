@@ -133,3 +133,70 @@ describe('TabBar: the settings gear (K102)', () => {
     off();
   });
 });
+
+describe('TabBar: live drag reordering (spec §6.2)', () => {
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); useAppState.setState({ profile: EMPTY_PROFILE }); });
+  // Three 100 px tabs at 0, 100, 200 in a 600 px strip (jsdom has no layout).
+  const layout = () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const isTab = this.getAttribute('role') === 'tab';
+      const left = isTab ? [...(this.parentElement?.children ?? [])].indexOf(this) * 100 : 0;
+      const width = isTab ? 100 : 600;
+      return { left, right: left + width, width, top: 0, bottom: 30, height: 30, x: left, y: 0, toJSON: () => ({}) } as DOMRect;
+    });
+  };
+  const ids = () => useAppState.getState().profile.tabs.map((t) => t.id);
+  const moveTo = (clientX: number) => act(() => { window.dispatchEvent(new MouseEvent('pointermove', { clientX })); });
+  const release = (clientX: number) => act(() => { window.dispatchEvent(new MouseEvent('pointerup', { clientX })); });
+
+  it('the others slide aside while dragging; a release slides into the slot, then commits', () => {
+    vi.useFakeTimers();
+    setTabs(['a', 'b', 'c'], 'a');
+    render(<TabBar />);
+    layout();
+    const tabs = screen.getAllByRole('tab');
+    fireEvent.pointerDown(tabs[0], { button: 0, clientX: 50 });
+    moveTo(52); // under the threshold: nothing moves
+    expect(tabs[0].style.transform).toBe('');
+    moveTo(160); // right edge at 210: past b's midpoint (150), not c's (250)
+    expect(tabs[0].style.transform).toBe('translateX(110px)');
+    expect(tabs[1].style.transform).toBe('translateX(-100px)');
+    expect(tabs[2].style.transform).toBe('');
+    release(160);
+    expect(tabs[0].style.transform).toBe('translateX(100px)'); // sliding into its slot
+    expect(ids()).toEqual(['a', 'b', 'c']);
+    act(() => { vi.advanceTimersByTime(150); });
+    expect(ids()).toEqual(['b', 'a', 'c']);
+    for (const t of screen.getAllByRole('tab')) expect(t.style.transform).toBe('');
+  });
+
+  it('Esc cancels: everything slides back and the order is unchanged', () => {
+    vi.useFakeTimers();
+    setTabs(['a', 'b', 'c'], 'a');
+    render(<TabBar />);
+    layout();
+    const tabs = screen.getAllByRole('tab');
+    fireEvent.pointerDown(tabs[2], { button: 0, clientX: 250 });
+    moveTo(20);
+    expect(tabs[0].style.transform).toBe('translateX(100px)');
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    for (const t of tabs) expect(t.style.transform).toBe('');
+    moveTo(0); // the drag is over: later moves do nothing
+    release(0);
+    act(() => { vi.advanceTimersByTime(150); });
+    expect(ids()).toEqual(['a', 'b', 'c']);
+    expect(screen.getByRole('tablist').classList.contains('reordering')).toBe(false);
+  });
+
+  it('a click (no movement past the threshold) still activates the tab', () => {
+    setTabs(['a', 'b'], 'a');
+    render(<TabBar />);
+    layout();
+    const b = screen.getAllByRole('tab')[1];
+    fireEvent.pointerDown(b, { button: 0, clientX: 150 });
+    moveTo(152);
+    release(152);
+    fireEvent.click(b);
+    expect(useAppState.getState().profile.activeTab).toBe('b');
+  });
+});

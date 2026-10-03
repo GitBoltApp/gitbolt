@@ -329,7 +329,7 @@ impl WriteIntent for FastForwardIntent {
     }
 }
 
-/// The merge banner's Abort (§13.2). Not journaled: step 7b drops the paused entry.
+/// The commit panel's Abort merge (§13.2). Not journaled: step 7b drops the paused entry.
 pub(crate) struct MergeAbortIntent;
 
 impl WriteIntent for MergeAbortIntent {

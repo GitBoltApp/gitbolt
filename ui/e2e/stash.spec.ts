@@ -1,5 +1,5 @@
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test, type Page } from './test';
+import { expect, test, type Page, confirmArmed } from './test';
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
 const stashes = (repo: string) => git(repo, 'stash', 'list', '--format=%gs');
@@ -38,9 +38,14 @@ test.describe('stashes (spec #2 §10)', () => {
     await page.getByRole('menuitem', { name: 'Apply' }).click();
     await expect.poll(() => git(repo, 'status', '--porcelain')).toContain('file_0.txt');
     expect(stashes(repo)).toBe('On main: Experiment');
+    // What came back (UX round 2): the WIP row is selected and the restored file's diff is open.
+    await expect(page.getByTestId('diff-path')).toContainText('file_0.txt');
+    await page.keyboard.press('Escape');
+    await expect(grid(page).getByRole('row').first()).toHaveAttribute('aria-selected', 'true');
     git(repo, 'checkout', '-q', '--', '.');
     await grid(page).getByRole('row', { name: /Experiment/ }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await confirmArmed(page.getByRole('menuitem', { name: 'Click again to delete the stash "On main: Experiment"' }));
     await expect.poll(() => stashes(repo)).toBe('');
     await bar(page).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => stashes(repo)).toBe('On main: Experiment');

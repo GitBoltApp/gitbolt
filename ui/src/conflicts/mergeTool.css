@@ -11,17 +11,28 @@
 .merge-side { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .merge-pane > header label { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
 .merge-output > header button { font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; padding: 2px 10px; cursor: pointer; }
-.merge-output > header button.primary { color: var(--text-on-accent); background: var(--blue); border-color: var(--blue); }
+/* Controls aren't text: no selection on a drag or a double-click (as the app's global rule). */
+.merge-pane > header, .merge-output > header, .merge-nontext-actions, .merge-tool button, .merge-tool label, .merge-nontext button { user-select: none; -webkit-user-select: none; }
+/* The output's bar: its name and notes, the conflict navigator in the centre, Save at the end. */
+.merge-output > header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.merge-output-start { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.merge-output-start .merge-side { flex: none; }
+.merge-nav { display: flex; align-items: center; gap: 2px; }
+.merge-output-end { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+/* Save and mark resolved: the positive action, solid green. */
+.merge-output > header button.merge-save { color: var(--text-on-accent); background: var(--green); border-color: var(--green); font-weight: 600; }
+.merge-output > header button.merge-save:hover:not(:disabled):not([aria-disabled='true']) { filter: brightness(1.12); }
 .merge-output > header button:disabled { opacity: 0.5; cursor: default; }
 .merge-output > header button:focus-visible, .merge-nontext button:focus-visible { outline: 1px solid var(--focus-outline); }
 .merge-editor { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .merge-message { padding: 16px; color: var(--text-secondary); }
 .merge-message button { font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
-.merge-pane > header label:has(input:disabled) { opacity: 0.5; cursor: default; }
+.merge-pane > header label:has(.merge-check:disabled) { opacity: 0.5; cursor: default; }
 .merge-note { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .merge-deleted { color: var(--red); }
 .merge-output > header button[aria-disabled='true'] { opacity: 0.5; cursor: default; }
-.merge-count { color: var(--text-secondary); white-space: nowrap; }
+/* A fixed width (room for "Conflict 99 of 99") and tabular digits: the arrows never move. */
+.merge-count { display: inline-block; width: 18ch; overflow: hidden; text-align: center; color: var(--text-secondary); white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .merge-output > header .icon-button { display: inline-flex; align-items: center; justify-content: center; padding: 2px 4px; }
 
 /* The panes' regions, tinted by side; a ticked line is stronger. */
@@ -30,19 +41,46 @@
 .merge-current-line.picked { background: color-mix(in srgb, var(--conflict-ours) 34%, transparent); }
 .merge-incoming-line.picked { background: color-mix(in srgb, var(--conflict-theirs) 34%, transparent); }
 
-/* A line's checkbox, in the glyph margin: an empty box, or a ticked one. */
-.merge-check { cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.merge-check::before { content: ''; box-sizing: border-box; width: 11px; height: 11px; border: 1px solid var(--text-secondary); border-radius: 2px; }
-.merge-check:hover::before { border-color: var(--text-normal); }
-.merge-check.on::before { background: var(--text-normal); border-color: var(--text-normal); }
-.merge-check.on::after { content: ''; position: absolute; width: 3px; height: 6px; margin-top: -2px; border: solid var(--app-bg0); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+/* The panes' gutter, left to right: the hunk column (the glyph margin), the line numbers, the
+   line buttons. Every cell is always there (fixed widths), so nothing moves as states change. */
+/* The hunk column: the region's lines tinted in its side's colour, faint when nothing is taken,
+   stronger when some lines are, full when the whole hunk is; its checkbox on the first line. */
+.merge-hunk { cursor: pointer; }
+.merge-hunk-current { background: color-mix(in srgb, var(--conflict-ours) 35%, transparent); }
+.merge-hunk-current.some { background: color-mix(in srgb, var(--conflict-ours) 60%, transparent); }
+.merge-hunk-current.on { background: var(--conflict-ours); }
+.merge-hunk-incoming { background: color-mix(in srgb, var(--conflict-theirs) 35%, transparent); }
+.merge-hunk-incoming.some { background: color-mix(in srgb, var(--conflict-theirs) 60%, transparent); }
+.merge-hunk-incoming.on { background: var(--conflict-theirs); }
+/* Monaco sets the widget's place, size and `display: block` inline: the box is centred in it by
+   position, not by flex. */
+.merge-hunk-head { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+.merge-hunk-head > .merge-check { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+/* The merge tool's checkbox (checkBox.ts): a rounded square outlined in its side's colour, filled
+   with a white tick when taken, a dash when partly; on a dark ground, so it reads on the tinted
+   hunk column too. */
+.merge-check { --check-c: var(--conflict-ours); display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; width: 14px; height: 14px; margin: 0; padding: 0; border: 1.5px solid var(--check-c); border-radius: 3px; background: var(--app-bg0); color: var(--text-on-accent); cursor: pointer; }
+.merge-check-incoming { --check-c: var(--conflict-theirs); }
+.merge-check svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.merge-check path { display: none; }
+.merge-check[aria-checked='true'], .merge-check[aria-checked='mixed'] { background: var(--check-c); box-shadow: 0 0 0 1px var(--app-bg0); }
+.merge-check[aria-checked='true'] .merge-check-tick, .merge-check[aria-checked='mixed'] .merge-check-dash { display: inline; }
+.merge-check:hover:not(:disabled) { filter: brightness(1.15); }
+.merge-check:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 2px; }
+.merge-check:disabled { cursor: default; }
 
-/* A region's header zone in a pane, with its hunk checkbox. Monaco places zones (absolute) under
-   its text layer, which takes the clicks: the z-index lifts the checkbox above it. */
-.merge-zone { z-index: 1; display: flex; align-items: center; height: 100%; padding: 0 8px; box-sizing: border-box; font-size: 12px; color: var(--text-secondary); background: var(--panel-bg1); border-top: 1px solid var(--section-border); }
-.merge-zone-current { box-shadow: inset 3px 0 0 var(--conflict-ours); }
-.merge-zone-incoming { box-shadow: inset 3px 0 0 var(--conflict-theirs); }
-.merge-zone label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+/* A line's button, right of the numbers (as the diff view's): a green + takes the line, a red −
+   drops it once taken. */
+.merge-line-btn { cursor: pointer; }
+.merge-line-btn::before { position: absolute; top: 50%; left: 50%; display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; transform: translate(-50%, -50%); border-radius: 3px; background: var(--green); color: var(--text-on-accent); font: 700 13px/1 var(--font-ui, sans-serif); content: '+'; }
+.merge-line-btn.drop::before { background: var(--red); content: '\2212'; }
+.merge-line-btn:hover::before { filter: brightness(1.15); }
+
+/* A side with nothing in a region: a rule where its lines would go. */
+.merge-pane-gap-below.merge-pane-gap-current { box-shadow: inset 0 -2px 0 var(--conflict-ours); }
+.merge-pane-gap-above.merge-pane-gap-current { box-shadow: inset 0 2px 0 var(--conflict-ours); }
+.merge-pane-gap-below.merge-pane-gap-incoming { box-shadow: inset 0 -2px 0 var(--conflict-theirs); }
+.merge-pane-gap-above.merge-pane-gap-incoming { box-shadow: inset 0 2px 0 var(--conflict-theirs); }
 
 /* The output's regions: each line in its side's colour, a hand-edited region in the base's; an
    empty one is a rule where its lines would go. */
@@ -57,6 +95,6 @@
 .merge-nontext p { margin: 0 0 12px; }
 .merge-nontext-actions { display: flex; gap: 8px; }
 .merge-nontext button { font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
-.merge-nontext button:hover, .merge-output > header button:hover:not(:disabled):not(.primary) { background: var(--control-hover-bg); }
-.merge-nontext button.danger { color: var(--red); }
+.merge-nontext button:hover, .merge-output > header button:hover:not(:disabled):not(.merge-save) { background: var(--control-hover-bg); }
+.merge-nontext button.danger { color: var(--red); border-color: var(--red); }
 .merge-nontext button:disabled { opacity: 0.5; cursor: default; }

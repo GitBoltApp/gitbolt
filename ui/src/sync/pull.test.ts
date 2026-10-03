@@ -8,7 +8,7 @@ const ask = vi.fn();
 vi.mock('../ui/ChoiceDialog', () => ({ askChoice: (...a: unknown[]) => ask(...a) }));
 vi.mock('./push', () => ({ headBranchOf: () => 'main' }));
 
-const main: LocalBranch = { name: 'main', fullName: 'refs/heads/main', target: 'a'.repeat(40), upstream: 'refs/remotes/origin/main', ahead: 0, behind: 1, gone: false, tipTime: 0, summary: '', author: '', isHead: true, worktree: null, checkedOut: null, pushTarget: 'origin/main', pushBehind: 1 };
+const main: LocalBranch = { name: 'main', fullName: 'refs/heads/main', target: 'a'.repeat(40), upstream: 'refs/remotes/origin/main', ahead: 0, behind: 1, gone: false, tipTime: 0, summary: '', author: '', isHead: true, worktree: null, checkedOut: null, pushTarget: 'origin/main', pushBehind: 1, rewritten: null };
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 const journal = { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [], paused: null };
 const result = (result: unknown) => ({ outcome: { op: 3, branch: 'main', upstream: 'origin/main', server: { lines: 0, warning: null }, result }, journal, staging: { undo: null, redo: null, off: null }, wip: null });
@@ -56,8 +56,12 @@ describe('pull (spec #2 §12.2)', () => {
     expect(useToast.getState().message).toBe('dev and origin/dev have diverged; check out dev first');
   });
 
-  it('the Sync row greys rebase and merge on a branch that isn\'t checked out', () => {
+  it('the Sync row: only ff-only on a branch that isn\'t checked out; no row without an upstream', () => {
     const row = pullRow({ ...main, isHead: false, name: 'dev' }, () => {});
-    expect(row.kind === 'action' && row.variants?.filter((v) => v.disabledReason === 'Check out dev first').map((v) => v.id)).toEqual(['rebase', 'merge']);
+    expect(row?.kind === 'action' && row.variants?.map((v) => v.id)).toEqual(['ffOnly']);
+    const head = pullRow(main, () => {});
+    expect(head?.kind === 'action' && head.variants?.map((v) => v.id)).toEqual(['ffOnly', 'rebase', 'merge']);
+    expect(pullRow({ ...main, upstream: null }, () => {})).toBeNull();
+    expect(pullRow({ ...main, gone: true }, () => {})).toBeNull();
   });
 });

@@ -34,6 +34,10 @@
 .graph-row > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { align-self: stretch; line-height: var(--graph-row-h); }
 .graph-row:hover > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { background: var(--hover-row); }
 .graph-row[aria-selected="true"] > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { background: var(--selected-row); }
+/* The row a context menu is open for (UX round 2): a right-click doesn't select, so the row gets
+   this temporary outline instead, across the whole row and above the canvas (z-index 2: under
+   the hover-expanded chips and the inline editor), never taking the pointer. */
+.graph-row.is-context::after { content: ""; position: absolute; inset: 0; outline: 1px solid var(--blue); outline-offset: -1px; pointer-events: none; z-index: 2; }
 .dim { color: var(--text-disabled); }
 /* The gap between the summary and the dimmed body is a margin, not a text space, so it's the
    same width in every font and never collapses or gets selected with the text. */
@@ -97,6 +101,11 @@
    cursor here and the pointer on .ref-label / .ref-more. Stretched to the full row height, so
    the space above and below a chip is this cell's too, not the (clickable) row's. */
 .graph-row > .col-labels { padding-right: 0; cursor: default; align-self: stretch; }
+/* An inline editor (rowEditor.ts, GraphView.tsx): over the row's chips, at the cell's start and
+   at least EDITOR_MIN_W wide (so in a narrow column it floats over the graph). Positioned from the
+   row, like the chips' hover copy, so .col-labels' overflow doesn't clip it and its z-index lifts
+   it above the canvas; out of the flow, so the chips and the connector never move. */
+.row-editor { position: absolute; z-index: 4; left: 4px; top: 0; bottom: 0; display: flex; align-items: center; cursor: default; }
 /* Stretched to the full row height, so the connector's line (--conn-top, from the row's top) is
    placed from the row's top. --conn-top and --conn-h come inline from the row (K57: the device
    pixel rows the canvas half is drawn on, pixels.ts connectorLine); these are the fallbacks. */
@@ -207,3 +216,6 @@
 @keyframes ref-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ref-rebasing .spin { animation: none; } }
 /* --- end 2D T18 --- */
+.toast-top { bottom: auto; top: 96px; animation: gb-toast-in 140ms ease-out; }
+@keyframes gb-toast-in { from { opacity: 0; margin-top: -8px; } to { opacity: 1; margin-top: 0; } }
+@media (prefers-reduced-motion: reduce) { .toast-top { animation: none; } }

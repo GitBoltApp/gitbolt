@@ -38,8 +38,8 @@ export function HeadMessageEditor({ ctx, head, message, onDone }: { ctx: WriteCt
       <CommitFields value={value} onChange={setValue} onSubmit={() => void save()} onEscape={onDone} disabled={busy} autoFocus />
       {upstream && <p role="note" className="head-message-note">This commit is on {upstream}; you'll need to force push.</p>}
       <div className="head-message-actions">
-        <button type="button" onClick={onDone}>Cancel</button>
-        <button type="button" className="primary" aria-disabled={busy || !value.summary.trim()} onClick={() => void save()}>Save</button>
+        <button type="button" className="commit-neutral" onClick={onDone}>Cancel</button>
+        <button type="button" className="commit-positive" aria-disabled={busy || !value.summary.trim()} onClick={() => void save()}>Save</button>
       </div>
     </div>
   );

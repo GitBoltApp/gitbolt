@@ -3,7 +3,7 @@ import { errorMessage } from '../api/client';
 import { perf } from '../perf';
 import { useDiffPrefs } from './diffPrefs';
 import { setEditorRelease } from './editorRelease';
-import type { MonacoHost } from './monaco/host';
+import type { HunkZoneRequest, MonacoHost } from './monaco/host';
 import { loadMonacoHost } from './monaco/load';
 
 // Once loaded, later mounts get the host on their first render (no empty frame per file).
@@ -85,15 +85,20 @@ export function useShow(host: MonacoHost | null, show: (h: MonacoHost) => Promis
     if (!host) return;
     let live = true;
     setFailed(null);
+    // The callback of the render that asked for this show (K7). `shown.current` is already the
+    // next render's while that render's effects are pending (the window after its commit, which a
+    // load's update leaves open past a paint): calling that one would report the next content
+    // as on screen while this one is.
+    const report = shown.current;
     latest.current(host).then(
       () => {
         perf.done('diff');
-        if (live) shown.current?.();
+        if (live) report?.();
       },
       (e: unknown) => {
         if (!live) return;
         setFailed(errorMessage(e));
-        shown.current?.();
+        report?.();
       },
     );
     return () => { live = false; };
@@ -121,8 +126,9 @@ export const SHOW_ERROR_TITLE = "Couldn't show this file";
  * A text diff in the app's one diff editor (spec §4.4). The editor is attached in a layout
  * effect, which runs before the passive effect that shows the texts: `showDiff` shows nothing
  * unless `attachDiff` has run. `onShown` fires once the diff is on screen (see `useOnShown`).
+ * `hunkZones`: a WIP diff's hunk header rows, asked for with each show (`wipHunkZones`).
  */
-export function TextDiff({ path, original, modified, language, onShown, editable = false, onEdit, identity }: { identity?: string; path: string; original: string; modified: string; language: string; onShown?: () => void; editable?: boolean; onEdit?: () => void }) {
+export function TextDiff({ path, original, modified, language, onShown, editable = false, onEdit, identity, hunkZones }: { identity?: string; path: string; original: string; modified: string; language: string; onShown?: () => void; editable?: boolean; onEdit?: () => void; hunkZones?: () => HunkZoneRequest | undefined }) {
   const ref = useRef<HTMLDivElement>(null);
   const { host, error, retry } = useMonacoHost();
   const prefs = useDiffPrefs((s) => s.prefs);
@@ -146,9 +152,9 @@ export function TextDiff({ path, original, modified, language, onShown, editable
     h.onModifiedEdit(edit.current.editable ? () => edit.current.onEdit?.() : null);
   };
   const show = useShow(host, async (h) => {
-    await h.showDiff({ identity, path, original, modified, language, prefs: useDiffPrefs.getState().prefs });
+    await h.showDiff({ identity, path, original, modified, language, prefs: useDiffPrefs.getState().prefs, hunkZones: hunkZones?.() });
     applyEditable(h);
-  }, [path, original, modified, language], shown);
+  }, [identity, path, original, modified, language], shown);
   useEffect(() => {
     if (!host) return;
     applyEditable(host);

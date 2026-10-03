@@ -98,9 +98,32 @@ checkout. Re-run `just install-desktop` after regenerating the icons; GNOME may 
 out and back in before it picks up a changed icon. The `.deb` installs its own entry (`GitBolt.desktop`);
 run `just uninstall-desktop` before installing it so the local entry can't shadow it.
 
-## Running `just e2e` from parallel worktrees
+## Running `just e2e`
 
-`just e2e` starts the `gitbolt-harness` WebSocket server and the Vite dev server on fixed ports
+`just e2e` builds the harness, then runs the Playwright projects on one worker: `chromium`, then
+`chromium-budget` (the tests tagged `@budget`, which assert a latency budget, run last so a
+loaded run doesn't trip them), then `webkit`. Arguments go to Playwright:
+`just e2e --project=chromium --project=chromium-budget`, `just e2e e2e/diff.spec.ts`,
+`just e2e -g 'K7'`.
+
+- **The UI is a production build**, not the Vite dev server: `vite build --mode e2e` into
+  `ui/dist-e2e`, served by `vite preview`. The build is redone only when its inputs change
+  (`ui/src`, the build config, the lockfile: `ui/e2e/build-ui.mjs`), so a one-spec run starts in
+  seconds. The `e2e` mode keeps the test hooks (`window.__gb`) that the release bundle compiles
+  out. `GITBOLT_E2E_DEV=1` tests the dev server instead (unminified, for debugging a spec);
+  `GITBOLT_E2E_REBUILD=1` forces a fresh build.
+- **Traces are off.** Recording one for every test (to keep the failures') took about half the
+  run's CPU time. A failure still leaves a screenshot under `ui/test-results/`. To get its trace,
+  rerun the spec with `GITBOLT_E2E_TRACE=1` and open it with `npx playwright show-trace`.
+- **Fixtures** are built once per run by `gitbolt-harness fixture` and copied for each test that
+  asks for a fresh one (`freshFixture` in `ui/e2e/fixtures.ts`): `cp -a`, the copy's absolute
+  paths repointed, its index refreshed.
+- `expect.poll` (from `ui/e2e/test.ts`) retries every 100 ms instead of Playwright's back-off to
+  once a second.
+
+### From parallel worktrees
+
+`just e2e` starts the `gitbolt-harness` WebSocket server and the UI server on fixed ports
 (7433 and 1420 by default). Two `just e2e` runs on those same ports collide, so if you're running
 the suite from more than one git worktree at once (e.g. parallel agents), give each worktree a
 distinct `GITBOLT_E2E_PORT_BASE`:
@@ -114,7 +137,7 @@ GITBOLT_E2E_PORT_BASE=7600 just e2e
 GITBOLT_E2E_PORT_BASE=7700 just e2e
 ```
 
-Setting `GITBOLT_E2E_PORT_BASE=N` runs the harness on port `N` and Vite on port `N+1`; leave it
+Setting `GITBOLT_E2E_PORT_BASE=N` runs the harness on port `N` and the UI on port `N+1`; leave it
 unset to keep the defaults (7433 / 1420). Pick bases far enough apart that `N` and `N+1` don't
 overlap another worktree's pair -- e.g. 7500, 7600, 7700. This only affects `just e2e`; `just dev`
 and the packaged app are unaffected and always use 1420.

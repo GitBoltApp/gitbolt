@@ -3,7 +3,7 @@
 .ctx-menu[hidden] { display: none; }
 .ctx-level:not([data-depth="0"]) { position: fixed; z-index: 901; min-width: 200px; padding: 4px 0; box-sizing: border-box; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); }
 /* Hover/active background fades at the fast token (50ms ease-in, J19). */
-.ctx-row { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 10px; cursor: default; white-space: nowrap; transition: background-color var(--motion-fast); }
+.ctx-row { position: relative; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 10px; cursor: default; white-space: nowrap; transition: background-color var(--motion-fast); }
 .ctx-row[data-active="true"] { background: var(--selected-row); color: var(--text-selected); }
 .ctx-row[aria-disabled="true"] { color: var(--text-disabled); }
 .ctx-icon { flex: none; opacity: 0.85; }
@@ -19,3 +19,9 @@
 .ctx-variant:hover, .ctx-variant[data-active="true"] { background: var(--blue); color: var(--text-on-accent); }
 .ctx-variant[aria-disabled="true"] { opacity: 0.35; background: transparent; cursor: default; }
 .ctx-sep { height: 1px; margin: 4px 0; background: var(--section-border); }
+/* An armed row (spec §ui confirms, board A): its label swaps to what a second pick does, over the
+   row's own space; tinted red or green with a border (the round-1 button language). */
+.ctx-armed-label { position: absolute; left: 2px; top: 1px; bottom: 1px; min-width: calc(100% - 4px); width: max-content; display: flex; align-items: center; gap: 8px; padding: 0 8px; box-sizing: border-box; border: 1px solid var(--arm); border-radius: 4px; background: color-mix(in srgb, var(--arm) 22%, var(--panel-bg1)); color: color-mix(in srgb, var(--arm) 35%, var(--text-selected)); font-weight: 600; white-space: nowrap; box-shadow: 0 2px 8px var(--shadow-popup); }
+.ctx-armed-label.tone-danger { --arm: var(--red); }
+.ctx-armed-label.tone-positive { --arm: var(--green); }
+.ctx-armed-label.tone-warn { --arm: var(--orange); }

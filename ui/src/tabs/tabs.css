@@ -14,10 +14,19 @@
    transparent (not removed) so widths don't shift as the selection moves. */
 .tab[aria-selected="true"], .tab:has(+ .tab[aria-selected="true"]) { border-right-color: transparent; }
 .tab:not([aria-selected="true"]):hover { background: var(--hover-row); box-shadow: inset 0 -1px var(--section-border); }
-/* The dragged tab's own snapshot stays warm (spec §6.2): on top, offset by the pointer, no
-   transition fighting the per-frame `transform`. */
-.tab.dragging { z-index: 2; opacity: 0.9; box-shadow: 0 2px 10px var(--shadow-modal); transition: none; }
-.tab.drop-target::before { content: ''; position: absolute; left: -1px; top: 4px; bottom: 4px; width: 2px; background: var(--blue); }
+/* Live reordering (spec §6.2): while a tab is dragged the others slide aside (150 ms ease-out) to
+   show the order a release gives, leaving the landing slot empty; a release slides the dragged
+   tab into it, Esc slides everything back. The transitions exist only while `.reordering` is on,
+   so the commit (new DOM order, transforms dropped in one render) doesn't animate. */
+.tabs.reordering .tab { transition: transform 150ms ease-out, background-color var(--motion-fast), color var(--motion-fast); }
+/* The dragged tab's own snapshot stays warm: lifted on top with a shadow, following the pointer
+   with no transition fighting the per-frame `transform`. */
+.tabs.reordering .tab.lifted { z-index: 2; box-shadow: 0 2px 10px var(--shadow-modal); }
+/* An unselected tab is see-through: lifted, it gets its hover colour over the bar's, opaque. */
+.tabs.reordering .tab.lifted:not([aria-selected="true"]) { background: linear-gradient(var(--hover-row), var(--hover-row)), var(--tab-bar-bg); }
+.tabs.reordering .tab.dragging { transition: none; cursor: grabbing; }
+/* Reduced motion: no slide, but the gap still shows. */
+@media (prefers-reduced-motion: reduce) { .tabs.reordering .tab { transition: none; } }
 .tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-close { all: unset; display: inline-flex; padding: 3px; border-radius: 3px; opacity: 0.6; cursor: pointer; transition: opacity var(--motion-fast), background-color var(--motion-fast); }
 .tab-close:hover { opacity: 1; background: var(--control-hover-bg); }

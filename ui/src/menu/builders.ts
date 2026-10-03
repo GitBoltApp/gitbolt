@@ -159,10 +159,10 @@ const remoteBranch = (b: CommitTarget['branch']) => {
  * §7's Amendment 6) — the label copies the branch link when there is one, else the permalink; ⎇
  * and ◉ copy each explicitly; Open opens the default in the browser.
  */
-function commitForgeRow(id: string, name: string, branch: { url: string | null; reason: string }, commitLink: string, env: MenuEnv): MenuRow {
+function commitForgeRow(id: string, name: string, branch: { url: string | null }, commitLink: string, env: MenuEnv): MenuRow {
   const url = branch.url ?? commitLink;
   const variants: Variant[] = [
-    { id: 'branch', icon: ICONS.branch, tooltip: `Copy the branch's link on ${name}`, run: () => branch.url && env.act.copy(branch.url), disabledReason: branch.url ? undefined : branch.reason },
+    ...(branch.url ? [{ id: 'branch', icon: ICONS.branch, tooltip: `Copy the branch's link on ${name}`, run: () => env.act.copy(branch.url!) }] : []),
     { id: 'commit', icon: ICONS.commit, tooltip: `Copy a ${name} permalink pinned to this commit`, run: () => env.act.copy(commitLink) },
     { id: 'open', icon: ICONS.browser, tooltip: `Open on ${name} in the browser`, run: () => env.act.openUrl(url) },
   ];
@@ -208,9 +208,10 @@ registerMenu<CommitTarget, MenuEnv>({
       const rb = remoteBranch(b);
       out.push(row({
         id: 'commit.copyBranch', label: 'Copy branch name', icon: ICONS.branch, tooltip: `Copy "${b.name}"`, run: () => env.act.copy(b.name),
+        // Only the names it has: no Local on a remote-only branch, no Remote on an unpushed one.
         variants: [
-          { id: 'local', label: 'Local', tooltip: local ? `Copy the local branch name (${local})` : 'This branch has no local copy', run: () => local && env.act.copy(local), disabledReason: local ? undefined : 'No local branch' },
-          { id: 'remote', label: 'Remote', tooltip: rb ? `Copy "${rb.remote}/${rb.name}"` : 'This branch isn\'t on a remote', run: () => rb && env.act.copy(`${rb.remote}/${rb.name}`), disabledReason: rb ? undefined : 'Not on a remote' },
+          ...(local ? [{ id: 'local', label: 'Local', tooltip: `Copy the local branch name (${local})`, run: () => env.act.copy(local) }] : []),
+          ...(rb ? [{ id: 'remote', label: 'Remote', tooltip: `Copy "${rb.remote}/${rb.name}"`, run: () => env.act.copy(`${rb.remote}/${rb.name}`) }] : []),
         ],
       }));
     }
@@ -224,19 +225,21 @@ registerMenu<CommitTarget, MenuEnv>({
     out.push(row({ id: 'commit.copyMessage', label: 'Copy message', icon: ICONS.message, tooltip: 'Copy the full commit message', run: () => env.act.copyMessage(t.sha) }));
     const rb = remoteBranch(b);
     const f = env.forge(rb?.remote);
-    if (f) out.push(commitForgeRow('commit.forgeLink', forgeName(f), { url: rb ? branchUrl(f, rb.name) : null, reason: b ? 'This branch isn\'t on the remote' : 'Right-click a branch label for its page' }, commitUrl(f, t.sha)!, env));
+    if (f) out.push(commitForgeRow('commit.forgeLink', forgeName(f), { url: rb ? branchUrl(f, rb.name) : null }, commitUrl(f, t.sha)!, env));
     return out;
   },
 });
 
-/** `Compare with HEAD` (a branch's tip) or `Compare with working tree` (a plain commit). */
+/** `Compare with HEAD` (a branch's tip) or `Compare with working tree` (a plain commit, or HEAD's
+ * own). */
 registerMenu<CommitTarget, MenuEnv>({
   id: 'commit.view', kind: 'commit', group: 'view', order: 0,
   when: (t) => !t.isWip,
-  rows: (t, env) => t.branch
+  // Compare with HEAD only where it compares something: not on HEAD's own commit, nor without one.
+  rows: (t, env) => t.branch && env.headSha && env.headSha !== t.sha
     ? [row({
       id: 'commit.compareHead', label: 'Compare with HEAD', icon: ICONS.compare, tooltip: tmpl('Compare {Y} with HEAD ({X})', { X: env.headBranch, Y: t.branch.name }),
-      run: () => env.headSha && env.act.compare(t.sha, env.headSha), disabledReason: env.headSha === t.sha ? 'Already at HEAD' : env.headSha ? undefined : 'No HEAD commit',
+      run: () => env.headSha && env.act.compare(t.sha, env.headSha),
     })]
     : [row({ id: 'commit.compareWorktree', label: 'Compare with working tree', icon: ICONS.compare, tooltip: 'Compare this commit with the files on disk', run: () => env.act.compare(t.sha, 'worktree') })],
 });

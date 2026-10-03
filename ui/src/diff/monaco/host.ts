@@ -1,15 +1,24 @@
 import type * as MonacoNs from 'monaco-editor/editor/editor.api';
 import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../diffPrefs';
 import { useEditorSettings } from '../editorSettings';
-import { clampEditorFont, diffEditorOptions, fileViewOptions } from '../options';
+import { clampEditorFont, diffEditorOptions, EDITOR_SCROLLBAR, fileViewOptions } from '../options';
 import { enableDeletedLineCopy } from './deletedCopy';
+import { deletedLineAt, LineGutter, type LineGutterSpec } from './lineGutter';
 import { captureAnchor, restoreAnchor, type ScrollAnchor } from './scrollAnchor';
 import { monaco } from './setup';
 import { useAppState } from '../../app/state';
 import { bindEditorTheme, currentEditorTheme } from '../../theme/editorThemes';
 import { ensureLanguage, ensureTheme } from './shiki';
 
-export interface DiffShowRequest { /** The target's key (repo/worktree and path): what `modifiedText` checks. */ identity?: string; path: string; original: string; modified: string; language: string; prefs: DiffPrefs }
+export interface DiffShowRequest { /** The target's key (repo/worktree and path): what `modifiedText` checks. */ identity?: string; path: string; original: string; modified: string; language: string; prefs: DiffPrefs; hunkZones?: HunkZoneRequest }
+export type { LineGutterSpec };
+/** A hunk's header row (spec #2 §7.3): after modified line `after` (0: above line 1). */
+export interface HunkZone { after: number }
+/** A WIP diff's hunk header rows, shown with the diff (Hunk mode only): `zones` is waited for with
+ * the diff's own computation, so the rows are laid out in the frame the diff appears in and
+ * nothing moves when they fill. `placed` gets the rows' DOM nodes (`[]` outside Hunk mode) each
+ * time they're laid out: this show, and a mode change after it. */
+export interface HunkZoneRequest { zones: Promise<HunkZone[]>; placed(nodes: HTMLElement[]): void }
 export interface FileShowRequest { identity?: string; path: string; text: string; language: string; wordWrap: boolean }
 /** What an editor holds, to tell whether a re-attached one still shows the right content. */
 export type DiffContent = Pick<DiffShowRequest, 'path' | 'original' | 'modified'>;
@@ -21,6 +30,8 @@ export interface EditorContextMenuEvent {
   selection: { startLine: number; endLine: number } | null;
   /** The selected text, `''` when `selection` is null (plan 1C Task 15's Monaco `Copy` row). */
   selectionText: string;
+  /** Inline and Hunk mode: the old-side line of the deleted-lines zone the click was on. */
+  deletedLine?: number;
   x: number;
   y: number;
 }
@@ -28,7 +39,9 @@ export interface EditorContextMenuEvent {
 export interface MonacoHost {
   /** `next`: the diff the attaching view will show. The one editor is shared, so it may still
    * hold another view's diff (the panel closed, then another commit's file opened, H6); it's
-   * hidden until `showDiff` puts `next` on screen, so that one is never presented for a frame. */
+   * hidden until `showDiff` puts `next` on screen, so that one is never presented for a frame.
+   * A show still in flight is the previous view's: dropped, so it can't land (and un-hide the
+   * editor) under the attaching view before that view's own `showDiff` (K7). */
   attachDiff(el: HTMLElement, next?: DiffContent): void;
   detachDiff(el: HTMLElement): void;
   /** A kept (hidden, then shown again) panel's view (J16): true when the diff editor is still in
@@ -87,11 +100,8 @@ export interface MonacoHost {
   onFileEdit(cb: (() => void) | null): void;
   /** The next `showDiff`/`showFile` of the same path restores today's cursor and scroll (a save's reload). */
   keepViewOnNextShow(): void;
-  /** Spec #2 §7.3: a view zone above each hunk's first line, in every mode. Returns the zones'
-   * DOM nodes (the modified editor's), which React portals the buttons into. In Split mode the
-   * original editor gets a spacer of the same height at `oldAfter`, so the sides stay aligned.
-   * `[]` clears them; a new `showDiff` clears them too. */
-  setHunkZones(zones: { newAfter: number; oldAfter: number }[]): HTMLElement[];
+  /** Spec #2 §7.3: the gutter's per-line stage/unstage button (`LineGutter`); `null` removes it. */
+  setLineGutter(spec: LineGutterSpec | null): void;
   /** Each selection in either editor (and again when it scrolls), as the lines it covers on that
    * side and where its last line is on screen; `null` when it's empty. `null` removes the listener. */
   onDiffSelection(cb: ((s: DiffSelection | null) => void) | null): void;
@@ -102,8 +112,10 @@ type Side = EditorContextMenuEvent['side'];
 /** A non-empty selection in the diff (spec #2 §7.3): the 1-based lines it covers on `side`, and
  * where its last line is on screen. */
 export interface DiffSelection { side: 'original' | 'modified'; start: number; end: number; rect: { top: number; left: number; bottom: number } }
-/** The height of a hunk's header zone. */
+/** The height of a hunk's header row. */
 export const HUNK_ZONE_PX = 24;
+/** Monaco's own zones take its default ordinal (10000): a header row comes after them. */
+const HUNK_ZONE_ORDINAL = 10001;
 
 /** Lines of context above the first change when a diff opens scrolled to it (as Hunk mode's). */
 export const REVEAL_CONTEXT_LINES = 3;
@@ -205,7 +217,12 @@ class Host implements MonacoHost {
   private fileBox: HTMLElement | null = null;
   private keptTimer: ReturnType<typeof setTimeout> | undefined;
   private modEdit: { dispose(): void } | null = null;
-  private zones: { editor: MonacoNs.editor.ICodeEditor; id: string }[] = [];
+  /** The shown diff's hunk header rows: what it asked for, and the view zones laid out now. */
+  private hunkZones: { req: HunkZoneRequest; zones: HunkZone[] } | null = null;
+  private zoneIds: string[] = [];
+  private zoneNodes: HTMLElement[] = [];
+  private zoneWidthSub: { dispose(): void } | null = null;
+  private gutter: LineGutter | null = null;
   private selSubs: { dispose(): void }[] = [];
   private fileEditSub: { dispose(): void } | null = null;
   private keptView: { diffPath: string; diff: MonacoNs.editor.IDiffEditorViewState | null; filePath: string; file: MonacoNs.editor.ICodeEditorViewState | null } | null = null;
@@ -230,6 +247,7 @@ class Host implements MonacoHost {
   }
 
   attachDiff(el: HTMLElement, next?: DiffContent): void {
+    this.diffSeq++;
     hideUnless(this.diffEl, this.diffShown, next, sameDiff);
     // A previous box never detached (a kept panel unmounted while hidden, J16): stop observing it.
     if (this.diffBox && this.diffBox !== el) this.ro.unobserve(this.diffBox);
@@ -272,6 +290,7 @@ class Host implements MonacoHost {
 
   keepDiff(el: HTMLElement, next: DiffContent): boolean {
     if (!this.diff || this.diffEl.parentElement !== el) return false;
+    this.diffSeq++;
     hideUnless(this.diffEl, this.diffShown, next, sameDiff);
     return true;
   }
@@ -283,18 +302,19 @@ class Host implements MonacoHost {
     if (this.diffEl.parentElement === el) el.removeChild(this.diffEl);
   }
 
-  /** A failed show un-hides the editor: the view's error UI (and its Retry) takes over. */
+  /** A failed show un-hides the editor: the view's error UI (and its Retry) takes over. Not a
+   * replaced one's: the editor is the newer show's then. */
   async showDiff(req: DiffShowRequest): Promise<void> {
+    const seq = ++this.diffSeq;
     try {
-      await this.presentDiff(req);
+      await this.presentDiff(req, seq);
     } catch (e) {
-      setHidden(this.diffEl, false);
+      if (seq === this.diffSeq) setHidden(this.diffEl, false);
       throw e;
     }
   }
 
-  private async presentDiff(req: DiffShowRequest): Promise<void> {
-    const seq = ++this.diffSeq;
+  private async presentDiff(req: DiffShowRequest, seq: number): Promise<void> {
     this.prefs = req.prefs;
     const lang = await ensureLanguage(monaco, req.language);
     const ed = this.diff;
@@ -309,7 +329,10 @@ class Host implements MonacoHost {
     // uncomputed pair would draw the plain file first: no decorations, and in Hunk mode the whole
     // file for a frame before its regions collapse.
     const view = ed.createViewModel({ original, modified });
-    await withBackstop(view.waitForDiff(), DIFF_BACKSTOP_MS);
+    // The hunk rows come with the diff (fetched alongside it), so they're laid out in its frame.
+    let zones: HunkZone[] = [];
+    const zonesIn = req.hunkZones?.zones.then((z) => { zones = z; }, () => {});
+    await withBackstop(Promise.all([view.waitForDiff(), zonesIn]).then(() => {}), DIFF_BACKSTOP_MS);
     if (seq !== this.diffSeq) {
       view.dispose();
       original.dispose();
@@ -320,8 +343,10 @@ class Host implements MonacoHost {
     this.diffIdentity = req.identity;
     // A new presentation: whatever place a prefs change was keeping is gone.
     this.dropAnchor();
-    this.setHunkZones([]);
+    this.clearHunkZones();
     ed.setModel(view);
+    this.hunkZones = req.hunkZones ? { req: req.hunkZones, zones } : null;
+    this.layHunkZones();
     // Before the next frame renders: the diff shows up already at its first change.
     this.revealFirstChange(ed);
     // A new model gets a new view, which Monaco would paint empty and fill a frame later (the
@@ -401,8 +426,56 @@ class Host implements MonacoHost {
   }
 
   private applyDiffPrefs(prefs: DiffPrefs): void {
+    const modeChanged = prefs.mode !== this.prefs.mode;
     this.prefs = prefs;
     this.diff?.updateOptions(diffEditorOptions(prefs, this.menu === null, sticky(), fontSize()));
+    if (modeChanged && this.diffModels.length) this.layHunkZones();
+  }
+
+  /** Removes the hunk header rows. */
+  private clearHunkZones(): void {
+    const ids = this.zoneIds;
+    this.zoneIds = [];
+    this.zoneNodes = [];
+    if (ids.length) this.diff?.getModifiedEditor().changeViewZones((acc) => { for (const id of ids) acc.removeZone(id); });
+  }
+
+  /** Lays out the shown diff's hunk header rows: in Hunk mode only; Inline and
+   * Split keep their lines together, with the gutter's line buttons instead. Each row is right
+   * above its hunk's first line: after Monaco's own zones there (the "N hidden lines" bar). */
+  private layHunkZones(): void {
+    this.clearHunkZones();
+    const ed = this.diff;
+    const hz = this.hunkZones;
+    if (!ed || !hz) return;
+    const nodes: HTMLElement[] = [];
+    if (this.prefs.mode === 'hunk' && hz.zones.length) {
+      const mod = ed.getModifiedEditor();
+      // A zone is as wide as the widest line; a row spans the editor's view, its buttons at the end.
+      this.zoneWidthSub ??= mod.onDidLayoutChange(() => this.sizeHunkZones());
+      mod.changeViewZones((acc) => {
+        for (const z of hz.zones) {
+          // Monaco sets the zone's own `display`: the row is a box inside it.
+          const domNode = document.createElement('div');
+          domNode.className = 'hunk-zone';
+          const row = domNode.appendChild(document.createElement('div'));
+          row.className = 'hunk-row';
+          nodes.push(row);
+          this.zoneIds.push(acc.addZone({ afterLineNumber: z.after, heightInPx: HUNK_ZONE_PX, domNode, ordinal: HUNK_ZONE_ORDINAL }));
+        }
+      });
+      this.zoneNodes = nodes;
+      this.sizeHunkZones();
+    }
+    hz.req.placed(nodes);
+  }
+
+  private sizeHunkZones(): void {
+    const info = this.diff?.getModifiedEditor().getLayoutInfo();
+    if (!info) return;
+    // Clear of the vertical scrollbar, which Monaco lays over the content's right edge.
+    const width = `${Math.max(0, info.contentWidth - Math.max(info.verticalScrollbarWidth, EDITOR_SCROLLBAR.verticalScrollbarSize) - 4)}px`;
+    for (const n of this.zoneNodes) if (n.parentElement) n.parentElement.style.minWidth = width;
   }
 
   private dropAnchor(): void {
@@ -418,6 +491,7 @@ class Host implements MonacoHost {
   }
 
   attachFile(el: HTMLElement, next?: FileContent): void {
+    this.fileSeq++;
     hideUnless(this.fileEl, this.fileShown, next, sameFile);
     if (this.fileBox && this.fileBox !== el) this.ro.unobserve(this.fileBox);
     this.fileBox = el;
@@ -432,6 +506,7 @@ class Host implements MonacoHost {
 
   keepFile(el: HTMLElement, next: FileContent): boolean {
     if (!this.file || this.fileEl.parentElement !== el) return false;
+    this.fileSeq++;
     hideUnless(this.fileEl, this.fileShown, next, sameFile);
     return true;
   }
@@ -448,16 +523,16 @@ class Host implements MonacoHost {
   }
 
   async showFile(req: FileShowRequest): Promise<void> {
+    const seq = ++this.fileSeq;
     try {
-      await this.presentFile(req);
+      await this.presentFile(req, seq);
     } catch (e) {
-      setHidden(this.fileEl, false);
+      if (seq === this.fileSeq) setHidden(this.fileEl, false);
       throw e;
     }
   }
 
-  private async presentFile(req: FileShowRequest): Promise<void> {
-    const seq = ++this.fileSeq;
+  private async presentFile(req: FileShowRequest, seq: number): Promise<void> {
     this.fileWrap = req.wordWrap;
     const lang = await ensureLanguage(monaco, req.language);
     const ed = this.file;
@@ -487,31 +562,9 @@ class Host implements MonacoHost {
     return this.diff && this.diffEl.parentElement && this.diffModels.length ? this.diff.getModifiedEditor().getValue() : null;
   }
 
-  setHunkZones(zones: { newAfter: number; oldAfter: number }[]): HTMLElement[] {
-    const ed = this.diff;
-    if (!ed || (zones.length === 0 && this.zones.length === 0)) return [];
-    for (const e of [ed.getModifiedEditor(), ed.getOriginalEditor()]) {
-      e.changeViewZones((acc) => { for (const z of this.zones) if (z.editor === e) acc.removeZone(z.id); });
-    }
-    this.zones = [];
-    if (zones.length === 0) return [];
-    const mod = ed.getModifiedEditor();
-    const nodes: HTMLElement[] = [];
-    mod.changeViewZones((acc) => {
-      for (const z of zones) {
-        const domNode = document.createElement('div');
-        domNode.className = 'hunk-zone';
-        nodes.push(domNode);
-        this.zones.push({ editor: mod, id: acc.addZone({ afterLineNumber: z.newAfter, heightInPx: HUNK_ZONE_PX, domNode }) });
-      }
-    });
-    if (this.prefs.mode === 'split') {
-      const orig = ed.getOriginalEditor();
-      orig.changeViewZones((acc) => {
-        for (const z of zones) this.zones.push({ editor: orig, id: acc.addZone({ afterLineNumber: z.oldAfter, heightInPx: HUNK_ZONE_PX, domNode: document.createElement('div') }) });
-      });
-    }
-    return nodes;
+  setLineGutter(spec: LineGutterSpec | null): void {
+    if (!this.diff || (!spec && !this.gutter)) return;
+    (this.gutter ??= new LineGutter(this.diff)).set(spec);
   }
 
   onDiffSelection(cb: ((s: DiffSelection | null) => void) | null): void {
@@ -610,7 +663,7 @@ class Host implements MonacoHost {
    * handler is set (fix round 1, item 1): with `contextmenu: false` (`setContextMenuHandler`),
    * Monaco's own `editor.action.showContextMenu` is inert too (it checks the same option), so
    * there is nothing to fall back to either way. */
-  private openMenuAt(ed: MonacoNs.editor.IStandaloneCodeEditor, side: Side, line: number, x: number, y: number): void {
+  private openMenuAt(ed: MonacoNs.editor.IStandaloneCodeEditor, side: Side, line: number, x: number, y: number, deletedLine?: number): void {
     if (!this.menu) return;
     const sel = ed.getSelection();
     const hasSelection = !!sel && !sel.isEmpty();
@@ -622,6 +675,7 @@ class Host implements MonacoHost {
       selectionText: hasSelection ? (ed.getModel()?.getValueInRange(sel) ?? '') : '',
       x,
       y,
+      ...(deletedLine === undefined ? {} : { deletedLine }),
     });
   }
 
@@ -644,7 +698,11 @@ class Host implements MonacoHost {
       if (!this.menu) return;
       // With `contextmenu: false` Monaco no longer suppresses the webview's native menu.
       e.event.preventDefault();
-      this.openMenuAt(ed, side, e.target.position?.lineNumber ?? ed.getSelection()?.startLineNumber ?? 1, e.event.posx, e.event.posy);
+      const t = e.target;
+      const zone = side === 'modified' && this.diff && (t.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE || t.type === monaco.editor.MouseTargetType.GUTTER_VIEW_ZONE)
+        ? deletedLineAt(this.diff, ed, t.detail.viewZoneId, t.detail.afterLineNumber, e.event.posy)
+        : null;
+      this.openMenuAt(ed, side, t.position?.lineNumber ?? ed.getSelection()?.startLineNumber ?? 1, e.event.posx, e.event.posy, zone?.line);
     });
     const fromKeyboard = () => this.openMenuAtCursor(ed, side);
     ed.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F10, fromKeyboard);

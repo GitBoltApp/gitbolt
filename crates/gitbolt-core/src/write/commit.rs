@@ -121,6 +121,9 @@ impl WriteIntent for Commit {
     fn undo(&self) -> Option<UndoKind> {
         undo_for(&self.detached)
     }
+    fn rewrite(&self) -> Option<crate::write::rewrites::RewriteKind> {
+        self.amend.then_some(crate::write::rewrites::RewriteKind::Amend)
+    }
     fn runs_hooks(&self) -> bool {
         true
     }
@@ -198,6 +201,9 @@ impl WriteIntent for EditHeadMessage {
     fn undo(&self) -> Option<UndoKind> {
         undo_for(&self.detached)
     }
+    fn rewrite(&self) -> Option<crate::write::rewrites::RewriteKind> {
+        Some(crate::write::rewrites::RewriteKind::Amend)
+    }
     fn runs_hooks(&self) -> bool {
         true
     }
@@ -248,6 +254,33 @@ pub(crate) async fn head_on_upstream(cli: &GitCli, root: &Path) -> Result<Option
         Ok(on.then(|| crate::error::short_ref(&upstream).to_string()))
     })
     .await
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CommitIdentity {
+    pub name: String,
+    pub email: String,
+}
+
+/// Who a commit in `root` is made as (ux round 1): `git var GIT_AUTHOR_IDENT`, so git's own
+/// resolution (the `GIT_AUTHOR_*` environment, then `user.*` config with its usual precedence and
+/// includes, then the auto-detected name and email). A read: nothing is written. `None`: git has
+/// no identity it would commit with.
+pub(crate) async fn identity(cli: &GitCli, root: &Path) -> Result<Option<CommitIdentity>, GbError> {
+    match cli.run(GitInvocation::new(root, ["var", "GIT_AUTHOR_IDENT"])).await {
+        Ok(out) => Ok(parse_ident(&String::from_utf8_lossy(&out.stdout))),
+        Err(e) if e.stderr.as_deref().is_some_and(|s| ["identity unknown", "auto-detect", "empty ident", "no email was given", "no name was given"].iter().any(|m| s.contains(m))) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// `Ada Lovelace <ada@example.com> 1700000000 +0000` → its name and email.
+fn parse_ident(line: &str) -> Option<CommitIdentity> {
+    let (name, rest) = line.trim().split_once('<')?;
+    let (email, _) = rest.rsplit_once('>')?;
+    Some(CommitIdentity { name: name.trim().to_string(), email: email.trim().to_string() })
 }
 
 #[cfg(test)]
@@ -536,6 +569,41 @@ mod tests {
         let id = open(&api, &r).await;
         commit(&api, id, &r, "Merge branch 'other'", false, false).await.unwrap();
         assert_eq!(r.git(&["rev-list", "--parents", "-n", "1", "HEAD"]).split(' ').count(), 3, "two parents");
+    }
+
+    /// Ux round 1: the identity is git's own (the test env sets `GIT_AUTHOR_*`).
+    #[tokio::test]
+    async fn commit_identity_is_what_git_would_commit_as() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let who = call(&api, "commitIdentity", json!({ "repo": id, "worktree": wt(r.path()) })).await.unwrap();
+        assert_eq!(who, json!({ "name": "Ada Lovelace", "email": "ada@example.com" }));
+    }
+
+    /// No identity at all (config only, none set): `None`, not an error.
+    #[tokio::test]
+    async fn no_commit_identity_is_none() {
+        let r = repo();
+        r.git(&["config", "--unset", "user.name"]);
+        r.git(&["config", "--unset", "user.email"]);
+        r.git(&["config", "user.useConfigOnly", "true"]);
+        let env = [("GIT_CONFIG_GLOBAL", "/dev/null"), ("GIT_CONFIG_NOSYSTEM", "1"), ("LC_ALL", "C")].into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+        let cli = crate::git::GitCli::new(std::sync::Arc::new(crate::log::CommandLog::new(100))).with_env(env);
+        if std::env::var_os("GIT_AUTHOR_EMAIL").is_some() || std::env::var_os("EMAIL").is_some() {
+            return; // this machine's environment names one
+        }
+        assert_eq!(super::identity(&cli, r.path()).await.unwrap(), None);
+        r.git(&["config", "user.name", "Grace Hopper"]);
+        r.git(&["config", "user.email", "grace@example.com"]);
+        assert_eq!(super::identity(&cli, r.path()).await.unwrap(), Some(super::CommitIdentity { name: "Grace Hopper".into(), email: "grace@example.com".into() }));
+    }
+
+    #[test]
+    fn an_ident_line_parses() {
+        assert_eq!(super::parse_ident("A B <a@b.c> 1700000000 +0000\n"), Some(super::CommitIdentity { name: "A B".into(), email: "a@b.c".into() }));
+        assert_eq!(super::parse_ident(""), None);
     }
 
     #[tokio::test]

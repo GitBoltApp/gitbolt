@@ -6,7 +6,7 @@ import { RemoteIcon } from '../icons/brands';
 import { useTheme } from '../theme/store';
 import { chipRefs, type BranchMembership } from './membership';
 import { useHoverTooltip } from '../ui/HoverTooltip';
-import { chipFont, chipWidth, fitCount } from './chipFit';
+import { CHIP_SPACING, chipFont, chipWidth, fitCount, rebasingWidth } from './chipFit';
 
 
 /** J22's branch-hover focus: a chip entered (the refs it stands for) or left (null). */
@@ -43,18 +43,28 @@ function SourceIcon({ tip, children }: { tip: ReactNode; children: ReactNode }) 
 
 // --- 2D T18 ---
 /** The branch a rebase is replaying, at HEAD's row while its worktree rebases (Deviation 10):
- * a spinner and the name, dashed. HEAD is detached then, so the branch has no chip of its own. */
+ * a spinner and the name, dashed. HEAD is detached then, so the branch has no chip of its own.
+ * A `Chip` like the others (UX round 2): hovered, it floats its untruncated copy over its
+ * neighbours. */
 function RebasingChip({ name }: { name: string }) {
-  const { triggerProps, tooltip } = useHoverTooltip({ content: `${name} is being rebased` });
   return (
-    <span className="ref-label ref-label-head ref-rebasing" aria-label={`${name} (rebasing)`} {...triggerProps}>
-      <LoaderCircle size={12} className="spin" aria-hidden />
-      <span className="ref-name">{name}</span>
-      {tooltip}
-    </span>
+    <Chip
+      className="ref-label ref-label-head ref-rebasing"
+      ariaLabel={`${name} (rebasing)`}
+      tip={`${name} is being rebased`}
+      content={(full) => (
+        <>
+          <LoaderCircle size={12} className="spin" aria-hidden />
+          <span className={full ? 'ref-name-full' : 'ref-name'}>{name}</span>
+        </>
+      )}
+    />
   );
 }
 // --- end 2D T18 ---
+
+/** The detached HEAD's label (snapshot.rs: named `HEAD`, no local, remote or tag). */
+export const isDetachedHead = (l: RefLabel) => l.isHead && l.name === 'HEAD' && l.local === null && !l.tag && l.remotes.length === 0;
 
 /** A chip's inside. `compact` (Branch/Tag at its minimum, spec §8.4): icons only, no name; the
  * hover copy (`full`) is never compact, so hovering names the ref. */
@@ -88,27 +98,32 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
  * collapses once the pointer leaves the copy. The copy is never smaller than the chip it covers,
  * so expanding can't move the pointer "out" and back in (no flicker at the edge).
  */
-function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranchHover, onContextMenu, onDoubleClick, stack }: { color: string; className?: string; content: (full: boolean) => ReactNode; stack?: () => ReactNode; refs?: readonly string[]; onBranchHover?: BranchHover; onContextMenu?: (e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (e: MouseEvent<HTMLElement>) => void }) {
+function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranchHover, onContextMenu, onDoubleClick, stack, tip, ariaLabel }: { /** Omitted: the lane colour inherited from `.ref-labels`. */ color?: string; className?: string; content: (full: boolean) => ReactNode; stack?: () => ReactNode; refs?: readonly string[]; onBranchHover?: BranchHover; onContextMenu?: (e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (e: MouseEvent<HTMLElement>) => void; /** The chip's own instant tooltip (the rebasing and the icon-only detached HEAD chips). */ tip?: ReactNode; ariaLabel?: string }) {
   const [expanded, setExpanded] = useState(false);
+  const { triggerProps, tooltip } = useHoverTooltip({ content: tip ?? null, disabled: tip === undefined });
   // J22: entering a branch chip starts its branch's focus, leaving ends it. A chip unmounted
   // under the pointer (scrolled out of the virtual window) never gets its mouseleave: end it then.
   const focusing = useRef<BranchHover | null>(null);
   useEffect(() => () => focusing.current?.(null), []);
-  const enter = () => {
+  const enter = (e: MouseEvent<HTMLElement>) => {
+    triggerProps.onMouseEnter?.(e);
     setExpanded(true);
     if (!onBranchHover || refs.length === 0) return;
     focusing.current = onBranchHover;
     onBranchHover(refs);
   };
-  const leave = () => {
+  const leave = (e: MouseEvent<HTMLElement>) => {
+    triggerProps.onMouseLeave?.(e);
     setExpanded(false);
     focusing.current?.(null);
     focusing.current = null;
   };
   return (
     <span
+      {...triggerProps}
       className={className}
-      style={{ ['--lane-color' as string]: color }}
+      aria-label={ariaLabel}
+      style={color === undefined ? undefined : { ['--lane-color' as string]: color }}
       onMouseEnter={enter}
       onMouseLeave={leave}
       onContextMenu={onContextMenu}
@@ -120,6 +135,7 @@ function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranc
           {content(true)}
         </span>
       ))}
+      {tooltip}
     </span>
   );
 }
@@ -162,7 +178,7 @@ function LabelStack({ labels, onBranchHover, onContextMenu, onDoubleClick }: { l
   useLayoutEffect(() => {
     const el = ref.current;
     const host = el?.closest('.ref-labels');
-    const chip = host?.firstElementChild;
+    const chip = host?.querySelector(':scope > .ref-label:not(.ref-rebasing)');
     const op = el?.offsetParent;
     if (!el || !host || !chip || !op) return;
     const c = chip.getBoundingClientRect();
@@ -220,8 +236,10 @@ function DimChip({ membership, onBranchHover }: { membership: BranchMembership; 
  * `.ref-dim-slot`, which gives up its width before the real chip does and drops the dimmed chip
  * whole when it doesn't fit (graph.css), so it never truncates or displaces a real chip.
  */
-export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, width, onContextMenu, onDoubleClick, line, rebasing = null }: {
+export function RefLabels({ labels, color, membership = null, onBranchHover, compact = false, width, onContextMenu, onDoubleClick, line, rebasing = null, sha = null }: {
   labels: RefLabel[];
+  /** The row's commit: named in the icon-only detached HEAD chip's tooltip. */
+  sha?: string | null;
   /** HEAD's row only: the branch being rebased in the active worktree (2D T18). */
   rebasing?: string | null;
   color: number;
@@ -248,9 +266,17 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   const c = lanes[color % lanes.length];
   // K104: the chips that fit whole (estimated from canvas text widths: no layout per row), the
   // rest in `+N`. The first (the checked-out branch's, if any) is always shown.
-  const shown = width === undefined || compact || labels.length === 1
+  // A detached HEAD sharing the cell with branch chips (or the rebasing one) is just its check
+  // (UX round 2): "HEAD" truncated to "H…" beside them read as noise. Its tooltip names it, and
+  // hovering floats the full "HEAD" chip like any other.
+  const crowded = labels.length + (rebasing ? 1 : 0) > 1;
+  const iconOnly = (l: RefLabel) => compact || (crowded && isDetachedHead(l));
+  const font = chipFont();
+  // The rebasing chip comes first and takes its room before the others are fitted.
+  const room = width === undefined ? undefined : width - (rebasing ? rebasingWidth(rebasing, font) + CHIP_SPACING : 0);
+  const shown = room === undefined || compact || labels.length === 1
     ? 1
-    : fitCount(labels.map((l) => chipWidth(l, chipFont())), width);
+    : fitCount(labels.map((l) => chipWidth(l, font, iconOnly(l))), room);
   const hidden = labels.length - shown;
   // The checked-out branch (HEAD's label always sorts first): its chip is always lit and its
   // connector is the graph line's width and colour (J21, graph.css; draw.ts `headRow`).
@@ -265,13 +291,14 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
         <Chip
           key={`${i}:${l.name}`}
           color={c}
-          className={`ref-label${l.isHead ? ' ref-label-head' : ''}${compact ? ' compact' : ''}${i > 0 ? ' ref-label-next' : ''}`}
+          className={`ref-label${l.isHead ? ' ref-label-head' : ''}${iconOnly(l) ? ' compact' : ''}${i > 0 || rebasing ? ' ref-label-next' : ''}`}
           refs={chipRefs(l)}
           onBranchHover={onBranchHover}
           onContextMenu={onContextMenu && ((e) => onContextMenu(l, e))}
           onDoubleClick={onDoubleClick && ((e) => { e.stopPropagation(); onDoubleClick(l, e); })}
           stack={i === 0 ? stack : undefined}
-          content={(full) => <ChipContent label={l} full={full} compact={compact} />}
+          content={(full) => <ChipContent label={l} full={full} compact={iconOnly(l)} />}
+          tip={!compact && iconOnly(l) ? `HEAD (detached at ${sha ? sha.slice(0, 7) : 'this commit'})` : undefined}
         />
       ))}
       {stack && <More count={hidden} stack={stack} head={head} />}

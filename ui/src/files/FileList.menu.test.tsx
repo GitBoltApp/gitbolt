@@ -75,6 +75,9 @@ describe('the file row context menu (spec §7 file menu)', () => {
     expect(menu()).toBeVisible();
     expect(useMenu.getState()).toMatchObject({ x: 30, y: 40 });
     expect(store.getState().diff).toBeNull();
+    // Not selected: the row only shows the context outline while its menu is open (UX round 2).
+    expect(row('src/app.php')).toHaveAttribute('data-context', 'true');
+    expect(row('src/app.php')).toHaveAttribute('aria-selected', 'false');
     // No forge row: the repo has no GitLab/GitHub remote.
     expect(topLabels()).toEqual(['Copy path', 'Open in', 'View']);
     // H32: every opening re-detects (the backend caches briefly).

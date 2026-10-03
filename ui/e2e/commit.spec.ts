@@ -39,10 +39,11 @@ const button = (page: Page) => box(page).locator('.commit-button');
 const amend = (page: Page) => box(page).getByRole('checkbox', { name: 'Amend' });
 
 test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
-  test('commits what is staged, clears the draft, selects the new commit (< 300 ms, best of 3)', async ({ page }) => {
+  test('commits what is staged, clears the draft, selects the new commit (< 300 ms, best of 3)', { tag: '@budget' }, async ({ page }) => {
     const repo = await openWip(page);
-    await expect(button(page)).toHaveText('Commit changes to 1 file');
+    await expect(button(page)).toHaveText('Type a message to commit');
     await summary(page).fill('Stage notes');
+    await expect(button(page)).toHaveText('Commit changes to 1 file');
     await description(page).fill('Why: the fixture');
     const t0 = Date.now();
     await summary(page).press('Control+Enter');
@@ -63,10 +64,15 @@ test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
   test('Stage all & commit when nothing is staged; disabled reasons', async ({ page }) => {
     const repo = await openWip(page);
     await page.locator('.wip-section[data-section="staged"]').getByRole('button', { name: 'Unstage all' }).click();
-    await expect(button(page)).toHaveText('Stage all & commit');
+    // Settled first: the emptied lists move the commit box, which would slide out from under a
+    // pointer resting on its button (and take the tooltip with it).
+    await expect(page.getByRole('heading', { name: 'Staged (0)' })).toBeVisible();
+    // Ux round 1: the label while the summary is empty.
+    await expect(button(page)).toHaveText('Type a message to commit');
     await button(page).hover();
     await expect(page.getByRole('tooltip')).toHaveText('Write a commit summary');
     await summary(page).fill('Everything');
+    await expect(button(page)).toHaveText('Stage all & commit');
     await button(page).click();
     await expect(page.getByRole('grid', { name: 'Commit graph' }).getByText('Everything')).toBeVisible();
     expect(git(repo, 'status', '--porcelain')).toBe('');

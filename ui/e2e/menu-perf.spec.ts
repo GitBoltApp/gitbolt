@@ -60,7 +60,7 @@ async function close(page: Page) {
 
 for (const t of targets) {
   test.describe(`${t.name} latency`, () => {
-    test('the cold first opening is under the tripwire (best of a few fresh loads)', async ({ page }) => {
+    test('the cold first opening is under the tripwire (best of a few fresh loads)', { tag: '@budget' }, async ({ page }) => {
       const samples: number[] = [];
       for (let i = 0; i < ATTEMPTS; i++) {
         await t.load(page);
@@ -70,7 +70,7 @@ for (const t of targets) {
       expect(Math.min(...samples), `cold samples ${samples.map((n) => n.toFixed(1)).join(', ')} ms`).toBeLessThan(COLD_MS);
     });
 
-    test('a warm opening is within the budget (median of five, best of a few rounds)', async ({ page, browserName }) => {
+    test('a warm opening is within the budget (median of five, best of a few rounds)', { tag: '@budget' }, async ({ page, browserName }) => {
       await t.load(page);
       await openTimed(page, t);
       await close(page);
@@ -91,7 +91,7 @@ for (const t of targets) {
   });
 }
 
-test('a file menu is on screen within two frames of its contextmenu event (best of five)', async ({ page, browserName }) => {
+test('a file menu is on screen within two frames of its contextmenu event (best of five)', { tag: '@budget' }, async ({ page, browserName }) => {
   await targets[0].load(page);
   await openTimed(page, targets[0]);
   await close(page);

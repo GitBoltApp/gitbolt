@@ -1,5 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { runFromMenu } from '../ui/arm/origin';
+import { confirmable, confirmableKey, confirmArmed, consumeDisarmClick, disarm, isArmedOrigin, useArm } from '../ui/arm/store';
 import { registerKeys } from '../ui/keyRouter';
 import { hideTooltip, showTooltip } from '../ui/tooltipStore';
 import { pressedAnchor, runMenuRowHook, useMenu } from './menuStore';
@@ -118,6 +120,7 @@ export function ContextMenu() {
   const y = useMenu((s) => s.y);
   const initialRow = useMenu((s) => s.initialRow);
   const label = useMenu((s) => s.label);
+  const armed = useArm((s) => (s.armed?.mode === 'inline' ? s.armed : null));
   const uid = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [levels, setLevels] = useState<Level[]>([]);
@@ -174,6 +177,13 @@ export function ContextMenu() {
       el.style.top = `${p.top}px`;
     });
   }, [levels]);
+
+  // An armed row's label grows past the menu's edge: its tooltip would sit under it.
+  useEffect(() => { if (armed) hideTooltip(); }, [armed]);
+
+  // An armed row disarms once its menu closes or another opens (spec §ui confirms).
+  // Its rows rebuilt (a refresh: what the row would act on may have changed) disarm it too.
+  useEffect(() => () => { if (useArm.getState().armed?.mode === 'inline') disarm(); }, [seq, rows]);
 
   // The latest key handler, for the window listener below.
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -242,6 +252,7 @@ export function ContextMenu() {
   }, [open]);
 
   function dismiss(restore: boolean) {
+    if (useArm.getState().armed?.mode === 'inline') disarm();
     endGrace(false);
     hideTooltip();
     const back = returnTo.current;
@@ -249,10 +260,41 @@ export function ContextMenu() {
     if (restore && back?.isConnected) back.focus({ preventScroll: true });
     useMenu.getState().close();
   }
-  const finish = (run: () => void) => { dismiss(true); run(); };
+  /**
+   * Runs a pick with its row as the origin (spec §ui confirms): an action that asks arms the row
+   * in place and the menu stays open (board A); the armed row's own second pick confirms it.
+   * Otherwise the menu closes after the pick's synchronous part, as before (or once a held
+   * origin is released: an integrate's preview).
+   */
+  type Pick = MouseEvent | KeyboardEvent;
+  const viaOf = (ev: Pick): 'pointer' | 'key' => (ev instanceof KeyboardEvent || ev.detail === 0 ? 'key' : 'pointer');
+  const pick = (el: HTMLElement | null, ev: Pick, id: string, label: string, run: () => void) => {
+    const via = viaOf(ev);
+    const a = useArm.getState().armed;
+    if (a?.mode === 'inline' && el && a.origin?.el === el) {
+      // A fresh pick after the settle confirms; a double click's second or a repeat doesn't.
+      if (ev instanceof KeyboardEvent ? confirmableKey(ev, a) : confirmable(ev, a)) confirmArmed();
+      return;
+    }
+    if (!el) {
+      dismiss(true);
+      runMenuRowHook(id, label, run);
+      return;
+    }
+    // Focus is back before the action runs, so an action that moves focus wins; an armed row
+    // keeps its menu open meanwhile (the menu takes every key wherever focus is).
+    const back = returnTo.current;
+    if (back?.isConnected) back.focus({ preventScroll: true });
+    const mine = useMenu.getState().seq;
+    const close = () => {
+      const m = useMenu.getState();
+      if (m.seq === mine && m.rows) dismiss(false);
+    };
+    runFromMenu(el, via, close, () => runMenuRowHook(id, label, run), isArmedOrigin);
+  };
   // Through the row-run hook (R11): the action log records each row run.
-  const runRow = (r: Action) => { if (!r.disabledReason) finish(() => runMenuRowHook(r.id, r.label, r.run)); };
-  const runVariant = (r: Action, v: Variant) => { if (!v.disabledReason) finish(() => runMenuRowHook(v.id, `${r.label}: ${v.label ?? v.tooltip}`, v.run)); };
+  const runRow = (r: Action, el: HTMLElement | null, ev: Pick) => { if (!r.disabledReason) pick(el, ev, r.id, r.label, r.run); };
+  const runVariant = (r: Action, v: Variant, el: HTMLElement | null, ev: Pick) => { if (!v.disabledReason) pick(el, ev, v.id, `${r.label}: ${v.label ?? v.tooltip}`, v.run); };
 
   const rowId = (depth: number, index: number) => `${uid}-${depth}-${index}`;
   const levelId = (depth: number) => `${uid}-level-${depth}`;
@@ -261,12 +303,14 @@ export function ContextMenu() {
   // A row's tooltip sits beside the menu, on the side away from its parent level (a submenu
   // flipped to the left gets its tooltips on the left), never over the rows or the parent.
   const tipRow = (el: Element, r: Exclude<MenuRow, { kind: 'separator' }>) => {
+    // An armed row's label covers the menu's side: no tooltip while one is armed.
+    if (useArm.getState().armed?.mode === 'inline') return;
     const depth = Number(el.closest<HTMLElement>('.ctx-level')?.dataset.depth ?? 0);
     const lv = levels[depth];
     const leftward = !!lv?.anchor && lv.left < lv.anchor.left;
     showTooltip(el, tipOf(r), 0, leftward ? 'left' : 'right');
   };
-  const tipVariant = (el: Element, v: Variant) => showTooltip(el, v.disabledReason || v.tooltip);
+  const tipVariant = (el: Element, v: Variant) => { if (useArm.getState().armed?.mode !== 'inline') showTooltip(el, v.disabledReason || v.tooltip); };
 
   /** Opens the submenu of row `index` at `depth` now (kept as it is if it's already open). Its
    * row's tooltip goes: it would cover the submenu. */
@@ -340,12 +384,14 @@ export function ContextMenu() {
     const row = lv.rows[lv.active];
     const set = (patch: Partial<Level>) => setLevels((ls) => ls.map((l, i) => (i === depth ? { ...l, ...patch } : l)));
     const moveTo = (active: number) => {
+      if (armed) disarm();
       set({ active, variant: -1 });
       const r = lv.rows[active];
       const el = rowEl(depth, active);
       if (el && r && r.kind !== 'separator') tipRow(el, r);
     };
     const toVariant = (v: number) => {
+      if (armed) disarm();
       set({ variant: v });
       const vs = variantsOf(row);
       const el = rowEl(depth, lv.active);
@@ -384,17 +430,21 @@ export function ContextMenu() {
         break;
       case 'Enter':
       case ' ':
+        // A held key's repeats pick nothing (they'd confirm a row the first press armed).
+        if (e.repeat) break;
         if (row?.kind === 'submenu') {
           const el = rowEl(depth, lv.active);
           if (el) openSub(depth, lv.active, el);
         } else if (row?.kind === 'action') {
           const v = variantsOf(row)[lv.variant];
-          if (v) runVariant(row, v);
-          else runRow(row);
+          if (v) runVariant(row, v, rowEl(depth, lv.active), e);
+          else runRow(row, rowEl(depth, lv.active), e);
         }
         break;
       case 'Escape':
-        if (depth > 0) closeSub();
+        // Esc disarms an armed row first; the menu stays.
+        if (armed) disarm();
+        else if (depth > 0) closeSub();
         else dismiss(true);
         break;
       case 'Tab': dismiss(true); break;
@@ -420,6 +470,7 @@ export function ContextMenu() {
         const active = i === lv.active;
         const disabled = r.kind === 'action' && !!r.disabledReason;
         const expanded = r.kind === 'submenu' && levels[depth + 1]?.parent === i;
+        const armedHere = !!armed && armed.origin?.el.id === rowId(depth, i);
         return (
           <div
             key={r.id}
@@ -432,8 +483,10 @@ export function ContextMenu() {
             aria-haspopup={r.kind === 'submenu' ? 'menu' : undefined}
             aria-expanded={r.kind === 'submenu' ? expanded : undefined}
             aria-owns={expanded ? levelId(depth + 1) : undefined}
-            // Named by its label alone: the submenu it owns would otherwise join its name.
-            aria-label={r.kind === 'submenu' ? r.label : undefined}
+            // Named by its label alone: the submenu it owns would otherwise join its name. Armed,
+            // by what a second click does.
+            aria-label={armedHere ? armed!.req.arm : r.kind === 'submenu' ? r.label : undefined}
+            data-armed={armedHere ? armed!.req.tone : undefined}
             aria-description={tipOf(r)}
             className="ctx-row"
             onPointerEnter={(e) => onRowEnter(depth, i, r, e)}
@@ -442,7 +495,9 @@ export function ContextMenu() {
               else hideTooltip();
             }}
             onClick={(e) => {
-              if (r.kind === 'action') runRow(r);
+              // A press on another row while one is armed only disarms it.
+              if (consumeDisarmClick(e.target)) return;
+              if (r.kind === 'action') runRow(r, e.currentTarget, e.nativeEvent);
               else openSub(depth, i, e.currentTarget);
             }}
           >
@@ -475,12 +530,24 @@ export function ContextMenu() {
                         if (next instanceof Element && next.classList.contains('ctx-variant') && next.parentElement === e.currentTarget.parentElement) return;
                         tipRow(e.currentTarget.closest('.ctx-row')!, r);
                       }}
-                      onClick={(e) => { e.stopPropagation(); runVariant(r, v); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (consumeDisarmClick(e.target)) return;
+                        runVariant(r, v, e.currentTarget.closest<HTMLElement>('.ctx-row'), e.nativeEvent);
+                      }}
                     >
                       {VIcon ? <VIcon size={13} aria-hidden /> : v.label}
                     </button>
                   );
                 })}
+              </span>
+            )}
+            {/* Armed (board A): the row's own space, over its label and variants; a longer label
+                grows past the menu's edge rather than widening it. */}
+            {armedHere && (
+              <span className={`ctx-armed-label tone-${armed!.req.tone}`} aria-hidden>
+                <Icon size={14} className="ctx-icon" aria-hidden />
+                {armed!.req.arm}
               </span>
             )}
           </div>

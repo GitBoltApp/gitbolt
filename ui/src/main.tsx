@@ -1,3 +1,5 @@
+// First: where actions start (the confirm model), seen before the key router or React acts.
+import './ui/arm/origin';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './theme/tokens.css';

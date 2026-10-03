@@ -251,6 +251,14 @@ fn dirty_paths(entries: &[StatusEntry]) -> HashSet<String> {
     entries.iter().filter(|e| e.kind != EntryKind::Ignored).map(|e| e.path.clone()).collect()
 }
 
+/// The paths whose worktree side `git status` considers not-clean (`Y` isn't `.`): the ground
+/// truth for the unstaged list's (worktree vs index) phantom filter. A path that's only staged
+/// (`M.`) is clean there, however stat-dirty: `git apply --cached` (staging a hunk or line)
+/// writes its index entry without stat info, so the read-only diff lists it as a phantom.
+fn worktree_dirty_paths(entries: &[StatusEntry]) -> HashSet<String> {
+    entries.iter().filter(|e| e.kind != EntryKind::Ignored && e.worktree != '.').map(|e| e.path.clone()).collect()
+}
+
 async fn run(cli: &GitCli, cwd: &Path, args: Vec<String>) -> Result<Vec<RawChange>, GbError> {
     let out = cli.run(GitInvocation::new(cwd, args)).await?;
     parse_raw_numstat(&out.stdout)
@@ -314,7 +322,7 @@ async fn wip_staged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path) -
 /// takes that line count instead of being read.
 async fn wip_unstaged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path, entries: Vec<StatusEntry>, reuse: &HashMap<String, Option<u32>>) -> Result<Vec<FileChange>, GbError> {
     let name = wt.to_string_lossy().into_owned();
-    let dirty = dirty_paths(&entries);
+    let dirty = worktree_dirty_paths(&entries);
     let raw = drop_phantom_stat_dirty(collapse_unmerged(run(cli, wt, diff_porcelain(&[])).await?), &dirty);
     let conflicts: HashMap<String, crate::payload::ConflictKind> = entries
         .iter()

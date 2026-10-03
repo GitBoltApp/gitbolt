@@ -27,6 +27,35 @@ describe('RefLabels', () => {
     expect(screen.queryByLabelText('main (rebasing)')).toBeNull();
   });
 
+  it('the rebasing chip expands on hover to its full name like the other chips, with its tooltip (UX round 2)', () => {
+    render(<RefLabels labels={[]} color={0} rebasing={LONG} width={60} />);
+    const chip = screen.getByLabelText(`${LONG} (rebasing)`);
+    expect(chip.querySelector('.ref-label-full')).toBeNull();
+    fireEvent.mouseEnter(chip);
+    expect(chip.querySelector('.ref-label-full .ref-name-full')).toHaveTextContent(LONG);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(`${LONG} is being rebased`);
+    fireEvent.mouseLeave(chip);
+    expect(chip.querySelector('.ref-label-full')).toBeNull();
+  });
+
+  it('a detached HEAD beside other chips is icon-only, named by its tooltip, and expands to "HEAD" on hover (UX round 2)', () => {
+    const detached: RefLabel = { row: 0, name: 'HEAD', local: null, tag: false, isHead: true, worktree: null, checkedOut: null, remotes: [] };
+    const main: RefLabel = { row: 0, name: 'main', local: 'refs/heads/main', tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [] };
+    const { container, rerender } = render(<RefLabels labels={[detached, main]} color={0} rebasing="feature/x" width={300} sha={'c'.repeat(40)} />);
+    const head = container.querySelector<HTMLElement>('.ref-labels > .ref-label-head:not(.ref-rebasing)')!;
+    expect(head).toHaveClass('compact');
+    expect(head.querySelector('.ref-name')).toBeNull();
+    fireEvent.mouseEnter(head);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('HEAD (detached at ccccccc)');
+    expect(head.querySelector('.ref-label-full')).toHaveTextContent('HEAD');
+    fireEvent.mouseLeave(head);
+    // Alone in its cell, it keeps its name.
+    rerender(<RefLabels labels={[detached]} color={0} width={300} sha={'c'.repeat(40)} />);
+    const alone = container.querySelector<HTMLElement>('.ref-labels > .ref-label-head')!;
+    expect(alone).not.toHaveClass('compact');
+    expect(alone).toHaveTextContent('HEAD');
+  });
+
   it("marks the checked-out branch's chip, its bigger check and its connector (J21); other rows' aren't", () => {
     const head: RefLabel = { row: 0, name: 'main', local: 'refs/heads/main', tag: false, isHead: true, worktree: null, checkedOut: null, remotes: [] };
     const { container, rerender } = render(<RefLabels labels={[head, remoteOnly('topic', 'origin')]} color={0} membership={{ name: 'x', color: 1, ref: 'refs/heads/x' }} />);

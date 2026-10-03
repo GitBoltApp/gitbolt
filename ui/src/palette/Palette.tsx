@@ -1,5 +1,5 @@
 import { LoaderCircle } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { activeTab } from '../app/actions';
 import { isTopModal, useModalKeys } from '../app/modalKeys';
@@ -24,7 +24,6 @@ function PaletteDialog() {
   const initial = usePalette((s) => s.initial);
   const close = usePalette((s) => s.close);
   const [query, setQuery] = useState(initial);
-  const [cursor, setCursor] = useState(0);
   const [files, setFiles] = useState<PaletteEntry[] | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const tab = activeTab();
@@ -41,23 +40,31 @@ function PaletteDialog() {
   const all = useMemo(() => (files ? [...base, ...files] : base), [base, files]);
   const deferred = useDeferredValue(query);
   const results = useMemo(() => searchPalette(deferred, all), [deferred, all]);
-  // The highlight restarts whenever the results change (typing, or the file list arriving).
-  useEffect(() => { setCursor(0); }, [results]);
+  // The highlight restarts whenever the results change (typing, or the file list arriving): it's
+  // an index into the results it was picked in, the top row in any others. Worked out in render,
+  // not reset by an effect: new results commit (and paint) ahead of their effects, and a deferred
+  // render's effects can wait past a paint, so an Enter there read the previous list's index
+  // (a row hovered or arrowed to), past the end of a shorter list: nothing ran.
+  const [picked, setPicked] = useState<{ results: PaletteEntry[]; index: number } | null>(null);
+  const cursor = picked?.results === results ? picked.index : 0;
+  const setCursor = (index: number) => setPicked({ results, index });
   useEffect(() => { listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' }); }, [cursor]);
   const run = (entry: PaletteEntry | undefined) => { if (!entry) return; close(); entry.run(); };
 
   // The dialog claims every key in the router's `menu` layer (Esc, Tab trap), so the input's own
   // onKeyDown never sees one; the list keys come through a second handler in the same layer.
   const ref = useModalKeys<HTMLDivElement>(true, close);
+  // What's on screen: set on commit, so a render React set aside (or hasn't committed yet) never
+  // stands in for the list Enter acts on.
   const live = useRef({ results, cursor, run, query, deferred, all });
-  live.current = { results, cursor, run, query, deferred, all };
+  useLayoutEffect(() => { live.current = { results, cursor, run, query, deferred, all }; });
   useEffect(() => registerKeys('menu', (e) => {
     if (!isTopModal(ref)) return; // a prompt over the palette owns Enter and the arrows
     const { results: rs, cursor: c, run: go, query: q, deferred: d, all: entries } = live.current;
     if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
     if (e.shiftKey && e.key !== 'Enter') return;
-    if (e.key === 'ArrowDown') setCursor(Math.min(rs.length - 1, c + 1));
-    else if (e.key === 'ArrowUp') setCursor(Math.max(0, c - 1));
+    if (e.key === 'ArrowDown') setPicked({ results: rs, index: Math.min(rs.length - 1, c + 1) });
+    else if (e.key === 'ArrowUp') setPicked({ results: rs, index: Math.max(0, c - 1) });
     // The shown results can lag the input (`useDeferredValue` on a busy main thread): Enter then
     // answers the query as typed, its best match (the cursor restarts at the top for new results).
     else if (e.key === 'Enter') {

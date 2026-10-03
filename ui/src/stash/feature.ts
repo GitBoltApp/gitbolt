@@ -1,4 +1,5 @@
-import { Archive, ArchiveRestore, PackageOpen, Trash2 } from 'lucide-react';
+import { ArchiveRestore, PackageOpen, Trash2 } from 'lucide-react';
+import { StashIcon } from '../icons/stash';
 import { activeRuntime, activeTab, registerActions } from '../app/actions';
 import type { RepoCtx } from '../app/repoContext';
 import { useRuntime, type TabRuntime } from '../app/runtime';
@@ -37,7 +38,7 @@ const popView = ({ tabId }: RepoCtx): ButtonView => {
 const offs = [
   registerActions([
     {
-      id: 'stash.push', label: 'Stash', group: 'Repository', icon: Archive, tooltip: 'Stash every change, named from the WIP message',
+      id: 'stash.push', label: 'Stash', group: 'Repository', icon: StashIcon, tooltip: 'Stash every change, named from the WIP message',
       when: () => dirty(activeRuntime()),
       run: () => { const c = writeCtx(); if (c) void stashPushFor(c); },
     },
@@ -64,7 +65,7 @@ const offs = [
     id: 'wip.stash', kind: 'wip', group: 'stash', order: 0,
     when: (_t, env) => !!env.write,
     rows: (t, env) => (env.write ? [{
-      kind: 'action', id: 'wip.stash', label: 'Stash changes', icon: Archive,
+      kind: 'action', id: 'wip.stash', label: 'Stash changes', icon: StashIcon,
       tooltip: `Stash every change in ${t.name ?? 'this worktree'}, named from its WIP message`,
       run: () => { void stashPushFor({ ...env.write!, worktree: t.worktree }); },
     }] : []),

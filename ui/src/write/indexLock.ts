@@ -14,7 +14,7 @@ export const lockLabel = (path: string): string => {
  * `Stale`; a live process: `IndexLocked`) reaches the caller's toast. */
 export async function removeStaleLock(repo: number, lock: IndexLockId): Promise<void> {
   const label = lockLabel(lock.path);
-  const ok = await confirmAction({ title: 'Remove stale lock', body: `Remove ${label}? Do this only if no other git program is running.`, confirmLabel: 'Remove', danger: true });
+  const ok = await confirmAction({ title: 'Remove stale lock', body: `Remove ${label}? Do this only if no other git program is running.`, confirmLabel: 'Remove', arm: `Click again to remove ${label}`, caption: 'Only if no other git program is running.', danger: true });
   if (!ok) return;
   await api.removeIndexLock(repo, lock);
   useToast.getState().show(`Removed ${label}`);

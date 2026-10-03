@@ -19,12 +19,6 @@ const toMinimum = async (page: Page, name: string, min: number) => {
   for (let i = 0; i < 60 && Number(await handle.getAttribute('aria-valuenow')) > min; i++) await page.keyboard.press('ArrowLeft');
   await expect(handle).toHaveAttribute('aria-valuenow', String(min));
 };
-const inked = (canvas: Locator) => canvas.evaluate((c: HTMLCanvasElement) => {
-  const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
-  let n = 0;
-  for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
-  return n;
-});
 /** The DOM label connector ends exactly where the canvas begins (the continuity rule), and the
  * canvas continues it at its left edge. */
 async function expectConnectorMeetsCanvas(page: Page, row: Locator) {
@@ -44,17 +38,6 @@ async function expectConnectorMeetsCanvas(page: Page, row: Locator) {
 }
 
 test.describe('graph extras', () => {
-  test('the Graph column at its minimum: a strip of nodes, a header icon, no lane scrollbar', async ({ page }) => {
-    await open(page);
-    await toMinimum(page, 'Graph', COLUMN_MIN.graph);
-    await expect(page.getByRole('img', { name: 'Graph' })).toBeVisible();
-    await expect(page.locator('.graph-header [data-col="graph"]')).not.toContainText('GRAPH');
-    const canvas = page.getByTestId('graph-canvas');
-    await expect(canvas).toHaveAttribute('data-strip', 'true');
-    expect(await inked(canvas)).toBeGreaterThan(200);
-    await expect(page.getByLabel('Scroll lanes')).toHaveCount(0);
-  });
-
   test('a wide graph narrowed: the lane scrollbar spans the lane area and scrolls the lanes; the zone stays put', async ({ page }) => {
     await open(page, fixtures.wide);
     const canvas = page.getByTestId('graph-canvas');

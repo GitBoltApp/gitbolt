@@ -221,6 +221,9 @@ describe('DiffPanel', () => {
     const { store } = renderPanel(a, async (k) => (k.includes('b.txt') ? contents(blob('b1\n'), blob('b2\n')) : contents(blob('a1\n'), blob('a2\n'))));
     // Generous waits (3 s, not the 1 s default): this failed once in a full run on a loaded machine.
     await waitFor(() => expect(button('Next change')).toBeEnabled(), { timeout: 3000 });
+    // The toolbar enables once a.txt's contents are in, which can be before the editor host has
+    // loaded and asked for a.txt's show: the rejection below is for b.txt's show, so wait for a's.
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ path: 'a.txt' })), { timeout: 3000 });
     host.showDiff.mockRejectedValueOnce(new Error('grammar failed'));
     act(() => store.getState().openFile(b));
     expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent("Couldn't show this file: grammar failed");

@@ -1,8 +1,8 @@
-import { Check, Copy, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { CommandLogEntry } from '../api/gen/CommandLogEntry';
 import { copyAndSay, relativeTime, seconds } from '../app/activityLog';
+import { DebugCheck, DebugRow, type Pill } from './DebugRow';
 
 /** How often the open Commands tab re-reads the backend's ring (R10): no event, just a poll while shown. */
 export const COMMAND_POLL_MS = 1000;
@@ -68,7 +68,7 @@ export function CommandLogView({ focusId }: { focusId: number | null }) {
     <>
       <div className="debug-toolbar">
         <input type="search" className="debug-search" aria-label="Filter commands" placeholder="Filter: args, folder, stderr" value={text} onChange={(e) => setText(e.target.value)} />
-        <label className="activity-filter"><input type="checkbox" checked={failedOnly} onChange={(e) => setFailedOnly(e.target.checked)} /> Failed only</label>
+        <DebugCheck label="Failed only" checked={failedOnly} onChange={setFailedOnly} />
         <span className="debug-count">{entries ? `${shown.length} of ${entries.length}` : ''}</span>
         <button type="button" className="activity-copy-all" disabled={shown.length === 0} onClick={() => void copyAndSay(shown.map((e) => commandText(e, now)).join('\n\n'))}>Copy all</button>
       </div>
@@ -78,24 +78,31 @@ export function CommandLogView({ focusId }: { focusId: number | null }) {
         {entries !== null && shown.length === 0 && <li className="activity-empty">{entries.length ? 'No command matches' : 'No git commands yet'}</li>}
         {shown.map((e) => {
           const failed = commandFailed(e);
-          const Icon = failed ? TriangleAlert : Check;
           const isFocus = e.id === focusId;
+          const line = commandLine(e);
+          const pills: Pill[] = [{ text: folderName(e.cwd), title: e.cwd, mono: true }, { text: `#${e.id}` }];
+          if (failed) pills.push({ text: exitText(e), bad: true });
           return (
-            <li key={e.id} ref={isFocus ? focused : undefined} aria-current={isFocus || undefined} className={`debug-entry${failed ? ' failed' : ''}`}>
-              <div className="activity-meta">
-                <Icon size={14} aria-hidden />
-                <span className="activity-time">{new Date(e.startedMs).toLocaleString()} · {relativeTime(e.startedMs, now)}</span>
-                <span>#{e.id}</span>
-                <span className="activity-result">{exitText(e)}</span>
-                <span>{seconds(e.durationMs)}</span>
-                <span className="debug-cwd">{e.cwd}</span>
-                <button type="button" className="icon-button" aria-label="Copy entry" onClick={() => void copyAndSay(commandText(e, now))}><Copy size={13} /></button>
-              </div>
-              <pre className="activity-msg"><span className="activity-cmd">{commandLine(e)}</span>{e.stderr.trim() ? `\n${e.stderr.trimEnd()}` : ''}</pre>
-            </li>
+            <DebugRow
+              key={e.id} className="debug-entry" liRef={isFocus ? focused : undefined} current={isFocus}
+              status={failed ? 'failed' : 'ok'} at={e.startedMs} now={now}
+              label={<span className="activity-cmd">{line}</span>} title={line} pills={pills} ms={e.durationMs}
+              copy={() => commandText(e, now)}
+              detail={() => (
+                <pre>
+                  <span className="debug-cmd-line">{line}</span>
+                  {`\n${e.cwd} · ${exitText(e)}`}
+                  {e.stderr.trim() && <>{'\n'}<span className={failed ? 'debug-err' : undefined}>{e.stderr.trimEnd()}</span></>}
+                </pre>
+              )}
+              defaultOpen={failed || isFocus}
+            />
           );
         })}
       </ol>
     </>
   );
 }
+
+/** The last part of a folder path (the pill; the whole path is its tooltip). */
+const folderName = (cwd: string) => cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd;

@@ -1,0 +1,9 @@
+/* The inline branch-name input (BranchNameInput.tsx): it fills the row editor (graph.css
+   .row-editor), chip height, focused with the blue border; an invalid name turns it red. */
+.branch-inline { position: relative; display: flex; align-items: center; width: 100%; }
+.branch-inline-input { flex: 1; min-width: 0; box-sizing: border-box; height: calc(var(--graph-chip-h) + 4px); padding: 0 6px; font: inherit; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 3px; outline: none; user-select: text; }
+.branch-inline-input:focus { border-color: var(--blue); }
+.branch-inline-input.invalid { border-color: var(--red); }
+/* The hint or the error, floated just below (out of the flow: the rows below don't move). */
+.branch-inline-note { position: absolute; left: 0; top: calc(100% + 3px); z-index: 5; width: max-content; max-width: 420px; padding: 2px 6px; border-radius: 3px; font-size: 11px; white-space: normal; color: var(--text-normal); background: var(--panel-bg1); box-shadow: 0 1px 4px var(--shadow-popup); pointer-events: none; }
+.branch-inline-note.error { color: var(--red); }

@@ -17,9 +17,11 @@ function checkoutRows(t: CommitTarget, env: MenuEnv): MenuRow[] {
   const branchRow = (l: RefLabel): MenuRow[] => {
     if (l.tag || (!l.local && l.remotes.length === 0)) return [];
     if (l.local) {
+      // The checked-out branch has nothing to check out: not offered.
+      if (l.isHead) return [];
       const full = l.local;
       const name = full.replace(/^refs\/heads\//, '');
-      return [{ kind: 'action', id: `checkout:${full}`, label: name, icon: GitBranch, tooltip: `Check out ${name}`, run: () => { void checkout(ctx, { kind: 'branch', name }, expect(full)); }, disabledReason: l.isHead ? 'Checked out' : busy(env) }];
+      return [{ kind: 'action', id: `checkout:${full}`, label: name, icon: GitBranch, tooltip: `Check out ${name}`, run: () => { void checkout(ctx, { kind: 'branch', name }, expect(full)); }, disabledReason: busy(env) }];
     }
     const r = l.remotes.find((x) => x.remote === 'origin') ?? l.remotes[0];
     const branch = r.fullName.slice(`refs/remotes/${r.remote}/`.length);

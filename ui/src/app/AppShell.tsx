@@ -2,6 +2,7 @@ import { Activity, useEffect } from 'react';
 import { GitTooOldScreen } from '../errors/GitTooOldScreen';
 import { useGitCheck } from '../errors/gitCheck';
 import { ContextMenu } from '../menu/ContextMenu';
+import { ArmLayer } from '../ui/arm/ArmLayer';
 import { ChoiceDialog } from '../ui/ChoiceDialog';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { PromptDialog } from '../ui/PromptDialog';
@@ -86,7 +87,8 @@ export function AppShell({ error = null }: { error?: string | null }) {
       {/* The one context menu and its tooltip (spec §7). */}
       <ContextMenu />
       <TooltipHost />
-      {/* Yes/no for destructive actions (K68). */}
+      {/* Confirms (spec §ui confirms): the armed control's overlay, and the anchored popovers. */}
+      <ArmLayer />
       <ConfirmDialog />
       <PromptDialog />
       <ChoiceDialog />

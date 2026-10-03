@@ -56,6 +56,7 @@ function rows(): MenuRow[] {
                 title: `Delete the profile “${p.name}”?`,
                 body: 'Its tabs, recent repositories and settings are removed. Your repositories on disk are not touched. This cannot be undone.',
                 confirmLabel: 'Delete profile',
+                arm: `Click again to delete ${p.name} and its tabs`,
                 danger: true,
               }).then((ok) => { if (ok) void deleteProfile(p.id); });
             },

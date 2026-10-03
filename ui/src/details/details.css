@@ -41,7 +41,7 @@
 .details-summary { font-size: 14px; font-weight: 600; margin: 4px 0 6px; color: var(--text-selected); overflow-wrap: anywhere; }
 .details-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-normal); }
 .details-error { padding: 4px 0; color: var(--text-secondary); }
-.wip-header { display: flex; align-items: center; gap: 6px; padding: 0 12px; }
+.wip-header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; padding: 0 12px; }
 /* Compare (spec §9.4, K17, K27): the `Comparing … → … ⇄ ×` bar, then one row per side, FROM first. */
 /* Two dividers, not a duplicate: .compare-bar's own (from .panel-bar) closes the `Comparing …` bar,
    and .compare-header's closes the two-commit summary rows below it (.compare-commits sits between them). */

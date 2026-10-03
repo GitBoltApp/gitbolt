@@ -28,8 +28,9 @@ function boot(): Promise<void> {
   booted ??= (async () => {
     installColumnPersistence();
     installOpenRequests();
-    // Test hook for the e2e harness (served by the Vite dev server); compiled out of the release bundle.
-    if (import.meta.env.DEV) window.__gb = { flush: flushSaves, setSettings: (patch) => useAppState.getState().setSettings(patch), activity: () => useOps.getState().activity };
+    // Test hook for the e2e harness (the dev server, or the `--mode e2e` build the suite serves);
+    // compiled out of the release bundle.
+    if (import.meta.env.DEV || import.meta.env.MODE === 'e2e') window.__gb = { flush: flushSaves, setSettings: (patch) => useAppState.getState().setSettings(patch), activity: () => useOps.getState().activity };
     window.addEventListener('pagehide', () => { void flushSaves(); });
     // The backend outlives a webview reload: forget what the previous page watched, before this
     // one watches its active tab (spec §4.4: only the active tab is watched).

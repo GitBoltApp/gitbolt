@@ -6,12 +6,14 @@ import { expect, test, type Page } from './test';
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
 
-/** The row nearest the middle of the grid: its id and its offset from the grid's top. */
+/** The row nearest the middle of the grid: its id and its offset from the grid's top. Null while
+ * the rendered rows don't reach the middle: a scroll's rows render on its scroll event, a frame
+ * after `scrollTop` is set. */
 const probe = (page: Page) => grid(page).evaluate((g) => {
   const box = g.getBoundingClientRect();
   const mid = box.top + box.height / 2;
-  const row = [...g.querySelectorAll('[role="row"][id^="graph-row-"]')].find((r) => r.getBoundingClientRect().bottom > mid)!;
-  return { id: row.id, offset: Math.round(row.getBoundingClientRect().top - box.top) };
+  const row = [...g.querySelectorAll('[role="row"][id^="graph-row-"]')].find((r) => r.getBoundingClientRect().bottom > mid && r.getBoundingClientRect().top <= mid);
+  return row ? { id: row.id, offset: Math.round(row.getBoundingClientRect().top - box.top) } : null;
 });
 const height = (page: Page) => grid(page).evaluate((g) => g.scrollHeight);
 
@@ -46,6 +48,7 @@ test.describe('scroll position across a refresh (K78)', () => {
         });
       }
       await expect.poll(() => grid(page).evaluate((g) => g.scrollTop)).toBe(900);
+      await expect.poll(() => probe(page)).not.toBeNull();
       const before = await probe(page);
       await commitElsewhere(page, repo, 3);
       expect(await probe(page)).toEqual(before);

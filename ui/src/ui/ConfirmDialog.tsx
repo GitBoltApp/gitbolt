@@ -1,76 +1,95 @@
-import { create } from 'zustand';
+import { useEffect, useMemo, useRef } from 'react';
 import { useModalKeys } from '../app/modalKeys';
+import { usePopoverPlace } from './arm/anchor';
+import { currentOrigin, originRect, type Origin } from './arm/origin';
+import { arm, confirmable, insideArmed, useArm, type Armed, type ArmTone } from './arm/store';
+import { askChoice } from './ChoiceDialog';
+import './choice.css';
 
-/** A yes/no question for a destructive or hard-to-undo action (K68: deleting a profile). */
+/**
+ * A confirmation for a destructive or hard-to-undo action (spec §ui confirms). The control the
+ * action started from arms in place and says what a second click does (`arm`: "Click again to
+ * delete origin/x"); `caption`, a reason shown under it. With no control to arm (a keyboard
+ * shortcut, a control gone since), it's a popover anchored there with `title`, `body` and
+ * `confirmLabel`.
+ */
 export interface ConfirmRequest {
   title: string;
   body: string;
   confirmLabel: string;
-  /** The confirm button reads as dangerous (red). */
+  /** The armed control's label: what a second click does, with counts where known. */
+  arm: string;
+  caption?: string;
+  /** Reads as dangerous (red); else positive (green), unless `tone` says otherwise. */
   danger?: boolean;
+  tone?: ArmTone;
 }
 
-export interface Choice { id: string; label: string; danger?: boolean }
+export interface Choice { id: string; label: string; danger?: boolean; /** The armed label of a `danger` choice. */ arm?: string }
 export interface ChoiceRequest { title: string; body: string; choices: Choice[] }
 
-interface Pending extends ConfirmRequest {
-  resolve(ok: boolean): void;
-  choices?: Choice[];
-  answer?(id: string | null): void;
-}
-
-const useConfirmStore = create<{ pending: Pending | null }>(() => ({ pending: null }));
-
 /**
- * Asks, and resolves `true` only on an explicit confirm: Cancel, Esc, a click on the backdrop, or
- * a newer request all resolve `false`. Mount `<ConfirmDialog />` once (App.tsx).
+ * Asks, and resolves `true` only on the second click (or the popover's confirm). A click
+ * elsewhere, Esc, the control going away or a newer question resolve `false`. `origin`: where
+ * the action started, captured before an `await` (default: the current one). Mount
+ * `<ConfirmDialog />` and `<ArmLayer />` once (AppShell).
  */
-export function confirmAction(req: ConfirmRequest): Promise<boolean> {
-  useConfirmStore.getState().pending?.resolve(false);
-  return new Promise((resolve) => useConfirmStore.setState({ pending: { ...req, resolve } }));
+export function confirmAction(req: ConfirmRequest, origin: Origin | null = currentOrigin()): Promise<boolean> {
+  const tone = req.tone ?? (req.danger ? 'danger' : 'positive');
+  return arm({ arm: req.arm, tone, caption: req.caption, title: req.title, body: req.body, confirmLabel: req.confirmLabel }, origin);
 }
 
 /** A question with several answers besides Cancel (spec #2 §7.5: [Save] [Discard edits]
- * [Cancel]; [Reload] [Overwrite]). Resolves the picked choice's id, or `null` for Cancel, Esc,
- * the backdrop or a newer question. */
-export function chooseAction(req: ChoiceRequest): Promise<string | null> {
-  useConfirmStore.getState().pending?.resolve(false);
-  return new Promise((resolve) => {
-    const answer = (id: string | null) => resolve(id);
-    useConfirmStore.setState({ pending: { title: req.title, body: req.body, confirmLabel: '', choices: req.choices, answer, resolve: (ok) => { if (!ok) answer(null); } } });
-  });
+ * [Cancel]; [Reload] [Overwrite]): the anchored choice popover (`askChoice`). Resolves the
+ * picked choice's id, or `null` for Cancel, Esc, a click outside or a newer question. */
+export function chooseAction(req: ChoiceRequest, origin: Origin | null = currentOrigin()): Promise<string | null> {
+  return askChoice({ title: req.title, body: req.body, choices: req.choices.map((c, i) => ({ ...c, primary: i === 0 && !c.danger })) }, origin).then((r) => r.choice);
 }
 
+/** The popover for a confirmation with no control to arm (board H). */
 export function ConfirmDialog() {
-  const pending = useConfirmStore((s) => s.pending);
-  if (!pending) return null;
-  return <ConfirmForm pending={pending} key={pending.title + pending.body} />;
+  const armed = useArm((s) => s.armed);
+  if (!armed || armed.mode !== 'popover') return null;
+  return <ConfirmPopover a={armed} key={armed.id} />;
 }
 
-function ConfirmForm({ pending }: { pending: Pending }) {
-  const done = (ok: boolean) => {
-    useConfirmStore.setState({ pending: null });
-    pending.resolve(ok);
-  };
-  // The trap returns focus to whatever opened the question when it closes.
-  const ref = useModalKeys<HTMLDivElement>(true, () => done(false));
+function ConfirmPopover({ a }: { a: Armed }) {
+  const cancel = () => a.resolve(false);
+  const ref = useModalKeys<HTMLDivElement>(true, cancel);
+  const anchor = useMemo(() => originRect(a.origin), [a.origin]);
+  const pos = usePopoverPlace(ref, anchor);
+  const latest = useRef(a);
+  latest.current = a;
+  // A press outside it cancels (the press carries on to whatever it hit).
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => { if (!insideArmed(latest.current, e.target)) latest.current.resolve(false); };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, []);
+  // Board H (started from the keyboard): the primary button takes the focus, so Enter goes. A
+  // popover that opens after a click's write (the control gone) focuses Cancel: a key pressed
+  // meanwhile mustn't run the destructive answer. After the focus trap's own focus (which,
+  // re-run, would put it on the first button: React's dev double effects).
+  useEffect(() => { ref.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true }); }, [ref]);
+  const tone = a.req.tone;
   return (
-    <div className="modal-backdrop" onPointerDown={() => done(false)}>
-      <div ref={ref} className="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" onPointerDown={(e) => e.stopPropagation()}>
-        <h2 id="confirm-title">{pending.title}</h2>
-        <p id="confirm-body">{pending.body}</p>
-        <div className="modal-actions">
-          {/* Cancel takes the initial focus, so an Enter that was meant for something else can't confirm. */}
-          <button type="button" autoFocus onClick={() => done(false)}>Cancel</button>
-          {pending.choices
-            ? pending.choices.map((c) => (
-              <button key={c.id} type="button" className={c.danger ? 'danger' : undefined} onClick={() => {
-                useConfirmStore.setState({ pending: null });
-                pending.answer!(c.id);
-              }}>{c.label}</button>
-            ))
-            : <button type="button" className={pending.danger ? 'danger' : undefined} onClick={() => done(true)}>{pending.confirmLabel}</button>}
-        </div>
+    <div
+      ref={ref}
+      data-arm-popover=""
+      className={`arm-popover tone-${tone}`}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-body"
+      style={pos ?? { opacity: 0, left: 0, top: 0 }}
+    >
+      <h2 id="confirm-title">{a.req.title}</h2>
+      <p id="confirm-body">{a.req.body}</p>
+      <div className="modal-actions">
+        {/* Only a fresh press after the popover opened answers it (the settle guard). */}
+        <button type="button" autoFocus={a.hints} data-autofocus={a.hints || undefined} className={tone === 'danger' ? 'danger' : tone === 'warn' ? 'warn' : 'positive'} onClick={(e) => { if (confirmable(e.nativeEvent, a)) a.resolve(true); }}>{a.req.confirmLabel}</button>
+        <button type="button" autoFocus={!a.hints} data-autofocus={!a.hints || undefined} onClick={cancel}>Cancel</button>
+        {a.hints && <span className="arm-hints" aria-hidden><kbd>⏎</kbd>go<kbd>Esc</kbd>cancel</span>}
       </div>
     </div>
   );

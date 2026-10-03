@@ -281,6 +281,9 @@ impl WriteIntent for RebaseIntent {
     fn undo(&self) -> Option<UndoKind> {
         Some(UndoKind::Rewind)
     }
+    fn rewrite(&self) -> Option<crate::write::rewrites::RewriteKind> {
+        Some(crate::write::rewrites::RewriteKind::Rebase)
+    }
     fn runs_hooks(&self) -> bool {
         true
     }
@@ -374,11 +377,49 @@ pub enum RebaseAction {
     Abort,
 }
 
-/// The banner's Continue, Skip and Abort (§13.2). Not journaled: the paused rebase's own entry
-/// settles in step 7b once the rebase is over.
+/// The commit panel's Continue, Skip and Abort (§13.2). Not journaled: the paused rebase's own
+/// entry settles in step 7b once the rebase is over.
 struct RebaseControl {
     action: RebaseAction,
     target: String,
+    /// Continue's message, as the commit panel shows it (ux round 1); `None`: git's own.
+    message: Option<String>,
+}
+
+/// Continue commits the stopped pick with the commit panel's message (the UI sends one only when
+/// the user edited it): git reads it from its own message file (`rebase-merge/message`, or
+/// `rebase-apply/final-commit`), so it goes there. At an `edit` stop (`rebase-merge/amend` names
+/// the commit git made) with nothing staged, Continue won't commit again, so the message is
+/// amended into HEAD, but only while HEAD is still that commit (git's own check): a commit the
+/// user made, split or reworded there is left alone. An unchanged message touches nothing.
+async fn use_message(cx: &mut WriteCx<'_>, message: &str) -> Result<(), GbError> {
+    let root = cx.root.to_path_buf();
+    let (git_dir, head, head_message) = blocking(move || {
+        let repo = gix::open(&root).map_err(gix_err)?;
+        let head = repo.head_id().ok().map(|id| id.to_string());
+        let msg = repo.head_commit().ok().and_then(|c| c.message_raw().ok().map(|m| m.to_string()));
+        Ok((repo.git_dir().to_path_buf(), head, msg))
+    })
+    .await?;
+    let text = format!("{}\n", message.trim_end());
+    let same = |old: &str| old.replace("\r\n", "\n").trim_end() == text.trim_end();
+    let merge = git_dir.join("rebase-merge");
+    if let Ok(amend) = std::fs::read_to_string(merge.join("amend")) {
+        let staged = cx.api.cli.run(GitInvocation::new(cx.root, ["diff", "--cached", "--name-only"])).await?;
+        if staged.stdout.iter().all(u8::is_ascii_whitespace) {
+            if head.as_deref() == Some(amend.trim()) && !head_message.as_deref().is_some_and(same) {
+                let inv = cx.git(["commit", "-q", "--amend", "--only", "--allow-empty", "-F", "-"]).stdin(text.into_bytes());
+                cx.run_git(inv).await?;
+                cx.touch(ChangeKind::Head);
+            }
+            return Ok(());
+        }
+    }
+    let file = if merge.is_dir() { merge.join("message") } else { git_dir.join("rebase-apply").join("final-commit") };
+    if same(&std::fs::read_to_string(&file).unwrap_or_default()) {
+        return Ok(());
+    }
+    std::fs::write(&file, &text).map_err(|e| GbError::new(GbErrorKind::Io, format!("{}: {e}", file.display())))
 }
 
 impl WriteIntent for RebaseControl {
@@ -415,6 +456,9 @@ impl WriteIntent for RebaseControl {
                 // Review N1: if the update list couldn't be pruned at GitBolt's pause, git moves
                 // the merged-in branches at the end; they go back here (only then, N6).
                 let keep = put_back_of_pause(cx)?;
+                if let Some(m) = self.message.as_deref().filter(|m| self.action == RebaseAction::Continue && !m.trim().is_empty()) {
+                    use_message(cx, m).await?;
+                }
                 let out = run_rebase(cx, vec!["rebase".into(), step.into()], &self.target, None).await?;
                 if matches!(out, IntegrateOutcome::Done { .. }) {
                     put_back(cx, &keep).await?;
@@ -433,11 +477,11 @@ impl WriteIntent for RebaseControl {
     }
 }
 
-pub(crate) async fn control(api: &Api, repo: u32, worktree: &str, action: RebaseAction) -> Result<WriteResult<IntegrateOutcome>, GbError> {
+pub(crate) async fn control(api: &Api, repo: u32, worktree: &str, action: RebaseAction, message: Option<String>) -> Result<WriteResult<IntegrateOutcome>, GbError> {
     let h = api.handle(repo)?;
     let root = api.worktree_dir(&h, worktree).await?;
     let target = api.journal(&root)?.load()?.paused().and_then(|e| e.paused.as_ref().map(|p| p.target.clone())).unwrap_or_default();
-    run_write(api, repo, worktree, Default::default(), RebaseControl { action, target }).await
+    run_write(api, repo, worktree, Default::default(), RebaseControl { action, target, message }).await
 }
 
 #[cfg(test)]
@@ -471,7 +515,53 @@ mod tests {
     }
 
     async fn control(api: &Api, id: u32, r: &Path, action: RebaseAction) -> serde_json::Value {
-        api.dispatch(Request::RebaseControl { repo: id, worktree: wt(r), action }).await.unwrap()
+        api.dispatch(Request::RebaseControl { repo: id, worktree: wt(r), action, message: None }).await.unwrap()
+    }
+
+    /// Ux round 1: Continue commits the stopped pick with the commit panel's edited message.
+    #[tokio::test]
+    async fn continue_uses_the_edited_message() {
+        let r = rebase_conflict();
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        rebase(&api, id, r.path(), "main", None).await.unwrap();
+        r.write("c.txt", "resolved\n");
+        r.git(&["add", "c.txt"]);
+        let res = api.dispatch(Request::RebaseControl { repo: id, worktree: wt(r.path()), action: RebaseAction::Continue, message: Some("Fix x properly\n\nWith a body.".into()) }).await.unwrap();
+        assert_eq!(res["outcome"]["status"], "done");
+        assert_eq!(r.git(&["log", "-1", "--format=%B"]).trim_end(), "Fix x properly\n\nWith a body.");
+    }
+
+    /// An `edit` stop (started outside GitBolt): git already made the commit, so an edited
+    /// message amends it before Continue.
+    #[tokio::test]
+    async fn continue_after_an_edit_stop_amends_the_message() {
+        let r = TestRepo::new();
+        r.commit("base");
+        r.commit("second");
+        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let res = api.dispatch(Request::RebaseControl { repo: id, worktree: wt(r.path()), action: RebaseAction::Continue, message: Some("second, renamed".into()) }).await.unwrap();
+        assert_eq!(res["outcome"]["status"], "done");
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "second, renamed");
+        assert_eq!(r.git(&["rev-list", "--count", "HEAD"]), "2");
+    }
+
+    /// Review 1: at an `edit` stop where the user committed again (a split), HEAD isn't the
+    /// commit git stopped at: Continue amends nothing, whatever message it's sent.
+    #[tokio::test]
+    async fn an_edit_stop_where_head_moved_is_not_amended() {
+        let r = TestRepo::new();
+        r.commit("base");
+        r.commit("second");
+        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        r.git(&["commit", "-q", "--allow-empty", "-m", "split piece"]);
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let res = api.dispatch(Request::RebaseControl { repo: id, worktree: wt(r.path()), action: RebaseAction::Continue, message: Some("second".into()) }).await.unwrap();
+        assert_eq!(res["outcome"]["status"], "done");
+        assert_eq!(r.git(&["log", "-2", "--format=%s"]), "split piece\nsecond", "the split piece kept its own message");
     }
 
     fn tips(r: &TestRepo) -> Vec<String> {

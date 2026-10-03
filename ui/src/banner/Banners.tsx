@@ -10,8 +10,9 @@ import { confirmAction } from '../ui/ConfirmDialog';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { journalKey, loadJournal, useJournal } from '../undo/store';
-import { runWrite, type WriteCtx } from '../write/client';
+import type { WriteCtx } from '../write/client';
 import { writeErrorContext } from '../write/indexLock';
+import { applyKeptStash } from '../stash/actions';
 import './banner.css';
 
 const NONE: Banner[] = [];
@@ -38,6 +39,7 @@ const BINARY_DROP = {
   title: 'Drop the stash?',
   body: 'Some conflicted files are binary: only the current version of those is kept, and the stash is the only copy of yours. Drop it anyway?',
   confirmLabel: 'Drop stash',
+  arm: 'Click again to drop the stash, your only copy of the binary files',
   danger: true,
 };
 
@@ -47,12 +49,14 @@ const dropSnapshot = (label: string) => ({
   title: 'Dismiss without restoring?',
   body: `The snapshot is the only copy of your changes from before ${label}. Once dismissed, GitBolt can't restore them.`,
   confirmLabel: 'Dismiss',
+  arm: 'Click again to dismiss: the snapshot is lost',
   danger: true,
 });
 
 function Row({ b, w }: { b: Banner; w: WriteCtx }) {
   // Apply (a kept stash) or Restore (a recovery entry's snapshot); its questions are runWrite's.
-  const apply = () => runWrite(w, (_, asked) => api.applyKeptStash(w.repoId, w.worktree, Number(b.entry), asked.withoutIndex, asked.autostash));
+  // Then the WIP row and the first restored file's diff, as a stash Apply/Pop (UX round 2).
+  const apply = () => applyKeptStash(w, Number(b.entry), b.stash);
   const dismiss = async (dropStash: boolean) => {
     if (dropStash && b.binary && !(await confirmAction(BINARY_DROP))) return;
     if (!dropStash && restore && !(await confirmAction(dropSnapshot(b.label)))) return;

@@ -8,10 +8,10 @@ const env = (over: object = {}) => ({ write: { tabId: 't', repoId: 1, worktree: 
 const t: CommitTarget = { sha: 'aaaaaaa1', mrRefs: [], isWip: false, isStash: false, branch: null };
 
 describe('Checkout ▸ and Reset (spec #2 §9.3, §9.4)', () => {
-  it('Checkout ▸ lists the branches at the commit, then the detached HEAD', () => {
+  it('Checkout ▸ lists the branches at the commit (not the checked-out one), then the detached HEAD', () => {
     const sub = buildMenu('commit', t, env()).find((r) => r.kind === 'submenu' && r.id === 'branch.checkout');
     expect(sub?.kind === 'submenu' && sub.rows.map((r) => (r.kind === 'action' ? [r.label, r.disabledReason ?? null] : r.kind))).toEqual([
-      ['main', 'Checked out'], ['feature/x', null], ['origin/only-remote', null], 'separator', ['Detached HEAD at aaaaaaa', null],
+      ['feature/x', null], ['origin/only-remote', null], 'separator', ['Detached HEAD at aaaaaaa', null],
     ]);
   });
   it('Reset X to this commit: Soft, Mixed, Hard, not on HEAD, greyed mid-rebase', () => {

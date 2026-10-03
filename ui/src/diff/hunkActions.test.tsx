@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Hunk } from '../api/gen/Hunk';
-import { HunkButtons, selectedChanges, wipSideOf } from './hunkActions';
+import { HunkButtons, hunkAt, selectedChanges, stagingMenuRows, wipSideOf } from './hunkActions';
+import type { MenuRow } from '../menu/types';
+import { provideStagingRows, stagingRows } from './stagingMenu';
+import { hunkHeader, zoneAfter } from './wipHunks';
 import { LineActionBar } from './LineActionBar';
 
 const hunks: Hunk[] = [
@@ -12,9 +15,9 @@ const rect = { top: 0, left: 0, bottom: 0 };
 
 describe('hunks and lines (spec #2 §7.3)', () => {
   it('counts only the changed lines a selection covers, on its side', () => {
-    expect(selectedChanges(hunks, { side: 'modified', start: 1, end: 30, rect })).toEqual({ old: [], new: [{ start: 5, end: 5 }, { start: 20, end: 21 }], count: 3 });
-    expect(selectedChanges(hunks, { side: 'original', start: 18, end: 22, rect })).toEqual({ old: [{ start: 20, end: 20 }], new: [], count: 1 });
-    expect(selectedChanges(hunks, { side: 'modified', start: 8, end: 12, rect }).count).toBe(0);
+    expect(selectedChanges(hunks, { side: 'modified', start: 1, end: 30 })).toEqual({ old: [], new: [{ start: 5, end: 5 }, { start: 20, end: 21 }], count: 3 });
+    expect(selectedChanges(hunks, { side: 'original', start: 18, end: 22 })).toEqual({ old: [{ start: 20, end: 20 }], new: [], count: 1 });
+    expect(selectedChanges(hunks, { side: 'modified', start: 8, end: 12 }).count).toBe(0);
   });
 
   it('knows a WIP diff’s side from its key, and nothing else', () => {
@@ -48,5 +51,50 @@ describe('hunks and lines (spec #2 §7.3)', () => {
     rerender(<LineActionBar rect={rect} apply={1} discard={1} staged canDiscard={false} reason={null} onApply={apply} onDiscard={() => {}} />);
     expect(screen.getByRole('button', { name: 'Unstage 1 line' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Discard/ })).toBeNull();
+  });
+
+  it("finds the hunk a line is in, on its side, context lines included; a header row's place and text", () => {
+    expect(hunkAt(hunks, 'modified', 2)).toBe(0);
+    expect(hunkAt(hunks, 'modified', 23)).toBe(1);
+    expect(hunkAt(hunks, 'original', 24)).toBe(-1);
+    expect(hunkAt(hunks, 'modified', 12)).toBe(-1);
+    expect(zoneAfter(17, 8)).toBe(16);
+    expect(zoneAfter(4, 0)).toBe(4);
+    expect(hunkHeader(hunks[1])).toBe('@@ -17,7 +17,8 @@');
+  });
+
+  const labels = (rows: MenuRow[]) => rows.map((r) => (r.kind === 'separator' ? '---' : r.label));
+
+  it("the editor menu's rows: this line / these lines, then the clicked line's hunk; staged ones unstage", () => {
+    const run = vi.fn();
+    const base = { hunks, staged: false, canDiscard: true, reason: null, run };
+    const one = stagingMenuRows({ ...base, span: { side: 'modified', start: 5, end: 5 }, hunk: 0 });
+    expect(labels(one)).toEqual(['Stage this line', 'Discard this line', '---', 'Stage hunk', 'Discard hunk']);
+    const first = one[0];
+    if (first.kind === 'action') first.run();
+    expect(run).toHaveBeenLastCalledWith({ kind: 'lines', old: [], new: [{ start: 5, end: 5 }] }, false);
+    const discardHunk = one[4];
+    if (discardHunk.kind === 'action') discardHunk.run();
+    expect(run).toHaveBeenLastCalledWith({ kind: 'hunks', hunks: [0] }, true);
+    expect(labels(stagingMenuRows({ ...base, span: { side: 'modified', start: 1, end: 30 }, hunk: -1 }))).toEqual(['Stage these lines', 'Discard these lines']);
+    // An unchanged line in a hunk: only the hunk. No hunk, nothing changed: no rows.
+    expect(labels(stagingMenuRows({ ...base, span: { side: 'modified', start: 3, end: 3 }, hunk: 0 }))).toEqual(['Stage hunk', 'Discard hunk']);
+    expect(stagingMenuRows({ ...base, span: { side: 'modified', start: 12, end: 12 }, hunk: -1 })).toEqual([]);
+    expect(labels(stagingMenuRows({ ...base, staged: true, canDiscard: false, span: { side: 'original', start: 20, end: 20 }, hunk: 1 }))).toEqual(['Unstage this line', '---', 'Unstage hunk']);
+    const disabled = stagingMenuRows({ ...base, reason: 'Save first', span: { side: 'modified', start: 5, end: 5 }, hunk: -1 });
+    expect(disabled.every((r) => r.kind === 'action' && r.disabledReason === 'Save first')).toBe(true);
+  });
+
+  it('the menu asks the installed provider for diff sides only; a stale removal leaves a newer one', () => {
+    const ev = { path: 'a.txt', side: 'modified' as const, line: 1, selection: null, selectionText: '', x: 0, y: 0 };
+    const rows: MenuRow[] = [{ kind: 'separator' }];
+    const drop = provideStagingRows(() => rows);
+    expect(stagingRows(ev)).toBe(rows);
+    expect(stagingRows({ ...ev, side: 'file' })).toEqual([]);
+    const dropNewer = provideStagingRows(() => []);
+    drop();
+    expect(stagingRows(ev)).toEqual([]);
+    dropNewer();
+    expect(stagingRows(ev)).toEqual([]);
   });
 });

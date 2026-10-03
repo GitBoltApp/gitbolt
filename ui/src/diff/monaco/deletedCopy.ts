@@ -22,6 +22,12 @@ export function lineOfSegment(segments: string[], lines: string[], at: number): 
   return lines.length - 1;
 }
 
+/** The change whose old lines a deleted-lines zone after modified line `after` shows: old lines
+ * show after the line above the change; a pure deletion reports that line itself. */
+export function zoneChange(diff: MonacoNs.editor.IDiffEditor, after: number): MonacoNs.editor.ILineChange | undefined {
+  return diff.getLineChanges()?.find((c) => c.originalEndLineNumber > 0 && (c.modifiedEndLineNumber === 0 ? c.modifiedStartLineNumber : c.modifiedStartLineNumber - 1) === after);
+}
+
 /**
  * A click on deleted lines (F25): in Inline and Hunk mode Monaco draws a change's old
  * lines in a view zone, which the editor's own selection skips. A click there copies the clicked
@@ -45,9 +51,7 @@ export function enableDeletedLineCopy(diff: MonacoNs.editor.IStandaloneDiffEdito
       const own = editor.getSelection();
       if (own && !own.isEmpty()) editor.setPosition({ lineNumber: own.selectionStartLineNumber, column: own.selectionStartColumn });
     } else if (sel && !sel.isCollapsed) return;
-    const after = e.target.detail.afterLineNumber;
-    // Old lines show after the line above the change; a pure deletion reports that line itself.
-    const change = diff.getLineChanges()?.find((c) => c.originalEndLineNumber > 0 && (c.modifiedEndLineNumber === 0 ? c.modifiedStartLineNumber : c.modifiedStartLineNumber - 1) === after);
+    const change = zoneChange(diff, e.target.detail.afterLineNumber);
     const model = diff.getOriginalEditor().getModel();
     if (!change || !model) return;
     const lines: string[] = [];

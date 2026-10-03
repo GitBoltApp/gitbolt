@@ -6,6 +6,8 @@ const stage = vi.hoisted(() => vi.fn(async () => true));
 const unstage = vi.hoisted(() => vi.fn(async () => true));
 const discard = vi.hoisted(() => vi.fn(async () => true));
 vi.mock('./actions', async (orig) => ({ ...(await orig<typeof import('./actions')>()), stagePaths: stage, unstageFiles: unstage, discardPaths: discard }));
+const confirm = vi.hoisted(() => vi.fn(async (_r: { arm: string }) => true));
+vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: confirm }));
 
 import { RowActions } from './RowActions';
 import { useStaging } from './store';
@@ -27,10 +29,16 @@ describe('row actions (spec #2 §7.1)', () => {
     expect(stage).toHaveBeenCalledWith(ctx, ['src/a.txt', 'src/b.txt']);
   });
 
-  it('an unstaged row discards at once, with no confirmation; a submodule row has no Discard', () => {
+  it('an unstaged row\'s Discard arms in place, then discards (board C); a submodule row has no Discard', async () => {
     render(<RowActions ctx={ctx} which="unstaged" files={[f('a.txt')]} name="a.txt" />);
     fireEvent.click(screen.getByRole('button', { name: 'Discard a.txt' }));
-    expect(discard).toHaveBeenCalledWith(ctx, ['a.txt']);
+    expect(confirm.mock.calls[0][0]).toMatchObject({ arm: 'Click again to discard a.txt', danger: true });
+    await vi.waitFor(() => expect(discard).toHaveBeenCalledWith(ctx, ['a.txt']));
+    confirm.mockResolvedValueOnce(false);
+    discard.mockClear();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Discard a.txt' })[0]);
+    await Promise.resolve();
+    expect(discard).not.toHaveBeenCalled();
     render(<RowActions ctx={ctx} which="unstaged" files={[{ ...f('sub'), submodule: true }]} name="sub" />);
     expect(screen.queryByRole('button', { name: 'Discard sub' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Stage sub' })).toBeInTheDocument();

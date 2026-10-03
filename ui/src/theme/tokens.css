@@ -156,3 +156,6 @@ body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var
   --stats-deleted-bright: #f0625d;
 }
 /* ---- end lane D block ---- */
+
+/* Controls are not text: no selecting button labels, toggles, tabs, menu items or checkbox labels. */
+button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="switch"], [role="radio"], label, summary, .icon-button { user-select: none; -webkit-user-select: none; }

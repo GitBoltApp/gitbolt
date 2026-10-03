@@ -10,6 +10,8 @@ import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { copyText } from '../api/transport';
 import { useToast } from '../ui/toast';
+import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
+import type { MenuRow } from '../menu/types';
 
 vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
 
@@ -93,20 +95,34 @@ describe('GraphView', () => {
     expect(rows[0]).not.toHaveTextContent(/^A/);
   });
 
-  it('a right-click on a selected row keeps the whole selection; on another row it selects that row alone, modifiers ignored (K27)', () => {
+  it('only the primary button selects: a right or middle press never changes the selection (K27, UX round 2)', () => {
     const onSelect = vi.fn();
-    const { rerender } = render(<GraphView graph={graph} repoId="/r" selected={0} alsoSelected={new Set([0])} onSelect={onSelect} />);
+    render(<GraphView graph={graph} repoId="/r" selected={0} alsoSelected={new Set([0])} onSelect={onSelect} />);
     const rows = screen.getAllByRole('row');
     fireEvent.mouseDown(rows[0], { button: 2 });
-    fireEvent.mouseDown(rows[0], { button: 2, ctrlKey: true });
-    expect(onSelect).not.toHaveBeenCalled();
     fireEvent.mouseDown(rows[1], { button: 2, ctrlKey: true, shiftKey: true });
-    expect(onSelect).toHaveBeenCalledWith(1, { ctrl: false, shift: false });
-    // A middle press is no Ctrl+ or Shift+click either.
-    onSelect.mockClear();
-    rerender(<GraphView graph={graph} repoId="/r" selected={1} onSelect={onSelect} />);
-    fireEvent.mouseDown(rows[0], { button: 1, shiftKey: true });
-    expect(onSelect).toHaveBeenCalledWith(0, { ctrl: false, shift: false });
+    fireEvent.mouseDown(rows[1], { button: 1, shiftKey: true });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('a right-click outlines its row while the menu it opened stays open, and never selects it (UX round 2)', () => {
+    useMenu.getState().close();
+    const onSelect = vi.fn();
+    const onContextMenu = vi.fn((e: MenuEventLike) => openContextMenu(e, (): MenuRow[] => [{ kind: 'separator' }]));
+    render(<GraphView graph={graph} repoId="/r" selected={0} onSelect={onSelect} onContextMenu={onContextMenu} />);
+    const rows = () => screen.getAllByRole('row');
+    fireEvent.mouseDown(rows()[1], { button: 2 });
+    fireEvent.contextMenu(rows()[1]);
+    expect(onContextMenu).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(rows()[1]).toHaveClass('is-context');
+    expect(rows()[1]).toHaveAttribute('aria-selected', 'false');
+    // Another row's menu moves the outline; closing the menu clears it.
+    fireEvent.contextMenu(rows()[0]);
+    expect(rows()[1]).not.toHaveClass('is-context');
+    expect(rows()[0]).toHaveClass('is-context');
+    act(() => useMenu.getState().close());
+    expect(document.querySelector('.is-context')).toBeNull();
   });
 
   it('Shift+↑/↓ extend the range: a Shift move from the keyboard position (K27)', () => {

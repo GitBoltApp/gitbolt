@@ -301,7 +301,9 @@ async fn collect_wip(cli: &GitCli, worktrees: &[Worktree], cache: Option<&WipCac
             }
         }
     });
-    futures_util::future::join_all(jobs).await.into_iter().flatten().filter(|(_, c)| !c.is_empty()).collect()
+    // A clean worktree has no WIP row, unless it's mid-operation: the row's commit panel holds the
+    // operation's Continue and Abort (ux round 1).
+    futures_util::future::join_all(jobs).await.into_iter().flatten().filter(|(i, c)| !c.is_empty() || crate::in_progress::mid_operation(&worktrees[*i].path)).collect()
 }
 
 fn default_trunk(refs: &RepoRefs) -> Option<String> {
@@ -535,6 +537,8 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
                 let in_progress = in_progress.get(&path).map(|s| match s {
                     crate::in_progress::InProgress::Merge { .. } => "merge".to_string(),
                     crate::in_progress::InProgress::Rebase { .. } => "rebase".to_string(),
+                    crate::in_progress::InProgress::CherryPick { .. } => "cherry-pick".to_string(),
+                    crate::in_progress::InProgress::Revert { .. } => "revert".to_string(),
                     crate::in_progress::InProgress::Other { what } => what.clone(),
                 });
                 GraphWorktree { path, branch: w.branch.clone(), head: w.head.map(|h| h.to_string()), is_main: w.is_main, locked: w.locked, in_progress }
@@ -1431,5 +1435,15 @@ mod tests {
         let (path, state) = g.in_progress.iter().next().unwrap();
         assert_eq!(Some(path.as_str()), g.open_worktree.as_deref());
         assert!(matches!(state, crate::in_progress::InProgress::Merge { conflicted: 1, .. }));
+        // Resolved and staged as HEAD's content: the worktree is clean, but still mid-merge, so
+        // its WIP row (and the commit panel's Commit and Abort) stays (ux round 1).
+        r.git(&["checkout", "--ours", "c.txt"]);
+        r.git(&["add", "c.txt"]);
+        assert_eq!(r.git(&["status", "--porcelain"]), "");
+        let g = build(&r, BuildOptions::default()).await;
+        assert!(g.rows.iter().any(|row| row.wip.is_some()), "the clean, mid-merge worktree keeps its WIP row");
+        r.git(&["merge", "--abort"]);
+        let g = build(&r, BuildOptions::default()).await;
+        assert!(!g.rows.iter().any(|row| row.wip.is_some()));
     }
 }

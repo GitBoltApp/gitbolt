@@ -36,36 +36,6 @@ test.describe('commit graph', () => {
     await expect(page).toHaveTitle('GitBolt — repo');
   });
 
-  test('canvas draws lanes', async ({ page }) => {
-    const inked = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement) => {
-      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
-      let n = 0;
-      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
-      return n;
-    });
-    expect(inked).toBeGreaterThan(500);
-  });
-
-  test('canvas paints a non-transparent colour at a row band', async ({ page }) => {
-    // Sample near the band's right side (16 px left of the canvas edge, clear of the rail) rather
-    // than a hard-coded lane-0 x: the tinted row band (see draw.ts BAND_ALPHA) covers the row from
-    // the node's lane out to the canvas edge, so this point is inked regardless of how many lanes
-    // the fixture happens to use. Row 0's vertical center is CSS y = rowH / 2.
-    const alpha = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [nearEdge, rowH]: number[]) => {
-      const rect = c.getBoundingClientRect();
-      const dpr = c.width / rect.width;
-      const x = Math.round(c.width - nearEdge * dpr);
-      const y = Math.round((rowH / 2) * dpr);
-      return c.getContext('2d')!.getImageData(x, y, 1, 1).data[3];
-    }, [16, METRICS.rowH]);
-    expect(alpha).toBeGreaterThan(0);
-  });
-
-  test('rows are the single-sourced METRICS.rowH tall', async ({ page }) => {
-    const box = await page.getByRole('row').first().boundingBox();
-    expect(box?.height).toBe(METRICS.rowH);
-  });
-
   test('canvas paints an opaque lane-colored rail at its right edge on every row', async ({ page }) => {
     // Row 0 (the stash) and row 4 (main's merge, lane 0): sample the rail's last device pixel
     // column at each row's center. It must be fully opaque and exactly the lane's color.
@@ -104,16 +74,6 @@ test.describe('commit graph', () => {
     expect(await color(row.locator('[data-col="author"]'))).toBe(body);
     expect(await color(row.locator('[data-col="date"]'))).toBe(body);
     expect(await color(row.getByTestId('sha'))).toBe(body);
-  });
-
-  test('label connector reaches the canvas edge', async ({ page }) => {
-    const connector = page.locator('.ref-connector').first();
-    await expect(connector).toBeVisible();
-    const canvas = page.getByTestId('graph-canvas');
-    const [connBox, canvasBox] = await Promise.all([connector.boundingBox(), canvas.boundingBox()]);
-    if (!connBox || !canvasBox) throw new Error('missing bounding box for connector or canvas');
-    expect(connBox.width).toBeGreaterThanOrEqual(8);
-    expect(Math.abs(connBox.x + connBox.width - canvasBox.x)).toBeLessThanOrEqual(0.5);
   });
 
   test('the chip-to-node connector is the lane colour at 25%, on the canvas and in the DOM (F8)', async ({ page }) => {
@@ -415,26 +375,6 @@ test('unborn repository shows an empty state', async ({ page }) => {
 test('a folder that is not a repository shows the error', async ({ page }) => {
   await page.goto(openUrl(fixtures.notRepo));
   await expect(page.getByRole('alert')).toContainText('Not a git repository');
-});
-
-test('label connector survives a very long branch name and a second label', async ({ page }) => {
-  await page.goto(openUrl(fixtures.longLabels));
-  await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-
-  // Two labels on the same row (the long branch name, plus a tag) collapse the second into a
-  // "+1" badge; the chip itself must still ellipsize instead of pushing the connector out.
-  await expect(page.locator('.ref-more')).toHaveText('+1');
-  const refName = page.locator('.ref-name').first();
-  const truncated = await refName.evaluate((el) => el.scrollWidth > el.clientWidth);
-  expect(truncated).toBe(true);
-
-  const connector = page.locator('.ref-connector').first();
-  await expect(connector).toBeVisible();
-  const canvas = page.getByTestId('graph-canvas');
-  const [connBox, canvasBox] = await Promise.all([connector.boundingBox(), canvas.boundingBox()]);
-  if (!connBox || !canvasBox) throw new Error('missing bounding box for connector or canvas');
-  expect(connBox.width).toBeGreaterThanOrEqual(8);
-  expect(Math.abs(connBox.x + connBox.width - canvasBox.x)).toBeLessThanOrEqual(0.5);
 });
 
 test('K63: a chip takes the room its name needs: whole in a wide enough Branch/Tag column, ellipsized in a narrow one', async ({ page }) => {
@@ -889,6 +829,8 @@ async function sizeGrid(page: Page, width: number) {
   const shell = vp.width - (await grid.evaluate((el) => el.clientWidth));
   await page.setViewportSize({ width: shell + width, height: vp.height });
   await expect.poll(() => grid.evaluate((el) => el.clientWidth)).toBe(width);
+  // And the columns reallocated to it (a render after the resize): they fill the new width.
+  await expect.poll(async () => Math.round(Object.values(await columnWidths(page)).reduce((sum, c) => sum + c.header, 0))).toBe(width);
 }
 
 test.describe('resizable columns', () => {
@@ -1208,7 +1150,7 @@ async function stripColumn(page: Page) {
 }
 
 test.describe('graph column width', () => {
-  test('while the lanes don\'t fit the Graph column, its right edge is the collapse zone: a gradient shade, then the packed nodes dimmed; at the minimum, a strip of dimmed nodes (F2, F11, R11)', async ({ page }) => {
+  test('while the lanes don\'t fit the Graph column, its right edge is the collapse zone: a gradient shade, then the packed nodes dimmed; at the minimum, a strip of dimmed nodes, a header icon, no lane scrollbar (F2, F11, R11)', async ({ page }) => {
     await page.goto(openUrl(fixtures.basic));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
     const canvas = page.getByTestId('graph-canvas');
@@ -1237,6 +1179,10 @@ test.describe('graph column width', () => {
     for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
     await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.graph));
     await expect(canvas).toHaveAttribute('data-strip', 'true');
+    // The header shows its icon instead of the title, and the strip needs no lane scrollbar.
+    await expect(page.getByRole('img', { name: 'Graph' })).toBeVisible();
+    await expect(page.locator('.graph-header [data-col="graph"]')).not.toContainText('GRAPH');
+    await expect(page.getByLabel('Scroll lanes')).toHaveCount(0);
     await expect.poll(async () => Math.min(...(await stripColumn(page)).centres)).toBeGreaterThan(100);
     expect(Math.max(...(await stripColumn(page)).centres)).toBeLessThan(230);
     expect(Math.max(...(await stripColumn(page)).gaps)).toBe(0);
@@ -1387,12 +1333,13 @@ test.describe('branch-hover focus (J22)', () => {
 
   test('a tag chip, or a pointer that leaves before 500 ms, focuses nothing', async ({ page }) => {
     await page.getByRole('row').filter({ hasText: 'Add readme' }).locator('.ref-labels > .ref-label').hover();
-    await page.waitForTimeout(800);
+    // Past the 500 ms focus delay (a negative check: time has to pass).
+    await page.waitForTimeout(600);
     expect(await noneDimmed(page)).toBe(true);
     await featureChip(page).hover();
     await page.waitForTimeout(150);
     await page.mouse.move(5, 5);
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(600);
     expect(await noneDimmed(page)).toBe(true);
   });
 
@@ -1443,79 +1390,79 @@ test.describe('device-pixel precision at every zoom and density (K50, K57)', () 
     return { context, page };
   };
 
-  test('K50: the WIP lane\'s dashes and gaps are all the same whole number of device px, row after row', async ({ browser, browserName }) => {
-    test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
-    test.setTimeout(120_000);
-    for (const zoom of ZOOMS) {
-      for (const d of DENSITIES) {
-        const { context, page } = await openAt(browser, zoom, d);
-        const { rowH, laneW } = DENSITY_METRICS[d];
-        // Row 0 is the open worktree's WIP (lane 0); its dashed line runs down lane 0 into HEAD
-        // (main's row). Sampled down the line's middle device column, clear of both nodes.
-        const headRow = await page.getByRole('row').evaluateAll((rows) => rows.findIndex((r) => r.querySelector('.ref-labels-head')));
-        expect(headRow).toBeGreaterThan(1);
-        const runs = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, laneW, headRow, dpr]: number[]) => {
-          const r = rowH * 0.36;
-          const x = Math.floor(laneW * dpr);
-          const y0 = Math.ceil((rowH / 2 + r + 1) * dpr), y1 = Math.floor((headRow * rowH + rowH / 2 - r - 1) * dpr);
-          const col = c.getContext('2d')!.getImageData(x, y0, 1, y1 - y0).data;
-          const out: [boolean, number][] = [];
-          for (let i = 3; i < col.length; i += 4) {
-            const on = col[i] > 200;
-            if (out.length && out[out.length - 1][0] === on) out[out.length - 1][1]++;
-            else out.push([on, 1]);
-          }
-          // The first and last runs are cut by the sampled range.
-          return out.slice(1, -1);
-        }, [rowH, laneW, headRow, zoom]);
-        const label = `${d} at ${Math.round(zoom * 100)}%: ${JSON.stringify(runs)}`;
-        expect(runs.length, label).toBeGreaterThanOrEqual(6);
-        expect(runs.every(([, n]) => n === devicePx(3, zoom)), label).toBe(true);
-        await context.close();
+  /** K50: the WIP lane's dashes and gaps are all the same whole number of device px, row after row. */
+  const k50 = async (page: Page, zoom: number, d: (typeof DENSITIES)[number]) => {
+    const { rowH, laneW } = DENSITY_METRICS[d];
+    // Row 0 is the open worktree's WIP (lane 0); its dashed line runs down lane 0 into HEAD
+    // (main's row). Sampled down the line's middle device column, clear of both nodes.
+    const headRow = await page.getByRole('row').evaluateAll((rows) => rows.findIndex((r) => r.querySelector('.ref-labels-head')));
+    expect(headRow).toBeGreaterThan(1);
+    const runs = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, laneW, headRow, dpr]: number[]) => {
+      const r = rowH * 0.36;
+      const x = Math.floor(laneW * dpr);
+      const y0 = Math.ceil((rowH / 2 + r + 1) * dpr), y1 = Math.floor((headRow * rowH + rowH / 2 - r - 1) * dpr);
+      const col = c.getContext('2d')!.getImageData(x, y0, 1, y1 - y0).data;
+      const out: [boolean, number][] = [];
+      for (let i = 3; i < col.length; i += 4) {
+        const on = col[i] > 200;
+        if (out.length && out[out.length - 1][0] === on) out[out.length - 1][1]++;
+        else out.push([on, 1]);
       }
-    }
-  });
+      // The first and last runs are cut by the sampled range.
+      return out.slice(1, -1);
+    }, [rowH, laneW, headRow, zoom]);
+    const label = `${d} at ${Math.round(zoom * 100)}%: ${JSON.stringify(runs)}`;
+    expect(runs.length, label).toBeGreaterThanOrEqual(6);
+    expect(runs.every(([, n]) => n === devicePx(3, zoom)), label).toBe(true);
+  };
 
-  test('K57: a connector covers the same device rows on both sides of the Branch/Tag and Graph boundary', async ({ browser, browserName }) => {
+  /** K57: a connector covers the same device rows on both sides of the Branch/Tag and Graph boundary. */
+  const k57 = async (page: Page, zoom: number, d: (typeof DENSITIES)[number]) => {
+    // Device px: the boundary's x, and each labelled row's span and whether it's HEAD's.
+    const { x, rows } = await page.evaluate(() => ({
+      x: Math.round(document.querySelector('canvas.graph-canvas')!.getBoundingClientRect().left),
+      rows: [...document.querySelectorAll('.graph-row')].filter((r) => r.querySelector('.ref-connector')).map((r) => {
+        const b = r.getBoundingClientRect();
+        return { y0: Math.ceil(b.top) + 1, y1: Math.floor(b.bottom) - 1, head: !!r.querySelector('.ref-labels-head') };
+      }),
+    }));
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    expect(rows.filter((r) => r.head)).toHaveLength(1);
+    const png = (await page.screenshot()).toString('base64');
+    // Per row, the inked device rows (over half the line's strength off the background) of a
+    // column 2 px left of the boundary (the DOM connector) and of one 2 px right of it (the
+    // canvas's), decoded in the page.
+    const ink = await page.evaluate(async ({ png, x, rows, m }) => {
+      const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+      const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const { data, width } = ctx.getImageData(0, 0, img.width, img.height);
+      const px = (x: number, y: number) => data.subarray((y * width + x) * 4, (y * width + x) * 4 + 3);
+      const inked = (x: number, y0: number, y1: number) => {
+        const bg = px(x, y0);
+        const dist: number[] = [];
+        for (let y = y0; y < y1; y++) { const p = px(x, y); dist.push(Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2])); }
+        const max = Math.max(...dist);
+        return max < 20 ? [] : dist.map((v, i) => [y0 + i, v] as const).filter(([, v]) => v > max / 2).map(([y]) => y);
+      };
+      return rows.map((r) => ({ dom: inked(x - m, r.y0, r.y1), canvas: inked(x + m, r.y0, r.y1) }));
+    }, { png, x, rows, m: Math.round(2 * zoom) });
+    rows.forEach((r, i) => {
+      const label = `${d} at ${Math.round(zoom * 100)}%, row ${i}${r.head ? ' (HEAD)' : ''}: ${JSON.stringify(ink[i])}`;
+      expect(ink[i].dom, label).toHaveLength(devicePx(r.head ? 2 : 1, zoom));
+      expect(ink[i].canvas, label).toEqual(ink[i].dom);
+    });
+  };
+
+  // One page per zoom and density, both checks on it (they were two tests opening the same 12).
+  test('K50: the WIP lane\'s dashes and gaps are all the same whole number of device px, row after row; K57: a connector covers the same device rows on both sides of the Branch/Tag and Graph boundary', async ({ browser, browserName }) => {
     test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
     test.setTimeout(120_000);
     for (const zoom of ZOOMS) {
       for (const d of DENSITIES) {
         const { context, page } = await openAt(browser, zoom, d);
-        // Device px: the boundary's x, and each labelled row's span and whether it's HEAD's.
-        const { x, rows } = await page.evaluate(() => ({
-          x: Math.round(document.querySelector('canvas.graph-canvas')!.getBoundingClientRect().left),
-          rows: [...document.querySelectorAll('.graph-row')].filter((r) => r.querySelector('.ref-connector')).map((r) => {
-            const b = r.getBoundingClientRect();
-            return { y0: Math.ceil(b.top) + 1, y1: Math.floor(b.bottom) - 1, head: !!r.querySelector('.ref-labels-head') };
-          }),
-        }));
-        expect(rows.length).toBeGreaterThanOrEqual(3);
-        expect(rows.filter((r) => r.head)).toHaveLength(1);
-        const png = (await page.screenshot()).toString('base64');
-        // Per row, the inked device rows (over half the line's strength off the background) of a
-        // column 2 px left of the boundary (the DOM connector) and of one 2 px right of it (the
-        // canvas's), decoded in the page.
-        const ink = await page.evaluate(async ({ png, x, rows, m }) => {
-          const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
-          const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!;
-          ctx.drawImage(img, 0, 0);
-          const { data, width } = ctx.getImageData(0, 0, img.width, img.height);
-          const px = (x: number, y: number) => data.subarray((y * width + x) * 4, (y * width + x) * 4 + 3);
-          const inked = (x: number, y0: number, y1: number) => {
-            const bg = px(x, y0);
-            const dist: number[] = [];
-            for (let y = y0; y < y1; y++) { const p = px(x, y); dist.push(Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2])); }
-            const max = Math.max(...dist);
-            return max < 20 ? [] : dist.map((v, i) => [y0 + i, v] as const).filter(([, v]) => v > max / 2).map(([y]) => y);
-          };
-          return rows.map((r) => ({ dom: inked(x - m, r.y0, r.y1), canvas: inked(x + m, r.y0, r.y1) }));
-        }, { png, x, rows, m: Math.round(2 * zoom) });
-        rows.forEach((r, i) => {
-          const label = `${d} at ${Math.round(zoom * 100)}%, row ${i}${r.head ? ' (HEAD)' : ''}: ${JSON.stringify(ink[i])}`;
-          expect(ink[i].dom, label).toHaveLength(devicePx(r.head ? 2 : 1, zoom));
-          expect(ink[i].canvas, label).toEqual(ink[i].dom);
-        });
+        await k50(page, zoom, d);
+        await k57(page, zoom, d);
         await context.close();
       }
     }

@@ -3,20 +3,26 @@ import { api } from '../api/client';
 import { selectCommit } from '../app/graphNav';
 import { useRuntime, worktreeOf } from '../app/runtime';
 import type { TabSlotProps } from '../app/slots';
-import { focusCommitBox } from '../commit/CommitBox';
 import { useRepoView } from '../repo/store';
-import { HoverTooltip } from '../ui/HoverTooltip';
 import { journalKey, useJournal } from '../undo/store';
 import { runWrite, type WriteCtx } from '../write/client';
-import { bannerText, inProgressOf, useIntegrating } from './inProgress';
-import { applyMergeDraft, markAborting, restoreDraftAfterAbort, settleDraftAside } from './mergeDraft';
-import './conflicts.css';
+import { inProgressOf, operationView, useIntegrating } from './inProgress';
+import { applyMergeDraft, settleDraftAside } from './mergeDraft';
 
 /** Journal entries already settled (Deviation 4): once per paused entry. */
 const settled = new Set<string>();
+/** Stops already shown: the WIP is selected once per stop (ux round 1). */
+const shown = new Set<string>();
 
-/** §13.2's banner, in the tab's `banner` slot, while the active worktree is mid-operation and
- * no merge, rebase or pull op of the repo is running (those states are transient). */
+/**
+ * §13.2's watcher, in the tab's `banner` slot, while the active worktree is mid-operation. It
+ * draws nothing: the operation's status and its Continue, Skip and Abort live in the commit
+ * panel (ux round 1: a window-wide bar pushed the whole interface down). It
+ * - selects the WIP row once per stop, so that panel shows;
+ * - settles a paused entry whose operation ended outside GitBolt;
+ * - adds MERGE_MSG to the WIP draft once per merge (§8.2).
+ * It waits while a merge, rebase or pull op of the repo runs (those states are transient).
+ */
 export function ConflictBanner({ tab }: TabSlotProps) {
   const rt = useRuntime((s) => s.tabs[tab.id]);
   const worktree = worktreeOf(rt);
@@ -30,6 +36,9 @@ export function ConflictBanner({ tab }: TabSlotProps) {
   const mergeHead = p?.kind === 'merge' ? p.mergeHead : null;
   const mergeMsg = p?.kind === 'merge' ? p.message : '';
   const none = p === null;
+  const stop = p ? operationView(p, null, null, () => null).stop : null;
+  const wipId = graph.rows.find((r) => r.wip?.worktreePath === worktree)?.id ?? null;
+  const onWip = useRepoView((s) => s.selection?.kind === 'wip' && s.selection.worktree === worktree);
 
   // Deviation 4: the operation ended outside GitBolt while its journal entry is paused → settle
   // once per entry (it restores the autostash).
@@ -53,50 +62,16 @@ export function ConflictBanner({ tab }: TabSlotProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoPath, worktree, busy, mergeHead, none]);
 
-  if (!ctx || !p || busy) return null;
-  const subjectOf = (sha: string) => graph.rows.find((r) => r.id === sha)?.summary ?? null;
-  const nameAt = (sha: string) => {
-    const row = graph.rows.findIndex((r) => r.id === sha);
-    const here = graph.labels.filter((l) => l.row === row && !l.tag);
-    const local = here.find((l) => l.local)?.local?.replace(/^refs\/heads\//, '');
-    const remote = here.flatMap((l) => l.remotes)[0]?.fullName.replace(/^refs\/remotes\//, '');
-    return local ?? remote ?? null;
-  };
-  const text = bannerText(p, paused, graph.worktrees.find((w) => w.path === ctx.worktree)?.branch ?? null, subjectOf, nameAt);
-  const conflicted = 'conflicted' in p ? p.conflicted : 0;
-  const blocked = conflicted > 0 ? `Resolve ${conflicted} conflicted ${conflicted === 1 ? 'file' : 'files'} first` : null;
-  const control = (action: 'continue' | 'skip' | 'abort') => () => void runWrite(ctx, () => api.rebaseControl(ctx.repoId, ctx.worktree, action));
-  const gated = (label: string, run: () => void) => (
-    <HoverTooltip content={blocked ?? label}>
-      <button type="button" className="primary" aria-disabled={blocked ? true : undefined} onClick={() => !blocked && run()}>{label}</button>
-    </HoverTooltip>
-  );
-  const commit = () => {
-    const wip = graph.rows.find((r) => r.wip?.worktreePath === ctx.worktree);
-    if (wip) selectCommit(tab.id, wip.id);
-    focusCommitBox(tab.id);
-  };
-  const abortMerge = () => {
-    markAborting(repoPath, ctx.worktree, true);
-    void runWrite(ctx, () => api.mergeAbort(ctx.repoId, ctx.worktree), { onSuccess: () => restoreDraftAfterAbort(repoPath, ctx.worktree) }).finally(() => markAborting(repoPath, ctx.worktree, false));
-  };
-  const label = p.kind === 'merge' ? 'Merge in progress' : p.kind === 'rebase' ? 'Rebase in progress' : 'Operation in progress';
-  return (
-    <section className="conflict-banner" aria-label={label}>
-      <span className="conflict-banner-text">{text}</span>
-      {p.kind === 'merge' && (
-        <>
-          {gated('Commit', commit)}
-          <button type="button" onClick={abortMerge}>Abort</button>
-        </>
-      )}
-      {p.kind === 'rebase' && (
-        <>
-          {gated('Continue', control('continue'))}
-          <button type="button" onClick={control('skip')}>Skip</button>
-          <button type="button" onClick={control('abort')}>Abort</button>
-        </>
-      )}
-    </section>
-  );
+  // Ux round 1: a new stop selects the WIP row, whose commit panel holds the operation.
+  useEffect(() => {
+    if (!stop || busy || !wipId) return;
+    const id = `${tab.id}\u0000${worktree}\u0000${stop}`;
+    if (shown.has(id)) return;
+    shown.add(id);
+    // Already there (a click beat it): selecting it again would close the open diff.
+    if (!onWip) selectCommit(tab.id, wipId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id, worktree, stop, busy, wipId]);
+
+  return null;
 }

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test, type Page } from './test';
+import { expect, test, type Page, confirmArmed, armedOverlay } from './test';
 import { freshFixture, openUrl } from './fixtures';
 
 const modified = (page: Page) => page.locator('.diff-panel .editor.modified .view-lines').first();
@@ -39,7 +39,9 @@ test.describe('the editable working copy (spec #2 §7.5)', () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByTestId('diff-path')).toContainText('space name.txt');
     await unstagedRow(page, 'new.txt').click();
-    await page.getByRole('button', { name: 'Discard edits' }).click();
+    // A risky choice arms in place inside the popover (board G).
+    await confirmArmed(page.getByRole('button', { name: 'Discard edits' }));
+    await confirmArmed(armedOverlay(page, 'Click again to discard edits'));
     await expect(page.getByTestId('diff-path')).toContainText('new.txt');
   });
 
@@ -52,7 +54,8 @@ test.describe('the editable working copy (spec #2 §7.5)', () => {
     writeFileSync(join(repo, 'space name.txt'), 'changed outside\n');
     await page.keyboard.press('Control+s');
     await expect(page.getByRole('alertdialog')).toContainText('space name.txt changed on disk');
-    await page.getByRole('button', { name: 'Overwrite' }).click();
+    await confirmArmed(page.getByRole('button', { name: 'Overwrite' }));
+    await confirmArmed(armedOverlay(page, 'Click again to overwrite'));
     await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
     expect(readFileSync(join(repo, 'space name.txt'), 'utf8')).toContain('mine ');
   });

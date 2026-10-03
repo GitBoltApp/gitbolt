@@ -1,4 +1,4 @@
-import { expect, test } from './test';
+import { expect, test, confirmArmed, armedOverlay } from './test';
 import { git } from './fixtures';
 import { fileRow, fileRowSelector, openWip, section, timedClick } from './wip';
 
@@ -43,7 +43,7 @@ test.describe('WIP staging (spec #2 §7.1, §7.2)', () => {
     await expect(page.getByTestId('diff-path')).toContainText('space name.txt');
   });
 
-  test('budget (§16): stage a file < 100 ms, best of 3', async ({ page }) => {
+  test('budget (§16): stage a file < 100 ms, best of 3', { tag: '@budget' }, async ({ page }) => {
     await openWip(page);
     const runs: number[] = [];
     for (let i = 0; i < 3; i++) {
@@ -63,7 +63,7 @@ test.describe('Conflicted, discards and the file menu (spec #2 §7.1, §7.2)', (
   test('conflicted files come first, in their own section, with their kind', async ({ page }) => {
     await openWip(page, 'wip_conflict');
     await expect(section(page, 'conflicted')).toContainText('Conflicted (1)');
-    await expect(fileRow(page, 'conflicted', 'c.txt')).toContainText('both modified');
+    await expect(fileRow(page, 'conflicted', 'c.txt')).toContainText('changed in both');
     await expect(fileRow(page, 'unstaged', 'c.txt')).toHaveCount(0);
     await expect(fileRow(page, 'unstaged', 'side.txt')).toBeVisible();
   });
@@ -76,24 +76,28 @@ test.describe('Conflicted, discards and the file menu (spec #2 §7.1, §7.2)', (
     expect(git(repo, 'diff', '--name-only', '--diff-filter=U')).toBe('c.txt');
   });
 
-  test('a row’s Discard needs no confirmation; Discard unstaged keeps the staged half', async ({ page }) => {
+  test('a row’s Discard arms in place; Discard unstaged keeps the staged half', async ({ page }) => {
     const repo = await openWip(page);
     await fileRow(page, 'unstaged', 'space name.txt').hover();
     await page.getByRole('button', { name: 'Discard space name.txt' }).click();
+    await confirmArmed(armedOverlay(page, 'Click again to discard space name.txt'));
     await expect(fileRow(page, 'unstaged', 'space name.txt')).toHaveCount(0);
     await section(page, 'unstaged').getByRole('button', { name: 'Discard unstaged' }).click();
     await expect(section(page, 'unstaged').locator('.file-row')).toHaveCount(0);
     expect(git(repo, 'status', '--porcelain')).toBe('M  notes.txt');
   });
 
-  test('Discard all confirms', async ({ page }) => {
+  test('Discard all arms in place: Esc disarms, a second click discards', async ({ page }) => {
     const repo = await openWip(page);
     await page.getByTestId('wip-header').getByRole('button', { name: 'Discard all' }).click();
-    await expect(page.getByRole('alertdialog')).toContainText('Staged, unstaged and untracked changes are removed. You can undo this.');
-    await page.getByRole('button', { name: 'Cancel' }).click();
+    const armed = armedOverlay(page, /^Click again to discard \d+ files?$/);
+    await expect(armed).toBeVisible();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(armed).toBeHidden();
     expect(git(repo, 'status', '--porcelain')).not.toBe('');
     await page.getByTestId('wip-header').getByRole('button', { name: 'Discard all' }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard all' }).click();
+    await confirmArmed(armed);
     await expect.poll(() => git(repo, 'status', '--porcelain')).toBe('');
   });
 

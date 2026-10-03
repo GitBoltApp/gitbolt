@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import { buildPanels, folderKey, sectionKey, sectionsOf, type Panel } from './model';
 
-const branch = (name: string, tipTime: number, extra: object = {}) => ({ name, fullName: `refs/heads/${name}`, target: name.padEnd(40, '0'), upstream: null, ahead: 0, behind: 0, gone: false, tipTime, summary: `tip of ${name}`, author: 'Ada', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, ...extra });
+const branch = (name: string, tipTime: number, extra: object = {}) => ({ name, fullName: `refs/heads/${name}`, target: name.padEnd(40, '0'), upstream: null, ahead: 0, behind: 0, gone: false, tipTime, summary: `tip of ${name}`, author: 'Ada', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, rewritten: null, ...extra });
 const payload: SidebarPayload = {
   locals: [branch('feature/login', 30), branch('feature/pay/v2', 10), branch('main', 20, { isHead: true })],
   remotes: [{ name: 'origin', host: null, hostKind: 'gitlab', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main', target: 'm'.repeat(40), tipTime: 20, summary: 's', author: 'a' }] }],

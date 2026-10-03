@@ -1,5 +1,5 @@
 import { freshFixture, git, openUrl, originGit } from './fixtures';
-import { expect, test } from './test';
+import { expect, test, confirmArmed, armedOverlay } from './test';
 
 test.describe('push (spec #2 §12.3, §12.4)', () => {
   test('push dev shows the server output link and the warning toast', async ({ page }) => {
@@ -33,16 +33,18 @@ test.describe('push (spec #2 §12.3, §12.4)', () => {
     expect(originGit(repo, 'rev-parse', 'feature/new')).toBe(git(repo, 'rev-parse', 'feature/new'));
   });
 
-  test('a rejected push offers force-with-lease, confirmed', async ({ page }) => {
+  test('a rejected push is a choice at the Push button; Force push (with lease) arms first', async ({ page }) => {
     const repo = freshFixture('sync');
     git(repo, 'fetch', '-q', 'origin');
     git(repo, 'commit', '-q', '--allow-empty', '-m', 'local only');
     await page.goto(openUrl(repo));
     await page.getByRole('button', { name: 'Push', exact: true }).click();
-    await page.getByRole('status').getByRole('button', { name: 'Force push…' }).click();
-    const confirm = page.getByRole('alertdialog');
-    await expect(confirm).toContainText("Force push main to origin/main? It replaces 1 commit on origin/main that isn't in main. A push can't be undone.");
-    await confirm.getByRole('button', { name: 'Force push' }).click();
+    const choice = page.getByRole('alertdialog');
+    await expect(choice).toContainText("origin/main has commits main doesn't have");
+    // The safe choice first, and focused (board G).
+    await expect(choice.getByRole('button', { name: 'Pull' })).toBeFocused();
+    await confirmArmed(choice.getByRole('button', { name: 'Force push (with lease)' }));
+    await confirmArmed(armedOverlay(page, 'Click again to force push: replaces 1 commit'));
     await expect.poll(() => originGit(repo, 'rev-parse', 'main')).toBe(git(repo, 'rev-parse', 'main'));
   });
 
@@ -89,7 +91,7 @@ test.describe('fetch and pull (spec #2 §12.1, §12.2)', () => {
     await page.getByRole('button', { name: 'Pull', exact: true }).click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('diverged and origin/diverged have diverged (1 ahead, 1 behind).');
-    await dialog.getByRole('button', { name: 'Rebase' }).click();
+    await confirmArmed(dialog.getByRole('button', { name: 'Rebase' }));
     await expect.poll(() => git(repo, 'rev-list', '--count', '--merges', 'origin/diverged..diverged')).toBe('0');
     expect(git(repo, 'rev-list', '--count', 'origin/diverged..diverged')).toBe('1');
   });

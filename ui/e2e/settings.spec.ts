@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { DENSITY_STORAGE_KEY } from '../src/theme/density';
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test } from './test';
+import { expect, test, confirmArmed, armedOverlay } from './test';
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Settings' });
 const open = async (page: Page, path = freshFixture('basic')) => {
@@ -112,15 +112,18 @@ test.describe('settings', () => {
     await expect(dialog(page).getByLabel('Custom editor command')).toHaveValue('/bin/echo --goto {file}:{line}');
   });
 
-  test('reset asks first', async ({ page }) => {
+  test('reset arms in place first; Esc disarms it and leaves Settings open', async ({ page }) => {
     await open(page);
     await openSettings(page);
     await pick(page, 'Date format', '09/26/2026 3:14 PM');
     await dialog(page).getByRole('button', { name: /Reset settings to defaults/ }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel' }).click();
+    const armed = armedOverlay(page, 'Click again to reset every setting here to its default');
+    await expect(armed).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(armed).toBeHidden();
     await expect(dialog(page).getByLabel('Date format')).toHaveText('09/26/2026 3:14 PM');
     await dialog(page).getByRole('button', { name: /Reset settings to defaults/ }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Reset' }).click();
+    await confirmArmed(armed);
     await expect(dialog(page).getByLabel('Date format')).toHaveText('2026-09-26 @ 3:14 PM');
   });
 

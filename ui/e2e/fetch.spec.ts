@@ -226,7 +226,8 @@ test.describe('fetch', () => {
     await page.evaluate(() => { window.__gbTestMinimized = true; });
     pushFromElsewhere(repo, 'Fetched in the background');
     await page.evaluate(() => window.__gb!.setSettings({ fetchIntervalSecs: 30 }));
-    await page.waitForTimeout(2500);
+    // A negative check: time has to pass. A fetch from the local origin shows well within it.
+    await page.waitForTimeout(1500);
     await expect(page.getByText('Fetched in the background')).toHaveCount(0);
     // Restored: the focus comes back, and the missed tick is replayed. The next regular tick is
     // 60 s away (30 is clamped to 60), so only the replay can fetch within the wait below.

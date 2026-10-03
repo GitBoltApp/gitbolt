@@ -69,6 +69,9 @@ pub struct LocalBranch {
     /// `None` when that ref doesn't exist yet.
     pub push_behind: Option<u32>,
     // --- end 2D T11 ---
+    /// GitBolt rewrote it since its last push (a live rewrite mark, §12.3): Push forces with
+    /// the lease recorded then when `push_behind` > 0.
+    pub rewritten: Option<crate::write::rewrites::Rewritten>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -259,6 +262,7 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
                 checked_out: checked_out.get(&full).cloned(),
                 push_target: None,
                 push_behind: None,
+                rewritten: None,
                 target,
                 full_name: full,
             });

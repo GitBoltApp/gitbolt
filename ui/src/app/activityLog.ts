@@ -80,3 +80,31 @@ export function entryText(e: ActivityEntry, now = Date.now()): string {
 export function allText(entries: ActivityEntry[], now = Date.now()): string {
   return entries.map((e) => entryText(e, now)).join('\n\n');
 }
+
+/** A background op that didn't fail: the routine noise "Hide background" hides. */
+export const quietBackground = (e: ActivityEntry) => e.background && e.outcome !== 'failed';
+
+/** Two quiet background runs one row can stand for: same op on the same repo, same command, nothing of their own to show. */
+const sameRun = (a: ActivityEntry, b: ActivityEntry) =>
+  quietBackground(a) && quietBackground(b) && a.kind === b.kind && a.label === b.label && a.outcome === b.outcome && a.command === b.command
+  && !a.message && !b.message && !a.output.length && !b.output.length && !a.remote.length && !b.remote.length;
+
+export interface ActivityFilter { errorsOnly: boolean; hideBackground: boolean; focusOp: number | null }
+
+/**
+ * The Activity tab's rows, newest first: each is one entry, or a run of consecutive identical
+ * quiet background ones (newest first, shown as one row with ×N). `errorsOnly` keeps failures,
+ * `hideBackground` drops quiet background ops; the focused op always shows, on a row of its own.
+ */
+export function activityRows(activity: ActivityEntry[], { errorsOnly, hideBackground, focusOp }: ActivityFilter): ActivityEntry[][] {
+  const rows: ActivityEntry[][] = [];
+  for (const e of activity) {
+    const focus = e.op === focusOp;
+    if (!focus && errorsOnly && e.outcome !== 'failed') continue;
+    if (!focus && hideBackground && quietBackground(e)) continue;
+    const prev = rows[rows.length - 1];
+    if (prev && !focus && prev[0].op !== focusOp && sameRun(prev[0], e)) prev.push(e);
+    else rows.push([e]);
+  }
+  return rows;
+}

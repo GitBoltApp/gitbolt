@@ -1,19 +1,18 @@
-import { Check, CircleSlash, ClipboardCopy, Copy, FolderOpen, Gauge, TriangleAlert, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ClipboardCopy, FolderOpen, Gauge, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
-import type { OpOutcome } from '../api/gen/OpOutcome';
 import type { RemoteLine } from '../api/gen/RemoteLine';
 import { track } from '../debug/actionLog';
 import { ActionLogView } from '../debug/ActionLogView';
 import { CommandLogView } from '../debug/CommandLogView';
+import { clockTime, DebugCheck, DebugRow, type Pill } from '../debug/DebugRow';
 import { copyDiagnostics, openLogsFolder } from '../debug/diagnostics';
 import { toastActionError } from '../debug/errorToast';
-import { allText, copyAndSay, entryText, relativeTime, seconds, useActivityUi, type DebugView } from './activityLog';
+import { activityRows, allText, copyAndSay, useActivityUi, type DebugView } from './activityLog';
 import { useModalKeys } from './modalKeys';
-import { useOps } from './ops';
+import { useOps, type ActivityEntry } from './ops';
 import './activity.css';
 
-const ICON: Record<OpOutcome, LucideIcon> = { ok: Check, failed: TriangleAlert, cancelled: CircleSlash, skipped: CircleSlash };
 const TABS: Array<[DebugView, string]> = [['activity', 'Activity'], ['commands', 'Commands'], ['actions', 'Actions']];
 
 /** Stable (R25, the N1 lesson): the modal-keys registration never re-runs for a new `close`. */
@@ -45,48 +44,70 @@ function ServerOutput({ lines, open }: { lines: RemoteLine[]; open: boolean }) {
   );
 }
 
-/** K101's timeline: every finished fetch and clone, newest first. */
+const lines = (n: number) => `${n} ${n === 1 ? 'line' : 'lines'}`;
+
+/** An entry's expanded part: its command and message, the server's lines, its hook/progress output. */
+function ActivityDetail({ e, runs, focused }: { e: ActivityEntry; runs: ActivityEntry[]; focused: boolean }) {
+  return (
+    <>
+      {runs.length > 1 && <div className="debug-detail-head">{`${runs.length} identical runs, the oldest at ${clockTime(runs[runs.length - 1].at)}`}</div>}
+      {(e.command || e.message) && (
+        <pre className="activity-msg">
+          {e.command && <span className="activity-cmd debug-cmd-line">$ {e.command}</span>}
+          {e.command && e.message ? '\n' : ''}
+          {e.message && <span className={e.outcome === 'failed' ? 'debug-err' : undefined}>{e.message}</span>}
+        </pre>
+      )}
+      {e.remote.length > 0 && <ServerOutput lines={e.remote} open={focused} />}
+      {e.output.length > 0 && (
+        <>
+          <div className="debug-detail-head">{`Output (${lines(e.output.length)})`}</div>
+          <pre className="activity-output">{e.output.join('\n')}</pre>
+        </>
+      )}
+    </>
+  );
+}
+
+/** K101's timeline: every finished op, newest first. Quiet background ops are hidden by default,
+ * and identical consecutive ones share a row (×N) when shown. */
 function ActivityView() {
   const activity = useOps((s) => s.activity);
   const focusOp = useActivityUi((s) => s.focusOp);
   const [errorsOnly, setErrorsOnly] = useState(false);
+  const [hideBackground, setHideBackground] = useState(true);
   useEffect(() => {
     if (focusOp !== null) document.querySelector(`.activity-entry[data-op="${focusOp}"]`)?.scrollIntoView?.({ block: 'nearest' });
   }, [focusOp]);
   const now = Date.now();
-  const shown = errorsOnly ? activity.filter((e) => e.outcome === 'failed') : activity;
+  const rows = useMemo(() => activityRows(activity, { errorsOnly, hideBackground, focusOp }), [activity, errorsOnly, hideBackground, focusOp]);
+  const shown = rows.flat();
+  const empty = activity.length === 0 ? 'No activity yet: every finished operation appears here' : errorsOnly ? 'No failures' : 'Only background activity: untick Hide background to see it';
   return (
     <>
       <div className="debug-toolbar">
-        <label className="activity-filter"><input type="checkbox" checked={errorsOnly} onChange={(e) => setErrorsOnly(e.target.checked)} /> Errors only</label>
-        <span className="debug-count" />
+        <DebugCheck label="Errors only" checked={errorsOnly} onChange={setErrorsOnly} />
+        <DebugCheck label="Hide background" checked={hideBackground} onChange={setHideBackground} />
+        <span className="debug-count">{shown.length} of {activity.length}</span>
         <button type="button" className="activity-copy-all" disabled={shown.length === 0} onClick={() => void copyAndSay(allText(shown, now))}>Copy all</button>
       </div>
       <ol className="activity-list">
-        {shown.length === 0 && <li className="activity-empty">{errorsOnly ? 'No failures' : 'No activity yet: every finished operation appears here'}</li>}
-        {shown.map((e, i) => {
-          const Icon = ICON[e.outcome];
+        {rows.length === 0 && <li className="activity-empty">{empty}</li>}
+        {rows.map((runs) => {
+          const e = runs[0];
+          const focused = focusOp === e.op;
+          const pills: Pill[] = [{ text: e.kind }, { text: e.background ? 'background' : 'user' }];
+          if (e.outcome === 'cancelled' || e.outcome === 'skipped') pills.push({ text: e.outcome });
+          if (runs.length > 1) pills.push({ text: `×${runs.length}`, title: `${runs.length} identical runs since ${clockTime(runs[runs.length - 1].at)}` });
+          const hasDetail = runs.length > 1 || !!e.command || !!e.message || e.remote.length > 0 || e.output.length > 0;
           return (
-            <li key={`${e.at}-${i}`} className={`activity-entry ${e.outcome}`} data-op={e.op}>
-              <div className="activity-meta">
-                <Icon size={14} aria-hidden />
-                <span className="activity-time">{new Date(e.at).toLocaleString()} · {relativeTime(e.at, now)}</span>
-                <span>{e.label || '(no repo)'}</span>
-                <span>{e.kind}</span>
-                <span>{e.background ? 'background' : 'user'}</span>
-                <span>{seconds(e.durationMs)}</span>
-                <span className="activity-result">{e.outcome}</span>
-                <button type="button" className="icon-button" aria-label="Copy entry" onClick={() => void copyAndSay(entryText(e, now))}><Copy size={13} /></button>
-              </div>
-              {(e.command || e.message) && <pre className="activity-msg">{e.command && <span className="activity-cmd">$ {e.command}{e.message ? '\n' : ''}</span>}{e.message}</pre>}
-              {e.remote.length > 0 && <ServerOutput lines={e.remote} open={focusOp === e.op} />}
-              {e.output.length > 0 && (
-                <details className="activity-output">
-                  <summary>Output ({e.output.length} {e.output.length === 1 ? 'line' : 'lines'})</summary>
-                  <pre>{e.output.join('\n')}</pre>
-                </details>
-              )}
-            </li>
+            <DebugRow
+              key={`${e.op}-${e.at}`} className="activity-entry" dataOp={e.op} status={e.outcome} at={e.at} now={now}
+              label={e.label || '(no repo)'} title={e.label || undefined} pills={pills} ms={e.durationMs}
+              copy={() => allText(runs, now)}
+              detail={hasDetail ? () => <ActivityDetail e={e} runs={runs} focused={focused} /> : null}
+              defaultOpen={e.outcome === 'failed' || focused}
+            />
           );
         })}
       </ol>

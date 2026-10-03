@@ -53,7 +53,7 @@ export interface HoverTooltipOptions {
   leftOf?: (trigger: HTMLElement) => Element | null;
 }
 
-type TriggerProps = { onMouseEnter(e: MouseEvent<HTMLElement>): void; onMouseLeave(e: MouseEvent<HTMLElement>): void; onMouseMove?(e: MouseEvent<HTMLElement>): void };
+type TriggerProps = { onMouseEnter(e: MouseEvent<HTMLElement>): void; onMouseLeave(e: MouseEvent<HTMLElement>): void; onMouseOver(e: MouseEvent<HTMLElement>): void; onMouseMove?(e: MouseEvent<HTMLElement>): void };
 
 const GAP = 4;
 const EDGE = 8;
@@ -129,6 +129,9 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
   // Bumped on every hide/re-arm: a late timer or load from an older hover checks it and bails.
   const generation = useRef(0);
   const triggerEl = useRef<HTMLElement | null>(null);
+  // The pointer is over the trigger (from enter until leave; a hide on press or scroll leaves it
+  // set, so moving within the trigger doesn't bring the tooltip back).
+  const inside = useRef(false);
   const tipEl = useRef<HTMLDivElement>(null);
   // The latest pointer position over the trigger (placement 'pointer').
   const pointer = useRef({ x: 0, y: 0 });
@@ -251,18 +254,29 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
     );
   };
 
+  const enter = (e: MouseEvent<HTMLElement>) => {
+    if (disabled) return;
+    inside.current = true;
+    triggerEl.current = e.currentTarget;
+    pointer.current = { x: e.clientX, y: e.clientY };
+    const gen = ++generation.current;
+    clearTimers();
+    arm();
+    if (delayMs <= 0) reveal(gen);
+    else timers.current.push(setTimeout(() => reveal(gen), delayMs));
+  };
   const triggerProps: TriggerProps = {
-    onMouseEnter(e) {
-      if (disabled) return;
-      triggerEl.current = e.currentTarget;
-      pointer.current = { x: e.clientX, y: e.clientY };
-      const gen = ++generation.current;
-      clearTimers();
-      arm();
-      if (delayMs <= 0) reveal(gen);
-      else timers.current.push(setTimeout(() => reveal(gen), delayMs));
+    onMouseEnter: enter,
+    // React derives mouseenter from the native mouseout of the element the pointer leaves. When
+    // that element was removed from under the pointer (e.g. a row's Stage button, its row gone
+    // once staged), Chrome sends no mouseout, only a mouseover whose relatedTarget is a node
+    // React manages, which React leaves to that missing mouseout: the trigger never gets
+    // onMouseEnter. The native mouseover still bubbles here, so it stands in for the lost enter.
+    onMouseOver(e) {
+      if (!inside.current) enter(e);
     },
     onMouseLeave(e) {
+      inside.current = false;
       if (interactive && isInside(tipEl.current, e.relatedTarget)) return;
       hide();
     },
@@ -306,6 +320,7 @@ export function HoverTooltip({ children, ...opts }: HoverTooltipOptions & { chil
       {cloneElement(children, {
         onMouseEnter: (e: MouseEvent<HTMLElement>) => { own.onMouseEnter?.(e); triggerProps.onMouseEnter(e); },
         onMouseLeave: (e: MouseEvent<HTMLElement>) => { own.onMouseLeave?.(e); triggerProps.onMouseLeave(e); },
+        onMouseOver: (e: MouseEvent<HTMLElement>) => { own.onMouseOver?.(e); triggerProps.onMouseOver(e); },
         ...(triggerProps.onMouseMove && { onMouseMove: (e: MouseEvent<HTMLElement>) => { own.onMouseMove?.(e); triggerProps.onMouseMove!(e); } }),
       })}
       {tooltip}

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { Activity } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
@@ -34,7 +34,7 @@ vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: (...a: unknown[]) => conf
 const resolve = vi.fn(async (..._a: unknown[]) => true);
 vi.mock('./resolve', () => ({ resolveFile: (...a: unknown[]) => resolve(...a) }));
 
-import { MergeTool } from './MergeTool';
+import { MergeTool, SWITCH_WAIT_MS, useShownConflict } from './MergeTool';
 import { draftKey, useMergeDrafts } from './mergeDrafts';
 import { useToast } from '../ui/toast';
 
@@ -97,7 +97,7 @@ describe('the merge tool (spec #2 §13.3)', () => {
     await ready();
     confirm.mockResolvedValueOnce(false);
     fireEvent.click(screen.getByRole('button', { name: 'Save and mark resolved' }));
-    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ body: '1 conflict has no lines picked. Save it empty?' })));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Mark resolved with unresolved conflicts?', body: '1 conflict is still unresolved (nothing picked or typed): it will be saved empty.', confirmLabel: 'Mark resolved anyway' })));
     expect(resolve).not.toHaveBeenCalled();
     await waitFor(() => expect(useMergeDrafts.getState().drafts[key]).toBeUndefined());
     act(() => cbs.toggle[cbs.toggle.length - 1](0, 'current', 0));
@@ -111,7 +111,7 @@ describe('the merge tool (spec #2 §13.3)', () => {
     render(<MergeTool ctx={ctx} path="a.txt" />);
     await ready();
     fireEvent.click(screen.getByRole('button', { name: 'Save and mark resolved' }));
-    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ body: '2 conflicts have no lines picked. Save them empty?' })));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ body: '2 conflicts are still unresolved (nothing picked or typed): they will be saved empty.' })));
   });
 
   it('Ctrl+S while the question is open does nothing more (M7)', async () => {
@@ -242,7 +242,7 @@ describe('the merge tool (spec #2 §13.3)', () => {
   it('a non-text conflict gets the buttons, never an editor', async () => {
     loadPayload({ ...payload, kind: 'deletedByThem', text: false, segments: [], current: null, incoming: null });
     render(<MergeTool ctx={ctx} path="a.txt" />);
-    expect(await screen.findByText('Modified in main, deleted in feature/x')).toBeInTheDocument();
+    expect(await screen.findByText('Modified in main (current), deleted in feature/x (incoming)')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Output' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Take current' }));
     await waitFor(() => expect(resolve).toHaveBeenCalledWith(ctx, 'a.txt', { kind: 'current' }, 'h1', expect.any(Function)));
@@ -283,5 +283,46 @@ describe('the merge tool (spec #2 §13.3)', () => {
     vi.spyOn(api, 'conflictFile').mockResolvedValue(null);
     render(<MergeTool ctx={ctx} path="b.txt" />);
     expect(await screen.findByText("b.txt isn't conflicted any more.")).toBeInTheDocument();
+  });
+});
+
+describe('switching files without an empty frame (UX round 1)', () => {
+  const nonText = { ...payload, path: 'gone.txt', kind: 'deletedByUs', text: false, segments: [], current: null, incoming: null };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    useMergeDrafts.setState({ drafts: {} });
+  });
+
+  it('a payload read ahead is up on the first paint, with no read of its own', () => {
+    const fetch = vi.spyOn(api, 'conflictFile');
+    render(<MergeTool ctx={ctx} path="gone.txt" initial={nonText as never} />);
+    expect(screen.getByText('Deleted in main (current), modified in feature/x (incoming)')).toBeInTheDocument();
+    expect(screen.queryByText('Loading the conflict…')).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the previous file up until the next one is read, then swaps in its payload', async () => {
+    let answer: (f: unknown) => void = () => {};
+    vi.spyOn(api, 'conflictFile').mockImplementation(() => new Promise((r) => { answer = r; }) as never);
+    const { result, rerender } = renderHook(({ path }) => useShownConflict(ctx, path), { initialProps: { path: 'a.txt' } });
+    expect(result.current).toEqual({ id: '/r|a.txt', path: 'a.txt' });
+    rerender({ path: 'gone.txt' });
+    expect(result.current.path).toBe('a.txt');
+    await act(async () => answer(nonText));
+    expect(result.current).toEqual({ id: '/r|gone.txt', path: 'gone.txt', file: nonText });
+  });
+
+  it('a slow read switches anyway after a moment (the tool then shows its loading line)', () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(api, 'conflictFile').mockImplementation(() => new Promise(() => {}) as never);
+      const { result, rerender } = renderHook(({ path }) => useShownConflict(ctx, path), { initialProps: { path: 'a.txt' } });
+      rerender({ path: 'gone.txt' });
+      act(() => { vi.advanceTimersByTime(SWITCH_WAIT_MS); });
+      expect(result.current).toEqual({ id: '/r|gone.txt', path: 'gone.txt', file: undefined });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

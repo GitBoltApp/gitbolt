@@ -17,8 +17,8 @@ describe('worktree rows (spec #2 §14)', () => {
     const sw = rows.find((r) => r.kind === 'action' && r.id === 'sidebar.worktree.switch');
     if (sw?.kind === 'action') sw.run();
     expect(setActiveWorktree).toHaveBeenCalledWith('t', '/r-x');
-    const already = buildMenu('sidebar', t, env('/r-x')).find((r) => r.kind === 'action' && r.id === 'sidebar.worktree.switch');
-    expect(already?.kind === 'action' && already.disabledReason).toBe('Already the active worktree');
+    // The active one has nothing to switch to: no row.
+    expect(ids(buildMenu('sidebar', t, env('/r-x')))).not.toContain('sidebar.worktree.switch');
   });
   it('a WIP row offers Switch to this worktree unless it is the active one', () => {
     const other: WipTarget = { worktree: '/r-x', name: 'r-x', active: false };
@@ -26,11 +26,11 @@ describe('worktree rows (spec #2 §14)', () => {
     expect(ids(buildMenu('wip', { ...other, active: true }, env('/r-x')))).toEqual(['wip.openTab']);
   });
 
-  it('Remove is greyed for the main and locked worktrees', () => {
+  it('Remove is not offered on the main worktree, and greyed for a locked one', () => {
     const rows = (path: string, locked = false) => buildMenu('sidebar', { what: 'worktree', path, branch: 'x', head: 'b' } as SidebarTarget, { ...env('/r'), sidebar: { worktrees: [{ path: '/r', isMain: true, locked: false }, { path, isMain: path === '/r', locked }] } } as unknown as MenuEnv);
     const remove = (r: ReturnType<typeof buildMenu>) => r.find((x) => x.kind === 'action' && x.id === 'sidebar.worktree.remove');
     const reason = (r: ReturnType<typeof buildMenu>) => { const x = remove(r); return x?.kind === 'action' ? x.disabledReason ?? null : 'missing'; };
-    expect(reason(rows('/r'))).toBe("The main worktree can't be removed");
+    expect(reason(rows('/r'))).toBe('missing');
     expect(reason(rows('/r-x', true))).toBe('Locked: unlock it first');
     expect(reason(rows('/r-x'))).toBeNull();
   });

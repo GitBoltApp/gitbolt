@@ -1,18 +1,22 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { ArrowDownWideNarrow, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { Fragment, memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileListPayload } from '../api/gen/FileListPayload';
 import { fileMenu, folderMenu, warmFileMenu } from '../menu/menuEnv';
-import { CONFLICT_TEXT } from '../details/conflicted';
 import { openContextMenu, useMenu } from '../menu/menuStore';
+import { useContextTarget } from '../menu/contextTarget';
 import { filesKey } from '../repo/services';
 import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { DENSITY_METRICS, useDensity } from '../theme/density';
 import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { BUSY_DELAY_MS, useLateFlag } from '../util/lateFlag';
+import type { ConflictKind } from '../api/gen/ConflictKind';
+import { CONFLICT_LABEL, conflictSentence } from '../conflicts/sides';
+import { useConflictSides } from '../conflicts/useOperation';
 import { useFileListPrefs } from './fileListPrefs';
 import { allFolderPaths, buildRows, countByStatus, matchesFilter, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
 import { FilesFilter } from './FilesFilter';
@@ -91,7 +95,7 @@ export function StatusCountsView({ counts, testId, size }: { counts: StatusCount
 
 /** `onPress`/`onMenu` are the list's two stable handlers (they get the row and its index back), so a
  * row's props are all primitives or the rows' own memoized objects and `memo` can skip it. */
-interface RowProps { id: string; index: number; row: FileRow; mode: FileListMode; active: boolean; top: number; height: number; filterQuery: string; onPress: (e: MouseEvent, row: FileRow, index: number) => void; onMenu: (e: MouseEvent, row: FileRow) => void; renderActions?: (row: FileRow) => ReactNode }
+interface RowProps { id: string; index: number; row: FileRow; mode: FileListMode; active: boolean; /** Its context menu is open (the outline; a right-click never selects). */ context: boolean; top: number; height: number; filterQuery: string; onPress: (e: MouseEvent, row: FileRow, index: number) => void; onMenu: (e: MouseEvent, row: FileRow) => void; renderActions?: (row: FileRow) => ReactNode }
 
 /** The role of a row: tree mode is a `tree` of `treeitem`s (`aria-level`, folders `aria-expanded`),
  * path mode a flat `listbox` of `option`s (review M8). */
@@ -101,19 +105,26 @@ const rowRole = (mode: FileListMode) => (mode === 'tree' ? 'treeitem' : 'option'
  * covers the rows above or below (feedback J18). */
 const fileListOf = (row: HTMLElement) => row.closest('.file-list');
 
+/** A conflicted row's tooltip line: the conflict with its sides named (UX round 2). */
+function ConflictTip({ kind, worktree }: { kind: ConflictKind; worktree: string }) {
+  return <div className="conflict-tip">{conflictSentence(kind, useConflictSides(worktree))}</div>;
+}
+
 /** A folder row, or a file row with its full path in an instant hover tooltip, left of the list (a rename: old,
  * ↓, new; feedback H22). A renamed file shows its new name (tree) or new path (path view); the
  * old one is in the tooltip and the diff header. */
-const Row = memo(function Row({ id, index, row, mode, active, top, height, filterQuery, onPress, onMenu, renderActions }: RowProps) {
+const Row = memo(function Row({ id, index, row, mode, active, context, top, height, filterQuery, onPress, onMenu, renderActions }: RowProps) {
   const style = { top, height, paddingLeft: rowIndent(row.depth), gap: TREE.gap };
   const file = row.kind === 'file' ? row : null;
   const role = rowRole(mode);
   const level = mode === 'tree' ? row.depth + 1 : undefined;
   const onMouseDown = (e: MouseEvent) => onPress(e, row, index);
-  const tip = useHoverTooltip({ content: file ? <PathTooltip path={file.target.path} oldPath={file.change?.oldPath ?? null} /> : null, disabled: !file, placement: 'left-of', leftOf: fileListOf });
+  const conflict = file?.change?.conflict && file.target.new.kind === 'worktree' ? { kind: file.change.conflict, worktree: file.target.new.worktree } : null;
+  const path = file ? <PathTooltip path={file.target.path} oldPath={file.change?.oldPath ?? null} /> : null;
+  const tip = useHoverTooltip({ content: conflict ? <>{path}<ConflictTip {...conflict} /></> : path, disabled: !file, placement: 'left-of', leftOf: fileListOf });
   if (row.kind === 'folder') {
     return (
-      <div id={id} role={role} aria-selected={active} aria-level={level} aria-expanded={row.expanded} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={(e) => onMenu(e, row)}>
+      <div id={id} role={role} aria-selected={active} aria-level={level} aria-expanded={row.expanded} data-context={context || undefined} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={(e) => onMenu(e, row)}>
         <span className="file-chevron" style={{ width: TREE.chevron }}>{row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
         {row.counts && <StatusCountsView counts={row.counts} testId="folder-counts" size={10} />}
@@ -130,6 +141,7 @@ const Row = memo(function Row({ id, index, row, mode, active, top, height, filte
       aria-selected={active}
       aria-level={level}
       data-kind="file"
+      data-context={context || undefined}
       data-path={row.target.path}
       className={c ? 'file-row' : 'file-row unchanged'}
       style={style}
@@ -143,7 +155,7 @@ const Row = memo(function Row({ id, index, row, mode, active, top, height, filte
       {c ? <StatusIcon status={c.status} size={TREE.icon} /> : <span className="status-spacer" style={{ width: TREE.icon }} aria-hidden="true" />}
       {mode === 'path' && row.dir && <span className="file-dir">{highlightMatch(row.dir, filterQuery)}/</span>}
       <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
-      {c?.conflict ? <span className="file-conflict">{CONFLICT_TEXT[c.conflict]}</span> : s && (
+      {c?.conflict ? <span className="file-conflict">{CONFLICT_LABEL[c.conflict]}</span> : s && (
         <span className="file-stats">
           {c?.additions === null ? 'binary' : <><span className="added">+{c?.additions}</span> <span className="deleted">−{c?.deletions}</span></>}
         </span>
@@ -187,7 +199,7 @@ interface Cursor { id: string; diffKey: string | null }
  * first or last file (opening it), when up/down crosses over from the other list. */
 export interface FileListHandle { hasFiles(): boolean; enter(edge: 'first' | 'last'): void }
 
-export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, onLeave, renderActions, ref }: { renderActions?: (row: FileRow) => ReactNode; list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
+export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, toolsSlot = null, onLeave, renderActions, ref }: { /** WIP: the section header's element the mode's tool (Collapse all / Sort by status) renders into as an icon button. */ toolsSlot?: HTMLElement | null; renderActions?: (row: FileRow) => ReactNode; list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
   const store = useRepoViewStore();
   const openFile = useRepoView((s) => s.openFile);
   const closeDiffTo = useRepoView((s) => s.closeDiffTo);
@@ -354,7 +366,10 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
     l.place(row);
     l.toggle(row.path);
   }, []);
-  const onRowMenu = useCallback((e: MouseEvent, row: FileRow) => openContextMenu(e, latest.current.menuFor(row)), []);
+  // A right-click never moves the selection (`onRowPress` ignores it): the row gets the context
+  // outline while its menu is open instead (UX round 2).
+  const [contextRow, openContextFor] = useContextTarget<string>();
+  const onRowMenu = useCallback((e: MouseEvent, row: FileRow) => openContextFor(row.id, () => openContextMenu(e, latest.current.menuFor(row))), [openContextFor]);
 
   useImperativeHandle(ref, () => ({
     hasFiles: () => rows.some((r) => r.kind === 'file'),
@@ -457,6 +472,23 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
         {countsText(counts) ? <StatusCountsView counts={counts} testId="file-counts" size={12} /> : <span className="file-counts" data-testid="file-counts">No changes</span>}
         <span className="file-totals" data-testid="file-totals"><span className="added">+{list.added}</span> <span className="deleted">−{list.deleted}</span></span>
       </div>}
+      {sharedMode && toolsSlot && createPortal(
+        mode === 'tree' ? (
+          <HoverTooltip content={allExpanded ? 'Collapse all' : 'Expand all'}>
+            <button type="button" className="head-tool" aria-label={allExpanded ? 'Collapse all' : 'Expand all'} disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
+              {allExpanded ? <ChevronsDownUp size={13} aria-hidden /> : <ChevronsUpDown size={13} aria-hidden />}
+            </button>
+          </HoverTooltip>
+        ) : (
+          <HoverTooltip content="Sort by status, then path">
+            <button type="button" className="head-tool" aria-label="Sort by status" aria-pressed={sort === 'status'} onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>
+              <ArrowDownWideNarrow size={13} aria-hidden />
+            </button>
+          </HoverTooltip>
+        ),
+        toolsSlot,
+      )}
+      {!sharedMode && <>
       {/* Justified: the mode's action on the left, Path/Tree in the centre, View all files on
           the right (feedback F18). */}
       <div className="file-toolbar" role="toolbar" aria-label="File list options" aria-busy={allFilesLoading || undefined}>
@@ -481,6 +513,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
         </div>
         {slow && <div className="diff-progress" role="progressbar" aria-label="Loading all files" />}
       </div>
+      </>}
       {allFiles && (
         <FilesFilter
           value={filterText}
@@ -520,6 +553,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
                 row={row}
                 mode={mode}
                 active={row.id === activeId}
+                context={row.id === contextRow}
                 top={item.start}
                 height={rowH}
                 filterQuery={filterQuery}

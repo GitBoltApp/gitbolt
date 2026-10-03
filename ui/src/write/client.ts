@@ -5,6 +5,7 @@ import { tabView } from '../app/tabStores';
 import { toastActionError } from '../debug/errorToast';
 import { toGbError } from '../errors/describe';
 import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction, type ConfirmRequest } from '../ui/ConfirmDialog';
 import { useStaging } from '../stage/store';
 import { loadJournal, useJournal } from '../undo/store';
@@ -44,24 +45,26 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
   if (d?.kind === 'autostashConflict' && !asked.autostash) {
     const [first, ...rest] = d.paths;
     const more = rest.length ? ` (and ${rest.length} more)` : '';
-    return { flag: 'autostash', req: { title: 'Your changes conflict', body: `Your changes to ${first}${more} conflict with ${d.target}. They'll be kept in a stash you can apply afterwards.`, confirmLabel: 'Continue' } };
+    const body = `Your changes to ${first}${more} conflict with ${d.target}. They'll be kept in a stash you can apply afterwards.`;
+    return { flag: 'autostash', req: { title: 'Your changes conflict', body, confirmLabel: 'Continue', arm: 'Click again to continue: your changes go to a stash', caption: body, tone: 'warn' } };
   }
   if (d?.kind === 'applyWithoutIndex' && !asked.withoutIndex) {
-    return { flag: 'withoutIndex', req: { title: 'Apply without restoring what was staged?', body: 'git couldn\'t restore what was staged. Apply the changes unstaged instead?', confirmLabel: 'Apply' } };
+    return { flag: 'withoutIndex', req: { title: 'Apply without restoring what was staged?', body: 'git couldn\'t restore what was staged. Apply the changes unstaged instead?', confirmLabel: 'Apply', arm: 'Click again to apply it all unstaged', caption: 'git couldn\'t restore what was staged.', tone: 'warn' } };
   }
   // --- 2C T9: the reset question ---
   if (d?.kind === 'resetDiscards' && !asked.discard) {
-    return { flag: 'discard', req: { title: 'Discard changes?', body: err.message, confirmLabel: 'Reset', danger: true } };
+    const n = d.files;
+    return { flag: 'discard', req: { title: 'Discard changes?', body: err.message, confirmLabel: 'Reset', arm: `Click again to reset ${d.branch} and discard changes to ${n} ${n === 1 ? 'file' : 'files'}`, caption: err.message, danger: true } };
   }
   // --- end 2C T9 ---
   // --- 2D T15 ---
   if (d?.kind === 'markersRemain' && !asked.markers) {
-    return { flag: 'markers', req: { title: 'Conflict markers remain', body: `${d.path} still has conflict markers. Mark it resolved anyway?`, confirmLabel: 'Mark resolved' } };
+    return { flag: 'markers', req: { title: 'Conflict markers remain', body: `${d.path} still has conflict markers. Mark it resolved anyway?`, confirmLabel: 'Mark resolved', arm: 'Click again to mark it resolved with its conflict markers', caption: `${d.path} still has conflict markers.`, tone: 'warn' } };
   }
   // Take current / Take incoming over the user's edits: `confirmDiscard`, sent with the
   // destructive `discard` flag (a Retry never re-sends it).
   if (d?.kind === 'discardEdits' && !asked.discard) {
-    return { flag: 'discard', req: { title: 'Discard your edits?', body: `Discard your edits to ${d.path}? The side you chose replaces the file, and Undo can't bring the edits back.`, confirmLabel: 'Discard edits', danger: true } };
+    return { flag: 'discard', req: { title: 'Discard your edits?', body: `Discard your edits to ${d.path}? The side you chose replaces the file, and Undo can't bring the edits back.`, confirmLabel: 'Discard edits', arm: `Click again to replace your edits to ${d.path}`, caption: "Undo can't bring the edits back.", danger: true } };
   }
   // --- end 2D T15 ---
   return null;
@@ -78,7 +81,10 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
  *
  * Resolves to the outcome, or `null` when it failed or the user said no.
  */
-export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, asked: Confirmed) => Promise<WriteResult<T>>, opts: { refresh?: () => void | Promise<void>; onSuccess?: (outcome: T) => void | Promise<void>; handle?: (err: GbError) => boolean } = {}): Promise<T | null> {
+export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, asked: Confirmed) => Promise<WriteResult<T>>, opts: { refresh?: () => void | Promise<void>; onSuccess?: (outcome: T) => void | Promise<void>; handle?: (err: GbError) => boolean; origin?: Origin | null } = {}): Promise<T | null> {
+  // Where the write started (spec §ui confirms): its questions arm that control, after the answer.
+  // A caller that awaited before writing passes the origin it captured (`null`: a popover).
+  const origin = 'origin' in opts ? opts.origin ?? null : currentOrigin();
   const attempt = async (asked: Confirmed): Promise<T | null> => {
     let outcome: T;
     try {
@@ -88,7 +94,7 @@ export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, aske
     } catch (e) {
       const err = toGbError(e);
       const q = question(err, asked);
-      if (q) return (await confirmAction(q.req)) ? attempt({ ...asked, [q.flag]: true }) : null;
+      if (q) return (await confirmAction(q.req, origin)) ? attempt({ ...asked, [q.flag]: true }) : null;
       // A Stale undo, redo or banner (2A final M1) changed nothing, so no journalChanged comes:
       // reload it, so the toast's "Refreshed" is true and the toolbar names the real top.
       if (err.kind === 'Stale') await loadJournal(ctx.repoId, ctx.worktree);

@@ -118,9 +118,22 @@ describe('runWrite 2C (spec #2 §9.4)', () => {
     const err: GbError = { kind: 'DirtyWorktree', message: 'Reset main to a1b2c3d and discard changes to 4 files? You can undo this.', commandId: null, stderr: null, detail: { kind: 'resetDiscards', branch: 'main', to: 'a1b2c3d', files: 4 } };
     const send = vi.fn().mockRejectedValueOnce(err).mockResolvedValueOnce(result('ok'));
     expect(await runWrite(ctx, send)).toBe('ok');
-    expect(confirm.asked).toEqual([{ title: 'Discard changes?', body: 'Reset main to a1b2c3d and discard changes to 4 files? You can undo this.', confirmLabel: 'Reset', danger: true }]);
+    const body = 'Reset main to a1b2c3d and discard changes to 4 files? You can undo this.';
+    expect(confirm.asked).toEqual([{ title: 'Discard changes?', body, confirmLabel: 'Reset', arm: 'Click again to reset main and discard changes to 4 files', caption: body, danger: true }]);
     expect(send).toHaveBeenLastCalledWith(true, { autostash: false, withoutIndex: false, discard: true, markers: false });
   });
+  it('asks where the caller says the write started (an origin captured before an await), not at the last click', async () => {
+    const { confirmAction } = await import('../ui/ConfirmDialog');
+    const err: GbError = { kind: 'DirtyWorktree', message: 'Reset main?', commandId: null, stderr: null, detail: { kind: 'resetDiscards', branch: 'main', to: 'a1b2c3d', files: 1 } };
+    const origin = { el: document.createElement('button'), rect: null, via: 'pointer' as const, control: true, holds: 0 };
+    vi.mocked(confirmAction).mockClear();
+    await runWrite(ctx, vi.fn().mockRejectedValueOnce(err).mockResolvedValueOnce(result('ok')), { origin });
+    expect(vi.mocked(confirmAction).mock.calls[0][1]).toBe(origin);
+    vi.mocked(confirmAction).mockClear();
+    await runWrite(ctx, vi.fn().mockRejectedValueOnce(err).mockResolvedValueOnce(result('ok')), { origin: null });
+    expect(vi.mocked(confirmAction).mock.calls[0][1]).toBeNull();
+  });
+
   it('lets the caller handle a failure itself', async () => {
     const err: GbError = { kind: 'InvalidInput', message: 'x is checked out in ../r-x.', commandId: null, stderr: null, detail: { kind: 'checkedOutElsewhere', branch: 'x', worktree: '../r-x' } };
     const handle = vi.fn(() => true);

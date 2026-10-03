@@ -7,6 +7,7 @@ import { activeRuntime, activeTab, registerActions, type Action } from '../app/a
 import type { RepoCtx } from '../app/repoContext';
 import { useQueuedKind } from '../queue/store';
 import { registerToolbarButton, type ButtonView } from '../toolbar/registry';
+import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
@@ -53,14 +54,15 @@ const target = (): WriteCtx | null => {
 const stateOf = (ctx: WriteCtx | null): JournalState | undefined => (ctx ? useJournal.getState().states[journalKey(ctx.repoId, ctx.worktree)] : undefined);
 
 /** Undoes `top` (the entry the toolbar showed); `confirm`: "Undo anyway" with the refs as shown. */
-async function undoEntry(ctx: WriteCtx, top: JournalTop, confirm?: Record<string, string | null>): Promise<void> {
+async function undoEntry(ctx: WriteCtx, top: JournalTop, confirm?: Record<string, string | null>, origin: Origin | null = currentOrigin()): Promise<void> {
   // --- 2C T7: withoutIndex (a stash's undo/redo) ---
-  const out = await runWrite(ctx, (_, asked) => api.undo(ctx.repoId, ctx.worktree, Number(top.entry), confirm, asked.autostash, asked.withoutIndex));
+  const out = await runWrite(ctx, (_, asked) => api.undo(ctx.repoId, ctx.worktree, Number(top.entry), confirm, asked.autostash, asked.withoutIndex), { origin });
   // --- end 2C T7 ---
   if (!out) return;
   if (out.status === 'moved') {
-    const ok = await confirmAction({ title: `Undo ${out.label}?`, body: movedText(out.label, out.refs), confirmLabel: 'Undo anyway', danger: true });
-    if (ok) await undoEntry(ctx, top, Object.fromEntries(out.refs.map((r) => [r.name, r.actual])));
+    const body = movedText(out.label, out.refs);
+    const ok = await confirmAction({ title: `Undo ${out.label}?`, body, confirmLabel: 'Undo anyway', arm: `Click again to undo ${out.label} anyway`, caption: body, danger: true }, origin);
+    if (ok) await undoEntry(ctx, top, Object.fromEntries(out.refs.map((r) => [r.name, r.actual])), origin);
     return;
   }
   // --- 2C T10: the entry's own note (spec #2 §9.2) ---

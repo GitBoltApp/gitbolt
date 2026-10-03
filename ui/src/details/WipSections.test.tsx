@@ -38,7 +38,7 @@ describe('WipSections (K36)', () => {
     render(<RepoViewContext value={store}><WipSections sections={sections} /></RepoViewContext>);
     const heads = screen.getAllByRole('heading').map((h) => h.textContent);
     expect(heads).toEqual(['Conflicted (1)', 'Unstaged (1)', 'Staged (1)']);
-    expect(screen.getByText('both modified')).toBeInTheDocument();
+    expect(screen.getByText('changed in both')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Stage c\.txt/ })).toBeNull();
   });
 
