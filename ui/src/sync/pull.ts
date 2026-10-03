@@ -7,7 +7,7 @@ import type { SyncButtonMode } from '../api/gen/SyncButtonMode';
 import type { MenuRow } from '../menu/types';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
 import { headBranchOf } from './push';
 import { showServerResult } from './serverOutput';
@@ -45,7 +45,7 @@ async function done(ctx: WriteCtx, o: PullOutcome, origin: Origin | null): Promi
     case 'diverged': {
       // Integrate works on the checked-out branch: for another branch there is nothing to ask.
       if (headBranchOf(ctx.tabId) !== o.branch) {
-        useToast.getState().show(`${o.branch} and ${o.upstream} have diverged; check out ${o.branch} first`, { ms: ERROR_TOAST_MS });
+        useToast.getState().show(`${o.branch} and ${o.upstream} have diverged; check out ${o.branch} first`, { error: true });
         return;
       }
       const answer = await askChoice({

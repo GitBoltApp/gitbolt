@@ -6,11 +6,12 @@ import { readWipDraft, writeWipDraft } from '../commit/draft';
 const h = vi.hoisted(() => ({
   inProgress: null as unknown,
   settlePaused: vi.fn(),
-  selectCommit: vi.fn(),
+  reveal: vi.fn(async () => {}),
 }));
 
 vi.mock('../api/client', () => ({ api: { settlePaused: h.settlePaused } }));
-vi.mock('../app/graphNav', () => ({ selectCommit: h.selectCommit }));
+vi.mock('../stash/reveal', () => ({ revealRestored: h.reveal }));
+vi.mock('../app/tabStores', () => ({ tabStore: () => undefined }));
 vi.mock('../app/ops', () => ({ useOps: (sel: (s: { ops: object }) => unknown) => sel({ ops: {} }) }));
 vi.mock('../undo/store', () => ({ journalKey: () => 'k', useJournal: (sel: (s: { states: object }) => unknown) => sel({ states: {} }) }));
 vi.mock('../app/runtime', () => ({
@@ -49,13 +50,13 @@ describe('the operation watcher (ux round 1: no window-wide bar)', () => {
     await waitFor(() => expect(readWipDraft('/r', '/r')).toEqual({ summary: 'Mine', description: "Merge branch 'feature/x'" }));
   });
 
-  it('selects the WIP row once per stop, so its commit panel shows the operation', async () => {
+  it('once per stop, selects the WIP row (its commit panel shows the operation) and opens its first conflicted file', async () => {
     h.inProgress = merge(1, 'a');
     const first = await show('t');
-    await waitFor(() => expect(h.selectCommit).toHaveBeenCalledWith('t', 'wip:/r'));
+    await waitFor(() => expect(h.reveal).toHaveBeenCalledWith('t', '/r', expect.any(Promise)));
     first.unmount();
-    h.selectCommit.mockClear();
+    h.reveal.mockClear();
     await show('t');
-    expect(h.selectCommit).not.toHaveBeenCalled();
+    expect(h.reveal).not.toHaveBeenCalled();
   });
 });

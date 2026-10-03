@@ -24,7 +24,7 @@ export async function applyStash(ctx: WriteCtx, oid: string, pop: boolean): Prom
   const paths = stashPaths(ctx.tabId, oid);
   const out = await runWrite(ctx, (_c, asked) => api.stashApply(ctx.repoId, ctx.worktree, oid, pop, asked.withoutIndex));
   if (out?.status === 'conflicts') {
-    useToast.getState().show(`The stash conflicts in ${out.files} ${out.files === 1 ? 'file' : 'files'}; resolve them in Conflicted. The stash is kept.`, { ms: 6000 });
+    useToast.getState().show(`The stash conflicts in ${out.files} ${out.files === 1 ? 'file' : 'files'}; resolve them in Conflicted. The stash is kept.`, { error: true });
   }
   // What came back (UX round 2): the WIP row, and the first restored file's diff unless it
   // conflicted (the WIP's Conflicted list is where to go then).

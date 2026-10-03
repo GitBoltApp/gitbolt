@@ -15,7 +15,7 @@ const { runFetch, useFetchScheduler } = await import('./fetchSchedule');
 const { useRuntime } = await import('./runtime');
 const { useAppState, DEFAULT_SETTINGS } = await import('./state');
 const { useOps } = await import('./ops');
-const { ERROR_TOAST_MS, useToast } = await import('../ui/toast');
+const { LONG_TOAST_MS, useToast } = await import('../ui/toast');
 
 const repo = { id: 4, path: '/r', name: 'r', worktree: '/r' };
 const rt = () => useRuntime.getState().tabs.t!;
@@ -74,7 +74,7 @@ describe('runFetch', () => {
       expect(useToast.getState().message).toBe('Fetch failed: Authentication failed (git@h: Permission denied (publickey).)');
       vi.advanceTimersByTime(5000);
       expect(useToast.getState().message).not.toBeNull();
-      vi.advanceTimersByTime(ERROR_TOAST_MS);
+      vi.advanceTimersByTime(LONG_TOAST_MS);
       expect(useToast.getState().message).toBeNull();
     } finally {
       vi.useRealTimers();

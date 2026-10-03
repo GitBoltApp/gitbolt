@@ -58,7 +58,7 @@
 .wip-section.conflicted .file-list-scroll { min-height: var(--file-row-h); }
 .wip-split { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wip-section.collapsed { flex: none; }
-.wip-section-head { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; padding: 0 12px; height: var(--file-row-h); cursor: pointer; border-top: 1px solid var(--section-border); }
+.wip-section-head { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; padding: 0 8px 0 9px; height: var(--file-row-h); cursor: pointer; border-top: 1px solid var(--section-border); }
 .wip-section-head .file-section-title { margin: 0; flex: none; }
 .wip-section-head .file-section-title button { all: unset; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .wip-section-head .file-section-title button:focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
@@ -66,17 +66,9 @@
    +/- line totals are pushed to the far end. Narrow, the totals (shrink 100) clip away first, then
    the counts; the title never shrinks. */
 .wip-section-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
-.wip-section-head .file-totals { flex: 0 100 auto; min-width: 0; overflow: hidden; white-space: nowrap; margin-left: auto; }
+/* The +/− totals moved to the list's tool line (ux round 3): the actions take the far end. */
 /* One control height (--ctl-h) across a header: tools and actions, 6px apart. Totals push the group right. */
 .wip-section-head { --ctl-h: 24px; gap: 6px; }
-.wip-head-tools { display: inline-flex; gap: 6px; flex: none; margin-left: auto; }
-.wip-section-head .file-totals ~ .wip-head-tools { margin-left: 0; }
-.wip-section.collapsed .wip-head-tools { display: none; }
-.head-tool { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: var(--ctl-h); height: var(--ctl-h); border: 1px solid var(--section-border); border-radius: 4px; color: var(--text-secondary); }
-.head-tool:hover:not(:disabled) { color: var(--text-selected); background: var(--control-hover-bg); }
-.head-tool:disabled { cursor: default; opacity: 0.5; }
-.head-tool:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
-.head-tool[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 /* K60: with both sections open the drag handle's line is the one divider above Staged. */
 .split-resizer + .wip-section > .wip-section-head { border-top: 0; }
 /* The WIP header bar: `N file changes on [branch]`. */
@@ -84,9 +76,6 @@
 .wip-head-left { justify-self: start; display: inline-flex; }
 .wip-head-centre { justify-self: center; min-width: 0; display: inline-flex; align-items: center; gap: 4px; }
 .wip-head-right { justify-self: end; display: inline-flex; align-items: center; gap: 6px; }
-.wip-switch { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 11px; padding: 1px 8px; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; cursor: pointer; }
-.wip-switch:hover { color: var(--text-selected); background: var(--hover-row); }
-.wip-switch:focus-visible { outline: 1px solid var(--blue); }
 .wip-branch { padding: 0 6px; border-radius: 3px; background: color-mix(in srgb, var(--blue) 30%, transparent); color: var(--text-selected); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wip-section-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .wip-section-body[hidden] { display: none; }
@@ -95,3 +84,12 @@
 .file-conflict + .row-actions { margin-left: 0; }
 /* A conflicted row's tooltip: under its path, the conflict with its sides named. */
 .conflict-tip { margin-top: 3px; color: var(--status-conflicted); }
+/* WIP: the mode's tool (Collapse all / Sort by status) on a slim line above the list, left with its content. */
+/* Lined up with the rows: TREE.base (8px) on both sides; the tool's icon (4px inset) sits over a row's chevron. */
+.list-tool-line { flex: none; display: flex; align-items: center; padding: 2px 8px 4px 9px; }
+.list-tool-line > .file-totals { margin-left: auto; font-size: 12px; white-space: nowrap; }
+.list-tool { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px; font-size: 11px; color: var(--text-secondary); border-radius: 3px; }
+.list-tool:hover:not(:disabled) { color: var(--text-selected); background: var(--control-hover-bg); }
+.list-tool:disabled { cursor: default; opacity: 0.5; }
+.list-tool:focus-visible { outline: 1px solid var(--blue); }
+.list-tool[aria-pressed="true"] { color: var(--text-selected); }

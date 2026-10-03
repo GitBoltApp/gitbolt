@@ -16,8 +16,8 @@ describe('Remove worktree (spec #2 §11.1)', () => {
     const rm = vi.spyOn(api, 'worktreeRemove').mockResolvedValueOnce(res({ status: 'needsForce', reason: "It has changes that aren't committed" }) as never).mockResolvedValueOnce(res({ status: 'removed' }) as never);
     useRuntime.getState().patch('t', { repo: { id: 1, path: '/r', name: 'r', worktree: '/r' }, worktree: '/r', graph: { worktrees: [{ path: '/r', isMain: true }, { path: '/r-x', isMain: false }] } as never });
     await removeWorktree(ctx, '/r-x', 'x');
-    expect(ask.mock.calls[0][0]).toMatchObject({ body: 'Remove worktree ../r-x? Its folder is deleted; branch x stays.', confirmLabel: 'Remove', danger: true });
-    expect(ask.mock.calls[1][0].body).toBe("../r-x has changes that aren't committed. Remove it anyway? They're lost: this can't be undone.");
+    expect(ask.mock.calls[0][0]).toMatchObject({ title: 'Remove worktree ../r-x?', body: 'Its directory is deleted; branch x stays.', confirmLabel: 'Remove', danger: true });
+    expect(ask.mock.calls[1][0].body).toBe("../r-x has changes that aren't committed. They're lost: this can't be undone.");
     expect(rm).toHaveBeenLastCalledWith(1, '/r', '/r-x', true);
   });
   it('a tab whose active worktree it is moves to the main worktree first (Review Focus 5)', async () => {

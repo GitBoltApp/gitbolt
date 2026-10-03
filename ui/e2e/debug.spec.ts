@@ -72,14 +72,14 @@ test.describe('the Debug modal', () => {
     await expect(entries.filter({ hasText: 'Copy SHA' })).toContainText('menu');
   });
 
-  test('header: Copy diagnostics copies the report, Open logs folder is off in the harness, the perf overlay toggles', async ({ page }) => {
+  test('header: Copy diagnostics copies the report, Open logs directory is off in the harness, the perf overlay toggles', async ({ page }) => {
     await runFromPalette(page, 'Activity log');
     const dialog = debugDialog(page);
     await expect(dialog.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
     // The filter bar: inline checkboxes, quiet background ops hidden by default.
     await expect(dialog.getByLabel('Errors only')).not.toBeChecked();
     await expect(dialog.getByLabel('Hide background')).toBeChecked();
-    await expect(dialog.getByRole('button', { name: 'Open logs folder' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Open logs directory' })).toBeDisabled();
     await dialog.getByRole('button', { name: 'Copy diagnostics' }).click();
     await expect(page.getByRole('status')).toHaveText('Diagnostics copied');
     if (test.info().project.name === 'chromium') {

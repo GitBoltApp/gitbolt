@@ -92,6 +92,9 @@ export interface RowsInput {
   collapsed: ReadonlySet<string>;
 }
 
+/** Nothing collapsed. */
+export const NONE_COLLAPSED: ReadonlySet<string> = new Set();
+
 export function buildRows(i: RowsInput): FileRow[] {
   const all = items(i.files, i.spec, i.unchanged);
   if (i.mode === 'path') {
@@ -131,4 +134,35 @@ export function countByStatus(files: FileChange[]): StatusCounts {
   const c: StatusCounts = { modified: 0, added: 0, deleted: 0, renamed: 0, conflicted: 0 };
   for (const f of files) c[statusKind(f.status)]++;
   return c;
+}
+
+/**
+ * ↑/↓ walk into collapsed directories (UX round 2): the file `step` away from row `fromId`, in
+ * the order the files would show with every directory expanded, and the collapsed directories
+ * to expand to show it (outermost first; empty when it's visible already). `full` is the rows
+ * built with nothing collapsed; `collapsed` the list's real collapsed set. ↓ from a collapsed
+ * directory's own row goes past its contents (they're below it only once it's expanded). A
+ * null `fromId` (or one not in `full`) starts outside the list: ↓ gives the first file, ↑ the
+ * last. Null when there's no file that way.
+ */
+export function stepFile(full: FileRow[], collapsed: ReadonlySet<string>, fromId: string | null, step: 1 | -1): { row: Extract<FileRow, { kind: 'file' }>; expand: string[] } | null {
+  const at = fromId === null ? -1 : full.findIndex((r) => r.id === fromId);
+  let j = at === -1 ? (step === 1 ? 0 : full.length - 1) : at + step;
+  const from = at === -1 ? null : full[at];
+  if (step === 1 && from?.kind === 'folder' && collapsed.has(from.path)) while (j < full.length && full[j].depth > from.depth) j++;
+  for (; j >= 0 && j < full.length; j += step) {
+    const row = full[j];
+    if (row.kind !== 'file') continue;
+    // Its directories: walking back, each row shallower than every row since.
+    const expand: string[] = [];
+    let depth = row.depth;
+    for (let k = j - 1; k >= 0 && depth > 0; k--) {
+      const r = full[k];
+      if (r.depth >= depth) continue;
+      depth = r.depth;
+      if (r.kind === 'folder' && collapsed.has(r.path)) expand.unshift(r.path);
+    }
+    return { row, expand };
+  }
+  return null;
 }

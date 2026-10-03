@@ -6,7 +6,7 @@ vi.mock('../api/client', () => ({ api: {}, errorMessage: String, onEvent: () => 
 vi.mock('../api/transport', () => ({ copyText, inTauri: () => false }));
 
 const { toastActionError } = await import('./errorToast');
-const { useToast, ERROR_TOAST_MS } = await import('../ui/toast');
+const { useToast, LONG_TOAST_MS } = await import('../ui/toast');
 const { useActivityUi } = await import('../app/activityLog');
 
 const gb = (kind: string, commandId: number | null = null, message = 'm') => ({ kind, message, commandId, stderr: 'fatal: x' });
@@ -21,12 +21,12 @@ describe('failed user action → the toast (R12)', () => {
     useActivityUi.setState({ open: false, view: 'activity', focusCommandId: null });
   });
 
-  it('shows the describeError text for ERROR_TOAST_MS, with Copy and Details', () => {
+  it('shows the describeError text for LONG_TOAST_MS, with Copy and Details', () => {
     vi.useFakeTimers();
     toastActionError(gb('Io', null, 'disk full'));
     expect(useToast.getState().message).toBe('File system error: disk full');
     expect(labels()).toEqual(['Copy error', 'Details']);
-    vi.advanceTimersByTime(ERROR_TOAST_MS - 1);
+    vi.advanceTimersByTime(LONG_TOAST_MS - 1);
     expect(useToast.getState().message).not.toBeNull();
     vi.advanceTimersByTime(1);
     expect(useToast.getState().message).toBeNull();

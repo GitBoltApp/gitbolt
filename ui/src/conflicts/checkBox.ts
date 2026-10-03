@@ -2,7 +2,7 @@ import type { CheckState, Side } from './model';
 
 /**
  * The merge tool's own checkbox (UX round 2): a 14px rounded square, outlined in its side's
- * conflict colour, filled with a white tick when taken, a dash when partly taken. A real control:
+ * conflict colour, filled with a dark tick (`--conflict-*-tick`, >= 4.5:1 on the fill) when taken, a dash when partly taken. A real control:
  * a `button` with `role="checkbox"` and `aria-checked` (`mixed` for partly). Shared by the hunk
  * column (a DOM widget in Monaco's glyph margin, `createCheckBox`) and the panes' "Take all from
  * this side" (`MergeTool`'s `SideCheck`, same class and markup). Styles: mergeTool.css

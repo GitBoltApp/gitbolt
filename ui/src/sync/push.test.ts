@@ -7,7 +7,7 @@ import { forceText, nothingToPush, pushBranch, pushHooks, pushLabel, pushTooltip
 
 const confirm = vi.fn(async () => true);
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: (...a: unknown[]) => confirm(...(a as [])) }));
-const ask = vi.fn(async (_req: { title: string; choices: { id: string; label: string; danger?: boolean; arm?: string }[] }) => ({ choice: null as string | null, checked: false }));
+const ask = vi.fn(async (_req: { title: string; body?: string; choices: { id: string; label: string; danger?: boolean; arm?: string; quiet?: boolean }[] }) => ({ choice: null as string | null }));
 vi.mock('../ui/ChoiceDialog', () => ({ askChoice: (...a: unknown[]) => ask(...(a as [never])) }));
 
 const main: LocalBranch = { name: 'main', fullName: 'refs/heads/main', target: 'a'.repeat(40), upstream: 'origin/main', ahead: 1, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: true, worktree: null, checkedOut: null, pushTarget: 'origin/main', pushBehind: 3, rewritten: null };
@@ -32,7 +32,7 @@ describe('push (spec #2 §12.3)', () => {
   });
 
   it('the force confirmation counts what it replaces', () => {
-    expect(forceText(main)).toBe("Force push main to origin/main? It replaces 3 commits on origin/main that aren't in main. A push can't be undone.");
+    expect(forceText(main)).toBe("It replaces 3 commits on origin/main that aren't in main. A push can't be undone.");
     expect(forceText({ ...main, pushBehind: 1 })).toContain('It replaces 1 commit on origin/main');
   });
 
@@ -45,12 +45,14 @@ describe('push (spec #2 §12.3)', () => {
   it('a rejection is a choice: Pull first, then Force push, which arms (board G)', async () => {
     pushHooks.pull = vi.fn();
     vi.spyOn(api, 'push').mockRejectedValue({ kind: 'NonFastForward', message: 'rejected', commandId: 4, stderr: null });
-    ask.mockResolvedValueOnce({ choice: 'pull', checked: false });
+    ask.mockResolvedValueOnce({ choice: 'pull' });
     await pushBranch(ctx, main);
     await vi.waitFor(() => expect(pushHooks.pull).toHaveBeenCalledWith(ctx, 'main'));
     const req = ask.mock.calls[0][0];
-    expect(req.title).toBe("origin/main has commits main doesn't have");
-    expect(req.choices.map((c) => c.label)).toEqual(['Pull', 'Force push (with lease)', 'Details']);
+    expect(req.title).toBe("origin/main has 3 commits main doesn't have");
+    expect(req.body).toBe('Pull them in first, or overwrite them.');
+    expect(req.choices.map((c) => c.label)).toEqual(['Pull', 'Force push…', 'Details']);
+    expect(req.choices[2]).toMatchObject({ quiet: true });
     expect(req.choices[1]).toMatchObject({ danger: true, arm: 'Click again to force push: replaces 3 commits' });
   });
 
@@ -60,7 +62,7 @@ describe('push (spec #2 §12.3)', () => {
     const push = vi.spyOn(api, 'push').mockRejectedValueOnce({ kind: 'NonFastForward', message: 'rejected', commandId: 4, stderr: null });
     push.mockResolvedValueOnce({ outcome: { remote: 'origin', dst: 'main', branch: 'main', forced: null, upToDate: false, server: [], op: 1 }, journal: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [] }, staging: { undo: null, redo: null, off: null }, wip: null } as never);
     // A background fetch moves origin/main while the question is up: the lease stays the one shown.
-    ask.mockImplementationOnce(async () => { useRuntime.setState(sidebar('c'.repeat(40))); return { choice: 'force', checked: false }; });
+    ask.mockImplementationOnce(async () => { useRuntime.setState(sidebar('c'.repeat(40))); return { choice: 'force' }; });
     confirm.mockClear();
     await pushBranch(ctx, main);
     await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(2));

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { GbError } from '../api/gen/GbError';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import { showServerResult } from '../sync/serverOutput';
 import { openActivityLog } from './activityLog';
 import { useOps } from './ops';
@@ -129,7 +129,7 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
     const started = !failing.has(repo.id);
     failing.add(repo.id);
     // K96: long enough to read git's message, with the activity log (which keeps it) a click away.
-    if (!background) useToast.getState().show(`Fetch failed: ${text}`, { ms: ERROR_TOAST_MS, action: { label: 'Activity log', run: openActivityLog } });
+    if (!background) useToast.getState().show(`Fetch failed: ${text}`, { error: true, action: { label: 'Activity log', run: openActivityLog } });
     else if (started) useOps.getState().pushError(`Fetch failed (${repo.name}): ${text}`);
   }
 }

@@ -1,3 +1,4 @@
+import { contrastRatio } from './contrast';
 /**
  * The ten built-in themes (spec §12.1): pure data. A theme sets every colour custom property in
  * COLOR_TOKENS on :root, plus the ten graph lanes (`--graph-0..9`); non-colour tokens (fonts,
@@ -40,6 +41,9 @@ const DERIVED_TOKENS = [
   'shadow-modal', 'shadow-popup', 'shadow-tooltip', 'backdrop',
   // The canvas: a commit node's fill and initials, and the collapse zone's shade (draw.ts).
   'node-fill', 'node-text', 'collapse-strip',
+  // The tick on a filled merge-tool checkbox (checkBox.ts): white or the darkest ground, whichever
+  // contrasts more with its side's fill.
+  'conflict-ours-tick', 'conflict-theirs-tick',
 ] as const;
 
 /** Every colour custom property a theme sets on :root. */
@@ -67,6 +71,11 @@ export interface ThemeDef {
 export const SHIKI_BUNDLED_THEMES = ['dark-plus', 'light-plus', 'monokai', 'dracula', 'one-dark-pro', 'solarized-dark', 'solarized-light', 'github-dark-default', 'nord'] as const;
 
 /** `#rrggbb` at alpha `a`, written the way tokens.css writes it. */
+/** A tick drawn on `fill`: white, or the theme's darkest ground, whichever contrasts more. */
+function tickOn(fill: string, ground: string): string {
+  return contrastRatio('#ffffff', fill) >= contrastRatio(ground, fill) ? '#ffffff' : ground;
+}
+
 function alpha(hex: string, a: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
@@ -105,6 +114,8 @@ function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
     'node-text': fg,
     // Black, so draw.ts's gradient can fade it to `rgba(0,0,0,0)` without a grey fringe.
     'collapse-strip': light ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.4)',
+    'conflict-ours-tick': tickOn(c['conflict-ours'], c['app-bg0']),
+    'conflict-theirs-tick': tickOn(c['conflict-theirs'], c['app-bg0']),
   };
 }
 
@@ -135,6 +146,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'control-bg': 'rgba(255, 255, 255, 0.06)', 'control-hover-bg': 'rgba(255, 255, 255, 0.12)', 'image-frame-border': 'rgba(255, 255, 255, 0.22)',
       'shadow-modal': 'rgba(0, 0, 0, 0.5)', 'shadow-popup': 'rgba(0, 0, 0, 0.45)', 'shadow-tooltip': 'rgba(0, 0, 0, 0.4)', backdrop: 'rgba(0, 0, 0, 0.45)',
       'node-fill': '#1c1e23', 'node-text': '#ffffff', 'collapse-strip': 'rgba(0, 0, 0, 0.4)',
+      'conflict-ours-tick': '#1c1e23', 'conflict-theirs-tick': '#1c1e23',
     },
     graph: ['#15a0bf', '#0669f7', '#8e00c2', '#c517b6', '#d90171', '#cd0101', '#f25d2e', '#f2ca33', '#7bd938', '#2ece9d'],
     // White initials on every lane, its yellow included (1C's look, kept as is).

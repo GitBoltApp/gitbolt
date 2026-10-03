@@ -70,7 +70,7 @@ registerMenu<TabTarget, TabEnv>({
         void copyText(tab.path!).then(() => useToast.getState().show('Copied'), (e: unknown) => useToast.getState().show(errorMessage(e)));
       }),
       row(
-        'tab.openFolder', 'Open in file manager', ICONS.reveal, "Open the tab's worktree folder in the file manager",
+        'tab.openFolder', 'Open in file manager', ICONS.reveal, "Open the tab's worktree directory in the file manager",
         // The tab's active worktree, not the repository's main one (spec #2 §11.2).
         () => { if (repo) openRepoFolder(repo.id, worktreeOf(rt) ?? repo.path); },
         repo ? {} : { disabledReason: 'Still loading' },

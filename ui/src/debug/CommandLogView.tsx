@@ -67,7 +67,7 @@ export function CommandLogView({ focusId }: { focusId: number | null }) {
   return (
     <>
       <div className="debug-toolbar">
-        <input type="search" className="debug-search" aria-label="Filter commands" placeholder="Filter: args, folder, stderr" value={text} onChange={(e) => setText(e.target.value)} />
+        <input type="search" className="debug-search" aria-label="Filter commands" placeholder="Filter: args, dir, stderr" value={text} onChange={(e) => setText(e.target.value)} />
         <DebugCheck label="Failed only" checked={failedOnly} onChange={setFailedOnly} />
         <span className="debug-count">{entries ? `${shown.length} of ${entries.length}` : ''}</span>
         <button type="button" className="activity-copy-all" disabled={shown.length === 0} onClick={() => void copyAndSay(shown.map((e) => commandText(e, now)).join('\n\n'))}>Copy all</button>

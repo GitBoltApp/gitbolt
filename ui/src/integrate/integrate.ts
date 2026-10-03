@@ -7,7 +7,7 @@ import type { MenuRow } from '../menu/types';
 import { currentOrigin } from '../ui/arm/origin';
 import { holdOrigin } from '../ui/arm/store';
 import { askChoice } from '../ui/ChoiceDialog';
-import { confirmAction } from '../ui/ConfirmDialog';
+import { confirmWith } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
 
@@ -52,9 +52,10 @@ function toastOutcome(o: IntegrateOutcome, kind: IntegrateKind, target: string, 
 }
 
 /** Merge or rebase: the preview first; it asks only for predicted conflicts, a stack (rebase) or
- * a refused rebase. Predicted conflicts arm the clicked row in place, its menu held open while
- * the preview runs (spec §ui confirms, board A); a stack is a real choice (move the stacked
- * branches or not) and a refused rebase says why: the anchored popover (board G). */
+ * a refused rebase. Predicted conflicts or a stack arm the clicked row in place, its menu held
+ * open while the preview runs (spec §ui confirms, board A); a stack's "Also move N stacked
+ * branches" is a checkbox right under the armed row (with no row to arm, the board-H popover
+ * carries it). A refused rebase says why: the anchored popover (board G). */
 export async function startIntegrate(ctx: WriteCtx, kind: IntegrateKind, target: string, x: string): Promise<void> {
   const origin = currentOrigin();
   const release = holdOrigin();
@@ -71,34 +72,39 @@ export async function startIntegrate(ctx: WriteCtx, kind: IntegrateKind, target:
     const refused = rebase ? p.lossyMerge : null;
     const verb = rebase ? `Rebasing ${x} onto ${target}` : `Merging ${target} into ${x}`;
     const conflicts = p.conflicts.length ? `${verb} will conflict in ${files(p.conflicts.length)}.` : null;
-    if (refused || stacked.length > 0) {
+    if (refused) {
       release();
-      const away = stacked.filter((s) => s.worktree);
-      const answer = await askChoice({
-        title: rebase ? `Rebase ${x} onto ${target}?` : `Merge ${target} into ${x}?`,
-        body: refused ?? conflicts ?? `${verb}.`,
-        note: refused || !away.length ? undefined : `${away.map((s) => `${s.name} is checked out in ${s.worktree}`).join('; ')}: git leaves it where it is.`,
-        choices: [{ id: 'go', label: rebase ? 'Rebase' : 'Merge', primary: true, disabled: !!refused }],
-        checkbox: stacked.length && !refused
-          ? { label: `Also move ${stacked.length} stacked ${stacked.length === 1 ? 'branch' : 'branches'}`, checked: p.updateRefsDefault, detail: stacked.map((s) => s.name).join(', ') }
-          : undefined,
-      }, origin);
-      if (refused || answer.choice !== 'go') return;
-      if (stacked.length) updateRefs = answer.checked;
-    } else if (conflicts) {
+      await askChoice({ title: `Rebase ${x} onto ${target}?`, body: refused, choices: [{ id: 'go', label: 'Rebase', primary: true, disabled: true }] }, origin);
+      return;
+    }
+    if (conflicts || stacked.length > 0) {
       const n = files(p.conflicts.length);
       const replayed = rebase && p.ahead ? `${p.ahead} ${p.ahead === 1 ? 'commit' : 'commits'}, ` : '';
-      // Armed first, then the hold goes: the row stays armed in its open menu.
-      const asked = confirmAction({
+      const away = stacked.filter((s) => s.worktree);
+      // Armed first, then the hold goes: the row stays armed in its open menu, the stack's
+      // checkbox right under it (it moves the stacked branches or not).
+      const asked = confirmWith({
         title: rebase ? `Rebase ${x} onto ${target}?` : `Merge ${target} into ${x}?`,
-        body: conflicts,
+        body: conflicts ?? undefined,
         confirmLabel: rebase ? 'Rebase' : 'Merge',
-        arm: rebase ? `Click again to rebase onto ${target} (${replayed}conflicts in ${n})` : `Click again to merge ${target} (conflicts in ${n})`,
-        caption: conflicts,
-        tone: 'warn',
+        arm: conflicts
+          ? rebase ? `Click again to rebase onto ${target} (${replayed}conflicts in ${n})` : `Click again to merge ${target} (conflicts in ${n})`
+          : `Click again to rebase ${x} onto ${target}`,
+        caption: conflicts ?? undefined,
+        tone: conflicts ? 'warn' : 'positive',
+        option: stacked.length
+          ? {
+              label: `Also move ${stacked.length} stacked ${stacked.length === 1 ? 'branch' : 'branches'}`,
+              checked: p.updateRefsDefault,
+              detail: stacked.map((s) => s.name).join(', '),
+              note: away.length ? `${away.map((s) => `${s.name} is checked out in ${s.worktree}`).join('; ')}: git leaves it where it is.` : undefined,
+            }
+          : undefined,
       }, origin);
       release();
-      if (!(await asked)) return;
+      const answer = await asked;
+      if (!answer.ok) return;
+      if (stacked.length) updateRefs = answer.checked;
     } else release();
   } finally {
     release();

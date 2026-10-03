@@ -5,7 +5,7 @@ import { integrateRows, startIntegrate } from './integrate';
 const ask = vi.fn();
 vi.mock('../ui/ChoiceDialog', () => ({ askChoice: (...a: unknown[]) => ask(...a) }));
 const confirm = vi.fn();
-vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: (...a: unknown[]) => confirm(...a) }));
+vi.mock('../ui/ConfirmDialog', () => ({ confirmWith: (...a: unknown[]) => confirm(...a) }));
 
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 const ok = (outcome: unknown) => ({ outcome, journal: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [], paused: null }, staging: { undo: null, redo: null, off: null }, wip: null });
@@ -40,13 +40,20 @@ describe('integrate (spec #2 §13.1)', () => {
     expect(integrateRows(remote, { headBranch: 'main', headSha: 'h', isAncestor: () => false } as never, null).map((r) => (r.kind === 'action' ? r.label : ''))).toEqual(['Merge origin/y into main', 'Rebase main onto origin/y']);
   });
 
-  it('a rebase with a stack asks with the checkbox and sends its answer explicitly', async () => {
-    vi.spyOn(api, 'integratePreview').mockResolvedValue(preview({ stacked: [{ name: 'feature/a', worktree: null }, { name: 'feature/b', worktree: null }] }));
+  it('a rebase with a stack arms the row with the checkbox under it, and sends its answer explicitly (UX round 3)', async () => {
+    vi.spyOn(api, 'integratePreview').mockResolvedValue(preview({ stacked: [{ name: 'feature/a', worktree: null }, { name: 'feature/b', worktree: '/r-b' }] }));
     const send = vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'done', commits: 3, fastForward: false }) as never);
-    ask.mockResolvedValue({ choice: 'go', checked: false });
+    confirm.mockResolvedValue({ ok: true, checked: false });
     await startIntegrate(ctx, 'rebase', 'main', 'feature/c');
-    expect(ask.mock.calls[0][0].checkbox).toEqual({ label: 'Also move 2 stacked branches', checked: true, detail: 'feature/a, feature/b' });
+    expect(ask).not.toHaveBeenCalled();
+    const req = confirm.mock.calls[0][0];
+    expect(req).toMatchObject({ arm: 'Click again to rebase feature/c onto main', tone: 'positive', body: undefined });
+    expect(req.option).toEqual({ label: 'Also move 2 stacked branches', checked: true, detail: 'feature/a, feature/b', note: 'feature/b is checked out in /r-b: git leaves it where it is.' });
     expect(send).toHaveBeenCalledWith(1, '/r', 'rebase', 'main', { updateRefs: false, confirmAutostash: false });
+    // Not confirmed: nothing runs.
+    confirm.mockResolvedValue({ ok: false, checked: false });
+    await startIntegrate(ctx, 'rebase', 'main', 'feature/c');
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('a merge without conflicts runs at once; with conflicts the clicked row arms first (board A)', async () => {
@@ -54,7 +61,7 @@ describe('integrate (spec #2 §13.1)', () => {
     vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'done', commits: 2, fastForward: false }) as never);
     await startIntegrate(ctx, 'merge', 'clean', 'main');
     expect(confirm).not.toHaveBeenCalled();
-    confirm.mockResolvedValue(false);
+    confirm.mockResolvedValue({ ok: false, checked: false });
     await startIntegrate(ctx, 'merge', 'feature/x', 'main');
     expect(confirm.mock.calls[0][0]).toMatchObject({ body: 'Merging feature/x into main will conflict in 2 files.', arm: 'Click again to merge feature/x (conflicts in 2 files)' });
     expect(api.integrate).toHaveBeenCalledTimes(1);
@@ -66,7 +73,7 @@ describe('integrate (spec #2 §13.1)', () => {
   it('a refused rebase (lossyMerge) shows the reason with Rebase disabled, and never sends', async () => {
     vi.spyOn(api, 'integratePreview').mockResolvedValue(preview({ lossyMerge: 'A merge has changes of its own. Merge main into feature instead.' }));
     const send = vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'done', commits: 1, fastForward: false }) as never);
-    ask.mockResolvedValue({ choice: 'go', checked: false });
+    ask.mockResolvedValue({ choice: 'go' });
     await startIntegrate(ctx, 'rebase', 'main', 'feature');
     const req = ask.mock.calls[0][0];
     expect(req.body).toBe('A merge has changes of its own. Merge main into feature instead.');

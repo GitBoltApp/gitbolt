@@ -32,7 +32,7 @@ describe('OpenRepoScreen', () => {
     render(<OpenRepoScreen tab={tab} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Use /home/u/repos' }));
     expect(useAppState.getState().profile.reposFolder).toBe('/home/u/repos');
-    expect(screen.queryByRole('region', { name: 'Default repos folder' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Default repos directory' })).toBeNull();
     await waitFor(() => expect(api.scanFolders).toHaveBeenCalledWith(['/home/u/repos'], false));
   });
 
@@ -125,7 +125,7 @@ describe('OpenRepoScreen', () => {
     render(<OpenRepoScreen tab={tab} />);
     expect((await screen.findByRole('alert')).textContent).toBe("Couldn't scan: permission denied");
     expect(screen.queryByText(/No repositories found/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Open folder/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Open directory/ }));
     await waitFor(() => expect(screen.getAllByRole('alert').map((a) => a.textContent)).toContain('no portal'));
   });
 
@@ -135,23 +135,23 @@ describe('OpenRepoScreen', () => {
     render(<OpenRepoScreen tab={tab} />);
     await waitFor(() => expect(api.scanFolders).toHaveBeenLastCalledWith(['/a'], false));
     api.pickFolder.mockResolvedValueOnce('/b');
-    fireEvent.click(screen.getByRole('button', { name: 'Add folder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add directory' }));
     await waitFor(() => expect(useAppState.getState().profile.reposFolders).toEqual(['/a', '/b']));
     await waitFor(() => expect(api.scanFolders).toHaveBeenLastCalledWith(['/a', '/b'], false));
     api.pickFolder.mockResolvedValueOnce('/b/'); // the same folder again: not added twice
-    fireEvent.click(screen.getByRole('button', { name: 'Add folder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add directory' }));
     await waitFor(() => expect(api.pickFolder).toHaveBeenCalledTimes(2));
     expect(useAppState.getState().profile.reposFolders).toEqual(['/a', '/b']);
-    fireEvent.click(screen.getByRole('button', { name: 'Remove folder /a' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove directory /a' }));
     expect(useAppState.getState().profile.reposFolders).toEqual(['/b']);
     await waitFor(() => expect(api.scanFolders).toHaveBeenLastCalledWith(['/b'], false));
-    expect(screen.getByRole('list', { name: 'Scanned folders' }).textContent).not.toContain('/a');
+    expect(screen.getByRole('list', { name: 'Scanned directories' }).textContent).not.toContain('/a');
   });
 
   it('a profile with every folder removed says how to add one', () => {
     useAppState.setState({ profile: { ...EMPTY_PROFILE, id: 'p', reposFolder: '/a', reposFolders: [] } });
     render(<OpenRepoScreen tab={tab} />);
-    expect(screen.getByText(/Add a folder with \+/)).toBeTruthy();
+    expect(screen.getByText(/Add a directory with \+/)).toBeTruthy();
     expect(api.scanFolders).not.toHaveBeenCalled();
   });
 });

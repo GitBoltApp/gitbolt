@@ -1,2 +1,9 @@
-.push-target { display: flex; align-items: center; gap: 6px; margin: 10px 0; }
-.push-target input { flex: 1; min-width: 0; }
+/* The push-upstream panel: one row, "Push feature/new to [origin ▾] / [branch]"; the branch field
+   sizes to its name (min 220px, up to the panel's width), wrapping under the label when it's long. */
+.push-panel { max-width: min(520px, calc(100vw - 16px)); }
+.push-target { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.push-where { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.push-where .select { flex: none; }
+.push-where input { box-sizing: border-box; min-width: 220px; max-width: 100%; flex: 0 1 auto; padding: 4px 7px; font: inherit; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; outline: none; }
+.push-where input:focus { border-color: var(--blue); }
+.push-panel .modal-check { user-select: none; }

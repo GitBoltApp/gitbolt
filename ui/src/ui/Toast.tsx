@@ -22,7 +22,7 @@ export function Toast() {
   // Warnings and anything that invites input (links) show at the top, below the toolbar; plain notices stay at the bottom.
   const top = tone === 'warning' || links.length > 0;
   return (
-    <div role={tone === 'warning' ? 'alert' : 'status'} className={`toast${tone === 'warning' ? ' toast-warning' : ''}${top ? ' toast-top' : ''}`}>
+    <div role={tone === 'warning' ? 'alert' : 'status'} onMouseEnter={() => useToast.getState().hold()} onMouseLeave={() => useToast.getState().release()} className={`toast${tone === 'warning' ? ' toast-warning' : ''}${top ? ' toast-top' : ''}`}>
       {message}
       {links.map((a, i) => (
         <button key={`${i}-${a.label}`} type="button" className="toast-action" onClick={() => { useToast.getState().dismiss(); a.run(); }}>{a.label}</button>

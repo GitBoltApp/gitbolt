@@ -5,7 +5,7 @@ import { ArmLayer } from './ArmLayer';
 import { placePopover } from './anchor';
 import { setOrigin } from './origin';
 import { armClock, press, pressEnter } from './armTesting';
-import { arm, disarm, useArm } from './store';
+import { arm, CLICK_SETTLE_MS, disarm, useArm } from './store';
 
 const req = (n = 5) => ({ title: 'Discard all changes?', body: 'b', confirmLabel: 'Discard all', arm: `Click again to discard ${n} files`, danger: true });
 
@@ -85,19 +85,28 @@ describe('arm in place (spec §ui confirms)', () => {
     expect(overlay()).toBeNull();
   });
 
-  it('a double click arms but never confirms: its second click (detail 2) is not a new gesture', async () => {
+  it('a double click arms but never confirms: its second press lands within the click settle', async () => {
     const run = vi.fn();
     render(<><Discard onRun={run} /><ArmLayer /></>);
     const btn = screen.getByRole('button', { name: 'Discard all' });
     press(btn);
-    clock.settle();
     // The second click of the double click lands on the overlay that just appeared under it.
+    clock.advance(CLICK_SETTLE_MS - 80);
     fireEvent.pointerDown(overlay()!);
     fireEvent.click(overlay()!, { detail: 2 });
-    fireEvent.click(btn, { detail: 2 });
-    await Promise.resolve();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
     expect(run).not.toHaveBeenCalled();
     expect(overlay()).not.toBeNull();
+  });
+
+  it('a quick deliberate second click confirms, even inside the OS double-click interval (detail 2)', async () => {
+    const run = vi.fn();
+    render(<><Discard onRun={run} /><ArmLayer /></>);
+    press(screen.getByRole('button', { name: 'Discard all' }));
+    clock.advance(CLICK_SETTLE_MS + 50);
+    fireEvent.pointerDown(overlay()!);
+    fireEvent.click(overlay()!, { detail: 2 });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
   });
 
   it('a press that started before the arm, or within the settle, does not confirm', async () => {

@@ -28,7 +28,7 @@
   .row-action.has-text { width: 24px; padding: 0; }
 }
 .row-action[aria-disabled="true"] { opacity: 0.4; cursor: default; }
-.wip-head-actions { display: inline-flex; gap: 6px; flex: none; }
+.wip-head-actions { display: inline-flex; gap: 6px; flex: none; margin-left: auto; }
 .wip-head-actions .row-action { height: 24px; box-sizing: border-box; }
 .wip-head-actions .row-action:not(.has-text) { width: 24px; }
 

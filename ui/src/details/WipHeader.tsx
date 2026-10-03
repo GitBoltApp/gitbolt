@@ -1,9 +1,8 @@
-import { ArrowRightLeft, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { useRef } from 'react';
 import { StashIcon } from '../icons/stash';
 import { useRepoContext } from '../app/repoContext';
 import { useRepoView } from '../repo/store';
-import { setActiveWorktree } from '../worktrees/active';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';
 import { stashPushFor } from '../stash/actions';
@@ -42,7 +41,7 @@ export function WipHeader() {
     if (own) return own.replace(/^refs\/heads\//, '');
     return s.graph.labels.find((l) => l.worktree === sel.worktree)?.name ?? (sel.name === null ? s.graph.head.branch?.replace(/^refs\/heads\//, '') : null) ?? sel.name;
   });
-  const { tabId, repoId, worktree } = useRepoContext();
+  const { tabId, repoId } = useRepoContext();
   const wipCtx = useWipCtx();
   // Discard all is off during a merge or rebase (spec #2 §7.2).
   const midOp = useRepoView((s) => {
@@ -71,15 +70,6 @@ export function WipHeader() {
       {branch && <>{' '}<span>on</span>{' '}<HoverTooltip content={`Worktree ${selection.name}`} disabled={!selection.name}><span className="wip-branch">{branch}</span></HoverTooltip></>}
       </span>
       <span className="wip-head-right">
-      {/* --- 2C T10: another worktree's WIP: make it the tab's --- */}
-      {tabId && selection.worktree !== worktree && (
-        <HoverTooltip content="Make this the tab's worktree">
-          <button type="button" className="wip-switch" onClick={() => setActiveWorktree(tabId, selection.worktree)}>
-            <ArrowRightLeft size={12} aria-hidden /> Switch to this worktree
-          </button>
-        </HoverTooltip>
-      )}
-      {/* --- end 2C T10 --- */}
       {/* --- 2C T13: stash this worktree's changes --- */}
       {tabId && count > 0 && (
         <HoverTooltip content="Stash every change, named from the WIP message">

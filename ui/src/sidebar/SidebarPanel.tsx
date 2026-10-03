@@ -150,7 +150,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
         ))}
         {/* --- end 2C T9 --- */}
         {section.nests && !collapsed && (
-          <HoverTooltip content={panel.sort === 'tree' ? 'Sorted as a folder tree. Click: newest first' : 'Newest first. Click: folder tree'}>
+          <HoverTooltip content={panel.sort === 'tree' ? 'Sorted as a directory tree. Click: newest first' : 'Newest first. Click: directory tree'}>
             <button type="button" className="icon-button sb-sort" aria-label={sortLabel} onClick={() => updateRepo(path, (r) => ({ ...r, sidebarSort: { ...r.sidebarSort, [section.id]: panel.sort === 'tree' ? 'recent' : 'tree' } }))}>
               {panel.sort === 'tree' ? <ListTree size={12} /> : <Clock size={12} />}
             </button>

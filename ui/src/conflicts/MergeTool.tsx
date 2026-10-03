@@ -14,7 +14,7 @@ import { useFocusZone } from '../repo/focus';
 import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useKeys } from '../ui/keyRouter';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import type { WriteCtx } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { ariaChecked, CHECK_GLYPH } from './checkBox';
@@ -26,7 +26,7 @@ import { NonTextConflict } from './NonTextConflict';
 import './mergeTool.css';
 
 const sameLines = (a: string[], b: string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
-const toast = (m: string) => useToast.getState().show(m, { ms: ERROR_TOAST_MS });
+const toast = (m: string) => useToast.getState().show(m, { error: true });
 /** How long after the last keystroke the output is written into the draft. */
 const PERSIST_MS = 300;
 

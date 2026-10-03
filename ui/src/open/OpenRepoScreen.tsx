@@ -21,8 +21,8 @@ function ReposFolderBanner() {
     return { ...prof, reposFolder: p, reposFolders: folders.includes(p) ? folders : [...folders, p] };
   });
   return (
-    <div className="open-banner" role="region" aria-label="Default repos folder">
-      <span>Set a default repos folder: it's where clones go (and “Your repos” scans it).</span>
+    <div className="open-banner" role="region" aria-label="Default repos directory">
+      <span>Set a default repos directory: it's where clones go (and “Your repos” scans it).</span>
       {suggestion && <button type="button" className="open-btn primary" onClick={() => set(suggestion)}>Use {suggestion}</button>}
       <button type="button" className="open-btn" onClick={async () => {
         try {
@@ -64,22 +64,22 @@ function YourRepos({ folders, onOpen }: { folders: string[]; onOpen(path: string
   return (
     <section className="open-section open-yours" aria-labelledby="open-yours">
       <h2 id="open-yours">Your repos
-        <HoverTooltip content="Scan the folders again"><button type="button" className="open-icon-btn" aria-label="Refresh" onClick={() => load(true)}><RefreshCw size={13} /></button></HoverTooltip>
-        <HoverTooltip content="Add a folder to scan"><button type="button" className="open-icon-btn" aria-label="Add folder" onClick={() => void add()}><Plus size={14} /></button></HoverTooltip>
+        <HoverTooltip content="Scan the directories again"><button type="button" className="open-icon-btn" aria-label="Refresh" onClick={() => load(true)}><RefreshCw size={13} /></button></HoverTooltip>
+        <HoverTooltip content="Add a directory to scan"><button type="button" className="open-icon-btn" aria-label="Add directory" onClick={() => void add()}><Plus size={14} /></button></HoverTooltip>
       </h2>
-      <ul className="open-folders" aria-label="Scanned folders">
+      <ul className="open-folders" aria-label="Scanned directories">
         {folders.map((f) => (
           <li key={f} className="open-folder-chip" title={f}>
             <span className="dim open-folder-path">{f}</span>
-            <HoverTooltip content="Stop scanning this folder">
-              <button type="button" className="open-icon-btn" aria-label={`Remove folder ${f}`} onClick={() => setFolders(folders.filter((x) => x !== f))}><X size={12} /></button>
+            <HoverTooltip content="Stop scanning this directory">
+              <button type="button" className="open-icon-btn" aria-label={`Remove directory ${f}`} onClick={() => setFolders(folders.filter((x) => x !== f))}><X size={12} /></button>
             </HoverTooltip>
           </li>
         ))}
       </ul>
       {error && <p className="open-error" role="alert">Couldn't scan: {error}</p>}
       <div className="open-scroll">
-        {folders.length === 0 ? <p className="dim">Add a folder with + and its repositories are listed here.</p> : repos === null ? <p className="dim">Scanning…</p> : repos.length === 0 ? (error ? null : <p className="dim">No repositories found two levels deep.</p>) : (
+        {folders.length === 0 ? <p className="dim">Add a directory with + and its repositories are listed here.</p> : repos === null ? <p className="dim">Scanning…</p> : repos.length === 0 ? (error ? null : <p className="dim">No repositories found two levels deep.</p>) : (
           <ul className="open-list">
             {repos.map((r) => (
               <li key={r.path}>
@@ -178,9 +178,9 @@ export function OpenRepoScreen({ tab }: { tab: TabState }) {
               }
             }}
           >
-            <FolderOpen size={14} /> Open folder…
+            <FolderOpen size={14} /> Open directory…
           </button>
-          <p className="dim">Any folder inside a repository opens that repository; a linked worktree opens as its own tab.</p>
+          <p className="dim">Any directory inside a repository opens that repository; a linked worktree opens as its own tab.</p>
         </section>
         <section className="open-section" aria-labelledby="open-clone">
           <h2 id="open-clone">Clone</h2>

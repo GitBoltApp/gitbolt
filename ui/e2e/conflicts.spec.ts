@@ -67,9 +67,9 @@ test.describe('conflicts (spec #2 §13.2)', () => {
     const repo = freshFixture('conflicts');
     stop(repo, 'merge', '--no-edit', 'feature/x');
     await page.goto(openUrl(repo));
-    await page.getByRole('grid', { name: 'Commit graph' }).getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
-    await fileRow(page, 'conflicted', 'a.txt').click();
+    // A new stop selects the WIP and opens its first conflicted file, a.txt, by itself (ux round 3).
     const tool = page.getByRole('region', { name: 'Merge tool' });
+    await expect(fileRow(page, 'conflicted', 'a.txt')).toHaveAttribute('aria-selected', 'true', { timeout: 15_000 });
     // The first open loads Monaco's chunk, which a cold dev server can take over 5 s to serve.
     await expect(tool.getByText('Current: main')).toBeVisible({ timeout: 15_000 });
     await expect(tool.getByText('Incoming: feature/x')).toBeVisible();

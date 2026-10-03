@@ -100,20 +100,18 @@ describe('Toolbar (spec §6.3)', () => {
     offA(); offB(); offC();
   });
 
-  it('end-placed buttons sit after the second spacer, centre ones before it, in DOM order', () => {
+  it('end-placed buttons sit in the end group, centre ones in the centred group, in DOM order', () => {
     const run = vi.fn();
     const offA = registerActions([{ id: 'test.end', label: 'End thing', group: 'Edit', icon: Search, tooltip: 'x', run }, { id: 'test.mid', label: 'Mid thing', group: 'Edit', icon: Search, tooltip: 'y', run }]);
     const offB = registerToolbarButton({ action: 'test.end', label: 'EndBtn', placement: 'end', order: 1 });
     const offC = registerToolbarButton({ action: 'test.mid', label: 'MidBtn', order: 99 });
     const { container } = renderToolbar();
-    const kids = [...container.querySelector('.toolbar')!.children];
-    const spacers = kids.filter((k) => k.classList.contains('tb-spacer'));
-    expect(spacers).toHaveLength(2);
-    const at = (name: string) => kids.findIndex((k) => k.querySelector(`[aria-label="${name}"]`) || k.getAttribute('aria-label') === name);
-    expect(at('Fetch')).toBeLessThan(at('MidBtn'));
-    expect(at('MidBtn')).toBeLessThan(kids.indexOf(spacers[1]));
-    expect(at('EndBtn')).toBeGreaterThan(kids.indexOf(spacers[1]));
-    expect(kids.indexOf(spacers[1]) + 1).toBe(at('EndBtn'));
+    const groups = [...container.querySelector('.toolbar')!.children];
+    expect(groups.map((g) => g.className)).toEqual(['tb-group tb-start', 'tb-group tb-center', 'tb-group tb-end']);
+    const [, centre, end] = groups;
+    const names = (g: Element) => [...g.querySelectorAll('[aria-label]')].map((b) => b.getAttribute('aria-label'));
+    expect(names(centre).indexOf('Fetch')).toBeLessThan(names(centre).indexOf('MidBtn'));
+    expect(names(end)).toEqual(['EndBtn']);
     offA(); offB(); offC();
   });
 
@@ -126,9 +124,8 @@ describe('Toolbar (spec §6.3)', () => {
     renderToolbar();
     const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
     expect(names.indexOf('Search')).toBe(names.indexOf('Fetch options') + 1);
-    const kids = [...document.querySelector('.toolbar')!.children];
-    expect(kids.at(-1)!.getAttribute('aria-label')).toBe('Search');
-    expect(kids.at(-2)!.classList.contains('tb-spacer')).toBe(true);
+    const end = document.querySelector('.toolbar .tb-end')!;
+    expect([...end.children].map((b) => b.getAttribute('aria-label'))).toEqual(['Search']);
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(run).toHaveBeenCalledTimes(1);
     off();

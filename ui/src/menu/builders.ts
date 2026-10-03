@@ -139,7 +139,7 @@ registerMenu<FolderTarget, MenuEnv>({
   id: 'folder.open', kind: 'folder', group: 'open', order: 0,
   rows: (t, env) => {
     const { list, error } = env.openers;
-    return [{ kind: 'submenu', id: 'folder.openIn', label: 'Open in', icon: ICONS.reveal, tooltip: 'Show the folder in the file manager', rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn), { folder: true }) }];
+    return [{ kind: 'submenu', id: 'folder.openIn', label: 'Open in', icon: ICONS.reveal, tooltip: 'Show the directory in the file manager', rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn), { folder: true }) }];
   },
 });
 
@@ -362,7 +362,7 @@ registerMenu<SidebarTarget, MenuEnv>({
   id: 'sidebar.open', kind: 'sidebar', group: 'open', order: 0,
   when: (t) => t.what === 'worktree',
   rows: (t, env) => (t.what === 'worktree'
-    ? [row({ id: 'sidebar.openFolder', label: 'Open in file manager', icon: ICONS.reveal, tooltip: "Show the worktree's folder in the file manager", run: () => env.act.openFolder(t.path) })]
+    ? [row({ id: 'sidebar.openFolder', label: 'Open in file manager', icon: ICONS.reveal, tooltip: "Show the worktree's directory in the file manager", run: () => env.act.openFolder(t.path) })]
     : []),
 });
 

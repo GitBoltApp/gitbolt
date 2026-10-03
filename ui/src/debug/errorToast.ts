@@ -1,11 +1,11 @@
 import { copyAndSay as copy, openDebug } from '../app/activityLog';
 import { actionsFor, describeError, toGbError, type ErrorAction, type ErrorContext } from '../errors/describe';
-import { ERROR_TOAST_MS, useToast, type ToastAction } from '../ui/toast';
+import { useToast, type ToastAction } from '../ui/toast';
 
 const CONTEXT_ACTIONS: ReadonlySet<ErrorAction['id']> = new Set(['retry', 'refresh', 'remove-recent', 'remove-lock']);
 
 /**
- * A user's action failed (R12): the existing toast, for `ERROR_TOAST_MS`, with `describeError`'s
+ * A user's action failed (R12): the existing toast, for `LONG_TOAST_MS`, with `describeError`'s
  * text and two links: Retry/Refresh/Remove from recent when `ctx` offers the kind's one, else Copy
  * error; then Details, which opens the Debug modal's Commands tab at the failed git command, or
  * its Actions tab when no command is linked. A cancel says nothing. Background errors don't come
@@ -31,5 +31,5 @@ export function toastActionError(e: unknown, ctx: ErrorContext = {}): void {
       }
     },
   });
-  useToast.getState().show(`${d.title}: ${d.message}`, { ms: ERROR_TOAST_MS, actions: [link(first), link(details)] });
+  useToast.getState().show(`${d.title}: ${d.message}`, { error: true, actions: [link(first), link(details)] });
 }

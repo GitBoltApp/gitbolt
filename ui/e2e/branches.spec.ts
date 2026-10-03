@@ -92,6 +92,18 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
     await expect(menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]')).toHaveCount(0);
   });
 
+  test('Delete Local of an unmerged branch arms its menu row in place (no popover); a second click deletes it', async ({ page }) => {
+    const repo = freshFixture('basic');
+    const tip = git(repo, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'side work');
+    git(repo, 'update-ref', 'refs/heads/side', tip);
+    await page.goto(openUrl(repo));
+    await chip(page, 'side').click({ button: 'right' });
+    await menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]').click();
+    await confirmArmed(menu(page).getByRole('menuitem', { name: /^Click again to delete side: 1 commit not in main/ }));
+    await expect(page.getByRole('alertdialog')).toBeHidden();
+    await expect.poll(() => git(repo, 'branch', '--list', 'side')).toBe('');
+  });
+
   test('Delete Both confirms once, deletes the remote first; undo restores the local branch only', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));

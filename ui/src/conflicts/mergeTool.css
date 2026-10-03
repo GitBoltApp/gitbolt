@@ -57,11 +57,11 @@
 .merge-hunk-head { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
 .merge-hunk-head > .merge-check { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 /* The merge tool's checkbox (checkBox.ts): a rounded square outlined in its side's colour, filled
-   with a white tick when taken, a dash when partly; on a dark ground, so it reads on the tinted
+   with a contrasting tick when taken, a dash when partly; on a dark ground, so it reads on the tinted
    hunk column too. */
-.merge-check { --check-c: var(--conflict-ours); display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; width: 14px; height: 14px; margin: 0; padding: 0; border: 1.5px solid var(--check-c); border-radius: 3px; background: var(--app-bg0); color: var(--text-on-accent); cursor: pointer; }
-.merge-check-incoming { --check-c: var(--conflict-theirs); }
-.merge-check svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.merge-check { --check-c: var(--conflict-ours); --check-tick: var(--conflict-ours-tick); display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; width: 14px; height: 14px; margin: 0; padding: 0; border: 1.5px solid var(--check-c); border-radius: 3px; background: var(--app-bg0); color: var(--check-tick); cursor: pointer; }
+.merge-check-incoming { --check-c: var(--conflict-theirs); --check-tick: var(--conflict-theirs-tick); }
+.merge-check svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .merge-check path { display: none; }
 .merge-check[aria-checked='true'], .merge-check[aria-checked='mixed'] { background: var(--check-c); box-shadow: 0 0 0 1px var(--app-bg0); }
 .merge-check[aria-checked='true'] .merge-check-tick, .merge-check[aria-checked='mixed'] .merge-check-dash { display: inline; }

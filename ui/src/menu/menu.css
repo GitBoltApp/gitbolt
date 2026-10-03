@@ -25,3 +25,11 @@
 .ctx-armed-label.tone-danger { --arm: var(--red); }
 .ctx-armed-label.tone-positive { --arm: var(--green); }
 .ctx-armed-label.tone-warn { --arm: var(--orange); }
+/* An armed row's option (board A, "Also move 2 stacked branches"): a checkbox row right under it.
+   It takes the menu's width without widening it (width 0, min-width 100%): a long list wraps. */
+.ctx-arm-option { display: flex; align-items: flex-start; gap: 8px; width: 0; min-width: 100%; box-sizing: border-box; padding: 4px 8px 5px 12px; cursor: default; white-space: normal; line-height: 1.35; color: var(--text-normal); }
+.ctx-arm-option:hover, .ctx-arm-option[data-active="true"] { background: var(--hover-row); color: var(--text-selected); }
+.ctx-arm-box { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; margin-top: 2px; border: 1px solid var(--text-secondary); border-radius: 3px; box-sizing: border-box; }
+.ctx-arm-box.checked { background: var(--green); border-color: var(--green); color: var(--text-on-accent); }
+.ctx-arm-option-detail { color: var(--text-secondary); }
+.ctx-arm-option-note { display: block; color: var(--text-secondary); font-size: 12px; }

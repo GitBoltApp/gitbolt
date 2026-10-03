@@ -8,7 +8,7 @@ import type { Eol } from '../api/gen/Eol';
 import type { GbError } from '../api/gen/GbError';
 import { registerUnsaved, type UnsavedWork } from '../diff/workingCopy';
 import { chooseAction, confirmAction } from '../ui/ConfirmDialog';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import { leaveResolved } from './leaveResolved';
 import { anyPicked, buildOutput, eolText, unpickedCount, type Picks, type Segment } from './model';
 import { resolveFile } from './resolve';
@@ -142,7 +142,7 @@ export const useMergeDirty = (tabId: string, worktree: string, path: string): bo
   });
 
 const lf = (t: string) => t.replace(/\r\n/g, '\n');
-const toast = (m: string) => useToast.getState().show(m, { ms: ERROR_TOAST_MS });
+const toast = (m: string) => useToast.getState().show(m, { error: true });
 
 /** Reload from disk: the output is rebuilt from the ticks (hand edits go), and the next
  * `conflictFile` gives the base. */
@@ -197,7 +197,7 @@ export async function saveMerge(key: string, confirmed = false): Promise<boolean
   if (!err) return false;
   const pick = await chooseAction({
     title: err.message,
-    body: `${d.path} changed since the merge tool read it. Reload it from disk (your ticks stay while the conflict is the same; hand edits are lost), or overwrite it with your merge?`,
+    body: 'Reload it from disk (your ticks stay while the conflict is the same; hand edits are lost), or overwrite it with your merge.',
     choices: [{ id: 'reload', label: 'Reload from disk' }, { id: 'overwrite', label: 'Overwrite', danger: true, arm: `Click again to overwrite ${d.path} with your merge` }],
   });
   if (pick === 'reload') reloadDraft(key);

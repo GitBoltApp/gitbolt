@@ -3,7 +3,7 @@ import type { GbError } from '../api/gen/GbError';
 import type { Resolution } from '../api/gen/Resolution';
 import type { SubmoduleBehind } from '../api/gen/SubmoduleBehind';
 import { shortSha } from '../format/sha';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /** After a submodule side was taken: the submodule is still checked out elsewhere, and a
@@ -22,7 +22,7 @@ export async function resolveFile(ctx: WriteCtx, path: string, resolution: Resol
     handle,
     onSuccess: (behind) => {
       done = true;
-      if (behind) useToast.getState().show(submoduleBehindMessage(behind), { ms: ERROR_TOAST_MS });
+      if (behind) useToast.getState().show(submoduleBehindMessage(behind), { error: true });
     },
   });
   return done;

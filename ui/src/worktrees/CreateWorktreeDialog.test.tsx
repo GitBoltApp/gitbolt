@@ -16,7 +16,7 @@ describe('Create worktree (spec #2 §11.1)', () => {
     render(<CreateWorktreeDialog />);
     act(() => openCreateWorktree({ tabId: 't', at: 'a'.repeat(40), branch: null }));
     fireEvent.change(screen.getByRole('textbox', { name: 'New branch' }), { target: { value: 'feature/x' } });
-    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Folder' })).toHaveValue('/r/shop-feature-x'));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Directory' })).toHaveValue('/r/shop-feature-x'));
     expect(screen.getByRole('checkbox', { name: 'Open in a new tab' })).toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: 'Create worktree' }));
     await waitFor(() => expect(add).toHaveBeenCalledWith(1, '/r/shop', '/r/shop-feature-x', { kind: 'new', name: 'feature/x', at: 'a'.repeat(40) }));

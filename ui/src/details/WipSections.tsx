@@ -72,7 +72,6 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
 }) {
   const label = section.title ?? which;
   const list = section.list;
-  const [toolsSlot, setToolsSlot] = useState<HTMLElement | null>(null);
   const ready = list.status === 'ready' ? list.data : null;
   const counts = ready ? countByStatus(ready.files) : null;
   // A collapsed section stays mounted, hidden, so its folders and keyboard cursor survive.
@@ -87,7 +86,18 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
     [ctx?.tabId, ctx?.repoId, ctx?.worktree, ready, which],
   );
   let body: ReactNode = null;
-  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} sharedMode toolsSlot={toolsSlot} onLeave={onLeave} renderActions={renderActions} />;
+  // The +/− line totals sit on the list's tool line, opposite Collapse all / Sort by status, so the
+  // header keeps only the change-type counts next to the title (ux round 3: one kind of number
+  // per line). Like the per-type counts (K47), a zero side isn't shown, and an empty section shows
+  // no totals (K86).
+  const totals = ready && (ready.added > 0 || ready.deleted > 0) ? (
+    <span className="file-totals" data-testid={`${which}-totals`}>
+      {ready.added > 0 && <span className="added">+{ready.added}</span>}
+      {ready.added > 0 && ready.deleted > 0 && ' '}
+      {ready.deleted > 0 && <span className="deleted">−{ready.deleted}</span>}
+    </span>
+  ) : null;
+  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} sharedMode onLeave={onLeave} renderActions={renderActions} toolEnd={totals} />;
   else if (list.status === 'error' && !collapsed) body = <div role="alert" className="file-section-status">{list.message}</div>;
   return (
     <section
@@ -106,15 +116,6 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
           </button>
         </h3>
         {counts && <span className="wip-section-summary"><StatusCountsView counts={counts} testId={`${which}-counts`} size={12} /></span>}
-        {ready && (ready.added > 0 || ready.deleted > 0) && (
-          // Like the per-type counts (K47), a zero side is not shown: an empty section shows no totals (K86).
-          <span className="file-totals" data-testid={`${which}-totals`}>
-            {ready.added > 0 && <span className="added">+{ready.added}</span>}
-            {ready.added > 0 && ready.deleted > 0 && ' '}
-            {ready.deleted > 0 && <span className="deleted">−{ready.deleted}</span>}
-          </span>
-        )}
-        <span className="wip-head-tools" ref={setToolsSlot} onClick={(e) => e.stopPropagation()} />
         {ctx && ready && ready.files.length > 0 && which !== 'conflicted' && <HeadActions ctx={ctx} which={which} files={ready.files} guardConflicts={guardConflicts} />}
       </div>
       <div className="wip-section-body" hidden={collapsed}>{body}</div>

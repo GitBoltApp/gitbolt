@@ -270,9 +270,9 @@ impl Api {
         }
         let created = first_missing(&dest_path);
         if created.is_none() && !is_empty_dir(&dest_path) {
-            return Err(GbError::new(GbErrorKind::InvalidInput, format!("{dest} already exists and isn't an empty folder")));
+            return Err(GbError::new(GbErrorKind::InvalidInput, format!("{dest} already exists and isn't an empty directory")));
         }
-        let parent = dest_path.parent().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "The destination has no parent folder"))?;
+        let parent = dest_path.parent().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "The destination has no parent directory"))?;
         std::fs::create_dir_all(parent)?;
         // git runs from `/`, never from a folder a clone created: a concurrent clone's cleanup may
         // remove one while it's still empty, and git can't work from a deleted cwd ("Unable to

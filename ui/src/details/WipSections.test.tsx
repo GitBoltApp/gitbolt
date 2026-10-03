@@ -60,13 +60,14 @@ describe('WipSections (K36)', () => {
     expect(useFileListPrefs.getState().mode).toBe('tree');
   });
 
-  it('puts the counts, summary and +/- totals on the section header line, with no stage/discard buttons', () => {
+  it('puts the counts on the section header line and the +/- totals on the list\'s tool line, with no stage/discard buttons', () => {
     setup();
     expect(screen.getByRole('heading', { name: 'Unstaged (2)' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Staged (1)' })).toBeInTheDocument();
     expect(screen.getByTestId('unstaged-totals')).toHaveTextContent(/^\+2$/);
     expect(screen.getByTestId('unstaged-counts')).toBeInTheDocument();
-    expect(screen.getByTestId('unstaged-totals').parentElement).toBe(screen.getByRole('heading', { name: 'Unstaged (2)' }).parentElement);
+    expect(screen.getByTestId('unstaged-counts').closest('.wip-section-head')).toBe(screen.getByRole('heading', { name: 'Unstaged (2)' }).parentElement);
+    expect(screen.getByTestId('unstaged-totals').parentElement).toHaveClass('list-tool-line');
     expect(screen.queryByTestId('file-counts')).toBeNull();
     expect(screen.queryAllByRole('button', { name: /^(stage|unstage|discard|commit)\b/i })).toHaveLength(0);
   });
@@ -82,7 +83,7 @@ describe('WipSections (K36)', () => {
     expect(screen.getByRole('listbox', { name: 'Staged' })).toBeInTheDocument();
     expect(screen.queryByRole('separator')).toBeNull();
     // The bar beside the button toggles too.
-    fireEvent.click(screen.getByTestId('unstaged-totals'));
+    fireEvent.click(screen.getByTestId('unstaged-counts'));
     expect(screen.getByRole('listbox', { name: 'Unstaged' })).toBeInTheDocument();
     expect(screen.getByRole('separator')).toBeInTheDocument();
   });

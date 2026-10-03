@@ -13,7 +13,7 @@ import { runWrite } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { offSyncMenu, registerSyncRows } from './menus';
 import { branchOf, defaultRemote, forcePush, headBranchOf, nothingToPush, pushBranch, pushLabel, pushTooltip } from './push';
-import { PushUpstreamDialog } from './PushUpstreamDialog';
+import { PushUpstreamPanel } from './PushUpstreamPanel';
 
 
 /** The Push ▾ rows (spec #2 §12.3), built from the snapshot when the caret opens. */
@@ -43,7 +43,7 @@ function pushMenuRows({ tabId }: RepoCtx): MenuRow[] {
 
 const offs = [
   offSyncMenu,
-  registerAppSlot('overlay', 'pushUpstream', PushUpstreamDialog),
+  registerAppSlot('overlay', 'pushUpstream', PushUpstreamPanel),
   registerActions([{
     id: 'sync.push', label: 'Push', group: 'Repository', icon: ArrowUpFromLine, tooltip: 'Push the current branch',
     when: () => { const t = activeTab(); return t?.kind === 'repo' && !!writeCtx(t.id); },

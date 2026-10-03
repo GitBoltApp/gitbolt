@@ -30,7 +30,7 @@ export interface OpenerRowsFor { copy?: boolean; folder?: boolean }
 export function openerRows(list: OpenerPayload[], pick: (o: OpenerPayload) => void, { copy = false, folder = false }: OpenerRowsFor = {}): Extract<MenuRow, { kind: 'action' }>[] {
   const what = copy ? 'a read-only copy of this version' : 'the file';
   const tooltip = (o: OpenerPayload) => {
-    if (o.kind === 'fileManager') return folder ? `Show the folder in ${o.name}` : `Show the file's folder in ${o.name}`;
+    if (o.kind === 'fileManager') return folder ? `Show the directory in ${o.name}` : `Show the file's directory in ${o.name}`;
     return o.kind === 'chooser' ? `Choose another application to open ${what} with` : `Open ${what} in ${o.name}`;
   };
   return list.map((o) => ({ kind: 'action', id: openerRowId(o), label: openerLabel(o), icon: openerIcon(o), tooltip: tooltip(o), run: () => pick(o) }));

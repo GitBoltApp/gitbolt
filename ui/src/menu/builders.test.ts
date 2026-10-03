@@ -167,7 +167,7 @@ describe('the file menu (spec §7; plan 1C Task 15, file kind)', () => {
     expect(env.act.copy).toHaveBeenLastCalledWith('/wt/src/lib');
     const sub = rows.find((r) => r.kind === 'submenu') as Submenu;
     expect(labels(sub.rows)).toEqual(['Show in Files']);
-    expect(find(sub.rows, 'Show in Files').tooltip).toBe('Show the folder in Files');
+    expect(find(sub.rows, 'Show in Files').tooltip).toBe('Show the directory in Files');
     find(sub.rows, 'Show in Files').run();
     expect(env.act.openIn).toHaveBeenLastCalledWith(OPENERS[2], t.openIn);
     const none = buildMenu<FolderTarget, MenuEnv>('folder', t, envOf({ openers: { list: [OPENERS[0]], error: null, last: null } }));

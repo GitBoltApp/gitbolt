@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { armClock, press, pressEnter } from './arm/armTesting';
-import { ConfirmDialog, confirmAction } from './ConfirmDialog';
+import type { ArmAnswer } from './arm/store';
+import { ConfirmDialog, confirmAction, confirmWith } from './ConfirmDialog';
 
 describe('ConfirmDialog: the popover with no control to arm (K68, spec §ui confirms board H)', () => {
   let clock: ReturnType<typeof armClock>;
@@ -38,6 +39,24 @@ describe('ConfirmDialog: the popover with no control to arm (K68, spec §ui conf
     expect(document.activeElement).toBe(btn);
     pressEnter(btn);
     await expect(a).resolves.toBe(true);
+  });
+
+  it('compact (UX round 3): one right-aligned row, a quiet Cancel then the answer; the title alone when there is no body; an option is a checkbox that answers with its value', async () => {
+    render(<ConfirmDialog />);
+    let a!: Promise<ArmAnswer>;
+    act(() => { a = confirmWith({ title: 'Rebase feature/c onto main?', confirmLabel: 'Rebase', arm: 'Click again to rebase feature/c onto main', option: { label: 'Also move 2 stacked branches', detail: 'feature/a, feature/b', checked: true } }, null); });
+    const dialog = screen.getByRole('alertdialog', { name: 'Rebase feature/c onto main?' });
+    expect(dialog.querySelectorAll('p')).toHaveLength(0);
+    expect([...dialog.querySelectorAll('.modal-actions button')].map((b) => b.textContent)).toEqual(['Cancel', 'Rebase']);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('choice-cancel');
+    expect(screen.getByRole('button', { name: 'Rebase' })).toHaveClass('primary', 'positive');
+    const box = screen.getByRole('checkbox', { name: /Also move 2 stacked branches ?\(feature\/a, feature\/b\)/ });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    clock.settle();
+    press(screen.getByRole('button', { name: 'Rebase' }));
+    await expect(a).resolves.toEqual({ ok: true, checked: false });
   });
 
   it('Cancel, Esc and a press outside all resolve false', async () => {

@@ -83,12 +83,14 @@ export function Toolbar() {
   useSyncExternalStore(subscribeActions, actionsVersion);
   return (
     <div className="toolbar" role="toolbar" aria-label="Repository toolbar">
-      <RepoButton />
-      <BranchPicker />
-      <div className="tb-spacer" />
-      {center.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}
-      <div className="tb-spacer" />
-      {end.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}
+      {/* Three columns, the outer two equal: the action group stays centred on the bar whatever the
+          repo and branch names' lengths (those truncate instead). */}
+      <div className="tb-group tb-start">
+        <RepoButton />
+        <BranchPicker />
+      </div>
+      <div className="tb-group tb-center">{center.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}</div>
+      <div className="tb-group tb-end">{end.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}</div>
     </div>
   );
 }

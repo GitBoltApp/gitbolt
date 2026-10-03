@@ -39,7 +39,7 @@ describe('pull (spec #2 §12.2)', () => {
   it('diverged asks Rebase / Merge / Cancel, then integrates locally without fetching again', async () => {
     vi.spyOn(api, 'pull').mockResolvedValue(result({ status: 'diverged', ahead: 2, behind: 3, conflicts: 1 }) as never);
     const integrate = vi.spyOn(api, 'integrate').mockResolvedValue({ outcome: { status: 'done', commits: 2, fastForward: false }, journal, staging: { undo: null, redo: null, off: null }, wip: null } as never);
-    ask.mockResolvedValue({ choice: 'rebase', checked: false });
+    ask.mockResolvedValue({ choice: 'rebase' });
     await pull(ctx, 'ffOnly');
     expect(ask.mock.calls[0][0]).toMatchObject({ title: 'Pull main?', body: 'main and origin/main have diverged (2 ahead, 3 behind).', note: 'Merging would conflict in 1 file.' });
     expect(ask.mock.calls[0][0].choices.map((c: { label: string }) => c.label)).toEqual(['Rebase', 'Merge']);

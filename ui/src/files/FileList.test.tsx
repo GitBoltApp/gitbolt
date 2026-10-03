@@ -209,10 +209,52 @@ describe('FileList', () => {
     fireEvent.mouseDown(opt('src'));
     key('ArrowUp');
     expect(open()).toBe('docs/manual.txt');
-    // src/ is collapsed now: its files aren't rows, so Down skips to the next visible file.
+    // src/ is collapsed now: Down walks into it (UX round 2), expanding it, onto its first file.
     expect(opt('src')).toHaveAttribute('aria-expanded', 'false');
     key('ArrowDown');
-    expect(open()).toBe('logo.png');
+    expect(open()).toBe('src/app.php');
+    expect(opt('src')).toHaveAttribute('aria-expanded', 'true');
+    expect(opt('src/app.php')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('UX round 2: Up/Down walk into nested collapsed directories, expanding them, in both directions', () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    const files = ['lib/one/p.txt', 'lib/one/q.txt', 'lib/two/r.txt', 'lib/two/s.txt', 'a.txt', 'z.txt'].map((p) => change(p));
+    render(<RepoViewContext value={store}><FileList list={{ files, added: 0, deleted: 0 }} spec={spec} label="Changed files" /></RepoViewContext>);
+    const opt = (path: string) => rowEls().find((r) => r.dataset.path === path)!;
+    const key = (k: string) => fireEvent.keyDown(listEl(), { key: k });
+    const open = () => store.getState().diff?.path;
+    const shown = () => rowEls().map((r) => r.dataset.path);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    expect(shown()).toEqual(['lib', 'a.txt', 'z.txt']);
+    // ↑ from a.txt: lib/ and its last child two/ expand; on to two/'s last file. one/ stays shut.
+    fireEvent.mouseDown(opt('a.txt'));
+    key('ArrowUp');
+    expect(open()).toBe('lib/two/s.txt');
+    expect(shown()).toEqual(['lib', 'lib/one', 'lib/two', 'lib/two/r.txt', 'lib/two/s.txt', 'a.txt', 'z.txt']);
+    expect(opt('lib/two/s.txt')).toHaveAttribute('aria-selected', 'true');
+    key('ArrowUp');
+    expect(open()).toBe('lib/two/r.txt');
+    key('ArrowUp'); // one/ is the previous row, collapsed: its last file
+    expect(open()).toBe('lib/one/q.txt');
+    expect(opt('lib/one')).toHaveAttribute('aria-expanded', 'true');
+    // ↓, past the end (wrapping), into lib/ and its first child one/, both collapsed again.
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    fireEvent.mouseDown(opt('z.txt'));
+    key('ArrowDown');
+    expect(open()).toBe('lib/one/p.txt');
+    expect(shown()).toEqual(['lib', 'lib/one', 'lib/one/p.txt', 'lib/one/q.txt', 'lib/two', 'a.txt', 'z.txt']);
+    key('ArrowDown');
+    expect(open()).toBe('lib/one/q.txt');
+    key('ArrowDown'); // two/ is the next row, collapsed: its first file
+    expect(open()).toBe('lib/two/r.txt');
+    expect(opt('lib/two')).toHaveAttribute('aria-expanded', 'true');
+    // The expansion stays, as a click on the chevron would leave it.
+    key('ArrowDown');
+    key('ArrowDown');
+    expect(open()).toBe('a.txt');
+    expect(shown()).toHaveLength(9);
   });
 
   it('J3: PgUp/PgDn step a page of rows and land on a file, never a folder', () => {

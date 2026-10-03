@@ -89,7 +89,7 @@ test.describe('worktree create and remove (spec #2 §11.1)', () => {
     await page.getByRole('button', { name: 'Create worktree' }).click();
     const dialog = page.getByRole('dialog', { name: 'Create worktree' });
     await page.getByRole('textbox', { name: 'New branch' }).fill('feature/new-thing');
-    await expect(page.getByRole('textbox', { name: 'Folder' })).toHaveValue(join(repo, '..', 'repo-feature-new-thing'));
+    await expect(page.getByRole('textbox', { name: 'Directory' })).toHaveValue(join(repo, '..', 'repo-feature-new-thing'));
     await dialog.getByRole('button', { name: 'Create worktree' }).click();
     await expect(page.getByRole('tab')).toHaveCount(2);
     await expect(repoButton(page)).toContainText('repo-feature-new-thing');
@@ -103,7 +103,7 @@ test.describe('worktree create and remove (spec #2 §11.1)', () => {
     await page.getByRole('treeitem', { name: 'wt-hotfix' }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Remove…' }).click();
     // The row arms in place (board A); once the menu is gone, the dirty question is a popover there.
-    await confirmArmed(page.getByRole('menuitem', { name: 'Click again to remove ../wt-hotfix: its folder is deleted' }));
+    await confirmArmed(page.getByRole('menuitem', { name: 'Click again to remove ../wt-hotfix: its directory is deleted' }));
     await expect(page.getByRole('alertdialog')).toContainText("has changes that aren't committed");
     await confirmArmed(page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }));
     await expect.poll(() => existsSync(wt)).toBe(false);

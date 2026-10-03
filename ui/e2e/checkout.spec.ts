@@ -128,8 +128,9 @@ test.describe('reset (spec #2 §9.4)', () => {
     await expect.poll(() => git(repo, 'rev-parse', 'main')).toBe(tip);
     // The fixture's main worktree is dirty (file_1.txt): Hard asks.
     await resetRow('Hard');
-    await expect(page.getByRole('alertdialog')).toContainText('and discard changes to 1 file? You can undo this.');
-    await confirmArmed(page.getByRole('alertdialog').getByRole('button', { name: 'Reset' }));
+    // The question arms the menu row in place (the menu stays open while the write answers).
+    await confirmArmed(page.getByRole('menuitem', { name: /^Click again to reset main and discard changes to 1 file/ }));
+    await expect(page.getByRole('alertdialog')).toBeHidden();
     await expect.poll(() => git(repo, 'status', '--porcelain', '--untracked-files=no')).toBe('');
     await page.getByRole('button', { name: 'Undo' }).click();
     await expect.poll(() => git(repo, 'status', '--porcelain', '--untracked-files=no')).toContain('file_1.txt');

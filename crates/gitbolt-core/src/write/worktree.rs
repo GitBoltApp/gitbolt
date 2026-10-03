@@ -86,10 +86,10 @@ impl WriteIntent for WorktreeAdd {
     }
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
         if !self.path.is_absolute() || !self.path.parent().is_some_and(Path::is_dir) {
-            return Err(GbError::new(GbErrorKind::InvalidInput, "Pick a folder in an existing folder"));
+            return Err(GbError::new(GbErrorKind::InvalidInput, "Pick a directory inside an existing directory"));
         }
         if self.path.exists() && std::fs::read_dir(&self.path).map(|mut d| d.next().is_some()).unwrap_or(true) {
-            return Err(GbError::new(GbErrorKind::InvalidInput, "That folder isn't empty"));
+            return Err(GbError::new(GbErrorKind::InvalidInput, "That directory isn't empty"));
         }
         let (WorktreeBranch::Existing { name } | WorktreeBranch::New { name, .. } | WorktreeBranch::Remote { name, .. }) = &self.branch;
         // Read before any await: a gix repository isn't `Send`.
@@ -294,7 +294,7 @@ mod tests {
         let used = r.root().join("used");
         std::fs::create_dir_all(used.join("x")).unwrap();
         let e = send(&env.api, add(id, &r, &used, json!({"kind": "new", "name": "n", "at": r.git(&["rev-parse", "HEAD"])}))).await.unwrap_err();
-        assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "That folder isn't empty"));
+        assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "That directory isn't empty"));
         assert!(r.try_git(&["rev-parse", "--verify", "-q", "refs/heads/n"]).is_err());
     }
 

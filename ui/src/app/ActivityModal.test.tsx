@@ -114,11 +114,11 @@ describe('ActivityModal (K101)', () => {
     expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('header: Copy diagnostics, Open logs folder (off without a log folder), Perf overlay toggle', async () => {
+  it('header: Copy diagnostics, Open logs directory (off without a log directory), Perf overlay toggle', async () => {
     render(<ActivityModal />);
     act(() => openActivityLog());
     await act(async () => { await Promise.resolve(); });
-    expect(screen.getByRole('button', { name: 'Open logs folder' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Open logs directory' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Copy diagnostics' }));
     await vi.waitFor(() => expect(copyText).toHaveBeenCalledWith('GitBolt 0.1.0'));
     const perf = screen.getByRole('button', { name: 'Perf overlay' });
@@ -130,7 +130,7 @@ describe('ActivityModal (K101)', () => {
     api.logsDir.mockResolvedValueOnce('/home/u/.cache/gitbolt/logs');
     act(() => openActivityLog());
     await act(async () => { await Promise.resolve(); });
-    const logs = screen.getByRole('button', { name: 'Open logs folder' });
+    const logs = screen.getByRole('button', { name: 'Open logs directory' });
     expect(logs).toBeEnabled();
     fireEvent.click(logs);
     expect(api.openLogsFolder).toHaveBeenCalledOnce();

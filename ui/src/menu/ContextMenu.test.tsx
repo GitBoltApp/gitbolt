@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArmLayer } from '../ui/arm/ArmLayer';
 import { armClock, press } from '../ui/arm/armTesting';
 import { disarm, holdOrigin, useArm } from '../ui/arm/store';
-import { confirmAction } from '../ui/ConfirmDialog';
+import { confirmAction, confirmWith } from '../ui/ConfirmDialog';
 import { TooltipHost } from '../ui/TooltipHost';
 import { useTooltip } from '../ui/tooltipStore';
 import { BLUR_SETTLE_MS, ContextMenu, inTriangle, remap, SUBMENU_GRACE_MS } from './ContextMenu';
@@ -612,6 +612,72 @@ describe('ContextMenu: an armed row (spec §ui confirms, board A)', () => {
     fireEvent.pointerDown(screen.getByText('outside'));
     expect(useArm.getState().armed).toBeNull();
     expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
+  });
+
+  describe('with an option (UX round 3: a stack rebase)', () => {
+    const option = { label: 'Also move 2 stacked branches', detail: 'feature/a, feature/b', checked: true };
+    const rebasing = (ran: (checked: boolean) => void) => () => {
+      void confirmWith({ title: 'Rebase feature/c onto main?', confirmLabel: 'Rebase', arm: 'Click again to rebase feature/c onto main', option }).then((a) => { if (a.ok) ran(a.checked); });
+    };
+
+    it('shows the checkbox right under the armed row, nothing above it moves; toggling never disarms; the second pick runs with its value', async () => {
+      const ran = vi.fn();
+      openArmed([action('above'), action('rebase', rebasing(ran)), action('below')]);
+      const menu = screen.getByRole('menu');
+      const place = menu.getAttribute('style');
+      const above = screen.getByText('ABOVE').closest('[role="menuitem"]')!;
+      expect(screen.queryByRole('menuitemcheckbox')).toBeNull();
+      fireEvent.click(screen.getByText('REBASE'));
+      const row = screen.getByRole('menuitem', { name: 'Click again to rebase feature/c onto main' });
+      const box = screen.getByRole('menuitemcheckbox', { name: /Also move 2 stacked branches ?\(feature\/a, feature\/b\)/ });
+      // Right under the armed row: the rows above and the menu's place stay; the menu grows downward.
+      expect(row.nextElementSibling).toBe(box);
+      expect(box.nextElementSibling).toBe(screen.getByText('BELOW').closest('[role="menuitem"]'));
+      expect(row.previousElementSibling).toBe(above);
+      expect(menu.getAttribute('style')).toBe(place);
+      expect(box).toHaveAttribute('aria-checked', 'true');
+      // Toggling (a press on it, then its click) keeps the row armed.
+      clock.settle();
+      press(box);
+      expect(box).toHaveAttribute('aria-checked', 'false');
+      expect(useArm.getState().armed).not.toBeNull();
+      expect(screen.getByRole('menu')).toBeVisible();
+      await Promise.resolve();
+      expect(ran).not.toHaveBeenCalled();
+      // The second pick on the row runs it with the box's value.
+      press(row);
+      await vi.waitFor(() => expect(ran).toHaveBeenCalledWith(false));
+      expect(screen.getByRole('menu', { hidden: true })).not.toBeVisible();
+    });
+
+    it('keyboard: ↓ reaches the checkbox and Space toggles it, ↑ goes back, Enter runs; all without disarming', async () => {
+      const ran = vi.fn();
+      openArmed([action('rebase', rebasing(ran)), action('below')]);
+      fireEvent.keyDown(window, { key: 'Enter' });
+      const box = screen.getByRole('menuitemcheckbox');
+      fireEvent.keyDown(window, { key: 'ArrowDown' });
+      expect(screen.getByRole('menu')).toHaveAttribute('aria-activedescendant', box.id);
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(box).toHaveAttribute('aria-checked', 'false');
+      fireEvent.keyDown(window, { key: ' ' });
+      fireEvent.keyDown(window, { key: ' ' });
+      fireEvent.keyDown(window, { key: 'ArrowUp' });
+      expect(useArm.getState().armed).not.toBeNull();
+      clock.settle();
+      fireEvent.keyDown(window, { key: 'Enter' });
+      await vi.waitFor(() => expect(ran).toHaveBeenCalledWith(false));
+    });
+
+    it('a disarm (Esc) drops the checkbox and runs nothing', async () => {
+      const ran = vi.fn();
+      openArmed([action('rebase', rebasing(ran))]);
+      fireEvent.click(screen.getByText('REBASE'));
+      expect(screen.getByRole('menuitemcheckbox')).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.queryByRole('menuitemcheckbox')).toBeNull();
+      await Promise.resolve();
+      expect(ran).not.toHaveBeenCalled();
+    });
   });
 
   it('a held row keeps its menu open until the action knows whether to ask (an integrate preview)', async () => {

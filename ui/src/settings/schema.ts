@@ -13,7 +13,7 @@ export interface SettingDef {
 
 /** Settings 1C renders (1B/1D append theirs); the palette's `#` group searches these. */
 export const SETTINGS: readonly SettingDef[] = [
-  { id: 'reposFolder', label: 'Default repos folder', section: 'General', keywords: 'clone destination scan your repos', help: 'Where Open Repository looks for your repositories, and the default destination for a clone.' },
+  { id: 'reposFolder', label: 'Default repos directory', section: 'General', keywords: 'clone destination scan your repos folder', help: 'Where Open Repository looks for your repositories, and the default destination for a clone.' },
   { id: 'dateFormat', label: 'Date format', section: 'General', keywords: 'time 24h 12h graph column', help: 'How commit dates read in the graph, the details panel, compare and find.' },
   { id: 'commitLimit', label: 'Commits loaded in the graph', section: 'General', keywords: 'window history limit', help: 'How many commits the graph loads, newest first. More is slower on a big history.' },
   { id: 'density', label: 'Density', section: 'General', keywords: 'compact standard comfortable row height spacing padding', help: 'Row height and padding of the graph and the file list.' },

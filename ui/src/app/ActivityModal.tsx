@@ -145,7 +145,7 @@ export function ActivityModal() {
             ))}
           </div>
           <button type="button" className="activity-tool" onClick={() => run('debug.copyDiagnostics', 'Copy diagnostics', copyDiagnostics)}><ClipboardCopy size={13} aria-hidden />Copy diagnostics</button>
-          <button type="button" className="activity-tool" disabled={logsDir === null} onClick={() => run('debug.openLogsFolder', 'Open logs folder', openLogsFolder)}><FolderOpen size={13} aria-hidden />Open logs folder</button>
+          <button type="button" className="activity-tool" disabled={logsDir === null} onClick={() => run('debug.openLogsFolder', 'Open logs directory', openLogsFolder)}><FolderOpen size={13} aria-hidden />Open logs directory</button>
           <button type="button" className="activity-tool" aria-pressed={perf} onClick={() => run('debug.perfOverlay', 'Perf overlay', () => useActivityUi.getState().togglePerfOverlay())}><Gauge size={13} aria-hidden />Perf overlay</button>
           <button type="button" className="icon-button" aria-label="Close activity" autoFocus onClick={close}><X size={14} /></button>
         </div>

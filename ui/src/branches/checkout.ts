@@ -11,7 +11,7 @@ import type { SidebarCtx } from '../sidebar/itemActions';
 import type { SideItem } from '../sidebar/model';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import { openWorktreeTab, setActiveWorktree } from '../worktrees/active';
 import { runWrite, type WriteCtx } from '../write/client';
 
@@ -22,7 +22,7 @@ function offerWorktree(ctx: WriteCtx, err: GbError): boolean {
   const path = useRuntime.getState().tabs[ctx.tabId]?.graph?.worktrees.find((w) => w.branch === `refs/heads/${d.branch}`)?.path;
   if (!path) return false;
   useToast.getState().show(err.message, {
-    ms: ERROR_TOAST_MS,
+    error: true,
     actions: [
       { label: 'Switch to it', run: () => setActiveWorktree(ctx.tabId, path) },
       { label: 'Open in a new tab', run: () => { void openWorktreeTab(ctx.tabId, path); } },

@@ -1,6 +1,6 @@
 import type { RemoteSummary } from '../api/gen/RemoteSummary';
 import { openActivityEntry } from '../app/activityLog';
-import { ERROR_TOAST_MS, useToast, type ToastAction } from '../ui/toast';
+import { useToast, type ToastAction } from '../ui/toast';
 
 /** The toast's "Server output (N lines)" link (spec #2 §12.4), when N (Info + Warning) > 0. */
 export function serverActions(server: RemoteSummary, op: number): ToastAction[] {
@@ -16,5 +16,5 @@ export function showServerResult(done: string, problem: string, server: RemoteSu
     useToast.getState().show(problem, { tone: 'warning', sticky: true, detail: `“${server.warning}”`, actions });
     return;
   }
-  useToast.getState().show(done, { actions, ms: actions.length ? ERROR_TOAST_MS : undefined });
+  useToast.getState().show(done, { actions });
 }

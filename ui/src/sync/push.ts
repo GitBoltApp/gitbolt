@@ -8,9 +8,9 @@ import { useRuntime } from '../app/runtime';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
-import { askPushTarget } from './PushUpstreamDialog';
+import { askPushTarget } from './PushUpstreamPanel';
 import { showServerResult } from './serverOutput';
 
 /** The tab's sidebar branch named `name` (its upstream, push target, counts): the snapshot. */
@@ -68,12 +68,13 @@ export function nothingToPush(b: LocalBranch): boolean {
   return !!b.pushTarget && up === b.pushTarget && !b.gone && b.ahead === 0 && !rewroteSincePush(b);
 }
 
-/** The force confirmation (spec #2 §12.3): what the push replaces, counted from the snapshot. */
+/** The force confirmation's body (spec #2 §12.3; the title asks "Force push main to
+ * origin/main?"): what the push replaces, counted from the snapshot. */
 export function forceText(b: LocalBranch): string {
   const n = b.pushBehind ?? 0;
-  if (n === 0) return `Force push ${b.name} to ${b.pushTarget}? It may replace commits on the server that aren't in ${b.name}. A push can't be undone.`;
+  if (n === 0) return `It may replace commits on the server that aren't in ${b.name}. A push can't be undone.`;
   const what = n === 1 ? `1 commit on ${b.pushTarget} that isn't in ${b.name}` : `${n} commits on ${b.pushTarget} that aren't in ${b.name}`;
-  return `Force push ${b.name} to ${b.pushTarget}? It replaces ${what}. A push can't be undone.`;
+  return `It replaces ${what}. A push can't be undone.`;
 }
 
 /** The armed Force push's label: what it replaces, when the snapshot counts it. */
@@ -96,19 +97,21 @@ function leaseOf(tabId: string, b: LocalBranch): string | null {
 export const pushHooks: { pull: ((ctx: WriteCtx, branch: string) => void) | null } = { pull: null };
 
 /** A rejected push is a real choice (spec §ui confirms, board G): a popover anchored at the Push
- * that started it, the safe Pull first (and focused), then Force push (with lease), which still
- * arms in place before it goes. */
+ * that started it, "origin/main has 1 commit main doesn't have", with [Cancel] [Force push…]
+ * [Pull]: the safe Pull right-most and focused, Force push (with lease) red, arming in place
+ * before it goes; Details is a link in the body. */
 async function rejected(ctx: WriteCtx, b: LocalBranch, err: GbError, target: string, origin: Origin | null): Promise<void> {
   const pull = pushHooks.pull;
   const now = branchOf(ctx.tabId, b.name) ?? b;
   // The lease is read with the count the armed label shows, before the question: they agree.
   const lease = leaseOf(ctx.tabId, now);
+  const n = now.pushBehind ?? 0;
   const answer = await askChoice({
-    title: `${target} has commits ${b.name} doesn't have`,
-    body: `Pull them first, or replace them with a force push (a push can't be undone).`,
+    title: `${target} has ${n > 0 ? `${n} ${n === 1 ? 'commit' : 'commits'}` : 'commits'} ${b.name} doesn't have`,
+    body: pull ? 'Pull them in first, or overwrite them.' : 'Overwrite them with a force push?',
     choices: [
       ...(pull ? [{ id: 'pull', label: 'Pull', primary: true }] : []),
-      ...(b.pushTarget ? [{ id: 'force', label: 'Force push (with lease)', danger: true, arm: forceArm(now) }] : []),
+      ...(b.pushTarget ? [{ id: 'force', label: 'Force push…', danger: true, arm: forceArm(now) }] : []),
       { id: 'details', label: 'Details', quiet: true },
     ],
   }, origin);
@@ -141,16 +144,16 @@ export async function pushBranch(ctx: WriteCtx, b: LocalBranch): Promise<void> {
   return send(ctx, b, {});
 }
 
-/** "Push main to [origin ▾] / [main] and track it?" */
+/** "Push main to [origin ▾] / [main]", ☑ Track it: the panel under the Push that started it. */
 export async function openPushUpstream(ctx: WriteCtx, b: LocalBranch): Promise<void> {
   const origin = currentOrigin();
   const remotes = (useRuntime.getState().tabs[ctx.tabId]?.sidebar?.remotes ?? []).map((g) => g.name);
   if (remotes.length === 0) {
-    useToast.getState().show(`${b.name} has no upstream and this repository has no remote`, { ms: ERROR_TOAST_MS });
+    useToast.getState().show(`${b.name} has no upstream and this repository has no remote`, { error: true });
     return;
   }
-  const target = await askPushTarget(b.name, remotes);
-  if (target) await send(ctx, b, { target, setUpstream: true }, origin);
+  const answer = await askPushTarget(b.name, remotes, origin);
+  if (answer) await send(ctx, b, { target: answer.target, setUpstream: answer.track }, origin);
 }
 
 /** Force push with a lease on the remote-tracking oid shown now, after a confirmation (it arms
@@ -160,6 +163,6 @@ export async function forcePush(ctx: WriteCtx, b: LocalBranch, confirmed?: { oid
   if (!b.pushTarget) return;
   const origin = confirmed ? confirmed.origin : currentOrigin();
   const oid = confirmed ? confirmed.oid : leaseOf(ctx.tabId, b);
-  if (!confirmed && !(await confirmAction({ title: 'Force push?', body: forceText(b), confirmLabel: 'Force push', arm: forceArm(b), danger: true }, origin))) return;
+  if (!confirmed && !(await confirmAction({ title: `Force push ${b.name} to ${b.pushTarget}?`, body: forceText(b), confirmLabel: 'Force push', arm: forceArm(b), danger: true }, origin))) return;
   await send(ctx, b, { lease: { oid } }, origin);
 }

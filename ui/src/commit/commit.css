@@ -31,7 +31,7 @@
 .commit-positive, .commit-neutral, .commit-danger { display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; padding: 4px 12px; border: 1px solid transparent; border-radius: 4px; font: inherit; cursor: pointer; user-select: none; transition: background-color var(--motion-fast), border-color var(--motion-fast); }
 .commit-positive { color: var(--text-on-accent); background: var(--stats-added); border-color: color-mix(in srgb, var(--stats-added) 60%, var(--green)); font-weight: 600; }
 .commit-positive:hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--stats-added) 88%, var(--green)); }
-.commit-positive[aria-disabled="true"] { cursor: default; color: color-mix(in srgb, var(--green) 75%, var(--text-selected)); background: color-mix(in srgb, var(--green) 14%, var(--panel-bg1)); border-color: color-mix(in srgb, var(--green) 45%, var(--panel-bg1)); }
+.commit-positive[aria-disabled="true"] { cursor: default; color: var(--text-secondary); background: var(--panel-bg1); border-color: var(--section-border); font-weight: 500; }
 .commit-neutral { color: var(--text-normal); background: var(--control-bg); border-color: var(--section-border); }
 .commit-neutral:hover:not([aria-disabled="true"]) { background: var(--control-hover-bg); }
 /* Destructive (abort): red outlined, always red. */

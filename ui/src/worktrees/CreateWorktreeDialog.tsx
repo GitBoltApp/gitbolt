@@ -39,7 +39,7 @@ function Form({ req }: { req: Req }) {
   useEffect(() => {
     if (edited || !rt?.repo || !name || branchNameError(name)) return;
     let live = true;
-    void api.suggestWorktreePath(rt.repo.id, name).then((p) => { if (live) { setSuggestError(null); setPath(p); } }, (e) => { if (live) setSuggestError(`Couldn't suggest a folder (${errorMessage(e)}): type one`); });
+    void api.suggestWorktreePath(rt.repo.id, name).then((p) => { if (live) { setSuggestError(null); setPath(p); } }, (e) => { if (live) setSuggestError(`Couldn't suggest a directory (${errorMessage(e)}): type one`); });
     return () => { live = false; };
   }, [name, edited, rt?.repo]);
   const submit = async () => {
@@ -65,8 +65,8 @@ function Form({ req }: { req: Req }) {
           </label>
           {error && name && <p role="alert" className="modal-error">{error}</p>}
           <label className="modal-field">
-            <span>Folder</span>
-            <input aria-label="Folder" value={path} onChange={(e) => { setEdited(true); setPath(e.target.value); }} spellCheck={false} />
+            <span>Directory</span>
+            <input aria-label="Directory" value={path} onChange={(e) => { setEdited(true); setPath(e.target.value); }} spellCheck={false} />
             <button type="button" onClick={() => void browse()}>Browse…</button>
           </label>
           {suggestError && !path && <p role="alert" className="modal-error">{suggestError}</p>}

@@ -4,6 +4,7 @@ import type { RemoteBranchRef } from '../api/gen/RemoteBranchRef';
 import type { CommitTarget, MenuEnv } from '../menu/menuEnv';
 import type { MenuRow, Variant } from '../menu/types';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
+import { holdOrigin } from '../ui/arm/store';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { runWrite, type WriteCtx } from '../write/client';
 
@@ -72,8 +73,8 @@ export async function deleteBranch(ctx: WriteCtx, plan: DeletePlan, force = fals
   if (plan.remote && !force) {
     const name = `${plan.remote.remote}/${plan.remote.branch}`;
     const body = both
-      ? `Delete ${name} from ${plan.remote.remote} and the local branch ${plan.branch}? Deleting ${name} can't be undone${plan.unpushed ? `, and ${plan.branch} has ${commitsWord(plan.unpushed)} that aren't on it` : ''}. You can undo deleting the local branch.`
-      : `Delete ${name} from ${plan.remote.remote}? This can't be undone.`;
+      ? `Deleting ${name} can't be undone${plan.unpushed ? `, and ${plan.branch} has ${commitsWord(plan.unpushed)} that aren't on it` : ''}. You can undo deleting the local branch.`
+      : `It goes from ${plan.remote.remote}: this can't be undone.`;
     const arm = both
       ? `Click again to delete ${plan.branch} and ${name}${plan.unpushed ? ` (${commitsWord(plan.unpushed)} not on ${name})` : ''}`
       : `Click again to delete ${name} (can't be undone)`;
@@ -82,14 +83,19 @@ export async function deleteBranch(ctx: WriteCtx, plan: DeletePlan, force = fals
     if (both) force = true;
   }
   const expect = { head: null, refs: plan.local ? { [`refs/heads/${plan.branch}`]: plan.local.oid } : {} };
-  const out = await runWrite(ctx, () => api.deleteBranch(ctx.repoId, ctx.worktree, { branch: plan.branch, local: !!plan.local, remote: plan.remote, force, expect }), { origin });
-  if (out?.status === 'unmerged') {
-    const ok = await confirmAction({
-      title: `Delete ${out.branch}?`,
-      body: `${out.branch} has ${commitsWord(out.commits)} that aren't in ${out.into}. Delete it anyway? You can undo this.`,
-      confirmLabel: 'Delete', danger: true,
-      arm: `Click again to delete ${out.branch}: ${commitsWord(out.commits)} not in ${out.into}`,
-    }, origin);
-    if (ok) await deleteBranch(ctx, plan, true, origin);
-  }
+  // A local delete may come back `unmerged`: the menu it came from stays open meanwhile, so that
+  // question arms the clicked row in place (board A) instead of falling back to a popover.
+  const release = force ? () => {} : holdOrigin();
+  const out = await runWrite(ctx, () => api.deleteBranch(ctx.repoId, ctx.worktree, { branch: plan.branch, local: !!plan.local, remote: plan.remote, force, expect }), { origin })
+    .catch((e: unknown) => { release(); throw e; });
+  if (out?.status !== 'unmerged') return release();
+  // Armed first, then the hold goes: the row stays armed in its open menu.
+  const asked = confirmAction({
+    title: `Delete ${out.branch}?`,
+    body: `${out.branch} has ${commitsWord(out.commits)} that aren't in ${out.into}. You can undo this.`,
+    confirmLabel: 'Delete', danger: true,
+    arm: `Click again to delete ${out.branch}: ${commitsWord(out.commits)} not in ${out.into}`,
+  }, origin);
+  release();
+  if (await asked) await deleteBranch(ctx, plan, true, origin);
 }

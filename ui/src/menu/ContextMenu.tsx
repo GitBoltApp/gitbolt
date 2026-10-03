@@ -1,7 +1,7 @@
-import { ChevronRight } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { runFromMenu } from '../ui/arm/origin';
-import { confirmable, confirmableKey, confirmArmed, consumeDisarmClick, disarm, isArmedOrigin, useArm } from '../ui/arm/store';
+import { Check, ChevronRight } from 'lucide-react';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { OVERLAY_ATTR, runFromMenu } from '../ui/arm/origin';
+import { confirmable, confirmableKey, confirmArmed, consumeDisarmClick, disarm, isArmedOrigin, setArmOption, useArm } from '../ui/arm/store';
 import { registerKeys } from '../ui/keyRouter';
 import { hideTooltip, showTooltip } from '../ui/tooltipStore';
 import { pressedAnchor, runMenuRowHook, useMenu } from './menuStore';
@@ -124,6 +124,10 @@ export function ContextMenu() {
   const uid = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [levels, setLevels] = useState<Level[]>([]);
+  // The keyboard is on the armed row's option (its checkbox row under it), not the row itself.
+  const [onOption, setOnOption] = useState(false);
+  const armedId = armed?.id;
+  useEffect(() => setOnOption(false), [armedId]);
   const placedSeq = useRef(-1);
   const returnTo = useRef<HTMLElement | null>(null);
   // The safe triangle while the pointer heads for the open submenu below level `depth`, and
@@ -382,6 +386,14 @@ export function ContextMenu() {
     const lv = levels[depth];
     if (!lv) return;
     const row = lv.rows[lv.active];
+    // The armed row's option: ↓ reaches it and ↑ goes back without disarming; Enter/Space on it
+    // toggles it. The armed row's own Enter is still the second pick.
+    const opt = armed?.req.option && armed.origin?.el.id === rowId(depth, lv.active);
+    if (opt && !e.repeat) {
+      if (!onOption && e.key === 'ArrowDown') return setOnOption(true);
+      if (onOption && e.key === 'ArrowUp') return setOnOption(false);
+      if (onOption && (e.key === 'Enter' || e.key === ' ')) return setArmOption(!armed.checked);
+    }
     const set = (patch: Partial<Level>) => setLevels((ls) => ls.map((l, i) => (i === depth ? { ...l, ...patch } : l)));
     const moveTo = (active: number) => {
       if (armed) disarm();
@@ -471,9 +483,10 @@ export function ContextMenu() {
         const disabled = r.kind === 'action' && !!r.disabledReason;
         const expanded = r.kind === 'submenu' && levels[depth + 1]?.parent === i;
         const armedHere = !!armed && armed.origin?.el.id === rowId(depth, i);
+        const option = armedHere ? armed!.req.option : undefined;
         return (
+          <Fragment key={r.id}>
           <div
-            key={r.id}
             id={rowId(depth, i)}
             role="menuitem"
             data-row-id={r.id}
@@ -551,6 +564,28 @@ export function ContextMenu() {
               </span>
             )}
           </div>
+          {/* The armed row's option (spec §ui confirms, board A): right under it, part of the
+              armed state (a press on it doesn't disarm); the menu grows downward, nothing above
+              moves. */}
+          {option && (
+            <div
+              id={`${rowId(depth, i)}-option`}
+              role="menuitemcheckbox"
+              aria-checked={armed!.checked}
+              data-active={onOption}
+              className="ctx-arm-option"
+              {...{ [OVERLAY_ATTR]: '' }}
+              onClick={() => setArmOption(!useArm.getState().armed?.checked)}
+            >
+              <span className={`ctx-arm-box${armed!.checked ? ' checked' : ''}`} aria-hidden>{armed!.checked && <Check size={11} strokeWidth={3} />}</span>
+              <span className="ctx-arm-option-text">
+                {option.label}
+                {option.detail && <span className="ctx-arm-option-detail"> ({option.detail})</span>}
+                {option.note && <span className="ctx-arm-option-note">{option.note}</span>}
+              </span>
+            </div>
+          )}
+          </Fragment>
         );
       })}
     </div>
@@ -565,7 +600,7 @@ export function ContextMenu() {
       ref={rootRef}
       role="menu"
       aria-label={label ?? 'Context menu'}
-      aria-activedescendant={activeRow && activeRow.kind !== 'separator' ? rowId(deepest, shown[deepest].active) : undefined}
+      aria-activedescendant={activeRow && activeRow.kind !== 'separator' ? `${rowId(deepest, shown[deepest].active)}${onOption && armed?.req.option ? '-option' : ''}` : undefined}
       tabIndex={-1}
       className="ctx-menu"
       data-testid="context-menu"

@@ -1,6 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDownWideNarrow, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
-import { createPortal } from 'react-dom';
 import { Fragment, memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
@@ -18,7 +17,7 @@ import type { ConflictKind } from '../api/gen/ConflictKind';
 import { CONFLICT_LABEL, conflictSentence } from '../conflicts/sides';
 import { useConflictSides } from '../conflicts/useOperation';
 import { useFileListPrefs } from './fileListPrefs';
-import { allFolderPaths, buildRows, countByStatus, matchesFilter, rowIndent, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
+import { allFolderPaths, buildRows, countByStatus, matchesFilter, NONE_COLLAPSED, rowIndent, stepFile, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
 import { FilesFilter } from './FilesFilter';
 import { PathTooltip } from './RenamePaths';
 import { PathTreeToggle } from './PathTreeToggle';
@@ -199,7 +198,7 @@ interface Cursor { id: string; diffKey: string | null }
  * first or last file (opening it), when up/down crosses over from the other list. */
 export interface FileListHandle { hasFiles(): boolean; enter(edge: 'first' | 'last'): void }
 
-export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, toolsSlot = null, onLeave, renderActions, ref }: { /** WIP: the section header's element the mode's tool (Collapse all / Sort by status) renders into as an icon button. */ toolsSlot?: HTMLElement | null; renderActions?: (row: FileRow) => ReactNode; list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
+export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, onLeave, renderActions, toolEnd, ref }: { renderActions?: (row: FileRow) => ReactNode; /** `sharedMode`: shown at the right end of the tool line (WIP: the section's +/− totals). */ toolEnd?: ReactNode; list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
   const store = useRepoViewStore();
   const openFile = useRepoView((s) => s.openFile);
   const closeDiffTo = useRepoView((s) => s.closeDiffTo);
@@ -235,7 +234,16 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
     if (!filterQuery) return unchanged;
     return { commit: unchanged.commit, paths: unchanged.paths.filter((p) => matchesFilter(p, filterQuery)) };
   }, [unchanged, filterQuery]);
-  const rows = useMemo(() => buildRows({ files: filteredFiles, spec, unchanged: filteredUnchanged, mode, sort, collapsed }), [filteredFiles, spec, filteredUnchanged, mode, sort, collapsed]);
+  const rowsFor = useCallback((c: ReadonlySet<string>) => buildRows({ files: filteredFiles, spec, unchanged: filteredUnchanged, mode, sort, collapsed: c }), [filteredFiles, spec, filteredUnchanged, mode, sort]);
+  const rows = useMemo(() => rowsFor(collapsed), [rowsFor, collapsed]);
+  // The rows with every directory expanded: ↑/↓ walk the files in this order (UX round 2), so a
+  // collapsed directory's files are reachable from the keyboard. Built on the first use only.
+  const fullRows = useRef<{ of: typeof rowsFor; rows: FileRow[] } | null>(null);
+  const allRows = () => {
+    if (collapsed.size === 0) return rows;
+    if (fullRows.current?.of !== rowsFor) fullRows.current = { of: rowsFor, rows: rowsFor(NONE_COLLAPSED) };
+    return fullRows.current.rows;
+  };
   // Every target key of this list starts with its spec's key (`targetFor`, `fileViewTarget`).
   const own = openKey !== null && openKey.startsWith(`${filesKey(spec)}|`);
   const cursorHere = useRepoView((s) => s.fileListCursor === filesKey(spec));
@@ -257,12 +265,13 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
   const activeIndex = rows.findIndex((r) => r.id === activeId);
   const rowId = (index: number) => `${baseId}-row-${index}`;
 
-  const open = (index: number) => {
-    const row = rows[index];
+  // `among`: the rows `index` is in (the next render's, after ↑/↓ expanded a directory).
+  const open = (index: number, among: FileRow[] = rows) => {
+    const row = among[index];
     if (row?.kind !== 'file') return;
     const near = (step: 1 | -1): DiffTarget | null => {
-      for (let j = index + step; j >= 0 && j < rows.length; j += step) {
-        const r = rows[j];
+      for (let j = index + step; j >= 0 && j < among.length; j += step) {
+        const r = among[j];
         if (r.kind === 'file') return r.target;
       }
       return null;
@@ -291,6 +300,29 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
     v.scrollToIndex(j, { align: 'auto' });
     open(j);
   };
+  /** ↑/↓'s move (UX round 2): onto `to`'s file, first expanding the collapsed directories that
+   * hide it, as a click on their chevrons would; the scroll waits for the expanded rows. */
+  const stepTo = (to: NonNullable<ReturnType<typeof stepFile>>) => {
+    if (to.expand.length === 0) return moveToFile(rows.findIndex((r) => r.id === to.row.id));
+    const next = new Set(collapsed);
+    for (const p of to.expand) next.delete(p);
+    const after = rowsFor(next);
+    setCollapsed(next);
+    place(to.row);
+    scrollToId.current = to.row.id;
+    open(after.findIndex((r) => r.id === to.row.id), after);
+  };
+  const scrollToId = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const id = scrollToId.current;
+    if (id === null) return;
+    scrollToId.current = null;
+    const j = rows.findIndex((r) => r.id === id);
+    if (j >= 0) v.scrollToIndex(j, { align: 'auto' });
+  }, [rows, v]);
+  /** The file `step` from the active row (or from outside the list, with no active row), in
+   * expanded order. */
+  const stepFrom = (id: string | null, step: 1 | -1) => stepFile(allRows(), collapsed, id, step);
   /** The first file row with changes from `from` (inclusive) stepping by `step`. -1 when there's
    * none (feedback K19: "Previous/Next changed file" skips unchanged rows). */
   const changedFileAt = (from: number, step: 1 | -1): number => {
@@ -372,10 +404,11 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
   const onRowMenu = useCallback((e: MouseEvent, row: FileRow) => openContextFor(row.id, () => openContextMenu(e, latest.current.menuFor(row))), [openContextFor]);
 
   useImperativeHandle(ref, () => ({
-    hasFiles: () => rows.some((r) => r.kind === 'file'),
+    hasFiles: () => allRows().some((r) => r.kind === 'file'),
     enter: (edge) => {
       scrollRef.current?.focus({ preventScroll: true });
-      moveToFile(edge === 'first' ? fileAt(0, 1) : fileAt(rows.length - 1, -1));
+      const to = stepFrom(null, edge === 'first' ? 1 : -1);
+      if (to) stepTo(to);
     },
   }));
 
@@ -405,21 +438,20 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
     const last = rows.length - 1;
     // Feedback J3: the moves land on file rows only (folder rows are skipped), and open them.
     // Feedback K4: ↓ past the last file wraps to the first, ↑ past the first wraps to the last.
+    // UX round 2: ↑/↓ go file to file as if every directory were expanded, expanding the
+    // collapsed ones they walk into (↓ lands on the first file inside, ↑ on the last).
     switch (e.key) {
       // Every key handled here is in HANDLED_KEYS (above): add new ones to both, or a pending list
       // would scroll on them.
       // `onLeave` (WIP, K36): past the list's end, the other expanded list takes over (and wraps
       // the sequence as a whole); with none to take it, this list wraps on its own.
-      case 'ArrowDown': {
-        const n = i < 0 ? fileAt(0, 1) : fileAt(i + 1, 1);
-        if (n === -1 && onLeave?.(1)) break;
-        moveToFile(n === -1 ? fileAt(0, 1) : n);
-        break;
-      }
+      case 'ArrowDown':
       case 'ArrowUp': {
-        const n = i < 0 ? fileAt(0, 1) : fileAt(i - 1, -1);
-        if (n === -1 && onLeave?.(-1)) break;
-        moveToFile(n === -1 ? fileAt(last, -1) : n);
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        const n = i < 0 ? stepFrom(null, 1) : stepFrom(row.id, step);
+        if (n === null && onLeave?.(step)) break;
+        const to = n ?? stepFrom(null, step);
+        if (to) stepTo(to);
         break;
       }
       case 'PageDown': { const t = Math.min(last, i + page); moveToFile(fileAt(t, 1, -1)); break; }
@@ -472,22 +504,23 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
         {countsText(counts) ? <StatusCountsView counts={counts} testId="file-counts" size={12} /> : <span className="file-counts" data-testid="file-counts">No changes</span>}
         <span className="file-totals" data-testid="file-totals"><span className="added">+{list.added}</span> <span className="deleted">−{list.deleted}</span></span>
       </div>}
-      {sharedMode && toolsSlot && createPortal(
-        mode === 'tree' ? (
-          <HoverTooltip content={allExpanded ? 'Collapse all' : 'Expand all'}>
-            <button type="button" className="head-tool" aria-label={allExpanded ? 'Collapse all' : 'Expand all'} disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
-              {allExpanded ? <ChevronsDownUp size={13} aria-hidden /> : <ChevronsUpDown size={13} aria-hidden />}
-            </button>
-          </HoverTooltip>
-        ) : (
-          <HoverTooltip content="Sort by status, then path">
-            <button type="button" className="head-tool" aria-label="Sort by status" aria-pressed={sort === 'status'} onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>
-              <ArrowDownWideNarrow size={13} aria-hidden />
-            </button>
-          </HoverTooltip>
-        ),
-        toolsSlot,
-      )}
+      {sharedMode && rows.length > 0 && (mode === 'tree' ? (
+        <div className="list-tool-line">
+          <button type="button" className="list-tool" aria-label={allExpanded ? 'Collapse all' : 'Expand all'} disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
+            {allExpanded ? <ChevronsDownUp size={12} aria-hidden /> : <ChevronsUpDown size={12} aria-hidden />}
+            {allExpanded ? 'Collapse all' : 'Expand all'}
+          </button>
+          {toolEnd}
+        </div>
+      ) : (
+        <div className="list-tool-line">
+          <button type="button" className="list-tool" aria-label="Sort by status" aria-pressed={sort === 'status'} onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>
+            <ArrowDownWideNarrow size={12} aria-hidden />
+            Sort by status
+          </button>
+          {toolEnd}
+        </div>
+      ))}
       {!sharedMode && <>
       {/* Justified: the mode's action on the left, Path/Tree in the centre, View all files on
           the right (feedback F18). */}

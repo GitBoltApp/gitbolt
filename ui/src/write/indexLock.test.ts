@@ -20,7 +20,7 @@ describe('Remove stale lock (spec #2 §14)', () => {
   it('asks first, then removes the lock the error saw', async () => {
     confirm.answer = true;
     await removeStaleLock(3, LOCK);
-    expect(confirm.asked).toEqual([expect.objectContaining({ body: 'Remove .git/index.lock? Do this only if no other git program is running.', danger: true })]);
+    expect(confirm.asked).toEqual([expect.objectContaining({ title: 'Remove .git/index.lock?', body: 'Do this only if no other git program is running.', danger: true })]);
     expect(api.removeIndexLock).toHaveBeenCalledWith(3, LOCK);
     expect(useToast.getState().message).toBe('Removed .git/index.lock');
   });
@@ -35,7 +35,7 @@ describe('Remove stale lock (spec #2 §14)', () => {
     expect(lockLabel('/r/.git/worktrees/wt/index.lock')).toBe('.git/worktrees/wt/index.lock');
     confirm.answer = true;
     await writeErrorContext(3, { retry: vi.fn() }).removeLock!({ ...LOCK, path: '/r/.git/worktrees/wt/index.lock' });
-    expect(confirm.asked).toEqual([expect.objectContaining({ body: expect.stringContaining('Remove .git/worktrees/wt/index.lock?') })]);
+    expect(confirm.asked).toEqual([expect.objectContaining({ title: 'Remove .git/worktrees/wt/index.lock?' })]);
     expect(api.removeIndexLock).toHaveBeenCalledWith(3, expect.objectContaining({ ino: 6 }));
   });
 });

@@ -144,7 +144,7 @@ mod linux {
                 "/org/freedesktop/portal/desktop",
                 Some("org.freedesktop.portal.FileChooser"),
                 "OpenFile",
-                &(parent_window, "Select a Folder", options),
+                &(parent_window, "Select a Directory", options),
             )
             .map_err(chooser_linux::classify_zbus_error)?;
 

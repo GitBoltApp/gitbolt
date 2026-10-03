@@ -15,7 +15,7 @@ export async function removeWorktree(ctx: WriteCtx, path: string, branch: string
   const main = mainWorktreeOf(ctx.tabId) ?? ctx.worktree;
   const shown = worktreeDisplay(main, path);
   const stays = branch ? `branch ${branch.replace(/^refs\/heads\//, '')} stays` : 'its commits stay';
-  if (!(await confirmAction({ title: 'Remove worktree?', body: `Remove worktree ${shown}? Its folder is deleted; ${stays}.`, confirmLabel: 'Remove', arm: `Click again to remove ${shown}: its folder is deleted`, danger: true }, origin))) return;
+  if (!(await confirmAction({ title: `Remove worktree ${shown}?`, body: `Its directory is deleted; ${stays}.`, confirmLabel: 'Remove', arm: `Click again to remove ${shown}: its directory is deleted`, danger: true }, origin))) return;
   const at = { ...ctx, worktree: main };
   const onIt = () => useAppState.getState().profile.tabs.filter((t) => t.kind === 'repo' && useRuntime.getState().tabs[t.id]?.repo?.id === ctx.repoId && useRuntime.getState().tabs[t.id]?.worktree === path).map((t) => t.id);
   // A tab on the removed worktree moves to main first (§11.1). Where another tab already shows
@@ -38,7 +38,7 @@ export async function removeWorktree(ctx: WriteCtx, path: string, branch: string
   if (out === null) { putBack(); return; }
   if (out.status !== 'needsForce') { done(); return; }
   putBack();
-  const body = `${shown} has changes that aren't committed. Remove it anyway? They're lost: this can't be undone.`;
+  const body = `${shown} has changes that aren't committed. They're lost: this can't be undone.`;
   const again = await confirmAction({ title: 'Remove it anyway?', body, confirmLabel: 'Remove', arm: `Click again to remove ${shown}: its uncommitted changes are lost`, caption: body, danger: true }, origin);
   if (!again) return;
   const forced = await send(true);

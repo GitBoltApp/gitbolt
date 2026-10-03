@@ -6,7 +6,7 @@ import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
 import { journalKey, useJournal } from '../undo/store';
 import { COMMIT_QUEUED, stagingKey, useStaging } from '../stage/store';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import type { WriteCtx } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { isMergeDirty, MERGE_SAVE_FIRST } from './mergeDrafts';
@@ -35,9 +35,9 @@ const off = registerMenu<FileTarget, MenuEnv>({
     const run = (f: (c: WriteCtx) => Promise<unknown>) => () => {
       const at = activeTab();
       const c = at ? writeCtx(at.id, root) : null;
-      if (c && isMergeDirty(c.tabId, c.worktree, t.path)) useToast.getState().show(`${MERGE_SAVE_FIRST}: ${t.path} has unsaved merge-tool edits`, { ms: ERROR_TOAST_MS });
+      if (c && isMergeDirty(c.tabId, c.worktree, t.path)) useToast.getState().show(`${MERGE_SAVE_FIRST}: ${t.path} has unsaved merge-tool edits`, { error: true });
       else if (c) void f(c);
-      else useToast.getState().show(`Couldn't resolve ${t.path}: its repository's tab isn't open`, { ms: ERROR_TOAST_MS });
+      else useToast.getState().show(`Couldn't resolve ${t.path}: its repository's tab isn't open`, { error: true });
     };
     return [
       row({ id: 'file.takeCurrent', label: 'Take current', icon: ArrowLeftToLine, tooltip: `Resolve ${t.path} with the version in ${side('current')}`, run: run((c) => resolveFile(c, t.path, { kind: 'current' })), disabledReason: queued }),

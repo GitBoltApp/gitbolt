@@ -127,6 +127,7 @@ describe('themes', () => {
         'control-bg': 'rgba(255, 255, 255, 0.06)', 'control-hover-bg': 'rgba(255, 255, 255, 0.12)', 'image-frame-border': 'rgba(255, 255, 255, 0.22)',
         'shadow-modal': 'rgba(0, 0, 0, 0.5)', 'shadow-popup': 'rgba(0, 0, 0, 0.45)', 'shadow-tooltip': 'rgba(0, 0, 0, 0.4)', backdrop: 'rgba(0, 0, 0, 0.45)',
         'node-fill': '#1c1e23', 'node-text': '#ffffff', 'collapse-strip': 'rgba(0, 0, 0, 0.4)',
+        'conflict-ours-tick': '#1c1e23', 'conflict-theirs-tick': '#1c1e23',
       },
     });
   });

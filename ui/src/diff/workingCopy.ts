@@ -111,7 +111,7 @@ export async function saveWorkingCopy(tabId: string): Promise<'saved' | 'kept' |
         toastActionError(err, { retry: () => void send(base) });
         return 'failed';
       }
-      const pick = await chooseAction({ title: err.message, body: 'The file changed on disk since you opened it. Reload it (your edits are lost), or overwrite it with your text?', choices: [{ id: 'reload', label: 'Reload' }, { id: 'overwrite', label: 'Overwrite', danger: true }] });
+      const pick = await chooseAction({ title: err.message, body: 'Reload it (your edits are lost), or overwrite it with your text.', choices: [{ id: 'reload', label: 'Reload' }, { id: 'overwrite', label: 'Overwrite', danger: true }] });
       if (pick === 'reload') {
         patch(tabId, { dirty: false, draft: undefined });
         reload(tabId);
@@ -187,7 +187,7 @@ export function installLeaveGuard(tabId: string, store: RepoViewStore): () => vo
       return true;
       // --- end 2D T20 ---
     }
-    void chooseAction({ title: `Save your changes to ${wc.path}?`, body: "Your edits to the working copy aren't saved yet.", choices: [{ id: 'save', label: 'Save' }, { id: 'discard', label: 'Discard edits', danger: true }] }).then(async (pick) => {
+    void chooseAction({ title: `Save your changes to ${wc.path}?`, choices: [{ id: 'save', label: 'Save' }, { id: 'discard', label: 'Discard edits', danger: true }] }).then(async (pick) => {
       if (pick === 'save' && (await saveWorkingCopy(tabId)) === 'saved') go();
       if (pick === 'discard') {
         patch(tabId, { dirty: false, draft: undefined });
@@ -215,7 +215,7 @@ export function guardTabClose(ids: string[], go: () => void): void {
   // Save only when it can succeed: the editor is showing this tab's file right now.
   const shown = loadedHost() !== null && editorText(loadedHost()!, wc) !== null;
   const choices = [...(shown ? [{ id: 'save', label: 'Save' }] : []), { id: 'discard', label: 'Discard edits', danger: true }];
-  void chooseAction({ title: `Save your changes to ${wc.path}?`, body: "Your edits to the working copy aren't saved yet.", choices }).then(async (pick) => {
+  void chooseAction({ title: `Save your changes to ${wc.path}?`, choices }).then(async (pick) => {
     if (pick === 'save' && (await saveWorkingCopy(dirty)) !== 'saved') return;
     if (pick === 'discard') patch(dirty, { dirty: false, draft: undefined });
     if (pick === 'save' || pick === 'discard') guardTabClose(ids, go);
@@ -245,7 +245,7 @@ export function installWindowCloseGuard(): void {
     return win.onCloseRequested((ev) => {
       if (!anyDirty()) return;
       ev.preventDefault();
-      void chooseAction({ title: 'Discard unsaved changes?', body: "Some edits aren't saved yet.", choices: [{ id: 'discard', label: 'Discard edits', danger: true }] }).then((pick) => {
+      void chooseAction({ title: 'Discard unsaved changes?', choices: [{ id: 'discard', label: 'Discard edits', danger: true }] }).then((pick) => {
         if (pick === 'discard') void win.destroy();
       });
     });

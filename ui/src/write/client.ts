@@ -4,8 +4,9 @@ import { useRuntime } from '../app/runtime';
 import { tabView } from '../app/tabStores';
 import { toastActionError } from '../debug/errorToast';
 import { toGbError } from '../errors/describe';
-import { ERROR_TOAST_MS, useToast } from '../ui/toast';
+import { useToast } from '../ui/toast';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
+import { holdOrigin } from '../ui/arm/store';
 import { confirmAction, type ConfirmRequest } from '../ui/ConfirmDialog';
 import { useStaging } from '../stage/store';
 import { loadJournal, useJournal } from '../undo/store';
@@ -49,7 +50,7 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
     return { flag: 'autostash', req: { title: 'Your changes conflict', body, confirmLabel: 'Continue', arm: 'Click again to continue: your changes go to a stash', caption: body, tone: 'warn' } };
   }
   if (d?.kind === 'applyWithoutIndex' && !asked.withoutIndex) {
-    return { flag: 'withoutIndex', req: { title: 'Apply without restoring what was staged?', body: 'git couldn\'t restore what was staged. Apply the changes unstaged instead?', confirmLabel: 'Apply', arm: 'Click again to apply it all unstaged', caption: 'git couldn\'t restore what was staged.', tone: 'warn' } };
+    return { flag: 'withoutIndex', req: { title: 'Apply without restoring what was staged?', body: 'git couldn\'t restore what was staged: the changes go in unstaged.', confirmLabel: 'Apply', arm: 'Click again to apply it all unstaged', caption: 'git couldn\'t restore what was staged.', tone: 'warn' } };
   }
   // --- 2C T9: the reset question ---
   if (d?.kind === 'resetDiscards' && !asked.discard) {
@@ -64,7 +65,7 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
   // Take current / Take incoming over the user's edits: `confirmDiscard`, sent with the
   // destructive `discard` flag (a Retry never re-sends it).
   if (d?.kind === 'discardEdits' && !asked.discard) {
-    return { flag: 'discard', req: { title: 'Discard your edits?', body: `Discard your edits to ${d.path}? The side you chose replaces the file, and Undo can't bring the edits back.`, confirmLabel: 'Discard edits', arm: `Click again to replace your edits to ${d.path}`, caption: "Undo can't bring the edits back.", danger: true } };
+    return { flag: 'discard', req: { title: 'Discard your edits?', body: `The side you chose replaces ${d.path}, and Undo can't bring the edits back.`, confirmLabel: 'Discard edits', arm: `Click again to replace your edits to ${d.path}`, caption: "Undo can't bring the edits back.", danger: true } };
   }
   // --- end 2D T15 ---
   return null;
@@ -81,10 +82,19 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
  *
  * Resolves to the outcome, or `null` when it failed or the user said no.
  */
+/** How long a write started from a menu row keeps that menu open for a question (`runWrite`). */
+export const MENU_HOLD_MS = 300;
+
 export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, asked: Confirmed) => Promise<WriteResult<T>>, opts: { refresh?: () => void | Promise<void>; onSuccess?: (outcome: T) => void | Promise<void>; handle?: (err: GbError) => boolean; origin?: Origin | null } = {}): Promise<T | null> {
   // Where the write started (spec §ui confirms): its questions arm that control, after the answer.
   // A caller that awaited before writing passes the origin it captured (`null`: a popover).
   const origin = 'origin' in opts ? opts.origin ?? null : currentOrigin();
+  // Started from a menu row: the menu stays open while the first answer comes, so a question it
+  // brings (unmerged, autostash, a hard reset's losses…) arms that row in place, not a popover.
+  // Briefly only: a slow write (the network) lets the menu close on time, and its questions then
+  // use the popover.
+  const release = 'origin' in opts ? () => {} : holdOrigin();
+  const cap = setTimeout(release, MENU_HOLD_MS);
   const attempt = async (asked: Confirmed): Promise<T | null> => {
     let outcome: T;
     try {
@@ -94,7 +104,12 @@ export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, aske
     } catch (e) {
       const err = toGbError(e);
       const q = question(err, asked);
-      if (q) return (await confirmAction(q.req, origin)) ? attempt({ ...asked, [q.flag]: true }) : null;
+      if (q) {
+        // Armed first, then the hold goes: the row stays armed in its open menu.
+        const answer = confirmAction(q.req, origin);
+        release();
+        return (await answer) ? attempt({ ...asked, [q.flag]: true }) : null;
+      }
       // A Stale undo, redo or banner (2A final M1) changed nothing, so no journalChanged comes:
       // reload it, so the toast's "Refreshed" is true and the toolbar names the real top.
       if (err.kind === 'Stale') await loadJournal(ctx.repoId, ctx.worktree);
@@ -104,7 +119,7 @@ export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, aske
         if (opts.handle?.(err)) return null;
       } catch (he) {
         console.error('[gitbolt] a write failure handler threw', he);
-        useToast.getState().show(`Couldn't handle the failure: ${toGbError(he).message}`, { ms: ERROR_TOAST_MS });
+        useToast.getState().show(`Couldn't handle the failure: ${toGbError(he).message}`, { error: true });
         return null;
       }
       // --- end 2C T9 ---
@@ -121,9 +136,9 @@ export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, aske
       await opts.onSuccess?.(outcome);
     } catch (e) {
       console.error('[gitbolt] follow-up after a write failed', e);
-      useToast.getState().show(`Done, but the view didn't update: ${toGbError(e).message}`, { ms: ERROR_TOAST_MS });
+      useToast.getState().show(`Done, but the view didn't update: ${toGbError(e).message}`, { error: true });
     }
     return outcome;
   };
-  return attempt(NONE);
+  return attempt(NONE).finally(() => { clearTimeout(cap); release(); });
 }

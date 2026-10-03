@@ -44,7 +44,7 @@ const removeRows: MenuContribution<SidebarTarget, MenuEnv> = {
     const w = env.sidebar?.worktrees.find((x) => x.path === t.path);
     if (w?.isMain) return [];
     const why = w?.locked ? 'Locked: unlock it first' : undefined;
-    return [row({ id: 'sidebar.worktree.remove', label: 'Remove…', icon: FolderX, tooltip: `Delete ${env.worktreeShown(t.path)}'s folder (its branch stays)`, run: () => { void removeWorktree(env.write!, t.path, t.branch); }, disabledReason: why })];
+    return [row({ id: 'sidebar.worktree.remove', label: 'Remove…', icon: FolderX, tooltip: `Delete ${env.worktreeShown(t.path)}'s directory (its branch stays)`, run: () => { void removeWorktree(env.write!, t.path, t.branch); }, disabledReason: why })];
   },
 };
 
@@ -69,7 +69,7 @@ const createRows: MenuContribution<CommitTarget, MenuEnv> = {
       return [row({ id: `wt:${r.fullName}`, label: `${r.remote}/${branch}`, icon: FolderPlus, tooltip: `A worktree on a new ${branch} tracking ${r.remote}/${branch}`, run: () => openCreateWorktree({ tabId, at: t.sha, branch: { kind: 'remote', remote: r.remote, branch, name: branch } }) })];
     });
     const fresh = row({ id: 'wt:new', label: 'New branch here…', icon: FolderPlus, tooltip: `A worktree on a new branch at ${t.sha.slice(0, 7)}`, run: () => openCreateWorktree({ tabId, at: t.sha, branch: null }) });
-    return [{ kind: 'submenu', id: 'branch.createWorktree', label: 'Create worktree from', icon: FolderPlus, tooltip: 'Check out a branch in a new folder', rows: [...sub, ...(sub.length ? [{ kind: 'separator' as const }] : []), fresh] }];
+    return [{ kind: 'submenu', id: 'branch.createWorktree', label: 'Create worktree from', icon: FolderPlus, tooltip: 'Check out a branch in a new directory', rows: [...sub, ...(sub.length ? [{ kind: 'separator' as const }] : []), fresh] }];
   },
 };
 

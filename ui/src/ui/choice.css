@@ -1,7 +1,6 @@
 .modal-note { margin: 8px 0 0; color: var(--text-normal); }
 .modal-check { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-.modal-check-detail { color: var(--text-normal); }
-.choice-actions .choice-cancel { order: 99; }
+.modal-check-detail { color: var(--text-secondary); }
 /* Confirm buttons: green outlined (filled on hover), red solid for danger; the focused one is ringed. */
 .modal-actions button.positive { color: var(--green); background: transparent; border-color: var(--green); }
 .modal-actions button.positive:hover:not(:disabled) { color: var(--text-on-accent); background: var(--green); }
@@ -15,5 +14,13 @@
 .arm-popover .modal-actions button.danger:hover { background: color-mix(in srgb, var(--red) 20%, transparent); }
 .arm-popover .modal-actions button.warn { color: color-mix(in srgb, var(--orange) 55%, var(--text-selected)); background: transparent; border-color: var(--orange); }
 .arm-popover .modal-actions button.warn:hover { background: color-mix(in srgb, var(--orange) 20%, transparent); }
-.arm-popover .modal-actions button.choice-cancel, .arm-popover .modal-actions button.choice-quiet { color: var(--text-normal); background: var(--control-bg); border-color: var(--section-border); }
+/* Cancel: a quiet text button. */
+.arm-popover .modal-actions button.choice-cancel { color: var(--text-secondary); background: transparent; border-color: transparent; }
+.arm-popover .modal-actions button.choice-cancel:hover { color: var(--text-selected); background: var(--hover-row); }
+/* A secondary way out (Details): a text link at the end of the body. */
+.arm-popover .choice-link { all: unset; color: var(--blue); cursor: pointer; }
+.arm-popover .choice-link:hover { text-decoration: underline; }
+.arm-popover .choice-link:focus-visible { outline: 1px solid var(--text-selected); outline-offset: 1px; }
 .arm-popover .modal-actions button:focus { outline-offset: 1px; }
+/* Its row armed (a risky choice covers it): no focus ring pokes out from under the overlay. */
+.arm-popover .modal-actions:has([data-armed]) button { outline: none; }

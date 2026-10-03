@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileChange } from '../api/gen/FileChange';
-import { allFolderPaths, buildRows, buildTree, countByStatus, flattenTree, rowIndent, TREE } from './fileTree';
+import { allFolderPaths, buildRows, buildTree, countByStatus, flattenTree, NONE_COLLAPSED, rowIndent, stepFile, TREE } from './fileTree';
 
 const change = (path: string, status = 'M', oldPath: string | null = null): FileChange => ({
   path, oldPath, status, additions: 1, deletions: 0, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false,
@@ -48,6 +48,34 @@ describe('file tree', () => {
     const [srcOpen, lib] = ['src', 'src/lib'].map((p) => expanded.find((r) => r.kind === 'folder' && r.path === p));
     expect(srcOpen?.kind === 'folder' && srcOpen.counts).toBeNull();
     expect(lib?.kind === 'folder' && lib.counts).toEqual({ modified: 0, added: 1, deleted: 1, renamed: 0, conflicted: 0 });
+  });
+
+  it('↑/↓ step through collapsed directories, naming the ones to expand (UX round 2)', () => {
+    // lib/ { one/ { p, q }, two/ { r, s } }, a.txt, z.txt
+    const files = ['lib/one/p.txt', 'lib/one/q.txt', 'lib/two/r.txt', 'lib/two/s.txt', 'a.txt', 'z.txt'].map((p) => change(p));
+    const full = buildRows({ files, spec, unchanged: null, mode: 'tree', sort: 'path', collapsed: NONE_COLLAPSED });
+    const id = (path: string) => full.find((r) => (r.kind === 'file' ? r.target.path : `dir:${r.path}`) === path)!.id;
+    const step = (collapsed: string[], from: string | null, dir: 1 | -1) => {
+      const to = stepFile(full, new Set(collapsed), from === null ? null : id(from), dir);
+      return to && [to.row.target.path, to.expand];
+    };
+    const all = ['lib', 'lib/one', 'lib/two'];
+    // ↑ into a collapsed directory: its last file, expanding down the last children.
+    expect(step(all, 'a.txt', -1)).toEqual(['lib/two/s.txt', ['lib', 'lib/two']]);
+    expect(step(['lib/one'], 'lib/two/r.txt', -1)).toEqual(['lib/one/q.txt', ['lib/one']]);
+    // ↓ from an expanded directory's row into its collapsed first child: its first file.
+    expect(step(['lib/one', 'lib/two'], 'dir:lib', 1)).toEqual(['lib/one/p.txt', ['lib/one']]);
+    expect(step(['lib/two'], 'lib/one/q.txt', 1)).toEqual(['lib/two/r.txt', ['lib/two']]);
+    // Visible already: nothing to expand.
+    expect(step([], 'lib/one/q.txt', 1)).toEqual(['lib/two/r.txt', []]);
+    // ↓ from a collapsed directory's own row goes past its contents; ↑ from it goes before it.
+    expect(step(['lib/two'], 'dir:lib/two', 1)).toEqual(['a.txt', []]);
+    expect(step(['lib/two'], 'dir:lib/two', -1)).toEqual(['lib/one/q.txt', []]);
+    // From outside the list: ↓ the first file, ↑ the last; past the ends, none.
+    expect(step(all, null, 1)).toEqual(['lib/one/p.txt', ['lib', 'lib/one']]);
+    expect(step(all, null, -1)).toEqual(['z.txt', []]);
+    expect(step(all, 'z.txt', 1)).toBeNull();
+    expect(step([], 'lib/one/p.txt', -1)).toBeNull();
   });
 
   it('indents one level by exactly the chevron and its gap, so a file\'s icon starts under its folder\'s name (F17)', () => {

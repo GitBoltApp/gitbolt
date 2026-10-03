@@ -98,7 +98,7 @@ const off = registerActions([
     run: () => update((p) => cycleTab(p, -1)),
   },
   {
-    id: 'repo.copyPath', label: 'Copy repository path', group: 'Repository', icon: Copy, tooltip: 'Copy the current repository\'s folder path',
+    id: 'repo.copyPath', label: 'Copy repository path', group: 'Repository', icon: Copy, tooltip: 'Copy the current repository\'s directory path',
     when: () => !!repoTab(),
     run: async () => {
       const t = repoTab();
@@ -107,7 +107,7 @@ const off = registerActions([
     },
   },
   {
-    id: 'repo.openFolder', label: 'Open in file manager', group: 'Repository', icon: FolderOpen, tooltip: "Open the tab's worktree folder in the file manager",
+    id: 'repo.openFolder', label: 'Open in file manager', group: 'Repository', icon: FolderOpen, tooltip: "Open the tab's worktree directory in the file manager",
     when: () => !!activeRuntime()?.repo,
     run: () => {
       // The tab's active worktree, not the repository's main one (spec #2 §11.2).

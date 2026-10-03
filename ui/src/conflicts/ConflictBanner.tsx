@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { api } from '../api/client';
-import { selectCommit } from '../app/graphNav';
 import { useRuntime, worktreeOf } from '../app/runtime';
 import type { TabSlotProps } from '../app/slots';
 import { useRepoView } from '../repo/store';
+import { tabStore } from '../app/tabStores';
+import { revealRestored } from '../stash/reveal';
 import { journalKey, useJournal } from '../undo/store';
 import { runWrite, type WriteCtx } from '../write/client';
 import { inProgressOf, operationView, useIntegrating } from './inProgress';
@@ -18,7 +19,7 @@ const shown = new Set<string>();
  * §13.2's watcher, in the tab's `banner` slot, while the active worktree is mid-operation. It
  * draws nothing: the operation's status and its Continue, Skip and Abort live in the commit
  * panel (ux round 1: a window-wide bar pushed the whole interface down). It
- * - selects the WIP row once per stop, so that panel shows;
+ * - once per stop, selects the WIP row (so that panel shows) and opens its first conflicted file;
  * - settles a paused entry whose operation ended outside GitBolt;
  * - adds MERGE_MSG to the WIP draft once per merge (§8.2).
  * It waits while a merge, rebase or pull op of the repo runs (those states are transient).
@@ -62,14 +63,17 @@ export function ConflictBanner({ tab }: TabSlotProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoPath, worktree, busy, mergeHead, none]);
 
-  // Ux round 1: a new stop selects the WIP row, whose commit panel holds the operation.
+  // A new stop selects the WIP row, whose commit panel holds the operation (ux round 1), and
+  // opens its first file: with conflicts, the Conflicted list comes first, so that's the first
+  // conflicted file in the merge tool (ux round 3).
   useEffect(() => {
-    if (!stop || busy || !wipId) return;
+    if (!stop || busy || !wipId || !worktree) return;
     const id = `${tab.id}\u0000${worktree}\u0000${stop}`;
     if (shown.has(id)) return;
     shown.add(id);
-    // Already there (a click beat it): selecting it again would close the open diff.
-    if (!onWip) selectCommit(tab.id, wipId);
+    // Already there with a file open (a click beat it): leave the user's view alone.
+    if (onWip && tabStore(tab.id)?.getState().diff) return;
+    void revealRestored(tab.id, worktree, Promise.resolve(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id, worktree, stop, busy, wipId]);
 

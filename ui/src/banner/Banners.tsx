@@ -37,7 +37,7 @@ export function bannerText(b: Banner): string {
 /** A binary conflict keeps only the worktree's version of those files: say so before Drop. */
 const BINARY_DROP = {
   title: 'Drop the stash?',
-  body: 'Some conflicted files are binary: only the current version of those is kept, and the stash is the only copy of yours. Drop it anyway?',
+  body: 'Some conflicted files are binary: only the current version of those is kept, and the stash is the only copy of yours.',
   confirmLabel: 'Drop stash',
   arm: 'Click again to drop the stash, your only copy of the binary files',
   danger: true,

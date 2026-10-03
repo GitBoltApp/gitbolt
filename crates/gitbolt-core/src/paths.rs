@@ -46,7 +46,7 @@ pub(crate) fn private_dir(path: &Path) -> std::io::Result<PathBuf> {
     }
     let meta = std::fs::symlink_metadata(path)?;
     if meta.file_type().is_symlink() || !meta.is_dir() {
-        return Err(Error::other(format!("{} isn't a folder", path.display())));
+        return Err(Error::other(format!("{} isn't a directory", path.display())));
     }
     if meta.uid() != nix::unistd::geteuid().as_raw() {
         return Err(Error::new(ErrorKind::PermissionDenied, format!("{} belongs to another user", path.display())));

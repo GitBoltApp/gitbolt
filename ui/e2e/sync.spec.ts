@@ -27,23 +27,24 @@ test.describe('push (spec #2 §12.3, §12.4)', () => {
     await page.getByRole('button', { name: 'Push', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: /Push feature\/new to/ });
     await expect(dialog.getByRole('textbox', { name: 'Branch' })).toHaveValue('feature/new');
-    await dialog.getByRole('button', { name: 'Push' }).click();
+    await expect(dialog.getByRole('checkbox', { name: 'Track it' })).toBeChecked();
+    await confirmArmed(dialog.getByRole('button', { name: 'Push' }));
     const upstream = () => { try { return git(repo, 'rev-parse', '--abbrev-ref', 'feature/new@{upstream}'); } catch { return null; } };
     await expect.poll(upstream).toBe('origin/feature/new');
     expect(originGit(repo, 'rev-parse', 'feature/new')).toBe(git(repo, 'rev-parse', 'feature/new'));
   });
 
-  test('a rejected push is a choice at the Push button; Force push (with lease) arms first', async ({ page }) => {
+  test('a rejected push is a choice at the Push button; Force push arms first', async ({ page }) => {
     const repo = freshFixture('sync');
     git(repo, 'fetch', '-q', 'origin');
     git(repo, 'commit', '-q', '--allow-empty', '-m', 'local only');
     await page.goto(openUrl(repo));
     await page.getByRole('button', { name: 'Push', exact: true }).click();
     const choice = page.getByRole('alertdialog');
-    await expect(choice).toContainText("origin/main has commits main doesn't have");
+    await expect(choice).toContainText("origin/main has 1 commit main doesn't have");
     // The safe choice first, and focused (board G).
     await expect(choice.getByRole('button', { name: 'Pull' })).toBeFocused();
-    await confirmArmed(choice.getByRole('button', { name: 'Force push (with lease)' }));
+    await confirmArmed(choice.getByRole('button', { name: 'Force push…' }));
     await confirmArmed(armedOverlay(page, 'Click again to force push: replaces 1 commit'));
     await expect.poll(() => originGit(repo, 'rev-parse', 'main')).toBe(git(repo, 'rev-parse', 'main'));
   });

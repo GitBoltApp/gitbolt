@@ -27,6 +27,14 @@ e2e *args:
     cargo build -p gitbolt-harness
     cd ui && npx playwright test {{args}}
 
+# Throwaway repos to try the app in, all direct children of one folder (so "Add a folder" lists
+# them): basic, sync, conflicts, stack, wip_staging. Their local bare remotes live in .remotes/
+# and linked worktrees in .worktrees/. Re-running resets them; it only ever deletes a folder that
+# carries the .gitbolt-playground marker (see scripts/playground.sh).
+playground dir="~/gitbolt-playground":
+    @cargo build -q -p gitbolt-harness
+    @scripts/playground.sh "${CARGO_TARGET_DIR:-target}/debug/gitbolt-harness" "{{dir}}"
+
 # The theme and zoom pixel baselines (Chromium, recorded on the dev machine): opt-in, since fonts
 # and antialiasing differ between machines. Add `-- --update-snapshots` to re-record them.
 e2e-shots *args:
@@ -66,7 +74,10 @@ build-app: check-tauri-cli
 package: check-tauri-cli
     # Old packages first: the globs below must match only the .deb this build makes.
     rm -f target/release/bundle/deb/GitBolt_*_amd64.deb
-    cd crates/gitbolt-app && CARGO_BUILD_JOBS=4 cargo tauri build --bundles deb
+    # Each build gets its own, increasing version (0.1.0+<UTC time>.<sha>), so `apt install` of a
+    # newer build replaces the installed one instead of skipping it as "already the newest".
+    cd crates/gitbolt-app && v="$(jq -r .version tauri.conf.json)+$(date -u +%Y%m%d%H%M).$(git rev-parse --short HEAD)" && \
+      CARGO_BUILD_JOBS=4 cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
     scripts/fix-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/check-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
 

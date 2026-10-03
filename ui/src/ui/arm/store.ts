@@ -17,7 +17,17 @@ export interface ArmRequest {
   title: string;
   body: string;
   confirmLabel: string;
+  /** An option the confirm carries ("Also move 2 stacked branches"): a checkbox right under the
+   * armed menu row (it grows the menu downward), or in the popover. Toggling it doesn't disarm;
+   * the confirm answers with its value. A control that arms in place has no room for it, so
+   * with an option it asks in the popover. */
+  option?: ArmOption;
 }
+
+export interface ArmOption { label: string; checked: boolean; /** After the label, dimmed ("feature/a, feature/b"). */ detail?: string; /** A line under it. */ note?: string }
+
+/** A confirm's answer: `ok` on the second click, with the option's value then. */
+export interface ArmAnswer { ok: boolean; checked: boolean }
 
 /**
  * - `inplace`: the control itself becomes the confirm (an overlay over it, `ArmLayer`).
@@ -35,6 +45,8 @@ export interface Armed {
   hints: boolean;
   /** `performance.now()` when it armed: a confirm must be a fresh gesture after it. */
   at: number;
+  /** The option's value now (`req.option`; false without one). */
+  checked: boolean;
   resolve(ok: boolean): void;
 }
 
@@ -56,20 +68,33 @@ function modeOf(o: Origin | null): ArmMode {
  * one control is armed app-wide.
  */
 export function arm(req: ArmRequest, origin: Origin | null = currentOrigin()): Promise<boolean> {
+  return armWith(req, origin).then((a) => a.ok);
+}
+
+/** `arm`, answering the option's value too (`req.option`). */
+export function armWith(req: ArmRequest, origin: Origin | null = currentOrigin()): Promise<ArmAnswer> {
   useArm.getState().armed?.resolve(false);
-  const mode = modeOf(origin);
+  let mode = modeOf(origin);
+  if (req.option && mode === 'inplace') mode = 'popover';
   const hints = mode === 'popover' && (!origin || (origin.via === 'key' && !origin.control));
   return new Promise((resolve) => {
     const id = ++seq;
     const done = (ok: boolean) => {
-      if (useArm.getState().armed?.id !== id) return;
+      const a = useArm.getState().armed;
+      if (a?.id !== id) return;
       useArm.setState({ armed: null });
       // A menu row confirmed: its menu closes now (the action carries on without it).
       if (ok && origin?.menu) origin.menu.close();
-      resolve(ok);
+      resolve({ ok, checked: ok && a.checked });
     };
-    useArm.setState({ armed: { id, req, origin, mode, hints, at: performance.now(), resolve: done } });
+    useArm.setState({ armed: { id, req, origin, mode, hints, at: performance.now(), checked: req.option?.checked ?? false, resolve: done } });
   });
+}
+
+/** Sets the armed confirm's option (it stays armed). */
+export function setArmOption(checked: boolean): void {
+  const a = useArm.getState().armed;
+  if (a?.req.option) useArm.setState({ armed: { ...a, checked } });
 }
 
 /** The armed control's second click. */
@@ -94,18 +119,23 @@ export const holdOrigin = (): (() => void) => holdOriginOf(isArmedOrigin);
  * not a timer: the armed state never expires on its own.
  */
 export const SETTLE_MS = 350;
+/** For a pointer click, the guard is on its press: a double-click's second press lands well
+ * under this after the first click armed; a deliberate second click comes later. `detail` isn't
+ * checked: a quick, deliberate second click inside the OS double-click interval counts as a
+ * double-click (`detail` 2), and refusing it ate the user's click. */
+export const CLICK_SETTLE_MS = 200;
 let lastDown = -Infinity;
 /** An Enter/Space is being held (a repeat came, no keyup yet). */
 let repeating = false;
 
-/** Whether click `e` may confirm `a` (an armed control, or a popover since it opened: `at`):
- * past the settle, and a single click whose press started after it, or a click with no pointer
- * (`detail` 0: Enter/Space, or assistive technology's activation) while no key is held. A held
- * key's repeats are cancelled at keydown, so they never produce one. */
+/** Whether click `e` may confirm `a` (an armed control, or a popover since it opened: `at`): a
+ * click whose press started at least CLICK_SETTLE_MS after it, or a click with no pointer
+ * (`detail` 0: Enter/Space, or assistive technology's activation) past SETTLE_MS while no key is
+ * held. A held key's repeats are cancelled at keydown, so they never produce one. */
 export function confirmable(e: { detail: number }, a: { at: number } | null = useArm.getState().armed): boolean {
-  if (!a || performance.now() - a.at < SETTLE_MS) return false;
-  if (e.detail === 0) return !repeating;
-  return e.detail === 1 && lastDown > a.at;
+  if (!a) return false;
+  if (e.detail === 0) return !repeating && performance.now() - a.at >= SETTLE_MS;
+  return lastDown - a.at >= CLICK_SETTLE_MS;
 }
 
 /** Whether key `e` (Enter/Space, taken by the menu itself) may confirm `a`. */
