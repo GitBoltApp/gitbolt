@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { AvatarPayload } from '../api/gen/AvatarPayload';
 import { DroppedError, Loader } from '../data/loader';
 import { Lru } from '../data/lru';
+import { avatarKey } from './color';
 
 export interface AvatarImage {
   /** An object URL for `<img>`. Revoked when the image is evicted. */
@@ -35,8 +36,7 @@ export interface AvatarStore {
   epoch(): number;
 }
 
-/** The store's key: Gravatar's own normalization (trimmed, lowercased). */
-export const avatarKey = (email: string) => email.trim().toLowerCase();
+export { avatarKey };
 
 /** The largest avatar drawn, in CSS px (the details header's author). Bitmaps are decoded at this
  * size × devicePixelRatio (at most 2×): big enough for every use, and small in memory. */

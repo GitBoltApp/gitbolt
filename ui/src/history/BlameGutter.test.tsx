@@ -7,7 +7,7 @@ const blameApi = vi.hoisted(() => vi.fn());
 const monaco = vi.hoisted(() => ({ host: null as unknown }));
 vi.mock('../api/client', () => ({ api: { avatar: vi.fn(async () => null), blame: blameApi }, errorMessage: String }));
 vi.mock('../diff/TextDiff', () => ({ useMonacoHost: () => ({ host: monaco.host, error: null, retry: () => {} }) }));
-const { BlameGutter, BlameLayer, BLAME_MARGIN_PX } = await import('./BlameGutter');
+const { BlameGutter, BlameLayer, BLAME_MARGIN_PX, BLAME_MARGIN_SHARE } = await import('./BlameGutter');
 const { row } = await import('./testRows');
 
 const a = 'a'.repeat(40), b = 'b'.repeat(40);
@@ -22,7 +22,7 @@ const blame: BlamePayload = {
 function fakeHost() {
   const node = document.createElement('div');
   document.body.appendChild(node);
-  const margin: FileMargin = { node, lineTop: (n) => (n - 1) * 19, lineBottom: (n) => n * 19, visibleLines: () => ({ first: 1, last: 8 }), onChange: () => () => {} };
+  const margin: FileMargin = { node, lineTop: (n) => (n - 1) * 19, lineBottom: (n) => n * 19, visibleLines: () => ({ first: 1, last: 8 }), metrics: () => ({ lineHeight: 19, fontSize: 13 }), onChange: () => () => {} };
   return { node, setFileMargin: vi.fn((w: number) => (w > 0 ? margin : null)) };
 }
 
@@ -30,12 +30,31 @@ describe('the blame gutter (spec #3 §3.10, §4.2)', () => {
   it('draws one row per line group in the strip, at its lines, with its commit', () => {
     const host = fakeHost();
     render(<BlameGutter host={host as never} blame={blame} onPick={vi.fn()} />);
-    expect(host.setFileMargin).toHaveBeenCalledWith(BLAME_MARGIN_PX);
+    expect(host.setFileMargin).toHaveBeenCalledWith(BLAME_MARGIN_PX, BLAME_MARGIN_SHARE);
     const groups = screen.getAllByTestId('blame-group');
     expect(groups).toHaveLength(3);
     expect(groups.every((g) => host.node.contains(g))).toBe(true);
     expect(groups.map((g) => [g.style.top, g.style.height])).toEqual([['0px', '38px'], ['38px', '38px'], ['76px', '76px']]);
     expect(groups[1]).toHaveTextContent('Add the middle');
+    expect(groups.map((g) => g.dataset.line)).toEqual(['1', '3', '5']);
+  });
+
+  it('rows take Monaco\'s line box and font size (UX B.3: one baseline with the code)', () => {
+    const host = fakeHost();
+    render(<BlameGutter host={host as never} blame={blame} onPick={vi.fn()} />);
+    const gutter = screen.getByTestId('blame-gutter');
+    expect(gutter.style.getPropertyValue('--blame-line')).toBe('19px');
+    expect(gutter.style.getPropertyValue('--blame-font')).toBe('13px');
+    expect(screen.getAllByTestId('avatar')[0].style.width).toBe('16px');
+  });
+
+  it('hovering a group shows its whole summary, author and date', async () => {
+    const host = fakeHost();
+    render(<BlameGutter host={host as never} blame={blame} onPick={vi.fn()} />);
+    fireEvent.mouseEnter(screen.getAllByTestId('blame-group')[1], { clientX: 10, clientY: 40 });
+    const tip = await screen.findByRole('tooltip');
+    expect(tip).toHaveTextContent('Add the middle');
+    expect(tip).toHaveTextContent(/Grace Hopper · .+ ago · \d{4}-\d{2}-\d{2} @/);
   });
 
   it('a click picks the commit; Alt+click picks it in the graph', () => {

@@ -10,6 +10,7 @@ import { applyResult } from '../write/client';
 import type { MonacoHost } from './monaco/host';
 import { loadedHost } from './TextDiff';
 import { loadMonacoHost } from './monaco/load';
+import { wipSideOf } from './wipHunks';
 
 /** Hunk and line buttons while the working copy has unsaved edits (spec #2 §7.5). */
 export const SAVE_FIRST = 'Save first';
@@ -38,10 +39,27 @@ const reload = (tabId: string) => useWorkingCopy.setState((s) => ({ epoch: { ...
 
 export const useIsDirty = (tabId: string) => useWorkingCopy((s) => !!s.copies[tabId]?.dirty);
 
-/** §7.5: a WIP diff (or File View of a WIP file) whose new side is the working-tree file, as
- * loaded text: binary, the large-file prompt and image diffs stay read-only. */
+/** A conflicted WIP path (`U`, `X`): the merge tool edits it, never the working copy. */
+const conflicted = (t: DiffTarget) => t.status === 'U' || t.status === 'X';
+
+/**
+ * UX round 2 G.2: File View of a WIP file, unstaged or staged, shows (and edits) its
+ * working-tree file. A staged file's target loads the working tree as its new side, its staged
+ * version as the old one: File View shows that one, read-only, if the file is gone from the
+ * working tree. Every other target (a Diff View, a commit's file, a deletion, a conflict) is
+ * returned as it is.
+ */
+export function worktreeFileTarget(t: DiffTarget): DiffTarget {
+  if (t.view !== 'file' || t.new.kind === 'worktree' || t.new.kind === 'absent' || conflicted(t)) return t;
+  const side = wipSideOf(t);
+  return side ? { ...t, old: t.new, new: { kind: 'worktree', worktree: side.worktree } } : t;
+}
+
+/** §7.5: a WIP diff (or File View of a WIP file, `worktreeFileTarget`) whose new side is the
+ * working-tree file, as loaded text: binary, the large-file prompt, image diffs, deletions and
+ * conflicted files stay read-only. */
 export function isEditableTarget(t: DiffTarget, c: DiffContentsPayload | null): boolean {
-  return t.key.startsWith('{"kind":"wip"') && t.new.kind === 'worktree' && !!c && !c.tooLarge && !c.image && !!c.new && !c.new.binary && c.new.text !== null;
+  return t.key.startsWith('{"kind":"wip"') && t.new.kind === 'worktree' && !conflicted(t) && !!c && !c.tooLarge && !c.image && !!c.new && !c.new.binary && c.new.text !== null;
 }
 
 /** The shown copy is editable: track it (`base` = its loaded bytes' hash). */
@@ -75,7 +93,7 @@ export const markDirty = (tabId: string) => patch(tabId, { dirty: true });
 export const forgetCopy = (tabId: string) => useWorkingCopy.setState((s) => ({ copies: { ...s.copies, [tabId]: undefined } }));
 
 /**
- * Save (Ctrl+S, §7.5): `saveFile` behind the loaded base. Then the fresh lists apply, the base
+ * Save (Ctrl+S, §7.5): `writeWorktreeFile` behind the loaded base. Then the fresh lists apply, the base
  * becomes the written bytes' hash, and the file reloads with its cursor and scroll kept.
  * A `Stale` save keeps the text and asks [Reload] [Overwrite]; any other failure toasts.
  */
@@ -94,7 +112,7 @@ export async function saveWorkingCopy(tabId: string): Promise<'saved' | 'kept' |
   const ctx = { tabId, repoId: wc.repo, worktree: wc.worktree };
   const send = async (base: string | null): Promise<'saved' | 'kept' | 'failed'> => {
     try {
-      const r = await api.saveFile(wc.repo, wc.worktree, wc.path, text, base ?? '');
+      const r = await api.writeWorktreeFile(wc.repo, wc.worktree, wc.path, text, base ?? '');
       applyResult(ctx, r);
       // Typed after the text was read: those edits stay (still dirty), with the new base.
       if (editorText(host, wc) !== text) {

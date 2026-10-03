@@ -16,6 +16,7 @@ import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
 import type { Stack } from './detect';
 import { joinNames, shortRef } from './text';
+import { toastRebaseOutcome } from '../irebase/outcome';
 
 /** What Rebase stack sends as 3C's InteractiveRebase (its client's `req`, before the autostash answer). */
 export interface StackPlan { branch: string; base: string; expect: Record<string, string>; rows: RebaseRow[]; chips: ChipPlan[] }
@@ -123,7 +124,9 @@ async function prepare(ctx: WriteCtx, stack: Stack, origin: Origin | null, relea
 
 /** The toast for a finished Rebase stack; a `warning` (something after it didn't complete) shows as one. */
 function toastOutcome(out: IntegrateOutcome, req: StackPlan, base: string): void {
-  if (out.status !== 'done' && out.status !== 'upToDate') return; // stopped: the commit panel takes over (§4.1)
+  // Stopped: the commit panel takes over (§4.1); UX F: one without a conflict says why (the signer).
+  if (out.status === 'stopped') return toastRebaseOutcome(out);
+  if (out.status !== 'done' && out.status !== 'upToDate') return;
   const message = out.status === 'done' ? `Rebased ${rowChips(req).length + 1} branches onto ${base}` : `The stack is already on ${base}`;
   useToast.getState().show(message, out.warning ? { tone: 'warning', detail: out.warning } : undefined);
 }

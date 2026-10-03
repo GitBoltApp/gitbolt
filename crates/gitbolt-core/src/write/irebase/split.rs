@@ -1,17 +1,13 @@
-//! Split this commit (spec #3 §3.5). At an Edit stop, `git reset HEAD^` (mixed) turns the stopped
-//! commit's changes into unstaged work; the user commits them again in pieces, then Continues.
-//! It's part of the paused rebase (Ruling 9): not journaled, and Abort restores the commit.
+//! The work done at an Edit stop of GitBolt's interactive rebase: the commits made there (spec #3
+//! §3.5; UX L: the stop is "about to commit", so splitting is unstage some, Commit, commit the
+//! rest), and what an Abort keeps of it. It's part of the paused rebase (Ruling 9): not journaled.
 
-use crate::api::{blocking, Api};
+use crate::api::blocking;
 use crate::error::{gix_err, GbError, GbErrorKind};
-use crate::events::{ChangeKind, OpKind};
+use crate::events::ChangeKind;
 use crate::in_progress::InProgress;
-use crate::journal::UndoKind;
 use crate::status::EntryKind;
-use crate::write::types::WriteResult;
-use crate::write::{is_ancestor, run_write, Plan, Pre, WriteCx, WriteIntent};
-
-pub(crate) struct SplitIntent;
+use crate::write::{is_ancestor, Pre, WriteCx};
 
 /// Fix round 1 (M4): an Edit stop of a rebase started outside GitBolt.
 pub(crate) const NOT_OURS: &str = "Finish this rebase where you started it.";
@@ -22,59 +18,7 @@ pub(crate) fn gitbolt_owns_the_pause(pre: &Pre<'_>) -> Result<bool, GbError> {
     Ok(journal.paused().and_then(|e| e.paused.as_ref()).is_some_and(|p| p.irebase.is_some()))
 }
 
-fn refuse<T>(m: &str) -> Result<T, GbError> {
-    Err(GbError::new(GbErrorKind::InvalidInput, m))
-}
-
-impl WriteIntent for SplitIntent {
-    type Outcome = ();
-    fn kind(&self) -> OpKind {
-        OpKind::Rebase
-    }
-    fn label(&self) -> String {
-        "split the stopped commit".into()
-    }
-    fn undo(&self) -> Option<UndoKind> {
-        None
-    }
-    fn allowed_in_progress(&self) -> bool {
-        true
-    }
-    async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
-        let Some(InProgress::Rebase { edit_stop: Some(at), conflicted: 0, .. }) = crate::in_progress::read(pre.root)? else { return refuse("Split works at an Edit stop") };
-        if !gitbolt_owns_the_pause(pre)? {
-            return refuse(NOT_OURS);
-        }
-        if pre.before.head.oid.as_deref() != Some(at.as_str()) {
-            return refuse("HEAD moved since the stop: only the stopped commit can be split");
-        }
-        let entries = crate::status::status(&pre.api.cli, pre.root).await?;
-        if entries.iter().any(|e| matches!(e.kind, EntryKind::Ordinary | EntryKind::Renamed) && e.index != '.') {
-            return refuse("Unstage your changes first");
-        }
-        let root = pre.root.to_path_buf();
-        let parents = blocking(move || Ok(gix::open(&root).map_err(gix_err)?.head_commit().map_err(gix_err)?.parent_ids().count())).await?;
-        match parents {
-            0 => refuse("The first commit can't be split"),
-            1 => Ok(Plan::default()),
-            _ => refuse("A merge commit can't be split"),
-        }
-    }
-    async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
-        let inv = cx.git(["reset", "-q", "HEAD^"]);
-        cx.run_git(inv).await?;
-        for k in [ChangeKind::Head, ChangeKind::Index, ChangeKind::Worktree] {
-            cx.touch(k);
-        }
-        Ok(())
-    }
-}
-
-pub(crate) async fn split(api: &Api, repo: u32, worktree: &str) -> Result<WriteResult<()>, GbError> {
-    run_write(api, repo, worktree, Default::default(), SplitIntent).await
-}
-
-/// A commit made at an Edit stop (Split's pieces, through `Commit`) goes on the paused entry, so
+/// A commit made at an Edit stop (its pieces, through `Commit`; UX L: Continue's) goes on the paused entry, so
 /// the settle that ends the rebase counts it as the rebase's own (it's newly authored, unlike
 /// every replayed commit) rather than as someone else's work.
 pub(crate) fn record_made(cx: &WriteCx<'_>, oid: &str) -> Result<(), GbError> {
@@ -95,9 +39,9 @@ pub(crate) struct Leftover {
     executable: bool,
 }
 
-/// Before an Abort of a rebase that was split: git won't overwrite an untracked file with the
-/// commit `rebase --abort` goes back to (`rebase-merge/orig-head`), and a Split piece never
-/// committed again is one. A file with exactly that commit's content is the commit's own: it
+/// Before an Abort at an Edit stop: git won't overwrite an untracked file with the commit
+/// `rebase --abort` goes back to (`rebase-merge/orig-head`), and a new file of the stop's commit,
+/// unstaged there and never committed again, is one. A file with exactly that commit's content is the commit's own: it
 /// goes, and the abort writes it back. Any other file stays, and git refuses the abort. Returns
 /// what went, for `put_back` if the abort fails.
 pub(crate) async fn clear_leftovers(cx: &WriteCx<'_>) -> Result<Vec<Leftover>, GbError> {
@@ -179,7 +123,8 @@ fn new_commits(repo: &gix::Repository, head: gix::ObjectId, orig: gix::ObjectId,
 ///   `<branch>-rebase-work` (`-2`, `-3`… when taken). GitBolt never deletes it: it isn't in an
 ///   undoable entry (the abort has none, and the paused entry's settle doesn't record it).
 /// - the worktree's tracked edits: a stash (`git stash create`), unless its tree is the stop's
-///   commit's own (a Split, then nothing new). Listed before the abort, so it's reachable.
+///   commit's own (UX L: the stop as it was, its changes staged or unstaged: nothing new).
+///   Listed before the abort, so it's reachable.
 ///
 /// A conflict stop's unmerged index can't be stashed: those changes go with the abort, as git's
 /// own abort does, and `discarded` says how many files. Undone by `finish_kept_work` if the
@@ -190,6 +135,7 @@ pub(crate) async fn keep_work(cx: &mut WriteCx<'_>, s: &crate::journal::IrebaseS
     let short = crate::error::short_ref(&head_name).to_string();
     // Commits.
     let (root, head, made) = (cx.root.to_path_buf(), w.head.clone(), !s.made.is_empty());
+    let stop_oid = edit_stop.clone().unwrap_or_default();
     let (keep, stop_tree) = blocking(move || {
         let repo = gix::open(&root).map_err(gix_err)?;
         let oid = |h: &str| gix::ObjectId::from_hex(h.trim().as_bytes()).ok();
@@ -198,7 +144,8 @@ pub(crate) async fn keep_work(cx: &mut WriteCx<'_>, s: &crate::journal::IrebaseS
         let stop = edit_stop.as_deref().and_then(oid);
         // Fix round 3: at an Edit stop, HEAD off the stop's commit is work too (a terminal amend
         // or `commit -C` keeps author and time, so it reads as a replay), unless HEAD is only
-        // below it (a Split: its content is the worktree's, judged against the stop's tree).
+        // below it (UX L: on its parent, the "about to commit" stop: its content is the index's
+        // and the worktree's, judged against the stop's tree).
         let moved = matches!((head, stop), (Some(h), Some(st)) if h != st && !is_ancestor(&repo, h, st));
         let keep = made
             || moved
@@ -244,7 +191,13 @@ pub(crate) async fn keep_work(cx: &mut WriteCx<'_>, s: &crate::journal::IrebaseS
             let spec = format!("{created}^{{tree}}");
             cx.run_git(cx.git(["rev-parse", spec.as_str()])).await.ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         };
-        if !created.is_empty() && tree != stop_tree {
+        // Fix round 1 (UX L): a staged edit whose worktree file was put back is in the index alone:
+        // a path the index holds differently from both HEAD and the stop's commit.
+        let index_work = match (&stop_tree, created.is_empty()) {
+            (Some(_), false) => staged_beyond_stop(cx, &stop_oid).await,
+            _ => false,
+        };
+        if !created.is_empty() && (tree != stop_tree || index_work) {
             let k = crate::journal::KeptStash {
                 id: 0,
                 oid: Some(created.clone()),
@@ -276,6 +229,21 @@ pub(crate) async fn keep_work(cx: &mut WriteCx<'_>, s: &crate::journal::IrebaseS
         }
     }
     Ok(w)
+}
+
+/// A path the index holds differently from both HEAD and the stop's commit (`stop`): staged work
+/// of the user's own, not the commit's (UX L). Unreadable counts as work.
+async fn staged_beyond_stop(cx: &WriteCx<'_>, stop: &str) -> bool {
+    let names = |rev: Option<&str>| {
+        let mut args = vec!["diff", "--cached", "--no-renames", "--name-only", "-z"];
+        args.extend(rev);
+        let inv = crate::git::GitInvocation::new(cx.root, args);
+        async move { cx.api.cli.run(inv).await.map(|o| o.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()).map(<[u8]>::to_vec).collect::<std::collections::HashSet<_>>()) }
+    };
+    match (names(None).await, names(Some(stop)).await) {
+        (Ok(vs_head), Ok(vs_stop)) => vs_head.intersection(&vs_stop).next().is_some(),
+        _ => true,
+    }
 }
 
 /// `<branch>-rebase-work` at `head` (`-2`, `-3`… when that name, or one below it, is taken: a
@@ -404,16 +372,18 @@ mod tests {
         assert_eq!(start(api, id, r, &p, rows, stay(&p)).await.unwrap()["outcome"]["status"], "stopped");
     }
 
-    async fn split(api: &crate::api::Api, id: u32, r: &TestRepo) -> Result<serde_json::Value, crate::error::GbError> {
-        call(api, "splitCommit", json!({ "repo": id, "worktree": wt(r.path()) })).await
+    /// UX L: the stop's changes, staged there, all unstaged (what 3C's Split left).
+    fn unstage_all(r: &TestRepo) {
+        r.git(&["reset", "-q"]);
     }
 
     async fn commit(api: &crate::api::Api, id: u32, r: &TestRepo, summary: &str) -> serde_json::Value {
         call(api, "commit", json!({ "repo": id, "worktree": wt(r.path()), "summary": summary, "expect": {} })).await.unwrap()
     }
 
-    /// §3.5, §7 (e2e 2's core): split B2, commit it in two pieces, Continue; feature/b follows
-    /// the last piece, and one Undo restores the original history.
+    /// §3.5, §7 (e2e 2's core), UX L: B2's changes staged at the stop, unstaged, committed again
+    /// in two pieces, Continue; feature/b follows the last piece, and one Undo restores the
+    /// original history.
     #[tokio::test]
     async fn split_then_commit_pieces_then_continue() {
         let data = tempfile::tempdir().unwrap();
@@ -423,10 +393,9 @@ mod tests {
         let api = api(data.path());
         let id = open(&api, &r).await;
         stop_at_b2(&api, id, &r).await;
-        let stopped = r.git(&["rev-parse", "HEAD"]);
-        split(&api, id, &r).await.unwrap();
-        assert_eq!(r.git(&["rev-parse", "HEAD"]), r.git(&["rev-parse", &format!("{stopped}^")]));
-        assert_eq!(r.git(&["status", "--porcelain"]), "?? lexer.txt\n?? lexer_test.txt");
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "S1 Side work", "HEAD on B2's parent (S1, the merge flattened)");
+        assert_eq!(r.git(&["status", "--porcelain"]), "A  lexer.txt\nA  lexer_test.txt");
+        unstage_all(&r);
         r.git(&["add", "lexer.txt"]);
         let res = commit(&api, id, &r, "Lexer").await;
         assert_ne!(res["journal"]["undo"]["label"], "commit \"Lexer\"", "a commit at the stop is part of the paused rebase");
@@ -449,9 +418,10 @@ mod tests {
         r.try_git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{name}")]).ok()
     }
 
-    /// Fix round 2 (test 3): a Split, then Abort with nothing new: nothing is kept.
+    /// Fix round 2 (test 3), UX L: the stop's changes unstaged, then Abort with nothing new:
+    /// nothing is kept.
     #[tokio::test]
-    async fn split_then_abort_restores_the_commit() {
+    async fn unstaged_then_abort_restores_the_commit() {
         let data = tempfile::tempdir().unwrap();
         let r = TestRepo::new();
         fixtures::irebase(&r);
@@ -459,7 +429,7 @@ mod tests {
         let api = api(data.path());
         let id = open(&api, &r).await;
         stop_at_b2(&api, id, &r).await;
-        split(&api, id, &r).await.unwrap();
+        unstage_all(&r);
         let res = abort(&api, id, &r).await.unwrap();
         assert_eq!(res["outcome"]["status"], "aborted");
         assert!(res["outcome"]["stash"].is_null() && res["outcome"]["branch"].is_null(), "{res}");
@@ -467,10 +437,10 @@ mod tests {
         assert_eq!(r.git(&["status", "--porcelain"]), "");
     }
 
-    /// Fix round 2 (test 3): C1's Split leaves its change to a tracked file in the worktree,
-    /// exactly the stopped commit's content: no stash, no branch.
+    /// Fix round 2 (test 3), UX L: C1's change to a tracked file, unstaged at its stop, is in the
+    /// worktree, exactly the stopped commit's content: no stash, no branch.
     #[tokio::test]
-    async fn a_split_of_a_tracked_change_then_abort_keeps_nothing() {
+    async fn a_tracked_change_unstaged_then_abort_keeps_nothing() {
         let data = tempfile::tempdir().unwrap();
         let r = TestRepo::new();
         fixtures::irebase(&r);
@@ -481,7 +451,7 @@ mod tests {
         let mut rows = picks(&p);
         set(&p, &mut rows, "C1", "edit", None);
         assert_eq!(start(&api, id, &r, &p, rows, stay(&p)).await.unwrap()["outcome"]["status"], "stopped");
-        split(&api, id, &r).await.unwrap();
+        unstage_all(&r);
         assert!(r.git(&["status", "--porcelain"]).contains("notes.txt"));
         let res = abort(&api, id, &r).await.unwrap();
         assert!(res["outcome"]["stash"].is_null() && res["outcome"]["branch"].is_null(), "{res}");
@@ -489,7 +459,7 @@ mod tests {
         assert_eq!(tips(&r), before);
     }
 
-    /// Fix round 2 (test 4): an abort git refuses (an edited, untracked Split piece) resets
+    /// Fix round 2 (test 4): an abort git refuses (an edited, untracked piece) resets
     /// nothing, so what was kept for it goes again: the stash entry and the work branch.
     #[tokio::test]
     async fn abort_never_removes_an_edited_piece() {
@@ -499,7 +469,7 @@ mod tests {
         let api = api(data.path());
         let id = open(&api, &r).await;
         stop_at_b2(&api, id, &r).await;
-        split(&api, id, &r).await.unwrap();
+        unstage_all(&r);
         r.git(&["add", "lexer.txt"]);
         commit(&api, id, &r, "Lexer").await;
         r.write("lexer.txt", "lexer, edited at the stop\n");
@@ -515,7 +485,7 @@ mod tests {
         assert_eq!(state["banners"], json!([]), "{state}");
     }
 
-    /// Fix round 2 (test 1): Split, commit one piece, edit it again, Abort. The piece is on
+    /// Fix round 2 (test 1): the stop's changes unstaged, one piece committed, edited again, Abort. The piece is on
     /// `feature/c-rebase-work`, the edit in a kept stash; the branches are restored. Applying
     /// the stash brings the edit back and leaves the work branch alone.
     #[tokio::test]
@@ -527,7 +497,7 @@ mod tests {
         let api = api(data.path());
         let id = open(&api, &r).await;
         stop_at_b2(&api, id, &r).await;
-        split(&api, id, &r).await.unwrap();
+        unstage_all(&r);
         r.git(&["add", "lexer.txt"]);
         let piece = commit(&api, id, &r, "Lexer").await["outcome"]["oid"].as_str().unwrap().to_string();
         r.write("lexer.txt", "lexer, edited at the stop\n");
@@ -605,7 +575,7 @@ mod tests {
         let api = api(data.path());
         let id = open(&api, &r).await;
         stop_at_b2(&api, id, &r).await;
-        split(&api, id, &r).await.unwrap();
+        unstage_all(&r);
         r.git(&["add", "lexer.txt"]);
         let piece = commit(&api, id, &r, "Lexer").await["outcome"]["oid"].as_str().unwrap().to_string();
         r.write("lexer.txt", "lexer, edited at the stop\n");
@@ -634,7 +604,7 @@ mod tests {
         let api = api(data.path());
         let id = open(&api, &r).await;
         stop_at_b2(&api, id, &r).await;
-        split(&api, id, &r).await.unwrap();
+        unstage_all(&r);
         r.git(&["add", "lexer.txt"]);
         commit(&api, id, &r, "Lexer").await;
         r.write("lexer.txt", "lexer, edited at the stop\n");
@@ -643,8 +613,8 @@ mod tests {
         assert_eq!(res["journal"]["banners"][0]["target"], "feature/c-rebase-work-2");
     }
 
-    /// Fix round 1 (M4): an Edit stop of a rebase started in a terminal takes no commit and no
-    /// Split from GitBolt.
+    /// Fix round 1 (M4): an Edit stop of a rebase started in a terminal takes no commit from
+    /// GitBolt.
     #[tokio::test]
     async fn a_terminal_rebases_edit_stop_is_finished_there() {
         let data = tempfile::tempdir().unwrap();
@@ -658,22 +628,26 @@ mod tests {
         let id = open(&api, &r).await;
         let e = call(&api, "commit", json!({ "repo": id, "worktree": wt(r.path()), "summary": "x", "expect": {} })).await.unwrap_err();
         assert_eq!(e.message, "Finish this rebase where you started it.");
-        r.git(&["reset", "-q", "extra.txt"]);
-        assert_eq!(split(&api, id, &r).await.unwrap_err().message, "Finish this rebase where you started it.");
     }
 
+    /// UX L (L.4): the stop's commit, staged there, changed and staged again, then Abort: the
+    /// change is kept in a stash; nothing was committed, so no branch.
     #[tokio::test]
-    async fn split_is_refused_off_an_edit_stop_or_with_staged_changes() {
+    async fn a_staged_change_at_the_stop_is_kept_by_abort() {
         let data = tempfile::tempdir().unwrap();
         let r = TestRepo::new();
         fixtures::irebase(&r);
+        let before = tips(&r);
         let api = api(data.path());
         let id = open(&api, &r).await;
-        assert_eq!(split(&api, id, &r).await.unwrap_err().message, "Split works at an Edit stop");
         stop_at_b2(&api, id, &r).await;
-        r.write("lexer.txt", "edited at the stop\n");
+        r.write("lexer.txt", "lexer, changed at the stop\n");
         r.git(&["add", "lexer.txt"]);
-        assert_eq!(split(&api, id, &r).await.unwrap_err().message, "Unstage your changes first");
+        let res = abort(&api, id, &r).await.unwrap();
+        assert!(res["outcome"]["branch"].is_null(), "{res}");
+        let stash = res["outcome"]["stash"].as_str().expect("a stash").to_string();
+        assert_eq!(r.git(&["show", &format!("{stash}:lexer.txt")]), "lexer, changed at the stop");
+        assert_eq!(tips(&r), before);
     }
 
     /// A conflict stop still refuses a commit (2D's rule): only an Edit stop takes one.

@@ -5,7 +5,7 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { RepoContext } from '../app/repoContext';
 import { useTabViews } from '../app/tabStores';
-import { CenterViewHost, centerViewOf, closeCenterView, openCenterView, registerCenterView, type CenterViewProps } from './centerView';
+import { CenterViewHost, centerViewOf, closeCenterView, leaveFileView, openCenterView, registerCenterView, sidebarFor, type CenterViewProps } from './centerView';
 import { RepoView } from './RepoView';
 import { createRepoViewStore, fileViewTarget } from './store';
 import { fakeServices } from './testServices';
@@ -24,6 +24,7 @@ function Probe({ props, close }: CenterViewProps<{ title: string }>) {
 }
 registerCenterView('probe', Probe);
 registerCenterView('crasher', () => { throw new Error('boom'); });
+registerCenterView('planner', Probe, { sidebar: 'hide', drivesSelection: true });
 afterEach(() => { closeCenterView('t1'); closeCenterView('t2'); });
 
 describe('the center view (spec #3 §4.1, §4.2: a view in the graph\'s place)', () => {
@@ -133,5 +134,74 @@ describe('the center view (spec #3 §4.1, §4.2: a view in the graph\'s place)',
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('heading')).toHaveTextContent('After');
     quiet.mockRestore();
+  });
+
+  it('UX R2: a view that drives the selection puts the graph\'s back when it closes (or another view replaces it)', () => {
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    useTabViews.setState({ views: { t1: { repo: 1, services: fakeServices(), store } } });
+    const spec = { kind: 'commit', id: A, parent: 0 } as const;
+    act(() => { store.getState().selectRow(1); store.getState().selectRow(0, { ctrl: true }); });
+    act(() => openCenterView('t1', 'planner', { title: 'Plan' }));
+    act(() => { store.getState().selectCommitById(A); store.getState().openFile(fileViewTarget('src/a.txt', A, spec)); });
+    // Reopened (a reload): the first snapshot stays.
+    act(() => openCenterView('t1', 'planner', { title: 'Plan' }));
+    act(() => closeCenterView('t1'));
+    expect(store.getState().selection).toEqual({ kind: 'compare', from: B, to: A });
+    expect(store.getState().diff).toBeNull();
+    // A file open under it comes back with the selection.
+    act(() => store.getState().selectRow(1));
+    const file = fileViewTarget('src/b.txt', B, { kind: 'commit', id: B, parent: 0 });
+    act(() => store.getState().openFile(file));
+    act(() => openCenterView('t1', 'planner', { title: 'Plan' }));
+    act(() => store.getState().selectCommitById(A));
+    act(() => openCenterView('t1', 'probe', { title: 'History' }));
+    expect(store.getState().selection).toMatchObject({ kind: 'commit', id: B });
+    expect(store.getState().diff).toBe(file);
+    // Nothing selected before: nothing after.
+    act(() => { closeCenterView('t1'); store.getState().restoreSelection({ rows: [], anchor: null, cursor: null, parent: 0, diff: null }); });
+    act(() => openCenterView('t1', 'planner', { title: 'Plan' }));
+    act(() => store.getState().selectCommitById(A));
+    act(() => closeCenterView('t1'));
+    expect(store.getState().selection.kind).toBe('none');
+    useTabViews.setState({ views: {} });
+  });
+
+  it('UX R2.2: a file opened from the details panel under the view closes with it; a selection rewritten since goes with the next graph', () => {
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    useTabViews.setState({ views: { t1: { repo: 1, services: fakeServices(), store } } });
+    act(() => store.getState().selectRow(1));
+    act(() => openCenterView('t1', 'planner', { title: 'Plan' }));
+    act(() => { store.getState().selectCommitById(A); store.getState().openFile(fileViewTarget('src/a.txt', A, { kind: 'commit', id: A, parent: 0 })); });
+    act(() => closeCenterView('t1'));
+    expect(store.getState().selection).toMatchObject({ kind: 'commit', id: B });
+    expect(store.getState().diff).toBeNull();
+    // Start closes the editor before the rebase; the refresh after it no longer has B: the
+    // restored selection goes, nothing pre-rewrite is left.
+    const C = 'c'.repeat(40);
+    const rewritten: GraphPayload = { ...graph, rows: [row(A, 'Second', [C]), row(C, 'First, rewritten', [])] };
+    act(() => store.getState().setGraph(rewritten));
+    expect(store.getState().selection.kind).toBe('none');
+    expect(store.getState().panel).toBeNull();
+    useTabViews.setState({ views: {} });
+  });
+
+  it('UX R2.1/R2.3: the rebase editor hides the sidebar while open; a file view on top narrows it, and leaveFileView closes it and its file', () => {
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    useTabViews.setState({ views: { t1: { repo: 1, services: fakeServices(), store } } });
+    const file = fileViewTarget('src/a.txt', A, { kind: 'commit', id: A, parent: 0 });
+    expect(sidebarFor(null, null)).toBeNull();
+    expect(sidebarFor({ kind: 'planner', over: null }, file)).toBe('hide');
+    expect(sidebarFor({ kind: 'probe', over: null }, null)).toBe('narrow');
+    expect(sidebarFor({ kind: 'probe', over: null }, file)).toBeNull();
+    expect(leaveFileView('t1')).toBe(false);
+    act(() => openCenterView('t1', 'planner', {}));
+    expect(leaveFileView('t1')).toBe(false);
+    expect(centerViewOf('t1')).not.toBeNull();
+    act(() => store.getState().openFile(file));
+    act(() => openCenterView('t1', 'probe', { title: 'History' }));
+    expect(leaveFileView('t1')).toBe(true);
+    expect(centerViewOf('t1')).toBeNull();
+    expect(store.getState().diff).toBeNull();
+    useTabViews.setState({ views: {} });
   });
 });

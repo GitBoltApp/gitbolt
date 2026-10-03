@@ -128,6 +128,9 @@ describe('themes', () => {
         'shadow-modal': 'rgba(0, 0, 0, 0.5)', 'shadow-popup': 'rgba(0, 0, 0, 0.45)', 'shadow-tooltip': 'rgba(0, 0, 0, 0.4)', backdrop: 'rgba(0, 0, 0, 0.45)',
         'node-fill': '#1c1e23', 'node-text': '#ffffff', 'collapse-strip': 'rgba(0, 0, 0, 0.4)',
         'conflict-ours-tick': '#1c1e23', 'conflict-theirs-tick': '#1c1e23',
+        'diff-inserted-text': 'rgba(92, 184, 92, 0.12)', 'diff-removed-text': 'rgba(217, 65, 61, 0.2)',
+        'diff-inserted-line': 'rgba(92, 184, 92, 0.1)', 'diff-removed-line': 'rgba(217, 65, 61, 0.15)',
+        'diff-diagonal-fill': 'rgba(204, 204, 204, 0.2)',
       },
     });
   });

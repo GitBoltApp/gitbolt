@@ -4,6 +4,7 @@ import { useRepoContext } from '../app/repoContext';
 import { useRuntime } from '../app/runtime';
 import { useDiffOpen, useFocusZone } from '../app/seams1b';
 import { EMPTY_REPO_SETTINGS, useAppState } from '../app/state';
+import { leaveFileView, useCenterViewSidebar } from '../repo/centerView';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { onResetDoubleClick } from '../ui/resetHandle';
 import { dividerTargets, layoutPanels } from './layout';
@@ -27,7 +28,10 @@ const MAX_W = 480;
  * per panel per repo (`sidebarSort`); panel heights, the width and the narrow flag are per
  * profile. Narrow mode shows when the profile's own toggle (Ctrl+B) is set, or while the tab's
  * diff takeover is open (spec §6.4, §10.1) — the user is looking at a file, not the branch list,
- * so the sidebar steps out of the way without losing its state.
+ * so the sidebar steps out of the way without losing its state. A file view on top (File History,
+ * Blame) narrows it too, and a click on the strip leaves the view for the graph (UX R2.3); the
+ * rebase editor takes its place altogether while it's open (UX R2.1: nothing here may navigate
+ * away from a plan).
  *
  * The hover card shows immediately on hover (no delay, the user's ruling): only its "Last push"
  * line waits on the backend, with its own loading placeholder.
@@ -42,6 +46,7 @@ export function Sidebar() {
   const updateProfile = useAppState((s) => s.updateProfile);
   const updateRepo = useAppState((s) => s.updateRepo);
   const diffOpen = useDiffOpen(tabId);
+  const viewSidebar = useCenterViewSidebar(tabId);
   const [filter, setFilter] = useState('');
   const [avail, setAvail] = useState(600);
   const filterRef = useRef<HTMLInputElement>(null);
@@ -50,7 +55,7 @@ export function Sidebar() {
   const panelEls = useRef(new Map<string, HTMLElement>());
   const bodyEls = useRef(new Map<string, HTMLDivElement>());
   const scrollTo = useRef<string | null>(null);
-  const narrow = manualNarrow || diffOpen;
+  const narrow = manualNarrow || diffOpen || viewSidebar === 'narrow';
 
   const sections = useMemo(() => (payload ? sectionsOf(payload) : []), [payload]);
   const collapsed = useMemo(() => new Set(rs.collapsed), [rs.collapsed]);
@@ -107,6 +112,7 @@ export function Sidebar() {
   };
 
   const pick = (id: string) => {
+    leaveFileView(tabId);
     scrollTo.current = id;
     updateRepo(path, (r) => ({ ...r, collapsed: r.collapsed.filter((k) => k !== sectionKey(id)) }));
     updateProfile((p) => ({ ...p, sidebarNarrow: false }));
@@ -124,7 +130,12 @@ export function Sidebar() {
     window.addEventListener('pointerup', up);
   };
 
-  if (narrow) return <NarrowStrip panels={panels} onExpand={() => updateProfile((p) => ({ ...p, sidebarNarrow: false }))} onPick={pick} />;
+  if (viewSidebar === 'hide') return null;
+  const expand = () => {
+    leaveFileView(tabId);
+    updateProfile((p) => ({ ...p, sidebarNarrow: false }));
+  };
+  if (narrow) return <NarrowStrip panels={panels} onExpand={expand} onPick={pick} />;
 
   return (
     <aside ref={asideRef} className="sidebar" style={{ width }} aria-label="Sidebar" {...zone}>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, graphLayout, nodeRadius, PACKED_ALPHA, SELECTED_BAND_ALPHA, SHADE_ALPHA, SHADE_W, stashHalf, zoneWidth } from './draw';
 import type { RowPayload } from '../api/gen/RowPayload';
+import { avatarLane } from '../avatars/color';
 
 function recorder() {
   const calls: string[] = [];
@@ -279,6 +280,35 @@ describe('drawGraph', () => {
     expect(smooth).toBeLessThan(calls.findIndex((c) => c.startsWith('drawImage(')));
     // The second row has no avatar: it keeps its initials.
     expect(calls.filter((c) => c.startsWith('fillText(')).length).toBe(1);
+  });
+
+  it("draws a commit without a picture as the author's initials avatar: the <Avatar> colour and text", () => {
+    const colors = ['#c0', '#c1', '#c2', '#c3', '#c4', '#c5'];
+    const laneText = ['#t0', '#t1', '#t2', '#t3', '#t4', '#t5'];
+    const people = [['Ada Lovelace', 'ada@example.com'], ['Grace Hopper', 'GRACE@example.com '], ['No Email', '']] as const;
+    for (const [name, email] of people) {
+      const { ctx, calls } = recorder();
+      const rows = [{ ...row(0, 'commit', []), authorName: name, authorEmail: email }];
+      drawGraph(ctx, { rows, first: 0, last: 1, scrollTop: 0, width: 100, height: 25, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors, laneText, nodeFill: '#000', labeledRows: new Set(), dpr: 1 });
+      const lane = avatarLane(name, email, colors.length);
+      // The node's disc: filled in the person's colour, then ringed in the lane's (colour 0).
+      const disc = calls.findLastIndex((c) => c.startsWith('arc('));
+      expect(calls.slice(disc).find((c) => c.startsWith('fillStyle=')), name).toBe(`fillStyle=${colors[lane]}`);
+      expect(calls.slice(disc).find((c) => c.startsWith('strokeStyle=')), name).toBe('strokeStyle=#c0');
+      const text = calls.findIndex((c) => c.startsWith('fillText('));
+      expect(calls.slice(0, text).findLast((c) => c.startsWith('fillStyle=')), name).toBe(`fillStyle=${laneText[lane]}`);
+    }
+  });
+
+  it('keeps the node fill behind a picture and inside a WIP node', () => {
+    for (const [kind, avatar] of [['commit', () => ({}) as ImageBitmap], ['wip', undefined]] as const) {
+      const { ctx, calls } = recorder();
+      drawGraph(ctx, { rows: [row(0, kind, [])], first: 0, last: 1, scrollTop: 0, width: 100, height: 25, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors: ['#c0', '#c1'], laneText: ['#t0', '#t1'], nodeFill: '#nf', labeledRows: new Set(), dpr: 1, avatar });
+      // The node's disc is the last fill() (the picture is drawn, the rail fillRect'ed).
+      const disc = calls.lastIndexOf('fill()');
+      expect(calls.slice(0, disc).findLast((c) => c.startsWith('fillStyle=')), kind).toBe('fillStyle=#nf');
+      expect(calls.some((c) => c.startsWith('fillText(')), kind).toBe(false);
+    }
   });
 });
 

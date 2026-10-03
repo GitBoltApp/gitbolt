@@ -17,6 +17,9 @@ test.describe('stashes (spec #2 §10)', () => {
     await expect.poll(() => stashes(repo)).toBe('On main: Half-done login tweak');
     await expect(bar(page).getByRole('button', { name: 'Stash', exact: true })).toBeDisabled();
     await bar(page).getByRole('button', { name: 'Undo', exact: true }).click();
+    // Read git once the app says it's done: a `stash list` while the undo drops the stash can find
+    // refs/stash gone between its two reads ("bad revision 'refs/stash'").
+    await expect(page.getByText(/^Undid /)).toBeVisible();
     await expect.poll(() => stashes(repo)).toBe('');
     expect(git(repo, 'status', '--porcelain')).toContain('file_1.txt');
   });

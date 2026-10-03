@@ -5,13 +5,9 @@ import { freshFixture, openUrl } from './fixtures';
 export async function openWip(page: Page, fixture: 'wip_staging' | 'wip_conflict' = 'wip_staging'): Promise<string> {
   const repo = freshFixture(fixture);
   await page.goto(openUrl(repo));
-  if (fixture === 'wip_conflict') {
-    // A stopped merge selects the WIP and opens its first conflicted file by itself (ux round 3);
-    // close that file so the test starts from the WIP's file lists.
-    await expect(page.getByRole('region', { name: 'Merge tool' })).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('region', { name: 'Merge tool' }).press('Escape');
-    await expect(page.getByTestId('wip-header')).toBeVisible();
-  } else await selectWip(page);
+  // A stopped merge selects the WIP by itself and opens no file (H.1).
+  if (fixture === 'wip_conflict') await expect(page.getByTestId('wip-header')).toBeVisible({ timeout: 15_000 });
+  else await selectWip(page);
   return repo;
 }
 

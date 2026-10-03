@@ -8,6 +8,7 @@ import type { RemotePayload } from '../api/gen/RemotePayload';
 import type { SignaturePayload } from '../api/gen/SignaturePayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
+import { hexSize, loadContents } from '../diff/hexContents';
 import { WipLists } from './wipLists';
 
 /** The diff contents cache: 64 entries or 64 MiB (spec §4.4). */
@@ -27,6 +28,8 @@ export interface RepoServices {
   signature: Loader<SignaturePayload>;
   /** "View all files" (§9.3). Keyed by commit id. */
   treeFiles: Loader<string[]>;
+  /** UX G.2: the WIP row's View all files. Keyed by worktree; never cached (the index moves). */
+  worktreeFiles: Loader<string[]>;
   /**
    * Full commit messages (`commitMessage`), shared by the graph's full-message tooltip and the
    * details panel's message (§9.2), so either one warms the other.
@@ -49,9 +52,9 @@ export const contentKey = (r: ContentsRequest) => JSON.stringify({ path: r.path,
  * Object-id-addressed contents are immutable. */
 export const isMutableKey = (key: string) => key.includes('"kind":"worktree"') || key.includes('"kind":"wip"');
 
-/** Approximate bytes held: decoded text as UTF-16, plus base64 image bytes. */
+/** Approximate bytes held: decoded text as UTF-16, plus base64 image bytes and a binary's hex dumps. */
 export const contentSize = (c: DiffContentsPayload) =>
-  [c.old, c.new].reduce((n, b) => n + (b ? (b.text?.length ?? 0) * 2 + (b.base64?.length ?? 0) : 0), 0);
+  [c.old, c.new].reduce((n, b) => n + (b ? (b.text?.length ?? 0) * 2 + (b.base64?.length ?? 0) : 0), 0) + hexSize(c);
 
 export function createServices(repo: number): RepoServices {
   let remotes: Promise<RemotePayload[]> | undefined;
@@ -60,9 +63,10 @@ export function createServices(repo: number): RepoServices {
     details: new Loader((id) => api.commitDetails(repo, id), new Lru(256)),
     files: new Loader((k) => api.fileList(repo, JSON.parse(k) as DiffSpec), new Lru(128), 4, (k) => !isMutableKey(k)),
     wip: new WipLists((spec) => api.fileList(repo, spec)),
-    contents: new Loader((k) => api.diffContents(repo, JSON.parse(k) as ContentsRequest), new Lru(CONTENT_CACHE_ENTRIES, CONTENT_CACHE_BYTES, contentSize), 4, (k) => !isMutableKey(k)),
+    contents: new Loader((k) => loadContents(repo, JSON.parse(k) as ContentsRequest), new Lru(CONTENT_CACHE_ENTRIES, CONTENT_CACHE_BYTES, contentSize), 4, (k) => !isMutableKey(k)),
     signature: new Loader((id) => api.signature(repo, id), new Lru(512), 2),
     treeFiles: new Loader((id) => api.treeFiles(repo, id), new Lru(4), 1),
+    worktreeFiles: new Loader((wt) => api.worktreeFiles(repo, wt), new Lru(1), 1, () => false),
     messages: createCommitMessageCache((id) => api.commitMessage(repo, id)),
     remotes: () => (remotes ??= api.remotes(repo).then((r) => (snapshot = r)).catch((e: unknown) => {
       remotes = undefined;

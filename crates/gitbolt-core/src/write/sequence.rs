@@ -54,7 +54,17 @@ pub enum SequenceOutcome {
     /// Stopped at `at` (the commit being applied) with `files` conflicted, after `applied` of them
     /// went in. Committing: paused, for Continue / Skip / Abort. Without committing: nothing is in
     /// progress; the conflicted files wait in the Conflicted section.
-    Stopped { files: u32, at: Option<String>, applied: u32, committed: bool },
+    Stopped {
+        files: u32,
+        at: Option<String>,
+        applied: u32,
+        committed: bool,
+        /// UX R1 C.1: a committing stop with no conflicts: git's error (the commit failed: a
+        /// hook, the signer, an empty pick). The changes wait staged, paused.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        error: Option<String>,
+    },
 }
 
 /// How labels and the pause name the commits: `a1b2c3d` for one, `3 commits` for more.
@@ -154,7 +164,7 @@ impl SequenceIntent {
                     self.mark_stopped(cx, &op, &attempted);
                 }
                 self.quit_in_progress(cx).await?;
-                return Ok(SequenceOutcome::Stopped { files, at: Some(oid), applied, committed: false });
+                return Ok(SequenceOutcome::Stopped { files, at: Some(oid), applied, committed: false, error: None });
             }
             // From the first commit in, the index and the files changed: a later failure keeps
             // the entry.
@@ -419,7 +429,9 @@ async fn run_sequence(cx: &mut WriteCx<'_>, kind: SequenceKind, oids: &[String],
                 if cancelled(&e, cx) {
                     return Err(e);
                 }
-                Ok(SequenceOutcome::Stopped { files: conflicted, at: head, applied: applied(cx, &old).await, committed: true })
+                // UX R1 C.1: no conflicts, so the commit itself failed: its error goes with it.
+                let error = Some(e.message.trim().to_string()).filter(|m| conflicted == 0 && !m.is_empty());
+                Ok(SequenceOutcome::Stopped { files: conflicted, at: head, applied: applied(cx, &old).await, committed: true, error })
             }
             _ => {
                 // Fix round 1: failed part-way with nothing in progress. The commits that went in
@@ -670,6 +682,43 @@ mod tests {
         assert_eq!(r.git(&["status", "--porcelain"]), "");
         journal_step(&api, id, r.path(), "redo").await.unwrap();
         assert_eq!(r.git(&["diff", "--cached", "--name-only"]), "f1.txt\nf2.txt\nf3.txt");
+    }
+
+    /// UX R1 C.2: right after a no-commit pick that added a file (staged), Discard all removes
+    /// it at the first try, index and file both.
+    #[tokio::test]
+    async fn discard_all_right_after_a_no_commit_pick_removes_the_added_file() {
+        let data = tempfile::tempdir().unwrap();
+        let (r, oids) = three_on_feature();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let res = call(&api, "cherryPick", req(id, &r, &oids[..1], true)).await.unwrap();
+        assert_eq!(res["outcome"], json!({"status": "done", "commits": 1, "committed": false}));
+        assert_eq!(r.git(&["status", "--porcelain"]), "A  f1.txt");
+        call(&api, "discard", json!({"repo": id, "worktree": wt(r.path()), "scope": {"kind": "all"}})).await.unwrap();
+        assert_eq!(r.git(&["status", "--porcelain", "--untracked-files=all"]), "");
+        assert!(!r.path().join("f1.txt").exists());
+    }
+
+    /// UX R1 C.1: a normal pick commits at once; one whose commit fails (here the signer) stops
+    /// paused, its changes staged, and says why (the toast names the commit error).
+    #[tokio::test]
+    async fn a_pick_whose_commit_fails_stops_with_the_error() {
+        let data = tempfile::tempdir().unwrap();
+        let (r, oids) = three_on_feature();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let res = call(&api, "cherryPick", req(id, &r, &oids[..1], false)).await.unwrap();
+        assert_eq!(res["outcome"], json!({"status": "done", "commits": 1, "committed": true}));
+        assert_eq!(r.git(&["status", "--porcelain"]), "");
+        r.git(&["config", "commit.gpgsign", "true"]);
+        r.git(&["config", "gpg.program", "false"]);
+        let res = call(&api, "cherryPick", req(id, &r, &oids[1..2], false)).await.unwrap();
+        let o = &res["outcome"];
+        assert_eq!((&o["status"], &o["files"], &o["committed"]), (&json!("stopped"), &json!(0), &json!(true)), "{o}");
+        assert!(o["error"].as_str().is_some_and(|m| m.contains("gpg") || m.contains("sign")), "{o}");
+        assert_eq!(r.git(&["status", "--porcelain"]), "A  f2.txt");
+        assert!(matches!(crate::in_progress::read(r.path()).unwrap(), Some(crate::in_progress::InProgress::CherryPick { .. })));
     }
 
     /// Review Focus 4: `revert --no-commit` leaves REVERT_HEAD for a later `git commit`;

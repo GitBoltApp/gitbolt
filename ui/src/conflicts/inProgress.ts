@@ -33,8 +33,18 @@ export interface OperationView {
   /** At an interactive rebase's Edit stop (spec #3 §3.5): the commit git made there; `null` otherwise. */
   editStop: string | null;
   /** 3C T13 fix 1 (A1): an Edit stop of a rebase started outside GitBolt (in a terminal): the core
-   * refuses Commit and Split there, so they hide. */
+   * refuses Commit there, so the box stays Continue's. */
   editElsewhere?: boolean;
+  /** UX L: GitBolt's Edit stop is "about to commit": HEAD went back to the commit's parent (this
+   * oid), its changes staged, its message the box's. The box commits normally there (pieces), and
+   * Continue commits what's staged, then goes on. `null`: git's own stop. */
+  editBase?: string | null;
+  /** UX L, at that stop: the paths the commit adds (one left untracked holds Continue up), and
+   * whether the index differs from the commit (an Abort keeps it). */
+  editAdded?: string[];
+  editChanged?: boolean;
+  /** UX L: a short line under the hint (amending in a terminal at the stop). */
+  caution?: string | null;
   /** The status block's accessible name. */
   region: string;
   /** "Rebasing feature/x onto main (step 1 of 2)". */
@@ -53,6 +63,9 @@ export interface OperationView {
    * WIP draft instead (§8.2), so it's empty there. */
   message: string;
 }
+
+/** UX L: the "about to commit" stop's caution: HEAD is the commit's parent there. */
+export const AMEND_IN_TERMINAL = 'Amending in a terminal here would fold this commit into its parent.';
 
 /** "Resolve 2 conflicted files first" (§8.1's reason, here too). */
 export const resolveFirst = (n: number) => `Resolve ${files(n)} first`;
@@ -89,6 +102,10 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
       // `gitbolt`: GitBolt started this rebase (its interactive rebase), not a terminal.
       const elsewhere = !!edit && !p.gitbolt;
       // --- end 3C T13 ---
+      // UX L: "about to commit" (GitBolt's own Edit stop, soft-reset there).
+      const base = edit && !elsewhere ? p.editBase : null;
+      const subject = edit ? subjectOf(edit) ?? p.message.split('\n')[0] : '';
+      const editing = `Editing ${short(edit ?? '')} ${subject}`.trimEnd();
       // 3C final fixes: a new message a hook refused (M1, M2); an Edit row whose pick conflicted
       // (I1: git won't stop for it again, so this stop is the Edit's).
       const failed = p.messageFailed ? `The new message wasn't applied: ${p.messageFailed.replace(/\.+$/, '')}. Type it again to retry, or Continue to keep the old one.` : null;
@@ -98,11 +115,18 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
         stoppedAt: p.stoppedAt,
         editStop: edit,
         editElsewhere: elsewhere,
+        editBase: base,
+        editAdded: base ? p.editAdded : [],
+        editChanged: !!base && p.editChanged,
+        caution: base ? AMEND_IN_TERMINAL : null,
         region: 'Rebase in progress',
         title: `Rebasing ${branchOf(p.headName)} onto ${onto} (step ${p.step} of ${p.total})`,
-        detail: edit ? `Stopped to edit ${short(edit)} ${p.message.split('\n')[0]}`.trimEnd() : at(p.stoppedAt, 'Stopped at'),
+        // UX L (L.5): the "about to commit" stop's notice is the hint, on its own.
+        detail: base ? null : edit ? `Stopped to edit ${short(edit)} ${p.message.split('\n')[0]}`.trimEnd() : at(p.stoppedAt, 'Stopped at'),
         // No conflicted file left: still paused (a cancelled Continue, a killed run, a failing hook).
-        hint: elsewhere ? 'Finish this rebase where you started it.' : failed ?? (edit ? 'Amend it, or split it into smaller commits, then Continue.' : p.conflicted ? resolveFirst(p.conflicted) : stillPaused),
+        hint: elsewhere ? 'Finish this rebase where you started it.'
+          : base ? `${editing}: its changes are staged. Change them, commit in pieces, or just Continue.`
+            : failed ?? (edit ? 'Change it, then Continue.' : p.conflicted ? resolveFirst(p.conflicted) : stillPaused),
         conflicted: p.conflicted,
         primary: 'Continue rebase',
         skip: !edit,

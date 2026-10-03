@@ -1,15 +1,16 @@
 import { Loader2 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { selectCommit } from '../app/graphNav';
 import { useRepoContext } from '../app/repoContext';
+import { useOps } from '../app/ops';
 import { useRuntime } from '../app/runtime';
 import { resolveFirst, useIntegrating, type OperationView } from '../conflicts/inProgress';
 import { markAborting, restoreDraftAfterAbort } from '../conflicts/mergeDraft';
 import { useOperation } from '../conflicts/useOperation';
 import { useRepoView } from '../repo/store';
 import { useWipCtx } from '../stage/actions';
-import { stagingKey, useCommitting, useStaging } from '../stage/store';
+import { stagingKey, useCommitting, useStaging, useStagingBusy } from '../stage/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
@@ -26,12 +27,17 @@ const files = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;
 /** The button's label when the summary is empty: it says what's missing. */
 export const TYPE_A_MESSAGE = 'Type a message to commit';
 
-/** The button's label, and why it's disabled (spec #2 §8.1). */
-export function commitButton(s: { staged: number; unstaged: number; conflicted: number; amend: boolean; inMerge: boolean; summary: string }) {
+/** The commit button's reason while a stage, unstage or discard of the worktree is in flight. */
+export const STAGING_BUSY = 'Staging…';
+
+/** The button's label, and why it's disabled (spec #2 §8.1). `staging`: a staging write is in
+ * flight, so the counts (and Stage all & commit) are about to change: it waits, label unchanged. */
+export function commitButton(s: { staged: number; unstaged: number; conflicted: number; amend: boolean; inMerge: boolean; summary: string; staging?: boolean }) {
   const stageAll = !s.amend && !s.inMerge && s.staged === 0 && s.unstaged > 0;
   const action = s.amend ? 'Amend previous commit' : s.inMerge ? 'Commit and merge' : stageAll ? 'Stage all & commit' : `Commit changes to ${files(s.staged)}`;
   const reason =
-    s.conflicted > 0 ? resolveFirst(s.conflicted)
+    s.staging ? STAGING_BUSY
+    : s.conflicted > 0 ? resolveFirst(s.conflicted)
       : !s.amend && !s.inMerge && s.staged === 0 && s.unstaged === 0 ? 'Nothing to commit'
         : !s.summary.trim() ? 'Write a commit summary'
           : null;
@@ -65,6 +71,18 @@ function useCounts() {
   }).split(':').map(Number) as [number, number, number];
 }
 
+const NO_FILES: readonly { path: string; status: string }[] = [];
+/** The panel's unstaged files (untracked ones are `A` there). */
+function useUnstagedFiles() {
+  return useRepoView((s) => {
+    const sec = s.panel?.selection.kind === 'wip' ? s.panel.sections[0] : undefined;
+    return sec?.list.status === 'ready' ? sec.list.data.files : NO_FILES;
+  });
+}
+
+/** UX L: Continue's reason while a file the stopped commit adds is left untracked (the core's too). */
+export const notStaged = (file: string) => `${file} from this commit isn't staged. Stage it, or discard it, then Continue.`;
+
 /** The WIP row's HEAD commit: its parent (`null` when the branch is unborn). */
 function useWorktreeHead(worktree: string | null): string | null {
   return useRepoView((s) => s.graph.rows.find((r) => r.wip?.worktreePath === worktree)?.parents[0] ?? null);
@@ -88,6 +106,7 @@ function OperationStatus({ op }: { op: OperationView }) {
       <span className="commit-op-title">{op.title}</span>
       {op.detail && <span className="commit-op-detail">{op.detail}</span>}
       <span className={`commit-op-hint${op.conflicted ? ' conflicted' : ''}`}>{op.hint}</span>
+      {op.caution && <span className="commit-op-hint">{op.caution}</span>}
     </section>
   );
 }
@@ -113,15 +132,13 @@ function abortConfirm(op: OperationView, name: string, resolved: number, kept: K
   return { arm: resolved > 0 ? `Click again to abort: undoes ${files(resolved)} resolved` : `Click again to abort the ${name}`, body: back };
 }
 
-// --- 3C T13 fix 1 (M5): each Edit stop's parent, seen while HEAD was the stopped commit. HEAD
-// back on it is a Split with nothing committed yet; HEAD anywhere else, commits made at the stop.
-const stopParents = new Map<string, string>();
-// --- end 3C T13 fix 1 ---
+/** UX L: Continue's refusal at an Edit stop while changes are left unstaged (the core's too). */
+export const COMMIT_OR_DISCARD = 'Commit or discard your changes first';
 
 /** Skip and Abort, below the primary button. Abort arms in place over Skip (spec §ui confirms,
  * board D); `resolved`, the files resolved so far, which it throws away. 3C T13: `cont`, Continue
- * rebase here (an Edit stop HEAD has left), and `kept`: the stop's work Abort keeps. */
-function OperationActions({ op, ctx, repoPath, disabled, resolved, cont, kept = null }: { op: OperationView; ctx: WriteCtx; repoPath: string; disabled: boolean; resolved: number; cont?: { reason: string | null; run(): void }; kept?: KeptWork }) {
+ * rebase here (an Edit stop where the box commits), and `kept`: the stop's work Abort keeps. */
+function OperationActions({ op, ctx, repoPath, disabled, resolved, cont, kept = null }: { op: OperationView; ctx: WriteCtx; repoPath: string; disabled: boolean; resolved: number; cont?: { reason: string | null; tip: string; run(): void }; kept?: KeptWork }) {
   // An armed Abort counts the resolved files: a different count disarms it.
   const actions = useRef<HTMLDivElement>(null);
   useDisarmOnChange(actions, `${resolved}:${kept}`);
@@ -153,9 +170,9 @@ function OperationActions({ op, ctx, repoPath, disabled, resolved, cont, kept = 
   };
   return (
     <div ref={actions} className="commit-op-actions" data-arm-cover="">
-      {/* 3C T13: an Edit stop HEAD has left: Continue goes on once the changes are committed. */}
+      {/* 3C T13, UX L: an Edit stop where the box commits: Continue under it. */}
       {cont && (
-        <HoverTooltip content={cont.reason ?? 'Go on with the rebase'}>
+        <HoverTooltip content={cont.reason ?? cont.tip}>
           <button type="button" className="commit-positive" aria-disabled={disabled || !!cont.reason || undefined} onClick={() => { if (!disabled && !cont.reason) cont.run(); }}>Continue rebase</button>
         </HoverTooltip>
       )}
@@ -187,27 +204,29 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
   const op = operation && operation.kind !== 'merge' ? operation : null;
   const integrating = useIntegrating(repoId);
   const head = useWorktreeHead(ctx?.worktree ?? null);
-  // --- 3C T13: an Edit stop (spec #3 §3.5) ---
-  // HEAD has left the stopped commit (a Split, commits made here): the box commits normally, and
-  // Continue waits under it until nothing is left to commit.
-  // A rebase started in a terminal (fix 1 A1): the core refuses Commit and Split there, so the box
-  // stays Continue's, with no Split.
+  // --- 3C T13, UX L: an Edit stop (spec #3 §3.5) ---
+  // GitBolt's own stop is "about to commit" (UX L, `editBase`): the commit's changes staged, its
+  // message the box's. The box commits normally (pieces, the rebase stays stopped), and Continue
+  // under it commits what's staged with the box's message, then goes on.
+  // git's own stop (no `editBase`) HEAD has left: the box commits normally, and Continue waits
+  // under it until nothing is left to commit.
+  // A rebase started in a terminal (fix 1 A1): the core refuses Commit there, so the box stays
+  // Continue's.
+  const editStaged = !!op?.editStop && !!op.editBase && !op.editElsewhere;
   const headLeft = !!op?.editStop && head !== op.editStop;
-  const editMoved = headLeft && !op?.editElsewhere;
-  const boxOp = editMoved ? null : op;
-  // The stopped commit's parents while HEAD is on it ("a b" for a merge, "" for the first).
-  const stopParentsAt = useRepoView((s) => (op?.editStop && head === op.editStop ? s.graph.rows[s.indexById.get(head) ?? -1]?.parents.join(' ') ?? null : null));
-  const canSplit = !!stopParentsAt && !stopParentsAt.includes(' ') && !op?.editElsewhere;
-  useEffect(() => {
-    if (op?.editStop && stopParentsAt && !stopParentsAt.includes(' ')) stopParents.set(op.stop, stopParentsAt);
-  }, [op?.editStop, op?.stop, stopParentsAt]);
+  const editMoved = headLeft && !op?.editElsewhere && !editStaged;
+  const boxOp = editMoved || editStaged ? null : op;
+  // Commits made at the stop: HEAD off the commit's parent (UX L), or off git's commit.
+  const madeCommits = editStaged ? head !== op?.editBase : headLeft;
   // --- end 3C T13 ---
   const [draft, setDraft] = useWipDraft(repoPath, worktree);
   const key = draftKey(repoPath, worktree);
   const amend = useCommitBox((s) => s.amend[key]);
   const opText = useCommitBox((s) => s.op[key]);
   const committing = useCommitting(repoId, worktree);
+  const staging = useStagingBusy(repoId, worktree);
   const [staged, unstaged, conflicted] = useCounts();
+  const unstagedFiles = useUnstagedFiles();
   // Disabling the fields for the commit drops their focus: put it back on the summary afterwards.
   const boxRef = useRef<HTMLDivElement>(null);
   const wasCommitting = useRef(false);
@@ -228,7 +247,7 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
   // --- end 2D T16 ---
   // §8.2: a HEAD move (checkout, reset, undo) ends the amend; the draft shows again. An operation
   // ends it too: the box is the operation's (not an Edit stop HEAD has left: the box is the normal one).
-  const opOwnsBox = !!operation && !editMoved;
+  const opOwnsBox = !!operation && !editMoved && !(editStaged && madeCommits);
   useEffect(() => {
     if (amend && (head !== amend.head || opOwnsBox)) useCommitBox.getState().cancelAmend(key);
   }, [amend, head, key, opOwnsBox]);
@@ -251,9 +270,11 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, stop, !operation]);
   if (!ctx) return null;
-  const value = amend ? amend.text : boxOp ? (opText?.text ?? EMPTY_DRAFT) : draft;
-  const onChange = (d: WipDraft) => (amend ? useCommitBox.getState().setAmendText(key, d) : boxOp ? useCommitBox.getState().setOpText(key, d) : setDraft(d));
-  const view = boxOp ? continueButton(boxOp, value) : commitButton({ staged, unstaged, conflicted, amend: !!amend, inMerge, summary: value.summary });
+  // UX L: at the "about to commit" stop the box holds the stop's message, not the WIP draft.
+  const opBox = !!boxOp || editStaged;
+  const value = amend ? amend.text : opBox ? (opText?.text ?? EMPTY_DRAFT) : draft;
+  const onChange = (d: WipDraft) => (amend ? useCommitBox.getState().setAmendText(key, d) : opBox ? useCommitBox.getState().setOpText(key, d) : setDraft(d));
+  const view = boxOp ? continueButton(boxOp, value) : commitButton({ staged, unstaged, conflicted, amend: !!amend, inMerge, summary: value.summary, staging });
   const blocked = view.disabled || committing || integrating;
 
   const toggleAmend = async (on: boolean) => {
@@ -282,11 +303,13 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
       await runWrite(ctx, () => api.commit(ctx.repoId, worktree, { summary: value.summary, description: value.description, amend: !!amend, stageAll: view.stageAll, expect: { head, refs: {} } }), {
         onSuccess: async (out) => {
           if (amend) useCommitBox.getState().cancelAmend(key);
+          // UX L: a piece committed at the stop: the box empties for the next one.
+          else if (editStaged) useCommitBox.getState().setOpText(key, EMPTY_DRAFT);
           else clearWipDraft(repoPath, worktree);
           await useRuntime.getState().refresh(tabId, { graphOnly: true });
-          // 3C T14: at an Edit stop HEAD has left (a Split's pieces), the WIP stays selected: the
-          // next piece and Continue are here (spec #3 §3.5, over spec #2 §8.2's rule).
-          if (!editMoved) selectCommit(tabId, out.oid);
+          // 3C T14: at an Edit stop the WIP stays selected: the next piece and Continue are here
+          // (spec #3 §3.5, over spec #2 §8.2's rule).
+          if (!editMoved && !editStaged) selectCommit(tabId, out.oid);
         },
       });
     } finally {
@@ -294,7 +317,7 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
     }
   };
 
-  // --- 3C T13: Split this commit, and Continue under the box, behind the box's gate (review 4) ---
+  // --- 3C T13: Continue under the box, behind the box's gate (review 4) ---
   const gated = (write: () => Promise<unknown>) => async () => {
     const { setCommitting, committing: gate } = useStaging.getState();
     if (integrating || gate[stagingKey(ctx.repoId, worktree)]) return;
@@ -305,16 +328,40 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
       setCommitting(ctx.repoId, worktree, false);
     }
   };
-  const split = gated(() => runWrite(ctx, () => api.splitCommit(ctx.repoId, worktree)));
-  const cont = editMoved
-    ? { reason: staged + unstaged + conflicted > 0 ? 'Commit your changes first' : null, run: () => void gated(async () => toastRebaseOutcome(await runWrite(ctx, () => api.rebaseControl(ctx.repoId, worktree, 'continue'))))() }
-    : undefined;
-  // What Abort keeps (M5): commits made at the stop (HEAD off it, not on its parent after a
-  // Split), else changes there; both, or not knowing which, is "your work".
-  const changes = staged + unstaged + conflicted > 0;
-  const splitBase = op ? stopParents.get(op.stop) : undefined;
-  const madeCommits = headLeft && splitBase !== undefined && head !== splitBase;
-  const kept: KeptWork = !op?.editStop ? null : madeCommits && !changes ? 'commits' : headLeft || changes ? 'work' : null;
+  const goOn = (message?: string) => () =>
+    void gated(async () => toastRebaseOutcome(await runWrite(ctx, () => (message === undefined ? api.rebaseControl(ctx.repoId, worktree, 'continue') : api.rebaseControl(ctx.repoId, worktree, 'continue', message)))))();
+  // UX L (L.2): what's staged is committed with the box's message (the original's author kept),
+  // then the rebase goes on; nothing staged, it just goes on. Changes left unstaged wait.
+  // The stop's message, never an amend's: Amend (of a piece) is ticked off first.
+  const stopText = opText?.text ?? EMPTY_DRAFT;
+  // Fix round 1, as the core: tracked changes left unstaged, or a file the commit adds left
+  // untracked, hold Continue up; any other untracked file (`.env`, build output) doesn't.
+  const trackedLeft = unstagedFiles.filter((f) => f.status !== 'A' && f.status !== 'U').length;
+  const leftover = editStaged ? unstagedFiles.find((f) => f.status === 'A' && op?.editAdded?.includes(f.path))?.path : undefined;
+  const cont = editStaged
+    ? {
+        reason: staging ? STAGING_BUSY
+          : amend ? 'Untick Amend first'
+            : trackedLeft + conflicted > 0 ? COMMIT_OR_DISCARD
+              : leftover ? notStaged(leftover)
+                : staged > 0 && !stopText.summary.trim() ? 'Write a commit summary'
+                  : null,
+        tip: staged > 0 ? `Commit ${files(staged)} with this message, then go on with the rebase` : 'Go on with the rebase',
+        // Unedited, no message: the core commits with the stop's own, as it is (a commit nothing
+        // changed in stays git's, its oid too).
+        run: goOn(staged > 0 ? continueMessage(opText) : undefined),
+      }
+    : editMoved
+      ? { reason: staged + unstaged + conflicted > 0 ? COMMIT_OR_DISCARD : null, tip: 'Go on with the rebase', run: goOn() }
+      : undefined;
+  // What Abort keeps (M5): commits made at the stop, else changes there; both, or not knowing
+  // which, is "your work". UX L: what's staged at the "about to commit" stop is the commit's own
+  // unless the index differs from it (`editChanged`); untracked files aren't kept.
+  // git's own stop HEAD has left can't tell commits from a reset: "your work".
+  const left = editStaged ? trackedLeft + conflicted > 0 || !!op?.editChanged : unstaged + conflicted > 0;
+  const kept: KeptWork = !op?.editStop ? null
+    : editStaged ? (madeCommits && !left ? 'commits' : madeCommits || left ? 'work' : null)
+      : headLeft || staged > 0 || left ? 'work' : null;
   // --- end 3C T13 ---
 
   return (
@@ -322,7 +369,8 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
       {operation && <OperationStatus op={operation} />}
       <CommitFields value={value} onChange={onChange} onSubmit={() => void submit()} disabled={committing || operation?.primary === null} />
       <div className="commit-box-row">
-        {(!operation || editMoved) && (
+        {/* UX L: at the "about to commit" stop, once a piece is committed (it can be amended). */}
+        {(!operation || editMoved || (editStaged && madeCommits)) && (
           <HoverTooltip content="Amend the previous commit">
             <label className="commit-amend">
               <input type="checkbox" checked={!!amend} disabled={!head || committing} onChange={(e) => void toggleAmend(e.target.checked)} />
@@ -338,12 +386,51 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
           {view.label}
         </button>
       </HoverTooltip>
-      {canSplit && (
-        <HoverTooltip content={staged > 0 ? 'Unstage your changes first' : 'Undo this commit into unstaged changes, to commit them again in smaller pieces'}>
-          <button type="button" className="commit-neutral" aria-disabled={committing || integrating || staged > 0 || undefined} onClick={() => { if (staged === 0) void split(); }}>Split this commit</button>
+      {operation && <OperationActions op={operation} ctx={ctx} repoPath={repoPath} disabled={committing || integrating} resolved={op?.editStop ? 0 : staged} cont={cont} kept={kept} />}
+      {committing && <StillWorking repoId={ctx.repoId} />}
+    </div>
+  );
+}
+
+/** UX F: how long a write from the box (Commit, Continue, Skip, Abort) runs on its spinner
+ * alone before the box says so, with Cancel. */
+export const STILL_WORKING_MS = 30_000;
+
+/** UX F: shown while the box's write runs (mounted with it); after `STILL_WORKING_MS`, "Still
+ * working…" and Cancel, the running write's own (as the status bar's): a signer waiting on a
+ * passphrase nobody sees is never an endless spinner. A cancelled Continue leaves the rebase paused. */
+function StillWorking({ repoId }: { repoId: number }) {
+  const [late, setLate] = useState(false);
+  // Fix round 1: the box's own write, by id. Mounted as the box's gate closes, before its request
+  // goes out: the ops running then are someone else's; the box's is the first write of this repo
+  // to start after (the queue runs a repo's writes in order). Cancel only ever reaches that one.
+  const [before] = useState(() => new Set(Object.keys(useOps.getState().ops).map(Number)));
+  const [mine, setMine] = useState<number | null>(null);
+  useEffect(() => {
+    if (mine !== null) return;
+    const find = (ops: ReturnType<typeof useOps.getState>['ops']) => {
+      const ids = Object.values(ops).filter((o) => o.interactive && o.repo === repoId && o.kind !== 'fetch' && o.kind !== 'clone' && !before.has(o.op)).map((o) => o.op);
+      if (ids.length) setMine(Math.min(...ids));
+    };
+    find(useOps.getState().ops);
+    return useOps.subscribe((s) => find(s.ops));
+  }, [before, mine, repoId]);
+  const running = useOps((s) => mine !== null && s.ops[mine] !== undefined);
+  useEffect(() => {
+    const t = setTimeout(() => setLate(true), STILL_WORKING_MS);
+    return () => clearTimeout(t);
+  }, []);
+  if (!late) return null;
+  const op = running && mine !== null ? { op: mine } : null;
+  return (
+    <div className="commit-still" role="status" data-testid="commit-still">
+      <Loader2 className="spin" size={12} aria-hidden />
+      <span>Still working…</span>
+      {op && (
+        <HoverTooltip content="Stop it: nothing is lost, and a rebase stays paused where it was">
+          <button type="button" className="commit-still-cancel" onClick={() => void api.cancelOp(op.op).catch((e: unknown) => console.warn('[gitbolt] cancel', e))}>Cancel</button>
         </HoverTooltip>
       )}
-      {operation && <OperationActions op={operation} ctx={ctx} repoPath={repoPath} disabled={committing || integrating} resolved={staged} cont={cont} kept={kept} />}
     </div>
   );
 }

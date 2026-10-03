@@ -59,6 +59,19 @@ pub fn decode_blob(bytes: &[u8], declared: Option<&str>) -> Decoded {
     }
 }
 
+/// `decode_blob`'s binary verdict from a file's first bytes alone (at least
+/// `BINARY_SNIFF_BYTES` of them, or all there are): no byte-order mark, no declared non-UTF-8
+/// encoding, and a NUL among the first `BINARY_SNIFF_BYTES` (git's rule).
+pub fn is_binary_head(head: &[u8], declared: Option<&str>) -> bool {
+    if encoding_rs::Encoding::for_bom(head).is_some() {
+        return false;
+    }
+    if declared.and_then(|l| encoding_rs::Encoding::for_label(l.trim().as_bytes())).is_some_and(|e| e != encoding_rs::UTF_8) {
+        return false;
+    }
+    head[..head.len().min(BINARY_SNIFF_BYTES)].contains(&0)
+}
+
 /// The blob id of these bytes, as `hash-object` gives it with no filters: the working
 /// copy's save base (spec #2 §7.5) and `WipBase.worktree` (§7.3).
 pub fn worktree_id(bytes: &[u8]) -> String {
@@ -186,14 +199,14 @@ fn submodule_text(oid: &str) -> String {
 }
 
 /// A side reduced to where its bytes live.
-enum Resolved {
+pub(crate) enum Resolved {
     Blob(ObjectId),
     Text(String),
     File { path: PathBuf, encoding: Option<String> },
     Link(PathBuf),
 }
 
-fn resolve(repo: &gix::Repository, path: &str, side: &Side) -> Result<Option<Resolved>, GbError> {
+pub(crate) fn resolve(repo: &gix::Repository, path: &str, side: &Side) -> Result<Option<Resolved>, GbError> {
     Ok(Some(match side {
         Side::Absent => return Ok(None),
         Side::Object(oid) => Resolved::Blob(*oid),
@@ -221,7 +234,7 @@ fn resolve(repo: &gix::Repository, path: &str, side: &Side) -> Result<Option<Res
 type Loaded = (Vec<u8>, Option<String>);
 
 impl Resolved {
-    fn size(&self, repo: &gix::Repository) -> Result<u64, GbError> {
+    pub(crate) fn size(&self, repo: &gix::Repository) -> Result<u64, GbError> {
         Ok(match self {
             Resolved::Blob(oid) => {
                 let h = repo.find_header(*oid).map_err(|_| not_found(format!("object {oid} not found")))?;

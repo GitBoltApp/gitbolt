@@ -47,13 +47,15 @@ export const fileListPrefsPersistence = {
   },
 };
 
-interface FileListPrefs extends StoredFileListPrefs { allFiles: boolean; set(patch: Partial<Pick<FileListPrefs, 'mode' | 'sort' | 'allFiles'>>): void }
+/** `wipAllFiles`: the WIP row's own View all files (UX G.2), apart from the commits' one. */
+interface FileListPrefs extends StoredFileListPrefs { allFiles: boolean; wipAllFiles: boolean; set(patch: Partial<Pick<FileListPrefs, 'mode' | 'sort' | 'allFiles' | 'wipAllFiles'>>): void }
 
 /** Path/Tree and sort are app-wide and remembered across restarts (H31); View all files carries
  * over from commit to commit for the session only. */
 export const useFileListPrefs = create<FileListPrefs>((set, get) => ({
   ...(fileListPrefsPersistence.load() ?? DEFAULT_FILE_LIST_PREFS),
   allFiles: false,
+  wipAllFiles: false,
   set: (patch) => {
     const before = get();
     set(patch);

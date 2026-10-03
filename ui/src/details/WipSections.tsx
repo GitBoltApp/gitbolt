@@ -4,6 +4,7 @@ import type { FileChange } from '../api/gen/FileChange';
 import { countByStatus, type FileRow } from '../files/fileTree';
 import { FileList, StatusCountsView, useFileRowH, type FileListHandle } from '../files/FileList';
 import { PathTreeToggle } from '../files/PathTreeToggle';
+import { useFileListPrefs } from '../files/fileListPrefs';
 import { filesKey } from '../repo/services';
 import type { FileSection } from '../repo/store';
 import { discardUnstaged, stageAll, stagePaths, unstageAll, useWipCtx } from '../stage/actions';
@@ -86,6 +87,9 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
     [ctx?.tabId, ctx?.repoId, ctx?.worktree, ready, which],
   );
   let body: ReactNode = null;
+  // UX G.2: View all files on the Unstaged list: the worktree's tracked files around its changes
+  // (untracked files are among them already), each opening its working-tree file in File View.
+  const allFilesWorktree = which === 'unstaged' && section.spec.kind === 'wip' ? section.spec.worktree : null;
   // The +/− line totals sit on the list's tool line, opposite Collapse all / Sort by status, so the
   // header keeps only the change-type counts next to the title (ux round 3: one kind of number
   // per line). Like the per-type counts (K47), a zero side isn't shown, and an empty section shows
@@ -97,7 +101,7 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
       {ready.deleted > 0 && <span className="deleted">−{ready.deleted}</span>}
     </span>
   ) : null;
-  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} sharedMode onLeave={onLeave} renderActions={renderActions} toolEnd={totals} />;
+  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} allFilesWorktree={allFilesWorktree} sharedMode onLeave={onLeave} renderActions={renderActions} toolEnd={totals} />;
   else if (list.status === 'error' && !collapsed) body = <div role="alert" className="file-section-status">{list.message}</div>;
   return (
     <section
@@ -133,6 +137,8 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
 export function WipSections({ sections }: { sections: FileSection[] }) {
   const [prefs, setPrefs] = useState<WipPanelPrefs>(loadWipPanel);
   const ctx = useWipCtx();
+  const wipAllFiles = useFileListPrefs((s) => s.wipAllFiles);
+  const setListPrefs = useFileListPrefs((s) => s.set);
   const ref = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(0);
@@ -175,7 +181,13 @@ export function WipSections({ sections }: { sections: FileSection[] }) {
   const both = !prefs.collapsed.unstaged && !prefs.collapsed.staged;
   return (
     <div className="wip-sections">
-      <div className="wip-view-bar"><PathTreeToggle />{ctx && <StagingUndoButtons ctx={ctx} />}</div>
+      <div className="wip-view-bar">
+        {/* UX G.2: here rather than in a list's tool line, so a clean worktree (an Edit stop with
+            nothing changed yet) has it too. It shows the tracked files in the Unstaged list. */}
+        <button type="button" className="toolbar-button wip-all-files" aria-pressed={wipAllFiles} onClick={() => setListPrefs({ wipAllFiles: !wipAllFiles })}>View all files</button>
+        <PathTreeToggle />
+        {ctx && <StagingUndoButtons ctx={ctx} />}
+      </div>
       {conflicted && <WipSection key={`${filesKey(conflicted.spec)}|conflicted`} section={conflicted} which="conflicted" collapsed={prefs.collapsed.conflicted} onToggle={() => toggle('conflicted')} listRef={lists.conflicted} onLeave={leave('conflicted')} />}
       {/* The split is of this box, the height left once Conflicted has taken its share. */}
       <div ref={ref} className="wip-split">

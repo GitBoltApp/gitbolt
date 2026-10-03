@@ -1,6 +1,7 @@
 import { act, render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RowPayload } from '../api/gen/RowPayload';
+import { resolveColors } from '../theme/apply';
 import { useTheme } from '../theme/store';
 import { THEMES } from '../theme/themes';
 import { drawGraph } from './draw';
@@ -28,12 +29,15 @@ describe('GraphCanvas theme changes', () => {
     expect(first.nodeText).toBe('#ffffff');
     expect(first.stripColor).toBe('rgba(0, 0, 0, 0.4)');
     expect(first.colors).toEqual(THEMES['default-dark'].graph);
+    // The initials avatars' text, as the <Avatar> component's.
+    expect(first.laneText).toEqual(resolveColors(THEMES['default-dark']).laneText);
     act(() => useTheme.getState().set('light', {}));
     const o = vi.mocked(drawGraph).mock.lastCall![1];
     expect(o.nodeFill).toBe(THEMES.light.colors['node-fill']);
     expect(o.nodeText).toBe(THEMES.light.colors['node-text']);
     expect(o.stripColor).toBe(THEMES.light.colors['collapse-strip']);
     expect(o.colors).toEqual(THEMES.light.graph);
+    expect(o.laneText).toEqual(resolveColors(THEMES.light).laneText);
   });
 
   it('redraws when only a lane override changes', () => {

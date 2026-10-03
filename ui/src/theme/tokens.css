@@ -49,6 +49,12 @@
   /* The tick on a filled merge-tool checkbox: white or the darkest bg, whichever contrasts more (themes.ts tickOn). */
   --conflict-ours-tick: #1c1e23;
   --conflict-theirs-tick: #1c1e23;
+  /* The diff's colours, the editor's and the hex view's (themes.ts diffColors). */
+  --diff-inserted-text: rgba(92, 184, 92, 0.12);
+  --diff-removed-text: rgba(217, 65, 61, 0.2);
+  --diff-inserted-line: rgba(92, 184, 92, 0.1);
+  --diff-removed-line: rgba(217, 65, 61, 0.15);
+  --diff-diagonal-fill: rgba(204, 204, 204, 0.2);
   /* Text on a saturated fill: the blue buttons, the bell's badge, the check box, avatar initials. */
   --text-on-accent: #ffffff;
   /* Quiet button fills (the context menu's variant chips, dialog buttons, a tab's close hover). */

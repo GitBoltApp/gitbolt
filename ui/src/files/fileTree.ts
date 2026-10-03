@@ -1,6 +1,6 @@
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
-import { fileViewTarget, targetFor, type DiffTarget } from '../repo/store';
+import { fileViewTarget, targetFor, worktreeViewTarget, type DiffTarget } from '../repo/store';
 import { statusKind } from './StatusIcon';
 
 export type FileListMode = 'path' | 'tree';
@@ -73,11 +73,15 @@ export function flattenTree<T>(nodes: TreeNode<T>[], collapsed: ReadonlySet<stri
   return out;
 }
 
-function items(files: FileChange[], spec: DiffSpec, unchanged: { commit: string; paths: string[] } | null): Item[] {
+/** "View all files": every path in `commit`'s tree, or (UX G.2, the WIP row) every tracked file
+ * of `worktree`, whose rows open the working-tree file in File View. */
+export interface Unchanged { commit: string; paths: string[]; worktree?: string }
+
+function items(files: FileChange[], spec: DiffSpec, unchanged: Unchanged | null): Item[] {
   const out: Item[] = files.map((f) => ({ path: f.path, change: f, target: targetFor(f, spec) }));
   if (unchanged) {
     const changed = new Set(files.map((f) => f.path));
-    for (const p of unchanged.paths) if (!changed.has(p)) out.push({ path: p, change: null, target: fileViewTarget(p, unchanged.commit, spec) });
+    for (const p of unchanged.paths) if (!changed.has(p)) out.push({ path: p, change: null, target: unchanged.worktree ? worktreeViewTarget(p, unchanged.worktree, spec) : fileViewTarget(p, unchanged.commit, spec) });
   }
   return out;
 }
@@ -86,7 +90,7 @@ export interface RowsInput {
   files: FileChange[];
   spec: DiffSpec;
   /** "View all files": every path in `commit`'s tree; the ones not in `files` are unchanged. */
-  unchanged: { commit: string; paths: string[] } | null;
+  unchanged: Unchanged | null;
   mode: FileListMode;
   sort: FileSort;
   collapsed: ReadonlySet<string>;
@@ -122,7 +126,7 @@ export function displayTargets(files: FileChange[], spec: DiffSpec, mode: FileLi
 }
 
 /** Every folder row's path (for "Collapse all"). */
-export function allFolderPaths(files: FileChange[], unchanged: { commit: string; paths: string[] } | null): string[] {
+export function allFolderPaths(files: FileChange[], unchanged: Unchanged | null): string[] {
   return flattenTree(buildTree(files.map((f) => ({ path: f.path })).concat((unchanged?.paths ?? []).map((path) => ({ path })))), new Set())
     .filter(({ node }) => node.item === null)
     .map(({ node }) => node.path);

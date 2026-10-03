@@ -1,4 +1,5 @@
 import type { RowPayload } from '../api/gen/RowPayload';
+import { avatarLane } from '../avatars/color';
 import { initials } from '../format/initials';
 import { STASH_ICON_BOX, STASH_ICON_STROKE, traceStashIcon } from '../icons/stash';
 import { laneX, pathLength, segmentPath, tracePath, type Metrics, type PathOp } from './geometry';
@@ -15,7 +16,11 @@ export interface DrawOptions {
   metrics: Metrics;
   colors: readonly string[];
   nodeFill: string;
-  /** Initials color inside commit nodes (theme `node-text`); white when omitted. */
+  /** The text colour on each `colors` entry (the theme's resolved `laneText`): a commit node's
+   * initials on its avatar colour, as the `<Avatar>` component's. */
+  laneText?: readonly string[];
+  /** Initials color inside commit nodes when `laneText` is omitted (theme `node-text`); white
+   * when that is omitted too. */
   nodeText?: string;
   /** The collapse zone's shade at its darkest (theme `collapse-strip`), a black at some alpha so
    * the gradient fades it to transparent black; `rgba(0,0,0,SHADE_ALPHA)` when omitted. */
@@ -319,8 +324,13 @@ function drawNode(ctx: CanvasRenderingContext2D, o: DrawOptions, row: RowPayload
     return;
   }
   const r = nodeRadius(m);
+  const bitmap = kind === 'commit' ? (o.avatar?.(row.authorEmail) ?? null) : null;
+  // A commit without a picture is the author's initials avatar, as everywhere else (the
+  // `<Avatar>` component): the person's palette colour, picked by the same `avatarLane`, inside
+  // the lane-coloured ring. The WIP node and the picture's backdrop keep the node fill.
+  const lane = kind === 'commit' && !bitmap ? avatarLane(row.authorName, row.authorEmail, o.colors.length) : -1;
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = o.nodeFill;
+  ctx.fillStyle = lane >= 0 ? o.colors[lane] : o.nodeFill;
   ctx.fill();
   ctx.strokeStyle = c;
   if (kind === 'wip') {
@@ -335,7 +345,6 @@ function drawNode(ctx: CanvasRenderingContext2D, o: DrawOptions, row: RowPayload
     ctx.lineCap = 'round';
   } else ctx.stroke();
   if (kind === 'commit') {
-    const bitmap = o.avatar?.(row.authorEmail) ?? null;
     if (bitmap) {
       // Inside the ring: the lane-coloured stroke stays visible around the picture.
       const ir = r - 1;
@@ -349,7 +358,7 @@ function drawNode(ctx: CanvasRenderingContext2D, o: DrawOptions, row: RowPayload
       ctx.drawImage(bitmap, x - ir, y - ir, 2 * ir, 2 * ir);
       ctx.restore();
     } else {
-      ctx.fillStyle = o.nodeText ?? '#fff';
+      ctx.fillStyle = o.laneText?.[lane] ?? o.nodeText ?? '#fff';
       ctx.font = `600 ${Math.round(m.rowH * 0.32)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

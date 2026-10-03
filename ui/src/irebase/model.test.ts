@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addChip, applyPreset, chipRow, dirty, editMessage, fromPlan, grouping, mergedMessage, moveChip, moveRow, moveSelected,
-  predictionKey, problems, rebasedRow, reload, removeChip, reset, select, setActions, targetMessage, toRequest, type EditorState,
+  addChip, applyPreset, chipChange, chipRow, deleteChip, dirty, editMessage, fromPlan, grouping, mergedMessage, moveChip, moveRow, moveRows, moveSelected,
+  predictionKey, problems, rebasedRow, reload, removeChip, reset, revertChip, samePlan, select, setActions, targetMessage, toRequest, type EditorState,
 } from './model';
 import { oid, plan } from './testPlan';
 
@@ -25,6 +25,16 @@ describe('the rebase editor model (spec #3 §4.1, §7)', () => {
     expect(order(moveSelected(s, 1))).toBe('EDACB');
     expect(order(moveRow(fromPlan(plan()), 0, 3))).toBe('DCBEA');
     expect(dirty(moveRow(fromPlan(plan()), 0, 3))).toBe(true);
+  });
+
+  it('a group drag lands the rows together, in their order, at a slot of the others; a scattered selection closes up (UX2 E.3)', () => {
+    const s = fromPlan(plan()); // EDCBA
+    expect(order(moveRows(s, [oid('d'), oid('b')], 0))).toBe('DBECA');
+    expect(order(moveRows(s, [oid('b'), oid('d')], 3))).toBe('ECADB'); // the rows' order, not the selection's
+    expect(order(moveRows(s, [oid('e'), oid('a')], 1))).toBe('DEACB');
+    expect(order(moveRows(s, [oid('d'), oid('c')], 9))).toBe('EBADC'); // past the end: the bottom
+    expect(moveRows(s, [oid('d'), oid('c')], 1)).toBe(s); // where they are: no change
+    expect(moveRows(s, [], 0)).toBe(s);
   });
 
   it('selects: a click, Ctrl toggles, Shift takes the range from the anchor', () => {
@@ -153,5 +163,30 @@ describe('the rebase editor model (spec #3 §4.1, §7)', () => {
 
   it('applyPreset without gather only sets actions', () => {
     expect(order(applyPreset(fromPlan(plan()), { rows: { [oid('c')]: 'drop' } }))).toBe('EDCBA');
+  });
+
+  it('the chip menu: deleteChip only strikes out (or drops an added chip); revertChip undoes the chip\'s change (UX R1.3)', () => {
+    const s = fromPlan(plan());
+    expect(chipChange(s.chips[0])).toBe('none');
+    const del = deleteChip(s, 'x');
+    expect(chipChange(del.chips[0])).toBe('deleted');
+    expect(deleteChip(del, 'x')).toBe(del);
+    expect(deleteChip(s, 'y')).toBe(s); // locked
+    const moved = moveChip(s, 'x', oid('d'));
+    expect(chipChange(moved.chips[0])).toBe('moved');
+    expect(revertChip(moved, 'x').chips[0]).toEqual(s.chips[0]);
+    expect(revertChip(del, 'x').chips[0]).toEqual(s.chips[0]);
+    const added = addChip(s, 'n', oid('c')) as EditorState;
+    expect(chipChange(added.chips[2])).toBe('added');
+    expect(deleteChip(added, 'n').chips).toHaveLength(2);
+    expect(revertChip(s, 'x')).toBe(s);
+  });
+
+  it('samePlan: the selection aside', () => {
+    const s = fromPlan(plan());
+    expect(samePlan(s, select(s, oid('c')))).toBe(true);
+    expect(samePlan(s, moveSelected(select(s, oid('a')), 1))).toBe(true);
+    expect(samePlan(s, act(s, 'c', 'drop'))).toBe(false);
+    expect(samePlan(s, removeChip(s, 'x'))).toBe(false);
   });
 });

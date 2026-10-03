@@ -6,6 +6,7 @@ import { toGbError } from '../errors/describe';
 import { centerViewOf, openCenterView } from '../repo/centerView';
 import { useToast } from '../ui/toast';
 import { writeCtx } from '../write/ctx';
+import { laneColors } from './colors';
 import { dirty, fromPlan } from './model';
 import { NO_PREDICTION, sessionOf, setSession, type OpenRebase } from './session';
 
@@ -52,7 +53,7 @@ export async function openRebaseEditor(tabId: string, opts: OpenRebase): Promise
     useToast.getState().show(`${opts.branch} has no commits to rebase onto ${opts.base}`);
     return false;
   }
-  setSession(tabId, { ctx, opened: opts, state: fromPlan(plan, opts.preset), prediction: NO_PREDICTION, moved: null, editing: null });
+  setSession(tabId, { ctx, opened: opts, state: fromPlan(plan, opts.preset), prediction: NO_PREDICTION, moved: null, editing: null, colors: laneColors(tabId) });
   openCenterView(tabId, REBASE_VIEW, {});
   return true;
 }

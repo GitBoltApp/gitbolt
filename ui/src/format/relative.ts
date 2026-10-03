@@ -9,3 +9,15 @@ export function relativeTime(unixSeconds: number, now = Date.now() / 1000): stri
   }
   return 'just now';
 }
+
+const COMPACT: Partial<Record<Intl.RelativeTimeFormatUnit, string>> = { year: 'y', month: 'mo', week: 'w', day: 'd', hour: 'h', minute: 'm' };
+
+/** `relativeTime`'s compact form, for narrow columns: "now", "5m", "3h", "2d", "3w", "9mo", "2y"
+ * (same units and rounding; a time ahead of `now`, clock skew, reads as its distance). */
+export function compactRelativeTime(unixSeconds: number, now = Date.now() / 1000): string {
+  const diff = Math.abs(now - unixSeconds);
+  for (const [unit, secs] of UNITS) {
+    if (diff >= secs) return `${Math.round(diff / secs)}${COMPACT[unit]}`;
+  }
+  return 'now';
+}

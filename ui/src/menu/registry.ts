@@ -1,6 +1,6 @@
 import type { MenuRow } from './types';
 
-export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection';
+export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection' | 'chip';
 
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
@@ -23,6 +23,8 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   // Two or more selected commits (spec #3 §4.3): 3C's Squash, 3B's Cherry-pick and Revert,
   // 3C's "Interactive rebase from here".
   selection: ['squash', 'commit', 'rebase'],
+  // A branch chip in the interactive rebase editor (UX R1.3): Delete branch, Restore, then Copy.
+  chip: ['manage', 'copy'],
 };
 
 export interface MenuContribution<T, E> {

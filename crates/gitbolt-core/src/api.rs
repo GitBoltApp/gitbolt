@@ -82,8 +82,13 @@ pub enum Request {
     FileList { repo: u32, spec: DiffSpec },
     /// Both sides of one file diff, decoded for the viewer (spec §10.2, §10.4).
     DiffContents { repo: u32, path: String, old: BlobSource, new: BlobSource, force: bool },
+    /// Both sides of a binary file as hex dumps, each capped at `hex::HEX_CAP` bytes (UX round 2,
+    /// lane I): `HexDumpPayload`.
+    HexDump { repo: u32, path: String, old: BlobSource, new: BlobSource },
     /// Every file at a commit, sorted bytewise ("View all files", spec §9.3; the palette, §11.2).
     TreeFiles { repo: u32, id: String },
+    /// UX G.2: the worktree's tracked files, sorted bytewise ("View all files" on the WIP row).
+    WorktreeFiles { repo: u32, worktree: String },
     /// The commit's signature status, verified through the user's own gpg/ssh config and cached
     /// per repository and commit id for the process lifetime (spec §9.1).
     Signature { repo: u32, id: String },
@@ -321,9 +326,9 @@ pub enum Request {
         #[ts(type = "number")]
         dev: u64,
     },
-    // --- 2B T6: save a working file (spec #2 §7.5) ---
+    // --- 2B T6: save a working file (spec #2 §7.5); UX round 2 G.2: journaled, renamed ---
     /// `WriteResult<SaveOutcome>`; `Stale` when the file's bytes no longer hash to `base`.
-    SaveFile { repo: u32, worktree: String, path: String, text: String, base: String },
+    WriteWorktreeFile { repo: u32, worktree: String, path: String, text: String, base: String },
     // --- end 2B T6 ---
     // --- 2B T1: stage and unstage (spec #2 §7.2) ---
     /// Stage `paths` (`git add -A`): `WriteResult<null>`. An immediate write (§3.6), not
@@ -531,10 +536,6 @@ pub enum Request {
         confirm: crate::write::types::Confirm,
     },
     // --- end 3C T3 ---
-    // --- 3C T5 ---
-    /// Split this commit at an Edit stop (spec #3 §3.5): `WriteResult<null>`.
-    SplitCommit { repo: u32, worktree: String },
-    // --- end 3C T5 ---
     // --- 3C T6 ---
     /// "Edit message" on an older commit of the current branch (spec #3 §3.6): `WriteResult<IntegrateOutcome>`.
     RewordCommit {
@@ -742,7 +743,7 @@ impl Request {
         match self {
             // Remote-tracking refs and objects.
             Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
-            Request::SaveFile { .. } => true,
+            Request::WriteWorktreeFile { .. } => true,
             // 2B T1.
             Request::Stage { .. } | Request::Unstage { .. } | Request::StageAll { .. } | Request::UnstageAll { .. } => true,
             // 2B T2.
@@ -799,9 +800,6 @@ impl Request {
             // --- 3C T3 ---
             Request::InteractiveRebase { .. } => true,
             // --- end 3C T3 ---
-            // --- 3C T5 ---
-            Request::SplitCommit { .. } => true,
-            // --- end 3C T5 ---
             // --- 3C T6 ---
             Request::RewordCommit { .. } => true,
             // --- end 3C T6 ---
@@ -849,7 +847,9 @@ impl Request {
             | Request::Remotes { .. }
             | Request::FileList { .. }
             | Request::DiffContents { .. }
+            | Request::HexDump { .. }
             | Request::TreeFiles { .. }
+            | Request::WorktreeFiles { .. }
             | Request::Signature { .. }
             | Request::Avatar { .. }
             | Request::OpenUrl { .. }
@@ -1025,10 +1025,71 @@ fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, GbError> {
 
 /// The request's variant name only: its Debug text up to the first non-identifier character, so
 /// parameters (paths, an askpass answer) never reach a log line.
+#[cfg(test)]
 fn variant_name(req: &Request) -> String {
-    let text = format!("{req:?}");
-    text.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("?").to_string()
+    name_in(&format!("{req:?}"))
 }
+
+fn name_in(debug: &str) -> String {
+    debug.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("?").to_string()
+}
+
+// --- UX R1 C.4: failed writes in the log ---
+/// A write request's repository id and worktree, read from its Debug text (writes name them
+/// `repo: 3` and `worktree: "/abs/path"`): what a failure's message is made relative to.
+fn write_scope(debug: &str) -> (Option<u32>, Option<PathBuf>) {
+    static REPO: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\brepo: (\d+)").unwrap());
+    static WORKTREE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r#"\bworktree: (?:Some\()?"((?:[^"\\]|\\.)*)""#).unwrap());
+    let repo = REPO.captures(debug).and_then(|c| c[1].parse().ok());
+    let worktree = WORKTREE.captures(debug).map(|c| PathBuf::from(c[1].replace("\\\"", "\"").replace("\\\\", "\\")));
+    (repo, worktree)
+}
+
+/// `message` with the absolute paths in it made relative: under a root (the worktree, the
+/// repository's) `<root>/a/b` reads `a/b` and `<root>` alone `.`; the git dir reads `.git`;
+/// anything else under the home folder starts with `~`. Then redacted.
+fn relative_message(message: &str, roots: &[PathBuf], git_dir: Option<&Path>) -> String {
+    let mut subs: Vec<(String, &str)> = Vec::new();
+    if let Some(g) = git_dir {
+        subs.push((g.display().to_string(), ".git"));
+    }
+    subs.extend(roots.iter().map(|r| (r.display().to_string(), ".")));
+    if let Some(home) = dirs::home_dir() {
+        subs.push((home.display().to_string(), "~"));
+    }
+    // Longest first: the git dir inside the worktree is `.git`, not `./.git`.
+    subs.retain(|(from, _)| from.len() > 1);
+    subs.sort_by_key(|(from, _)| std::cmp::Reverse(from.len()));
+    let mut out = message.to_string();
+    for (from, to) in subs {
+        let mut next = String::with_capacity(out.len());
+        let mut rest = out.as_str();
+        while let Some(i) = rest.find(&from) {
+            next.push_str(&rest[..i]);
+            let after = &rest[i + from.len()..];
+            // A whole path only: `/r` isn't in `/r2`.
+            let whole = after.chars().next().is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '-' | '_' | '.')));
+            if !whole {
+                next.push_str(&from);
+                rest = after;
+            } else if to == "." && after.starts_with('/') {
+                rest = &after[1..];
+            } else {
+                next.push_str(to);
+                rest = after;
+            }
+        }
+        next.push_str(rest);
+        out = next;
+    }
+    crate::redact::redact(&out)
+}
+/// `CherryPick` → `cherryPick`, as the UI sends it.
+fn wire_method(variant: &str) -> String {
+    let mut chars = variant.chars();
+    chars.next().map(|c| c.to_lowercase().chain(chars).collect()).unwrap_or_default()
+}
+// --- end UX R1 C.4 ---
 
 pub async fn catch_panics<F>(method: &str, fut: F) -> Result<serde_json::Value, GbError>
 where
@@ -1499,10 +1560,33 @@ impl Api {
     /// Every request, with panics turned into `GbError::Other` (spec §16.1); the panic hook
     /// (logging::install_panic_hook) has already logged it with a backtrace.
     pub async fn dispatch(&self, req: Request) -> Result<serde_json::Value, GbError> {
-        let method = variant_name(&req);
+        let debug = format!("{req:?}");
+        let method = name_in(&debug);
+        let write = req.is_write();
         // Boxed: `dispatch_inner` holds every request's future, so inline it would make each
         // caller's future (a Tauri command's, a test's) as large as the largest request's.
-        catch_panics(&method, Box::pin(self.dispatch_inner(req))).await
+        let res = catch_panics(&method, Box::pin(self.dispatch_inner(req))).await;
+        // UX R1 C.4: a failed write is logged (the UI's log only says its menu row ran).
+        if write && let Err(e) = &res {
+            self.log_write_failure(&method, &debug, e);
+        }
+        res
+    }
+
+    /// UX R1 C.4: one WARN line per failed write, with the method as the UI sends it, the
+    /// error's kind and its message (paths relative to the repository, redacted). A Cancel is
+    /// the user's own: INFO.
+    fn log_write_failure(&self, variant: &str, debug: &str, e: &GbError) {
+        let (method, kind) = (wire_method(variant), format!("{:?}", e.kind));
+        let (repo, worktree) = write_scope(debug);
+        let handle = repo.and_then(|id| self.handle(id).ok());
+        let roots: Vec<PathBuf> = worktree.into_iter().chain(handle.as_ref().map(|h| h.workdir.clone())).collect();
+        let message = relative_message(crate::log::truncate_utf8(&e.message, crate::log::STDERR_LOG_LIMIT), &roots, handle.as_ref().map(|h| h.common_dir.as_path()));
+        if e.kind == GbErrorKind::Cancelled {
+            tracing::info!(target: "gitbolt_core::write", method = %method, kind = %kind, "write cancelled: {message}");
+        } else {
+            tracing::warn!(target: "gitbolt_core::write", method = %method, kind = %kind, "write failed: {message}");
+        }
     }
 
     async fn dispatch_inner(&self, req: Request) -> Result<serde_json::Value, GbError> {
@@ -1618,12 +1702,27 @@ impl Api {
                 let h = self.handle(repo)?;
                 let old = self.resolve_side(&h, &path, old).await?;
                 let new = self.resolve_side(&h, &path, new).await?;
-                to_json(blocking(move || diff_contents(&h.repo.to_thread_local(), &path, &old, &new, force)).await?)
+                let (repo, p, o, n) = (h.repo.clone(), path.clone(), old.clone(), new.clone());
+                let mut c = blocking(move || diff_contents(&repo.to_thread_local(), &p, &o, &n, force)).await?;
+                // A binary shows as a capped hex dump: no large-file prompt, whatever its size.
+                crate::hex::ungate_binary(&h.repo, &self.cli, &h.workdir, &path, &old, &new, &mut c).await?;
+                to_json(c)
+            }
+            Request::HexDump { repo, path, old, new } => {
+                let h = self.handle(repo)?;
+                let old = self.resolve_side(&h, &path, old).await?;
+                let new = self.resolve_side(&h, &path, new).await?;
+                to_json(crate::hex::hex_dump(&h.repo, &self.cli, &h.workdir, &path, old, new, crate::hex::HEX_CAP).await?)
             }
             Request::TreeFiles { repo, id } => {
                 let h = self.handle(repo)?;
                 let id = parse_oid(&id)?;
                 to_json(blocking(move || tree_files(&h.repo.to_thread_local(), id)).await?)
+            }
+            Request::WorktreeFiles { repo, worktree } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(blocking(move || crate::tree::worktree_files(&root)).await?)
             }
             Request::Signature { repo, id } => {
                 let h = self.handle(repo)?;
@@ -1844,7 +1943,7 @@ impl Api {
                 }
                 crate::write::test_intents::run(self, repo, &worktree, expect, intent).await
             }
-            Request::SaveFile { repo, worktree, path, text, base } => to_json(crate::write::files::save_file(self, repo, &worktree, path, text, base).await?),
+            Request::WriteWorktreeFile { repo, worktree, path, text, base } => to_json(crate::write::files::write_worktree_file(self, repo, &worktree, path, text, base).await?),
             Request::RemoveIndexLock { repo, path, mtime_ms, ino, dev } => {
                 crate::write::index_lock::remove_index_lock(self, repo, &path, mtime_ms, ino, dev).await?;
                 to_json(())
@@ -1918,9 +2017,6 @@ impl Api {
             // --- 3C T3 ---
             Request::InteractiveRebase { repo, worktree, branch, base, expect, rows, chips, confirm } => to_json(crate::write::irebase::run::interactive_rebase(self, repo, &worktree, branch, base, expect, rows, chips, confirm).await?),
             // --- end 3C T3 ---
-            // --- 3C T5 ---
-            Request::SplitCommit { repo, worktree } => to_json(crate::write::irebase::split::split(self, repo, &worktree).await?),
-            // --- end 3C T5 ---
             // --- 3C T6 ---
             Request::RewordCommit { repo, worktree, oid, message, expect, confirm } => to_json(crate::write::irebase::reword::reword_commit(self, repo, &worktree, oid, message, expect, confirm).await?),
             // --- end 3C T6 ---
@@ -2259,6 +2355,63 @@ mod tests {
         assert_eq!(variant_name(&Request::LogsDir), "LogsDir");
         assert_eq!(variant_name(&Request::OpenRepo { path: "/secret/path".into() }), "OpenRepo");
     }
+
+    // --- UX R1 C.4 ---
+    #[test]
+    fn a_write_failures_paths_are_made_relative() {
+        let roots = [PathBuf::from("/w/repo")];
+        let git = Path::new("/w/repo/.git");
+        let rel = |m: &str| relative_message(m, &roots, Some(git));
+        assert_eq!(rel("/w/repo/.git/MERGE_MSG: Permission denied"), ".git/MERGE_MSG: Permission denied");
+        assert_eq!(rel("error: '/w/repo/src/a.rs' is in the way"), "error: 'src/a.rs' is in the way");
+        assert_eq!(rel("fatal: not a git repository: /w/repo"), "fatal: not a git repository: .");
+        assert_eq!(rel("/w/repo2/x stays"), "/w/repo2/x stays", "a whole path only");
+        assert_eq!(rel("fatal: unable to access 'https://ada:pw@h/x.git/'"), "fatal: unable to access 'https://***@h/x.git/'");
+        if let Some(home) = dirs::home_dir().filter(|h| h.as_os_str().len() > 1) {
+            assert_eq!(rel(&format!("{}/elsewhere/f", home.display())), "~/elsewhere/f");
+        }
+    }
+
+    #[test]
+    fn a_write_requests_scope_is_read_from_its_debug_text() {
+        let req: Request = serde_json::from_value(serde_json::json!({"method": "discard", "params": {"repo": 7, "worktree": "/w/a \"b\"", "scope": {"kind": "all"}}})).unwrap();
+        assert_eq!(write_scope(&format!("{req:?}")), (Some(7), Some(PathBuf::from("/w/a \"b\""))));
+        assert_eq!(wire_method("CherryPick"), "cherryPick");
+    }
+
+    /// A failed write's WARN line: its method, kind and message, and no absolute path.
+    #[tokio::test]
+    async fn a_failed_write_is_logged_at_warn() {
+        #[derive(Clone, Default)]
+        struct Buf(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Buf::default();
+        let out = buf.clone();
+        let sub = tracing_subscriber::fmt().with_writer(move || out.clone()).with_ansi(false).with_max_level(tracing::Level::INFO).finish();
+        let _guard = tracing::subscriber::set_default(sub);
+        let data = tempfile::tempdir().unwrap();
+        let r = crate::write::test_support::repo();
+        let api = crate::write::test_support::api(data.path());
+        let id = crate::write::test_support::open(&api, &r).await;
+        let wt = crate::write::test_support::wt(r.path());
+        let err = crate::write::test_support::call(&api, "discard", serde_json::json!({"repo": id, "worktree": wt, "scope": {"kind": "paths", "paths": ["nope.txt"]}})).await.unwrap_err();
+        crate::write::test_support::call(&api, "graph", serde_json::json!({"repo": id})).await.unwrap();
+        let text = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        let line = text.lines().find(|l| l.contains("write failed")).unwrap_or_else(|| panic!("no WARN line in {text}"));
+        assert!(line.contains("WARN") && line.contains("method=discard") && line.contains(&format!("kind={:?}", err.kind)), "{line}");
+        assert!(line.contains(&err.message) || line.contains("nope.txt"), "{line}");
+        assert!(!text.contains(&wt), "no absolute path: {text}");
+        assert_eq!(text.lines().filter(|l| l.contains("write failed")).count(), 1, "reads aren't logged: {text}");
+    }
+    // --- end UX R1 C.4 ---
 
     #[tokio::test]
     async fn diagnostics_reports_versions_and_scrubbed_settings() {
@@ -3327,7 +3480,9 @@ mod tests {
             json!({"method": "fileList", "params": {"repo": id, "spec": {"kind": "wip", "worktree": wt, "staged": false}}}),
             json!({"method": "fileList", "params": {"repo": id, "spec": {"kind": "wip", "worktree": wt, "staged": true}}}),
             json!({"method": "diffContents", "params": {"repo": id, "path": "file_1.txt", "old": {"kind": "absent"}, "new": {"kind": "worktree", "worktree": wt}, "force": false}}),
+            json!({"method": "hexDump", "params": {"repo": id, "path": "file_1.txt", "old": {"kind": "absent"}, "new": {"kind": "worktree", "worktree": wt}}}),
             json!({"method": "treeFiles", "params": {"repo": id, "id": head}}),
+            json!({"method": "worktreeFiles", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "signature", "params": {"repo": id, "id": head}}),
             json!({"method": "avatar", "params": {"email": "ada@example.com"}}),
             json!({"method": "openUrl", "params": {"url": "https://example.com"}}),
@@ -3396,7 +3551,7 @@ mod tests {
     }
 
     /// The methods that write (`is_write`), which the never-write test leaves out.
-    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "saveFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
+    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
         // --- 2C T5: checkout ---
         "checkout",
         // --- end 2C T5 ---
@@ -3429,9 +3584,6 @@ mod tests {
         // --- 3C T3 ---
         "interactiveRebase",
         // --- end 3C T3 ---
-        // --- 3C T5 ---
-        "splitCommit",
-        // --- end 3C T5 ---
         // --- 3C T6 ---
         "rewordCommit",
         // --- end 3C T6 ---
@@ -3468,7 +3620,7 @@ mod tests {
             json!({"method": "worktreeRemove", "params": {"repo": id, "worktree": wt, "path": "/nonexistent/x"}}),
             // --- end 2C T8 ---
             // Save a working file (2B T6): refused as Stale before writing.
-            json!({"method": "saveFile", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "text": "x", "base": "0"}}),
+            json!({"method": "writeWorktreeFile", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "text": "x", "base": "0"}}),
             // 2B T1.
             json!({"method": "stage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),
             json!({"method": "unstage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),
@@ -3525,8 +3677,6 @@ mod tests {
             json!({"method": "pushTags", "params": {"repo": id, "worktree": wt, "remote": "origin", "tag": "nope"}}),
             // 3C T3: refused (x isn't checked out) before writing.
             json!({"method": "interactiveRebase", "params": {"repo": id, "worktree": wt, "branch": "x", "base": "main", "rows": []}}),
-            // 3C T5: refused in `plan` (nothing is in progress).
-            json!({"method": "splitCommit", "params": {"repo": id, "worktree": wt}}),
             // 3C T6: refused (an empty message) before writing.
             json!({"method": "rewordCommit", "params": {"repo": id, "worktree": wt, "oid": "0000000000000000000000000000000000000000", "message": ""}}),
             // 3B T1: refused (nothing to apply) before writing.

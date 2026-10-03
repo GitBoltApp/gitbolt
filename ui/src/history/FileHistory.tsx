@@ -1,19 +1,23 @@
 // Reached only through the center view's React.lazy (history/feature.ts): it pulls in File View,
 // the Monaco loader and Shiki's language registry, which stay out of the startup chunk.
 import { X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { useStore, type StoreApi } from 'zustand';
 import { api } from '../api/client';
+import { copyText } from '../api/transport';
 import type { FileHistoryRow } from '../api/gen/FileHistoryRow';
 import type { DiffTarget } from '../repo/store';
 import { selectCommit } from '../app/graphNav';
 import { Avatar } from '../avatars/Avatar';
 import { editorOwnsEscape, ESCAPE_OWNER_AREAS, useContents } from '../diff/DiffPanel';
 import { FileView } from '../diff/FileView';
+import { fileSideOf, HexBody, HexView } from '../diff/hex';
+import { hexOf } from '../diff/hexContents';
 import { highlightLanguage } from '../diff/language';
 import { relativeTime } from '../format/relative';
 import { shortSha } from '../format/sha';
 import { useCenterViewEditorFile, type CenterViewProps } from '../repo/centerView';
+import { PanelResizer } from '../repo/PanelResizer';
 import { fileViewTarget, useRepoView } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { registerKeys } from '../ui/keyRouter';
@@ -21,6 +25,7 @@ import { isEditableTarget } from '../ui/keys';
 import { useToast } from '../ui/toast';
 import { BlameLayer } from './BlameGutter';
 import { historyEnd, selectedRow, type FileHistoryArgs } from './model';
+import { clampListW, LIST_W, loadListW, saveListW } from './listWidth';
 import { createHistoryStore, HISTORY_PAGE, type HistoryStore } from './store';
 import './history.css';
 
@@ -34,6 +39,13 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
   const row = useStore(store, selectedRow);
   const ref = useRef<HTMLElement>(null);
   const blame = useStore(store, (s) => s.blame);
+  // The selected file at its commit is a binary: shown as hex, with no lines to blame (no toggle).
+  const [binary, setBinary] = useState(false);
+  const [listW, setListW] = useState(loadListW);
+  const changeListW = useCallback((w: number) => { setListW(w); saveListW(w); }, []);
+  // The drag writes the columns straight to the section (rAF-coalesced by the resizer); React state
+  // and storage see the width once, at the end of the gesture.
+  const liveColumns = useCallback((w: number) => ref.current?.style.setProperty('--fh-list', `${w}px`), []);
   // A right-click in the file: its menu (Copy path, the forge permalink, Open in…) is the selected
   // row's file at its commit, not the open file this view may hide.
   const shown = row && row.status !== 'D' ? row : null;
@@ -61,22 +73,35 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
     return 'handled';
   }), [close]);
   return (
-    <section ref={ref} className="file-history" role="region" aria-label="File history">
+    <section ref={ref} className="file-history" role="region" aria-label="File history" style={{ '--fh-list': `${clampListW(listW)}px` } as CSSProperties}>
+      {/* The bar has the body's columns: the title over the list, Blame over the editor (UX B.1). */}
       <header className="file-history-header">
-        <HoverTooltip content={blame ? 'Hide who last changed each line' : 'Show who last changed each line'}>
-          <button type="button" className="blame-toggle" aria-pressed={blame} onClick={() => store.getState().setBlame(!blame)}>Blame</button>
-        </HoverTooltip>
         <h2 className="file-history-title">File History: <span className="file-history-path">{props.path}</span></h2>
-        <HoverTooltip content="Close (Esc)">
-          <button type="button" className="icon-button" aria-label="Close file history" onClick={close}><X size={14} /></button>
-        </HoverTooltip>
+        <div className="file-history-tools">
+          {!binary && (
+            <HoverTooltip content={blame ? 'Hide who last changed each line' : 'Show who last changed each line'}>
+              <button type="button" className="blame-toggle" aria-pressed={blame} onClick={() => store.getState().setBlame(!blame)}>Blame</button>
+            </HoverTooltip>
+          )}
+          <HoverTooltip content="Close (Esc)">
+            <button type="button" className="icon-button" aria-label="Close file history" onClick={close}><X size={14} /></button>
+          </HoverTooltip>
+        </div>
       </header>
       <div className="file-history-body">
         <HistoryList store={store} path={props.path} />
-        <div className="file-history-file">{row && <FileAtCommit row={row}>{blame && <BlameLayer repoId={props.repoId} worktree={props.worktree} row={row} onPick={onPick} />}</FileAtCommit>}</div>
+        <PanelResizer className="fh-resizer" label="Resize commit list" grows="right" width={listW} defaultWidth={LIST_W.default} min={LIST_W.min} max={LIST_W.max} onChange={changeListW} onLive={liveColumns} />
+        <div className="file-history-file">{row && <FileAtCommit row={row} onBinary={setBinary}>{blame && <BlameLayer repoId={props.repoId} worktree={props.worktree} row={row} onPick={onPick} />}</FileAtCommit>}</div>
       </div>
     </section>
   );
+}
+
+/** Copies the full hash without selecting the row (the click stops here). */
+function copySha(e: MouseEvent, sha: string) {
+  e.stopPropagation();
+  const toast = useToast.getState().show;
+  copyText(sha).then(() => toast('Copied'), () => toast('Copy failed'));
 }
 
 function HistoryList({ store, path }: { store: StoreApi<HistoryStore>; path: string }) {
@@ -103,7 +128,9 @@ function HistoryList({ store, path }: { store: StoreApi<HistoryStore>; path: str
           <li key={r.sha} id={`fh-${r.sha}`} data-sha={r.sha} role="option" aria-selected={r.sha === s.selected} className="file-history-row" onClick={() => store.getState().select(r.sha)}>
             <Avatar name={r.author} email={r.email} size={20} />
             <span className="fh-summary">{r.summary}</span>
-            <span className="fh-sha">{shortSha(r.sha)}</span>
+            <HoverTooltip content={`Copy ${r.sha}`}>
+              <button type="button" tabIndex={-1} className="fh-sha" aria-label={`Copy ${r.sha}`} onMouseDown={(e) => e.preventDefault()} onClick={(e) => copySha(e, r.sha)}>{shortSha(r.sha)}</button>
+            </HoverTooltip>
             <span className="fh-meta">{relativeTime(r.time)} · {r.author}</span>
           </li>
         ))}
@@ -131,19 +158,27 @@ function HistoryList({ store, path }: { store: StoreApi<HistoryStore>; path: str
 const rowTarget = (path: string, sha: string): DiffTarget => fileViewTarget(path, sha, { kind: 'commit', id: sha, parent: 0 });
 
 /** The file at `row`'s commit, at that commit's path (a rename's old name below it). `children`
- * is laid over a shown text file (3A T5's blame gutter). */
-export function FileAtCommit({ row, children }: { row: FileHistoryRow; children?: ReactNode }) {
+ * is laid over a shown text file (3A T5's blame gutter). A binary shows File View's hex panes
+ * instead (lane K's), with no `children`: blame has no lines there. `onBinary`: whether the shown
+ * file is one, once its contents are in (false again when none is shown). */
+export function FileAtCommit({ row, children, onBinary }: { row: FileHistoryRow; children?: ReactNode; onBinary?: (binary: boolean) => void }) {
   if (row.status === 'D') return <div className="diff-message"><p>{row.path} was deleted in this commit</p></div>;
-  return <FileText row={row}>{children}</FileText>;
+  return <FileText row={row} onBinary={onBinary}>{children}</FileText>;
 }
 
-function FileText({ row, children }: { row: FileHistoryRow; children?: ReactNode }) {
+function FileText({ row, children, onBinary }: { row: FileHistoryRow; children?: ReactNode; onBinary?: (binary: boolean) => void }) {
   const services = useRepoView((s) => s.services);
   const target = useMemo(() => rowTarget(row.path, row.sha), [row.path, row.sha]);
   const [forced, setForced] = useState<string | null>(null);
   const contents = useContents(services, target, forced === target.key);
   const text = contents.status === 'ready' ? contents.data.new?.text ?? null : null;
   const language = useMemo(() => (text === null ? 'plaintext' : highlightLanguage(row.path, text)), [row.path, text]);
+  // Reported once the contents are in, so stepping between two binaries keeps the toggle away.
+  const binary = contents.status === 'ready' && !contents.data.tooLarge ? text === null : null;
+  const report = useRef(onBinary);
+  report.current = onBinary;
+  useEffect(() => { if (binary !== null) report.current?.(binary); }, [binary]);
+  useEffect(() => () => report.current?.(false), []);
   if (contents.status === 'error') return <div className="diff-message"><div role="alert">Couldn't load {row.path}: {contents.message}</div></div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true" />;
   if (contents.data.tooLarge) {
@@ -154,7 +189,13 @@ function FileText({ row, children }: { row: FileHistoryRow; children?: ReactNode
       </div>
     );
   }
-  if (text === null) return <div className="diff-message"><p>Binary file: there's no text to show</p></div>;
+  if (text === null) {
+    // A binary (an image too): its hex at this commit. A non-image's dumps come with its contents
+    // (hexContents.ts); an image's load here.
+    const c = contents.data;
+    const hex = hexOf(c);
+    return hex ? <HexView path={row.path} hex={hex} file side={fileSideOf(c, hex)} /> : <HexBody target={target} contents={c} />;
+  }
   return (
     <>
       <FileView identity={`history|${target.key}`} path={row.path} text={text} language={language} />

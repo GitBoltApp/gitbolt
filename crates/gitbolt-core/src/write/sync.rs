@@ -208,7 +208,14 @@ pub enum PullResult {
     Rebased { commits: u32 },
     /// FfOnly only: the diverged dialog (§12.2). `conflicts`: a merge's predicted count.
     Diverged { ahead: u32, behind: u32, conflicts: u32 },
-    Stopped { kind: PausedKind, files: u32 },
+    Stopped {
+        kind: PausedKind,
+        files: u32,
+        /// UX F: a stop with no conflict: why git stopped (the signer, a hook).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        warning: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -434,7 +441,7 @@ impl WriteIntent for PullIntent {
                     _ => integrate::run_merge(cx, &self.upstream_ref, &self.upstream).await?,
                 };
                 match done {
-                    IntegrateOutcome::Stopped { kind, files, .. } => PullResult::Stopped { kind, files },
+                    IntegrateOutcome::Stopped { kind, files, warning } => PullResult::Stopped { kind, files, warning },
                     IntegrateOutcome::Done { commits, .. } if self.mode == PullMode::Rebase => PullResult::Rebased { commits },
                     IntegrateOutcome::Done { commits, .. } => PullResult::Merged { commits },
                     IntegrateOutcome::UpToDate { .. } | IntegrateOutcome::Aborted { .. } => PullResult::UpToDate { ahead },

@@ -3,9 +3,11 @@ import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../diffPrefs';
 import { useEditorSettings } from '../editorSettings';
 import { clampEditorFont, diffEditorOptions, EDITOR_SCROLLBAR, fileViewOptions } from '../options';
 import { enableDeletedLineCopy } from './deletedCopy';
+import { HexPanes, type HexView } from './hexPanes';
 import { FileMarginStrip, type FileMargin } from './fileMargin';
 import { deletedLineAt, LineGutter, type LineGutterSpec } from './lineGutter';
 import { captureAnchor, restoreAnchor, type ScrollAnchor } from './scrollAnchor';
+import { overflowLayer } from './overflow';
 import { monaco } from './setup';
 import { useAppState } from '../../app/state';
 import { bindEditorTheme, currentEditorTheme } from '../../theme/editorThemes';
@@ -14,6 +16,7 @@ import { ensureLanguage, ensureTheme } from './shiki';
 export interface DiffShowRequest { /** The target's key (repo/worktree and path): what `modifiedText` checks. */ identity?: string; path: string; original: string; modified: string; language: string; prefs: DiffPrefs; hunkZones?: HunkZoneRequest }
 export type { LineGutterSpec };
 export type { FileMargin };
+export type { HexShowRequest, HexView } from './hexPanes';
 /** A hunk's header row (spec #2 §7.3): after modified line `after` (0: above line 1). */
 export interface HunkZone { after: number }
 /** A WIP diff's hunk header rows, shown with the diff (Hunk mode only): `zones` is waited for with
@@ -73,8 +76,8 @@ export interface MonacoHost {
   /** File View's word wrap, applied in place: the model (and so the scroll position) is kept. */
   setFileWordWrap(on: boolean): void;
   /** File View's margin strip (spec #3 §3.10, the blame gutter): `width` px reserved left of the
-   * text, with a node laid over it; 0 removes it. `null` for 0, or before the file editor exists. */
-  setFileMargin(width: number): FileMargin | null;
+   * line numbers (at most `maxShare` of the editor), with a node laid over it; 0 removes it. `null` for 0, or before the file editor exists. */
+  setFileMargin(width: number, maxShare?: number): FileMargin | null;
   /** Puts the keyboard in the attached editor: the diff's modified side, else the file editor.
    * A no-op while neither is attached. */
   focus(): void;
@@ -110,6 +113,10 @@ export interface MonacoHost {
   /** Each selection in either editor (and again when it scrolls), as the lines it covers on that
    * side and where its last line is on screen; `null` when it's empty. `null` removes the listener. */
   onDiffSelection(cb: ((s: DiffSelection | null) => void) | null): void;
+  /** A binary's hex view (UX round 2, lane K) in `el`: editors of its own, hex | text per side,
+   * until `dispose` (which the view calls when `el` goes). While it's on screen, Next/Previous
+   * change, `focus` and `openFind` act on it, and the context menu is this host's. */
+  hexView(el: HTMLElement): HexView;
 }
 
 type Side = EditorContextMenuEvent['side'];
@@ -231,6 +238,8 @@ class Host implements MonacoHost {
   private gutter: LineGutter | null = null;
   private selSubs: { dispose(): void }[] = [];
   private fileEditSub: { dispose(): void } | null = null;
+  /** The hex view on screen, if any (`hexView`). */
+  private hex: HexPanes | null = null;
   private keptView: { diffPath: string; diff: MonacoNs.editor.IDiffEditorViewState | null; filePath: string; file: MonacoNs.editor.ICodeEditorViewState | null } | null = null;
 
   constructor() {
@@ -261,7 +270,7 @@ class Host implements MonacoHost {
     el.appendChild(this.diffEl);
     this.ro.observe(el);
     if (!this.diff) {
-      this.diff = monaco.editor.createDiffEditor(this.diffEl, { ...diffEditorOptions(this.prefs, this.menu === null, sticky(), fontSize()), theme: currentEditorTheme() });
+      this.diff = monaco.editor.createDiffEditor(this.diffEl, { ...diffEditorOptions(this.prefs, this.menu === null, sticky(), fontSize()), theme: currentEditorTheme(), overflowWidgetsDomNode: overflowLayer() });
       // A plain DOM signal that a diff (or a prefs recompute) is done, for e2e waits.
       this.diff.onDidUpdateDiff(() => {
         this.diffEl.dataset.diffComputed = String(++this.computedCount);
@@ -491,6 +500,7 @@ class Host implements MonacoHost {
   }
 
   goToChange(direction: 'next' | 'previous'): void {
+    if (this.hex?.isShown()) return this.hex.goToChange(direction);
     // The user's own move (F7, Next/Previous change): a kept place mustn't pull the view back.
     this.dropAnchor();
     this.diff?.goToDiff(direction);
@@ -504,7 +514,7 @@ class Host implements MonacoHost {
     el.appendChild(this.fileEl);
     this.ro.observe(el);
     if (!this.file) {
-      this.file = monaco.editor.create(this.fileEl, { ...fileViewOptions(this.fileWrap, this.menu === null, sticky(), fontSize()), theme: currentEditorTheme() });
+      this.file = monaco.editor.create(this.fileEl, { ...fileViewOptions(this.fileWrap, this.menu === null, sticky(), fontSize()), theme: currentEditorTheme(), overflowWidgetsDomNode: overflowLayer() });
       this.wireMenu(this.file, 'file');
     }
     this.layout();
@@ -633,17 +643,29 @@ class Host implements MonacoHost {
     this.file?.updateOptions({ wordWrap: on ? 'on' : 'off' });
   }
 
-  setFileMargin(width: number): FileMargin | null {
-    if (!this.file) return null;
-    return (this.margin ??= new FileMarginStrip(this.file)).set(width);
+  setFileMargin(width: number, maxShare?: number): FileMargin | null {
+    const ed = this.file;
+    if (!ed) return null;
+    return (this.margin ??= new FileMarginStrip(ed, () => ed.getOption(monaco.editor.EditorOption.fontInfo))).set(width, maxShare);
+  }
+
+  hexView(el: HTMLElement): HexView {
+    const view: HexPanes = new HexPanes(el, {
+      menu: () => this.menu,
+      onDispose: () => { if (this.hex === view) this.hex = null; },
+    });
+    this.hex = view;
+    return view;
   }
 
   focus(): void {
+    if (this.hex?.isShown()) return this.hex.focus();
     if (this.diff && this.diffEl.parentElement) this.diff.getModifiedEditor().focus();
     else if (this.file && this.fileEl.parentElement) this.file.focus();
   }
 
   openFind(): void {
+    if (this.hex?.isShown()) return this.hex.openFind();
     let ed: MonacoNs.editor.ICodeEditor | null = null;
     if (this.diff && this.diffEl.parentElement) {
       const original = this.diff.getOriginalEditor();
@@ -658,6 +680,7 @@ class Host implements MonacoHost {
     this.menu = handler;
     this.diff?.updateOptions({ contextmenu: handler === null });
     this.file?.updateOptions({ contextmenu: handler === null });
+    this.hex?.setContextMenu(handler === null);
   }
 
   layout(): void {

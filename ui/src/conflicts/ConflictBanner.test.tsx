@@ -50,10 +50,10 @@ describe('the operation watcher (ux round 1: no window-wide bar)', () => {
     await waitFor(() => expect(readWipDraft('/r', '/r')).toEqual({ summary: 'Mine', description: "Merge branch 'feature/x'" }));
   });
 
-  it('once per stop, selects the WIP row (its commit panel shows the operation) and opens its first conflicted file', async () => {
+  it('once per stop, selects the WIP row (its commit panel shows the operation) and opens no file', async () => {
     h.inProgress = merge(1, 'a');
     const first = await show('t');
-    await waitFor(() => expect(h.reveal).toHaveBeenCalledWith('t', '/r', expect.any(Promise)));
+    await waitFor(() => expect(h.reveal).toHaveBeenCalledWith('t', '/r', expect.any(Promise), false));
     first.unmount();
     h.reveal.mockClear();
     await show('t');

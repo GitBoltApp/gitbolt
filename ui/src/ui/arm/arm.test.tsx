@@ -72,6 +72,32 @@ describe('arm in place (spec §ui confirms)', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  // UX R1 C.2: under GNOME every press makes the window lose focus and get it back a few ms later
+  // (windowBlur.ts), and the browser gives it back to the element that had it: a focusin there,
+  // before the confirm press's click. That's focus returning, not moving: it stays armed. Focus
+  // moving to another element still disarms.
+  it('focus coming back to where it was (the window focus bounce) keeps it armed; moving elsewhere disarms', async () => {
+    const run = vi.fn();
+    render(<><Discard onRun={run} /><div tabIndex={-1} data-testid="list">files</div><input aria-label="other" /><ArmLayer /></>);
+    const list = screen.getByTestId('list');
+    act(() => list.focus());
+    press(screen.getByRole('button', { name: 'Discard all' }));
+    expect(overlay()).not.toBeNull();
+    clock.settle();
+    // The confirm press: the window's focus bounce lands on the list first.
+    fireEvent.focusOut(list);
+    fireEvent.focusIn(list);
+    expect(overlay()).not.toBeNull();
+    press(overlay()!);
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+
+    act(() => list.focus());
+    press(screen.getByRole('button', { name: 'Discard all' }));
+    expect(overlay()).not.toBeNull();
+    act(() => screen.getByRole('textbox', { name: 'other' }).focus());
+    expect(overlay()).toBeNull();
+  });
+
   it('Enter/Space on the focused control arms it, and again runs it', async () => {
     const run = vi.fn();
     render(<><Discard onRun={run} /><ArmLayer /></>);

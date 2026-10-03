@@ -10,13 +10,13 @@ vi.mock('../api/client', () => ({ api: { discard } }));
 vi.mock('../write/client', () => ({ runWrite: run }));
 
 import { discardAll, writeAndFollow } from './actions';
-import { useStaging } from './store';
+import { stagingKey, useStaging } from './store';
 
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useStaging.setState({ states: {}, committing: {} });
+  useStaging.setState({ states: {}, committing: {}, discarding: {} });
   // runWrite as the real one: sends, answers the outcome, or null when the send throws.
   run.mockImplementation(async (_c: unknown, send: () => Promise<{ outcome: unknown }>) => {
     try { return (await send()).outcome; } catch { return null; }
@@ -51,5 +51,23 @@ describe('discardAll', () => {
     confirm.mockResolvedValueOnce(false);
     expect(await discardAll(ctx)).toBe(false);
     expect(discard).not.toHaveBeenCalled();
+  });
+
+  // UX R1 C.2: a slow Discard all (a big repository) showed nothing while it ran, so the user
+  // clicked again; each click sent another one. Now it sends the files confirmed, and one at a
+  // time: another click meanwhile does nothing, and the button says it's running.
+  it('sends the files confirmed, and one at a time', async () => {
+    let finish!: () => void;
+    discard.mockImplementationOnce(() => new Promise((res) => { finish = () => res({ outcome: null, wip: { worktree: '/r' } }); }));
+    const first = discardAll(ctx, 2, ['a.txt', 'b.txt']);
+    await vi.waitFor(() => expect(discard).toHaveBeenCalledTimes(1));
+    expect(discard).toHaveBeenCalledWith(1, '/r', { kind: 'all', confirmed: ['a.txt', 'b.txt'] });
+    expect(useStaging.getState().discarding[stagingKey(1, '/r')]).toBe(true);
+    expect(await discardAll(ctx, 2, ['a.txt', 'b.txt'])).toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    finish();
+    expect(await first).toBe(true);
+    expect(discard).toHaveBeenCalledTimes(1);
+    expect(useStaging.getState().discarding[stagingKey(1, '/r')]).toBe(false);
   });
 });

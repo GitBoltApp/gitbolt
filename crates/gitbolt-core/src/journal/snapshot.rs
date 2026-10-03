@@ -344,7 +344,7 @@ fn reapply_modes(root: &Path, snap: &Snapshot, paths: &BTreeSet<String>) {
 // --- end 2B T4 ---
 
 /// W's tree, I's tree and U's tree (if any).
-fn trees(root: &Path, snap: &Snapshot) -> Result<(String, String, Option<String>), GbError> {
+pub(crate) fn trees(root: &Path, snap: &Snapshot) -> Result<(String, String, Option<String>), GbError> {
     let repo = gix::open(root).map_err(gix_err)?;
     let tree_of = |id: ObjectId| -> Result<String, GbError> {
         let tree = repo.find_commit(id).map_err(|_| missing())?.tree_id().map_err(|_| missing())?.detach();

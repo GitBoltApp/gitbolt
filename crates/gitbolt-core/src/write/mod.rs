@@ -243,6 +243,12 @@ pub(crate) trait WriteIntent: Send + Sync {
     fn staging(&self) -> Staging {
         Staging::Clear
     }
+    /// UX G.2: a done entry of the same label just below this one, whose `after` snapshot holds
+    /// exactly what this one's `before` does (nothing journaled or changed in between), takes
+    /// this write's `after` instead of the write getting an entry of its own (`Journal::coalesce`).
+    fn coalesces(&self) -> bool {
+        false
+    }
     fn plan(&self, _pre: &Pre<'_>) -> impl Future<Output = Result<Plan, GbError>> + Send {
         async { Ok(Plan::default()) }
     }
@@ -842,7 +848,7 @@ async fn completed(cx: &WriteCx<'_>, entry: &crate::journal::JournalEntry, op: &
     }
     let root = cx.root.to_path_buf();
     let (kind, target, target_oid, picked) = (op.kind, op.target.clone(), op.target_oid.clone(), op.picked.clone());
-    // 3C T5: commits made at an interactive rebase's Edit stop (Split's pieces).
+    // 3C T5: commits made at an interactive rebase's Edit stop (its pieces; UX L: Continue's commit there).
     let made = op.irebase.as_ref().map(|s| s.made.clone()).unwrap_or_default();
     blocking(move || {
         let repo = gix::open(&root).map_err(gix_err)?;
@@ -1214,6 +1220,22 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
     // A kept autostash isn't a reason to keep the entry: it has its own banner (`Journal::kept`).
     let unchanged_failure = result.is_err() && !unverified && moves.is_empty() && head_after == before.head && !cx.partial;
     let mut journal_changed = cx.journal_changed;
+    // UX G.2: a save on top of a save of the same file, with nothing changed in between, merges.
+    let coalesce_into = match (&store, entry, &cx.snapshot, &after_snapshot) {
+        (Some(s), Some(id), Some(before_snap), Some(_)) if intent.coalesces() && cx.paused.is_none() && !unverified => s.load().ok().and_then(|j| {
+            let prev = j.below(id)?;
+            let same = prev.label == intent.label()
+                && prev.kind == intent.kind()
+                && prev.undo == UndoKind::Restore
+                && prev.blocked.is_none()
+                && prev.head_after == head_after
+                && prev.after.as_ref().is_some_and(|a| {
+                    a.paths == before_snap.paths && a.untracked == before_snap.untracked && a.modes == before_snap.modes && snapshot::trees(root, a).ok().is_some_and(|t| snapshot::trees(root, before_snap).ok() == Some(t))
+                });
+            same.then_some(prev.id)
+        }),
+        _ => None,
+    };
     if let (Some(s), Some(id)) = (&store, entry) {
         let finalized = match &cx.paused {
             // 2D T2: the entry waits, with what completion compares against (`known`: preflight's
@@ -1243,6 +1265,9 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
                     if unverified {
                         e.blocked = Some(crate::journal::UNVERIFIED.to_string());
                     }
+                }
+                if let Some(into) = coalesce_into {
+                    return j.coalesce(id, into);
                 }
                 j.finalize(id)
             }),

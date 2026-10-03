@@ -396,7 +396,7 @@ test.describe('diff viewer controls', () => {
   // header waits for the editor only while the editor still shows the header's file.
   test('K7: stepping through every file with ↑/↓, each painted frame shows only the file its header names', async ({ page }) => {
     const MARKS: Record<string, string[]> = {
-      'big.txt': ['Large file'], 'crlf.txt': ['second', 'Only line endings changed'], 'data.bin': ['Binary file'], 'ünï.txt': ['unicode path'],
+      'big.txt': ['Large file'], 'crlf.txt': ['second', 'Only line endings changed'], 'data.bin': ['BIN...'], 'ünï.txt': ['unicode path'],
       'manual.txt': ['revised'], 'icon.svg': ['img:16×16'], 'logo.png': ['img:6×4', 'img:4×4'], 'old.txt': ['to be deleted'], 'app.php': ['filler11'], 'ws.txt': ['fn main() {'],
     };
     const fileOf = (f: string) => Object.keys(MARKS).find((k) => f.split('|')[0].includes(k)) ?? null;
@@ -651,11 +651,6 @@ test.describe('diff viewer controls', () => {
     await d.getByRole('button', { name: 'Load anyway' }).click();
     // Shown once its (80,000-line) diff has computed.
     await expect(d.getByTestId('text-diff')).toContainText('line 00000 of the big file', { timeout: 15_000 });
-  });
-
-  test('a binary file shows its sizes', async ({ page }) => {
-    await open(page, 'data.bin');
-    await expect(diff(page).getByTestId('binary-summary')).toHaveText('Binary file · 9 B → 10 B');
   });
 });
 

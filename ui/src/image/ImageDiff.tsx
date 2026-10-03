@@ -72,8 +72,10 @@ function CheckerIcon() {
 /**
  * The image diff (spec §10.4). `single`: an added or deleted image (Diff View), which shows only
  * the side it has, labelled, and no compare modes (H25). File View's one revision passes none.
+ * `source` is shown instead of the image while its toggle (`sourceLabel`) is on: an SVG's text,
+ * a raster image's hex dump.
  */
-export function ImageDiff({ old, new: neu, source, onSourceChange, single = null }: { old: ImageSource | null; new: ImageSource | null; source?: ReactNode; onSourceChange?: (on: boolean) => void; single?: 'added' | 'deleted' | null }) {
+export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSourceChange, single = null }: { old: ImageSource | null; new: ImageSource | null; source?: ReactNode; sourceLabel?: string; onSourceChange?: (on: boolean) => void; single?: 'added' | 'deleted' | null }) {
   const both = old !== null && neu !== null;
   const [mode, setModeState] = useState<ImageMode>('side');
   const background = useImageBackground((s) => s.background);
@@ -380,7 +382,7 @@ export function ImageDiff({ old, new: neu, source, onSourceChange, single = null
             ))}
           </div>
         )}
-        {source && <button type="button" className="toggle" aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>Source</button>}
+        {source && <button type="button" className="toggle" aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>{sourceLabel}</button>}
         <div className="image-zoom">
           {/* K12: Fit is its own button, not the slider's bottom stop — the slider's minimum is
               now a fixed ladder rung. */}

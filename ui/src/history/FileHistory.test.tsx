@@ -15,15 +15,27 @@ import { row } from './testRows';
 const fileHistory = vi.hoisted(() => vi.fn());
 vi.mock('../api/client', () => ({ api: { fileHistory, avatar: vi.fn(async () => null) }, errorMessage: (e: unknown) => String(e) }));
 vi.mock('./BlameGutter', () => ({ BlameLayer: ({ row, onPick }: { row: { sha: string }; onPick(sha: string, g: boolean): void }) => <button type="button" data-testid="blame-stub" onClick={(e) => onPick(e.ctrlKey ? 'zz9999' : 'c3', e.altKey)}>{row.sha}</button> }));
+const copyText = vi.hoisted(() => vi.fn(async (_t: string) => {}));
+vi.mock('../api/transport', () => ({ copyText }));
 const selectCommit = vi.hoisted(() => vi.fn(() => true));
 vi.mock('../app/graphNav', () => ({ selectCommit }));
 vi.mock('../diff/FileView', () => ({ FileView: ({ path, text }: { path: string; text: string }) => <pre data-testid="file-view" data-path={path}>{text}</pre> }));
+// The hex panes (lane K), as stubs that say what they were given.
+vi.mock('../diff/hex', async (orig) => ({
+  ...(await orig<typeof import('../diff/hex')>()),
+  HexView: ({ path, file, side }: { path: string; file: boolean; side?: { dump: string } | null }) => <pre data-testid="hex-view" data-path={path} data-mode={file ? 'file' : 'diff'}>{side?.dump}</pre>,
+  HexBody: ({ target }: { target: { path: string; view: string } }) => <pre data-testid="hex-body" data-path={target.path} data-mode={target.view} />,
+}));
 const { FileHistory } = await import('./FileHistory');
 
 const graph = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] } as unknown as GraphPayload;
 const text = (t: string): DiffContentsPayload => ({ old: null, new: { size: t.length, binary: false, encoding: 'UTF-8', eol: 'lf', text: t, base64: null, hash: null }, tooLarge: false, eolOnly: false, image: false } as unknown as DiffContentsPayload);
+const binarySide = { size: 4, binary: true, encoding: null, eol: null, text: null, base64: null, hash: null };
 const contents = new Loader(async (k: string) => {
   const { path, new: side } = JSON.parse(k) as { path: string; new: { commit: string } };
+  // A binary (its hex dumps load with it, hexContents.ts), and an image (they don't).
+  if (path.endsWith('.bin')) return { old: null, new: binarySide, tooLarge: false, eolOnly: false, image: false, hex: { old: null, new: { dump: `${path} hex at ${side.commit}`, size: 4, cap: null } } } as unknown as DiffContentsPayload;
+  if (path.endsWith('.png')) return { old: null, new: binarySide, tooLarge: false, eolOnly: false, image: true } as unknown as DiffContentsPayload;
   return text(`${path} at ${side.commit}`);
 }, new Lru(10));
 const args = { repoId: 1, worktree: '/r', path: 'src/story.txt', rev: null, blame: false };
@@ -150,5 +162,45 @@ describe('File History (spec #3 §4.2)', () => {
     selectCommit.mockReturnValueOnce(false);
     fireEvent.click(screen.getByTestId('blame-stub'), { altKey: true });
     expect(useToast.getState().message).toBe('Not in the loaded history');
+  });
+
+  it('a binary shows File View\'s hex panes at the commit, not a placeholder, and has no Blame (lane K)', async () => {
+    fileHistory.mockResolvedValue({ rows: [row('a1', 'M', 'data/blob.bin'), row('b2', 'M', 'data/pic.png'), row('c3', 'A')], more: false });
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ contents }));
+    // Opened as Blame (the diff toolbar's button): the binary still shows, with no blame over it.
+    render(<RepoViewContext value={store}><FileHistory tabId="t1" props={{ ...args, path: 'data/blob.bin', blame: true }} close={vi.fn()} /></RepoViewContext>);
+    const hex = await screen.findByTestId('hex-view');
+    expect(hex).toHaveAttribute('data-mode', 'file');
+    expect(hex).toHaveTextContent('data/blob.bin hex at a1');
+    expect(screen.queryByText(/no text to show/)).toBeNull();
+    expect(screen.queryByTestId('blame-stub')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Blame' })).toBeNull());
+    // An image's dumps load on their own (HexBody), in File View too.
+    fireEvent.click(screen.getAllByRole('option')[1]);
+    expect(await screen.findByTestId('hex-body')).toHaveAttribute('data-mode', 'file');
+    expect(screen.queryByRole('button', { name: 'Blame' })).toBeNull();
+    // A text file: the file, the toggle and the blame are back.
+    fireEvent.click(screen.getAllByRole('option')[2]);
+    expect(await screen.findByTestId('file-view')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Blame' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('blame-stub')).toBeInTheDocument();
+  });
+
+  it('clicking a short hash copies the full one without selecting the row; resizing persists the list width', async () => {
+    localStorage.clear();
+    fileHistory.mockResolvedValue({ rows: [row('c3aaaaaaaa'), row('c2bbbbbbbb')], more: false });
+    view();
+    const opts = await screen.findAllByRole('option');
+    const selected = opts.map((o) => o.getAttribute('aria-selected'));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy c2bbbbbbbb' }));
+    expect(opts.map((o) => o.getAttribute('aria-selected'))).toEqual(selected);
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith('c2bbbbbbbb'));
+    const sep = screen.getByRole('separator', { name: 'Resize commit list' });
+    fireEvent.keyDown(sep, { key: 'ArrowRight' });
+    expect(sep).toHaveAttribute('aria-valuenow', '376');
+    expect(localStorage.getItem('gitbolt.historyListWidth.v1')).toBe('376');
+    expect(screen.getByRole('region', { name: 'File history' }).style.getPropertyValue('--fh-list')).toBe('376px');
+    fireEvent.keyDown(sep, { key: 'End' });
+    expect(sep).toHaveAttribute('aria-valuenow', '640');
   });
 });

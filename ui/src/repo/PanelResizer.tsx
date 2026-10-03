@@ -11,11 +11,13 @@ import { onResetDoubleClick } from '../ui/resetHandle';
  * that tree) runs once, at the end of the gesture; a key press is a single discrete step, so it
  * goes straight through.
  */
-export function PanelResizer({ width, min, max, defaultWidth = width, onChange, panelRef }: { width: number; defaultWidth?: number; min: number; max: number; onChange: (w: number) => void; panelRef: RefObject<HTMLElement | null> }) {
+export function PanelResizer({ width, min, max, defaultWidth = width, onChange, panelRef, label = 'Resize details panel', grows = 'left', onLive, className = 'panel-resizer' }: { width: number; defaultWidth?: number; min: number; max: number; onChange: (w: number) => void; panelRef?: RefObject<HTMLElement | null>; label?: string; grows?: 'left' | 'right'; onLive?: (w: number) => void; className?: string }) {
   const drag = useRef<{ x: number; live: number; raf: number | null } | null>(null);
   const clamp = (w: number) => Math.max(min, Math.min(max, Math.round(w)));
+  const sign = grows === 'left' ? -1 : 1; // dragging left widens a right-hand panel, right widens a left-hand one
   const applyLive = (w: number) => {
-    const el = panelRef.current;
+    onLive?.(w);
+    const el = panelRef?.current;
     if (el) el.style.width = `${w}px`;
   };
   const end = () => {
@@ -29,12 +31,12 @@ export function PanelResizer({ width, min, max, defaultWidth = width, onChange, 
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize details panel"
+      aria-label={label}
       aria-valuenow={width}
       aria-valuemin={min}
       aria-valuemax={max}
       tabIndex={0}
-      className="panel-resizer"
+      className={className}
       {...onResetDoubleClick(() => { drag.current = null; onChange(clamp(defaultWidth)); })}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
@@ -46,7 +48,7 @@ export function PanelResizer({ width, min, max, defaultWidth = width, onChange, 
       onPointerMove={(e) => {
         const d = drag.current;
         if (!d) return;
-        d.live = clamp(width - (e.clientX - d.x));
+        d.live = clamp(width + sign * (e.clientX - d.x));
         if (d.raf === null) {
           d.raf = requestAnimationFrame(() => {
             if (drag.current) { drag.current.raf = null; applyLive(drag.current.live); }
@@ -57,8 +59,8 @@ export function PanelResizer({ width, min, max, defaultWidth = width, onChange, 
       onPointerCancel={end}
       onLostPointerCapture={end}
       onKeyDown={(e) => {
-        if (e.key === 'ArrowLeft') onChange(clamp(width + 16));
-        else if (e.key === 'ArrowRight') onChange(clamp(width - 16));
+        if (e.key === 'ArrowLeft') onChange(clamp(width - sign * 16));
+        else if (e.key === 'ArrowRight') onChange(clamp(width + sign * 16));
         else if (e.key === 'Home') onChange(min);
         else if (e.key === 'End') onChange(max);
         else if (e.key === 'Enter') onChange(clamp(defaultWidth));

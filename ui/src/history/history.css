@@ -1,9 +1,11 @@
 /* Spec #3 §4.2: File History in the graph's place. Tokens only (theme/themes.test.ts). */
-.file-history { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--app-bg0); }
-.file-history-header { display: flex; align-items: center; gap: 10px; padding: 4px 8px; background: var(--file-bar-bg); border-bottom: 1px solid var(--section-border); flex: none; }
-.file-history-title { flex: 1; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; color: var(--text-selected); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-history { --fh-list: 360px; --fh-columns: var(--fh-list) minmax(0, 1fr); display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--app-bg0); }
+/* UX B.1: the bar has the body's columns, so the Blame toggle sits over the editor, × at its end. */
+.file-history-header { display: grid; grid-template-columns: var(--fh-columns); align-items: center; padding: 4px 0; background: var(--file-bar-bg); border-bottom: 1px solid var(--section-border); flex: none; }
+.file-history-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 0 8px 0 4px; }
+.file-history-title { min-width: 0; margin: 0; padding: 0 8px; font-size: 13px; font-weight: 600; color: var(--text-selected); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-history-path { font-weight: 400; }
-.file-history-body { display: grid; grid-template-columns: minmax(260px, 34%) minmax(0, 1fr); flex: 1; min-height: 0; }
+.file-history-body { position: relative; display: grid; grid-template-columns: var(--fh-columns); flex: 1; min-height: 0; }
 .file-history-list { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; border-right: 1px solid var(--section-border); background: var(--panel-bg0); }
 .file-history-list [role="listbox"] { list-style: none; margin: 0; padding: 0; outline: none; }
 .file-history-list [role="listbox"]:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: -1px; }
@@ -12,7 +14,9 @@
 .file-history-row:hover { background: var(--hover-row); }
 .file-history-row[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
 .fh-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fh-sha { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.fh-resizer { position: absolute; top: 0; bottom: 0; left: calc(var(--fh-list) - 2px); width: 4px; z-index: 2; cursor: col-resize; touch-action: none; }
+.fh-resizer:hover, .fh-resizer:focus-visible { background: var(--blue); outline: none; }
+.fh-sha { appearance: none; background: none; border: 0; padding: 0; cursor: pointer; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
 .fh-meta { grid-column: 2 / 4; font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-history-more { margin: 8px; align-self: center; }
 .file-history-end { padding: 8px; display: grid; gap: 2px; text-align: center; font-size: 12px; color: var(--text-secondary); }
@@ -24,10 +28,15 @@
 .blame-toggle:focus-visible { outline: 1px solid var(--focus-outline); }
 .file-margin { overflow: hidden; }
 .blame-gutter { position: absolute; inset: 0; }
-.blame-group { all: unset; position: absolute; left: 0; right: 0; box-sizing: border-box; display: flex; align-items: flex-start; gap: 6px; padding-right: 6px; border-top: 1px solid var(--section-border); overflow: hidden; cursor: pointer; font-size: 11px; line-height: 18px; color: var(--text-secondary); background: var(--panel-bg0); }
+/* UX B.3: a group's first row is Monaco's line box (--blame-line, --blame-font: BlameGutter), its
+   text centred in it like the code's; the separator is a shadow, so it doesn't push the row down. */
+.blame-group { all: unset; position: absolute; left: 0; right: 0; box-sizing: border-box; display: flex; align-items: flex-start; gap: 6px; padding-right: 6px; box-shadow: inset 0 1px 0 var(--section-border); overflow: hidden; cursor: pointer; font-size: var(--blame-font); line-height: var(--blame-line); color: var(--text-secondary); background: var(--panel-bg0); }
 .blame-group:hover { background: var(--hover-row); color: var(--text-normal); }
 .blame-group:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: -1px; }
 .blame-bar { flex: none; align-self: stretch; width: 3px; }
+.blame-line { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: var(--blame-line); }
 .blame-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.blame-date { flex: none; }
+/* A fixed narrow column for the compact date ("9mo"); the tooltip has the long forms. */
+.blame-date { flex: none; width: 3.5em; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blame-tip-meta { color: var(--text-secondary); }
 .blame-note { position: absolute; left: 8px; bottom: 8px; z-index: 1; padding: 4px 8px; border-radius: 4px; background: var(--panel-bg1); color: var(--text-secondary); box-shadow: var(--shadow-tooltip); }

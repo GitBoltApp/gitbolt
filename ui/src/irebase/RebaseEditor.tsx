@@ -1,5 +1,6 @@
-import { ArrowDown, GripVertical, TriangleAlert } from 'lucide-react';
+import { ArrowDown, GripVertical, Redo2, TriangleAlert, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Avatar } from '../avatars/Avatar';
 import { CommitFields } from '../commit/CommitFields';
 import { draftMessage, splitMessage, type WipDraft } from '../commit/draft';
@@ -9,18 +10,24 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { registerKeys } from '../ui/keyRouter';
 import { Select } from '../ui/Select';
 import {
-  ACTION_KEYS, ACTION_LABEL, ACTION_TIP, ACTIONS, dirty, editMessage, grouping, moveRow, moveSelected, problems, reset, select,
+  ACTION_KEYS, ACTION_LABEL, ACTION_TIP, ACTIONS, dirty, editMessage, grouping, moveRows, moveSelected, problems, reset, select,
   setActions, targetMessage, type EditorRow, type EditorState, type Grouping, type RowAction,
 } from './model';
 import { usePrediction } from './predict';
 import { useRowDrag } from './rowDrag';
-import { ChipColumn, chipDrop } from './ChipColumn';
-import { editSession, editState, sessionOf, useRebaseSessions } from './session';
+import { ChipColumn } from './ChipColumn';
+import { useChipDrag, useChipDragCleanup } from './chipDrag';
+import { laneStyle, useChipColor } from './colors';
+import { inspectBase, useBaseInspected, useInspectSelection } from './inspect';
+import { editSession, editState, redoPlan, sessionOf, undoPlan, useRebaseSessions } from './session';
 import { cancelRebase, flattenWarning, reloadRebase, startRebase } from './start';
 import './editor.css';
 
 const short = (oid: string) => oid.slice(0, 7);
+const NO_STATE = { selected: [], base: { oid: '' } } as unknown as EditorState;
 const firstLine = (m: string) => m.split('\n')[0];
+/** Undo / Redo while a message editor is open: they'd drop its draft (UX R1.6 ruling). */
+const FINISH_MESSAGE = 'Finish editing the message first';
 /** A control as a key's origin: the confirm arms it in place (spec §ui confirms). */
 const keyOrigin = (el: HTMLElement | null): Origin | null => (el ? { el, rect: null, via: 'key', control: true, holds: 0 } : null);
 
@@ -36,6 +43,13 @@ function useEditorKeys(tabId: string, root: React.RefObject<HTMLElement | null>,
     if (t && t !== document.body && !root.current.contains(t)) return;
     const { state } = s;
     const one = state.selected.length === 1 ? state.selected[0] : null;
+    // Undo / Redo of the plan (UX R1.6); in the message editor, its own (the return above).
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redoPlan(tabId);
+      else undoPlan(tabId);
+      return 'handled';
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       void cancelRebase(tabId, keyOrigin(cancel.current));
@@ -80,13 +94,16 @@ function InlineMessage({ tabId, oid, text }: { tabId: string; oid: string; text:
   );
 }
 
-function Row({ tabId, row, index, state, g, conflict, editing, drag }: {
+function Row({ tabId, row, index, state, g, chips, conflict, editing, drag }: {
   tabId: string; row: EditorRow; index: number; state: EditorState; g: Grouping; conflict: string[] | undefined; editing: boolean; drag: ReturnType<typeof useRowDrag>;
+  /** The plan the chips show: during a row drag, the one it would make (R1.7). */
+  chips: { state: EditorState; g: Grouping };
 }) {
   const into = g.into.get(row.oid);
   const selected = state.selected.includes(row.oid);
   const text = targetMessage(state, row.oid, g);
-  const [over, setOver] = useState(false);
+  const over = useChipDrag((x) => x.drag?.over === row.oid);
+  const count = drag.count(index);
   const choose = (a: RowAction) => editState(tabId, (s) => setActions(s, s.selected.includes(row.oid) ? s.selected : [row.oid], a));
   return (
     <li
@@ -96,12 +113,13 @@ function Row({ tabId, row, index, state, g, conflict, editing, drag }: {
       aria-selected={selected}
       className={['irebase-row', `is-${row.action}`, into ? 'is-folded' : '', selected ? 'is-selected' : '', over ? 'chip-over' : ''].filter(Boolean).join(' ')}
       style={drag.style(index)}
-      {...chipDrop(tabId, row.oid, setOver)}
+      onPointerDown={(e) => drag.onPointerDown(e, index, state.selected)}
       onClick={(e) => editState(tabId, (s) => select(s, row.oid, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey }))}
       onDoubleClick={() => startEditing(tabId, row.oid)}
     >
-      <span className="irebase-handle" aria-hidden="true" onPointerDown={(e) => drag.onPointerDown(e, index)}><GripVertical size={14} /></span>
-      <ChipColumn tabId={tabId} row={row.oid} state={state} g={g} />
+      <span className="irebase-handle" aria-hidden="true"><GripVertical size={14} /></span>
+      {count !== null && <span className="irebase-drag-count" role="status">{count} commits</span>}
+      <ChipColumn tabId={tabId} row={row.oid} state={chips.state} g={chips.g} />
       <HoverTooltip content={ACTION_TIP[row.action]}>
         {/* On a selected row the dropdown sets every selected row: the click keeps the selection. */}
         <span className={`irebase-action is-${row.action}`} onClick={(e) => { if (selected) e.stopPropagation(); }} onDoubleClick={(e) => e.stopPropagation()}>
@@ -119,6 +137,14 @@ function Row({ tabId, row, index, state, g, conflict, editing, drag }: {
   );
 }
 
+/** The chip being dragged, under the pointer (it ignores the pointer: the row under it is the drop). */
+function ChipGhost({ tabId }: { tabId: string }) {
+  const drag = useChipDrag((x) => x.drag);
+  const color = useChipColor(tabId);
+  if (!drag) return null;
+  return createPortal(<span className="irebase-chip irebase-chip-ghost" style={{ ...laneStyle(color(drag.branch)), left: drag.x + 10, top: drag.y + 6 }} aria-hidden="true">{drag.branch}</span>, document.body);
+}
+
 /** The interactive rebase editor (spec #3 §4.1), in place of the graph (3A's center view). */
 export function RebaseEditor({ tabId }: CenterViewProps<object>) {
   const session = useRebaseSessions((x) => x.sessions[tabId]);
@@ -127,20 +153,35 @@ export function RebaseEditor({ tabId }: CenterViewProps<object>) {
   const cancelButton = useRef<HTMLButtonElement>(null);
   usePrediction(tabId);
   useEditorKeys(tabId, root, cancelButton);
-  const drag = useRowDrag(list, (from, to) => editState(tabId, (s) => moveRow(s, from, to)));
+  useInspectSelection(tabId);
+  const drag = useRowDrag(list, (oids, to) => editState(tabId, (s) => moveRows(s, oids, to)));
+  const color = useChipColor(tabId);
+  const chipDragging = useChipDrag((x) => x.drag !== null);
+  useChipDragCleanup();
   useEffect(() => { root.current?.focus(); }, []);
+  const baseShown = useBaseInspected(tabId, session?.state ?? NO_STATE);
   if (!session) return null;
   const { state, prediction, moved, editing } = session;
   const g = grouping(state.rows);
   const why = problems(state, g);
   const edited = dirty(state);
+  const chipView = drag.preview ? moveRows(state, drag.preview.oids, drag.preview.to) : state;
+  const chips = { state: chipView, g: chipView === state ? g : grouping(chipView.rows) };
   return (
     <section ref={root} tabIndex={-1} className="irebase" aria-label="Interactive Rebase" data-testid="irebase">
       <header className="irebase-header">
         <h2>Interactive Rebase</h2>
-        <span className="irebase-title">Rebasing <span className="irebase-chip">{state.branch}</span> onto <span className="irebase-chip">{state.base.name}</span></span>
+        <span className="irebase-title">Rebasing <span className="irebase-chip" style={laneStyle(color(state.branch))}>{state.branch}</span> onto <span className="irebase-chip is-base" style={laneStyle(color(state.base.name))}>{state.base.name}</span></span>
         {state.merges > 0 && <span role="note" className="irebase-warn"><TriangleAlert size={13} aria-hidden="true" /> {flattenWarning(state.merges)}</span>}
         {(prediction.status === 'off' || prediction.status === 'failed') && <span className="irebase-note">{prediction.note}</span>}
+        <span className="irebase-history">
+          <HoverTooltip content={editing ? FINISH_MESSAGE : 'Undo the last plan change (Ctrl+Z)'}>
+            <button type="button" className="icon-button" aria-label="Undo plan change" aria-disabled={!!editing || !session.past?.length} onClick={() => undoPlan(tabId)}><Undo2 size={15} aria-hidden="true" /></button>
+          </HoverTooltip>
+          <HoverTooltip content={editing ? FINISH_MESSAGE : 'Redo the plan change (Ctrl+Shift+Z)'}>
+            <button type="button" className="icon-button" aria-label="Redo plan change" aria-disabled={!!editing || !session.future?.length} onClick={() => redoPlan(tabId)}><Redo2 size={15} aria-hidden="true" /></button>
+          </HoverTooltip>
+        </span>
         <button type="button" className="commit-neutral irebase-cancel-top" onClick={() => void cancelRebase(tabId)}>Cancel</button>
       </header>
       {moved && (
@@ -148,13 +189,14 @@ export function RebaseEditor({ tabId }: CenterViewProps<object>) {
           The plan is out of date: {moved}. <button type="button" className="commit-neutral" onClick={() => void reloadRebase(tabId)}>Reload</button>
         </div>
       )}
-      <ol ref={list} className={`irebase-rows${drag.dragging ? ' dragging' : ''}${prediction.status === 'pending' ? ' predicting' : ''}`} role="listbox" aria-multiselectable="true" aria-label="Commits, newest first">
+      <ol ref={list} className={`irebase-rows${drag.dragging ? ' dragging' : ''}${chipDragging ? ' chip-dragging' : ''}${prediction.status === 'pending' ? ' predicting' : ''}`} role="listbox" aria-multiselectable="true" aria-label="Commits, newest first">
         {state.rows.map((r, i) => (
-          <Row key={r.oid} tabId={tabId} row={r} index={i} state={state} g={g} conflict={prediction.byRow[r.oid]} editing={editing === r.oid} drag={drag} />
+          <Row key={r.oid} tabId={tabId} row={r} index={i} state={state} g={g} chips={chips} conflict={prediction.byRow[r.oid]} editing={editing === r.oid} drag={drag} />
         ))}
-        <li className="irebase-row irebase-base" aria-disabled="true">
+        {/* Not a row of the plan: a click shows the base in the details panel (UX R2.2). */}
+        <li className={`irebase-row irebase-base${baseShown ? ' is-selected' : ''}`} role="option" aria-selected={baseShown} onClick={() => inspectBase(tabId)}>
           <span className="irebase-handle" />
-          <ChipColumn tabId={tabId} row={state.base.oid} state={state} g={g} />
+          <ChipColumn tabId={tabId} row={state.base.oid} state={chips.state} g={chips.g} />
           <span className="irebase-action is-base">{short(state.base.oid)}</span>
           <span className="irebase-fold" />
           <span className="irebase-summary">{state.base.summary}</span>
@@ -168,6 +210,7 @@ export function RebaseEditor({ tabId }: CenterViewProps<object>) {
           <button type="button" className="commit-positive" aria-disabled={why.length > 0} onClick={() => void startRebase(tabId)}>Start Rebase</button>
         </HoverTooltip>
       </footer>
+      <ChipGhost tabId={tabId} />
     </section>
   );
 }

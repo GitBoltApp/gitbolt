@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { WriteCtx } from '../write/client';
-import type { EditorState, Preset } from './model';
+import { samePlan, type EditorChip, type EditorRow, type EditorState, type Preset } from './model';
 
 /** Conflict prediction as the editor shows it (spec #3 §3.2). */
 export interface PredictionView {
@@ -30,7 +30,18 @@ export interface RebaseSession {
   /** Start's write is running (the view closed): an entry point must not bring the editor back
    * over it. */
   running?: boolean;
+  /** Each branch's lane colour index in the graph when the editor opened (a chip takes its
+   * branch's graph colour); a branch not there has the default chip colour. */
+  colors?: Record<string, number>;
+  /** The plan before each change, newest last (Undo), and the undone ones (Redo). */
+  past?: PlanSnapshot[];
+  future?: PlanSnapshot[];
 }
+
+/** A plan as Undo/Redo restore it: the rows (order, actions, messages) and the chips. */
+export interface PlanSnapshot { rows: EditorRow[]; chips: EditorChip[] }
+/** How many plan changes Undo goes back. */
+export const UNDO_LIMIT = 200;
 
 export const useRebaseSessions = create<{ sessions: Record<string, RebaseSession | undefined> }>(() => ({ sessions: {} }));
 
@@ -45,7 +56,30 @@ export function editSession(tabId: string, f: (s: RebaseSession) => RebaseSessio
   if (s) setSession(tabId, f(s));
 }
 
-export const editState = (tabId: string, f: (s: EditorState) => EditorState): void => editSession(tabId, (s) => ({ ...s, state: f(s.state) }));
+const snap = (s: EditorState): PlanSnapshot => ({ rows: s.rows, chips: s.chips });
+
+/** Edits the plan. A change to it (not the selection alone) is one Undo step, and clears Redo. */
+export const editState = (tabId: string, f: (s: EditorState) => EditorState): void => editSession(tabId, (s) => {
+  const state = f(s.state);
+  if (samePlan(state, s.state)) return { ...s, state };
+  return { ...s, state, past: [...(s.past ?? []), snap(s.state)].slice(-UNDO_LIMIT), future: [] };
+});
+
+/** Undo (`back`) or Redo of the last plan change; the selection stays. False: nothing to do, or
+ * a message editor is open (its draft is never dropped: finish it first). */
+function step(tabId: string, back: boolean): boolean {
+  const s = sessionOf(tabId);
+  const from = back ? s?.past : s?.future;
+  if (!s || !from?.length || s.editing !== null) return false;
+  const to = from[from.length - 1];
+  const rest = from.slice(0, -1);
+  const other = [...((back ? s.future : s.past) ?? []), snap(s.state)];
+  const state = { ...s.state, rows: to.rows, chips: to.chips };
+  setSession(tabId, { ...s, state, past: back ? rest : other, future: back ? other : rest });
+  return true;
+}
+export const undoPlan = (tabId: string): boolean => step(tabId, true);
+export const redoPlan = (tabId: string): boolean => step(tabId, false);
 
 /** Drops the sessions of tabs no longer open (`live`: the open tabs' ids): a closed tab keeps none. */
 export function pruneSessions(live: (tabId: string) => boolean): void {

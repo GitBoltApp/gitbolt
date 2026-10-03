@@ -67,6 +67,16 @@ export interface Picks {
 /** Row-click modifiers: `ctrl` toggles the row in or out, `shift` selects a range (K27). */
 export interface SelectMods { ctrl?: boolean; shift?: boolean }
 
+/** A selection by row id, with the merge parent shown and the open file (`snapshotSelection`):
+ * what a center view that drives the details panel puts back when it closes (the rebase editor). */
+export interface SelectionSnapshot {
+  rows: readonly string[];
+  anchor: string | null;
+  cursor: string | null;
+  parent: number;
+  diff: DiffTarget | null;
+}
+
 export interface RepoViewState {
   repo: number;
   repoPath: string;
@@ -132,6 +142,11 @@ export interface RepoViewState {
    */
   selectRow(index: number, mods?: SelectMods): void;
   selectCommitById(id: string): boolean;
+  /** The selection as it is now, by row id (UX R2.2). */
+  snapshotSelection(): SelectionSnapshot;
+  /** Selects `snap`'s rows again, those still in the graph; none left, nothing is selected. With
+   * every row back, its merge parent and open file come back too. */
+  restoreSelection(snap: SelectionSnapshot): void;
   /** Compares commit `from` (FROM) with `to` (TO), with the anchor and the keyboard on `from`
    * ("Compare with HEAD"). False when either isn't in the loaded graph. */
   compareCommits(from: string, to: string): boolean;
@@ -180,7 +195,13 @@ export function fileViewTarget(path: string, commit: string, spec: DiffSpec): Di
   return { key: `${filesKey(spec)}|all|${path}`, path, oldPath: null, status: '', old: { kind: 'absent' }, new: { kind: 'atCommit', commit }, view: 'file' };
 }
 
-export const contentsRequest = (t: DiffTarget, force = false): ContentsRequest => ({ path: t.path, old: t.old, new: t.new, force });
+/** UX G.2: a tracked, unchanged file from the WIP row's "View all files": File View of the
+ * working-tree file itself, so it's editable (`isEditableTarget`). */
+export function worktreeViewTarget(path: string, worktree: string, spec: DiffSpec): DiffTarget {
+  return { key: `${filesKey(spec)}|all|${path}`, path, oldPath: null, status: '', old: { kind: 'absent' }, new: { kind: 'worktree', worktree }, view: 'file' };
+}
+
+export const contentsRequest =(t: DiffTarget, force = false): ContentsRequest => ({ path: t.path, old: t.old, new: t.new, force });
 
 export function selectedIndex(s: RepoViewState): number {
   switch (s.selection.kind) {
@@ -525,6 +546,29 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         if (i === undefined) return false;
         get().selectRow(i);
         return true;
+      },
+
+      snapshotSelection() {
+        const s = get();
+        const id = (i: number | null) => (i === null ? null : s.graph.rows[i]?.id ?? null);
+        const cursor = s.selection.kind === 'commit' || s.selection.kind === 'wip' ? s.selection.index : s.picks.cursor;
+        return { rows: pickedRows(s).map((i) => s.graph.rows[i].id), anchor: id(anchorOf(s)), cursor: id(cursor), parent: s.parent, diff: s.diff };
+      },
+
+      restoreSelection(snap) {
+        const { indexById } = get();
+        const at = (id: string | null) => (id === null ? undefined : indexById.get(id));
+        const rows = snap.rows.map((id) => indexById.get(id)).filter((i) => i !== undefined);
+        // Rows rewritten later (a rebase's refresh after its editor closed) go then: `setGraph`
+        // re-resolves the selection by id.
+        if (rows.length === 0) return clearSelection();
+        const last = rows[rows.length - 1];
+        pick(rows, at(snap.anchor) ?? last, at(snap.cursor) ?? last);
+        // Whatever file is open now (one opened from the details panel meanwhile) closes; the
+        // snapshot's own comes back only with every row.
+        const complete = rows.length === snap.rows.length;
+        if (complete && snap.parent > 0) get().setParent(snap.parent);
+        set({ diff: complete ? snap.diff : null });
       },
 
       compareCommits(from, to) {

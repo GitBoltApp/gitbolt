@@ -41,7 +41,9 @@ async function done(ctx: WriteCtx, o: PullOutcome, origin: Origin | null): Promi
     case 'rebased':
       return say(`Pulled ${commits(r.commits)} into ${o.branch} (rebase)`);
     case 'stopped':
-      return; // the banner (§13.2)
+      // The banner (§13.2); UX F: a stop without a conflict says why (the signer).
+      if (r.warning) useToast.getState().show(r.warning, { tone: 'warning' });
+      return;
     case 'diverged': {
       // Integrate works on the checked-out branch: for another branch there is nothing to ask.
       if (headBranchOf(ctx.tabId) !== o.branch) {

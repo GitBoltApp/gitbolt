@@ -37,6 +37,13 @@ describe('Monaco options', () => {
   });
 });
 
+describe('overflow widgets (G.1)', () => {
+  it('every editor places its hovers and messages in viewport coordinates (the overflow layer)', () => {
+    expect(diffEditorOptions({ mode: 'split', ignoreWhitespace: false, wordWrap: false }, true).fixedOverflowWidgets).toBe(true);
+    expect(fileViewOptions(false, true).fixedOverflowWidgets).toBe(true);
+  });
+});
+
 describe('editor font size', () => {
   it('clamps to 8-32 whole px, 13 for a non-number, and reaches both editors', () => {
     expect([clampEditorFont(4), clampEditorFont(13.4), clampEditorFont(99), clampEditorFont(Number.NaN)]).toEqual([8, 13, 32, 13]);

@@ -29,19 +29,25 @@ import './files.css';
 export const useFileRowH = () => useDensity((s) => DENSITY_METRICS[s.density].fileRowH);
 
 /** "View all files": every path in `commit`'s tree (null until loaded), or the load's error. */
-function useTreePaths(commit: string | null) {
+/** `useTreePaths`' prefix for a worktree's tracked files. */
+const WORKTREE_SOURCE = 'wt:';
+
+/** `commit`: a commit's tree, or (UX G.2) `wt:<path>`, a worktree's tracked files, read again
+ * whenever `refresh` changes (the WIP list moved) while the previous ones stay shown. */
+function useTreePaths(commit: string | null, refresh?: unknown) {
   const services = useRepoView((s) => s.services);
   const [state, setState] = useState<{ commit: string; paths: string[] | null; error: string | null } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!commit) return;
     let live = true;
-    services.treeFiles.get(commit).then(
+    const load = commit.startsWith(WORKTREE_SOURCE) ? services.worktreeFiles.get(commit.slice(WORKTREE_SOURCE.length)) : services.treeFiles.get(commit);
+    load.then(
       (paths) => { if (live) setState({ commit, paths, error: null }); },
       (e: unknown) => { if (live) setState({ commit, paths: null, error: errorMessage(e) }); },
     );
     return () => { live = false; };
-  }, [commit, services, attempt]);
+  }, [commit, services, attempt, refresh]);
   const mine = commit && state?.commit === commit ? state : null;
   return {
     paths: mine?.paths ?? null,
@@ -198,14 +204,18 @@ interface Cursor { id: string; diffKey: string | null }
  * first or last file (opening it), when up/down crosses over from the other list. */
 export interface FileListHandle { hasFiles(): boolean; enter(edge: 'first' | 'last'): void }
 
-export function FileList({ list, spec, label, allFilesCommit = null, sharedMode = false, onLeave, renderActions, toolEnd, ref }: { renderActions?: (row: FileRow) => ReactNode; /** `sharedMode`: shown at the right end of the tool line (WIP: the section's +/− totals). */ toolEnd?: ReactNode; list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
+export function FileList({ list, spec, label, allFilesCommit: commitOf = null, allFilesWorktree = null, sharedMode = false, onLeave, renderActions, toolEnd, ref }: { renderActions?: (row: FileRow) => ReactNode; /** `sharedMode`: shown at the right end of the tool line (WIP: the section's +/− totals). */ toolEnd?: ReactNode; list: FileListPayload; spec: DiffSpec; label: string; allFilesCommit?: string | null; /** UX G.2: the WIP row's View all files, of this worktree's tracked files. */ allFilesWorktree?: string | null; sharedMode?: boolean; onLeave?: (dir: 1 | -1) => boolean; ref?: Ref<FileListHandle> }) {
   const store = useRepoViewStore();
   const openFile = useRepoView((s) => s.openFile);
   const closeDiffTo = useRepoView((s) => s.closeDiffTo);
   const closeDiff = useRepoView((s) => s.closeDiff);
   const openKey = useRepoView((s) => s.diff?.key ?? null);
   const openPath = useRepoView((s) => s.diff?.path ?? null);
-  const { mode, sort, allFiles: allFilesWanted, set: setPrefs } = useFileListPrefs();
+  const { mode, sort, allFiles: commitAllFiles, wipAllFiles, set: setPrefs } = useFileListPrefs();
+  // UX G.2: the WIP row's View all files lists the worktree's tracked files, on its own toggle.
+  const allFilesWanted = allFilesWorktree ? wipAllFiles : commitAllFiles;
+  const allFilesCommit = commitOf ?? (allFilesWorktree ? `${WORKTREE_SOURCE}${allFilesWorktree}` : null);
+  const toggleAllFiles = () => setPrefs(allFilesWorktree ? { wipAllFiles: !wipAllFiles } : { allFiles: !commitAllFiles });
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [cursor, setCursor] = useState<Cursor | null>(null);
   // "View all files"' filter (feedback K18-K20): transient, never persisted, and only shown (or
@@ -216,7 +226,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
   const services = useRepoView((s) => s.services);
   const graph = useRepoView((s) => s.graph);
   useEffect(() => warmFileMenu(services, graph), [services, graph]);
-  const tree = useTreePaths(allFilesWanted ? allFilesCommit : null);
+  const tree = useTreePaths(allFilesWanted ? allFilesCommit : null, allFilesWorktree ? list : undefined);
   const paths = tree.paths;
   // The layout switches only once the full tree is here (K54): until then the previous list stays
   // as it was, under a thin progress line, so there's never a half-switched list. A failed load
@@ -225,7 +235,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
   const allFiles = allFilesWanted && !allFilesLoading;
   const slow = useLateFlag(allFilesLoading, BUSY_DELAY_MS, allFilesCommit ?? '');
   const filterQuery = allFiles ? filterText.trim().toLowerCase() : '';
-  const unchanged = useMemo(() => (allFiles && allFilesCommit && paths ? { commit: allFilesCommit, paths } : null), [allFiles, allFilesCommit, paths]);
+  const unchanged = useMemo(() => (allFiles && allFilesCommit && paths ? { commit: allFilesCommit, paths, worktree: allFilesWorktree ?? undefined } : null), [allFiles, allFilesCommit, paths, allFilesWorktree]);
   // The filter narrows both the changed and the unchanged files it's built from; a folder with no
   // surviving descendant just isn't in the tree `buildRows` builds from what's left.
   const filteredFiles = useMemo(() => (filterQuery ? list.files.filter((f) => matchesFilter(f.path, filterQuery)) : list.files), [list.files, filterQuery]);
@@ -542,7 +552,7 @@ export function FileList({ list, spec, label, allFilesCommit = null, sharedMode 
           {!sharedMode && <PathTreeToggle />}
         </div>
         <div className="file-toolbar-end">
-          {allFilesCommit && <button type="button" className="toolbar-button" aria-pressed={allFilesWanted} onClick={() => setPrefs({ allFiles: !allFilesWanted })}>View all files</button>}
+          {allFilesCommit && <button type="button" className="toolbar-button" aria-pressed={allFilesWanted} onClick={toggleAllFiles}>View all files</button>}
         </div>
         {slow && <div className="diff-progress" role="progressbar" aria-label="Loading all files" />}
       </div>

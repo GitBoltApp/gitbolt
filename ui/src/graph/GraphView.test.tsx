@@ -1,3 +1,4 @@
+import { Activity } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GraphView } from './GraphView';
@@ -122,6 +123,21 @@ describe('GraphView', () => {
     expect(rows()[1]).not.toHaveClass('is-context');
     expect(rows()[0]).toHaveClass('is-context');
     act(() => useMenu.getState().close());
+    expect(document.querySelector('.is-context')).toBeNull();
+  });
+
+  // UX R1 C.3: a pick that stops opens the merge tool over the graph (<Activity> hides it, its
+  // effects go) while the menu closes: shown again, the row's outline is gone.
+  it('the outline goes with its menu while <Activity> hides the graph', () => {
+    useMenu.getState().close();
+    const onContextMenu = vi.fn((e: MenuEventLike) => openContextMenu(e, (): MenuRow[] => [{ kind: 'separator' }]));
+    const view = (mode: 'visible' | 'hidden') => <Activity mode={mode}><GraphView graph={graph} repoId="/r" selected={0} onContextMenu={onContextMenu} /></Activity>;
+    const { rerender } = render(view('visible'));
+    fireEvent.contextMenu(screen.getAllByRole('row')[1]);
+    expect(screen.getAllByRole('row')[1]).toHaveClass('is-context');
+    rerender(view('hidden'));
+    act(() => useMenu.getState().close());
+    rerender(view('visible'));
     expect(document.querySelector('.is-context')).toBeNull();
   });
 

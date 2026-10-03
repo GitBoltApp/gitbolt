@@ -7,7 +7,7 @@ import { DEFAULT_THEME_ID, THEMES, type ThemeDef } from '../../theme/themes';
  *
  * They derive from the app theme's tokens, which Monaco can't read from CSS: the background,
  * gutter and minimap are `app-bg0`, the selection is `selection-bg`, the scrollbar thumbs are the
- * scroll-thumb tokens, and the diff colours are the theme's `green` and `red` at fixed alphas.
+ * scroll-thumb tokens, and the diff colours are the theme's diff tokens.
  */
 
 /** `#rrggbb` or `rgba(r, g, b, a)` → `#rrggbb` or `#rrggbbaa` (what Monaco's theme colours take). */
@@ -42,16 +42,15 @@ export function editorColors(def: ThemeDef): Record<string, string> {
     'scrollbarSlider.hoverBackground': toHex(c['scroll-thumb-hover-bg']),
     'scrollbarSlider.activeBackground': toHex(c['scroll-thumb-hover-bg']),
     'scrollbar.shadow': '#00000000',
-    // Diff colours (F30): these override Monaco's too. Changed text
-    // gets its red at 20%, whole lines 15%; green is toned down further (H8, 17.png): a whole added
-    // block carries both Monaco's line-insert and its whole-line char-insert, so 10% and 12%
-    // composite to ~21%, the intended added block.
-    'diffEditor.insertedTextBackground': at(c.green, '1f'),
-    'diffEditor.removedTextBackground': at(c.red, '33'),
-    'diffEditor.insertedLineBackground': at(c.green, '1a'),
-    'diffEditor.removedLineBackground': at(c.red, '26'),
-    'diffEditorGutter.insertedLineBackground': at(c.green, '1a'),
-    'diffEditorGutter.removedLineBackground': at(c.red, '26'),
+    // Diff colours (F30, H8): the theme's diff tokens (themes.ts diffColors), which the hex view
+    // (hex.css) uses too.
+    'diffEditor.insertedTextBackground': toHex(c['diff-inserted-text']),
+    'diffEditor.removedTextBackground': toHex(c['diff-removed-text']),
+    'diffEditor.insertedLineBackground': toHex(c['diff-inserted-line']),
+    'diffEditor.removedLineBackground': toHex(c['diff-removed-line']),
+    'diffEditor.diagonalFill': toHex(c['diff-diagonal-fill']),
+    'diffEditorGutter.insertedLineBackground': toHex(c['diff-inserted-line']),
+    'diffEditorGutter.removedLineBackground': toHex(c['diff-removed-line']),
     'diffEditorOverview.insertedForeground': at(c.green, '99'),
     'diffEditorOverview.removedForeground': at(c.red, '99'),
   };

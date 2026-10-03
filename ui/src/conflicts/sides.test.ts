@@ -4,7 +4,7 @@ import { CONFLICT_LABEL, conflictSentence, conflictSides } from './sides';
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40), C = 'c'.repeat(40);
 const merge: InProgress = { kind: 'merge', mergeHead: A, message: "Merge branch 'feature/x'\n", conflicted: 1 };
-const rebase: InProgress = { kind: 'rebase', onto: B, headName: 'refs/heads/feature/x', step: 1, total: 2, stoppedAt: C, editStop: null, editConflict: false, messageFailed: null, gitbolt: false, conflicted: 1, message: '' };
+const rebase: InProgress = { kind: 'rebase', onto: B, headName: 'refs/heads/feature/x', step: 1, total: 2, stoppedAt: C, editStop: null, editBase: null, editAdded: [], editChanged: false, editConflict: false, messageFailed: null, gitbolt: false, conflicted: 1, message: '' };
 const pick: InProgress = { kind: 'cherryPick', head: C, message: '', conflicted: 1 };
 const revert: InProgress = { kind: 'revert', head: C, message: '', conflicted: 1 };
 const nameAt = (sha: string) => (sha === B ? 'main' : null);

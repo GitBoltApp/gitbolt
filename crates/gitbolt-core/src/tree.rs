@@ -18,6 +18,23 @@ pub fn tree_files(repo: &gix::Repository, commit: ObjectId) -> Result<Vec<String
     Ok(paths)
 }
 
+/// UX G.2: the worktree's tracked files ("View all files" on the WIP row): its index's paths,
+/// sorted bytewise, each once (a conflicted path's stages are one), submodules left out (there's
+/// no file to show). Untracked files are the WIP sections' own.
+pub fn worktree_files(root: &std::path::Path) -> Result<Vec<String>, GbError> {
+    let repo = gix::open(root).map_err(gix_err)?;
+    let index = repo.index_or_empty().map_err(gix_err)?;
+    let mut paths: Vec<String> = index
+        .entries()
+        .iter()
+        .filter(|e| e.mode != gix::index::entry::Mode::COMMIT)
+        .map(|e| e.path(&index).to_str_lossy().into_owned())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -36,6 +53,19 @@ mod tests {
         );
         let head = ObjectId::from_hex(r.git(&["rev-parse", "HEAD"]).as_bytes()).unwrap();
         assert!(tree_files(&repo, head).unwrap().contains(&"feature.txt".to_string()));
+    }
+
+    #[test]
+    fn worktree_files_are_the_index_paths_without_untracked_files() {
+        let r = TestRepo::new();
+        r.write("b/x.txt", "x\n");
+        r.write("a.txt", "a\n");
+        r.git(&["add", "."]);
+        r.git(&["commit", "-q", "-m", "one"]);
+        r.write("staged.txt", "s\n");
+        r.git(&["add", "staged.txt"]);
+        r.write("untracked.txt", "u\n");
+        assert_eq!(worktree_files(r.path()).unwrap(), vec!["a.txt", "b/x.txt", "staged.txt"]);
     }
 
     #[test]

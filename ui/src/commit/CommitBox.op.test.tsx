@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InProgress } from '../api/gen/InProgress';
 
@@ -6,7 +6,7 @@ import type { InProgress } from '../api/gen/InProgress';
 const h = vi.hoisted(() => ({
   inProgress: null as unknown,
   identity: { name: 'Ada Lovelace', email: 'ada@example.com' } as unknown,
-  unstaged: [] as { status: string }[],
+  unstaged: [] as { status: string; path?: string }[],
   headParents: ['o'],
   head: 'p',
   staged: [] as { status: string }[],
@@ -14,12 +14,12 @@ const h = vi.hoisted(() => ({
   pickControl: vi.fn(async () => ({})),
   mergeAbort: vi.fn(async () => ({})),
   commit: vi.fn(async () => ({})),
-  splitCommit: vi.fn(async () => ({})),
+  cancelOp: vi.fn(async () => null),
   // Abort arms in place first (spec §ui confirms, board D): answered yes here.
   confirm: vi.fn(async (_r: { arm: string }) => true),
 }));
 vi.mock('../api/client', () => ({
-  api: { rebaseControl: h.rebaseControl, pickControl: h.pickControl, mergeAbort: h.mergeAbort, commit: h.commit, splitCommit: h.splitCommit, commitIdentity: async () => h.identity },
+  api: { rebaseControl: h.rebaseControl, pickControl: h.pickControl, mergeAbort: h.mergeAbort, commit: h.commit, cancelOp: h.cancelOp, commitIdentity: async () => h.identity },
 }));
 vi.mock('../write/client', () => ({
   runWrite: async (_c: unknown, send: () => Promise<unknown>, opts: { onSuccess?: (o: unknown) => Promise<void> } = {}) => {
@@ -43,7 +43,7 @@ vi.mock('../repo/store', () => ({
     }),
 }));
 
-const rebase = (conflicted: number, message = 'Fix x\n\nWhy.\n\n# Conflicts:\n#\tc.txt\n'): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/feature/x', step: 1, total: 1, stoppedAt: 'a'.repeat(40), editStop: null, editConflict: false, messageFailed: null, gitbolt: true, conflicted, message });
+const rebase = (conflicted: number, message = 'Fix x\n\nWhy.\n\n# Conflicts:\n#\tc.txt\n'): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/feature/x', step: 1, total: 1, stoppedAt: 'a'.repeat(40), editStop: null, editBase: null, editAdded: [], editChanged: false, editConflict: false, messageFailed: null, gitbolt: true, conflicted, message });
 
 async function show() {
   const { CommitBox } = await import('./CommitBox');
@@ -121,6 +121,42 @@ describe('the commit box in an operation', () => {
     await waitFor(() => expect(h.pickControl).toHaveBeenCalledTimes(2));
   });
 
+  it('a Continue still running after 30 s says so, and Cancel stops that write (UX F: a signer waiting on nobody)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let release = () => {};
+    try {
+      h.inProgress = rebase(0);
+      h.rebaseControl.mockImplementationOnce(() => new Promise((r) => { release = () => r({}); }));
+      const { useOps } = await import('../app/ops');
+      const op = (id: number, kind: 'rebase' | 'stage', label: string) => ({ op: id, kind, repo: 1, label, phase: null, percent: null, interactive: true, shown: false, startedAt: Date.now() });
+      // Fix round 1: another write already running (the stage of a file) is never the box's.
+      useOps.setState({ ops: { 3: op(3, 'stage', 'stage a.txt') } });
+      await show();
+      await waitFor(() => expect(screen.getByRole('textbox', { name: 'Commit summary' })).toHaveValue('Fix x'));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue rebase' }));
+      await waitFor(() => expect(h.rebaseControl).toHaveBeenCalled());
+      // The box's write starts (`opStarted`), then another one queued after it.
+      useOps.setState({ ops: { 3: op(3, 'stage', 'stage a.txt'), 7: op(7, 'rebase', 'continue the rebase') } });
+      useOps.setState({ ops: { 3: op(3, 'stage', 'stage a.txt'), 7: op(7, 'rebase', 'continue the rebase'), 9: op(9, 'stage', 'stage b.txt') } });
+      await act(() => vi.advanceTimersByTimeAsync(29_000));
+      expect(screen.queryByText('Still working…')).toBeNull();
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(screen.getByTestId('commit-still')).toHaveTextContent('Still working…');
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(h.cancelOp.mock.calls).toEqual([[7]]);
+      // Its op gone (the others still running): no Cancel for anyone else's.
+      act(() => useOps.setState({ ops: { 3: op(3, 'stage', 'stage a.txt'), 9: op(9, 'stage', 'stage b.txt') } }));
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+      release();
+      await waitFor(() => expect(screen.queryByTestId('commit-still')).toBeNull());
+    } finally {
+      release();
+      vi.useRealTimers();
+      const { useOps } = await import('../app/ops');
+      useOps.setState({ ops: {} });
+    }
+  });
+
   it('Continue sends the message as edited', async () => {
     h.inProgress = rebase(0);
     await show();
@@ -163,23 +199,134 @@ describe('the commit box in an operation', () => {
     await waitFor(() => expect(readWipDraft('/r', '/r')).toEqual({ summary: 'Mine', description: '' }));
   });
 
-  // --- 3C T13 ---
+  // --- 3C T13, UX L ---
+  /** git's own Edit stop (no soft reset): `at` is the commit git made. */
   const editStop = (at: string): InProgress => ({ ...rebase(0, 'Fix x\n\nWhy.\n'), editStop: at } as InProgress);
+  /** UX L: GitBolt's Edit stop, "about to commit": HEAD went back to `base`, the commit's parent. */
+  const aboutToCommit = (at: string, base: string): InProgress => ({ ...editStop(at), editBase: base } as InProgress);
 
-  it('an Edit stop on its commit: Split this commit, Continue, no Skip', async () => {
-    h.inProgress = editStop('p');
+  it('an Edit stop about to commit: the notice, the commit\'s message in the box, Commit and Continue, no Skip (UX L)', async () => {
+    h.inProgress = aboutToCommit('q', 'p');
+    h.staged = [{ status: 'A' }, { status: 'A' }];
     await show();
-    expect(screen.getByRole('region', { name: 'Rebase in progress' })).toHaveTextContent('Stopped to edit p Fix x');
+    expect(screen.getByRole('region', { name: 'Rebase in progress' })).toHaveTextContent('Editing q Fix x: its changes are staged. Change them, commit in pieces, or just Continue.');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Commit summary' })).toHaveValue('Fix x'));
+    expect(screen.getByRole('textbox', { name: 'Commit description' })).toHaveValue('Why.');
+    expect(document.querySelector('.commit-button')).toHaveTextContent('Commit changes to 2 files');
     expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Split this commit' }));
-    await waitFor(() => expect(h.splitCommit).toHaveBeenCalledWith(1, '/r'));
+    expect(screen.queryByRole('button', { name: 'Split this commit' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Amend' })).toBeNull();
+    const cont = screen.getByRole('button', { name: 'Continue rebase' });
+    expect(cont).not.toHaveAttribute('aria-disabled', 'true');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Commit summary' }), { target: { value: 'Fix x, reworded' } });
+    fireEvent.click(cont);
+    await waitFor(() => expect(h.rebaseControl).toHaveBeenCalledWith(1, '/r', 'continue', 'Fix x, reworded\n\nWhy.'));
   });
 
-  it('after a Split: a normal commit box, and Continue waits for the changes to be committed', async () => {
+  it('an unedited box: Continue sends no message, so the core keeps the commit as it is, even a first paragraph of two lines (fix round 1)', async () => {
+    h.inProgress = { ...aboutToCommit('q', 'p'), message: 'Fix x\nacross two lines\n\nWhy.\n' } as InProgress;
+    h.staged = [{ status: 'A' }];
+    await show();
+    expect(screen.getByRole('region', { name: 'Rebase in progress' })).toHaveTextContent('Amending in a terminal here would fold this commit into its parent.');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Commit summary' })).not.toHaveValue(''));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue rebase' }));
+    await waitFor(() => expect(h.rebaseControl).toHaveBeenCalledWith(1, '/r', 'continue'));
+  });
+
+  it('a file the commit adds, left untracked, holds Continue up by name; another untracked file doesn\'t (fix round 1)', async () => {
+    h.inProgress = { ...aboutToCommit('q', 'p'), editAdded: ['a.txt', 'b.txt'] } as InProgress;
+    h.staged = [{ status: 'A' }];
+    h.unstaged = [{ path: '.env', status: 'A' }, { path: 'b.txt', status: 'A' }];
+    const { rerender } = await show();
+    const cont = () => screen.getByRole('button', { name: 'Continue rebase' });
+    expect(cont()).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.mouseEnter(cont());
+    expect(screen.getByRole('tooltip')).toHaveTextContent("b.txt from this commit isn't staged. Stage it, or discard it, then Continue.");
+    fireEvent.mouseLeave(cont());
+    h.unstaged = [{ path: '.env', status: 'A' }];
+    const { CommitBox } = await import('./CommitBox');
+    rerender(<CommitBox />);
+    expect(cont()).not.toHaveAttribute('aria-disabled', 'true');
+    // Only the user's own untracked file: Abort keeps nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
+    expect(h.confirm.mock.lastCall?.[0].arm).toBe('Click again to abort the rebase');
+  });
+
+  it('staged changes that differ from the commit: Abort says the work is kept (fix round 1)', async () => {
+    h.inProgress = { ...aboutToCommit('q', 'p'), editChanged: true } as InProgress;
+    h.staged = [{ status: 'M' }];
+    await show();
+    fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
+    expect(h.confirm.mock.lastCall?.[0].arm).toBe('Click again to abort: your work from the stop is kept');
+  });
+
+  it('a Commit at the stop is a piece: the WIP stays selected, the box empties, the rebase stays stopped (UX L)', async () => {
+    const { selectCommit } = await import('../app/graphNav');
+    h.inProgress = aboutToCommit('q', 'p');
+    h.staged = [{ status: 'A' }];
+    h.unstaged = [{ status: '?' }];
+    await show();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Commit summary' }), { target: { value: 'Lexer' } });
+    fireEvent.click(document.querySelector('.commit-button')!);
+    await waitFor(() => expect(h.commit).toHaveBeenCalledWith(1, '/r', expect.objectContaining({ summary: 'Lexer', stageAll: false })));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Commit summary' })).toHaveValue(''));
+    expect(selectCommit).not.toHaveBeenCalled();
+    expect(h.rebaseControl).not.toHaveBeenCalled();
+  });
+
+  it('changes left unstaged: Continue waits, "Commit or discard your changes first"; an empty summary over staged changes waits too (UX L)', async () => {
+    h.inProgress = aboutToCommit('q', 'p');
+    h.unstaged = [{ status: 'M' }];
+    const { rerender } = await show();
+    const cont = screen.getByRole('button', { name: 'Continue rebase' });
+    expect(cont).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.mouseEnter(cont);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Commit or discard your changes first');
+    fireEvent.mouseLeave(cont);
+    fireEvent.click(cont);
+    h.unstaged = [];
+    h.staged = [{ status: 'M' }];
+    const { CommitBox } = await import('./CommitBox');
+    rerender(<CommitBox />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Commit summary' }), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Continue rebase' })).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue rebase' }));
+    expect(h.rebaseControl).not.toHaveBeenCalled();
+  });
+
+  it('every change committed in pieces: Continue just goes on, and Amend is back for the last piece (UX L)', async () => {
+    h.inProgress = aboutToCommit('q', 'p');
+    h.head = 'n'; // a piece committed on top of the commit's parent `p`
+    await show();
+    expect(screen.getByRole('checkbox', { name: 'Amend' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue rebase' }));
+    await waitFor(() => expect(h.rebaseControl).toHaveBeenCalledWith(1, '/r', 'continue'));
+  });
+
+  it('what Abort says it keeps at the stop: nothing as it was, the pieces on a branch, changes left as work (UX L)', async () => {
+    h.inProgress = aboutToCommit('q', 'p');
+    h.staged = [{ status: 'A' }];
+    const { rerender } = await show();
+    const { CommitBox } = await import('./CommitBox');
+    const abortSays = async () => {
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Abort rebase' })).not.toHaveAttribute('aria-disabled', 'true'));
+      fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
+      await waitFor(() => expect(h.rebaseControl).toHaveBeenCalledTimes(h.confirm.mock.calls.length));
+      return h.confirm.mock.lastCall?.[0].arm;
+    };
+    expect(await abortSays()).toBe('Click again to abort the rebase');
+    h.head = 'n';
+    rerender(<CommitBox />);
+    expect(await abortSays()).toBe('Click again to abort: your commits from the stop are kept on a branch');
+    h.unstaged = [{ status: 'M' }];
+    rerender(<CommitBox />);
+    expect(await abortSays()).toBe('Click again to abort: your work from the stop is kept');
+  });
+
+  it('git\'s own Edit stop HEAD has left: a normal commit box, and Continue waits for the changes to be committed', async () => {
     h.inProgress = editStop('q');
     h.unstaged = [{ status: 'M' }];
     await show();
-    expect(screen.queryByRole('button', { name: 'Split this commit' })).toBeNull();
     expect(screen.getByRole('checkbox', { name: 'Amend' })).toBeTruthy();
     const cont = screen.getByRole('button', { name: 'Continue rebase' });
     expect(cont).toHaveAttribute('aria-disabled', 'true');
@@ -224,44 +371,6 @@ describe('the commit box in an operation', () => {
     await waitFor(() => expect(useToast.getState()).toMatchObject({ message: 'Your commits from the stop are on feature/x-rebase-work', sticky: false, tone: 'warning' }));
   });
 
-  it.each([
-    ['the commit is a merge', ['o', 'm']],
-    ['the commit is the first', []],
-  ])('a Split hides when %s', async (_why, parents) => {
-    h.inProgress = editStop('p');
-    h.headParents = parents;
-    await show();
-    expect(screen.getByRole('region', { name: 'Rebase in progress' })).toHaveTextContent('Stopped to edit p Fix x');
-    expect(screen.queryByRole('button', { name: 'Split this commit' })).toBeNull();
-  });
-
-  it('something staged: Split stays, disabled, "Unstage your changes first" (fix 1 M8)', async () => {
-    h.inProgress = editStop('p');
-    h.staged = [{ status: 'M' }];
-    await show();
-    const split = screen.getByRole('button', { name: 'Split this commit' });
-    expect(split).toHaveAttribute('aria-disabled', 'true');
-    fireEvent.click(split);
-    expect(h.splitCommit).not.toHaveBeenCalled();
-  });
-
-  it('commits made at the stop: Abort says they are kept on a branch; a Split alone, that the work is (fix 1 M5)', async () => {
-    h.inProgress = editStop('p');
-    const { rerender } = await show();
-    const { CommitBox } = await import('./CommitBox');
-    h.head = 'n'; // a commit made on top of the stop's parent `o`
-    rerender(<CommitBox />);
-    fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
-    expect(h.confirm.mock.lastCall?.[0]).toMatchObject({ arm: 'Click again to abort: your commits from the stop are kept on a branch' });
-    await waitFor(() => expect(h.rebaseControl).toHaveBeenCalledWith(1, '/r', 'abort'));
-    h.head = 'o'; // Split: HEAD on the stop's parent, its changes unstaged
-    h.unstaged = [{ status: 'M' }];
-    rerender(<CommitBox />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Abort rebase' })).not.toHaveAttribute('aria-disabled', 'true'));
-    fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
-    expect(h.confirm.mock.lastCall?.[0]).toMatchObject({ arm: 'Click again to abort: your work from the stop is kept' });
-  });
-
   it('a conflict stop: Abort says the resolution is discarded only once something is resolved (fix 1 M5)', async () => {
     h.inProgress = rebase(1);
     h.unstaged = [{ status: 'U' }];
@@ -274,11 +383,10 @@ describe('the commit box in an operation', () => {
     await waitFor(() => expect(useToast.getState().message).toBe("2 files' changes were discarded"));
   });
 
-  it('an Edit stop of a rebase started in a terminal: no Split, no Commit, the box stays Continue\'s (fix 1 A1)', async () => {
+  it('an Edit stop of a rebase started in a terminal: no Commit, the box stays Continue\'s (fix 1 A1; UX L leaves it git\'s)', async () => {
     h.inProgress = { ...editStop('p'), gitbolt: false } as InProgress;
     const { rerender } = await show();
     expect(screen.getByRole('region', { name: 'Rebase in progress' })).toHaveTextContent('Finish this rebase where you started it.');
-    expect(screen.queryByRole('button', { name: 'Split this commit' })).toBeNull();
     const { CommitBox } = await import('./CommitBox');
     h.head = 'o';
     h.unstaged = [{ status: 'M' }];
@@ -287,7 +395,7 @@ describe('the commit box in an operation', () => {
     expect(screen.queryByRole('checkbox', { name: 'Amend' })).toBeNull();
     expect(screen.getAllByRole('button', { name: 'Continue rebase' })).toHaveLength(1);
   });
-  // --- end 3C T13 ---
+  // --- end 3C T13, UX L ---
 });
 
 describe('the commit identity line', () => {

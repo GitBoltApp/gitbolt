@@ -54,3 +54,8 @@
 .commit-op-hint.conflicted { color: var(--orange); }
 .commit-op-actions { display: flex; gap: 6px; }
 .commit-op-actions > * { flex: 1; }
+/* UX F: a write past 30 s says so, with Cancel. */
+.commit-still { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.commit-still-cancel { all: unset; margin-left: auto; color: var(--blue); cursor: pointer; }
+.commit-still-cancel:focus-visible { outline: 1px solid var(--blue); }
+.commit-still-cancel:hover { text-decoration: underline; }

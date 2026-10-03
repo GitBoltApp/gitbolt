@@ -250,7 +250,7 @@ pub struct IrebaseState {
     /// Edit rows' new messages: the row's original oid → its message file.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub edit_messages: std::collections::BTreeMap<String, String>,
-    /// 3C T5: commits GitBolt made at an Edit stop (Split's pieces, full oids). Newly authored,
+    /// 3C T5: commits GitBolt made at an Edit stop (its pieces, and UX L: Continue's commit there; full oids). Newly authored,
     /// unlike every replayed commit: completion counts them as the rebase's own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub made: Vec<String>,
@@ -692,6 +692,34 @@ impl Journal {
         cap(&mut self.undo);
         true
     }
+
+    // --- UX G.2: coalesced saves ---
+    /// The done entry just below the pending entry `id`, if any: what a coalescing save merges
+    /// into.
+    pub fn below(&self, id: u64) -> Option<&JournalEntry> {
+        let at = self.undo.iter().position(|e| e.id == id)?;
+        self.undo[..at].last().filter(|e| e.state == EntryState::Done)
+    }
+
+    /// A save of the same file on top of `into`, with nothing journaled or changed in between:
+    /// `into` takes the save's `after` (its `before` stays the first save's), and the save's own
+    /// entry goes. One Undo then restores the file as it was before the editing session. A new
+    /// operation all the same: redo clears.
+    pub fn coalesce(&mut self, id: u64, into: u64) -> bool {
+        let Some(i) = self.undo.iter().position(|e| e.id == id) else { return false };
+        if !self.undo.iter().any(|e| e.id == into) {
+            return false;
+        }
+        let e = self.undo.remove(i);
+        // `at_ms` stays the first save's: its `before` snapshot is the oldest object the entry
+        // holds, which is what expires (`gc.pruneExpire`).
+        if let Some(t) = self.undo.iter_mut().find(|t| t.id == into) {
+            t.after = e.after;
+        }
+        self.redo.clear();
+        true
+    }
+    // --- end UX G.2 ---
 
     pub fn drop_entry(&mut self, id: u64) {
         self.undo.retain(|e| e.id != id);

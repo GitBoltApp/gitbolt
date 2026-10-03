@@ -8,7 +8,7 @@ import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';
 import { stashPushFor } from '../stash/actions';
 import { discardAll, useWipCtx } from '../stage/actions';
 import { ActionIcon } from '../stage/RowActions';
-import { COMMIT_QUEUED, useCommitting } from '../stage/store';
+import { COMMIT_QUEUED, useCommitting, useDiscardingAll } from '../stage/store';
 
 /** Spec §8.6, read-only in #1: `N file change(s) on [branch]`, no stage, unstage or discard
  * controls (#2). N counts each changed path once, staged or not. */
@@ -41,6 +41,15 @@ export function WipHeader() {
     if (own) return own.replace(/^refs\/heads\//, '');
     return s.graph.labels.find((l) => l.worktree === sel.worktree)?.name ?? (sel.name === null ? s.graph.head.branch?.replace(/^refs\/heads\//, '') : null) ?? sel.name;
   });
+  // UX R1 C.2: what an armed Discard all confirms, sent with it (a rename's both paths): the
+  // panel's files, once its lists are loaded. One string, so the selector's answer is stable.
+  const shown = useRepoView((s) => {
+    const secs = (s.panel?.sections ?? []).filter((sec) => sec.list.status === 'ready');
+    if (secs.length === 0) return null;
+    const paths = new Set<string>();
+    for (const sec of secs) if (sec.list.status === 'ready') for (const f of sec.list.data.files) { paths.add(f.path); if (f.oldPath) paths.add(f.oldPath); }
+    return [...paths].join('\0');
+  });
   const { tabId, repoId } = useRepoContext();
   const wipCtx = useWipCtx();
   // Discard all is off during a merge or rebase (spec #2 §7.2).
@@ -49,6 +58,7 @@ export function WipHeader() {
     return sel?.kind === 'wip' && !!s.graph.worktrees.find((w) => w.path === sel.worktree)?.inProgress;
   });
   const committing = useCommitting(wipCtx?.repoId ?? -1, wipCtx?.worktree ?? '');
+  const discarding = useDiscardingAll(wipCtx?.repoId ?? -1, wipCtx?.worktree ?? '');
   // An armed Discard all says how many files, of which worktree: a different count or worktree
   // disarms it.
   const ref = useRef<HTMLElement>(null);
@@ -61,7 +71,7 @@ export function WipHeader() {
       {/* --- 2B T9: Discard all (it arms in place, spec §ui confirms) --- */}
       {wipCtx && (
         <span className="wip-head-left" data-arm-grow="right">
-          <ActionIcon label="Discard all" tip={committing ? COMMIT_QUEUED : midOp ? 'Abort instead' : count === 0 ? 'Nothing to discard' : 'Discard all changes'} icon={Trash2} danger disabled={committing || midOp || count === 0} onClick={() => void discardAll(wipCtx, count)} />
+          <ActionIcon label="Discard all" tip={committing ? COMMIT_QUEUED : discarding ? 'Discarding…' : midOp ? 'Abort instead' : count === 0 ? 'Nothing to discard' : 'Discard all changes'} icon={Trash2} danger disabled={committing || discarding || midOp || count === 0} onClick={() => void discardAll(wipCtx, count, shown === null ? undefined : shown.split('\0'))} />
         </span>
       )}
       {/* --- end 2B T9 --- */}

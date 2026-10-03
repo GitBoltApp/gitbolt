@@ -10,6 +10,7 @@ import { askChoice } from '../ui/ChoiceDialog';
 import { confirmWith } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
+import { toastRebaseOutcome } from '../irebase/outcome';
 
 const files = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
 
@@ -46,7 +47,9 @@ export function integrateRows(t: CommitTarget, env: Pick<MenuEnv, 'headBranch'> 
 function toastOutcome(o: IntegrateOutcome, kind: IntegrateKind, target: string, x: string): void {
   const show = (m: string) => useToast.getState().show(m);
   if (o.status === 'upToDate') return show(kind === 'merge' ? `${target} is already merged into ${x}` : `${x} is up to date`);
-  if (o.status !== 'done') return; // stopped: the banner takes over (§13.2); aborted: nothing to say
+  // Stopped: the banner takes over (§13.2); UX F: one without a conflict says why (the signer).
+  if (o.status === 'stopped') return toastRebaseOutcome(o);
+  if (o.status !== 'done') return; // aborted: nothing to say
   if (o.fastForward) return show(`Fast-forwarded ${x} to ${target}`);
   show(kind === 'merge' ? `Merged ${target} into ${x}` : `Rebased ${x} onto ${target}`);
 }

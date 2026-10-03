@@ -6,6 +6,8 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import { useFileListPrefs } from '../files/fileListPrefs';
 import { createRepoViewStore, RepoViewContext, type FileSection } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
+import { Loader } from '../data/loader';
+import { Lru } from '../data/lru';
 import { WipSections } from './WipSections';
 import { loadWipPanel, WIP_PANEL, wipSplitBounds } from './wipPanelPrefs';
 
@@ -49,6 +51,20 @@ describe('WipSections (K36)', () => {
     expect(screen.queryByTestId('unstaged-totals')).toBeNull();
     expect(screen.getByTestId('staged-totals')).toHaveTextContent(/^−3$/);
   });
+  it("UX G.2: View all files, on the bar even with nothing changed, adds the worktree's tracked files to Unstaged only", async () => {
+    useFileListPrefs.setState({ wipAllFiles: false });
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ worktreeFiles: new Loader(async () => ['lib/c.txt', 'tracked.txt'], new Lru(1), 1, () => false) }));
+    render(<RepoViewContext value={store}><WipSections sections={[section('Unstaged', false), section('Staged', true, 'lib/c.txt')]} /></RepoViewContext>);
+    const button = screen.getByRole('button', { name: 'View all files' });
+    act(() => { fireEvent.click(button); });
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    const unstaged = screen.getByRole('listbox', { name: 'Unstaged' });
+    expect(await within(unstaged).findByText('tracked.txt')).toBeInTheDocument();
+    expect(within(unstaged).getByText('c.txt')).toBeInTheDocument();
+    expect(within(screen.getByRole('listbox', { name: 'Staged' })).queryByText('tracked.txt')).toBeNull();
+    act(() => useFileListPrefs.setState({ wipAllFiles: false }));
+  });
+
   it('one shared Path/Tree toggle drives both lists; the lists have none of their own', () => {
     setup();
     expect(screen.getAllByRole('button', { name: 'Path' })).toHaveLength(1);

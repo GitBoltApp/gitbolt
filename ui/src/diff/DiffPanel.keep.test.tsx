@@ -70,6 +70,9 @@ const W = { timeout: 3000 };
 describe('a closed diff is kept, hidden (J16)', () => {
   afterEach(() => vi.clearAllMocks());
 
+  // The heaviest here: three selection moves, each awaiting the details and a frame. Isolated it
+  // takes ~1-1.5 s; in the full run on a loaded machine it went past the 5 s default, and a
+  // timeout inside its `act` leaves React's act queue open, so the next tests render nothing.
   it('the hidden panel does not re-render when the graph selection moves', async () => {
     renderView();
     fireEvent.mouseDown(screen.getAllByRole('row')[0]);
@@ -88,7 +91,7 @@ describe('a closed diff is kept, hidden (J16)', () => {
       await settle();
     }
     expect(toolbarRenders.n - before).toBe(0);
-  });
+  }, 15_000);
 
   it('the view unmounting while the kept panel is hidden lets the editor go of its box', async () => {
     const view = renderView();

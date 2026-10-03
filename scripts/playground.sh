@@ -41,6 +41,14 @@ for f in "${fixtures[@]}"; do
   for name in "${!to[@]}"; do
     target=${to[$name]}
     [ -d "$target/.git" ] || [ -f "$target/HEAD" ] || continue
+    # Your global signing (commit.gpgsign, tag.forceSignAnnotated) would need a pinentry for every
+    # throwaway commit: the playground signs nothing.
+    git -C "$target" config commit.gpgsign false
+    git -C "$target" config tag.gpgSign false
+    git -C "$target" config tag.forceSignAnnotated false
+    # Its own identity too: nothing in the playground leans on your global config.
+    git -C "$target" config user.name "Playground User"
+    git -C "$target" config user.email "playground@example.invalid"
     for remote in $(git -C "$target" remote 2>/dev/null); do
       url=$(git -C "$target" remote get-url "$remote")
       case "$url" in "$stage"/*)

@@ -7,6 +7,7 @@ import type { DiffContentsPayload } from './gen/DiffContentsPayload';
 import type { DiffSpec } from './gen/DiffSpec';
 import type { FileListPayload } from './gen/FileListPayload';
 import type { GraphPayload } from './gen/GraphPayload';
+import type { HexDumpPayload } from './gen/HexDumpPayload';
 import type { HistoryHit } from './gen/HistoryHit';
 import type { LocateResult } from './gen/LocateResult';
 import type { OpenerPayload } from './gen/OpenerPayload';
@@ -146,7 +147,11 @@ export const api = {
   remotes: (repo: number) => t().call({ method: 'remotes', params: { repo } }) as Promise<RemotePayload[]>,
   fileList: (repo: number, spec: DiffSpec) => t().call({ method: 'fileList', params: { repo, spec } }) as Promise<FileListPayload>,
   diffContents: (repo: number, r: ContentsRequest) => t().call({ method: 'diffContents', params: { repo, path: r.path, old: r.old, new: r.new, force: r.force } }) as Promise<DiffContentsPayload>,
+  /** Both sides of a binary file as hex dumps, each capped (`HexDumpPayload.cap`). */
+  hexDump: (repo: number, r: Omit<ContentsRequest, 'force'>) => t().call({ method: 'hexDump', params: { repo, path: r.path, old: r.old, new: r.new } }) as Promise<HexDumpPayload>,
   treeFiles: (repo: number, id: string) => t().call({ method: 'treeFiles', params: { repo, id } }) as Promise<string[]>,
+  /** UX G.2: the worktree's tracked files (the WIP row's View all files). */
+  worktreeFiles: (repo: number, worktree: string) => t().call({ method: 'worktreeFiles', params: { repo, worktree } }) as Promise<string[]>,
   signature: (repo: number, id: string) => t().call({ method: 'signature', params: { repo, id } }) as Promise<SignaturePayload>,
   /** `null` when there's no avatar for `email` (or no avatar provider, as in the harness). */
   avatar: (email: string) => t().call({ method: 'avatar', params: { email } }) as Promise<AvatarPayload | null>,
@@ -223,9 +228,10 @@ export const api = {
   /** A banner's × (`dropStash: false`, the stash stays) or Drop stash. */
   dismissBanner: (repo: number, worktree: string, entry: number, dropStash: boolean) => call<JournalState>({ method: 'dismissBanner', params: { repo, worktree, entry, dropStash } }),
   // --- 2B T6 ---
-  /** Plan 2B T6: save the editable working copy (spec #2 §7.5). */
-  saveFile: (repo: number, worktree: string, path: string, text: string, base: string) =>
-    call<WriteResult<SaveOutcome>>({ method: 'saveFile', params: { repo, worktree, path, text, base } }),
+  /** Plan 2B T6, UX round 2 G.2: save the editable working copy (spec #2 §7.5). Journaled: Undo
+   * puts the file back as it was. */
+  writeWorktreeFile: (repo: number, worktree: string, path: string, text: string, base: string) =>
+    call<WriteResult<SaveOutcome>>({ method: 'writeWorktreeFile', params: { repo, worktree, path, text, base } }),
   // --- end 2B T6 ---
   // Plan 2B T1: stage and unstage (spec #2 §7.2). Immediate writes; not journaled.
   stage: (repo: number, worktree: string, paths: string[]) => call<WriteResult<null>>({ method: 'stage', params: { repo, worktree, paths } }),
@@ -364,8 +370,6 @@ export const api = {
   predictRebase: (repo: number, worktree: string, base: string, rows: RebaseRow[]) => call<Prediction>({ method: 'predictRebase', params: { repo, worktree, base, rows } }),
   // --- end 3C T10 ---
   // --- 3C T13 ---
-  /** Split the stopped commit at an Edit stop (spec #3 §3.5): `git reset HEAD^`, inside the paused rebase. */
-  splitCommit: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'splitCommit', params: { repo, worktree } }),
   /** Reword an older commit of HEAD's branch in place (spec #3 §3.6); `confirmAutostash` after the clean-restore question. */
   rewordCommit: (repo: number, worktree: string, oid: string, message: string, expect: Expect, confirmAutostash = false) =>
     call<WriteResult<IntegrateOutcome>>({ method: 'rewordCommit', params: { repo, worktree, oid, message, expect, confirm: { autostash: confirmAutostash } } }),

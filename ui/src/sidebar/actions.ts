@@ -3,6 +3,7 @@ import type { Profile } from '../api/gen/Profile';
 import { activeTab, registerActions } from '../app/actions';
 import { registerTabSlot } from '../app/slots';
 import { useAppState } from '../app/state';
+import { leaveFileView, sidebarHidden } from '../repo/centerView';
 import { Sidebar } from './Sidebar';
 import { focusSidebarFilter } from './sidebarNav';
 
@@ -14,21 +15,33 @@ const repoTab = () => {
   const t = activeTab();
   return t?.kind === 'repo' && t.path ? t : null;
 };
+/** A repo tab whose sidebar is there: under the rebase editor it's hidden (UX R2.1), and its
+ * actions stand aside rather than flip the stored setting unseen. */
+const sidebarTab = () => {
+  const t = repoTab();
+  return t && !sidebarHidden(t.id) ? t : null;
+};
 
 const offActions = registerActions([
   {
     id: 'edit.filterSidebar', label: 'Filter sidebar', group: 'Edit', icon: ListFilter, tooltip: 'Focus the sidebar filter', shortcuts: ['Ctrl+Alt+F'],
-    when: () => !!repoTab(),
+    when: () => !!sidebarTab(),
     run: () => {
       const t = activeTab()!;
+      leaveFileView(t.id);
       update((p) => ({ ...p, sidebarNarrow: false }));
       requestAnimationFrame(() => focusSidebarFilter(t.id));
     },
   },
   {
     id: 'view.toggleSidebar', label: 'Toggle sidebar', group: 'View', icon: PanelLeft, tooltip: 'Switch the sidebar between full and icon strip', shortcuts: ['Ctrl+B'],
-    when: () => !!repoTab(),
-    run: () => update((p) => ({ ...p, sidebarNarrow: !p.sidebarNarrow })),
+    when: () => !!sidebarTab(),
+    // Over a file view, it's the strip's (>): leave the view, expanded (UX R2.3).
+    run: () => {
+      const t = repoTab();
+      if (t && leaveFileView(t.id)) update((p) => ({ ...p, sidebarNarrow: false }));
+      else update((p) => ({ ...p, sidebarNarrow: !p.sidebarNarrow }));
+    },
   },
 ]);
 const offSlot = registerTabSlot('sidebar', 'sidebar', Sidebar);

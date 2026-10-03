@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMenu } from './menuStore';
 
 /**
@@ -9,25 +9,29 @@ import { useMenu } from './menuStore';
  * `open(key, show)` runs `show` (the row's `openContextMenu` call) and, if that put a new menu on
  * screen, marks `key` until the menu closes or another menu replaces it. `key` is null while no
  * menu of this list's is open.
+ *
+ * UX R1 C.3: the watch on the menu is an effect, so it's checked again whenever the list shows:
+ * a list `<Activity>` hid meanwhile (the graph under a pick's merge tool or diff) has no effects
+ * while hidden, and its menu may have closed then.
  */
 export function useContextTarget<K>(): [K | null, (key: K, show: () => void) => void] {
-  const [key, setKey] = useState<K | null>(null);
-  const unsub = useRef<(() => void) | null>(null);
-  useEffect(() => () => unsub.current?.(), []);
+  const [target, setTarget] = useState<{ key: K; seq: number } | null>(null);
+  useEffect(() => {
+    if (!target) return;
+    const gone = (s: { rows: unknown; seq: number }) => s.rows === null || s.seq !== target.seq;
+    const clear = () => setTarget((cur) => (cur === target ? null : cur));
+    if (gone(useMenu.getState())) {
+      clear();
+      return;
+    }
+    return useMenu.subscribe((s) => { if (gone(s)) clear(); });
+  }, [target]);
   const open = useCallback((k: K, show: () => void) => {
     const before = useMenu.getState().seq;
     show();
     const opened = useMenu.getState();
     if (!opened.rows || opened.seq === before) return;
-    unsub.current?.();
-    setKey(() => k);
-    const off = useMenu.subscribe((s) => {
-      if (s.rows !== null && s.seq === opened.seq) return;
-      off();
-      if (unsub.current === off) unsub.current = null;
-      setKey((cur) => (cur === k ? null : cur));
-    });
-    unsub.current = off;
+    setTarget({ key: k, seq: opened.seq });
   }, []);
-  return [key, open];
+  return [target ? target.key : null, open];
 }

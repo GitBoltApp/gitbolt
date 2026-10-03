@@ -12,6 +12,9 @@ const { EMPTY_GRAPH } = await import('../app/testShell');
 const { createRepoViewStore, RepoViewContext } = await import('../repo/store');
 const { fakeServices } = await import('../repo/testServices');
 const { RepoContext } = await import('../app/repoContext');
+const { useTabViews } = await import('../app/tabStores');
+const { centerViewOf, closeCenterView, openCenterView, registerCenterView } = await import('../repo/centerView');
+const { fileViewTarget } = await import('../repo/store');
 const { useRuntime } = await import('../app/runtime');
 const { EMPTY_PROFILE, EMPTY_REPO_SETTINGS, useAppState } = await import('../app/state');
 
@@ -139,6 +142,33 @@ describe('Sidebar panels', () => {
     expect(profile().sidebarNarrow).toBe(false);
     expect(profile().repos['/r'].collapsed).not.toContain('section:tags');
     expect(within(panel('Tags')).getByRole('tree')).toBeInTheDocument();
+  });
+
+  it('UX R2.1/R2.3: hidden while the rebase editor is open; a file view on top narrows it, and the strip leaves the view for the graph, expanded', () => {
+    const offs = [registerCenterView('t-plan', () => null, { sidebar: 'hide' }), registerCenterView('t-file', () => null)];
+    const store = createRepoViewStore(4, '/r', EMPTY_GRAPH, fakeServices());
+    useTabViews.setState({ views: { t: { repo: 4, services: fakeServices(), store } } });
+    renderIt();
+    act(() => openCenterView('t', 't-plan', {}));
+    expect(screen.queryByRole('complementary')).toBeNull();
+    // No stray resize handle: it lives inside the sidebar and goes with it.
+    expect(screen.queryByRole('separator', { name: 'Resize sidebar' })).toBeNull();
+    // A file opened over the editor doesn't bring the sidebar back either.
+    act(() => store.getState().openFile(fileViewTarget('a.txt', 'a'.repeat(40), { kind: 'commit', id: 'a'.repeat(40), parent: 0 })));
+    expect(screen.queryByRole('complementary')).toBeNull();
+    act(() => { closeCenterView('t'); store.getState().closeDiff(); });
+    expect(screen.getByRole('complementary', { name: 'Sidebar' })).toBeInTheDocument();
+    act(() => openCenterView('t', 't-file', {}));
+    expect(screen.getByRole('complementary', { name: 'Sidebar (collapsed)' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
+    expect(centerViewOf('t')).toBeNull();
+    expect(screen.getByRole('complementary', { name: 'Sidebar' })).toBeInTheDocument();
+    act(() => openCenterView('t', 't-file', {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Tags (1)' }));
+    expect(centerViewOf('t')).toBeNull();
+    expect(screen.getByRole('complementary', { name: 'Sidebar' })).toBeInTheDocument();
+    useTabViews.setState({ views: {} });
+    for (const off of offs) off();
   });
 
   it('double-clicking the sidebar edge restores the default width; a panel divider evens out just its two panels (K73)', () => {

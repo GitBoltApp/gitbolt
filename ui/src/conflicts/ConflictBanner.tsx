@@ -64,8 +64,7 @@ export function ConflictBanner({ tab }: TabSlotProps) {
   }, [repoPath, worktree, busy, mergeHead, none]);
 
   // A new stop selects the WIP row, whose commit panel holds the operation (ux round 1), and
-  // opens its first file: with conflicts, the Conflicted list comes first, so that's the first
-  // conflicted file in the merge tool (ux round 3).
+  // shows its panel (H.1: no file is opened; the user picks one from the Conflicted list).
   useEffect(() => {
     if (!stop || busy || !wipId || !worktree) return;
     const id = `${tab.id}\u0000${worktree}\u0000${stop}`;
@@ -73,7 +72,7 @@ export function ConflictBanner({ tab }: TabSlotProps) {
     shown.add(id);
     // Already there with a file open (a click beat it): leave the user's view alone.
     if (onWip && tabStore(tab.id)?.getState().diff) return;
-    void revealRestored(tab.id, worktree, Promise.resolve(null));
+    void revealRestored(tab.id, worktree, Promise.resolve(null), false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id, worktree, stop, busy, wipId]);
 

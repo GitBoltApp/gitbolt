@@ -69,8 +69,9 @@ export async function reloadRebase(tabId: string): Promise<void> {
   if (!s) return;
   try {
     const plan = await api.rebasePlan(s.ctx.repoId, s.ctx.worktree, s.opened.branch, s.opened.base);
-    // Another base: the old prediction says nothing about the new one.
-    editSession(tabId, (x) => ({ ...x, state: reload(x.state, plan), moved: null, prediction: plan.baseOid === x.state.base.oid ? x.prediction : NO_PREDICTION }));
+    // Another base: the old prediction says nothing about the new one. Undo can't go back past
+    // the reload: its plans may name commits that are gone.
+    editSession(tabId, (x) => ({ ...x, state: reload(x.state, plan), past: [], future: [], moved: null, prediction: plan.baseOid === x.state.base.oid ? x.prediction : NO_PREDICTION }));
   } catch (e) {
     useToast.getState().show(`Couldn't reload the plan: ${(e as { message?: string }).message ?? e}`, { error: true });
   }

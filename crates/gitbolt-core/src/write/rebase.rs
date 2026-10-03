@@ -162,14 +162,334 @@ pub(crate) async fn run_rebase_stop(cx: &mut WriteCx<'_>, args: Vec<String>, tar
                     if cancelled {
                         Err(e)
                     } else {
+                        // UX F: a stop with no conflict is git failing at something else (the
+                        // signer, a hook, an `exec`): its message goes with the stop.
+                        let warning = if conflicted == 0 { Some(stop_reason(cx, &e).await) } else { None };
                         *failed = Some(e);
-                        Ok(IntegrateOutcome::Stopped { kind: PausedKind::Rebase, files: conflicted, warning: None })
+                        Ok(IntegrateOutcome::Stopped { kind: PausedKind::Rebase, files: conflicted, warning })
                     }
                 }
                 _ => Err(pre_rebase_refused(e)),
             }
         }
     }
+}
+
+/// UX F: why a rebase stopped without a conflict, for the toast ("The rebase stopped: gpg
+/// failed to sign the data: …").
+/// git's refusal of unstaged changes goes to stdout: an exit status alone is named here.
+async fn stop_reason(cx: &WriteCx<'_>, e: &GbError) -> String {
+    let said = e.message.trim().trim_end_matches('.');
+    if said.starts_with("git exited with status") {
+        let unstaged = cx.api.cli.run(GitInvocation::new(cx.root, ["diff", "--name-only", "-z"])).await.is_ok_and(|o| !o.stdout.is_empty());
+        if unstaged {
+            return "The rebase stopped: it can't go on with unstaged changes. Stage or discard them, then Continue".to_string();
+        }
+    }
+    format!("The rebase stopped: {said}")
+}
+
+/// UX F: a pick whose commit never happened, and that git's own `--continue` can't go on from
+/// ("you have staged changes": no stop, so no message to commit them with). Only in a rebase
+/// GitBolt started (its callers check): a terminal's rebase is git's alone. Two ways in, each
+/// recognised only by git's own evidence naming the commit:
+/// - the commit failed (the signer, a hook): git put the line back on top of the todo
+///   ("rescheduled"), its result staged; `REBASE_HEAD` names that commit, and `done` already
+///   ends with the same line;
+/// - the write was cancelled while git committed (a signer that never returned): `done` ends with
+///   the line, the todo doesn't start with it, and HEAD isn't its commit (`head_is_pick_of`).
+///
+/// Never at a stop git made itself (`stopped-sha`: a conflict; `amend`: an Edit stop), nor at a
+/// `break` or a failed `exec` (their `done` line replays nothing).
+struct FailedPick {
+    merge: std::path::PathBuf,
+    oid: String,
+    /// The todo line (`pick <oid> # …`).
+    line: String,
+    /// Already in `done` (the cancelled case); else on top of the todo.
+    interrupted: bool,
+    staged: bool,
+    /// The index holds exactly the pick's result, or nothing: resetting it loses nothing.
+    exact: bool,
+}
+
+fn first_command(text: &str) -> Option<&str> {
+    text.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#'))
+}
+
+fn last_command(text: &str) -> Option<&str> {
+    text.lines().map(str::trim).rfind(|l| !l.is_empty() && !l.starts_with('#'))
+}
+
+/// Two spellings of one commit (a todo may abbreviate it).
+fn same_commit(a: &str, b: &str) -> bool {
+    a.len().min(b.len()) >= 7 && (a.starts_with(b) || b.starts_with(a))
+}
+
+async fn failed_pick(cx: &WriteCx<'_>) -> Result<Option<FailedPick>, GbError> {
+    let root = cx.root.to_path_buf();
+    let git_dir = blocking(move || Ok(gix::open(&root).map_err(gix_err)?.git_dir().to_path_buf())).await?;
+    let merge = git_dir.join("rebase-merge");
+    if !merge.is_dir() || merge.join("stopped-sha").exists() || merge.join("amend").exists() {
+        return Ok(None);
+    }
+    let todo = std::fs::read_to_string(merge.join("git-rebase-todo")).unwrap_or_default();
+    let done = std::fs::read_to_string(merge.join("done")).unwrap_or_default();
+    let rebase_head = std::fs::read_to_string(git_dir.join("REBASE_HEAD")).unwrap_or_default().trim().to_string();
+    let (first, last) = (first_command(&todo), last_command(&done));
+    let staged = !cx.api.cli.run(GitInvocation::new(cx.root, ["diff", "--cached", "--name-only", "-z"])).await?.stdout.is_empty();
+    // Rescheduled: git's own evidence names the commit.
+    if let Some(line) = first
+        && let Some(oid) = replayed(line, true)
+        && (same_commit(&rebase_head, &oid) || last == Some(line))
+    {
+        let exact = !staged || pick_result_staged(cx, &oid).await;
+        return Ok(Some(FailedPick { line: line.to_string(), oid, interrupted: false, staged, exact, merge }));
+    }
+    // Interrupted: HEAD isn't its commit, and the index holds nothing else.
+    if let Some(line) = last
+        && first != Some(line)
+        && let Some(oid) = replayed(line, false)
+        && !head_is_pick_of(cx, &oid).await
+        && (!staged || pick_result_staged(cx, &oid).await)
+    {
+        return Ok(Some(FailedPick { line: line.to_string(), oid, interrupted: true, staged, exact: true, merge }));
+    }
+    Ok(None)
+}
+
+/// Writes a sequencer file whole or not at all: a temporary file next to it, then a rename.
+fn write_state(path: &Path, text: &str) -> Result<(), GbError> {
+    let io = |e: std::io::Error| GbError::new(GbErrorKind::Io, format!("{}: {e}", path.display()));
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = path.with_file_name(format!(".{name}.gitbolt-tmp"));
+    std::fs::write(&tmp, text).map_err(io)?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        io(e)
+    })
+}
+
+/// `text` without its last line equal to `line` (and anything after it).
+fn without_last(text: &str, line: &str) -> String {
+    let mut kept: Vec<&str> = text.lines().collect();
+    while kept.last().is_some_and(|l| l.trim() != line) {
+        kept.pop();
+    }
+    kept.pop();
+    kept.iter().map(|l| format!("{l}\n")).collect()
+}
+
+/// `text` with its first (`first`) or last line equal to `from` replaced by `to`.
+fn replace_line(text: &str, from: &str, to: &str, first: bool) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let at = if first { lines.iter().position(|l| l.trim() == from) } else { lines.iter().rposition(|l| l.trim() == from) }?;
+    Some(lines.iter().enumerate().map(|(i, l)| format!("{}\n", if i == at { to } else { l })).collect())
+}
+
+/// The line as an `edit` (git stops right after its commit), for a typed message: `pick`,
+/// `edit` and `reword` lines; `None` for any other command.
+fn as_edit(line: &str) -> Option<String> {
+    let (cmd, rest) = line.split_once(char::is_whitespace)?;
+    ["pick", "p", "edit", "e", "reword", "r"].contains(&cmd).then(|| format!("edit {rest}"))
+}
+
+/// Unstages the failed pick's result first (`reset --merge`: unstaged changes kept), only when
+/// `exact`. A refusal (a file changed both staged and unstaged) changes nothing.
+async fn unstage_pick(cx: &mut WriteCx<'_>, f: &FailedPick) -> Result<(), GbError> {
+    if f.staged && f.exact {
+        let inv = cx.git(["reset", "-q", "--merge", "HEAD"]);
+        cx.run_git(inv).await.map_err(|e| GbError::new(GbErrorKind::InvalidInput, format!("The failed commit's changes couldn't be unstaged ({}). Stage or discard your own changes to those files first", e.message.trim_end_matches('.'))))?;
+        cx.touch(ChangeKind::Index);
+        cx.touch(ChangeKind::Worktree);
+    }
+    Ok(())
+}
+
+/// Continue: the failed pick's result is unstaged, then its line goes back on top of the todo,
+/// so git picks it again. Only when `exact`: anything else staged (the user's own) is left for
+/// git's refusal. `stop`: the user typed a message for it, so the line goes back as `edit` (git
+/// stops right after the commit, for the message to be amended in: `typed_message_at_stop`).
+async fn retry_failed_commit(cx: &mut WriteCx<'_>, stop: bool) -> Result<Option<Repicked>, GbError> {
+    let Some(f) = failed_pick(cx).await?.filter(|f| f.exact) else { return Ok(None) };
+    tracing::info!(target: "gitbolt_core::write", "the rebase's commit of {} never happened: picking it again", f.oid);
+    let edit = as_edit(&f.line).filter(|_| stop);
+    let line = edit.clone().unwrap_or_else(|| f.line.clone());
+    unstage_pick(cx, &f).await?;
+    let todo_path = f.merge.join("git-rebase-todo");
+    let todo = std::fs::read_to_string(&todo_path).unwrap_or_default();
+    if f.interrupted {
+        let done_path = f.merge.join("done");
+        let done = std::fs::read_to_string(&done_path).unwrap_or_default();
+        write_state(&todo_path, &format!("{line}\n{todo}"))?;
+        write_state(&done_path, &without_last(&done, &f.line))?;
+        cx.touch(ChangeKind::State);
+    } else if let Some(text) = edit.as_ref().and_then(|e| replace_line(&todo, &f.line, e, true)) {
+        write_state(&todo_path, &text)?;
+        cx.touch(ChangeKind::State);
+    }
+    Ok(edit.map(|as_edit| Repicked { line: f.line.clone(), as_edit }))
+}
+
+/// A failed pick `retry_failed_commit` put back as `edit` for a typed message.
+struct Repicked {
+    /// Its own todo line (`pick <oid> …`, `edit …`, `reword …`).
+    line: String,
+    /// As put back (`edit <oid> …`).
+    as_edit: String,
+}
+
+impl Repicked {
+    fn was_edit(&self) -> bool {
+        self.line == self.as_edit
+    }
+
+    /// The `edit` line gets its own command back wherever git left it (the todo's top when the
+    /// pick failed again; `done`'s end when a cancel or a failed amend stopped the write), so no
+    /// Edit stop is left that the user never asked for.
+    fn restore(&self, root: &Path) {
+        if self.was_edit() {
+            return;
+        }
+        let Ok(repo) = gix::open(root) else { return };
+        let merge = repo.git_dir().join("rebase-merge");
+        for (name, first) in [("git-rebase-todo", true), ("done", false)] {
+            let path = merge.join(name);
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let at = if first { first_command(&text) } else { last_command(&text) };
+            if at != Some(self.as_edit.as_str()) {
+                continue;
+            }
+            if let Some(fixed) = replace_line(&text, &self.as_edit, &self.line, first)
+                && let Err(e) = write_state(&path, &fixed)
+            {
+                tracing::warn!(target: "gitbolt_core::write", "putting the failed pick's own command back: {e}");
+            }
+        }
+    }
+}
+
+/// Skip: the failed pick's result is unstaged first, then its line is dropped from the todo
+/// (`done` keeps it, as git's own skip does); then `--continue` goes on with the next line
+/// (git's `--skip` would pick it again). The user's own staged changes are never thrown away:
+/// Skip refuses. `true`: it was one.
+async fn skip_failed_commit(cx: &mut WriteCx<'_>) -> Result<bool, GbError> {
+    let Some(f) = failed_pick(cx).await? else { return Ok(false) };
+    if !f.exact {
+        return Err(GbError::new(GbErrorKind::InvalidInput, "Skip would also throw away changes you staged yourself. Unstage them first"));
+    }
+    if replayed(&f.line, false).is_none() {
+        return Ok(false); // a fixup or squash: git's own skip
+    }
+    tracing::info!(target: "gitbolt_core::write", "skipping the rebase's failed commit of {}", f.oid);
+    unstage_pick(cx, &f).await?;
+    if !f.interrupted {
+        let (todo_path, done_path) = (f.merge.join("git-rebase-todo"), f.merge.join("done"));
+        let todo = std::fs::read_to_string(&todo_path).unwrap_or_default();
+        let done = std::fs::read_to_string(&done_path).unwrap_or_default();
+        if last_command(&done) != Some(f.line.as_str()) {
+            write_state(&done_path, &format!("{done}{}{}\n", if done.is_empty() || done.ends_with('\n') { "" } else { "\n" }, f.line))?;
+        }
+        let mut lines: Vec<&str> = todo.lines().collect();
+        if let Some(i) = lines.iter().position(|l| l.trim() == f.line) {
+            lines.remove(i);
+        }
+        write_state(&todo_path, &lines.iter().map(|l| format!("{l}\n")).collect::<String>())?;
+    }
+    let _ = std::fs::remove_file(f.merge.join("author-script"));
+    cx.touch(ChangeKind::State);
+    Ok(true)
+}
+
+/// After a Continue that re-picked a failed commit as `edit` (`retry_failed_commit`): at its stop,
+/// the typed message is amended in (the guarded `--only` amend of `use_message`), and git's
+/// `amend` names the new commit. `false`: not at that stop (the pick failed again, a conflict).
+async fn typed_message_at_stop(cx: &mut WriteCx<'_>, message: &str) -> Result<bool, GbError> {
+    let root = cx.root.to_path_buf();
+    let git_dir = blocking(move || Ok(gix::open(&root).map_err(gix_err)?.git_dir().to_path_buf())).await?;
+    if !git_dir.join("rebase-merge/amend").exists() {
+        return Ok(false);
+    }
+    use_message(cx, message).await?;
+    let root = cx.root.to_path_buf();
+    let head = blocking(move || Ok(gix::open(&root).map_err(gix_err)?.head_id().map_err(gix_err)?.to_string())).await?;
+    write_state(&git_dir.join("rebase-merge/amend"), &format!("{head}\n"))?;
+    crate::write::irebase::run::refused_message_applied(&git_dir);
+    Ok(true)
+}
+
+/// A todo line's commit, if it replays one: `pick`, `edit`, `reword`, and (only `fixups`) a
+/// `fixup [-C|-c]` or `squash`, whose interrupted amend can't be told from a done one.
+fn replayed(line: &str, fixups: bool) -> Option<String> {
+    let mut words = line.split_whitespace();
+    let cmd = words.next()?;
+    let pick = ["pick", "p", "edit", "e", "reword", "r"].contains(&cmd);
+    if !pick && !(fixups && ["fixup", "f", "squash", "s"].contains(&cmd)) {
+        return None;
+    }
+    let oid = words.find(|w| !w.starts_with('-'))?;
+    (oid.len() >= 7 && oid.bytes().all(|b| b.is_ascii_hexdigit())).then(|| oid.to_string())
+}
+
+/// HEAD is `oid` picked: the same author (name, email and date, which a pick keeps) and the tree
+/// picking `oid` onto HEAD's parent makes (two commits of one author in the same second aren't
+/// taken for each other). Unreadable counts as picked (nothing is replayed again).
+async fn head_is_pick_of(cx: &WriteCx<'_>, oid: &str) -> bool {
+    let (root, id) = (cx.root.to_path_buf(), oid.to_string());
+    let same_author = blocking(move || {
+        let repo = gix::open(&root).map_err(gix_err)?;
+        let author = |id: ObjectId| -> Result<String, GbError> {
+            let c = repo.find_commit(id).map_err(gix_err)?;
+            let a = c.author().map_err(gix_err)?;
+            Ok(format!("{} <{}> {}", a.name, a.email, a.time))
+        };
+        let picked = repo.rev_parse_single(id.as_str()).map_err(gix_err)?.detach();
+        let head = repo.head_id().map_err(gix_err)?.detach();
+        Ok(author(head)? == author(picked)?)
+    })
+    .await
+    .unwrap_or(true);
+    if !same_author {
+        return false;
+    }
+    let run = |args: Vec<String>| async move { cx.api.cli.run(GitInvocation::new(cx.root, args)).await.ok().map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or_default().trim().to_string()) };
+    let picked = run(vec!["merge-tree".into(), "--write-tree".into(), "--merge-base".into(), format!("{oid}^"), "HEAD^".into(), oid.to_string()]).await;
+    let head = run(vec!["rev-parse".into(), "HEAD^{tree}".into()]).await;
+    match (picked, head) {
+        (Some(p), Some(h)) if !p.is_empty() && !h.is_empty() => p == h,
+        _ => true,
+    }
+}
+
+/// The index holds exactly what picking `oid` onto HEAD makes (git's merge, no conflict).
+async fn pick_result_staged(cx: &WriteCx<'_>, oid: &str) -> bool {
+    let Ok(out) = cx.api.cli.run(GitInvocation::new(cx.root, ["merge-tree", "--write-tree", "--merge-base", &format!("{oid}^"), "HEAD", oid])).await else { return false };
+    let tree = String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or_default().trim().to_string();
+    if tree.is_empty() {
+        return false;
+    }
+    cx.api.cli.run(GitInvocation::new(cx.root, ["diff", "--cached", "--name-only", "-z", &tree])).await.is_ok_and(|o| o.stdout.is_empty())
+}
+
+/// UX F: git keeps a rebase's signing from its start (`rebase-merge/gpg_sign_opt`, `-S` from
+/// `commit.gpgsign`), so turning signing off at a stop changed nothing. For a rebase GitBolt
+/// started (it never passes `-S` itself), a plain `-S` goes once `commit.gpgsign` is explicitly
+/// `false`. On with no file, git's sequencer reads `commit.gpgsign` itself.
+async fn sign_as_configured(cx: &WriteCx<'_>) -> Result<(), GbError> {
+    let root = cx.root.to_path_buf();
+    let git_dir = blocking(move || Ok(gix::open(&root).map_err(gix_err)?.git_dir().to_path_buf())).await?;
+    let opt = git_dir.join("rebase-merge").join("gpg_sign_opt");
+    if std::fs::read_to_string(&opt).map(|s| s.trim() != "-S").unwrap_or(true) {
+        return Ok(());
+    }
+    // Only an explicit `false` (fix round 1): unset, or `true` from an include that doesn't match
+    // on the rebase's detached HEAD (`includeIf "onbranch:…"`), keeps git's `-S`.
+    let out = cx.api.cli.run(GitInvocation::new(cx.root, ["config", "--bool", "--get", "commit.gpgsign"]).ok_exit(1)).await?;
+    if String::from_utf8_lossy(&out.stdout).trim() != "false" {
+        return Ok(());
+    }
+    tracing::info!(target: "gitbolt_core::write", "commit.gpgsign is off now: the rebase stops signing");
+    std::fs::remove_file(&opt).map_err(|e| GbError::new(GbErrorKind::Io, format!("{}: {e}", opt.display())))
 }
 
 /// `run_rebase_stop`, git's environment as the write sets it.
@@ -503,17 +823,89 @@ impl WriteIntent for RebaseControl {
         // --- end 3C T4 ---
         match self.action {
             RebaseAction::Continue | RebaseAction::Skip => {
-                let step = if self.action == RebaseAction::Continue { "--continue" } else { "--skip" };
+                let mut step = if self.action == RebaseAction::Continue { "--continue" } else { "--skip" };
                 // Review N1: if the update list couldn't be pruned at GitBolt's pause, git moves
                 // the merged-in branches at the end; they go back here (only then, N6).
                 let keep = put_back_of_pause(cx)?;
-                if let Some(m) = self.message.as_deref().filter(|m| self.action == RebaseAction::Continue && !m.trim().is_empty()) {
+                // The message the user typed in the box (the UI sends one only when edited).
+                let typed = self.message.as_deref().filter(|m| self.action == RebaseAction::Continue && !m.trim().is_empty());
+                // --- UX F: a stop where the commit failed (the signer) can go on ---
+                let ours = !self.target.is_empty();
+                // --- UX L: GitBolt's Edit stop is "about to commit" ---
+                let staged_stop = if session.is_some() { crate::write::irebase::edit::staged_stop(cx).await? } else { None };
+                if staged_stop.is_some() && self.action == RebaseAction::Skip {
+                    // git's `--skip` would reset the stop's changes away, the user's own with them.
+                    return Err(GbError::new(GbErrorKind::InvalidInput, "Skip isn't offered at an Edit stop: discard its changes to leave the commit out, then Continue"));
+                }
+                // --- end UX L ---
+                if ours {
+                    sign_as_configured(cx).await?;
+                }
+                // UX L: what's staged is committed first (the original's author kept), or HEAD goes
+                // back to git's commit when nothing changed; then git goes on.
+                let at_edit = match &staged_stop {
+                    Some(st) => Some(crate::write::irebase::edit::commit_at_stop(cx, st, typed).await?),
+                    None => None,
+                };
+                // A failed commit picked again (only in GitBolt's own rebases): `Some` when it
+                // was put back as `edit`, so the typed message goes in at that stop.
+                let mut repicked = None;
+                match self.action {
+                    RebaseAction::Continue if ours => repicked = retry_failed_commit(cx, typed.is_some()).await?,
+                    // git's `--skip` would pick it again: it's dropped, then git continues.
+                    RebaseAction::Skip if ours && skip_failed_commit(cx).await? => step = "--continue",
+                    _ => {}
+                }
+                // --- end UX F ---
+                if let Some(m) = typed.filter(|_| repicked.is_none() && staged_stop.is_none()) {
                     use_message(cx, m).await?;
                 }
                 let mut args = pins;
                 args.extend(["rebase".to_string(), step.into()]);
                 let mut failed = None;
-                let out = run_rebase_stop(cx, args, &self.target, None, Vec::new(), &mut failed).await?;
+                use crate::write::irebase::edit::{restage, AtStop};
+                let first = match at_edit {
+                    // A cancel before git moves past the stop can't be timed from a test: its hook.
+                    #[cfg(test)]
+                    Some(AtStop::Restored) if crate::write::irebase::edit::test_hook::cancels(cx.root) => Err(GbError::new(GbErrorKind::Cancelled, "Cancelled")),
+                    _ => run_rebase_stop(cx, args.clone(), &self.target, None, Vec::new(), &mut failed).await,
+                };
+                // UX L: back on git's commit, and git didn't get past it (a cancel, a failure): the
+                // stop is staged again.
+                if let (Some(st), Some(AtStop::Restored), Err(_) | Ok(IntegrateOutcome::Stopped { .. })) = (&staged_stop, at_edit, &first) {
+                    restage(cx, st).await;
+                }
+                // --- UX F: the typed message reaches the re-picked commit ---
+                let out = match (&repicked, typed) {
+                    (Some(r), Some(m)) => match first {
+                        Ok(IntegrateOutcome::Stopped { kind, files, warning }) => match typed_message_at_stop(cx, m).await {
+                            Ok(true) if r.was_edit() => Ok(IntegrateOutcome::Stopped { kind, files, warning }),
+                            // It was a pick (or a reword): no stop of the user's own here.
+                            Ok(true) => {
+                                failed = None;
+                                run_rebase_stop(cx, args, &self.target, None, Vec::new(), &mut failed).await
+                            }
+                            Ok(false) => {
+                                r.restore(cx.root);
+                                Ok(IntegrateOutcome::Stopped { kind, files, warning })
+                            }
+                            // The amend failed (the signer again): paused at the commit, which a
+                            // Continue with the message amends then.
+                            Err(e) => {
+                                r.restore(cx.root);
+                                let why = format!("The typed message wasn't applied: {}. Continue with it to retry, or without it to keep the old one", e.message.trim_end_matches('.'));
+                                Ok(IntegrateOutcome::Stopped { kind, files, warning: Some(why) })
+                            }
+                        },
+                        other => {
+                            // A cancel, a failure, or done without the stop: no stray `edit`.
+                            r.restore(cx.root);
+                            other
+                        }
+                    },
+                    _ => first,
+                }?;
+                // --- end UX F ---
                 if matches!(out, IntegrateOutcome::Done { .. }) {
                     put_back(cx, &keep).await?;
                 }
@@ -1247,3 +1639,485 @@ mod tests {
     // --- end 2C repo-safety ---
 }
 
+
+// --- UX F: commit signing at a rebase's commits ---
+/// Signing the way the user's global config does it (`commit.gpgsign`, `gpg.program`), with a
+/// stand-in signer (never the user's own gpg): one that signs, one that fails, one that never
+/// returns (a TTY pinentry nobody sees).
+#[cfg(test)]
+mod signing_tests {
+    use super::last_command;
+    use crate::api::Request;
+    use crate::error::GbErrorKind;
+    use crate::events::AppEvent;
+    use crate::testing::{fixtures, TestRepo};
+    use crate::write::irebase::run::tests::{picks, set, stay};
+    use crate::write::test_support::{api, call, open, wt};
+    use serde_json::{json, Value};
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// Reads the payload, notes `GPG_TTY`, and prints a status line and a signature as gpg does.
+    const SIGNS: &str = "cat >/dev/null; echo \"$GPG_TTY\" > \"$(dirname \"$0\")/tty\"; printf '\\n[GNUPG:] SIG_CREATED D 1 8 00 1 X\\n' >&2; printf -- '-----BEGIN PGP SIGNATURE-----\\n\\nZmFrZQ==\\n-----END PGP SIGNATURE-----\\n'";
+    const FAILS: &str = "cat >/dev/null; echo 'gpg: signing failed: No pinentry' >&2; exit 2";
+    const BLOCKS: &str = "exec sleep 600";
+
+    struct Signer {
+        dir: tempfile::TempDir,
+    }
+
+    impl Signer {
+        /// `commit.gpgsign=true` with a stand-in `gpg.program` in `r`'s own config.
+        fn on(r: &TestRepo, body: &str) -> Self {
+            let s = Self { dir: tempfile::tempdir().unwrap() };
+            r.git(&["config", "commit.gpgsign", "true"]);
+            r.git(&["config", "gpg.format", "openpgp"]);
+            s.set(r, body);
+            s
+        }
+
+        fn set(&self, r: &TestRepo, body: &str) {
+            use std::os::unix::fs::PermissionsExt;
+            let p = self.dir.path().join(format!("gpg-{}", body.len()));
+            std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            r.git(&["config", "gpg.program", p.to_str().unwrap()]);
+        }
+
+        fn tty(&self) -> String {
+            std::fs::read_to_string(self.dir.path().join("tty")).unwrap_or_default().trim().to_string()
+        }
+    }
+
+    async fn plain_rebase(api: &crate::api::Api, id: u32, r: &TestRepo) -> Value {
+        call(api, "integrate", json!({ "repo": id, "worktree": wt(r.path()), "kind": "rebase", "target": "main", "updateRefs": true })).await.unwrap()
+    }
+
+    /// GitBolt's interactive rebase of the stack, its middle commit an Edit row.
+    async fn edit_rebase(api: &crate::api::Api, id: u32, r: &TestRepo) -> Value {
+        let p = call(api, "rebasePlan", json!({ "repo": id, "worktree": wt(r.path()), "branch": "feature/c", "base": "main" })).await.unwrap();
+        let mut rows = picks(&p);
+        set(&p, &mut rows, "Work on feature/b", "edit", None);
+        call(api, "interactiveRebase", json!({ "repo": id, "worktree": wt(r.path()), "branch": "feature/c", "base": "main", "expect": p["expect"], "rows": rows, "chips": stay(&p) })).await.unwrap()
+    }
+
+    async fn cont(api: &crate::api::Api, id: u32, dir: &Path) -> Result<Value, crate::error::GbError> {
+        call(api, "rebaseControl", json!({ "repo": id, "worktree": wt(dir), "action": "continue" })).await
+    }
+
+    fn rebasing(r: &TestRepo) -> bool {
+        matches!(crate::in_progress::read(r.path()).unwrap(), Some(crate::in_progress::InProgress::Rebase { .. }))
+    }
+
+    fn subjects(r: &TestRepo) -> String {
+        r.git(&["log", "--format=%s", "-4", "feature/c"])
+    }
+
+    const MOVED: &str = "Work on feature/c\nWork on feature/b\nWork on feature/a\nMain moves";
+
+    /// The playground's case: a signer that fails stops the rebase at its first commit. The stop
+    /// says why (git's message, gpg's reason), Continue with the signer still failing says it
+    /// again and stays paused, and with signing turned off at the stop, Continue finishes (git
+    /// kept the rebase's `-S`, and its rescheduled pick left its result staged).
+    #[tokio::test]
+    async fn a_failing_signer_stops_with_its_reason_and_continue_goes_on_once_signing_is_off() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let _signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let out = &plain_rebase(&api, id, &r).await["outcome"];
+        assert_eq!((&out["status"], &out["files"]), (&json!("stopped"), &json!(0)), "{out}");
+        let why = "The rebase stopped: gpg failed to sign the data: gpg: signing failed: No pinentry";
+        assert_eq!(out["warning"], why);
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!((&out["status"], &out["warning"]), (&json!("stopped"), &json!(why)), "still failing: said again, still paused");
+        assert!(rebasing(&r));
+        r.git(&["config", "commit.gpgsign", "false"]);
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert!(!rebasing(&r));
+        assert_eq!(subjects(&r), MOVED);
+        assert_eq!(r.git(&["log", "-1", "--format=%B", "feature/a"]), "Work on feature/a", "git's own message");
+        assert!(!r.git(&["cat-file", "commit", "feature/c"]).contains("gpgsig"), "unsigned, as the config now says");
+        assert_eq!(r.git(&["status", "--porcelain"]), "");
+    }
+
+    /// The Edit-row case: the signer fails at the first pick; fixed, Continue picks it again,
+    /// signed, stops at the Edit row, and Continue there finishes. Every write's signer saw
+    /// `GPG_TTY=/dev/null` (no TTY pinentry can wait on a terminal).
+    #[tokio::test]
+    async fn an_edit_rebase_whose_signer_failed_resumes_signed_once_it_works() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let out = &edit_rebase(&api, id, &r).await["outcome"];
+        assert!(out["warning"].as_str().is_some_and(|w| w.contains("signing failed: No pinentry")), "{out}");
+        signer.set(&r, SIGNS);
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "stopped", "{out}");
+        assert!(out.get("warning").is_none(), "the Edit stop is a plain stop: {out}");
+        // UX L: "about to commit": HEAD on the commit's parent, its change staged.
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "Work on feature/a");
+        assert!(!r.git(&["diff", "--cached", "--name-only"]).is_empty());
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert_eq!(subjects(&r), MOVED);
+        for b in ["feature/a", "feature/b", "feature/c"] {
+            assert!(r.git(&["cat-file", "commit", b]).contains("gpgsig"), "{b} is signed");
+        }
+        assert_eq!(signer.tty(), "/dev/null");
+    }
+
+    /// A signer that never returns at an Edit stop's Continue: the write is cancellable, the
+    /// cancel leaves the rebase paused where it was, and a later Continue (signer working) finishes.
+    #[tokio::test]
+    async fn a_hung_signer_at_continue_cancels_to_the_same_pause() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let signer = Signer::on(&r, SIGNS);
+        let api = Arc::new(api(data.path()));
+        let id = open(&api, &r).await;
+        assert_eq!(edit_rebase(&api, id, &r).await["outcome"]["status"], "stopped");
+        signer.set(&r, BLOCKS);
+        let mut rx = api.subscribe();
+        let (a2, p) = (api.clone(), r.path().to_path_buf());
+        let run = tokio::spawn(async move { cont(&a2, id, &p).await });
+        let op = loop {
+            if let Ok(AppEvent::OpStarted { op, .. }) = rx.recv().await {
+                break op;
+            }
+        };
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(!run.is_finished(), "the signer holds it");
+        api.dispatch(Request::CancelOp { op }).await.unwrap();
+        let e = tokio::time::timeout(Duration::from_secs(10), run).await.expect("a cancel ends it").unwrap().unwrap_err();
+        assert_eq!(e.kind, GbErrorKind::Cancelled);
+        assert!(rebasing(&r), "still paused");
+        let state = call(&api, "journalState", json!({ "repo": id, "worktree": wt(r.path()) })).await.unwrap();
+        assert!(!state["paused"].is_null(), "the pause stands: {state}");
+        assert_eq!(r.git(&["log", "-1", "--format=%s", "HEAD"]), "Work on feature/b", "at the stop, or the pick after it");
+        signer.set(&r, SIGNS);
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert_eq!(subjects(&r), MOVED);
+        assert_eq!(r.git(&["status", "--porcelain"]), "");
+    }
+
+    /// Staged changes of the user's own at a failed commit's stop aren't thrown away for a retry:
+    /// git's refusal says so, and the rebase stays paused.
+    #[tokio::test]
+    async fn the_users_own_staged_changes_are_never_reset_for_a_retry() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let _signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        plain_rebase(&api, id, &r).await;
+        r.write("mine.txt", "mine\n");
+        r.git(&["add", "mine.txt"]);
+        r.git(&["config", "commit.gpgsign", "false"]);
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "stopped", "{out}");
+        assert!(out["warning"].as_str().is_some_and(|w| w.contains("staged changes")), "{out}");
+        assert!(rebasing(&r));
+        assert_eq!(std::fs::read_to_string(r.path().join("mine.txt")).unwrap(), "mine\n");
+        assert!(r.git(&["diff", "--cached", "--name-only"]).contains("mine.txt"));
+        // Skip refuses too, in plain words, and keeps them.
+        let e = call(&api, "rebaseControl", json!({ "repo": id, "worktree": wt(r.path()), "action": "skip" })).await.unwrap_err();
+        assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "Skip would also throw away changes you staged yourself. Unstage them first"));
+        assert!(rebasing(&r));
+        assert!(r.git(&["diff", "--cached", "--name-only"]).contains("mine.txt"));
+    }
+
+    async fn cont_with(api: &crate::api::Api, id: u32, dir: &Path, message: &str) -> Value {
+        call(api, "rebaseControl", json!({ "repo": id, "worktree": wt(dir), "action": "continue", "message": message })).await.unwrap()
+    }
+
+    /// The coordinator's item 1: a message typed at a failed commit's stop reaches that commit
+    /// (picked again, then amended at a stop of its own), and the rest of the rebase goes on.
+    /// Typed while the signer still fails, the pick keeps its own command (no stray Edit stop).
+    #[tokio::test]
+    async fn a_message_typed_at_a_failed_commits_stop_reaches_the_commit() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let _signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        plain_rebase(&api, id, &r).await;
+        let todo = || std::fs::read_to_string(r.path().join(".git/rebase-merge/git-rebase-todo")).unwrap();
+        let out = &cont_with(&api, id, r.path(), "Work on feature/a, typed\n\nWith a body.").await["outcome"];
+        assert_eq!(out["status"], "stopped", "{out}");
+        assert!(todo().starts_with("pick "), "still a pick: {}", todo());
+        r.git(&["config", "commit.gpgsign", "false"]);
+        let out = &cont_with(&api, id, r.path(), "Work on feature/a, typed\n\nWith a body.").await["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert!(!rebasing(&r));
+        assert_eq!(subjects(&r), "Work on feature/c\nWork on feature/b\nWork on feature/a, typed\nMain moves");
+        assert_eq!(r.git(&["log", "-1", "--format=%B", "feature/c~2"]), "Work on feature/a, typed\n\nWith a body.");
+        assert_eq!(r.git(&["log", "-1", "--format=%an", "feature/c~2"]), "Ada Lovelace", "the commit's own author");
+        assert_eq!(r.git(&["status", "--porcelain"]), "");
+    }
+
+    /// The coordinator's item 2: Skip at a failed commit's stop skips that commit (git's own
+    /// `--skip` would pick it again), its staged result gone; the rest goes on.
+    #[tokio::test]
+    async fn skip_at_a_failed_commits_stop_skips_it() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let _signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        plain_rebase(&api, id, &r).await;
+        r.git(&["config", "commit.gpgsign", "false"]);
+        let out = &call(&api, "rebaseControl", json!({ "repo": id, "worktree": wt(r.path()), "action": "skip" })).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert!(!rebasing(&r));
+        assert_eq!(r.git(&["log", "--format=%s", "-3", "feature/c"]), "Work on feature/c\nWork on feature/b\nMain moves");
+        assert_eq!(r.git(&["status", "--porcelain"]), "");
+    }
+
+    // --- fix round 1 ---
+    fn state(r: &TestRepo, name: &str) -> String {
+        std::fs::read_to_string(r.path().join(".git/rebase-merge").join(name)).unwrap_or_default()
+    }
+
+    /// Signs its first `n` calls, then runs `then` (a stand-in for a cached passphrase expiring).
+    fn signs_then(n: u32, then: &str) -> String {
+        format!("c=\"$(dirname \"$0\")/calls\"; k=$(cat \"$c\" 2>/dev/null || echo 0); echo $((k+1)) > \"$c\"; if [ \"$k\" -ge {n} ]; then {then}; fi; {SIGNS}")
+    }
+
+    /// Runs `send` and cancels its op once it's under way; the write's error.
+    async fn cancelled(api: &Arc<crate::api::Api>, send: impl std::future::Future<Output = Result<Value, crate::error::GbError>> + Send + 'static) -> crate::error::GbError {
+        let mut rx = api.subscribe();
+        let run = tokio::spawn(send);
+        let op = loop {
+            if let Ok(AppEvent::OpStarted { op, .. }) = rx.recv().await {
+                break op;
+            }
+        };
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(!run.is_finished(), "the signer holds it");
+        api.dispatch(Request::CancelOp { op }).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), run).await.expect("a cancel ends it").unwrap().unwrap_err()
+    }
+
+    /// Item 1: a rebase started in a terminal is git's alone: its failed pick is never reset or
+    /// re-picked by GitBolt (git's own refusal shows, the index untouched).
+    #[tokio::test]
+    async fn a_terminal_rebases_failed_pick_is_left_to_git() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let _signer = Signer::on(&r, FAILS);
+        assert!(r.try_git(&["-c", "commit.gpgsign=true", "rebase", "main"]).is_err());
+        let staged = r.git(&["diff", "--cached", "--name-only"]);
+        assert!(!staged.is_empty());
+        r.git(&["config", "commit.gpgsign", "false"]);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let (todo, done) = (state(&r, "git-rebase-todo"), state(&r, "done"));
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "stopped", "{out}");
+        assert!(out["warning"].as_str().is_some_and(|w| w.contains("staged changes")), "{out}");
+        assert_eq!((state(&r, "git-rebase-todo"), state(&r, "done")), (todo, done));
+        assert_eq!(r.git(&["diff", "--cached", "--name-only"]), staged);
+    }
+
+    /// Item 1: at a `break` (no commit failed there), Skip skips nothing: git's own skip, and
+    /// every commit lands.
+    #[tokio::test]
+    async fn a_break_stop_then_skip_skips_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        assert_eq!(edit_rebase(&api, id, &r).await["outcome"]["status"], "stopped");
+        let todo = r.path().join(".git/rebase-merge/git-rebase-todo");
+        std::fs::write(&todo, format!("break\n{}", std::fs::read_to_string(&todo).unwrap())).unwrap();
+        // UX L: GitBolt's Continue at its Edit stop (git's own would refuse the staged change).
+        assert_eq!(cont(&api, id, r.path()).await.unwrap()["outcome"]["status"], "stopped");
+        assert_eq!(last_command(&state(&r, "done")), Some("break"));
+        let out = &call(&api, "rebaseControl", json!({ "repo": id, "worktree": wt(r.path()), "action": "skip" })).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert_eq!(subjects(&r), MOVED, "nothing skipped");
+    }
+
+    /// Item 2: two commits by one author in the same second. A Continue cancelled while the
+    /// second one was being committed isn't taken for done (HEAD's tree isn't its pick's): the
+    /// next Continue picks it again, nothing dropped.
+    #[tokio::test]
+    async fn a_cancelled_pick_after_a_same_second_commit_of_the_same_author_isnt_dropped() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        r.commit("Base");
+        r.switch_new("topic");
+        for f in ["f1", "f2"] {
+            r.write(&format!("{f}.txt"), "x\n");
+            r.git(&["add", &format!("{f}.txt")]);
+            r.git(&["commit", "-q", "--date=@1700000000 +0000", "-m", f]);
+        }
+        r.switch("main");
+        r.write("main.txt", "main\n");
+        r.git(&["add", "main.txt"]);
+        r.git(&["commit", "-q", "-m", "Main moves"]);
+        r.switch("topic");
+        let signer = Signer::on(&r, &signs_then(1, BLOCKS));
+        let api = Arc::new(api(data.path()));
+        let id = open(&api, &r).await;
+        let p = call(&api, "rebasePlan", json!({ "repo": id, "worktree": wt(r.path()), "branch": "topic", "base": "main" })).await.unwrap();
+        let mut rows = picks(&p);
+        set(&p, &mut rows, "f1", "edit", None);
+        let out = call(&api, "interactiveRebase", json!({ "repo": id, "worktree": wt(r.path()), "branch": "topic", "base": "main", "expect": p["expect"], "rows": rows, "chips": stay(&p) })).await.unwrap();
+        assert_eq!(out["outcome"]["status"], "stopped", "{out}");
+        let (a2, dir) = (api.clone(), r.path().to_path_buf());
+        assert_eq!(cancelled(&api, async move { cont(&a2, id, &dir).await }).await.kind, GbErrorKind::Cancelled);
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "f1");
+        assert_eq!(r.git(&["log", "-1", "--format=%an %ad", "HEAD"]), r.git(&["log", "-1", "--format=%an %ad", "topic"]), "the same author ident");
+        signer.set(&r, SIGNS);
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert_eq!(r.git(&["log", "--format=%s", "-3", "topic"]), "f2\nf1\nMain moves");
+        assert_eq!(r.git(&["status", "--porcelain"]), "");
+    }
+
+    /// Item 3: unstaging comes first; when git refuses it (a file changed both staged and
+    /// unstaged), nothing changes, and the error says what to do.
+    #[tokio::test]
+    async fn a_refused_unstage_changes_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let _signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        plain_rebase(&api, id, &r).await;
+        let staged = r.git(&["diff", "--cached", "--name-only"]);
+        r.write(&staged, "mine too\n");
+        r.git(&["config", "commit.gpgsign", "false"]);
+        let (todo, done) = (state(&r, "git-rebase-todo"), state(&r, "done"));
+        let e = cont(&api, id, r.path()).await.unwrap_err();
+        assert_eq!(e.kind, GbErrorKind::InvalidInput);
+        assert!(e.message.starts_with("The failed commit's changes couldn't be unstaged") && e.message.ends_with("Stage or discard your own changes to those files first"), "{}", e.message);
+        assert_eq!((state(&r, "git-rebase-todo"), state(&r, "done")), (todo, done));
+        assert!(r.path().join(".git/rebase-merge/author-script").exists());
+        assert_eq!(r.git(&["diff", "--cached", "--name-only"]), staged);
+        assert_eq!(std::fs::read_to_string(r.path().join(&staged)).unwrap(), "mine too\n");
+    }
+
+    /// Item 4: a sequencer file is replaced whole (temporary file, then rename), nothing left over.
+    #[test]
+    fn sequencer_files_are_written_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("git-rebase-todo");
+        std::fs::write(&path, "pick a\n").unwrap();
+        super::write_state(&path, "pick b\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "pick b\n");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1, "no temporary file left");
+    }
+
+    /// Item 5: a Continue with a typed message that's cancelled while git re-picks leaves no
+    /// `edit` behind; the next one applies the message and finishes.
+    #[tokio::test]
+    async fn a_cancelled_retagged_continue_puts_the_pick_back() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let signer = Signer::on(&r, FAILS);
+        let api = Arc::new(api(data.path()));
+        let id = open(&api, &r).await;
+        plain_rebase(&api, id, &r).await;
+        signer.set(&r, BLOCKS);
+        let (a2, dir) = (api.clone(), r.path().to_path_buf());
+        let send = async move { call(&a2, "rebaseControl", json!({ "repo": id, "worktree": wt(&dir), "action": "continue", "message": "Typed" })).await };
+        assert_eq!(cancelled(&api, send).await.kind, GbErrorKind::Cancelled);
+        assert!(rebasing(&r));
+        let both = format!("{}{}", state(&r, "git-rebase-todo"), state(&r, "done"));
+        assert!(!both.lines().any(|l| l.starts_with("edit ")), "no stray edit: {both}");
+        signer.set(&r, SIGNS);
+        let out = &cont_with(&api, id, r.path(), "Typed").await["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert_eq!(subjects(&r), "Work on feature/c\nWork on feature/b\nTyped\nMain moves");
+    }
+
+    /// Item 5: the re-pick signs, the typed message's amend doesn't: the stop stays (no stray
+    /// `edit` line), says so, and a Continue with the message applies it then.
+    #[tokio::test]
+    async fn a_failed_amend_of_the_typed_message_keeps_the_stop_and_retries() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        plain_rebase(&api, id, &r).await;
+        signer.set(&r, &signs_then(1, FAILS));
+        let out = &cont_with(&api, id, r.path(), "Typed").await["outcome"];
+        assert_eq!(out["status"], "stopped", "{out}");
+        assert!(out["warning"].as_str().is_some_and(|w| w.starts_with("The typed message wasn't applied: gpg failed to sign the data")), "{out}");
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "Work on feature/a", "picked, its own message");
+        assert!(last_command(&state(&r, "done")).is_some_and(|l| l.starts_with("pick ")), "{}", state(&r, "done"));
+        signer.set(&r, SIGNS);
+        let out = &cont_with(&api, id, r.path(), "Typed").await["outcome"];
+        assert_eq!(out["status"], "done", "{out}");
+        assert_eq!(subjects(&r), "Work on feature/c\nWork on feature/b\nTyped\nMain moves");
+    }
+
+    /// Item 6: only an explicit `commit.gpgsign=false` drops the rebase's `-S`: unset (an include
+    /// that doesn't match the detached HEAD reads the same) keeps signing.
+    #[tokio::test]
+    async fn an_unset_gpgsign_keeps_the_rebases_signing() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        let _signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        plain_rebase(&api, id, &r).await;
+        r.git(&["config", "--unset", "commit.gpgsign"]);
+        let out = &cont(&api, id, r.path()).await.unwrap()["outcome"];
+        assert!(out["warning"].as_str().is_some_and(|w| w.contains("gpg failed to sign")), "still signing: {out}");
+        assert_eq!(state(&r, "gpg_sign_opt").trim(), "-S");
+    }
+
+    /// Items 1 and 8: a `reword` line (and a `pick`) goes back as `edit` for a typed message;
+    /// fixups and squashes don't.
+    #[test]
+    fn a_typed_message_retags_pick_edit_and_reword_lines() {
+        assert_eq!(super::as_edit("pick abc1234 # A").as_deref(), Some("edit abc1234 # A"));
+        assert_eq!(super::as_edit("reword abc1234 # A").as_deref(), Some("edit abc1234 # A"));
+        assert_eq!(super::as_edit("edit abc1234 # A").as_deref(), Some("edit abc1234 # A"));
+        assert_eq!(super::as_edit("fixup abc1234 # A"), None);
+        assert!(super::same_commit("abc1234", "abc1234ffff") && !super::same_commit("abc", "abc1234"));
+    }
+    // --- end fix round 1 ---
+
+    /// A plain commit (and an amend) whose signer fails names gpg's reason.
+    #[tokio::test]
+    async fn a_commit_whose_signer_fails_says_why() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        r.commit("base");
+        let _signer = Signer::on(&r, FAILS);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        r.write("x.txt", "x\n");
+        r.git(&["add", "x.txt"]);
+        for amend in [false, true] {
+            let e = call(&api, "commit", json!({ "repo": id, "worktree": wt(r.path()), "summary": "x", "description": "", "amend": amend, "stageAll": false, "expect": {} })).await.unwrap_err();
+            assert_eq!(e.message, "gpg failed to sign the data: gpg: signing failed: No pinentry", "amend {amend}");
+        }
+        assert_eq!(r.git(&["log", "--format=%s"]), "base");
+    }
+}
+// --- end UX F ---

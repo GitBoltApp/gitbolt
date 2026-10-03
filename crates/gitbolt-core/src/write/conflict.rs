@@ -512,7 +512,7 @@ async fn hand_edited(cx: &WriteCx<'_>, path: &str, stages: &Stages, base: Option
     Ok(String::from_utf8_lossy(&out.stdout).trim() != expected)
 }
 
-/// The merge tool's save (§7.5 rules, as 2B's `SaveFile`): a regular, writable, text file, only
+/// The merge tool's save (§7.5 rules, as `WriteWorktreeFile`'s): a regular, writable, text file, only
 /// over the bytes `conflictFile` hashed (`Stale` otherwise), in the file's encoding and BOM,
 /// atomically. Lines as `Resolution::Text` says.
 async fn write_text(cx: &WriteCx<'_>, path: &str, text: &str, base: Option<&str>) -> Result<(), GbError> {

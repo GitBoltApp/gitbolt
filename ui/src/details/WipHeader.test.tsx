@@ -1,5 +1,8 @@
-import { act, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { RepoContext } from '../app/repoContext';
+import { discardAll } from '../stage/actions';
+import { useStaging } from '../stage/store';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import type { WipPayload } from '../api/gen/WipPayload';
@@ -9,6 +12,8 @@ import { Lru } from '../data/lru';
 import { createRepoViewStore, RepoViewContext } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { WipHeader } from './WipHeader';
+
+vi.mock('../stage/actions', async (original) => ({ ...(await original<typeof import('../stage/actions')>()), discardAll: vi.fn(async () => true) }));
 
 /** File lists load at once (empty): the panel shows a selection once its lists are in. */
 const change = (path: string): FileListPayload['files'][number] => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
@@ -49,5 +54,29 @@ describe('WipHeader', () => {
     g.worktrees = [{ path: '/r', inProgress: 'merge' } as GraphPayload['worktrees'][number]];
     await renderSelected(g, 0, 'a.txt');
     expect(screen.getByRole('button', { name: 'Discard all' })).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+// UX R1 C.2: Discard all sends the files it confirms, and waits for its own answer.
+describe('WipHeader Discard all (UX R1 C.2)', () => {
+  const ctx = { tabId: 't', repoId: 1, path: '/r', worktree: '/r', info: null };
+  it('sends the files the panel shows, a rename\'s both paths', async () => {
+    const g = graphOf(wipRow({ worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 1, conflicted: 0 }));
+    const files = [change('a.txt'), { ...change('new.txt'), oldPath: 'old.txt', status: 'R' }];
+    const store = createRepoViewStore(1, '/r', g, fakeServices({ files: new Loader(async (): Promise<FileListPayload> => ({ files, added: 0, deleted: 0 }), new Lru(8)) }));
+    await act(async () => store.getState().selectRow(0));
+    render(<RepoContext value={ctx}><RepoViewContext value={store}><WipHeader /></RepoViewContext></RepoContext>);
+    fireEvent.click(screen.getByRole('button', { name: 'Discard all' }));
+    expect(discardAll).toHaveBeenCalledWith({ tabId: 't', repoId: 1, worktree: '/r' }, 2, ['a.txt', 'new.txt', 'old.txt']);
+  });
+
+  it('is disabled while one runs: "Discarding…"', async () => {
+    useStaging.getState().setDiscarding(1, '/r', true);
+    const g = graphOf(wipRow({ worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 }));
+    const store = createRepoViewStore(1, '/r', g, loaded('a.txt'));
+    await act(async () => store.getState().selectRow(0));
+    render(<RepoContext value={ctx}><RepoViewContext value={store}><WipHeader /></RepoViewContext></RepoContext>);
+    expect(screen.getByRole('button', { name: 'Discard all' })).toHaveAttribute('aria-disabled', 'true');
+    useStaging.getState().setDiscarding(1, '/r', false);
   });
 });

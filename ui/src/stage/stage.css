@@ -34,6 +34,8 @@
 
 .wip-view-bar { position: relative; }
 .staging-undo { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; gap: 2px; }
+/* UX G.2: the WIP's View all files, at the bar's left end (the shared Path/Tree toggle in the centre). */
+.wip-all-files { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); }
 
 /* Header buttons: full label, then "Stage all" under 460px, then icon only under 340px. */
 .row-action-short { display: none; }

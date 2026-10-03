@@ -3,7 +3,7 @@ import type { InProgress } from '../api/gen/InProgress';
 import { operationView, withoutComments } from './inProgress';
 
 const merge = (message: string, conflicted: number): InProgress => ({ kind: 'merge', mergeHead: 'f'.repeat(40), message, conflicted });
-const rebase = (o: Partial<Extract<InProgress, { kind: 'rebase' }>> = {}): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/main', step: 2, total: 5, stoppedAt: 'a1b2c3d'.padEnd(40, '0'), editStop: null, editConflict: false, messageFailed: null, gitbolt: true, conflicted: 1, message: 'Fix x\n\n# Conflicts:\n#\tc.txt\n', ...o });
+const rebase = (o: Partial<Extract<InProgress, { kind: 'rebase' }>> = {}): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/main', step: 2, total: 5, stoppedAt: 'a1b2c3d'.padEnd(40, '0'), editStop: null, editBase: null, editAdded: [], editChanged: false, editConflict: false, messageFailed: null, gitbolt: true, conflicted: 1, message: 'Fix x\n\n# Conflicts:\n#\tc.txt\n', ...o });
 
 describe('the commit panel\'s operation status (spec #2 §13.2, ux round 1)', () => {
   it('names the merge for the user, by short names', () => {
@@ -41,13 +41,24 @@ describe('the commit panel\'s operation status (spec #2 §13.2, ux round 1)', ()
     expect(operationView({ kind: 'revert', head, message: 'Revert "x"\n', conflicted: 0 }, null, 'main', () => null)).toMatchObject({ region: 'Revert in progress', title: 'Reverting ddddddd', primary: 'Continue revert', hint: 'No conflicted files left: Continue to commit the revert.' });
   });
 
-  it('an Edit stop: "Stopped to edit", Continue / Abort only, its commit as editStop', () => {
+  it('git\'s own Edit stop: "Stopped to edit", Continue / Abort only, its commit as editStop', () => {
     const v = operationView(rebase({ conflicted: 0, editStop: 'a1b2c3d'.padEnd(40, '0'), message: 'Fix x\n\nWhy.\n' }), null, null, () => null);
     expect(v.detail).toBe('Stopped to edit a1b2c3d Fix x');
-    expect(v.hint).toBe('Amend it, or split it into smaller commits, then Continue.');
+    expect(v.hint).toBe('Change it, then Continue.');
     expect(v.skip).toBe(false);
     expect(v.editStop).toBe('a1b2c3d'.padEnd(40, '0'));
+    expect(v.editBase).toBeNull();
     expect(operationView(rebase(), null, null, () => null).editStop).toBeNull();
+  });
+
+  it('GitBolt\'s Edit stop is "about to commit": its notice names the commit; the box\'s message is the stop\'s (UX L)', () => {
+    const p = rebase({ conflicted: 0, editStop: 'a1b2c3d'.padEnd(40, '0'), editBase: 'e'.repeat(40), message: 'Fix x, reworded\n\nWhy.\n' });
+    const v = operationView(p, null, null, () => null);
+    expect(v).toMatchObject({ editBase: 'e'.repeat(40), caution: 'Amending in a terminal here would fold this commit into its parent.', detail: null, skip: false, primary: 'Continue rebase', message: 'Fix x, reworded\n\nWhy.\n' });
+    expect(v.hint).toBe('Editing a1b2c3d Fix x, reworded: its changes are staged. Change them, commit in pieces, or just Continue.');
+    expect(operationView(p, null, null, () => 'Fix x').hint).toBe('Editing a1b2c3d Fix x: its changes are staged. Change them, commit in pieces, or just Continue.');
+    // A terminal's rebase never has one: git's own stop.
+    expect(operationView({ ...p, gitbolt: false } as InProgress, null, null, () => null).editBase).toBeNull();
   });
 
   it('an Edit stop of a rebase started in a terminal says to finish it there (fix 1 A1)', () => {

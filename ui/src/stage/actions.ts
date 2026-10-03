@@ -27,11 +27,19 @@ export async function writeAndFollow(ctx: WriteCtx, send: () => Promise<WriteRes
   // The diff follows only from this write's own fresh lists: a failed write, or an answer without
   // `wip`, would leave `wip.peek` holding stale lists (and a missing file would close the diff).
   let fresh = false;
-  const ok = await runWrite(ctx, async () => {
-    const r = await send();
-    fresh = !!r.wip;
-    return { ...r, outcome: true as const };
-  });
+  // The commit button holds off until this is answered and its lists are in (CommitBox).
+  const { addStaging } = useStaging.getState();
+  addStaging(ctx.repoId, ctx.worktree, 1);
+  let ok: unknown;
+  try {
+    ok = await runWrite(ctx, async () => {
+      const r = await send();
+      fresh = !!r.wip;
+      return { ...r, outcome: true as const };
+    });
+  } finally {
+    addStaging(ctx.repoId, ctx.worktree, -1);
+  }
   if (ok === true && fresh) followOpenFile(ctx.tabId, ctx.worktree);
   return ok === true;
 }
@@ -50,11 +58,22 @@ export const unstageAll = (ctx: WriteCtx) => writeAndFollow(ctx, () => api.unsta
 export const discardPaths = (ctx: WriteCtx, paths: string[]) => writeAndFollow(ctx, () => api.discard(ctx.repoId, ctx.worktree, { kind: 'paths', paths }));
 export const discardUnstaged = (ctx: WriteCtx) => writeAndFollow(ctx, () => api.discard(ctx.repoId, ctx.worktree, { kind: 'unstaged' }));
 
-/** `count`: the changed files the panel shows, for the armed label. */
-export async function discardAll(ctx: WriteCtx, count?: number): Promise<boolean> {
+/** `count`: the changed files the panel shows, for the armed label; `confirmed`: their paths (a
+ * rename's both), sent so the backend never discards more than that (UX R1 C.2).
+ * One at a time per worktree: a big repository's discard takes seconds, and a click meanwhile
+ * (nothing seemed to happen) sent another one. */
+export async function discardAll(ctx: WriteCtx, count?: number, confirmed?: readonly string[]): Promise<boolean> {
+  const { discarding, setDiscarding } = useStaging.getState();
+  if (discarding[stagingKey(ctx.repoId, ctx.worktree)]) return false;
   const arm = count ? `Click again to discard ${count} ${count === 1 ? 'file' : 'files'}` : 'Click again to discard every change';
   const ok = await confirmAction({ title: 'Discard all changes?', body: 'Staged, unstaged and untracked changes are removed. You can undo this.', confirmLabel: 'Discard all', arm, danger: true });
-  return ok && writeAndFollow(ctx, () => api.discard(ctx.repoId, ctx.worktree, { kind: 'all' }));
+  if (!ok || useStaging.getState().discarding[stagingKey(ctx.repoId, ctx.worktree)]) return false;
+  setDiscarding(ctx.repoId, ctx.worktree, true);
+  try {
+    return await writeAndFollow(ctx, () => api.discard(ctx.repoId, ctx.worktree, confirmed ? { kind: 'all', confirmed: [...confirmed] } : { kind: 'all' }));
+  } finally {
+    useStaging.getState().setDiscarding(ctx.repoId, ctx.worktree, false);
+  }
 }
 // --- end 2B T9 ---
 

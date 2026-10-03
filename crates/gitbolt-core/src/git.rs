@@ -53,6 +53,8 @@ pub struct GitInvocation {
     term_grace: Option<Duration>,
     /// Exit codes besides 0 that count as success (`ok_exit`).
     ok_exit: Vec<i32>,
+    /// Keep at most this many bytes of stdout (`stdout_limit`).
+    stdout_limit: Option<u64>,
 }
 
 /// How long a cancelled or timed-out write has to exit after SIGTERM before SIGKILL (spec #2 §3.3).
@@ -99,7 +101,13 @@ impl GitInvocation {
         let mut inv = Self::new(cwd, ["-c", "core.editor=true", "-c", "sequence.editor=true"].into_iter().chain(pins.iter().copied()))
             .env("GIT_EDITOR", "true")
             .env("GIT_SEQUENCE_EDITOR", "true")
-            .env("GIT_MERGE_AUTOEDIT", "no");
+            .env("GIT_MERGE_AUTOEDIT", "no")
+            // UX F: a signing commit (`commit.gpgsign`) asks gpg-agent for the key's passphrase,
+            // and the agent shows its pinentry on the terminal gpg names in `GPG_TTY` (else the
+            // one the agent was started from). A TTY pinentry there waits on a terminal nobody
+            // looks at, forever. `/dev/null` is no terminal: a TTY pinentry fails at once with
+            // gpg's error, while a GUI one (DISPLAY, WAYLAND_DISPLAY) still asks.
+            .env("GPG_TTY", "/dev/null");
         inv.args.extend(args.into_iter().map(Into::into));
         inv.write = true;
         inv.term_grace = Some(WRITE_TERM_GRACE);
@@ -132,7 +140,7 @@ impl GitInvocation {
         I: IntoIterator<Item = S>,
         S: Into<OsString>,
     {
-        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false, write: false, stdin: None, term_grace: None, ok_exit: Vec::new() }
+        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false, write: false, stdin: None, term_grace: None, ok_exit: Vec::new(), stdout_limit: None }
     }
 
     /// `None` = no timeout (network operations).
@@ -144,6 +152,14 @@ impl GitInvocation {
     /// An exit code that counts as success besides 0 (`diff --no-index` exits 1 on a difference).
     pub fn ok_exit(mut self, code: i32) -> Self {
         self.ok_exit.push(code);
+        self
+    }
+
+    /// Keeps only the first `n` bytes of stdout (the head of a large blob: a hex dump, a binary
+    /// sniff). Once `n` bytes are in, git is stopped (a read: SIGKILL) and the run succeeds with
+    /// them, so neither memory nor time grows with the rest of the output.
+    pub fn stdout_limit(mut self, n: u64) -> Self {
+        self.stdout_limit = Some(n);
         self
     }
 
@@ -191,6 +207,8 @@ pub struct GitOutput {
 
 enum Outcome {
     Done(std::io::Result<std::process::ExitStatus>),
+    /// `stdout_limit` bytes are in: git was stopped, and the run succeeds with them.
+    Capped,
     Cancelled,
     TimedOut(Duration),
 }
@@ -355,9 +373,20 @@ impl GitCli {
         // stall git, and stderr can stream line by line (progress) while git runs.
         let mut stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().expect("stderr is piped");
+        let limit = inv.stdout_limit;
+        // Told when `stdout_limit` bytes are in (never sent otherwise: a dropped sender isn't "full").
+        let (full_tx, mut full_rx) = tokio::sync::oneshot::channel::<()>();
         let mut out_task = tokio::spawn(async move {
             let mut buf = Vec::new();
-            let _ = stdout.read_to_end(&mut buf).await;
+            match limit {
+                None => drop(stdout.read_to_end(&mut buf).await),
+                Some(n) => {
+                    let _ = (&mut stdout).take(n).read_to_end(&mut buf).await;
+                    if buf.len() as u64 >= n {
+                        let _ = full_tx.send(());
+                    }
+                }
+            }
             buf
         });
         let mut err_task = tokio::spawn(read_stderr(stderr, inv.stderr_lines.clone()));
@@ -368,6 +397,7 @@ impl GitCli {
             biased;
             _ = async { match &cancel { Some(t) => t.cancelled().await, None => std::future::pending().await } } => Outcome::Cancelled,
             r = child.wait() => Outcome::Done(r),
+            _ = async { if (&mut full_rx).await.is_err() { std::future::pending::<()>().await } } => Outcome::Capped,
             _ = async { match inv.timeout { Some(d) => tokio::time::sleep(d).await, None => std::future::pending().await } } => Outcome::TimedOut(inv.timeout.unwrap_or_default()),
         };
         if !matches!(outcome, Outcome::Done(_)) {
@@ -408,7 +438,7 @@ impl GitCli {
                     let detail = if kind == GbErrorKind::IndexLocked { index_lock_detail(&stderr) } else { None };
                     let err = GbError {
                         kind,
-                        message: first_message_line(&redacted_stderr).unwrap_or_else(|| format!("git exited with status {}", code.unwrap_or(-1))),
+                        message: signing_failure(&redacted_stderr).or_else(|| first_message_line(&redacted_stderr)).unwrap_or_else(|| format!("git exited with status {}", code.unwrap_or(-1))),
                         command_id: Some(id),
                         stderr: Some(redacted_stderr),
                         detail,
@@ -417,6 +447,7 @@ impl GitCli {
                 }
             }
             Outcome::Done(Err(e)) => (None, e.to_string(), Err(wait_failed(id, &e))),
+            Outcome::Capped => (None, String::new(), Ok(GitOutput { stdout: stdout_bytes, stderr: String::new(), command_id: id })),
             Outcome::Cancelled => (None, String::new(), Err(GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Cancelled, "Cancelled") })),
             Outcome::TimedOut(d) => (None, String::new(), Err(GbError { command_id: Some(id), ..GbError::other(format!("git timed out after {}s", d.as_secs_f32())) })),
         };
@@ -554,8 +585,27 @@ fn first_message_line(stderr: &str) -> Option<String> {
     stderr
         .split(['\r', '\n'])
         .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("hint:") && !l.starts_with("From ") && !l.starts_with("Cloning into ") && crate::netops::parse_progress(l).is_none())
+        .find(|l| !l.is_empty() && !l.starts_with("hint:") && !l.starts_with("From ") && !l.starts_with("Cloning into ") && !is_rebase_step(l) && crate::netops::parse_progress(l).is_none())
         .map(|l| l.trim_start_matches("fatal: ").trim_start_matches("error: ").to_string())
+}
+
+/// A rebase's `Rebasing (2/5)` counter line.
+fn is_rebase_step(l: &str) -> bool {
+    l.strip_prefix("Rebasing (").and_then(|r| r.strip_suffix(')')).and_then(|r| r.split_once('/')).is_some_and(|(n, m)| n.parse::<u32>().is_ok() && m.parse::<u32>().is_ok())
+}
+
+/// UX F: a commit whose signer failed. git says `gpg failed to sign the data:`, then the
+/// signer's own lines: the message is both, with the signer's last line (its reason) and without
+/// gpg's `[GNUPG:]` status lines. `None`: not a signing failure.
+pub(crate) fn signing_failure(stderr: &str) -> Option<String> {
+    let lines: Vec<&str> = stderr.split(['\r', '\n']).map(str::trim).collect();
+    let at = lines.iter().position(|l| l.trim_end_matches(':').ends_with("failed to sign the data"))?;
+    let head = lines[at].trim_start_matches("error: ").trim_end_matches(':');
+    let why = lines[at + 1..].iter().take_while(|l| !l.is_empty() && !["error:", "fatal:", "hint:"].iter().any(|p| l.starts_with(p))).filter(|l| !l.starts_with("[GNUPG:]")).last();
+    Some(match why {
+        Some(w) => format!("{head}: {w}"),
+        None => head.to_string(),
+    })
 }
 
 pub fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
@@ -691,6 +741,16 @@ mod tests {
         assert_eq!(first_message_line("Fetching origin\n"), None, "nothing but progress: the caller says what exited");
         assert_eq!(first_message_line("Cloning into '/tmp/x'...\nfatal: repository '/nope' does not exist\n").as_deref(), Some("repository '/nope' does not exist"));
         assert_eq!(first_message_line("hint: x\nerror: boom\n").as_deref(), Some("boom"));
+        assert_eq!(first_message_line("Rebasing (1/2)\rerror: could not apply abc\n").as_deref(), Some("could not apply abc"), "a rebase's counter isn't the message");
+    }
+
+    /// UX F: a signer's failure names gpg's reason, without its status lines.
+    #[test]
+    fn a_signing_failure_says_why() {
+        let gpg = "Rebasing (1/2)\rerror: gpg failed to sign the data:\ngpg: skipped \"ABC\": No secret key\n[GNUPG:] INV_SGNR 9 ABC\ngpg: signing failed: No secret key\n\nerror: failed to write commit object\nhint: Could not execute the todo command\n";
+        assert_eq!(signing_failure(gpg).as_deref(), Some("gpg failed to sign the data: gpg: signing failed: No secret key"));
+        assert_eq!(signing_failure("error: gpg failed to sign the data\nfatal: failed to write commit object\n").as_deref(), Some("gpg failed to sign the data"));
+        assert_eq!(signing_failure("error: boom\n"), None);
     }
 
     /// K96: a network command runs in its own session, with no controlling terminal: ssh (or a

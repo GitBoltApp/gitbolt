@@ -109,6 +109,9 @@ impl Commit {
 }
 
 /// "Resolve 2 conflicted files first" (§8.1's disabled reason).
+/// UX L: Amend at the "about to commit" Edit stop before any piece is committed.
+pub(crate) const AMEND_AT_EDIT_STOP: &str = "Nothing to amend yet: this commit's changes are staged. Commit them, or Continue.";
+
 fn resolve_first(n: usize) -> GbError {
     GbError::new(GbErrorKind::InvalidInput, format!("Resolve {n} conflicted {} first", if n == 1 { "file" } else { "files" }))
 }
@@ -136,9 +139,19 @@ impl WriteIntent for Commit {
         true
     }
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
-        // --- 3C T5: an Edit stop takes commits (Split's pieces) ---
-        let edit_stop = pre.before.in_progress == Some("rebase")
-            && matches!(crate::in_progress::read(pre.root)?, Some(crate::in_progress::InProgress::Rebase { edit_stop: Some(_), conflicted: 0, .. }));
+        // --- 3C T5: an Edit stop takes commits (its pieces, UX L) ---
+        let (edit_stop, edit_base) = match pre.before.in_progress {
+            Some("rebase") => match crate::in_progress::read(pre.root)? {
+                Some(crate::in_progress::InProgress::Rebase { edit_stop: Some(_), conflicted: 0, edit_base, .. }) => (true, edit_base),
+                _ => (false, None),
+            },
+            _ => (false, None),
+        };
+        // UX L (fix round 1): at the "about to commit" stop, HEAD is the commit's parent: an amend
+        // would fold the commit into it.
+        if self.amend && edit_base.is_some() && pre.before.head.oid == edit_base {
+            return Err(GbError::new(GbErrorKind::InvalidInput, AMEND_AT_EDIT_STOP));
+        }
         // Fix round 1 (M4): only GitBolt's own interactive rebase, whose pause records the commits
         // made there; one started in a terminal is finished there.
         if edit_stop && !crate::write::irebase::split::gitbolt_owns_the_pause(pre)? {

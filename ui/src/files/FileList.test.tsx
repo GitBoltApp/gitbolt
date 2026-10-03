@@ -83,6 +83,26 @@ describe('FileList', () => {
     expect(rowEls()).toHaveLength(4);
   });
 
+  it("UX G.2: the WIP list's View all files lists the worktree's tracked files, on its own toggle; one opens its working-tree file", async () => {
+    useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: true, wipAllFiles: false });
+    const worktreeFiles = vi.fn(async (_wt: string) => ['src/app.php', 'tracked.txt']);
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ worktreeFiles: new Loader(worktreeFiles, new Lru(1), 1, () => false) }));
+    const wipSpec = { kind: 'wip' as const, worktree: '/r', staged: false };
+    const wip = { files: [{ ...change('src/app.php'), new: { kind: 'worktree' as const, worktree: '/r' } }], added: 2, deleted: 1 };
+    render(<RepoViewContext value={store}><FileList list={wip} spec={wipSpec} label="Unstaged" allFilesWorktree="/r" /></RepoViewContext>);
+    // The commits' toggle (on) doesn't carry over to the WIP.
+    expect(rowEls()).toHaveLength(1);
+    const button = screen.getByRole('button', { name: 'View all files' });
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    act(() => { fireEvent.click(button); });
+    expect(await screen.findByText('tracked.txt')).toBeInTheDocument();
+    expect(worktreeFiles).toHaveBeenCalledWith('/r');
+    expect(useFileListPrefs.getState()).toMatchObject({ allFiles: true, wipAllFiles: true });
+    fireEvent.mouseDown(rowEls().find((r) => r.dataset.path === 'tracked.txt')!);
+    expect(store.getState().diff).toMatchObject({ path: 'tracked.txt', view: 'file', status: '', new: { kind: 'worktree', worktree: '/r' } });
+    act(() => useFileListPrefs.getState().set({ wipAllFiles: false }));
+  });
+
   it('opening a file prefetches the contents of the files on either side', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const rec = recordingServices();

@@ -32,7 +32,8 @@ e2e *args:
 # and linked worktrees in .worktrees/. Re-running resets them; it only ever deletes a folder that
 # carries the .gitbolt-playground marker (see scripts/playground.sh).
 playground dir="~/gitbolt-playground":
-    @cargo build -q -p gitbolt-harness
+    @echo "building the fixture harness (first run takes a few minutes)…"
+    @cargo build -p gitbolt-harness
     @scripts/playground.sh "${CARGO_TARGET_DIR:-target}/debug/gitbolt-harness" "{{dir}}"
 
 # The theme and zoom pixel baselines (Chromium, recorded on the dev machine): opt-in, since fonts

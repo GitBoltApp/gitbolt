@@ -44,6 +44,10 @@ const DERIVED_TOKENS = [
   // The tick on a filled merge-tool checkbox (checkBox.ts): white or the darkest ground, whichever
   // contrasts more with its side's fill.
   'conflict-ours-tick', 'conflict-theirs-tick',
+  // The diff's colours, the editor's and the hex view's alike (diff/monaco/theme.ts, diff/hex.css):
+  // changed text and whole lines in green and red, and the hatching past a side's end (Monaco's
+  // own diagonal fill).
+  'diff-inserted-text', 'diff-removed-text', 'diff-inserted-line', 'diff-removed-line', 'diff-diagonal-fill',
 ] as const;
 
 /** Every colour custom property a theme sets on :root. */
@@ -81,6 +85,20 @@ function alpha(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
+/** The diff's colours (F30, H8): the theme's green and red at fixed alphas. Changed
+ * text gets its red at 20%, whole lines 15%; green is toned down further, as a whole added block
+ * carries both the line and the char insert (10% and 12% composite to ~21% for an added block).
+ * The hatching is Monaco's default `diffEditor.diagonalFill`. */
+function diffColors(c: Pick<CoreColors, 'green' | 'red'>, light: boolean) {
+  return {
+    'diff-inserted-text': alpha(c.green, 0.12),
+    'diff-removed-text': alpha(c.red, 0.2),
+    'diff-inserted-line': alpha(c.green, 0.1),
+    'diff-removed-line': alpha(c.red, 0.15),
+    'diff-diagonal-fill': light ? 'rgba(34, 34, 34, 0.2)' : 'rgba(204, 204, 204, 0.2)',
+  };
+}
+
 /** The derived tokens, from the core ones: tints of the text colour and the accent blue, the
  * status colours from the palette, and black shadows (lighter on a light theme). */
 function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
@@ -116,6 +134,7 @@ function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
     'collapse-strip': light ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.4)',
     'conflict-ours-tick': tickOn(c['conflict-ours'], c['app-bg0']),
     'conflict-theirs-tick': tickOn(c['conflict-theirs'], c['app-bg0']),
+    ...diffColors(c, light),
   };
 }
 
@@ -147,6 +166,9 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'shadow-modal': 'rgba(0, 0, 0, 0.5)', 'shadow-popup': 'rgba(0, 0, 0, 0.45)', 'shadow-tooltip': 'rgba(0, 0, 0, 0.4)', backdrop: 'rgba(0, 0, 0, 0.45)',
       'node-fill': '#1c1e23', 'node-text': '#ffffff', 'collapse-strip': 'rgba(0, 0, 0, 0.4)',
       'conflict-ours-tick': '#1c1e23', 'conflict-theirs-tick': '#1c1e23',
+      'diff-inserted-text': 'rgba(92, 184, 92, 0.12)', 'diff-removed-text': 'rgba(217, 65, 61, 0.2)',
+      'diff-inserted-line': 'rgba(92, 184, 92, 0.1)', 'diff-removed-line': 'rgba(217, 65, 61, 0.15)',
+      'diff-diagonal-fill': 'rgba(204, 204, 204, 0.2)',
     },
     graph: ['#15a0bf', '#0669f7', '#8e00c2', '#c517b6', '#d90171', '#cd0101', '#f25d2e', '#f2ca33', '#7bd938', '#2ece9d'],
     // White initials on every lane, its yellow included (1C's look, kept as is).

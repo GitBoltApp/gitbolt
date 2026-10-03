@@ -45,7 +45,15 @@ pub enum DiscardScope {
     /// Every unstaged and untracked change; the staged half stays.
     Unstaged,
     /// Staged, unstaged and untracked: back to HEAD.
-    All,
+    All {
+        /// UX R1 C.2: the changed files the user confirmed (the panel's, a rename's both paths).
+        /// A changed file outside them refuses it as Stale, so a Discard all never takes more
+        /// than was confirmed (one sent again while the first still ran, say). Absent: every
+        /// changed file.
+        #[serde(default)]
+        #[ts(optional)]
+        confirmed: Option<Vec<String>>,
+    },
 }
 
 /// `git clean`'s paths go on argv, so in chunks.
@@ -203,10 +211,19 @@ async fn targets_of(cli: &GitCli, root: &Path, scope: &DiscardScope, entries: &[
                 }
             }
         }
-        DiscardScope::All => {
+        DiscardScope::All { confirmed } => {
             // The snapshot can't carry a conflicted path, and Discard all can't leave one.
             if let Some(e) = entries.iter().find(|e| e.kind == EntryKind::Unmerged) {
                 return Err(GbError::new(GbErrorKind::InProgress, format!("{} has merge conflicts: resolve conflicts first", e.path)));
+            }
+            // UX R1 C.2: never more than the user confirmed (a separate repository is never
+            // deleted, so it isn't one of them).
+            if let Some(confirmed) = confirmed {
+                let confirmed: BTreeSet<&str> = confirmed.iter().map(|p| p.trim_end_matches('/')).collect();
+                let changed = entries.iter().filter(|e| e.kind != EntryKind::Ignored && !nested_repo(e)).flat_map(|e| std::iter::once(&e.path).chain(&e.orig_path));
+                if let Some(p) = changed.into_iter().find(|p| !confirmed.contains(p.as_str())) {
+                    return Err(GbError::stale(format!("{p} changed since you confirmed: look again, then discard")));
+                }
             }
             let mut restore = BTreeSet::new();
             for e in entries.iter().filter(|e| !matches!(e.kind, EntryKind::Untracked | EntryKind::Ignored)) {
@@ -226,7 +243,7 @@ async fn targets_of(cli: &GitCli, root: &Path, scope: &DiscardScope, entries: &[
         }
     }
     refuse_symlinked_folders(root, &t.restore)?;
-    if matches!(scope, DiscardScope::All) && unborn(root)? {
+    if matches!(scope, DiscardScope::All { .. }) && unborn(root)? {
         // `rm --cached` writes no file, and only files are deleted after it: nothing is in the way.
         return Ok(t);
     }
@@ -448,7 +465,7 @@ impl WriteIntent for Discard {
     }
     /// Only Discard all rewrites the index; the others leave the staging log valid.
     fn staging(&self) -> Staging {
-        if matches!(self.scope, DiscardScope::All) {
+        if matches!(self.scope, DiscardScope::All { .. }) {
             Staging::Clear
         } else {
             Staging::Keep
@@ -485,7 +502,7 @@ impl WriteIntent for Discard {
                 self.clean(cx, &delete).await?;
                 self.restore_worktree(cx, &restore).await?;
             }
-            DiscardScope::All => {
+            DiscardScope::All { .. } => {
                 cx.partial = true;
                 self.clean(cx, &delete).await?;
                 self.reset_all(cx, &restore).await?;
@@ -521,13 +538,14 @@ fn label_of(scope: &DiscardScope, targets: &Targets, diff: Option<&[u8]>) -> Str
         DiscardScope::Paths { .. } => format!("discard {}", files_label(&targets.snapshot().0)),
         DiscardScope::Patch { path, selection, .. } => format!("discard {} in {path}", selection_label(diff.unwrap_or_default(), selection, Dir::Reverse)),
         DiscardScope::Unstaged => "discard unstaged changes".into(),
-        DiscardScope::All => "discard all changes".into(),
+        DiscardScope::All { .. } => "discard all changes".into(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::api::Api;
+    use crate::error::GbErrorKind;
     use crate::testing::state::RepoState;
     use crate::testing::TestRepo;
     use crate::write::test_support::{api, call, journal_step, open, repo, wt};
@@ -646,6 +664,33 @@ mod tests {
         let id = open(&api, &r).await;
         round_trip(&api, id, &r, json!({ "kind": "all" }), "discard all changes").await;
         assert_eq!(r.git(&["status", "--porcelain"]), "", "after redo: clean");
+    }
+
+    /// UX R1 C.2: Discard all with the files the user confirmed. A changed file outside them
+    /// refuses it, nothing touched; the same request sent again once it ran discards nothing.
+    #[tokio::test]
+    async fn discard_all_never_takes_more_than_was_confirmed() {
+        let data = tempfile::tempdir().unwrap();
+        let r = dirty();
+        r.git(&["mv", "b.txt", "moved.txt"]);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let shown = ["a.txt", "added.txt", "moved.txt", "b.txt", "new.txt", "dir/n1.txt", "dir/n2.txt"];
+        let scope = json!({ "kind": "all", "confirmed": shown });
+        // A file that changed after the confirm.
+        r.write("late.txt", "typed after the confirm\n");
+        let before = state(&r);
+        let err = discard(&api, id, &r, scope.clone()).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Stale, "{err:?}");
+        assert!(err.message.contains("late.txt"), "{}", err.message);
+        assert_eq!(state(&r), before, "nothing was touched");
+        std::fs::remove_file(r.path().join("late.txt")).unwrap();
+        discard(&api, id, &r, scope.clone()).await.unwrap();
+        assert_eq!(r.git(&["status", "--porcelain", "--untracked-files=all"]), "");
+        // Sent again (a second click while the first ran), now over a new change: refused.
+        r.write("late.txt", "new\n");
+        assert_eq!(discard(&api, id, &r, scope).await.unwrap_err().kind, GbErrorKind::Stale);
+        assert!(r.path().join("late.txt").exists());
     }
 
     #[tokio::test]

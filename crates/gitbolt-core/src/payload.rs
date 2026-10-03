@@ -373,3 +373,31 @@ pub struct DiffContentsPayload {
     /// The path has a raster-image extension (the UI shows the image diff).
     pub image: bool,
 }
+
+/// One side of a binary file as a hex dump (`hexDump`): `hexdump -C` lines of its first
+/// `shown` bytes, at most `HexDumpPayload::cap`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct HexSide {
+    /// The whole side's size in bytes.
+    #[ts(type = "number")]
+    pub size: u64,
+    /// How many bytes `dump` covers: `size`, or the cap when the side is larger.
+    #[ts(type = "number")]
+    pub shown: u64,
+    pub dump: String,
+}
+
+/// Both sides of a binary file as hex dumps, for File View and the hex diff. `None`: no such side
+/// (an added or deleted file).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct HexDumpPayload {
+    pub old: Option<HexSide>,
+    pub new: Option<HexSide>,
+    /// The most bytes dumped per side.
+    #[ts(type = "number")]
+    pub cap: u64,
+}

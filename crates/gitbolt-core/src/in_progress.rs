@@ -27,14 +27,25 @@ pub enum InProgress {
         /// conflict, or a stop of another kind.
         edit_stop: Option<String>,
         // --- end 3C T4 ---
+        /// UX L: GitBolt's Edit stop is "about to commit": right after git stopped, HEAD was
+        /// soft-reset to the edited commit's parent (this oid), so its changes are staged and its
+        /// message (`message`) is the commit box's. `None`: git's own stop (HEAD on `edit_stop`),
+        /// as a terminal's rebase has it.
+        edit_base: Option<String>,
+        /// UX L, with `edit_base`: the paths the stopped commit adds. One left untracked is a
+        /// piece of it not staged yet: Continue waits for it (any other untracked file doesn't).
+        edit_added: Vec<String>,
+        /// UX L, with `edit_base`: the index isn't the stopped commit's tree (changed, or some of
+        /// it unstaged): an Abort keeps it.
+        edit_changed: bool,
         /// 3C final fix (I1): the stopped pick is an `edit` line that stopped before git made its
         /// commit (a conflict): git won't stop again once it's resolved, so this stop is the Edit's.
         edit_conflict: bool,
         /// 3C final fix (M1, M2): GitBolt couldn't apply this stop's new message (a commit-msg
         /// hook refused it): why. HEAD keeps the old one.
         message_failed: Option<String>,
-        /// 3C fix round 2: GitBolt's own interactive rebase (its session is there): Commit and
-        /// Split at its Edit stops are GitBolt's. `false` for one started in a terminal.
+        /// 3C fix round 2: GitBolt's own interactive rebase (its session is there): Commit at
+        /// its Edit stops is GitBolt's. `false` for one started in a terminal.
         gitbolt: bool,
         conflicted: u32,
         message: String,
@@ -91,6 +102,58 @@ pub(crate) const MESSAGE_FAILED: &str = "rebase-merge/gitbolt-message-failed";
 /// `<oid>\n<message>`. The panel prefills it, and a Continue with a message typed there amends
 /// that commit (only while HEAD is still it).
 pub(crate) const REFUSED: &str = "rebase-merge/gitbolt-refused";
+/// UX L: this Edit stop is (being) soft-reset, "about to commit": an `EditStaged`, as JSON. It's
+/// written before the reset, so a note with HEAD still on `amend` is a reset that didn't happen.
+pub(crate) const EDIT_STAGED: &str = "rebase-merge/gitbolt-edit-staged";
+
+/// UX L: an `EDIT_STAGED` note.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub(crate) struct EditStaged {
+    /// The stop's key (`last_done`).
+    pub at: String,
+    /// The commit git made at the stop (`rebase-merge/amend`).
+    pub amend: String,
+    /// Its parent: where the soft reset put HEAD.
+    pub base: String,
+    /// The paths the commit adds (in `amend`, not in `base`): one left untracked is a piece of
+    /// the commit the user hasn't staged (Continue waits for it).
+    #[serde(default)]
+    pub added: Vec<String>,
+    /// The message the box starts with (the Edit row's new one, or the commit's own).
+    pub message: String,
+}
+
+/// This stop's `EDIT_STAGED` note, while git's `amend` still names the commit it was made for.
+pub(crate) fn edit_staged(git_dir: &Path) -> Option<EditStaged> {
+    let at = last_done(git_dir)?;
+    let mut s: EditStaged = serde_json::from_str(&std::fs::read_to_string(git_dir.join(EDIT_STAGED)).ok()?).ok()?;
+    if s.at != at || s.base.is_empty() {
+        return None;
+    }
+    s.message = format!("{}\n", normalise(&s.message).trim_end());
+    let now = std::fs::read_to_string(git_dir.join("rebase-merge/amend")).ok()?;
+    (now.trim() == s.amend).then_some(s)
+}
+
+/// Writes an `EDIT_STAGED` note.
+pub(crate) fn write_edit_staged(git_dir: &Path, s: &EditStaged) -> std::io::Result<()> {
+    std::fs::write(git_dir.join(EDIT_STAGED), serde_json::to_vec(s).map_err(std::io::Error::other)?)
+}
+
+/// UX L: the index holds something other than the stop's commit (`amend`'s tree): changes made
+/// at the stop, or some of its own left out. Unreadable counts as changed.
+fn index_differs(repo: &gix::Repository, amend: &str) -> bool {
+    let read = || -> Option<bool> {
+        let commit = repo.find_commit(gix::ObjectId::from_hex(amend.as_bytes()).ok()?).ok()?;
+        let theirs = repo.index_from_tree(&commit.tree_id().ok()?).ok()?;
+        let ours = repo.index_or_empty().ok()?;
+        let key = |f: &gix::index::State, e: &gix::index::Entry| (e.path(f).to_owned(), e.id, e.mode, e.stage_raw());
+        let a = theirs.entries().iter().map(|e| key(&theirs, e));
+        let b = ours.entries().iter().map(|e| key(&ours, e));
+        Some(!a.eq(b))
+    };
+    read().unwrap_or(true)
+}
 
 /// This stop's `REFUSED` note: (the commit, the refused message).
 pub(crate) fn refused(git_dir: &Path) -> Option<(String, String)> {
@@ -141,7 +204,15 @@ pub fn read(root: &Path) -> Result<Option<InProgress>, GbError> {
             // An `edit` stop (`amend` names the commit git made): Continue keeps HEAD's message
             // (whether the user reworded it there or not), so that's the one to show.
             let edit_stop = if merge { f("amend") } else { None };
-            let message = if edit_stop.is_some() {
+            // UX L: GitBolt's Edit stop, soft-reset: the box starts with the note's message.
+            // Only once HEAD left git's commit: a note with HEAD still on it is a reset that
+            // didn't happen (git's own stop).
+            let head = repo.head_id().ok().map(|h| h.to_string());
+            let staged = if edit_stop.is_some() && git_dir.join(GITBOLT_MARKER).is_file() { edit_staged(&git_dir).filter(|s| head.as_deref() != Some(s.amend.as_str())) } else { None };
+            let edit_changed = staged.as_ref().is_some_and(|s| index_differs(&repo, &s.amend));
+            let message = if let Some(s) = &staged {
+                s.message.clone()
+            } else if edit_stop.is_some() {
                 repo.head_commit().ok().and_then(|c| c.message_raw().ok().map(|m| normalise(&m.to_string()))).unwrap_or_default()
             } else {
                 message(&format!("{dir}/{}", if merge { "message" } else { "final-commit" }))
@@ -161,6 +232,9 @@ pub fn read(root: &Path) -> Result<Option<InProgress>, GbError> {
                 total,
                 stopped_at: f("stopped-sha").or_else(|| text("REBASE_HEAD")),
                 edit_stop,
+                edit_added: staged.as_ref().map(|s| s.added.clone()).unwrap_or_default(),
+                edit_changed,
+                edit_base: staged.map(|s| s.base),
                 edit_conflict,
                 message_failed,
                 gitbolt: merge && git_dir.join(GITBOLT_MARKER).is_file(),
@@ -221,7 +295,8 @@ mod tests {
         r.switch("feature");
         assert!(r.try_git(&["rebase", "main"]).is_err());
         match read(r.path()).unwrap() {
-            Some(InProgress::Rebase { onto, head_name, step, total, stopped_at, edit_stop, edit_conflict, message_failed, gitbolt, conflicted, message }) => {
+            Some(InProgress::Rebase { onto, head_name, step, total, stopped_at, edit_stop, edit_base, edit_added, edit_changed, edit_conflict, message_failed, gitbolt, conflicted, message }) => {
+                assert_eq!((edit_base, edit_added.len(), edit_changed), (None, 0, false), "not an Edit stop");
                 assert!(!gitbolt, "started in a terminal");
                 assert!(!edit_conflict && message_failed.is_none(), "a pick's conflict, no note");
                 assert!(message.starts_with("Fix x\n"), "{message}");

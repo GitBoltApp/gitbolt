@@ -230,7 +230,11 @@ impl Planned {
 
 /// What a hook said, on one line: git's stderr without its own lines (progress, `Executing:`,
 /// the failed `exec`'s advice). `None`: it said nothing.
-fn hook_text(stderr: &str) -> Option<String> {
+pub(crate) fn hook_text(stderr: &str) -> Option<String> {
+    // UX F: a signer that failed (the amend signs) says so, not as a hook.
+    if let Some(s) = crate::git::signing_failure(stderr) {
+        return Some(s);
+    }
     let lines: Vec<&str> = stderr.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).collect();
     let end = lines.iter().position(|l| l.starts_with("warning: execution failed:") || l.starts_with("error: execution failed:")).unwrap_or(lines.len());
     let start = lines[..end].iter().rposition(|l| l.starts_with("Executing: ")).map_or(0, |i| i + 1);
@@ -245,11 +249,12 @@ fn not_applied(why: &str) -> String {
 
 /// A stop of GitBolt's interactive rebase: what its plan asked of it (3C final fix: the stop's
 /// note, never fatal to the stop: a failure is logged, and its warning is the outcome's).
-/// - An Edit row's new message (Ruling 4), once per stop: never over a message typed there since.
-///   At its `edit` stop, while HEAD is still the commit git made, it's an amend of the message
-///   alone, and git's `rebase-merge/amend` then names the reworded commit (Continue's own check
-///   and the commit panel's prefill both see it). At its conflict (I1: git won't stop for the
-///   Edit again), it's git's message file, which Continue commits with and the panel prefills.
+/// - UX L: at an `edit` stop, while HEAD is still the commit git made (nothing done there yet),
+///   the stop becomes "about to commit" (`edit::stage_edit_stop`): HEAD on its parent, its changes
+///   staged, and the Edit row's new message (Ruling 4), once per stop, the box's.
+/// - At an Edit row's conflict (I1: git won't stop for the Edit again), its new message is git's
+///   message file, which Continue commits with and the panel prefills; once per stop, never over
+///   a message typed there since.
 /// - A reword script that failed (M2, `failed`: git's error): why, for the panel.
 ///
 /// The returned warning: the new message wasn't applied (M1, M2).
@@ -291,44 +296,35 @@ pub(crate) async fn at_stop(cx: &mut WriteCx<'_>, s: &IrebaseState, failed: Opti
         note(MESSAGE_FAILED, &why);
         return Some(not_applied(&why));
     }
-    if stop_note(&git_dir, MESSAGE_APPLIED, &at).is_some() {
-        return None;
-    }
     let row = at.split_whitespace().nth(1).map(str::to_string);
     let is = |oid: &str| [row.as_deref(), stopped_at.as_deref()].into_iter().flatten().any(|x| x.len() >= 7 && oid.starts_with(x));
-    let file = s.edit_messages.iter().find(|(oid, _)| is(oid)).map(|(_, f)| f.clone())?;
-    let res: Result<(), GbError> = match edit_stop {
-        Some(made) if made == head => {
-            let inv = cx.git(["commit", "-q", "--amend", "--only", "--allow-empty", "-F", file.as_str()]);
-            let res = cx.run_git(inv).await;
-            cx.touch(crate::events::ChangeKind::Head);
-            match res.and_then(|_| read()) {
-                Ok((_, _, amended)) => {
-                    let path = git_dir.join("rebase-merge/amend");
-                    std::fs::write(&path, format!("{amended}\n")).map_err(|e| GbError::new(GbErrorKind::Io, format!("{}: {e}", path.display())))
-                }
-                Err(e) => Err(e),
+    // The Edit row's new message, once per stop: never over a message typed there since.
+    let file = if stop_note(&git_dir, MESSAGE_APPLIED, &at).is_some() { None } else { s.edit_messages.iter().find(|(oid, _)| is(oid)).map(|(_, f)| f.clone()) };
+    match edit_stop {
+        // UX L: git's own Edit stop, nothing done there yet: "about to commit", the row's new
+        // message in the box.
+        Some(made) if made == head && matches!(at.split_whitespace().next(), Some("edit" | "e")) => {
+            if file.is_some() {
+                note(MESSAGE_APPLIED, "");
             }
+            super::edit::stage_edit_stop(cx, &git_dir, &at, &made, file.as_deref()).await;
+            None
         }
         None if edit_conflict => {
+            let file = file?;
             let path = git_dir.join("rebase-merge/message");
-            std::fs::copy(&file, &path).map(|_| ()).map_err(|e| GbError::new(GbErrorKind::Io, format!("{}: {e}", path.display())))
-        }
-        _ => return None,
-    };
-    note(MESSAGE_APPLIED, "");
-    match res {
-        Ok(()) => None,
-        Err(e) => {
-            // M1: the stop stands; the commit keeps its old message, and the panel says so.
-            tracing::warn!(target: "gitbolt_core::write", "applying an Edit row's new message: {e}");
-            let why = e.stderr.as_deref().and_then(hook_text).unwrap_or(e.message);
+            let res = std::fs::copy(&file, &path);
+            note(MESSAGE_APPLIED, "");
+            let why = format!("{}: {}", path.display(), res.err()?);
+            // M1: the stop stands; the commit keeps git's message, and the panel says so.
+            tracing::warn!(target: "gitbolt_core::write", "applying an Edit row's new message: {why}");
             if let Ok(m) = std::fs::read_to_string(&file) {
                 note(REFUSED, &format!("{head}\n{m}"));
             }
             note(MESSAGE_FAILED, &why);
             Some(not_applied(&why))
         }
+        _ => None,
     }
 }
 
@@ -395,8 +391,8 @@ pub(crate) async fn after_step(cx: &mut WriteCx<'_>, s: &IrebaseState, out: Inte
             let warning = completed_step(cx, s).await;
             Ok(IntegrateOutcome::UpToDate { warning })
         }
-        IntegrateOutcome::Stopped { kind, files, .. } => {
-            let warning = at_stop(cx, s, failed).await;
+        IntegrateOutcome::Stopped { kind, files, warning } => {
+            let warning = at_stop(cx, s, failed).await.or(warning);
             Ok(IntegrateOutcome::Stopped { kind, files, warning })
         }
         o => Ok(o),
@@ -557,14 +553,14 @@ impl WriteIntent for IrebaseIntent {
                 Ok(IntegrateOutcome::UpToDate { warning })
             }
             // T4: the pause carries the session (its messages, its deletes) to Continue.
-            Ok(IntegrateOutcome::Stopped { kind, files, .. }) => {
+            Ok(IntegrateOutcome::Stopped { kind, files, warning: stopped }) => {
                 let state = p.state();
                 if let Some(pause) = cx.paused.as_mut() {
                     pause.irebase = Some(state.clone());
                 }
                 mark_gitbolt(cx.root, &p.dir);
                 // M1: the pause stands whatever happens to the stop's message.
-                let warning = at_stop(cx, &state, failed.as_ref()).await;
+                let warning = at_stop(cx, &state, failed.as_ref()).await.or(stopped);
                 Ok(IntegrateOutcome::Stopped { kind, files, warning })
             }
             Ok(o) => {
@@ -904,8 +900,9 @@ pub(crate) mod tests {
         r.try_git(&["config", &format!("branch.{b}.remote")]).ok()
     }
 
-    /// §3.3 Edit: the stop comes with the row's new message already on it (Ruling 4); Continue
-    /// finishes, and one Undo undoes it all.
+    /// §3.3 Edit, UX L: the stop is "about to commit" (HEAD on the commit's parent, its changes
+    /// staged) with the row's new message in the box (Ruling 4); Continue commits it with that
+    /// message and finishes, and one Undo undoes it all.
     #[tokio::test]
     async fn an_edit_row_stops_with_its_new_message_and_continue_finishes() {
         let data = tempfile::tempdir().unwrap();
@@ -921,10 +918,14 @@ pub(crate) mod tests {
         assert_eq!(res["outcome"]["status"], "stopped");
         assert_eq!(res["journal"]["paused"]["kind"], "rebase");
         let head = r.git(&["rev-parse", "HEAD"]);
+        assert_eq!(r.git(&["log", "-1", "--format=%s"]), "S1 Side work", "HEAD on B2's parent (S1, the merge flattened)");
+        assert_eq!(r.git(&["diff", "--cached", "--name-only"]), "lexer.txt\nlexer_test.txt", "B2's changes staged");
         match in_progress(&r) {
-            crate::in_progress::InProgress::Rebase { edit_stop, message, conflicted, gitbolt, .. } => {
+            crate::in_progress::InProgress::Rebase { edit_stop, edit_base, message, conflicted, gitbolt, .. } => {
                 assert!(gitbolt, "GitBolt's own interactive rebase (fix round 2)");
-                assert_eq!(edit_stop.as_deref(), Some(head.as_str()), "git's amend file names the reworded commit");
+                let made = edit_stop.expect("git's amend file names the commit it made");
+                assert_eq!(r.git(&["log", "-1", "--format=%s", &made]), "B2 Refine lexer", "not amended at the stop");
+                assert_eq!(edit_base.as_deref(), Some(head.as_str()));
                 assert_eq!(message.trim_end(), "B2 Refine the lexer\n\nReworded for the stop");
                 assert_eq!(conflicted, 0);
             }
@@ -1411,29 +1412,6 @@ pub(crate) mod tests {
 
     const REFUSE_BAD: &str = "#!/bin/sh\nif grep -q BAD \"$1\"; then echo 'Rejected: no BAD messages.' >&2; exit 1; fi\n";
 
-    /// M1: a commit-msg hook refuses the Edit row's new message: the Start still pauses at the
-    /// stop, the warning says why, and the panel's note too. Continue keeps the old message.
-    #[tokio::test]
-    async fn a_refused_edit_message_still_pauses_and_says_so() {
-        let data = tempfile::tempdir().unwrap();
-        let r = TestRepo::new();
-        fixtures::irebase(&r);
-        r.hook("commit-msg", REFUSE_BAD);
-        let api = api(data.path());
-        let id = open(&api, &r).await;
-        let p = plan(&api, id, &r).await;
-        let mut rows = picks(&p);
-        set(&p, &mut rows, "B2", "edit", Some("B2 BAD"));
-        let res = start(&api, id, &r, &p, rows, stay(&p)).await.unwrap();
-        assert_eq!(res["outcome"]["status"], "stopped", "{res}");
-        assert_eq!(res["outcome"]["warning"], "The new message wasn't applied: Rejected: no BAD messages. Type it again to retry, or Continue to keep the old one.");
-        assert_eq!(rebase_state(&r).1.as_deref(), Some("Rejected: no BAD messages."));
-        assert_eq!(rebase_state(&r).3, "B2 BAD\n", "the box prefills the refused message");
-        let res = control(&api, id, &r, "continue").await;
-        assert_eq!(res["outcome"]["status"], "done", "{res}");
-        assert_eq!(r.git(&["log", "-1", "--format=%s", "feature/b"]), "B2 Refine lexer");
-    }
-
     /// M2: a Reword row's script stopped by a commit-msg hook: the stop's warning and note say the
     /// new message wasn't applied, and why; Continue goes on with the old one.
     #[tokio::test]
@@ -1487,6 +1465,23 @@ pub(crate) mod tests {
         assert_eq!(start(api, id, r, &p, rows, stay(&p)).await.unwrap()["outcome"]["status"], "stopped");
     }
 
+    /// UX F fix round 1 (item 1): at a refused reword's stop (a failed `exec`, no failed pick),
+    /// a typed message amends the reworded commit, and no later pick is taken for a failed one
+    /// (no stray Edit stop): the rebase finishes.
+    #[tokio::test]
+    async fn a_typed_message_at_a_refused_reword_stop_amends_that_commit_and_finishes() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        fixtures::irebase(&r);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        refused_stop(&api, id, &r).await;
+        let res = control_with(&api, id, &r, "continue", "B2 Typed lexer").await;
+        assert_eq!(res["outcome"]["status"], "done", "{res}");
+        assert_eq!(r.git(&["log", "-1", "--format=%s", "feature/b"]), "B2 Typed lexer");
+        assert_eq!(subjects(&r, "feature/b..feature/c"), ["C2 Polish", "C1 Edit notes again"], "the rest as it was");
+    }
+
     /// Re-review: at a refused reword's stop the typed message amends the message alone; staged
     /// changes stay staged (git then pauses for them: no refusal is reported for that).
     #[tokio::test]
@@ -1502,7 +1497,9 @@ pub(crate) mod tests {
         r.git(&["add", "fix.txt"]);
         let res = control_with(&api, id, &r, "continue", "B2 Retried").await;
         assert_eq!(res["outcome"]["status"], "stopped", "{res}");
-        assert!(res["outcome"]["warning"].is_null(), "not a refusal: {res}");
+        // UX F: git's own reason for the pause, never the refusal's.
+        let why = res["outcome"]["warning"].as_str().unwrap_or_default();
+        assert!(why.starts_with("The rebase stopped: ") && why.contains("staged changes") && !why.contains("wasn't applied"), "not a refusal: {res}");
         assert_eq!(r.git(&["log", "-1", "--format=%s", "HEAD"]), "B2 Retried");
         assert_eq!(r.git(&["rev-parse", "HEAD^{tree}"]), head_tree, "the message alone");
         assert_eq!(r.git(&["diff", "--cached", "--name-only"]), "fix.txt", "still staged");
@@ -1510,7 +1507,7 @@ pub(crate) mod tests {
     }
 
     /// Re-review: a later Continue failing at the refused stop (unstaged changes) isn't reported
-    /// as the hook's refusal: the noted reason stays, and no warning.
+    /// as the hook's refusal: the noted reason stays, and the warning is git's (UX F).
     #[tokio::test]
     async fn a_later_failure_at_a_refused_stop_isnt_a_refusal() {
         let data = tempfile::tempdir().unwrap();
@@ -1522,7 +1519,9 @@ pub(crate) mod tests {
         r.write("lexer.txt", "unstaged\n");
         let res = control(&api, id, &r, "continue").await;
         assert_eq!(res["outcome"]["status"], "stopped", "{res}");
-        assert!(res["outcome"]["warning"].is_null(), "{res}");
+        // UX F: git's own reason for the pause, never the refusal's.
+        let why = res["outcome"]["warning"].as_str().unwrap_or_default();
+        assert_eq!(why, "The rebase stopped: it can't go on with unstaged changes. Stage or discard them, then Continue", "{res}");
         assert_eq!(rebase_state(&r).1.as_deref(), Some("Rejected: no BAD messages."));
     }
     // --- end 3C final fixes ---

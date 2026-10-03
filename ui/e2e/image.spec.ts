@@ -398,6 +398,18 @@ test.describe('image diff', () => {
     await expect(d.getByRole('button', { name: 'Hunk', exact: true })).toHaveCount(0);
   });
 
+  // UX round 2, lane I.4: a raster image's bytes, as a hex diff.
+  test('a raster image has a Hex toggle for the hex diff of its bytes', async ({ page }) => {
+    await open(page, 'logo.png');
+    const d = diff(page);
+    await d.getByRole('button', { name: 'Hex', exact: true }).click();
+    // Its hex view (hex.spec.ts): the text panes start with the PNG signature.
+    await expect(d.getByTestId('hex-view').locator('.hex-pane-text').first()).toContainText('.PNG', { timeout: 15_000 });
+    await expect(d.getByRole('button', { name: 'Next change' })).toBeEnabled();
+    await d.getByRole('button', { name: 'Hex', exact: true }).click();
+    await expect(d.locator('img.image-layer')).toHaveCount(2);
+  });
+
   test('K81: an SVG with only a viewBox is drawn inside its box, at Fit and at 100% (intrinsic size = the viewBox)', async ({ page }) => {
     const repo = freshFixture('details');
     writeFileSync(join(repo, 'viewbox.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#15a0bf"/><circle cx="256" cy="256" r="200" fill="#f25d2e"/></svg>\n');

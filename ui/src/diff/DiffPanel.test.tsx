@@ -8,25 +8,34 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
 import { useAppEscape } from '../repo/escape';
-import { contentKey } from '../repo/services';
+import { contentKey, isMutableKey } from '../repo/services';
 import { contentsRequest, createRepoViewStore, fileViewTarget, RepoViewContext, targetFor, useRepoView, type DiffTarget } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { DiffHeader, DiffPanel } from './DiffPanel';
 import { DEFAULT_DIFF_PREFS, DIFF_PREFS_STORAGE_KEY, useDiffPrefs } from './diffPrefs';
-import { DiffToolbar } from './DiffToolbar';
+import { BINARY_MODE_TIP, DiffToolbar } from './DiffToolbar';
+import { useWorkingCopy } from './workingCopy';
 import '../app/coreActions';
 import { installShortcuts } from '../app/shortcuts';
 import { activeTabWith } from '../app/testShell';
 
-const host = vi.hoisted(() => ({
+const host = vi.hoisted(() => {
+  // A binary's hex view (hex.tsx's HexView): what it was asked to show.
+  const hexShow = vi.fn((_req: { path: string; file: boolean; old: unknown; new: unknown }) => {});
+  return {
+  hexShow, hexView: vi.fn((_el: HTMLElement) => ({ show: hexShow, dispose: vi.fn() })),
   attachDiff: vi.fn(), detachDiff: vi.fn(), showDiff: vi.fn(async (_req: { path: string }) => {}), setDiffPrefs: vi.fn(), goToChange: vi.fn(),
   attachFile: vi.fn(), detachFile: vi.fn(), showFile: vi.fn(async () => {}), setFileWordWrap: vi.fn(), focus: vi.fn(), setModifiedEditable: vi.fn(), onModifiedEdit: vi.fn(), modifiedText: vi.fn(() => null), setFileEditable: vi.fn(), onFileEdit: vi.fn(), fileText: vi.fn(() => null), keepViewOnNextShow: vi.fn(), keepDiff: vi.fn((_el: HTMLElement, _next: unknown) => false), keepFile: vi.fn((_el: HTMLElement, _next: unknown) => false),
   setContextMenuHandler: vi.fn(), layout: vi.fn(),
-}));
+  };
+});
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
 // The header's "Open in…" loads the openers: none here, and no socket to a harness
 // (DiffPanel.openIn.test.tsx covers the button).
-vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null } }));
+// A binary's hex dumps (hex.tsx): each side's kind and path, so a test can tell which side shows.
+const hexSide = (src: { kind: string }, path: string) => (src.kind === 'absent' ? null : { size: 9, shown: 9, dump: `${src.kind} ${path}\n` });
+const hexDump = vi.hoisted(() => vi.fn());
+vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null, hexDump } }));
 
 const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
@@ -56,6 +65,7 @@ describe('DiffPanel', () => {
   beforeEach(() => {
     localStorage.clear();
     useDiffPrefs.setState({ prefs: DEFAULT_DIFF_PREFS });
+    hexDump.mockImplementation(async (_repo: number, r: { path: string; old: { kind: string }; new: { kind: string } }) => ({ old: hexSide(r.old, 'old'), new: hexSide(r.new, 'new'), cap: 262144 }));
   });
   afterEach(() => vi.clearAllMocks());
 
@@ -283,12 +293,11 @@ describe('DiffPanel', () => {
     const cases: [string, (key: string) => Promise<DiffContentsPayload>][] = [
       ['loading.txt', () => new Promise<DiffContentsPayload>(() => {})],
       ['big.txt', async () => contents(sized({ size: 3_000_000, text: null }), sized({ size: 3_000_000, text: null }), { tooLarge: true })],
-      ['data.bin', async () => contents(sized({ binary: true, text: null }), sized({ binary: true, text: null }))],
       ['gone.txt', async () => { throw new Error('object not found'); }],
     ];
     for (const [path, load] of cases) {
       const { view } = renderPanel(targetFor(change(path), spec), load);
-      if (path !== 'loading.txt') await screen.findByText(/Large file|Binary file|object not found/);
+      if (path !== 'loading.txt') await screen.findByText(/Large file|object not found/);
       expect(button('Previous change')).toBeDisabled();
       expect(button('Next change')).toBeDisabled();
       // Not captured: F7 is left to whatever else wants it.
@@ -299,17 +308,78 @@ describe('DiffPanel', () => {
     expect(host.goToChange).not.toHaveBeenCalled();
   });
 
-  it('summarizes binary files, and a failed load shows an alert', async () => {
+  it('a binary shows its hex view side by side, with its sizes in the file bar; F7 steps its changes; no view mode', async () => {
     renderPanel(targetFor(change('data.bin'), spec), async () => contents(sized({ binary: true, text: null, size: 9 }), sized({ binary: true, text: null, size: 10 })));
-    expect(await screen.findByTestId('binary-summary')).toHaveTextContent('Binary file · 9 B → 10 B');
+    expect(await screen.findByTestId('binary-summary')).toHaveTextContent('Binary · 9 bytes → 10 bytes');
+    await waitFor(() => expect(host.hexShow).toHaveBeenCalledWith({ path: 'data.bin', file: false, old: { size: 9, shown: 9, dump: 'object old\n' }, new: { size: 9, shown: 9, dump: 'object new\n' } }));
+    expect(screen.getByTestId('hex-view')).toBeInTheDocument();
+    // Not the diff editor: the hex view has editors of its own.
     expect(screen.queryByTestId('text-diff')).toBeNull();
-    renderPanel(targetFor(change('gone.txt'), spec), async () => { throw new Error('object not found'); });
-    expect(await screen.findByRole('alert')).toHaveTextContent('object not found');
+    expect(host.showDiff).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('hex-capped')).toBeNull();
+    // Always side by side: the view mode is off (the Inline button says why), and so are whitespace and wrapping.
+    for (const name of ['Hunk', 'Inline', 'Split']) expect(button(name)).toHaveAttribute('aria-disabled', 'true');
+    expect(button('Ignore whitespace')).toBeDisabled();
+    expect(button('Word wrap')).toBeDisabled();
+    fireEvent.mouseEnter(button('Inline'));
+    expect(await screen.findByText(BINARY_MODE_TIP)).toBeInTheDocument();
+    fireEvent.mouseLeave(button('Inline'));
+    await waitFor(() => expect(button('Next change')).toBeEnabled());
+    expect(fireEvent.keyDown(screen.getByRole('region', { name: 'Diff' }), { key: 'F7' })).toBe(false);
+    await waitFor(() => expect(host.goToChange).toHaveBeenCalledWith('next'));
   });
 
-  it('a binary file added in this commit reads — for the absent side', async () => {
-    renderPanel(targetFor(change('new.bin', 'A'), spec), async () => contents(null, sized({ binary: true, text: null, size: 2048 })));
-    expect(await screen.findByTestId('binary-summary')).toHaveTextContent('Binary file · — → 2.0 KB');
+  it('hex dumps loaded with the contents show at once, header and body together (no second load)', async () => {
+    const a = targetFor(change('a.txt'), spec);
+    const b = targetFor(change('pre.bin'), spec);
+    const hex = { old: { size: 9, shown: 9, dump: 'pre old\n' }, new: { size: 10, shown: 10, dump: 'pre new\n' }, cap: 262144 };
+    const { store } = renderPanel(a, async (k) => (k.includes('pre.bin') ? { ...contents(sized({ binary: true, text: null }), sized({ binary: true, text: null })), hex } : contents(blob('a1\n'), blob('a2\n'))));
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ path: 'a.txt' })));
+    act(() => store.getState().openFile(b));
+    await waitFor(() => expect(host.hexShow).toHaveBeenLastCalledWith({ path: 'pre.bin', file: false, old: hex.old, new: hex.new }));
+    // Shown in the render that presents it: the header names it already, nothing waits.
+    expect(screen.getByTestId('diff-path')).toHaveTextContent('pre.bin');
+    expect(screen.queryByTestId('text-diff')).toBeNull();
+    expect(hexDump).not.toHaveBeenCalled();
+  });
+
+  it('a failed load shows an alert, and so does a failed hex dump', async () => {
+    const { view } = renderPanel(targetFor(change('gone.txt'), spec), async () => { throw new Error('object not found'); });
+    expect(await screen.findByRole('alert')).toHaveTextContent('object not found');
+    view.unmount();
+    hexDump.mockRejectedValueOnce(new Error('cat-file failed'));
+    renderPanel(targetFor(change('broken.bin'), spec), async () => contents(sized({ binary: true, text: null }), sized({ binary: true, text: null })));
+    expect(await screen.findByRole('alert')).toHaveTextContent('cat-file failed');
+  });
+
+  it('an added binary shows its one side and reads "(added)"; File View shows that side', async () => {
+    renderPanel(targetFor({ ...change('new.bin', 'A'), old: { kind: 'absent' } }, spec), async () => contents(null, sized({ binary: true, text: null, size: 2048 })));
+    expect(await screen.findByTestId('binary-summary')).toHaveTextContent('Binary · 2 KB (added)');
+    expect(screen.getByTestId('binary-summary')).not.toHaveTextContent('—');
+    const added = { size: 9, shown: 9, dump: 'object new\n' };
+    await waitFor(() => expect(host.hexShow).toHaveBeenCalledWith({ path: 'new.bin', file: false, old: null, new: added }));
+    fireEvent.click(button('File View'));
+    await waitFor(() => expect(host.hexShow).toHaveBeenLastCalledWith({ path: 'new.bin', file: true, old: null, new: added }));
+    expect(host.showFile).not.toHaveBeenCalled();
+    expect(screen.getByTestId('binary-summary')).toHaveTextContent(/^Binary · 2 KB$/);
+  });
+
+  it('a binary past the hex cap says only its start is shown, with the cap the dumps came with', async () => {
+    hexDump.mockResolvedValueOnce({ old: { size: 1000, shown: 1000, dump: 'a\n' }, new: { size: 4.2 * 1024 * 1024, shown: 128 * 1024, dump: 'b\n' }, cap: 128 * 1024 });
+    renderPanel(targetFor(change('big.bin'), spec), async () => contents(sized({ binary: true, text: null, size: 1000 }), sized({ binary: true, text: null, size: 4.2 * 1024 * 1024 })));
+    expect(await screen.findByTestId('hex-capped')).toHaveTextContent('Showing the first 128 KB of 4.2 MB');
+  });
+
+  it('a binary of any size goes straight to its hex dump: no large-file prompt, no "too large"', async () => {
+    // What the core sends for a 70 MB binary: not `tooLarge` (its first bytes said binary), and its dumps capped.
+    const size = 70 * 1024 * 1024;
+    const hex = { old: null, new: { size, shown: 262144, dump: '00000000  00 00\n' }, cap: 262144 };
+    renderPanel(targetFor({ ...change('huge.bin', 'A'), old: { kind: 'absent' } }, spec), async () => ({ ...contents(null, sized({ binary: true, encoding: '', text: null, hash: null, size })), hex }));
+    expect(await screen.findByTestId('hex-capped')).toHaveTextContent('Showing the first 256 KB of 70 MB');
+    expect(screen.getByTestId('binary-summary')).toHaveTextContent('Binary · 70 MB (added)');
+    await waitFor(() => expect(host.hexShow).toHaveBeenCalledWith({ path: 'huge.bin', file: false, old: null, new: hex.new }));
+    expect(screen.queryByText(/Large file|Too large/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Load anyway' })).toBeNull();
   });
 
   it('shows the EOL banner and captures F7 / Shift+F7 before the editor sees them', async () => {
@@ -639,10 +709,24 @@ describe('DiffPanel', () => {
       expect(host.showDiff).not.toHaveBeenCalled();
     });
 
-    it('a binary SVG side has no bytes to show, so it keeps the binary summary', async () => {
+    it('a binary SVG side has no image bytes, so it shows as hex', async () => {
       renderPanel(targetFor(change('odd.svg'), spec), async () => contents(svg('<rect/>'), sized({ binary: true, encoding: '', text: null, size: 12 })));
-      expect(await screen.findByTestId('binary-summary')).toHaveTextContent('Binary file · 10 B → 12 B');
+      expect(await screen.findByTestId('binary-summary')).toHaveTextContent('Binary · 10 bytes → 12 bytes');
+      await waitFor(() => expect(host.hexShow).toHaveBeenCalledWith(expect.objectContaining({ path: 'odd.svg', file: false })));
       expect(create).not.toHaveBeenCalled();
+    });
+
+    it('a raster image has a Hex toggle: its hex diff, with the diff controls', async () => {
+      hexDump.mockResolvedValueOnce({ old: { size: 90, shown: 90, dump: 'object old\n' }, new: { size: 300_000, shown: 262144, dump: 'object new\n' }, cap: 262144 });
+      renderPanel(targetFor(change('logo.png'), spec), async () => contents(png(90), png(300_000), { image: true }));
+      await waitFor(() => expect(layers()).toEqual(['before', 'after']));
+      expect(screen.queryByRole('button', { name: 'Source' })).toBeNull();
+      fireEvent.click(button('Hex'));
+      await waitFor(() => expect(host.hexShow).toHaveBeenCalledWith({ path: 'logo.png', file: false, old: expect.objectContaining({ dump: 'object old\n' }), new: expect.objectContaining({ dump: 'object new\n' }) }));
+      expect(button('Next change')).toBeInTheDocument();
+      // The image keeps its own sizes; the file bar only says the dump is cut.
+      expect(screen.queryByTestId('binary-summary')).toBeNull();
+      expect(screen.getByTestId('hex-capped')).toHaveTextContent('Showing the first 256 KB of 293 KB');
     });
 
     it('an added image in Diff View is labelled "(added)", with no compare modes (H25)', async () => {
@@ -762,6 +846,31 @@ describe('DiffPanel', () => {
     expect(store.getState().diff).toBeNull();
     document.querySelectorAll('.context-view').forEach((e) => e.remove());
     host.attachDiff.mockReset();
+  });
+
+  it("G.2: a staged file's File View loads its working-tree file, editable; unsaved edits hold every reload", async () => {
+    const f: FileChange = { ...change('a.txt'), new: { kind: 'object', oid: 'i'.repeat(40) } };
+    const target: DiffTarget = { ...targetFor(f, { kind: 'wip', worktree: '/r', staged: true }), view: 'file' };
+    const fetch = vi.fn(async (_k: string) => contents(blob('a\n'), { ...blob('wt\n'), hash: 'h0' }));
+    // Working-tree contents are never cached (`isMutableKey`), as in `createServices`.
+    const loader = new Loader(fetch, new Lru<string, DiffContentsPayload>(10), 4, (k) => !isMutableKey(k));
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ contents: loader }));
+    act(() => store.getState().openFile(target));
+    render(<RepoViewContext value={store}><DiffPanel target={target} /></RepoViewContext>);
+    await waitFor(() => expect(host.showFile).toHaveBeenCalledWith(expect.objectContaining({ text: 'wt\n' })));
+    expect((JSON.parse(fetch.mock.calls[0]![0]) as { new: unknown }).new).toEqual({ kind: 'worktree', worktree: '/r' });
+    await waitFor(() => expect(host.setFileEditable).toHaveBeenLastCalledWith(true));
+    expect(useWorkingCopy.getState().copies['']).toMatchObject({ path: 'a.txt', worktree: '/r', base: 'h0', view: 'file', dirty: false });
+    // Dirty: a reload (a watcher refresh, here the epoch) doesn't read the file again.
+    act(() => useWorkingCopy.setState((s) => ({ copies: { ...s.copies, '': { ...s.copies['']!, dirty: true } } })));
+    const calls = fetch.mock.calls.length;
+    act(() => useWorkingCopy.setState({ epoch: { '': 1 } }));
+    await act(async () => {});
+    expect(fetch).toHaveBeenCalledTimes(calls);
+    // Saved (clean again): the held reload goes.
+    act(() => useWorkingCopy.setState((s) => ({ copies: { ...s.copies, '': { ...s.copies['']!, dirty: false } } })));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(calls + 1));
+    act(() => useWorkingCopy.setState({ copies: {}, epoch: {} }));
   });
 
   it('← in the diff zone moves the focus to the files', async () => {

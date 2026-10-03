@@ -117,10 +117,16 @@ export function ArmLayer() {
   const mode = armed?.mode ?? null;
   useEffect(() => {
     if (id === null) return;
+    // UX R1 C.2: where focus was when it armed. Under GNOME every press makes the window lose
+    // focus and get it back a few ms later (windowBlur.ts), and the browser gives it back to that
+    // element: a focusin there before the confirm press's click. That's focus returning, not
+    // moving elsewhere; disarming on it ate the confirm (the click then re-armed the control).
+    const had = document.activeElement;
     const onFocusIn = (e: FocusEvent) => {
       const a = useArm.getState().armed;
       if (a?.mode !== 'inplace' || !(e.target instanceof Element)) return;
       if (a.origin?.el.contains(e.target) || e.target.closest(`[${OVERLAY_ATTR}]`)) return;
+      if (e.target === had) return;
       disarm();
     };
     let blurTimer: ReturnType<typeof setTimeout> | undefined;

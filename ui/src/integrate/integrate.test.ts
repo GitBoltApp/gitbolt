@@ -56,6 +56,16 @@ describe('integrate (spec #2 §13.1)', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('a rebase that stops without a conflict says why (UX F: the signer failed)', async () => {
+    vi.spyOn(api, 'integratePreview').mockResolvedValue(preview({}));
+    const why = 'The rebase stopped: gpg failed to sign the data: gpg: signing failed: No pinentry';
+    vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'stopped', kind: 'rebase', files: 0, warning: why }) as never);
+    const { useToast } = await import('../ui/toast');
+    useToast.getState().dismiss();
+    await startIntegrate(ctx, 'rebase', 'main', 'feature/c');
+    expect(useToast.getState()).toMatchObject({ message: why, tone: 'warning' });
+  });
+
   it('a merge without conflicts runs at once; with conflicts the clicked row arms first (board A)', async () => {
     vi.spyOn(api, 'integratePreview').mockResolvedValueOnce(preview({})).mockResolvedValueOnce(preview({ conflicts: ['a.txt', 'b.txt'] })).mockResolvedValueOnce(preview({ ahead: 2, conflicts: ['a.txt'] }));
     vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'done', commits: 2, fastForward: false }) as never);

@@ -2,7 +2,7 @@
 // registry (language.ts) and the Monaco loader, which stay out of the startup chunk (spec §10.3).
 import { X } from 'lucide-react';
 import { BUSY_DELAY_MS, useLateFlag } from '../util/lateFlag';
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { useRepoContext } from '../app/repoContext';
 import { WipStagingUndo } from '../stage/UndoButtons';
@@ -28,12 +28,15 @@ import { DiffToolbar } from './DiffToolbar';
 import { FileView } from './FileView';
 import { firstChangedLine } from './firstChange';
 import { eolLabel, formatBytes } from './format';
+import { BinaryNote, fileSideOf, HexBody, HexView } from './hex';
+import { hexOf } from './hexContents';
+import type { HexDumpPayload } from '../api/gen/HexDumpPayload';
 import { highlightLanguage } from './language';
 import { loadMonacoHost } from './monaco/load';
 import { loadedHost, TextDiff } from './TextDiff';
 import { HunkActions, wipSideOf } from './hunkActions';
 import { wipHunkZones } from './wipHunks';
-import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty, saveWorkingCopy, suspendCopy, trackCopy, useWorkingCopy } from './workingCopy';
+import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty, saveWorkingCopy, suspendCopy, trackCopy, useWorkingCopy, worktreeFileTarget } from './workingCopy';
 import './diff.css';
 
 /** The target's contents. A cached (e.g. prefetched) file is ready on the first render, so
@@ -124,7 +127,7 @@ function DiffPath({ target }: { target: DiffTarget }) {
 }
 
 /** The path, its change kind and encoding, and ×. "Open in…" is on the toolbar below (J1). */
-export function DiffHeader({ target, encoding, onClose, busy = false, dirty = false, onSave }: { target: DiffTarget; encoding: string; onClose: () => void; busy?: boolean; dirty?: boolean; onSave?: () => void }) {
+export function DiffHeader({ target, encoding, note, onClose, busy = false, dirty = false, onSave }: { target: DiffTarget; encoding: string; note?: ReactNode; onClose: () => void; busy?: boolean; dirty?: boolean; onSave?: () => void }) {
   return (
     // `.panel-bar` (tokens.css): the details header's bar box, so their dividers line up (K5).
     <header className="diff-header panel-bar">
@@ -138,6 +141,7 @@ export function DiffHeader({ target, encoding, onClose, busy = false, dirty = fa
       {dirty && <span className="diff-dirty" aria-label="Unsaved changes">●</span>}
       <DiffPath target={target} />
       {encoding && <span className="diff-encoding" data-testid="diff-encoding">{encoding}</span>}
+      {note}
       {onSave && <HoverTooltip content="Save (Ctrl+S)"><button type="button" className="text-button diff-save" disabled={!dirty} onClick={onSave}>Save</button></HoverTooltip>}
       <HoverTooltip content="Close (Esc)"><button type="button" className="icon-button" aria-label="Close diff" onClick={onClose}><X size={14} /></button></HoverTooltip>
       {busy && <div className="diff-progress" role="progressbar" aria-label="Loading diff" />}
@@ -158,17 +162,18 @@ function openInLine(c: DiffContentsPayload | null): number | null {
 const FORCED_CEILING_LABEL = '64 MB';
 
 /** A raster image (the backend's `image` flag) or a text SVG: `Body` shows the image diff. A
- * binary side of an SVG carries no bytes (base64 is for raster images only), so that one keeps the
- * binary summary. */
+ * binary side of an SVG carries no bytes (base64 is for raster images only), so that one shows as
+ * hex, as any other binary. */
 const isImage = (target: DiffTarget, c: DiffContentsPayload) =>
   c.image || (target.path.toLowerCase().endsWith('.svg') && !c.old?.binary && !c.new?.binary);
 
-/** Whether the body shows an editor (a text diff, or File View's text): it's on screen only once
- * the host has shown it, which the header and toolbar wait for. */
+/** Whether the body shows the shared editor (a text diff, or File View's text): it's on screen
+ * only once the host has shown it, which the header and toolbar wait for. A binary's hex view
+ * isn't it: it's painted in the commit that renders it (`HexView`), so nothing waits. */
 function showsEditor(target: DiffTarget, contents: Loadable<DiffContentsPayload>): boolean {
   if (contents.status !== 'ready') return false;
   const c = contents.data;
-  return !c.tooLarge && !isImage(target, c) && !c.old?.binary && !c.new?.binary;
+  return !c.tooLarge && !isImage(target, c) && !isHex(target, c);
 }
 
 /** Whether the body shows a text diff, which is what F7 and Previous/Next change step through.
@@ -176,16 +181,21 @@ function showsEditor(target: DiffTarget, contents: Loadable<DiffContentsPayload>
 function showsTextDiff(target: DiffTarget, contents: Loadable<DiffContentsPayload>): boolean {
   if (target.view !== 'diff' || contents.status !== 'ready') return false;
   const c = contents.data;
-  return !c.tooLarge && !isImage(target, c) && !c.old?.binary && !c.new?.binary;
+  // A binary's hex diff steps through its changed rows too.
+  return !c.tooLarge && !isImage(target, c);
 }
+
+/** A binary that isn't shown as an image: its hex dump (hex.tsx), with its sizes in the file bar. */
+const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !isImage(target, c) && !!(c.old?.binary || c.new?.binary);
 
 /**
  * The image diff (spec §10.4). `contents` is the loader's cached object, so its identity holds
  * across re-renders and `useImageSources` builds the object URLs once per file.
  * File View shows the image at that revision only: the new side, or the old one if it was deleted.
- * An SVG's Source toggle shows its text: the diff, or the file in File View.
+ * An SVG's Source toggle shows its text: the diff, or the file in File View. A raster image's
+ * Hex toggle shows its hex dump, as a binary file's (hex.tsx).
  */
-function ImageBody({ target, contents: c, onSourceChange }: { target: DiffTarget; contents: DiffContentsPayload; onSourceChange?: (on: boolean) => void }) {
+function ImageBody({ target, contents: c, onSourceChange, onHex }: { target: DiffTarget; contents: DiffContentsPayload; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void }) {
   const sources = useImageSources(c, target.path);
   if (!sources) return <div className="diff-message" aria-busy="true">Loading…</div>;
   const fileView = target.view === 'file';
@@ -193,19 +203,19 @@ function ImageBody({ target, contents: c, onSourceChange }: { target: DiffTarget
   const modified = c.new?.text ?? '';
   const svg = target.path.toLowerCase().endsWith('.svg');
   const language = svg ? highlightLanguage(target.path, modified || original) : '';
-  const source = !svg ? undefined : fileView
+  const source = !svg ? <HexBody target={target} contents={c} onLoaded={(h) => onHex?.(target.key, h)} /> : fileView
     ? <FileView path={target.path} text={c.new ? modified : original} language={language} />
     : <TextDiff path={target.path} original={original} modified={modified} language={language} />;
   const old = fileView && c.new ? null : sources.old;
   const neu = fileView && !c.new ? null : sources.new;
   // One ImageDiff per file: every file opens at its own defaults (mode, zoom, Source off).
   const single = fileView ? null : !c.old ? 'added' : !c.new ? 'deleted' : null;
-  return <ImageDiff key={target.key} old={old} new={neu} source={source} onSourceChange={onSourceChange} single={single} />;
+  return <ImageDiff key={target.key} old={old} new={neu} source={source} sourceLabel={svg ? 'Source' : 'Hex'} onSourceChange={onSourceChange} single={single} />;
 }
 
 /** `banner`: whether the line-endings banner may show. Not while the header (and so the editor)
  * still shows the previous file: it's this file's (K7). */
-function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange, editable = false, onEdit, draft }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
+function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange, onHex, editable = false, onEdit, draft }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
   const { repoId } = useRepoContext();
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
@@ -227,14 +237,20 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
       </div>
     );
   }
-  if (isImage(target, c)) return <ImageBody target={target} contents={c} onSourceChange={onSourceChange} />;
-  if (c.old?.binary || c.new?.binary) {
-    return <div className="diff-message" data-testid="binary-summary">Binary file · {formatBytes(c.old?.size)} → {formatBytes(c.new?.size)}</div>;
+  if (isImage(target, c)) return <ImageBody target={target} contents={c} onSourceChange={onSourceChange} onHex={onHex} />;
+  // A binary: its hex view. The dumps load with the contents (hexContents.ts), so it shows in the
+  // render that presents the file; contents without them load them here.
+  if (isHex(target, c)) {
+    const hex = hexOf(c);
+    if (!hex) return <HexBody target={target} contents={c} onShown={onShown} onLoaded={(h) => onHex?.(target.key, h)} />;
+    const file = target.view === 'file';
+    return <HexView path={target.path} hex={hex} file={file} side={file ? fileSideOf(c, hex) : undefined} onShown={onShown} />;
   }
   const original = c.old?.text ?? '';
   // Unsaved edits kept while the tab was hidden show again instead of the disk text.
   const modified = draft ?? c.new?.text ?? '';
   const language = highlightLanguage(target.path, modified || original);
+  const wip = wipSideOf(target);
   // The banner's slot stays in place while it's absent, so moving between files never remounts
   // (detaches and re-attaches) the editor.
   return (
@@ -242,9 +258,9 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} → {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
         ? <FileView identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} />
-        : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wipSideOf(target) ? () => wipHunkZones(repoId, target) : undefined} />}
+        : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined} />}
       {/* Spec #2 §7.3: hunk and line buttons on a WIP text diff. */}
-      {target.view === 'diff' && wipSideOf(target) && <HunkActions target={target} />}
+      {target.view === 'diff' && wip && <HunkActions target={target} />}
     </>
   );
 }
@@ -274,9 +290,9 @@ export const editorOwnsEscape = () =>
     .some((root) => [...root.querySelectorAll<HTMLElement>(ESCAPE_OWNERS)].some(isShown));
 
 /** Targets inside the zone that use ← themselves. */
-const OWNS_ARROWS = '.monaco-host, input, textarea, select, [role="slider"]';
+const OWNS_ARROWS = '.monaco-host, .hex-view, input, textarea, select, [role="slider"]';
 /** Targets a click leaves alone: controls, and the editor (Monaco focuses itself). */
-const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host';
+const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .hex-view';
 
 /**
  * The center-panel takeover (spec §10.1). The graph stays mounted, hidden, underneath.
@@ -303,13 +319,24 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const { tabId, repoId } = useRepoContext();
   const store = useRepoViewStore();
   const epoch = useWorkingCopy((s) => s.epoch[tabId] ?? 0);
+  // G.2: File View of a staged WIP file loads (and edits) its working-tree file.
+  const loadTarget = useMemo(() => worktreeFileTarget(target), [target]);
   // A WIP file's sides are read again when its list moves (a stage, a discard, the watcher): a
-  // discard changes the working-tree side, whose source (and so key) stays the same.
+  // discard changes the working-tree side, whose source (and so key) stays the same. A working-
+  // tree file follows the unstaged list, which is the one that moves when it changes.
   const wipSide = wipSideOf(target);
-  const wipVersion = useRepoView((s) => (wipSide ? s.services.wip.peek(wipKey(wipSide.worktree, wipSide.staged))?.version ?? null : null));
-  const live = useContents(services, target, forcedFor(target), `${epoch}|${wipVersion ?? ''}`);
+  const wipList = wipSide ? wipKey(wipSide.worktree, wipSide.staged && loadTarget.new.kind !== 'worktree') : null;
+  const wipVersion = useRepoView((s) => (wipList ? s.services.wip.peek(wipList)?.version ?? null : null));
+  // Data safety (G.2): while the working copy has unsaved edits, nothing reloads the file under
+  // them (a watcher refresh would show the disk text and drop them). A save or Reload clears the
+  // dirty flag first; a change on disk meanwhile is the save's Stale [Reload] [Overwrite].
+  const dirtyNow = useWorkingCopy((s) => !!s.copies[tabId]?.dirty);
+  const reloadKey = `${epoch}|${wipVersion ?? ''}`;
+  const heldReload = useRef(reloadKey);
+  if (!dirtyNow) heldReload.current = reloadKey;
+  const live = useContents(services, loadTarget, forcedFor(target), heldReload.current);
   // The body renders the presented file: the target, or the previous one while it loads.
-  const body = usePresented(target, live, session);
+  const body = usePresented(loadTarget, live, session);
   const forced = forcedFor(body.target);
   const bodyCopy = useWorkingCopy((s) => (s.copies[tabId]?.key === body.target.key ? s.copies[tabId] : undefined));
   // Spec #2 §7.5: the working-tree side of a WIP file is editable; tracked per presented file and
@@ -364,6 +391,12 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const imageDiff = contents.status === 'ready' && isImage(shown, contents.data) && !contents.data.tooLarge;
   const svgSource = imageDiff && sourceOf === shown.key;
   const textDiff = showsTextDiff(shown, contents) || (svgSource && shown.view === 'diff');
+  // A binary's sizes (and the hex cap) in the file bar; an image's Hex view, the cap only.
+  const hexImage = svgSource && !shown.path.toLowerCase().endsWith('.svg');
+  // The dumps: loaded with the contents, or by the body itself (an image's Hex view).
+  const [bodyHex, setBodyHex] = useState<{ key: string; hex: HexDumpPayload } | null>(null);
+  const dumps = (loaded && hexOf(loaded)) ?? (bodyHex?.key === shown.key ? bodyHex.hex : null);
+  const note = loaded && (isHex(shown, loaded) || hexImage) ? <BinaryNote target={shown} contents={loaded} hex={dumps} summary={!hexImage} /> : null;
   useChangeKeys(textDiff);
   const encoding = contents.status === 'ready' ? (contents.data.new?.encoding || contents.data.old?.encoding || '') : '';
   // An unchanged file from "View all files" has nothing to diff against.
@@ -386,23 +419,24 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const onClick = (e: MouseEvent) => {
     const el = ref.current;
     if (!el || !(e.target instanceof Element) || e.target.closest(OWNS_CLICKS)) return;
-    if (!el.querySelector('.monaco-host') || window.getSelection()?.isCollapsed === false) return;
+    if (!el.querySelector('.monaco-host, .hex-view') || window.getSelection()?.isCollapsed === false) return;
     void loadMonacoHost().then((h) => h.focus());
   };
   return (
     <section ref={ref} className="diff-panel" role="region" aria-label="Diff" tabIndex={-1} onKeyDown={onKeyDown} onClick={onClick} {...zone}>
-      <DiffHeader target={shown} encoding={encoding} onClose={closeDiff} busy={busy} dirty={!!shownCopy?.dirty} onSave={shownCopy ? () => void saveWorkingCopy(tabId) : undefined} />
+      <DiffHeader target={shown} encoding={encoding} note={note} onClose={closeDiff} busy={busy} dirty={!!shownCopy?.dirty} onSave={shownCopy ? () => void saveWorkingCopy(tabId) : undefined} />
       <DiffToolbar
         target={shown}
         canDiff={canDiff}
         canStep={textDiff}
         textTools={!imageDiff || svgSource}
+        binary={!!loaded && (isHex(shown, loaded) || hexImage)}
         leading={<OpenInButton target={shown} line={openLine} />}
         staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
-        history={<HistoryButtons target={shown} />}
+        history={<HistoryButtons target={shown} binary={!!loaded && !!(loaded.old?.binary || loaded.new?.binary)} />}
       />
       <div className="diff-body">
-        <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} editable={editable} onEdit={onEdit} draft={bodyCopy?.draft} />
+        <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} onHex={(key, hex) => setBodyHex({ key, hex })} editable={editable} onEdit={onEdit} draft={bodyCopy?.draft} />
       </div>
     </section>
   );

@@ -20,7 +20,7 @@ export const ACTION_TIP: Readonly<Record<RowAction, string>> = {
   squash: 'Squash into the commit below, merging the messages',
   fixup: 'Squash, discard this message',
   drop: 'Leave the commit out',
-  edit: 'Stop after this commit to amend or split it',
+  edit: 'Stop before committing this commit: its changes are staged and its message is in the commit box, so you can change, split or reword it, then Continue.',
 };
 
 export interface EditorRow {
@@ -198,6 +198,18 @@ export function moveRow(s: EditorState, from: number, to: number): EditorState {
   return withRows(s, rows);
 }
 
+/** A group drag (UX2 E.3): the rows `oids`, in their order, land together at slot `to` of the
+ * rows left without them (0: the top); a scattered selection closes up. */
+export function moveRows(s: EditorState, oids: readonly string[], to: number): EditorState {
+  const set = new Set(oids);
+  const group = s.rows.filter((r) => set.has(r.oid));
+  if (!group.length) return s;
+  const rest = s.rows.filter((r) => !set.has(r.oid));
+  const at = Math.max(0, Math.min(rest.length, to));
+  const rows = [...rest.slice(0, at), ...group, ...rest.slice(at)];
+  return rows.every((r, i) => r === s.rows[i]) ? s : withRows(s, rows);
+}
+
 export function select(s: EditorState, oid: string, mods: { shift?: boolean; ctrl?: boolean } = {}): EditorState {
   const a = mods.shift && s.anchor ? s.rows.findIndex((r) => r.oid === s.anchor) : -1;
   const b = s.rows.findIndex((r) => r.oid === oid);
@@ -234,11 +246,37 @@ export function removeChip(s: EditorState, branch: string): EditorState {
   return { ...s, chips: s.chips.map((x) => (x === c ? { ...x, deleted: !x.deleted } : x)) };
 }
 
+/** The chip menu's "Delete branch": an existing chip is struck out, an added one goes. */
+export function deleteChip(s: EditorState, branch: string): EditorState {
+  const c = s.chips.find((x) => x.branch === branch);
+  if (!c || c.locked || c.deleted) return s;
+  return removeChip(s, branch);
+}
+
+/** What the plan does to a chip's branch: nothing, a move, an add or a delete. */
+export function chipChange(c: EditorChip): 'none' | 'moved' | 'added' | 'deleted' {
+  if (c.origin === null) return 'added';
+  if (c.deleted) return 'deleted';
+  return c.at === c.origin ? 'none' : 'moved';
+}
+
+/** The chip menu's "Remove from this plan's changes" / "Restore": the chip as it opened (back
+ * on its row, not deleted); an added one goes. */
+export function revertChip(s: EditorState, branch: string): EditorState {
+  const c = s.chips.find((x) => x.branch === branch);
+  if (!c || c.locked || chipChange(c) === 'none') return s;
+  if (c.origin === null) return { ...s, chips: s.chips.filter((x) => x !== c) };
+  return { ...s, chips: s.chips.map((x) => (x === c ? { ...x, at: c.origin!, deleted: false } : x)) };
+}
+
 export const reset = (s: EditorState): EditorState => ({ ...s, rows: s.initial.rows, chips: s.initial.chips, selected: [], anchor: null });
 
 const shape = (rows: readonly EditorRow[], chips: readonly EditorChip[]) =>
   JSON.stringify([rows.map((r) => [r.oid, r.action, r.edited]), chips.map((c) => [c.branch, c.at, c.deleted])]);
 export const dirty = (s: EditorState): boolean => shape(s.rows, s.chips) !== shape(s.initial.rows, s.initial.chips);
+/** Whether `a` and `b` are the same plan (rows, actions, messages, chips): the selection aside. */
+export const samePlan = (a: { rows: readonly EditorRow[]; chips: readonly EditorChip[] }, b: { rows: readonly EditorRow[]; chips: readonly EditorChip[] }): boolean =>
+  (a.rows === b.rows && a.chips === b.chips) || shape(a.rows, a.chips) === shape(b.rows, b.chips);
 
 /** What keeps Start disabled, first one shown (the core refuses the same, plan 3C T2). */
 export function problems(s: EditorState, g: Grouping = grouping(s.rows)): string[] {

@@ -6,6 +6,8 @@ import { useDiffPrefs, type DiffMode } from './diffPrefs';
 import { loadMonacoHost } from './monaco/load';
 
 const MODES: [DiffMode, string][] = [['hunk', 'Hunk'], ['inline', 'Inline'], ['split', 'Split']];
+/** The disabled Inline button's tooltip over a binary (lane K). */
+export const BINARY_MODE_TIP = 'A binary file always shows side by side: hex and text, old and new';
 
 /** Next / previous change in the diff editor (F7 / Shift+F7, the toolbar arrows). */
 export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().then((h) => h.goToChange(dir));
@@ -20,8 +22,10 @@ export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().th
  * summary or File View), so Previous/Next change have something to move through.
  * `textTools`: the text-diff groups apply at all. Not for an image diff (H26), unless it's an
  * SVG's Source, which is a text diff.
+ * `binary`: a hex view (lane K) is shown: always side by side, so the view mode doesn't apply
+ * (the Inline button says why), and neither do whitespace or wrapping.
  */
-export function DiffToolbar({ target, canDiff, canStep, textTools = true, leading, staging, history }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode }) {
+export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, leading, staging, history }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode }) {
   const prefs = useDiffPrefs((s) => s.prefs);
   const setPrefs = useDiffPrefs((s) => s.set);
   const setView = useRepoView((s) => s.setView);
@@ -45,13 +49,14 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, leadin
               <IconButton label="Next change" tip="Next change (F7)" disabled={!canStep} onClick={() => goToChange('next')}><ArrowDown size={14} /></IconButton>
             </div>
             <div className="segmented" role="group" aria-label="View mode">
-              {MODES.map(([m, label]) => (
-                <button key={m} type="button" aria-pressed={prefs.mode === m} disabled={!inDiff} onClick={() => setPrefs({ mode: m })}>{label}</button>
-              ))}
+              {MODES.map(([m, label]) => binary
+                // `aria-disabled`, so the tooltip still shows on hover.
+                ? <HoverTooltip key={m} content={BINARY_MODE_TIP} disabled={m !== 'inline'}><button type="button" aria-pressed={prefs.mode === m} aria-disabled="true">{label}</button></HoverTooltip>
+                : <button key={m} type="button" aria-pressed={prefs.mode === m} disabled={!inDiff} onClick={() => setPrefs({ mode: m })}>{label}</button>)}
             </div>
             <div className="diff-toolbar-group" role="group" aria-label="Display">
-              <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>
-              <IconToggle label="Word wrap" tip="Word wrap" pressed={prefs.wordWrap} onClick={() => setPrefs({ wordWrap: !prefs.wordWrap })}><WrapText size={14} /></IconToggle>
+              <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff || binary} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>
+              <IconToggle label="Word wrap" tip="Word wrap" pressed={prefs.wordWrap} disabled={binary} onClick={() => setPrefs({ wordWrap: !prefs.wordWrap })}><WrapText size={14} /></IconToggle>
             </div>
           </>
         )}

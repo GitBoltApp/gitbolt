@@ -45,6 +45,7 @@ export function fakeServices(overrides: Partial<RepoServices> = {}): RepoService
     contents: idle(),
     signature: idle(),
     treeFiles: idle(),
+    worktreeFiles: idle(),
     wip: new WipLists(() => new Promise(() => {})),
     messages: idleMessages(),
     ...wireRemotes(async () => []),
@@ -75,6 +76,7 @@ export function recordingServices(overrides: Partial<RepoServices> = {}) {
     contents: mk('contents'),
     signature: mk('signature'),
     treeFiles: mk('tree'),
+    worktreeFiles: mk('worktreeFiles'),
     // Recorded as `files <key>`, like the `files` loader's (WIP lists are `fileList` reads too).
     wip: new WipLists((spec) => fetch('files', JSON.stringify(spec))),
     messages,

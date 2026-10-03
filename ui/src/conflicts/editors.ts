@@ -7,6 +7,7 @@ import { useAppState } from '../app/state';
 import { useEditorSettings } from '../diff/editorSettings';
 import { clampEditorFont, EDITOR_SCROLLBAR } from '../diff/options';
 import { loadMonacoHost } from '../diff/monaco/load';
+import { overflowLayer } from '../diff/monaco/overflow';
 import { monaco } from '../diff/monaco/setup';
 import { ensureLanguage } from '../diff/monaco/shiki';
 import { currentEditorTheme } from '../theme/editorThemes';
@@ -76,6 +77,7 @@ export function mergeEditorOptions(readOnly: boolean, stickyScroll: boolean, fon
     contextmenu: true,
     fontSize: clampEditorFont(fontSize),
     scrollbar: { ...EDITOR_SCROLLBAR },
+    fixedOverflowWidgets: true,
     minimap: { enabled: false },
     stickyScroll: { enabled: stickyScroll },
     folding: false,
@@ -120,6 +122,7 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
       ...mergeEditorOptions(readOnly, useEditorSettings.getState().settings.stickyScroll, useAppState.getState().settings.editorFontSize),
       model: m,
       theme: currentEditorTheme(),
+      overflowWidgetsDomNode: overflowLayer(),
     });
 
   const paneEd: Record<Side, Editor> = {
