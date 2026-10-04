@@ -201,6 +201,7 @@ pub mod json {
             conflicts: v["has_conflicts"].as_bool(),
             labels: v["labels"].as_array().into_iter().flatten().filter_map(|l| l.as_str().or(l["name"].as_str()).map(str::to_string)).collect(),
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
+            stacked: v["description"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
     }
 
@@ -387,7 +388,7 @@ pub mod json {
     pub fn create_body(req: &CreateMr, source_id: u64, target_id: u64) -> Value {
         let mut b = serde_json::json!({
             "source_branch": req.source.branch, "target_branch": req.target_branch, "title": draft_title(&req.title, req.draft),
-            "description": req.description, "assignee_ids": req.assignees, "reviewer_ids": req.reviewers, "labels": req.labels.join(","),
+            "description": req.description, "assignee_ids": req.assignees, "reviewer_ids": req.reviewers, "labels": req.labels,
         });
         if source_id != target_id {
             b["target_project_id"] = serde_json::json!(target_id);
@@ -426,6 +427,7 @@ pub mod json {
             conflicts: v["has_conflicts"].as_bool(),
             labels: v["labels"].as_array().map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect()).unwrap_or_default(),
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
+            stacked: v["description"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
     }
     // --- end 4C T3 ---
@@ -652,6 +654,17 @@ impl ForgeProvider for GitLabProvider {
         Box::pin(self.list_open(project, filter, false))
     }
 
+    // --- 4D T4 ---
+    fn open_mrs_targeting<'a>(&'a self, project: &'a ForgeProject, branch: &'a str) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
+        Box::pin(async move {
+            let path = format!("/projects/{}/merge_requests?state=opened&target_branch={}&per_page=100", project.id, encode_component(branch));
+            let r = self.http.get(&path).await?;
+            let list: Vec<Value> = r.json(&self.host)?;
+            Ok(Self::fresh(self.mrs_of(project, &list, &HashMap::new()).await, &r))
+        })
+    }
+    // --- end 4D T4 ---
+
     fn mr_for_branch<'a>(&'a self, project: &'a ForgeProject, source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
         Box::pin(async move {
             let path = format!("/projects/{}/merge_requests?source_branch={}&state=all&order_by=updated_at&sort=desc&per_page=20", project.id, encode_component(&source.branch));
@@ -847,6 +860,14 @@ impl ForgeProvider for GitLabProvider {
     // --- end 4C T3 ---
     // --- end 4C ---
     // --- 4D ---
+    // --- 4D: stacks ---
+    /// Points the MR at `target_branch` (spec #4 §4 "4D"): `PUT …/merge_requests/:iid`.
+    fn retarget<'a>(&'a self, project: &'a ForgeProject, number: u64, target_branch: &'a str) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let r = self.http.send_json(Method::Put, &Self::mr_url(project, number), &serde_json::json!({ "target_branch": target_branch })).await?;
+            self.mr_from(project, &r.json(&self.host)?).await
+        })
+    }
     // --- end 4D ---
 }
 
@@ -895,6 +916,15 @@ mod tests {
         let v = json!({"iid": 5, "title": "Draft: Explore", "draft": true, "state": "opened", "author": {"id": 7, "username": "ada", "name": "Ada"}, "source_branch": "x", "target_branch": "main", "sha": "abc", "labels": ["a"], "updated_at": "2026-10-04T12:00:00Z", "has_conflicts": true});
         let m = json::mr(&v, "group/project", "group/project").unwrap();
         assert_eq!((m.title.as_str(), m.state, m.conflicts, m.updated_at, m.labels.clone()), ("Explore", MrState::Draft, Some(true), 1_791_115_200, vec!["a".to_string()]));
+    }
+
+    #[test]
+    fn an_mr_whose_description_has_gitbolts_stack_table_is_stacked() {
+        let v = |d: serde_json::Value| json!({"iid": 5, "title": "t", "state": "opened", "author": {"id": 7, "username": "ada"}, "source_branch": "x", "target_branch": "main", "web_url": "u", "description": d});
+        assert!(json::mr(&v("Intro\n\n<!-- gitbolt-stack:start -->\n| table |\n<!-- gitbolt-stack:end -->".into()), "group/project", "group/project").unwrap().stacked);
+        assert!(!json::mr(&v("Plain text".into()), "group/project", "group/project").unwrap().stacked);
+        assert!(!json::mr(&v(serde_json::Value::Null), "group/project", "group/project").unwrap().stacked, "an MR with no description");
+        assert!(json::created_mr(&v("<!-- gitbolt-stack:start -->\nT\n<!-- gitbolt-stack:end -->".into()), "group/project", "group/project").unwrap().stacked);
     }
 
     #[test]
@@ -954,7 +984,7 @@ mod tests {
         };
         assert_eq!(
             json::create_body(&req, 77, 42),
-            json!({"source_branch": "feature", "target_branch": "main", "title": "Add login", "description": "Why.", "assignee_ids": [7], "reviewer_ids": [8], "labels": "bug,ui", "target_project_id": 42, "remove_source_branch": true})
+            json!({"source_branch": "feature", "target_branch": "main", "title": "Add login", "description": "Why.", "assignee_ids": [7], "reviewer_ids": [8], "labels": ["bug", "ui"], "target_project_id": 42, "remove_source_branch": true})
         );
         assert!(json::create_body(&req, 42, 42).get("target_project_id").is_none());
         assert_eq!(json::create_body(&CreateMr { squash: Some(false), ..req }, 42, 42)["squash"], false);

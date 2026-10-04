@@ -77,6 +77,17 @@ pub trait ForgeProvider: Send + Sync {
     fn open_mrs_light<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
         self.open_mrs(project, filter)
     }
+    // --- 4D T4 ---
+    /// The open MRs/PRs whose target is `branch`, all of them (the merge guard must not miss one
+    /// past the general list's first page). By default, `open_mrs_light` filtered.
+    fn open_mrs_targeting<'a>(&'a self, project: &'a ForgeProject, branch: &'a str) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
+        Box::pin(async move {
+            let mut r = self.open_mrs_light(project, MrFilter::All).await?;
+            r.value.retain(|m| m.target_branch == branch);
+            Ok(r)
+        })
+    }
+    // --- end 4D T4 ---
     fn mr_for_branch<'a>(&'a self, _project: &'a ForgeProject, _source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
         unsupported("Finding a branch's merge request")
     }

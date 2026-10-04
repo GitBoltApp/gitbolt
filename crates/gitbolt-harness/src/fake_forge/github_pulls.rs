@@ -362,6 +362,9 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 .pulls
                 .iter()
                 .filter(|p| p.repo == repo && (state == "all" || p.state == state))
+                // --- 4D T11: base ---
+                .filter(|p| r.query.get("base").is_none_or(|b| *b == p.base_ref))
+                // --- end 4D T11 ---
                 .filter(|p| {
                     head.is_none_or(|h| {
                         *h == format!(
@@ -525,6 +528,11 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 if let Some(d) = b["body"].as_str() {
                     p.body = d.into();
                 }
+                // --- 4D T2: retarget ---
+                if let Some(base) = b["base"].as_str() {
+                    p.base_ref = base.into();
+                }
+                // --- end 4D T2 ---
                 p.updated_at = WRITE_TIME.into();
                 Reply::json(pull_json(st, &st.seed.github.pulls[i], &base, true))
             }

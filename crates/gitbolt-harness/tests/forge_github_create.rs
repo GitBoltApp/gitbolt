@@ -176,6 +176,23 @@ async fn a_forbidden_template_directory_leaves_the_single_template() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_forbidden_github_directory_is_an_error_so_the_hub_reads_the_local_copy() {
+    let f = FakeForge::start().await;
+    seed_templates(&f);
+    script_get(&f, "/repos/octo-org/widget/contents/.github", 403);
+    let e = names(&provider(&f)).await.unwrap_err();
+    assert!(gitbolt_forge::http::is_forbidden(&e), "{e:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn no_github_directory_means_no_templates() {
+    let f = FakeForge::start().await;
+    seed_templates(&f);
+    script_get(&f, "/repos/octo-org/widget/contents/.github", 404);
+    assert!(names(&provider(&f)).await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_server_error_on_a_template_still_fails() {
     let f = FakeForge::start().await;
     seed_templates(&f);

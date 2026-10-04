@@ -10,8 +10,10 @@ export function serverActions(server: RemoteSummary, op: number): ToastAction[] 
 
 /** A push or fetch finished. With a Warning line from the server: `problem`, a warning toast that
  * stays until dismissed, quoting it. Otherwise `done`, with the link when there's output. */
-export function showServerResult(done: string, problem: string, server: RemoteSummary, op: number): void {
-  const actions = serverActions(server, op);
+export function showServerResult(done: string, problem: string, server: RemoteSummary, op: number, extra: ToastAction[] = []): void {
+  // --- 4C T9: the caller's links (the push toast's "Create MR") come first ---
+  const actions = [...extra, ...serverActions(server, op)];
+  // --- end 4C T9 ---
   if (server.warning) {
     useToast.getState().show(problem, { tone: 'warning', sticky: true, detail: `“${server.warning}”`, actions });
     return;

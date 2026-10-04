@@ -166,7 +166,8 @@ test.describe('fetch', () => {
     const activity = page.getByRole('dialog', { name: 'Activity' });
     await expect(activity).toBeVisible();
     await expect(activity.locator('.activity-entry').first()).toContainText('fake: Permission denied (publickey).');
-    await expect(activity.locator('.activity-entry').first()).toContainText('$ git fetch --all');
+    await expect(activity.locator('.activity-entry').first()).toContainText('$ git fetch ');
+    await expect(activity.locator('.activity-entry').first()).toContainText(/ --all\b/);
     await page.keyboard.press('Escape');
     await expect(activity).toHaveCount(0);
     await expect(fetchButton(page)).toBeEnabled();

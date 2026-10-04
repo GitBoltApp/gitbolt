@@ -29,6 +29,21 @@ describe('SearchPicker (reviewers, assignees, labels)', () => {
     expect(onRemove).toHaveBeenCalledWith('grace');
   });
 
+  it("Enter mid-debounce never picks from the previous query's list", async () => {
+    const search = vi.fn(async (q: string) => [opt(`${q}-1`)]);
+    const onPick = vi.fn();
+    render(<SearchPicker label="Labels" chips={[]} onRemove={vi.fn()} search={search} onPick={onPick} />);
+    const input = screen.getByLabelText('Labels');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'a' } });
+    expect(await screen.findByRole('option', { name: 'a-1' })).toBeTruthy();
+    fireEvent.change(input, { target: { value: 'ab' } });
+    expect(screen.queryByRole('option', { name: 'a-1' })).toBeNull();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onPick).not.toHaveBeenCalled();
+    expect(await screen.findByRole('option', { name: 'ab-1' })).toBeTruthy();
+  });
+
   it('a late answer to an older query never replaces the newer list', async () => {
     let answerA: (v: PickOption<string>[]) => void = () => {};
     const search = vi.fn((q: string) => (q === 'a' ? new Promise<PickOption<string>[]>((r) => { answerA = r; }) : Promise.resolve(q ? [opt(`${q}-new`)] : [])));

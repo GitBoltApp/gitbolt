@@ -9,6 +9,7 @@ import { sectionKey } from '../sidebar/model';
 import { openFlyout } from '../ui/flyout/flyout';
 import { forgeOf, forgeScratch, keepSame, knownMr, sameJson, MR_FLYOUT, patchForge, upstreamRefsOf, writeEpoch, type MrViewArgs, type TabForge } from './mrStore';
 import { backoffMs, type PollOutcome, type PollReason } from './poller';
+import { mappedRemotes } from './projects';
 
 /** A hover card's detail is asked again once it's this old. */
 export const DETAIL_MAX_AGE_MS = 60_000;
@@ -101,19 +102,19 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
   const gone = () => repoOf(tabId) === undefined; // the tab closed while a request ran
   try {
     if (reason !== 'fast' || forgeOf(tabId).kind === null) {
-      const projects = await api.forgeRepoProjects(repo, reason === 'activate');
+      const projects = await api.forgeRepoProjects(repo, reason === 'activate' || forgeScratch.recheck.delete(tabId));
       const target = projects.remotes.find((r) => r.remote === projects.target);
       if (!target?.project || !target.account) {
-        patchForge(tabId, { kind: null, remote: null, project: null, byRef: {}, upstreams: {}, list: null, error: null, failures: 0, updatedAt: Date.now() });
+        patchForge(tabId, { kind: null, remote: null, project: null, mapped: [], byRef: {}, upstreams: {}, list: null, error: null, failures: 0, updatedAt: Date.now() });
         return IDLE;
       }
       if (gone()) return IDLE;
       const host = target.project.host;
       const me = forgeOf(tabId).me ?? (await api.forgeAccounts()).find((a) => a.account.host === host)?.account.user.username ?? null;
-      patchForge(tabId, { kind: target.account, remote: target.remote, project: target.project, me });
+      patchForge(tabId, (f) => ({ kind: target.account, remote: target.remote, project: target.project, mapped: keepSame(f.mapped, mappedRemotes(projects, host)), me }));
     }
     if (reason !== 'fast') {
-      const { refs, upstreams } = upstreamRefsOf(useRuntime.getState().tabs[tabId]?.sidebar ?? null);
+      const { refs, upstreams } = upstreamRefsOf(useRuntime.getState().tabs[tabId]?.sidebar ?? null, forgeOf(tabId));
       const badges = await api.forgeBranchMrs(repo, refs);
       if (gone()) return IDLE;
       note(badges.pollIntervalSecs);

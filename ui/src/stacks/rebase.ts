@@ -21,6 +21,19 @@ import { toastRebaseOutcome } from '../irebase/outcome';
 /** What Rebase stack sends as 3C's InteractiveRebase (its client's `req`, before the autostash answer). */
 export interface StackPlan { branch: string; base: string; expect: Record<string, string>; rows: RebaseRow[]; chips: ChipPlan[] }
 
+/** 4D: a merged bottom's commits to drop (Ruling 9): every row at or below `from`; `branch` names it in the confirm. */
+export interface Drop { from: string[]; branch: string }
+
+/** The plan row index of the first drop candidate the plan holds, else -1 (rows are newest first). */
+export function dropCut(plan: RebasePlanPayload, drop: Drop | null): number {
+  if (!drop) return -1;
+  for (const oid of drop.from) {
+    const i = plan.rows.findIndex((r) => r.oid === oid);
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
 const top = (s: Stack) => s.branches[s.branches.length - 1];
 const commits = (n: number) => `${n} ${n === 1 ? 'commit' : 'commits'}`;
 
@@ -37,20 +50,24 @@ const commits = (n: number) => `${n} ${n === 1 ? 'commit' : 'commits'}`;
  *   target (an annotated tag's own object, 3C's `Range.base_ref_target`), never the base's oid.
  * Not recognised as upstream: a squash-merged multi-commit bottom (the cherry-mark patch-ids differ
  * from the squash's), so its rows are replayed.
+ * 4D: `drop` also drops a merged bottom's rows (a squash merge isn't upstream).
  * Pure. The core's run.rs `--- 3D T4 ---` tests compose the same requests.
  */
-export function stackPlan(stack: Stack, plan: RebasePlanPayload): StackPlan {
+export function stackPlan(stack: Stack, plan: RebasePlanPayload, drop: Drop | null = null): StackPlan {
   const lower = new Set(stack.branches.slice(0, -1));
   const index = new Map(plan.rows.map((r, i) => [r.oid, i]));
+  // 4D: rows at or below the merged bottom's tip go (rows are newest first).
+  const cut = dropCut(plan, drop);
+  const goes = (i: number) => plan.rows[i].upstream || (cut >= 0 && i >= cut);
   const replayed = (at: string) => {
     const i = index.get(at);
-    return i !== undefined && plan.rows.slice(i).some((r) => !r.upstream);
+    return i !== undefined && plan.rows.some((_, k) => k >= i && !goes(k));
   };
   return {
     branch: top(stack),
     base: stack.base,
     expect: plan.expect,
-    rows: plan.rows.map((r) => ({ oid: r.oid, action: r.upstream ? ('drop' as const) : ('pick' as const) })),
+    rows: plan.rows.map((r, i) => ({ oid: r.oid, action: goes(i) ? ('drop' as const) : ('pick' as const) })),
     chips: plan.chips.map((c): ChipPlan => ({ branch: c.branch, at: lower.has(c.branch) && replayed(c.at) ? { kind: 'row', oid: c.at } : { kind: 'stay' } })),
   };
 }
@@ -63,7 +80,7 @@ const rowChips = (p: StackPlan) => p.chips.filter((c) => c.at.kind === 'row');
  * what stays behind. A lower member sent as `stay` is already in the base; one the plan has no
  * chip for at all (the graph's stack is stale) just stays where it is.
  */
-export function rebaseConfirm(stack: Stack, req: StackPlan, conflicting: number): { arm: string; caption?: string; tone: 'warn' | 'positive' } {
+export function rebaseConfirm(stack: Stack, req: StackPlan, conflicting: number, dropped = 0, drop: Drop | null = null, dropMissing = false): { arm: string; caption?: string; tone: 'warn' | 'positive' } {
   const base = shortRef(stack.base);
   const at = new Map(req.chips.map((c) => [c.branch, c.at.kind]));
   const lower = stack.branches.slice(0, -1);
@@ -73,9 +90,11 @@ export function rebaseConfirm(stack: Stack, req: StackPlan, conflicting: number)
   const what = `${moving} ${moving === 1 ? 'branch' : 'branches'}`;
   const one = (names: string[]) => names.length === 1;
   const members = new Set(stack.branches);
-  const others = req.chips.filter((c) => c.at.kind === 'stay' && !members.has(c.branch)).map((c) => c.branch);
+  const others = req.chips.filter((c) => c.at.kind === 'stay' && !members.has(c.branch) && c.branch !== drop?.branch).map((c) => c.branch);
   const shown = others.length > 2 ? `${others.slice(0, 2).join(', ')} +${others.length - 2} more` : joinNames(others);
   const notes = [
+    drop && dropMissing ? `The merged commits of ${drop.branch} weren't found in the stack: they'll be replayed (resolve or drop them in the editor).` : null,
+    drop && dropped ? `${commits(dropped)} of ${drop.branch} (merged) ${dropped === 1 ? 'is' : 'are'} dropped.` : null,
     conflicting ? `${commits(conflicting)} will conflict.` : null,
     inBase.length ? `${joinNames(inBase)} ${one(inBase) ? 'is' : 'are'} already in ${base} and ${one(inBase) ? 'stays where it is' : 'stay where they are'}.` : null,
     unplanned.length ? `${joinNames(unplanned)} ${one(unplanned) ? 'stays where it is' : 'stay where they are'}.` : null,
@@ -89,8 +108,8 @@ export function rebaseConfirm(stack: Stack, req: StackPlan, conflicting: number)
   };
 }
 
-/** The read, the refusals and the confirm. The plan to send, or `null` (refused, nothing to do, not confirmed). */
-async function prepare(ctx: WriteCtx, stack: Stack, origin: Origin | null, release: () => void): Promise<StackPlan | null> {
+/** The read, the refusals and the confirm. The plan to send; `upToDate`; `cancelled` (not confirmed); `editor` (merges: the editor was offered); or `null` (refused or failed, already toasted). */
+async function prepare(ctx: WriteCtx, stack: Stack, origin: Origin | null, release: () => void, drop: Drop | null): Promise<StackPlan | 'upToDate' | 'cancelled' | 'editor' | null> {
   const base = shortRef(stack.base);
   const show = (m: string, error = false) => useToast.getState().show(m, { error });
   let plan: RebasePlanPayload;
@@ -106,20 +125,25 @@ async function prepare(ctx: WriteCtx, stack: Stack, origin: Origin | null, relea
     release();
     const n = plan.merges;
     const answer = await askChoice({ title: `Rebase the stack onto ${base}?`, body: `This would flatten ${n} merge ${n === 1 ? 'commit' : 'commits'}: use the interactive rebase editor.`, choices: [{ id: 'editor', label: 'Open the editor', primary: true }] }, origin);
-    if (answer.choice === 'editor') void openRebaseEditor(ctx.tabId, { branch: top(stack), base: stack.base });
-    return null;
+    // 4D: the merged bottom's rows open as Drop, as the stack plan would have sent them.
+    const cut = dropCut(plan, drop);
+    const preset = cut >= 0 ? { rows: Object.fromEntries(plan.rows.slice(cut).map((r) => [r.oid, 'drop' as const])) } : undefined;
+    if (answer.choice === 'editor') void openRebaseEditor(ctx.tabId, { branch: top(stack), base: stack.base, ...(preset ? { preset } : {}) });
+    return 'editor';
   }
-  if (plan.rows.every((r) => r.upstream)) { release(); show(`${top(stack)} is already in ${base}`); return null; }
-  if (plan.behind === 0) { release(); show(`The stack is already on ${base}`); return null; }
-  const req = stackPlan(stack, plan);
+  const req = stackPlan(stack, plan, drop);
+  // 4D: rows the drop takes that git wouldn't: a branch still carrying them isn't on the base yet.
+  const dropped = req.rows.filter((r, i) => r.action === 'drop' && !plan.rows[i].upstream).length;
+  if (!dropped && plan.rows.every((r) => r.upstream)) { release(); show(`${top(stack)} is already in ${base}`); return 'upToDate'; }
+  if (!dropped && plan.behind === 0) { release(); show(`The stack is already on ${base}`); return 'upToDate'; }
   // A hint only (§3.2, §5): off, failed or slow, the confirm just doesn't count conflicts.
   const p = await api.predictRebase(ctx.repoId, ctx.worktree, stack.base, req.rows).catch(() => null);
   const conflicting = p && !p.off ? p.rows.filter((r) => r.conflicts.length > 0).length : 0;
-  const c = rebaseConfirm(stack, req, conflicting);
+  const c = rebaseConfirm(stack, req, conflicting, dropped, drop, !!drop && dropCut(plan, drop) < 0);
   // Armed first, then the hold goes: the row stays armed in its open menu (as 2D's stacked rebase).
   const asked = confirmWith({ title: `Rebase the stack onto ${base}?`, body: c.caption, confirmLabel: 'Rebase', arm: c.arm, caption: c.caption, tone: c.tone }, origin);
   release();
-  return (await asked).ok ? req : null;
+  return (await asked).ok ? req : 'cancelled';
 }
 
 /** The toast for a finished Rebase stack; a `warning` (something after it didn't complete) shows as one. */
@@ -131,15 +155,21 @@ function toastOutcome(out: IntegrateOutcome, req: StackPlan, base: string): void
   useToast.getState().show(message, out.warning ? { tone: 'warning', detail: out.warning } : undefined);
 }
 
-/** "Rebase stack onto <base>" (spec #3 §3.11): one InteractiveRebase moving every member; one Undo restores them all (§3.4). */
-export async function rebaseStack(ctx: WriteCtx, stack: Stack): Promise<void> {
+/** "Rebase stack onto <base>" (spec #3 §3.11): one InteractiveRebase moving every member; one Undo restores them all (§3.4).
+ * 4D: `drop` drops a merged bottom's commits; `origin` where the action started (the after-merge flow captures it before its
+ * own awaits). Resolves the outcome (`upToDate` when the stack already sits on the base), `{ status: 'cancelled' }` (the user declined the confirm), `{ status: 'editor' }` (merges: handed to the editor
+ * or the choice dismissed), or `null`: refused or failed (already toasted). */
+export async function rebaseStack(ctx: WriteCtx, stack: Stack, opts: { drop?: Drop | null; origin?: Origin | null } = {}): Promise<IntegrateOutcome | { status: 'cancelled' | 'editor' } | null> {
   // Captured before the first await: the menu row's origin carries through to the write's questions.
-  const origin = currentOrigin();
+  const origin = opts.origin === undefined ? currentOrigin() : opts.origin;
   const release = holdOrigin();
-  const req = await prepare(ctx, stack, origin, release).finally(release);
-  if (!req) return;
+  const req = await prepare(ctx, stack, origin, release, opts.drop ?? null).finally(release);
+  if (req === 'upToDate') return { status: 'upToDate' };
+  if (req === 'cancelled' || req === 'editor') return { status: req };
+  if (!req) return null;
   const out = await runWrite(ctx, (_confirmed, asked) => api.interactiveRebase(ctx.repoId, ctx.worktree, { ...req, confirmAutostash: asked.autostash }), { origin });
   if (out) toastOutcome(out, req, shortRef(stack.base));
+  return out;
 }
 
 /** A ref's tip from the sidebar snapshot (local or remote-tracking). */

@@ -5,7 +5,7 @@ const stops = vi.hoisted(() => ({ stop: vi.fn() }));
 const poll = vi.hoisted(() => ({ pollForge: vi.fn(async () => ({ runningPipeline: false, serverIntervalMs: null })) }));
 vi.mock('./poll', () => poll);
 
-const { notifyForgeWrite, useForgePolling } = await import('./usePolling');
+const { notifyForgeAccountsChanged, notifyForgeWrite, useForgePolling } = await import('./usePolling');
 
 describe('useForgePolling (spec #4 §3.4: the active tab only)', () => {
   it('polls the shown tab at once and after a write, and stops when it hides', async () => {
@@ -17,6 +17,19 @@ describe('useForgePolling (spec #4 §3.4: the active tab only)', () => {
     notifyForgeWrite('t');
     await new Promise((r) => setTimeout(r, 0));
     expect(poll.pollForge).toHaveBeenCalledTimes(2);
+  });
+
+  it('an account change polls every live tab at once and clears the activation gap', async () => {
+    poll.pollForge.mockClear();
+    const { forgeScratch } = await import('./mrStore');
+    forgeScratch.activatedAt.set('a', 1);
+    const a = renderHook(() => useForgePolling('a', 1));
+    await waitFor(() => expect(poll.pollForge).toHaveBeenCalledWith('a', 'activate'));
+    forgeScratch.activatedAt.set('a', 1);
+    notifyForgeAccountsChanged();
+    await waitFor(() => expect(poll.pollForge).toHaveBeenCalledWith('a', 'write'));
+    expect(forgeScratch.activatedAt.has('a')).toBe(false);
+    a.unmount();
   });
 
   it('does nothing before the repo is open', async () => {

@@ -41,6 +41,16 @@ describe('the create outcome (spec #4 §3.5)', () => {
     expect(toast().message).toBe('Added reviewers and labels to #45');
   });
 
+  it('Retry says "Retrying…" until the outcome', async () => {
+    let answer: (v: unknown) => void = () => {};
+    api.forgeCompleteCreate.mockReturnValueOnce(new Promise((r) => { answer = r; }));
+    showCreated(c, [{ part: 'reviewers', message: 'x' }]);
+    toast().actions[0].run();
+    expect([toast().message, toast().sticky, toast().actions]).toEqual(['Retrying…', true, []]);
+    answer([]);
+    await vi.waitFor(() => expect(toast().message).toBe('Added reviewers to #45'));
+  });
+
   it('a Retry that fails again keeps the warning with what still fails', async () => {
     api.forgeCompleteCreate.mockResolvedValueOnce([{ part: 'labels', message: 'y' }]);
     await retry(c, ['reviewers', 'labels']);

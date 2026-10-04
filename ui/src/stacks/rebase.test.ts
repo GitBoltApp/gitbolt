@@ -189,3 +189,83 @@ describe('rebaseStack', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 });
+
+// --- 4D T6 ---
+describe('Rebase stack after the bottom merged (4D, Ruling 9)', () => {
+  const above: Stack = { branches: ['feature/b', 'feature/c'], base: 'refs/remotes/origin/main', leftBehind: [] };
+  const drop = { from: ['a1'], branch: 'feature/a' };
+  beforeEach(() => { vi.restoreAllMocks(); confirm.mockReset(); useToast.getState().dismiss(); });
+
+  it("drops the merged branch's rows (a squash merge isn't recognised as upstream) and leaves its chip", () => {
+    const p = stackPlan(above, plan(), drop);
+    expect(p.rows.map((r) => r.action)).toEqual(['pick', 'pick', 'drop']);
+    expect(p.chips).toEqual([{ branch: 'feature/a', at: { kind: 'stay' } }, { branch: 'feature/b', at: { kind: 'row', oid: 'b1' } }]);
+  });
+
+  it('a drop point outside the plan drops nothing', () => {
+    expect(stackPlan(above, plan(), { from: ['zz'], branch: 'feature/a' }).rows.map((r) => r.action)).toEqual(['pick', 'pick', 'pick']);
+  });
+
+  it("the confirm says how many merged commits go, and doesn't call the merged branch left behind", () => {
+    const c = rebaseConfirm(above, stackPlan(above, plan(), drop), 0, 1, drop);
+    expect(c.caption).toBe('1 commit of feature/a (merged) is dropped.');
+  });
+
+  it('sends the drop, and returns the outcome', async () => {
+    vi.spyOn(api, 'rebasePlan').mockResolvedValue(plan());
+    vi.spyOn(api, 'predictRebase').mockResolvedValue({ off: true, rows: [] } as never);
+    confirm.mockResolvedValue({ ok: true, checked: false });
+    const run = vi.spyOn(api, 'interactiveRebase').mockResolvedValue(ok({ status: 'done', commits: 2, fastForward: false }) as never);
+    expect(await rebaseStack(ctx, above, { drop, origin: null })).toEqual({ status: 'done', commits: 2, fastForward: false });
+    expect(run.mock.calls[0][2].rows.map((r) => r.action)).toEqual(['pick', 'pick', 'drop']);
+    expect(confirm.mock.calls[0][0].caption).toBe('1 commit of feature/a (merged) is dropped.');
+  });
+
+  const acts = (oids: string[], from: string[]) => stackPlan(above, plan({ rows: oids.map((o) => row(o)) }), { from, branch: 'feature/a' }).rows.map((r) => r.action);
+
+  it('cuts at the MR head: a local commit added to the bottom after the merge is not dropped', () => {
+    expect(acts(['c1', 'b1', 'a2', 'a1'], ['a1', 'a2'])).toEqual(['pick', 'pick', 'pick', 'drop']);
+  });
+
+  it('the local bottom is behind the MR head and the upper branch is built on the head: the head is cut, nothing replayed', () => {
+    expect(acts(['c1', 'b1', 'h1', 'a1'], ['h1', 'a1'])).toEqual(['pick', 'pick', 'drop', 'drop']);
+  });
+
+  it('the forge rewrote the bottom: the local tip is the fallback', () => {
+    expect(acts(['c1', 'b1', 'a1'], ['h1', 'a1'])).toEqual(['pick', 'pick', 'drop']);
+  });
+
+  it("neither found: nothing is dropped and the confirm says the merged commits will be replayed", () => {
+    expect(acts(['c1', 'b1', 'a1'], ['h1', 'x1'])).toEqual(['pick', 'pick', 'pick']);
+    const d = { from: ['h1'], branch: 'feature/a' };
+    expect(rebaseConfirm(above, stackPlan(above, plan(), d), 0, 0, d, true).caption).toBe("The merged commits of feature/a weren't found in the stack: they'll be replayed (resolve or drop them in the editor).");
+  });
+
+  it('a stack already on its base reads as upToDate; a cancel says so', async () => {
+    vi.spyOn(api, 'rebasePlan').mockResolvedValue(plan({ behind: 0 }));
+    expect(await rebaseStack(ctx, stack)).toEqual({ status: 'upToDate' });
+    vi.spyOn(api, 'rebasePlan').mockResolvedValue(plan());
+    vi.spyOn(api, 'predictRebase').mockResolvedValue({ off: true, rows: [] } as never);
+    confirm.mockResolvedValue({ ok: false, checked: false });
+    expect(await rebaseStack(ctx, stack)).toEqual({ status: 'cancelled' });
+  });
+
+  it('merges hand over to the editor with the merged rows already set to Drop', async () => {
+    vi.spyOn(api, 'rebasePlan').mockResolvedValue(plan({ merges: 1, rows: [row('c1'), row('b1'), row('a2'), row('a1')] }));
+    ask.mockResolvedValue({ choice: 'editor' });
+    openEditor.mockReset();
+    expect(await rebaseStack(ctx, above, { drop: { from: ['a2'], branch: 'feature/a' }, origin: null })).toEqual({ status: 'editor' });
+    expect(openEditor).toHaveBeenCalledWith('t', { branch: 'feature/c', base: 'refs/remotes/origin/main', preset: { rows: { a2: 'drop', a1: 'drop' } } });
+  });
+
+  it("a squash onto a local base that hasn't moved: the branch still carries the merged commits, so it isn't up to date", async () => {
+    const local: Stack = { ...above, base: 'refs/heads/main' };
+    vi.spyOn(api, 'rebasePlan').mockResolvedValue(plan({ base: 'refs/heads/main', behind: 0 }));
+    vi.spyOn(api, 'predictRebase').mockResolvedValue({ off: true, rows: [] } as never);
+    confirm.mockResolvedValue({ ok: false, checked: false });
+    expect(await rebaseStack(ctx, local, { drop, origin: null })).toEqual({ status: 'cancelled' });
+    expect(confirm.mock.calls[0][0].caption).toBe('1 commit of feature/a (merged) is dropped.');
+    expect(await rebaseStack(ctx, local, { drop: null, origin: null })).toEqual({ status: 'upToDate' });
+  });
+});
+// --- end 4D T6 ---

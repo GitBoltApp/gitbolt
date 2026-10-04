@@ -14,7 +14,7 @@ vi.mock('../api/client', () => ({
   },
   errorMessage: (e: unknown) => String(e),
 }));
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 vi.mock('../diff/monaco/load', () => ({ loadMonacoHost: async () => host }));
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 

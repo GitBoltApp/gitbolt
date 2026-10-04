@@ -19,6 +19,8 @@ const api = vi.hoisted(() => ({
   avatar: vi.fn(async () => null),
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)) }));
+const polling = vi.hoisted(() => ({ notifyForgeAccountsChanged: vi.fn() }));
+vi.mock('./accountsBus', () => polling);
 vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 
 const { AccountsSection, FILE_WARNING, statusText } = await import('./AccountsSection');
@@ -78,6 +80,7 @@ describe('Settings › Accounts', () => {
     expect((screen.getByLabelText('Token') as HTMLInputElement).value).toBe('');
     expect(document.body.innerHTML).not.toContain(TOKEN);
     expect(reset).toHaveBeenCalled();
+    expect(polling.notifyForgeAccountsChanged).toHaveBeenCalledTimes(1);
   });
 
   it('a refused token says why and keeps what was typed', async () => {
@@ -110,6 +113,7 @@ describe('Settings › Accounts', () => {
     press(confirm);
     clock.restore();
     await waitFor(() => expect(api.removeForgeAccount).toHaveBeenCalledWith('gitlab.example.com'));
+    await waitFor(() => expect(polling.notifyForgeAccountsChanged).toHaveBeenCalled());
   });
 
   it("a failed Remove keeps its error on screen after the list is read again, and the account's row", async () => {

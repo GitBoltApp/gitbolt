@@ -15,6 +15,7 @@ import { Thread } from './Thread';
 // --- 4B T13 ---
 import { MrActions } from './MrActions';
 import { ReplyBox } from './ReplyBox';
+import { StackPanel } from '../stack/StackPanel';
 // --- end 4B T13 ---
 import './mrview.css';
 
@@ -55,6 +56,7 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
       {mr && error && <p className="forge-stale-note" role="status">{`Couldn't refresh ${ref}: ${error}`}</p>}
       {mr && <MrHeader kind={kind} mr={mr} detail={detail} />}
       {/* --- 4D: the stack --- */}
+      {mr && <StackPanel tabId={tabId} mr={mr} />}
       {/* --- end 4D --- */}
       {/* --- 4B T13: actions --- */}
       {mr && <MrActions tabId={tabId} kind={kind} mr={mr} detail={detail} />}

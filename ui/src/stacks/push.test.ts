@@ -43,6 +43,16 @@ describe('pushStack (spec #3 §3.11)', () => {
     expect(t.detail).toBe("origin/feature/b has commits feature/b doesn't have");
     expect(t.actions.map((a) => a.label)).toEqual(['Push feature/b…', 'Details']);
   });
+
+  // --- 4D T6 ---
+  it('returns its report, so a caller can chain on it (4D)', async () => {
+    setSidebar([lb('feature/a', { ahead: 0 }), lb('feature/b'), lb('feature/c', { ahead: 0 })]);
+    vi.spyOn(api, 'push').mockResolvedValueOnce(pushed('feature/b') as never);
+    const r = await pushStack(ctx, stack);
+    expect(r.failed).toBeNull();
+    expect(r.steps.map((s) => [s.name, s.result])).toEqual([['feature/a', 'upToDate'], ['feature/b', 'pushed'], ['feature/c', 'upToDate']]);
+  });
+  // --- end 4D T6 ---
 });
 
 describe('pushStack: warnings and lease rejections', () => {
@@ -70,7 +80,7 @@ describe('pushStack: warnings and lease rejections', () => {
 });
 
 describe('pushSummary', () => {
-  const report = (over: object) => ({ steps: [], failed: null, rest: [], remote: 'origin', ...over });
+  const report = (over: object) => ({ steps: [], failed: null, rest: [], remote: 'origin', warnings: [], ...over });
   it('up to date, a cancel (no error tone), a refusal with nothing pushed yet', () => {
     expect(pushSummary(report({ steps: [{ name: 'a', result: 'upToDate' }, { name: 'b', result: 'upToDate' }] }))).toEqual({ message: 'The stack is up to date', error: false });
     expect(pushSummary(report({ steps: [{ name: 'a', result: 'pushed' }], failed: { name: 'b', error: err('Cancelled', 'cancelled') }, rest: ['c'] }))).toEqual({ message: 'Pushed a; b was cancelled; not pushed: c', detail: undefined, error: false });

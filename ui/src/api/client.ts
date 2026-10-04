@@ -126,6 +126,10 @@ import type { ForgeLabel } from './gen/ForgeLabel';
 import type { ForgeUser } from './gen/ForgeUser';
 import type { PartFailure } from './gen/PartFailure';
 // --- end 4C T5 ---
+// --- 4D T3 ---
+import type { StackSync } from './gen/StackSync';
+import type { StackView } from './gen/StackView';
+// --- end 4D T3 ---
 // --- end 4B T1 ---
 // --- end 2D T20 ---
 
@@ -468,6 +472,13 @@ export const api = {
   forgeCompleteCreate: (repo: number, remote: string, number: number, req: CreateMr, parts: CreatePart[]) =>
     call<PartFailure[]>({ method: 'forgeCompleteCreate', params: { repo, remote, number, req, parts } }),
   // --- end 4C T5 ---
+  // --- 4D T3 ---
+  /** A stack's MRs/PRs (spec #4 §4 "4D"): `branches` bottom → top, `base` the forge branch the bottom targets, `baseRef` the local ref it sits on. */
+  forgeStack: (repo: number, branches: string[], base: string, baseRef: string) => call<StackView>({ method: 'forgeStack', params: { repo, branches, base, baseRef } }),
+  /** Rewrites the Stack table in each open MR/PR (managed stacks only). */
+  forgeSyncStack: (repo: number, branches: string[], base: string) => call<StackSync>({ method: 'forgeSyncStack', params: { repo, branches, base } }),
+  forgeRetarget: (repo: number, number: number, target: string) => call<ForgeMr>({ method: 'forgeRetarget', params: { repo, number, target } }),
+  // --- end 4D T3 ---
 };
 
 // --- 2D T18 ---

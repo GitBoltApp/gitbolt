@@ -16,7 +16,7 @@ import type { Stack } from './detect';
 import { joinNames } from './text';
 
 export interface PushStep { name: string; result: 'pushed' | 'forced' | 'published' | 'upToDate' }
-export interface StackPushReport { steps: PushStep[]; failed: { name: string; error: GbError } | null; rest: string[]; remote: string }
+export interface StackPushReport { steps: PushStep[]; failed: { name: string; error: GbError } | null; rest: string[]; remote: string; /** The servers' warnings, as pushed (4D's after-merge toast keeps them). */ warnings: string[] }
 
 /** The one toast for a Push stack: which pushed, how, and where it stopped. */
 export function pushSummary(r: StackPushReport): { message: string; detail?: string; error: boolean } {
@@ -45,12 +45,12 @@ export function publishRemote(tabId: string, base: string): string {
  * Push stack (spec #3 §3.11): #2's Push for each member, bottom first. The core's push decision
  * applies per branch: a live rewrite mark forces with its recorded lease; a member with no push
  * target is published and tracked. Members with nothing to push are skipped. The first failure
- * stops the sequence, and one toast says which pushed and which didn't.
+ * stops the sequence, and one toast says which pushed and which didn't. Resolves the report (4D chains on it).
  */
-export async function pushStack(ctx: WriteCtx, stack: Stack): Promise<void> {
+export async function pushStack(ctx: WriteCtx, stack: Stack): Promise<StackPushReport> {
   const origin = currentOrigin();
-  const report: StackPushReport = { steps: [], failed: null, rest: [], remote: publishRemote(ctx.tabId, stack.base) };
   const warned: string[] = [];
+  const report: StackPushReport = { steps: [], failed: null, rest: [], remote: publishRemote(ctx.tabId, stack.base), warnings: warned };
   let lastOutput: ToastAction[] = [];
   for (let i = 0; i < stack.branches.length; i++) {
     const name = stack.branches[i];
@@ -70,7 +70,7 @@ export async function pushStack(ctx: WriteCtx, stack: Stack): Promise<void> {
   const failed = report.failed;
   if (!failed && warned.length) {
     useToast.getState().show(`${s.message}; the server reported a problem`, { tone: 'warning', sticky: true, detail: warned.map((w) => `“${w}”`).join(' '), actions: lastOutput });
-    return;
+    return report;
   }
   const actions: ToastAction[] = [];
   if (failed && failed.error.kind !== 'Cancelled') {
@@ -81,6 +81,7 @@ export async function pushStack(ctx: WriteCtx, stack: Stack): Promise<void> {
   }
   const detail = [...warned.map((w) => `“${w}”`), s.detail].filter((x) => !!x).join(' ') || undefined;
   useToast.getState().show(s.message, { error: s.error, detail, actions });
+  return report;
 }
 
 /**

@@ -113,7 +113,12 @@ pub(crate) fn gitlab_post_mr(st: &mut ForgeState, r: &FakeRequest, id: &str) -> 
         let ids: Vec<u64> = b[key].as_array().map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
         st.seed.gitlab.members.iter().filter(|m| ids.contains(&m.id)).map(|u| gitlab::user_json(u, r.base)).collect()
     };
-    let labels: Vec<&str> = b["labels"].as_str().unwrap_or("").split(',').map(str::trim).filter(|l| !l.is_empty()).collect();
+    // GitLab takes `labels` as an array or one comma-separated string.
+    let labels: Vec<&str> = match b["labels"].as_array() {
+        Some(a) => a.iter().filter_map(Value::as_str).collect(),
+        None => b["labels"].as_str().unwrap_or("").split(',').collect(),
+    };
+    let labels: Vec<&str> = labels.into_iter().map(str::trim).filter(|l| !l.is_empty()).collect();
     let mr = json!({
         "id": 1000 + iid, "iid": iid, "project_id": target.id, "title": title, "description": b["description"],
         "state": "opened", "draft": title.to_lowercase().starts_with("draft:"), "author": gitlab::user_json(&token.user, r.base),

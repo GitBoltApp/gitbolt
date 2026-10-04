@@ -1,0 +1,21 @@
+/* 4D: the Create stack dialog (T7) and the MR/PR view's Stack panel (T9). */
+.stack-create { width: min(560px, 90vw); min-height: 240px; }
+.stack-create-error { min-height: 1.4em; margin: 0 0 8px; }
+.stack-create-intro { color: var(--text-secondary); margin: 0 0 8px; }
+.stack-create-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.stack-create-list li { display: grid; grid-template-columns: 1.5em minmax(0, 1fr) minmax(0, 1.4fr); align-items: center; gap: 8px; }
+.stack-create-pos { color: var(--text-disabled); text-align: right; }
+.stack-create-branches { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stack-create-note { color: var(--text-secondary); }
+/* --- 4D T9: the hover card's line and the MR/PR view's Stack panel --- */
+.mr-stack-line { font-size: 11px; color: var(--text-secondary); }
+.mr-stack h3 { margin: 12px 0 4px; font-size: inherit; }
+.mr-stack ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.mr-stack li { display: flex; align-items: baseline; gap: 8px; }
+.mr-stack li[aria-current='true'] .mr-stack-this { font-weight: 600; }
+.mr-stack-link { background: none; border: none; padding: 0; color: var(--text-normal); cursor: pointer; text-align: left; font: inherit; }
+.mr-stack-link:hover { text-decoration: underline; }
+.mr-stack-state { color: var(--text-secondary); margin-left: auto; }
+.mr-stack-after { margin-top: 8px; }
+.mr-stack-caption { color: var(--text-secondary); margin: 4px 0 0; }
+/* --- end 4D T9 --- */

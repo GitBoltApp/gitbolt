@@ -11,6 +11,9 @@ pub mod hub;
 #[cfg(test)]
 pub(crate) mod fake;
 // --- end 4A T5 ---
+// --- 4D T1 ---
+pub mod stack;
+// --- end 4D T1 ---
 // --- 4C T1 ---
 pub mod create;
 // --- end 4C T1 ---

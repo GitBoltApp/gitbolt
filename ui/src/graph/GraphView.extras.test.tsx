@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 // The avatar-only author cell renders 1B's Avatar; stubbed here (no avatar store traffic).
 vi.mock('../avatars/Avatar', () => ({ Avatar: ({ name }: { name: string }) => <span data-testid="avatar" data-name={name} /> }));
 

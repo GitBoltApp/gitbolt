@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { platform } from '../app/platform';
 import { useAppState } from '../app/state';
 import { clampFetchInterval } from '../settings/schema';
+import { notifyForgeAccountsChanged, onForgeAccountsChanged } from './accountsBus';
+import { forgeScratch } from './mrStore';
 import { pollForge } from './poll';
 import { createForgePoller, type ForgePoller } from './poller';
 
@@ -36,3 +38,14 @@ export function useForgePolling(tabId: string, repoId: number | undefined): void
 export function notifyForgeWrite(tabId: string): void {
   pollers.get(tabId)?.afterWrite();
 }
+
+export { notifyForgeAccountsChanged };
+
+/** After an account was added or removed (spec #4 §3.4): every live poller polls at once, asking the forges again, and a tab's next activation does too. */
+onForgeAccountsChanged(() => {
+  forgeScratch.activatedAt.clear();
+  for (const [tabId, p] of pollers) {
+    forgeScratch.recheck.add(tabId);
+    p.afterWrite();
+  }
+});

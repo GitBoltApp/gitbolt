@@ -194,7 +194,7 @@ fn approvals_json(st: &ForgeState, m: &FakeMergeRequest, base: &str) -> Value {
     })
 }
 
-/// The list's filters: `state`, `source_branch`, `scope=created_by_me|assigned_to_me`, `reviewer_id`.
+/// The list's filters: `state`, `source_branch`, `target_branch`, `scope=created_by_me|assigned_to_me`, `reviewer_id`.
 fn query_matches(st: &ForgeState, m: &FakeMergeRequest, r: &FakeRequest) -> bool {
     let q = &r.query;
     let me = r.token.as_ref().map(|t| t.user.username.as_str());
@@ -208,6 +208,9 @@ fn query_matches(st: &ForgeState, m: &FakeMergeRequest, r: &FakeRequest) -> bool
         Some("assigned_to_me") => me.is_some_and(|u| m.assignees.iter().any(|a| a == u)),
         _ => true,
     };
+    // --- 4D T11: target_branch ---
+    let branch_ok = branch_ok && q.get("target_branch").is_none_or(|b| *b == m.target_branch);
+    // --- end 4D T11 ---
     let reviewer_ok = q.get("reviewer_id").is_none_or(|id| m.reviewers.iter().any(|u| person(st, u).id.to_string() == *id));
     state_ok && branch_ok && scope_ok && reviewer_ok
 }
@@ -354,6 +357,11 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 if let Some(l) = b["labels"].as_str() {
                     m.labels = l.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_string).collect();
                 }
+                // --- 4D T2: retarget ---
+                if let Some(t) = b["target_branch"].as_str() {
+                    m.target_branch = t.into();
+                }
+                // --- end 4D T2 ---
                 m.updated_at = WRITE_TIME.into();
                 Reply::json(mr_json(st, &st.seed.gitlab.merge_requests[i], &base, true))
             }

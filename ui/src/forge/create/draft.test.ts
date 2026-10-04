@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MR_DRAFT_STORAGE_KEY, discardMrDraft, flushMrDrafts, mrDraftKey, readMrDraft, reloadMrDrafts, writeMrDraft, type MrDraft } from './draft';
+import { MAX_MR_DRAFTS, MR_DRAFT_MAX_AGE_MS, MR_DRAFT_STORAGE_KEY, discardMrDraft, flushMrDrafts, mrDraftKey, readMrDraft, reloadMrDrafts, writeMrDraft, type MrDraft } from './draft';
 
 const grace = { id: 8, username: 'grace', name: 'Grace Hopper', avatarUrl: null, webUrl: 'https://g/grace', email: null };
 const d: MrDraft = {
@@ -63,6 +63,30 @@ describe('Create MR/PR drafts (spec #4 §2: resumable per repo + source branch)'
     expect(() => flushMrDrafts()).not.toThrow();
     expect(readMrDraft('/r', 'z')).toEqual(d);
     full.mockRestore();
+  });
+
+  it('keeps at most 50 drafts, none older than 90 days, dropping the oldest first on write', () => {
+    vi.useFakeTimers();
+    const t0 = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(t0);
+    writeMrDraft('/r', 'ancient', d);
+    vi.setSystemTime(t0 + 1000);
+    for (let i = 0; i < MAX_MR_DRAFTS; i++) {
+      vi.setSystemTime(t0 + 2000 + i);
+      writeMrDraft('/r', `b${i}`, d);
+    }
+    expect(readMrDraft('/r', 'ancient')).toBeNull();
+    expect(readMrDraft('/r', 'b0')).not.toBeNull();
+    writeMrDraft('/r', 'b0', { ...d, title: 'touched' });
+    writeMrDraft('/r', 'new', d);
+    expect([readMrDraft('/r', 'b0')?.title, readMrDraft('/r', 'b1'), readMrDraft('/r', 'new')?.title]).toEqual(['touched', null, 'Add login']);
+    flushMrDrafts();
+    reloadMrDrafts();
+    expect(Object.keys(stored())).toHaveLength(MAX_MR_DRAFTS);
+    vi.setSystemTime(t0 + 2000 + MR_DRAFT_MAX_AGE_MS + 10_000);
+    writeMrDraft('/r', 'today', d);
+    flushMrDrafts();
+    expect(Object.keys(stored())).toEqual([mrDraftKey('/r', 'today')]);
   });
 
   it('never persists email addresses', () => {

@@ -3,6 +3,7 @@ import type { CreateMr } from '../../api/gen/CreateMr';
 import type { ForgeProjectSettings } from '../../api/gen/ForgeProjectSettings';
 import type { LocalBranch } from '../../api/gen/LocalBranch';
 import type { MrTemplate } from '../../api/gen/MrTemplate';
+import type { RemoteBranch } from '../../api/gen/RemoteBranch';
 import type { Stack } from '../../stacks/detect';
 import type { MrDraft } from './draft';
 
@@ -39,6 +40,22 @@ export function pushedAs(b: LocalBranch | undefined, remotes: readonly string[])
   if (!t) return null;
   const remote = [...remotes].sort((x, y) => y.length - x.length).find((n) => t.startsWith(`${n}/`));
   return remote ? { remote, branch: t.slice(remote.length + 1) } : null;
+}
+
+/** The branch's name on the source remote: its push target's there, unless that's the target
+ * branch itself in the same project (a branch made from `origin/main` tracks it): then its own
+ * name, so it's pushed as itself rather than blocked as targeting itself. */
+export function sourceBranchOf(branch: string, pushed: { remote: string; branch: string } | null, a: { sourceRemote: string; targetBranch: string; sameProject: boolean }): string {
+  if (!pushed || pushed.remote !== a.sourceRemote) return branch;
+  return a.sameProject && pushed.branch === a.targetBranch ? branch : pushed.branch;
+}
+
+/** The local commits the source remote's branch doesn't have: 0 when they match (or there's none
+ * there yet), the branch's `ahead` when that remote branch is its upstream, else `null` (they
+ * differ by an unknown count). */
+export function unpushedCount(local: LocalBranch | undefined, remote: RemoteBranch | undefined): number | null {
+  if (!local || !remote || local.target === remote.target) return 0;
+  return local.upstream === remote.fullName ? local.ahead : null;
 }
 
 /** Ruling 4: the branch below in a #3 stack (as it's pushed), else the project's default branch. */

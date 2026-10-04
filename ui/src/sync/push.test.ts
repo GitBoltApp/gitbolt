@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import type { LocalBranch } from '../api/gen/LocalBranch';
 import { useRuntime } from '../app/runtime';
 import { useToast } from '../ui/toast';
-import { forceText, nothingToPush, pushBranch, pushHooks, pushLabel, pushTooltip } from './push';
+import { afterPushActions, forceText, nothingToPush, pushBranch, pushHooks, pushLabel, pushTooltip } from './push';
 
 const confirm = vi.fn(async () => true);
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: (...a: unknown[]) => confirm(...(a as [])) }));
@@ -98,3 +98,17 @@ describe('push (spec #2 §12.3)', () => {
     expect(useToast.getState().actions[0].label).toBe('Server output (1 line)');
   });
 });
+
+// --- 4C T9 ---
+it("a push that created the remote branch adds the hook's link; a later push doesn't", () => {
+  const link = { label: 'Create MR', run: vi.fn() };
+  pushHooks.afterNewBranch = vi.fn(() => link);
+  expect(afterPushActions('t', { ...main, upstream: null, pushTarget: null }, false, 'origin')).toEqual([link]);
+  expect(afterPushActions('t', { ...main, pushBehind: null }, false, 'origin')).toEqual([link]);
+  expect(afterPushActions('t', main, false, 'origin')).toEqual([]);
+  expect(afterPushActions('t', { ...main, pushTarget: null }, true, 'origin')).toEqual([]);
+  expect(pushHooks.afterNewBranch).toHaveBeenCalledWith('t', 'main', 'origin');
+  pushHooks.afterNewBranch = null;
+  expect(afterPushActions('t', { ...main, pushTarget: null }, false, 'origin')).toEqual([]);
+});
+// --- end 4C T9 ---

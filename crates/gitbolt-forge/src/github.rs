@@ -189,6 +189,7 @@ pub mod json {
             conflicts: v["mergeable"].as_bool().map(|m| !m),
             labels: v["labels"].as_array().into_iter().flatten().filter_map(|l| l["name"].as_str().map(str::to_string)).collect(),
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
+            stacked: v["body"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
     }
 
@@ -395,6 +396,7 @@ pub mod json {
             conflicts: v["mergeable"].as_bool().map(|m| !m),
             labels: v["labels"].as_array().map(|a| a.iter().filter_map(|l| l["name"].as_str().map(str::to_string)).collect()).unwrap_or_default(),
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
+            stacked: v["body"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
     }
 
@@ -517,6 +519,17 @@ impl ForgeProvider for GitHubProvider {
     fn open_mrs_light<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
         Box::pin(self.list_open(project, filter, false))
     }
+
+    // --- 4D T4 ---
+    fn open_mrs_targeting<'a>(&'a self, project: &'a ForgeProject, branch: &'a str) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
+        Box::pin(async move {
+            let repo = Self::repo_url(&project.path)?;
+            let r = self.http.get(&format!("{repo}/pulls?state=open&base={}&per_page=100", encode_component(branch))).await?;
+            let list: Vec<Value> = r.json(&self.host)?;
+            Ok(Self::fresh(list.iter().filter_map(json::pr).collect(), &r))
+        })
+    }
+    // --- end 4D T4 ---
 
     fn mr_for_branch<'a>(&'a self, project: &'a ForgeProject, source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
         Box::pin(async move {
@@ -694,7 +707,9 @@ impl ForgeProvider for GitHubProvider {
             let at = encode_component(branch);
             let top: Vec<Value> = match self.http.get(&format!("{repo}/contents/{GITHUB_DIR}?ref={at}")).await {
                 Ok(r) => r.json(&self.host)?,
-                Err(e) if skippable(&e) => return Ok(Vec::new()),
+                // No `.github` on that branch: no templates (a final answer). A 403 is an error, so
+                // the hub falls back to the local copy (a private repo the token can't read).
+                Err(e) if e.kind == GbErrorKind::NotFound => return Ok(Vec::new()),
                 Err(e) => return Err(e),
             };
             let mut paths: Vec<String> = Vec::new();
@@ -728,6 +743,15 @@ impl ForgeProvider for GitHubProvider {
     // --- end 4C T4 ---
     // --- end 4C ---
     // --- 4D ---
+    // --- 4D: stacks ---
+    /// Points the PR at `target_branch` (spec #4 §4 "4D"): `PATCH …/pulls/:n` with `base`.
+    fn retarget<'a>(&'a self, project: &'a ForgeProject, number: u64, target_branch: &'a str) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let path = format!("{}/pulls/{number}", Self::repo_url(&project.path)?);
+            let r = self.http.send_json(Method::Patch, &path, &serde_json::json!({ "base": target_branch })).await?;
+            json::pr(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "pull request"))
+        })
+    }
     // --- end 4D ---
 }
 
@@ -983,6 +1007,20 @@ mod tests {
         let mut gone_fork = v;
         gone_fork["head"]["repo"] = Value::Null;
         assert_eq!(json::pr(&gone_fork).unwrap().source_project, "", "a deleted fork");
+    }
+
+    #[test]
+    fn a_pull_request_whose_body_has_gitbolts_stack_table_is_stacked() {
+        let v = |body: Value| json!({
+            "number": 3, "title": "Dev work", "state": "open", "user": user_json(2, "monalisa"), "body": body,
+            "head": {"ref": "dev", "sha": "abc", "repo": {"full_name": "octo-org/widget"}}, "base": {"ref": "main", "repo": {"full_name": "octo-org/widget"}},
+        });
+        assert!(json::pr(&v("Intro\n\n<!-- gitbolt-stack:start -->\n| table |\n<!-- gitbolt-stack:end -->".into())).unwrap().stacked);
+        assert!(!json::pr(&v("Plain text".into())).unwrap().stacked);
+        assert!(!json::pr(&v(Value::Null)).unwrap().stacked, "a PR with no body");
+        let mut created = v("<!-- gitbolt-stack:start -->\nT\n<!-- gitbolt-stack:end -->".into());
+        created["html_url"] = "https://github.com/octo-org/widget/pull/3".into();
+        assert!(json::created_pull(&created).unwrap().stacked);
     }
 
     #[test]

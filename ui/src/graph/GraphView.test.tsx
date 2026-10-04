@@ -14,7 +14,7 @@ import { useToast } from '../ui/toast';
 import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
 
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 // jsdom does no layout: give the scroll viewport a width so the smart fit has room to allocate.

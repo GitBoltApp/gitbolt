@@ -490,12 +490,21 @@ impl ForgeHub {
         let source = remotes.iter().find(|r| r.name == ask.source_remote).ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("No remote {}", ask.source_remote)))?;
         let source_project = source.path.clone().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("{} isn't on a forge", ask.source_remote)))?;
         let (key, provider, project) = self.project_for_remote(store, remotes, ask.remote).await?;
+        // The source must be on the target's forge: a fork elsewhere can't open an MR/PR here.
+        // Host names without the port: an SSH remote and an HTTPS one on `h:8443` are the same forge.
+        let host = |name: &str| remotes.iter().find(|r| r.name == name).and_then(|r| r.host.as_deref()).map(|h| h.split(':').next().unwrap_or(h).to_ascii_lowercase());
+        if host(ask.source_remote) != host(ask.remote) {
+            return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} isn't on {}: choose a remote on the same forge", ask.source_remote, project.host)));
+        }
         let settings = provider.project_settings(&project).await;
         self.record(&key, &settings);
         let settings = settings?;
         let bases = vec![format!("refs/remotes/{}/{}", ask.remote, ask.target), format!("refs/heads/{}", ask.target)];
         let asked = provider.mr_templates(&project, ask.target).await;
-        self.record(&key, &asked);
+        // A token that can't read contents (403) isn't an account problem: the local copy stands in.
+        if !matches!(&asked, Err(e) if crate::forge::is_forbidden(e)) {
+            self.record(&key, &asked);
+        }
         let (templates, templates_local) = match asked {
             Ok(list) => (list, false),
             Err(e) => {

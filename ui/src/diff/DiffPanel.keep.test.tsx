@@ -33,7 +33,7 @@ vi.mock('./DiffToolbar', async (importOriginal) => {
   return { ...real, DiffToolbar: (props: Parameters<typeof real.DiffToolbar>[0]) => { toolbarRenders.n++; return real.DiffToolbar(props); } };
 });
 vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null } }));
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 
 const { Loader } = await import('../data/loader');

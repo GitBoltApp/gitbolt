@@ -146,3 +146,13 @@ export async function forgeRequests(request: APIRequestContext): Promise<Array<{
   return (await (await request.get(`${harnessHttp}/test/forge/requests`)).json()) as Array<{ forge: string; method: string; path: string; query: string; authorized: boolean }>;
 }
 // --- end 4B T16 ---
+
+// --- 4C T10 ---
+/** The fake forge's GitHub token for octocat (`GITHUB_TOKEN` in the harness's default seed). */
+export const E2E_GITHUB_TOKEN = 'ghp_FAKE-e2e-octocat';
+/** One scripted answer of the fake forge (`times` requests to `path`, after the forge prefix). */
+export async function forgeScript(request: APIRequestContext, s: { forge: 'gitlab' | 'github'; method: string; path: string; status: number; body?: unknown; times: number }): Promise<void> {
+  const res = await request.post(`${harnessHttp}/test/forge/script`, { data: { headers: [], body: null, ...s } });
+  if (!res.ok()) throw new Error(`forge script refused: ${res.status()}`);
+}
+// --- end 4C T10 ---

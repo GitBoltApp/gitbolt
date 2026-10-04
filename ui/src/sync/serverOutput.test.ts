@@ -30,3 +30,10 @@ describe('server output toasts (spec #2 §12.4)', () => {
     expect(useToast.getState()).toMatchObject({ message: 'Pushed main to origin/main', tone: null, sticky: false });
   });
 });
+
+// --- 4C T9 ---
+it("puts the caller's links before the server output link", () => {
+  showServerResult('Pushed x to origin/x', 'problem', { lines: 2, warning: null }, 3, [{ label: 'Create MR', run: () => {} }]);
+  expect(useToast.getState().actions.map((a) => a.label)).toEqual(['Create MR', 'Server output (2 lines)']);
+});
+// --- end 4C T9 ---

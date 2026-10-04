@@ -7,10 +7,10 @@ import { copyText } from '../../api/transport';
 import { useRuntime } from '../../app/runtime';
 import { stackBase, stackFor, stacksOf } from '../../stacks/detect';
 import { registerKeyHints } from '../../shortcuts/hints';
-import { pushBranch } from '../../sync/push';
+import { openPushUpstream, pushBranch } from '../../sync/push';
 import { confirmAction } from '../../ui/ConfirmDialog';
 import { FlyoutFrame } from '../../ui/flyout/FlyoutFrame';
-import type { FlyoutProps } from '../../ui/flyout/flyout';
+import { flyoutOf, type FlyoutProps } from '../../ui/flyout/flyout';
 import { RefPicker } from '../../ui/RefPicker';
 import { Select } from '../../ui/Select';
 import { useToast } from '../../ui/toast';
@@ -22,7 +22,7 @@ import { notifyForgeWrite } from '../usePolling';
 import { discardMrDraft, flushMrDrafts, mrDraftKey, readMrDraft, useMrDrafts, writeMrDraft, type MrDraft } from './draft';
 import { newMrUrl } from './newMrUrl';
 import { showCreated } from './outcome';
-import { createBlocked, createRequest, defaultTarget, freshDraft, pushedAs, squashToggle, withTemplate, type Route } from './prefill';
+import { createBlocked, createRequest, defaultTarget, freshDraft, pushedAs, sourceBranchOf, squashToggle, unpushedCount, withTemplate, type Route } from './prefill';
 import { SearchPicker, type PickOption } from './SearchPicker';
 import type { CreateMrArgs } from './store';
 import './createMr.css';
@@ -51,6 +51,8 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
   const [loaded, setLoaded] = useState<Route | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
   const goodRoute = useRef<Route | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const close = () => { flushMrDrafts(); closeFrame(); };
   const discardSaved = async () => {
     if (!repoPath) return;
@@ -76,11 +78,12 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
       const names = groups.map((g) => g.name);
       const locals = rt.sidebar?.locals ?? [];
       const pushed = pushedAs(locals.find((b) => b.name === branch), names);
-      setChoices(pushed && !mapped.includes(pushed.remote) ? [...mapped, pushed.remote] : mapped);
+      // Only remotes on the target's forge: a push remote elsewhere can't be the source.
+      setChoices(mapped);
       const keep = readMrDraft(repo.path, branch);
       if (keep) { setRoute({ sourceRemote: keep.sourceRemote, targetRemote: keep.targetRemote, targetBranch: keep.targetBranch }); return; }
       const stack = rt.graph ? stackFor(stacksOf(rt.graph, stackBase(rt.graph, groups)), branch) : null;
-      setRoute({ sourceRemote: pushed?.remote ?? target.remote, targetRemote: target.remote, targetBranch: defaultTarget(branch, stack, locals, names, target.project.defaultBranch) });
+      setRoute({ sourceRemote: pushed && mapped.includes(pushed.remote) ? pushed.remote : target.remote, targetRemote: target.remote, targetBranch: defaultTarget(branch, stack, locals, names, target.project.defaultBranch) });
     };
     // The remotes with a project on the target's host (4A's request, cached in core).
     void api.forgeRepoProjects(repo.id, false).then((p) => mappedRemotes(p, target.project.host), () => [target.remote]).then(begin).catch((e) => { if (live) setProblem(errorMessage(e)); });
@@ -139,9 +142,12 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
   const names = (sidebar?.remotes ?? []).map((g) => g.name);
   const local = sidebar?.locals.find((b) => b.name === branch);
   const pushed = pushedAs(local, names);
-  const sourceBranch = pushed && pushed.remote === draft.sourceRemote ? pushed.branch : branch;
-  const onRemote = !!sidebar?.remotes.find((g) => g.name === draft.sourceRemote)?.branches.some((b) => b.name === sourceBranch);
-  const unpushed = onRemote && pushed?.remote === draft.sourceRemote ? (local?.ahead ?? 0) : 0;
+  const sourceBranch = sourceBranchOf(branch, pushed, { sourceRemote: draft.sourceRemote, targetBranch: draft.targetBranch, sameProject: ctx.sourceProject === ctx.project.path });
+  const onSource = sidebar?.remotes.find((g) => g.name === draft.sourceRemote)?.branches.find((b) => b.name === sourceBranch);
+  const onRemote = !!onSource;
+  const unpushed = unpushedCount(local, onSource);
+  // Pushed elsewhere than the source (another remote, or the target branch itself): ask where.
+  const pushElsewhere = !!pushed && (pushed.remote !== draft.sourceRemote || pushed.branch !== sourceBranch);
   const pushNote = createBlocked({ draft, sourceBranch, onRemote, sourceProject: ctx.sourceProject, targetProject: ctx.project.path });
   const blocked = loading ? 'Loading…' : pushNote;
   const squash = squashToggle(ctx.settings);
@@ -152,18 +158,30 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
   const submit = async () => {
     if (blocked || busy) return;
     const req = createRequest(draft, ctx, sourceBranch);
+    // The create outlives this mount (Esc or × during "Creating…"): it closes only the flyout it
+    // was started from, and a failure after an unmount goes to a toast.
+    const mine = flyoutOf(tabId)?.seq;
+    const sent = draft;
+    // The fieldset disables what has the focus: it goes back there once the form is editable again.
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBusy(true);
     setError(null);
     try {
       const out = await api.forgeCreateMr(repoId, draft.targetRemote, req);
       discardMrDraft(repoPath, branch);
-      closeFrame();
+      if (flyoutOf(tabId)?.seq === mine) closeFrame();
       showCreated({ repoId, remote: draft.targetRemote, kind, req, number: out.mr.number, webUrl: out.mr.webUrl }, out.failed);
       notifyForgeWrite(tabId);
     } catch (e) {
       setError(errorMessage(e));
+      if (!mounted.current) {
+        writeMrDraft(repoPath, branch, sent);
+        flushMrDrafts();
+        useToast.getState().show(`Couldn't create ${noun} from ${branch}: ${errorMessage(e)}; the draft is kept`, { tone: 'warning' });
+      }
     } finally {
       setBusy(false);
+      setTimeout(() => { if (mounted.current && focused?.isConnected) focused.focus({ preventScroll: true }); });
     }
   };
   const continueOnForge = () => {
@@ -188,82 +206,87 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
 
   return (
     <FlyoutFrame label={title} title={title} onClose={close}>
-      <form className="create-mr" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-        <div className="create-mr-route">
-          <span className="create-mr-label">From</span>
-          <Select aria-label="Source remote" value={draft.sourceRemote} options={remoteOptions} onChange={(v) => move({ sourceRemote: v })} />
-          <code className="create-mr-branch">{sourceBranch}</code>
-          <span className="create-mr-label">To</span>
-          <Select aria-label="Target remote" value={draft.targetRemote} options={remoteOptions} onChange={(v) => move({ targetRemote: v })} />
-          <button type="button" className="create-mr-target" aria-label="Target branch" onClick={(e) => setPicking(e.currentTarget.getBoundingClientRect())}>{draft.targetBranch}</button>
-        </div>
-        {!onRemote && (
-          <p className="create-mr-note" role="status">
-            <span>{pushNote}</span>
-            {local && <button type="button" onClick={() => { const w = writeCtx(tabId); if (w) void pushBranch(w, local); }}>Push {branch}</button>}
-          </p>
-        )}
-        {unpushed > 0 && (
-          <p className="create-mr-note" role="status">
-            {unpushed === 1 ? "1 commit isn't" : `${unpushed} commits aren't`} pushed yet: the {noun} shows what {draft.sourceRemote} has
-          </p>
-        )}
-        <label className="create-mr-field">
-          <span>Title</span>
-          <input aria-label="Title" value={draft.title} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => update({ ...draft, title: e.target.value })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
-        </label>
-        <div className="create-mr-template">
-          <span className="create-mr-label">Template</span>
-          <Select aria-label="Template" value={draft.template ?? ''} options={templateOptions} onChange={(v) => { void chooseTemplate(v); }} />
-          {ctx.templatesLocal && <span className="create-mr-hint">From the local copy of {draft.targetBranch}</span>}
-        </div>
-        <label className="create-mr-field">
-          <span>Description</span>
-          <textarea aria-label="Description" rows={10} value={draft.description} spellCheck={false} onChange={(e) => update({ ...draft, description: e.target.value })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
-        </label>
-        <SearchPicker
-          label="Reviewers"
-          chips={draft.reviewers.map((u) => ({ key: String(u.id), label: u.name }))}
-          onRemove={(k) => update({ ...draft, reviewers: draft.reviewers.filter((u) => String(u.id) !== k) })}
-          search={(q) => api.forgeSearchUsers(repoId, draft.targetRemote, q).then((l) => l.map(userOption))}
-          onPick={(u) => update({ ...draft, reviewers: [...draft.reviewers, u] })}
-        />
-        <SearchPicker
-          label="Assignees"
-          chips={draft.assignees.map((u) => ({ key: String(u.id), label: u.name }))}
-          onRemove={(k) => update({ ...draft, assignees: draft.assignees.filter((u) => String(u.id) !== k) })}
-          search={(q) => api.forgeSearchUsers(repoId, draft.targetRemote, q).then((l) => l.map(userOption))}
-          onPick={(u) => update({ ...draft, assignees: [...draft.assignees, u] })}
-        />
-        <SearchPicker
-          label="Labels"
-          chips={draft.labels.map((l) => ({ key: l, label: l, color: colors[l] ?? null }))}
-          onRemove={(k) => update({ ...draft, labels: draft.labels.filter((l) => l !== k) })}
-          search={(q) => api.forgeLabels(repoId, draft.targetRemote, q).then((l) => l.map(labelOption))}
-          onPick={(l) => { setColors((c) => ({ ...c, [l.name]: l.color })); update({ ...draft, labels: [...draft.labels, l.name] }); }}
-        />
-        <label className="modal-check">
-          <input type="checkbox" checked={draft.draft} onChange={(e) => update({ ...draft, draft: e.target.checked })} /> Mark as draft
-        </label>
-        {kind === 'gitlab' && (
-          <>
-            <label className="modal-check">
-              <input type="checkbox" checked={squash.locked ? squash.value : !!draft.squash} disabled={squash.locked} onChange={(e) => update({ ...draft, squash: e.target.checked })} /> Squash commits when merging
-            </label>
-            {squash.caption && <p className="create-mr-hint">{squash.caption}</p>}
-            <label className="modal-check">
-              <input type="checkbox" checked={!!draft.deleteSourceBranch} onChange={(e) => update({ ...draft, deleteSourceBranch: e.target.checked })} /> Delete the source branch when merged
-            </label>
-          </>
-        )}
-        {routeError && <p className="modal-error" role="alert">{routeError}</p>}
-        {error && <p className="modal-error" role="alert">{error}</p>}
-        <div className="modal-actions create-mr-actions">
-          {saved && <button type="button" onClick={() => { void discard(); }}>Discard draft</button>}
-          <button type="button" onClick={continueOnForge}>Continue editing on {forgeName(kind)}</button>
-          <button type="submit" className="primary" disabled={!!blocked || busy}>{busy ? 'Creating…' : `Create ${noun}`}</button>
-        </div>
-        {blocked && onRemote && <p className="create-mr-hint" role="status">{blocked}</p>}
+      {/* Only Ctrl+Enter and the Create button create (an irreversible forge write): Enter never submits. */}
+      <form onSubmit={(e) => e.preventDefault()}>
+        {/* Read-only while "Creating…": what's sent is what's shown. */}
+        <fieldset className="create-mr" disabled={busy}>
+          <div className="create-mr-route">
+            <span className="create-mr-label">From</span>
+            <Select aria-label="Source remote" value={draft.sourceRemote} options={remoteOptions} onChange={(v) => move({ sourceRemote: v })} />
+            <code className="create-mr-branch">{sourceBranch}</code>
+            <span className="create-mr-label">To</span>
+            <Select aria-label="Target remote" value={draft.targetRemote} options={remoteOptions} onChange={(v) => move({ targetRemote: v })} />
+            <button type="button" className="create-mr-target" aria-label="Target branch" onClick={(e) => setPicking(e.currentTarget.getBoundingClientRect())}>{draft.targetBranch}</button>
+          </div>
+          {!onRemote && (
+            <p className="create-mr-note" role="status">
+              <span>{pushNote}</span>
+              {local && <button type="button" onClick={() => { const w = writeCtx(tabId); if (w) void (pushElsewhere ? openPushUpstream : pushBranch)(w, local); }}>Push {branch}{pushElsewhere ? '…' : ''}</button>}
+            </p>
+          )}
+          {unpushed !== 0 && (
+            <p className="create-mr-note" role="status">
+              {unpushed === null ? `${branch} differs from ${draft.sourceRemote}/${sourceBranch}` : `${unpushed === 1 ? "1 commit isn't" : `${unpushed} commits aren't`} pushed yet`}: the {noun} shows what {draft.sourceRemote} has
+            </p>
+          )}
+          <label className="create-mr-field">
+            <span>Title</span>
+            <input aria-label="Title" value={draft.title} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => update({ ...draft, title: e.target.value })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
+          </label>
+          <div className="create-mr-template">
+            <span className="create-mr-label">Template</span>
+            <Select aria-label="Template" value={draft.template ?? ''} options={templateOptions} onChange={(v) => { void chooseTemplate(v); }} />
+            {ctx.templatesLocal && <span className="create-mr-hint">From the local copy of {draft.targetBranch}</span>}
+          </div>
+          <label className="create-mr-field">
+            <span>Description</span>
+            <textarea aria-label="Description" rows={10} value={draft.description} spellCheck={false} onChange={(e) => update({ ...draft, description: e.target.value })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
+          </label>
+          <SearchPicker
+            label="Reviewers"
+            chips={draft.reviewers.map((u) => ({ key: String(u.id), label: u.name }))}
+            onRemove={(k) => update({ ...draft, reviewers: draft.reviewers.filter((u) => String(u.id) !== k) })}
+            search={(q) => api.forgeSearchUsers(repoId, draft.targetRemote, q).then((l) => l.map(userOption))}
+            onPick={(u) => update({ ...draft, reviewers: [...draft.reviewers, u] })}
+          />
+          <SearchPicker
+            label="Assignees"
+            chips={draft.assignees.map((u) => ({ key: String(u.id), label: u.name }))}
+            onRemove={(k) => update({ ...draft, assignees: draft.assignees.filter((u) => String(u.id) !== k) })}
+            search={(q) => api.forgeSearchUsers(repoId, draft.targetRemote, q).then((l) => l.map(userOption))}
+            onPick={(u) => update({ ...draft, assignees: [...draft.assignees, u] })}
+          />
+          <SearchPicker
+            label="Labels"
+            chips={draft.labels.map((l) => ({ key: l, label: l, color: colors[l] ?? null }))}
+            onRemove={(k) => update({ ...draft, labels: draft.labels.filter((l) => l !== k) })}
+            search={(q) => api.forgeLabels(repoId, draft.targetRemote, q).then((l) => l.map(labelOption))}
+            onPick={(l) => { setColors((c) => ({ ...c, [l.name]: l.color })); update({ ...draft, labels: [...draft.labels, l.name] }); }}
+          />
+          <label className="modal-check">
+            <input type="checkbox" checked={draft.draft} onChange={(e) => update({ ...draft, draft: e.target.checked })} /> Mark as draft
+          </label>
+          {kind === 'gitlab' && (
+            <>
+              <label className="modal-check">
+                <input type="checkbox" checked={squash.locked ? squash.value : !!draft.squash} disabled={squash.locked} onChange={(e) => update({ ...draft, squash: e.target.checked })} /> Squash commits when merging
+              </label>
+              {squash.caption && <p className="create-mr-hint">{squash.caption}</p>}
+              <label className="modal-check">
+                <input type="checkbox" checked={!!draft.deleteSourceBranch} onChange={(e) => update({ ...draft, deleteSourceBranch: e.target.checked })} /> Delete the source branch when merged
+              </label>
+            </>
+          )}
+          <div className="modal-actions create-mr-actions">
+            {saved && <button type="button" onClick={() => { void discard(); }}>Discard draft</button>}
+            <button type="button" onClick={continueOnForge}>Continue editing on {forgeName(kind)}</button>
+            <button type="button" className="primary" disabled={!!blocked || busy} onClick={() => { void submit(); }}>{busy ? 'Creating…' : `Create ${noun}`}</button>
+          </div>
+          {/* Under the action row, so a message coming or going never moves the buttons. */}
+          {routeError && <p className="create-mr-error" role="alert">{routeError}</p>}
+          {error && <p className="create-mr-error" role="alert">{error}</p>}
+          {blocked && onRemote && <p className="create-mr-hint" role="status">{blocked}</p>}
+        </fieldset>
       </form>
       {picking && (
         <RefPicker

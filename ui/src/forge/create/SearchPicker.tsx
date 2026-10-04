@@ -21,7 +21,8 @@ const chipStyle = (color?: string | null): CSSProperties | undefined => (color ?
 
 /**
  * Chips and a search box (spec #4 §4 "4C": reviewers, assignees and labels with a debounced
- * search). Only the newest query's answer shows: a slower answer to an older one is dropped.
+ * search). Only the newest query's answer shows: a slower answer to an older one is dropped, and
+ * typing hides the last answer until the new one comes, so Enter never picks from a stale list.
  * ↑/↓ move, Enter picks, Backspace in an empty box removes the last chip. Keys typed here never
  * reach the app's shortcuts.
  */
@@ -93,7 +94,7 @@ export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Prop
           autoComplete="off"
           onFocus={() => { setOpen(true); run(q); }}
           onBlur={() => setOpen(false)}
-          onChange={(e) => { seq.current++; setQ(e.target.value); setOpen(true); run(e.target.value); }}
+          onChange={(e) => { seq.current++; setQ(e.target.value); setOptions(null); setOpen(true); run(e.target.value); }}
           onKeyDown={onKey}
         />
       </div>

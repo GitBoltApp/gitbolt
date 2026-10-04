@@ -8,7 +8,7 @@ import { useRuntime } from '../app/runtime';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast, type ToastAction } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
 import { askPushTarget } from './PushUpstreamPanel';
 import { showServerResult } from './serverOutput';
@@ -94,7 +94,23 @@ function leaseOf(tabId: string, b: LocalBranch): string | null {
 }
 
 /** T19 sets `pull` (the rejection toast's [Pull]), so this module doesn't import the pull feature. */
-export const pushHooks: { pull: ((ctx: WriteCtx, branch: string) => void) | null } = { pull: null };
+export const pushHooks: {
+  pull: ((ctx: WriteCtx, branch: string) => void) | null;
+  // --- 4C T9 ---
+  /** 4C sets it: the push toast's "Create MR" for a branch the push created on `remote`. */
+  afterNewBranch: ((tabId: string, branch: string, remote: string) => ToastAction | null) | null;
+  // --- end 4C T9 ---
+} = { pull: null, afterNewBranch: null };
+
+// --- 4C T9 ---
+/** The push toast's extra links (ruling 15): `afterNewBranch`'s, when this push created the
+ * remote branch (no push target before it, or its remote ref didn't exist) and sent something. */
+export function afterPushActions(tabId: string, b: LocalBranch, upToDate: boolean, remote: string): ToastAction[] {
+  const created = !b.pushTarget || b.pushBehind === null;
+  const link = created && !upToDate ? pushHooks.afterNewBranch?.(tabId, b.name, remote) : null;
+  return link ? [link] : [];
+}
+// --- end 4C T9 ---
 
 /** A rejected push is a real choice (spec §ui confirms, board G): a popover anchored at the Push
  * that started it, "origin/main has 1 commit main doesn't have", with [Cancel] [Force push…]
@@ -127,7 +143,7 @@ async function send(ctx: WriteCtx, b: LocalBranch, opts: { target?: PushTarget; 
       const dst = `${o.remote}/${o.dst}`;
       // A rewrite mark's lease held (spec #2 §12.3): say it was forced, and why.
       const done = o.forced ? `Force-pushed ${o.branch} (with lease): it was ${REWROTE[o.forced]}` : `Pushed ${o.branch} to ${dst}`;
-      showServerResult(o.upToDate ? `${dst} is up to date` : done, `${done}; the server reported a problem`, o.server, o.op);
+      showServerResult(o.upToDate ? `${dst} is up to date` : done, `${done}; the server reported a problem`, o.server, o.op, afterPushActions(ctx.tabId, b, o.upToDate, o.remote));
     },
     handle: (err) => {
       if (err.kind !== 'NonFastForward') return false;

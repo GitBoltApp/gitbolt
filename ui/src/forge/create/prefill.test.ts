@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CreateContext } from '../../api/gen/CreateContext';
 import type { LocalBranch } from '../../api/gen/LocalBranch';
 import type { MrDraft } from './draft';
-import { createBlocked, createRequest, defaultTarget, defaultTemplate, freshDraft, joinDescription, pushedAs, squashToggle, withTemplate } from './prefill';
+import { createBlocked, createRequest, defaultTarget, defaultTemplate, freshDraft, joinDescription, pushedAs, sourceBranchOf, squashToggle, unpushedCount, withTemplate } from './prefill';
 
 const tpl = (name: string, body = `## ${name}`) => ({ name, path: `.gitlab/merge_request_templates/${name}.md`, body });
 const local = (name: string, pushTarget: string | null): LocalBranch => ({
@@ -95,5 +95,23 @@ describe('prefill rules (spec #4 §2 "Create MR/PR", rulings 4–6, 10)', () => 
     expect(createBlocked({ ...at, sourceBranch: 'main' })).toBe("main can't target itself");
     expect(createBlocked({ ...at, sourceBranch: 'main', sourceProject: 'alice/project' })).toBeNull();
     expect(createBlocked({ ...at, draft: { ...d, title: '  ' } })).toBe('Enter a title');
+  });
+
+  it('a branch that tracks the target branch itself (made from origin/main) is its own source, not blocked as onto itself', () => {
+    const at = { sourceRemote: 'origin', targetBranch: 'main', sameProject: true };
+    expect(sourceBranchOf('fix', { remote: 'origin', branch: 'main' }, at)).toBe('fix');
+    expect(sourceBranchOf('fix', { remote: 'origin', branch: 'main' }, { ...at, sameProject: false })).toBe('main');
+    expect(sourceBranchOf('dev', { remote: 'origin', branch: 'develop' }, at)).toBe('develop');
+    expect(sourceBranchOf('dev', { remote: 'fork', branch: 'develop' }, at)).toBe('dev');
+    expect(sourceBranchOf('dev', null, at)).toBe('dev');
+  });
+
+  it("counts unpushed commits against the source remote's branch: the upstream's ahead, else unknown", () => {
+    const rb = (name: string, target: string) => ({ name, fullName: `refs/remotes/origin/${name}`, target, tipTime: 0, summary: '', author: '' });
+    const l = { ...local('feature', 'origin/feature'), upstream: 'refs/remotes/origin/feature', ahead: 3 };
+    expect(unpushedCount(l, rb('feature', 'b'.repeat(40)))).toBe(3);
+    expect(unpushedCount(l, rb('feature', 'a'.repeat(40)))).toBe(0);
+    expect(unpushedCount({ ...l, upstream: 'refs/remotes/origin/main' }, rb('feature', 'b'.repeat(40)))).toBeNull();
+    expect(unpushedCount(l, undefined)).toBe(0);
   });
 });

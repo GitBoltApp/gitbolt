@@ -7,7 +7,7 @@ import { createRepoViewStore, type DiffTarget } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { METRICS } from './metrics';
 
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 // The diff panel's content is beside the point here: only that it takes over the center.
 vi.mock('../repo/LazyDiffPanel', () => ({ LazyDiffPanel: () => <section aria-label="Diff" /> }));
 HTMLCanvasElement.prototype.getContext = (() => null) as never;

@@ -49,6 +49,8 @@ export async function retry(c: Created, parts: CreatePart[]): Promise<void> {
 }
 
 async function retryOnce(c: Created, parts: CreatePart[]): Promise<void> {
+  // Until the outcome replaces it: the click did something.
+  useToast.getState().show('Retrying…', { sticky: true });
   let still: PartFailure[];
   try {
     still = await api.forgeCompleteCreate(c.repoId, c.remote, c.number, c.req, parts);

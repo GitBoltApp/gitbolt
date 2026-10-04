@@ -275,6 +275,10 @@ pub struct ForgeMr {
     pub labels: Vec<String>,
     #[ts(type = "number")]
     pub updated_at: i64,
+    /// 4D: its description/body carries GitBolt's Stack table (`stack::MARK_START`): the stack
+    /// evidence the after-merge retarget needs (a forge write before any confirm).
+    #[serde(default)]
+    pub stacked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

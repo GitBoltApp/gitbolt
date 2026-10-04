@@ -7,7 +7,7 @@ import { GraphView } from './GraphView';
 import { BRANCH_FOCUS_DELAY_MS, dimAllBut, ROW_DIM_CLASS, rowDimKindClass } from './rowDim';
 
 vi.mock('./GraphCanvas', () => ({ GraphCanvas: () => null }));
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 // Counts row renders: every commit row formats its date once per render.
 const renders = vi.hoisted(() => ({ byTime: new Map<number, number>() }));
 vi.mock('../format/date', async (importOriginal) => {

@@ -4,6 +4,7 @@ import type { ForgeKind } from '../api/gen/ForgeKind';
 import type { ForgeMr } from '../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../api/gen/ForgeMrDetail';
 import type { ForgeProject } from '../api/gen/ForgeProject';
+import type { LocalBranch } from '../api/gen/LocalBranch';
 import type { MrFilter } from '../api/gen/MrFilter';
 import type { MrList } from '../api/gen/MrList';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
@@ -19,6 +20,8 @@ export interface TabForge {
   /** The target remote and its project. */
   remote: string | null;
   project: ForgeProject | null;
+  /** The remotes with a project on the target's host (4C: the push toast's Create link). */
+  mapped: string[];
   /** The account's username (Approve's "You approved it"). */
   me: string | null;
   /** Remote-tracking ref (`refs/remotes/origin/dev`) → its MR/PR: the badges. */
@@ -43,7 +46,7 @@ export interface TabForge {
 }
 
 export const EMPTY_FORGE: TabForge = {
-  kind: null, remote: null, project: null, me: null, byRef: {}, upstreams: {}, filter: 'all', list: null,
+  kind: null, remote: null, project: null, mapped: [], me: null, byRef: {}, upstreams: {}, filter: 'all', list: null,
   details: {}, detailErrors: {}, discussions: {}, openMr: null, updatedAt: null, error: null, failures: 0,
 };
 
@@ -62,7 +65,7 @@ export const keepSame = <T,>(old: T, next: T): T => (sameJson(old, next) ? old :
 /** Load bookkeeping outside the store (it must not re-render anything): per MR (`<tab>:<n>`),
  * `loading` and `freshAt`; per tab, `writes` (the write epoch: GitBolt forge writes answered so
  * far) and `activatedAt` (the last full `activate` poll, which outlives the tab's pollers). */
-export const forgeScratch = { loading: new Map<string, Promise<void>>(), freshAt: new Map<string, number>(), writes: new Map<string, number>(), activatedAt: new Map<string, number>() };
+export const forgeScratch = { loading: new Map<string, Promise<void>>(), freshAt: new Map<string, number>(), writes: new Map<string, number>(), activatedAt: new Map<string, number>(), /** Tabs whose next poll asks the forges again (an account was added or removed). */ recheck: new Set<string>() };
 
 /** The tab's write epoch: a read that started under an older one may predate a write's answer. */
 export const writeEpoch = (tabId: string): number => forgeScratch.writes.get(tabId) ?? 0;
@@ -80,6 +83,7 @@ export function dropForge(tabId: string): void {
   for (const m of [forgeScratch.loading, forgeScratch.freshAt]) for (const k of [...m.keys()]) if (k.startsWith(`${tabId}:`)) m.delete(k);
   forgeScratch.writes.delete(tabId);
   forgeScratch.activatedAt.delete(tabId);
+  forgeScratch.recheck.delete(tabId);
 }
 
 export function patchForge(tabId: string, patch: Partial<TabForge> | ((f: TabForge) => Partial<TabForge>)): void {
@@ -111,8 +115,23 @@ export function knownMr(f: TabForge, n: number): ForgeMr | null {
 }
 
 /** The local branches' upstreams (gone ones too: a merged MR's branch), newest tip first: what
- * the badges look up. */
-export function upstreamRefsOf(sidebar: SidebarPayload | null): { refs: string[]; upstreams: Record<string, string> } {
-  const locals = (sidebar?.locals ?? []).filter((l) => l.upstream).sort((a, b) => b.tipTime - a.tipTime);
-  return { refs: [...new Set(locals.map((l) => l.upstream!))], upstreams: Object.fromEntries(locals.map((l) => [l.fullName, l.upstream!])) };
+ * the badges look up. 4D: first, the target branches of open MRs/PRs from local branches that
+ * have no local branch (`forge`, the last poll's answer): a stack's merged bottom whose branch was
+ * deleted after the merge is still found, within the core's lookup cap. */
+export function upstreamRefsOf(sidebar: SidebarPayload | null, forge: Pick<TabForge, 'byRef' | 'upstreams' | 'remote' | 'project'> | null = null): { refs: string[]; upstreams: Record<string, string> } {
+  // --- 4D T5: a branch pushed to its push target without an upstream is asked about too ---
+  const asked = (l: LocalBranch): string | null => l.upstream ?? (l.pushTarget ? `refs/remotes/${l.pushTarget}` : null);
+  const locals = (sidebar?.locals ?? []).flatMap((l) => { const ref = asked(l); return ref ? [{ l, ref }] : []; }).sort((a, b) => b.l.tipTime - a.l.tipTime);
+  // --- end 4D T5 ---
+  const targets: string[] = [];
+  if (forge?.remote) {
+    const names = new Set((sidebar?.locals ?? []).map((l) => l.name));
+    for (const l of sidebar?.locals ?? []) {
+      const up = forge.upstreams[l.fullName];
+      const mr = (up ? forge.byRef[up] : undefined) ?? forge.byRef[`refs/remotes/${forge.remote}/${l.name}`];
+      const t = mr && (mr.state === 'open' || mr.state === 'draft') ? mr.targetBranch : null;
+      if (t && !names.has(t) && t !== forge.project?.defaultBranch) targets.push(`refs/remotes/${forge.remote}/${t}`);
+    }
+  }
+  return { refs: [...new Set([...targets, ...locals.map((x) => x.ref)])], upstreams: Object.fromEntries(locals.map((x) => [x.l.fullName, x.ref])) };
 }

@@ -21,6 +21,8 @@ pub const GITHUB_TEMPLATE_DIR: &str = "pull_request_template";
 pub const DEFAULT_TEMPLATE: &str = "Default";
 pub const MAX_TEMPLATES: usize = 20;
 pub const MAX_TEMPLATE_BYTES: usize = 64 * 1024;
+/// The most of a commit message or a tree listing read here (a giant one can't stall the flyout).
+const MAX_READ_BYTES: u64 = 64 * 1024;
 
 /// The prefill (ruling 5): the oldest non-merge commit on the branch's first-parent line since
 /// the target.
@@ -135,7 +137,7 @@ pub async fn first_commit(cli: &GitCli, root: &Path, branch: &str, bases: &[Stri
     let out = cli.run(GitInvocation::new(root, ["rev-list", "--skip", skip.as_str(), "-1"].into_iter().chain(flags).chain([span.as_str(), "--"]))).await?;
     let text = String::from_utf8_lossy(&out.stdout);
     let Some(first) = text.lines().map(str::trim).find(|l| !l.is_empty()) else { return Ok(None) };
-    let msg = cli.run(GitInvocation::new(root, ["log", "-1", "--no-show-signature", "--format=%B", first, "--"])).await?;
+    let msg = cli.run(GitInvocation::new(root, ["log", "-1", "--no-show-signature", "--format=%B", first, "--"]).stdout_limit(MAX_READ_BYTES)).await?;
     let (summary, body) = split_message(&String::from_utf8_lossy(&msg.stdout));
     Ok(Some(FirstCommit { summary, body, count }))
 }
@@ -151,8 +153,10 @@ pub async fn local_templates(cli: &GitCli, root: &Path, kind: ForgeKind, revs: &
     }];
     let mut paths: Vec<String> = Vec::new();
     while let Some(dir) = dirs.pop() {
-        let out = cli.run(GitInvocation::new(root, ["ls-tree", "-z", rev.as_str(), "--", dir.as_str()])).await?;
-        for rec in out.stdout.split(|b| *b == 0).filter_map(|r| std::str::from_utf8(r).ok()) {
+        let out = cli.run(GitInvocation::new(root, ["ls-tree", "-z", rev.as_str(), "--", dir.as_str()]).stdout_limit(MAX_READ_BYTES)).await?;
+        // A capped listing's last record may be cut short: only whole (NUL-ended) records count.
+        let whole = &out.stdout[..out.stdout.iter().rposition(|b| *b == 0).unwrap_or(0)];
+        for rec in whole.split(|b| *b == 0).filter_map(|r| std::str::from_utf8(r).ok()) {
             let Some((meta, path)) = rec.split_once('\t') else { continue };
             let mode = meta.split(' ').next().unwrap_or("");
             if mode == "040000" && kind == ForgeKind::GitHub && dir == format!("{GITHUB_DIR}/") && path.eq_ignore_ascii_case(&format!("{GITHUB_DIR}/{GITHUB_TEMPLATE_DIR}")) {
@@ -252,6 +256,17 @@ mod tests {
         assert_eq!(first_commit(&cli(), r.path(), "feature", &fallback).await.unwrap().unwrap().summary, "Add login");
         assert_eq!(first_commit(&cli(), r.path(), "feature", &["refs/heads/nope".to_string()]).await.unwrap(), None, "no local copy of the target");
         assert_eq!(first_commit(&cli(), r.path(), "main", &bases).await.unwrap(), None, "nothing since the target");
+    }
+
+    #[tokio::test]
+    async fn a_giant_first_commit_message_is_read_capped() {
+        let r = TestRepo::new();
+        r.commit("one");
+        r.switch_new("feature");
+        r.commit(&format!("Huge\n\n{}", "x".repeat(100 * 1024)));
+        let first = first_commit(&cli(), r.path(), "feature", &["refs/heads/main".to_string()]).await.unwrap().unwrap();
+        assert_eq!(first.summary, "Huge");
+        assert!(first.body.len() < MAX_READ_BYTES as usize, "{}", first.body.len());
     }
 
     #[tokio::test]

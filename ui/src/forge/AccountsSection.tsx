@@ -7,6 +7,7 @@ import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { Avatar } from '../avatars/Avatar';
 import { avatars } from '../avatars/avatarStore';
+import { notifyForgeAccountsChanged } from './accountsBus';
 import { Row } from '../settings/Row';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { Select } from '../ui/Select';
@@ -46,6 +47,7 @@ export function AccountsSection() {
   const changed = async () => {
     await reload();
     avatars.reset();
+    notifyForgeAccountsChanged();
   };
   const remove = async (host: string) => {
     const ok = await confirmAction({

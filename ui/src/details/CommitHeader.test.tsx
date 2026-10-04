@@ -12,7 +12,7 @@ import { RepoView } from '../repo/RepoView';
 import { fakeServices } from '../repo/testServices';
 
 // No transport in unit tests: `api.avatar` rejects, so every avatar keeps its initials.
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);

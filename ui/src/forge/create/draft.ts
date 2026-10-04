@@ -7,7 +7,8 @@ import type { ForgeUser } from '../../api/gen/ForgeUser';
  * (commit/draft.ts): one localStorage key, written after a short pause and at once on `pagehide`,
  * every storage access best-effort (blocked or full storage keeps drafts in memory). A draft
  * exists only once the user changed something (ruling 8): an untouched prefill is computed again
- * on every open.
+ * on every open. Capped on write: at most `MAX_MR_DRAFTS`, none older than 90 days, the oldest
+ * dropped first (each stored draft carries its `savedAt`).
  */
 export interface MrDraft {
   sourceRemote: string;
@@ -31,6 +32,8 @@ export interface MrDraft {
 
 export const MR_DRAFT_STORAGE_KEY = 'gitbolt.mrDrafts.v1';
 const PERSIST_MS = 300;
+export const MAX_MR_DRAFTS = 50;
+export const MR_DRAFT_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const mrDraftKey = (repoPath: string, branch: string) => `${repoPath}\u0000${branch}`;
 
@@ -60,13 +63,25 @@ function isMrDraft(v: unknown): v is MrDraft {
 const slim = (u: ForgeUser): ForgeUser => ({ ...u, email: null });
 const slimDraft = (d: MrDraft): MrDraft => ({ ...d, reviewers: d.reviewers.map(slim), assignees: d.assignees.map(slim) });
 
-/** Every well-formed draft in storage; a malformed entry is dropped on its own. */
-function readAll(): Record<string, MrDraft> {
-  const all: Record<string, MrDraft> = {};
+interface Drafts {
+  drafts: Record<string, MrDraft>;
+  /** ms epoch of each draft's last write. */
+  savedAt: Record<string, number>;
+}
+
+/** Every well-formed draft in storage; a malformed entry is dropped on its own. One stored
+ * without a `savedAt` (an older build's) counts as saved now. */
+function readAll(): Drafts {
+  const all: Drafts = { drafts: {}, savedAt: {} };
   try {
     const raw: unknown = JSON.parse(storage()?.getItem(MR_DRAFT_STORAGE_KEY) ?? '{}');
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      for (const [k, v] of Object.entries(raw)) if (isMrDraft(v)) all[k] = slimDraft(v);
+      for (const [k, v] of Object.entries(raw)) {
+        if (!isMrDraft(v)) continue;
+        const { savedAt, ...d } = v as MrDraft & { savedAt?: unknown };
+        all.drafts[k] = slimDraft(d);
+        all.savedAt[k] = typeof savedAt === 'number' ? savedAt : Date.now();
+      }
     }
   } catch {
     /* unreadable: start empty */
@@ -74,8 +89,18 @@ function readAll(): Record<string, MrDraft> {
   return all;
 }
 
-interface DraftState {
-  drafts: Record<string, MrDraft>;
+/** Drops drafts older than `MR_DRAFT_MAX_AGE_MS`, then the oldest beyond `MAX_MR_DRAFTS`. */
+function prune({ drafts, savedAt }: Drafts, now: number): void {
+  const keys = Object.keys(drafts).sort((a, b) => (savedAt[a] ?? 0) - (savedAt[b] ?? 0));
+  keys.forEach((k, i) => {
+    if (now - (savedAt[k] ?? 0) > MR_DRAFT_MAX_AGE_MS || i < keys.length - MAX_MR_DRAFTS) {
+      delete drafts[k];
+      delete savedAt[k];
+    }
+  });
+}
+
+interface DraftState extends Drafts {
   set(key: string, d: MrDraft | null): void;
 }
 
@@ -86,20 +111,28 @@ export function flushMrDrafts(): void {
   if (timer) clearTimeout(timer);
   timer = null;
   try {
-    storage()?.setItem(MR_DRAFT_STORAGE_KEY, JSON.stringify(Object.fromEntries(Object.entries(useMrDrafts.getState().drafts).map(([k, d]) => [k, slimDraft(d)]))));
+    const { drafts, savedAt } = useMrDrafts.getState();
+    storage()?.setItem(MR_DRAFT_STORAGE_KEY, JSON.stringify(Object.fromEntries(Object.entries(drafts).map(([k, d]) => [k, { ...slimDraft(d), savedAt: savedAt[k] ?? Date.now() }]))));
   } catch {
     /* storage unavailable or full: the drafts live as long as the app */
   }
 }
 
 export const useMrDrafts = create<DraftState>((set) => ({
-  drafts: readAll(),
+  ...readAll(),
   set: (key, d) => {
     set((s) => {
-      const drafts = { ...s.drafts };
-      if (d) drafts[key] = d;
-      else delete drafts[key];
-      return { drafts };
+      const next: Drafts = { drafts: { ...s.drafts }, savedAt: { ...s.savedAt } };
+      if (d) {
+        const now = Date.now();
+        next.drafts[key] = d;
+        next.savedAt[key] = now;
+        prune(next, now);
+      } else {
+        delete next.drafts[key];
+        delete next.savedAt[key];
+      }
+      return next;
     });
     timer ??= setTimeout(flushMrDrafts, PERSIST_MS);
   },
@@ -109,7 +142,7 @@ if (typeof window !== 'undefined') window.addEventListener('pagehide', flushMrDr
 
 /** Tests: read storage again. */
 export function reloadMrDrafts(): void {
-  useMrDrafts.setState({ drafts: readAll() });
+  useMrDrafts.setState(readAll());
 }
 
 export const readMrDraft = (repoPath: string, branch: string): MrDraft | null => useMrDrafts.getState().drafts[mrDraftKey(repoPath, branch)] ?? null;

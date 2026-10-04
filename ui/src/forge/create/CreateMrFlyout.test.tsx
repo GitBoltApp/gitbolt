@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,13 +16,16 @@ vi.mock('../../ui/ConfirmDialog', () => ({ confirmAction: confirm }));
 const showCreated = vi.hoisted(() => vi.fn());
 vi.mock('./outcome', () => ({ showCreated }));
 const pushBranch = vi.hoisted(() => vi.fn(async () => {}));
-vi.mock('../../sync/push', () => ({ pushBranch }));
+const openPushUpstream = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('../../sync/push', () => ({ pushBranch, openPushUpstream }));
 
 const { CreateMrFlyout } = await import('./CreateMrFlyout');
 const { discardMrDraft, readMrDraft, writeMrDraft } = await import('./draft');
 const { useRuntime } = await import('../../app/runtime');
 const { EMPTY_FORGE, patchForge, useForge } = await import('../mrStore');
 const { useToast } = await import('../../ui/toast');
+const { closeFlyout, openFlyout, registerFlyout } = await import('../../ui/flyout/flyout');
+registerFlyout('other', () => null);
 
 const feature = {
   name: 'feature/login', fullName: 'refs/heads/feature/login', target: 'a'.repeat(40), upstream: 'refs/remotes/origin/feature/login', ahead: 0, behind: 0, gone: false,
@@ -98,6 +101,27 @@ describe('the Create flyout (spec #4 §4 "4C")', () => {
     expect(readMrDraft('/r/shop', 'feature/login')).toBeNull();
   });
 
+  it('Enter never creates (title, a picker with no matches, mid-debounce or after an error); Ctrl+Enter does', async () => {
+    api.forgeCreateMr.mockResolvedValue({ mr: { number: 12, webUrl: 'w' }, failed: [] });
+    await show();
+    fireEvent.keyDown(screen.getByLabelText('Title'), { key: 'Enter' });
+    fireEvent.submit(screen.getByLabelText('Title').closest('form')!);
+    const reviewers = screen.getByLabelText('Reviewers');
+    fireEvent.focus(reviewers);
+    fireEvent.change(reviewers, { target: { value: 'nobody' } });
+    fireEvent.keyDown(reviewers, { key: 'Enter' });
+    await screen.findByText('No matches');
+    fireEvent.keyDown(reviewers, { key: 'Enter' });
+    api.forgeLabels.mockRejectedValueOnce({ message: 'labels down' });
+    const labels = screen.getByLabelText('Labels');
+    fireEvent.focus(labels);
+    expect((await screen.findByText('labels down')).textContent).toBe('labels down');
+    fireEvent.keyDown(labels, { key: 'Enter' });
+    expect(api.forgeCreateMr).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByLabelText('Title'), { key: 'Enter', ctrlKey: true });
+    await waitFor(() => expect(api.forgeCreateMr).toHaveBeenCalledTimes(1));
+  });
+
   it('a failed create keeps the flyout and the draft, and says why', async () => {
     api.forgeCreateMr.mockRejectedValue({ message: 'gitlab.example.com: Another open merge request already exists for this source branch: !1' });
     await show();
@@ -108,6 +132,50 @@ describe('the Create flyout (spec #4 §4 "4C")', () => {
     expect(readMrDraft('/r/shop', 'feature/login')?.title).toBe('Add login, again');
   });
 
+  it('while creating, the fields and pickers are read-only; the error shows under the action row', async () => {
+    let fail: (e: unknown) => void = () => {};
+    api.forgeCreateMr.mockReturnValue(new Promise((_, r) => { fail = r; }));
+    await show();
+    createButton().focus();
+    fireEvent.click(createButton());
+    await screen.findByRole('button', { name: 'Creating…' });
+    for (const label of ['Title', 'Description', 'Reviewers', 'Assignees', 'Labels', 'Mark as draft']) expect(screen.getByLabelText(label).matches(':disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Target branch' }).matches(':disabled')).toBe(true);
+    fail({ message: 'boom' });
+    const alert = await screen.findByRole('alert');
+    expect(screen.getByLabelText('Title').matches(':disabled')).toBe(false);
+    expect(createButton().closest('.create-mr-actions')!.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(createButton()));
+  });
+
+  it("a create that lands after another flyout opened doesn't close that one", async () => {
+    let answer: (v: unknown) => void = () => {};
+    api.forgeCreateMr.mockReturnValue(new Promise((r) => { answer = r; }));
+    openFlyout('t1', 'other', {});
+    await show();
+    fireEvent.click(createButton());
+    await screen.findByRole('button', { name: 'Creating…' });
+    openFlyout('t1', 'other', {});
+    answer({ mr: { number: 12, webUrl: 'w' }, failed: [] });
+    await waitFor(() => expect(showCreated).toHaveBeenCalled());
+    expect(closed).not.toHaveBeenCalled();
+    closeFlyout('t1');
+  });
+
+  it('a create that fails after the flyout closed says so in a toast and keeps the draft', async () => {
+    let fail: (e: unknown) => void = () => {};
+    api.forgeCreateMr.mockReturnValue(new Promise((_, r) => { fail = r; }));
+    await show();
+    fireEvent.click(createButton());
+    await screen.findByRole('button', { name: 'Creating…' });
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fail({ message: 'boom' });
+    await waitFor(() => expect(useToast.getState().message).toBe("Couldn't create merge request from feature/login: boom; the draft is kept"));
+    expect(useToast.getState().tone).toBe('warning');
+    expect(readMrDraft('/r/shop', 'feature/login')?.title).toBe('Add login');
+  });
+
   it("a branch not on the remote yet can't be created: Push it first", async () => {
     setRuntime(['main'], { ...feature, upstream: null, pushTarget: null, pushBehind: null });
     await show();
@@ -116,6 +184,26 @@ describe('the Create flyout (spec #4 §4 "4C")', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Push feature/login' }));
     expect(pushBranch).toHaveBeenCalledWith({ tabId: 't1', repoId: 7, worktree: '/r/shop' }, expect.objectContaining({ name: 'feature/login' }));
     expect(api.forgeCreateMr).not.toHaveBeenCalled();
+  });
+
+  it('a branch tracking the target branch (made from origin/main) is offered as itself, and its push asks where', async () => {
+    setRuntime(['main'], { ...feature, upstream: 'refs/remotes/origin/main', pushTarget: 'origin/main' });
+    await show();
+    expect(screen.getByText('Push feature/login to origin first')).toBeTruthy();
+    expect(screen.queryByText("main can't target itself")).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Push feature/login…' }));
+    expect(openPushUpstream).toHaveBeenCalled();
+    expect(pushBranch).not.toHaveBeenCalled();
+  });
+
+  it("the unpushed count is against the source remote's branch: unknown when that isn't the upstream", async () => {
+    setRuntime(['main', 'feature/login'], { ...feature, ahead: 2 });
+    await show();
+    expect(screen.getByText("2 commits aren't pushed yet: the merge request shows what origin has")).toBeTruthy();
+    cleanup();
+    setRuntime(['main', 'feature/login'], { ...feature, upstream: 'refs/remotes/origin/main', ahead: 4, pushTarget: 'origin/feature/login' });
+    await show();
+    expect(screen.getByText('feature/login differs from origin/feature/login: the merge request shows what origin has')).toBeTruthy();
   });
 
   it('resumes a saved draft, and Discard arms in place before deleting it', async () => {
@@ -129,6 +217,18 @@ describe('the Create flyout (spec #4 §4 "4C")', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ arm: 'Click again to discard the draft', danger: true }));
     expect(readMrDraft('/r/shop', 'feature/login')).toBeNull();
+  });
+
+  it('From and To offer only the remotes on the target forge: an unmapped push remote is left out', async () => {
+    setRuntime(['main', 'feature/login'], { ...feature, pushTarget: 'mirror/feature/login' });
+    useRuntime.setState((s) => {
+      const t = s.tabs.t1 as never as { sidebar: { remotes: object[] } };
+      t.sidebar.remotes.push({ name: 'mirror', host: 'git.example.org', hostKind: 'unknown', branches: [remoteBranch('feature/login')] });
+      return s;
+    });
+    await show();
+    expect(api.forgeCreateContext).toHaveBeenCalledWith(7, 'origin', 'origin', 'feature/login', 'main');
+    expect(screen.queryByText('mirror')).toBeNull();
   });
 
   it("Continue editing opens the forge's prefilled page and keeps the flyout", async () => {

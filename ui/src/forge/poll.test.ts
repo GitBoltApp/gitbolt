@@ -14,7 +14,7 @@ const flyout = vi.hoisted(() => ({ openFlyout: vi.fn() }));
 vi.mock('../ui/flyout/flyout', () => flyout);
 
 const { ACTIVATE_GAP_MS, fastPollWanted, loadMrDetail, openMrView, pollForge, refreshMr } = await import('./poll');
-const { dropForge, EMPTY_FORGE, forgeOf, noteForgeWritten, patchForge, useForge } = await import('./mrStore');
+const { dropForge, EMPTY_FORGE, forgeScratch, forgeOf, noteForgeWritten, patchForge, useForge } = await import('./mrStore');
 const { backoffMs } = await import('./poller');
 const { useRuntime } = await import('../app/runtime');
 const { DEFAULT_SETTINGS, EMPTY_REPO_SETTINGS, useAppState } = await import('../app/state');
@@ -56,6 +56,14 @@ describe('pollForge (spec #4 §3.4)', () => {
     expect([f.details[12]?.value.mr.number, f.discussions[12], f.error, f.failures]).toEqual([12, [], null, 0]);
     expect(f.updatedAt).not.toBeNull();
     expect(out).toEqual({ runningPipeline: true, serverIntervalMs: 30_000 });
+  });
+
+  it('after an account change the next poll asks the forges again, once', async () => {
+    forgeScratch.recheck.add('t');
+    await pollForge('t', 'write');
+    expect(api.forgeRepoProjects).toHaveBeenLastCalledWith(4, true);
+    await pollForge('t', 'write');
+    expect(api.forgeRepoProjects).toHaveBeenLastCalledWith(4, false);
   });
 
   it('activation asks the forges for the projects again; a fast poll reads only the list and the open MR', async () => {

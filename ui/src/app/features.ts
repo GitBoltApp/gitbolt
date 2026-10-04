@@ -79,3 +79,12 @@ import '../forge/mrview/feature';
 // --- 4B T15 ---
 import '../forge/entryPoints';
 // --- end 4B T15 ---
+// --- 4C T9 ---
+import '../forge/create/feature';
+// --- end 4C T9 ---
+// --- 4D T7 ---
+import '../forge/stack/createFeature';
+// --- end 4D T7 ---
+// --- 4D T8 ---
+import '../forge/stack/afterMergeFeature';
+// --- end 4D T8 ---

@@ -16,4 +16,9 @@ sourceProject: string, sourceBranch: string, targetProject: string, targetBranch
 /**
  * `None`: the forge hasn't computed it yet (GitHub's `mergeable: null`).
  */
-conflicts: boolean | null, labels: Array<string>, updatedAt: number, };
+conflicts: boolean | null, labels: Array<string>, updatedAt: number, 
+/**
+ * 4D: its description/body carries GitBolt's Stack table (`stack::MARK_START`): the stack
+ * evidence the after-merge retarget needs (a forge write before any confirm).
+ */
+stacked: boolean, };

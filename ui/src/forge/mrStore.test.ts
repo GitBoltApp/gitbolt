@@ -40,3 +40,31 @@ describe('the forge store (spec #4 §4 "4B")', () => {
     expect(staleText(forge({ error: 'boom', updatedAt: null }), now)).toBe("Couldn't refresh: boom.");
   });
 });
+
+// --- 4D T5 ---
+it('also asks about a branch pushed without an upstream, through its push target (the merged bottom of a stack)', () => {
+  const b = (name: string, upstream: string | null, pushTarget: string | null) => ({ name, fullName: `refs/heads/${name}`, upstream, pushTarget, tipTime: 1, gone: false }) as LocalBranch;
+  const { refs, upstreams } = upstreamRefsOf({ locals: [b('a', null, 'origin/a'), b('b', 'refs/remotes/origin/b', 'origin/other'), b('c', null, null)] } as SidebarPayload);
+  expect(refs).toEqual(['refs/remotes/origin/a', 'refs/remotes/origin/b']);
+  expect(upstreams).toEqual({ 'refs/heads/a': 'refs/remotes/origin/a', 'refs/heads/b': 'refs/remotes/origin/b' });
+});
+// --- end 4D T5 ---
+
+it("asks first about the targets of open MRs from local branches when no local branch has them (a stack's deleted merged bottom), within the lookup cap", () => {
+  const b = (name: string, tipTime: number) => ({ name, fullName: `refs/heads/${name}`, upstream: `refs/remotes/origin/${name}`, pushTarget: null, tipTime, gone: false }) as LocalBranch;
+  const newer = Array.from({ length: 30 }, (_, i) => b(`topic/${i}`, 100 + i));
+  const sidebar = { locals: [b('feature/b', 1), b('feature/c', 2), b('main', 3), ...newer] } as SidebarPayload;
+  const byRef = {
+    'refs/remotes/origin/feature/b': mrOf(2, { sourceBranch: 'feature/b', targetBranch: 'feature/a' }),
+    'refs/remotes/origin/feature/c': mrOf(3, { sourceBranch: 'feature/c', targetBranch: 'feature/b' }),
+    'refs/remotes/origin/topic/0': mrOf(4, { sourceBranch: 'topic/0', targetBranch: 'main' }),
+    'refs/remotes/origin/topic/1': mrOf(5, { sourceBranch: 'topic/1', targetBranch: 'gone/merged', state: 'merged' }),
+  };
+  const f = { byRef, upstreams: {}, remote: 'origin', project: { defaultBranch: 'main' } as TabForge['project'] };
+  const { refs, upstreams } = upstreamRefsOf(sidebar, f);
+  expect(refs[0]).toBe('refs/remotes/origin/feature/a');
+  expect(refs.filter((r) => !sidebar.locals.some((l) => l.upstream === r))).toEqual(['refs/remotes/origin/feature/a']);
+  expect(refs.indexOf('refs/remotes/origin/feature/a')).toBeLessThan(25); // the core looks up 25 (BRANCH_LOOKUPS)
+  expect(upstreams['refs/heads/feature/a']).toBeUndefined();
+  expect(upstreamRefsOf(sidebar).refs[0]).toBe('refs/remotes/origin/topic/29');
+});
