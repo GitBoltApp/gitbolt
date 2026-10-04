@@ -702,14 +702,22 @@ impl SettingsStore {
     }
 
     pub fn set_forge_accounts(self: &Arc<Self>, profile: &str, accounts: Vec<crate::forge::accounts::ForgeAccount>) -> Result<(), GbError> {
-        {
+        self.update_forge_accounts(profile, |a| *a = accounts)
+    }
+
+    /// Reads, changes and schedules the save of `profile`'s accounts under one lock: two
+    /// changes at once both land. `change` runs under the store's lock, so it mustn't call the
+    /// store.
+    pub fn update_forge_accounts<R>(self: &Arc<Self>, profile: &str, change: impl FnOnce(&mut Vec<crate::forge::accounts::ForgeAccount>) -> R) -> Result<R, GbError> {
+        let r = {
             let mut g = self.lock();
             let p = g.profiles.get_mut(profile).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("unknown profile {profile}")))?;
-            p.forge_accounts = accounts;
+            let r = change(&mut p.forge_accounts);
             g.dirty_profiles.insert(profile.to_string());
-        }
+            r
+        };
         self.schedule();
-        Ok(())
+        Ok(r)
     }
     // --- end 4A T5 ---
 

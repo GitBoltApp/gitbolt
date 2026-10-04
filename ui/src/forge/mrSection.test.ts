@@ -35,6 +35,14 @@ describe('the MR/PR section (spec #4 §2 "MR/PR list")', () => {
     expect(withMrSection([s('local')], null).map((x) => x.id)).toEqual(['local']);
   });
 
+  it('a list that loads clears the last error', async () => {
+    useRuntime.setState({ tabs: { e: { repo: { id: 4 } } as never } });
+    patchForge('e', { kind: 'gitlab', filter: 'all', error: 'boom' });
+    api.forgeMrList.mockResolvedValueOnce(list('all'));
+    await refreshMrList('e');
+    expect([forgeOf('e').error, forgeOf('e').list?.filter]).toEqual([null, 'all']);
+  });
+
   it("keeps the answer for the filter that's chosen now", async () => {
     useRuntime.setState({ tabs: { t: { repo: { id: 4 } } as never } });
     patchForge('t', { kind: 'gitlab', filter: 'mine' });

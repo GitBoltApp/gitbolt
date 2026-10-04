@@ -27,13 +27,14 @@ beforeEach(() => {
 });
 
 describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
-  it('Approve approves, says so, and reloads the MR', async () => {
+  it('Approve approves, says so, and has the poller reload (no second refresh of its own)', async () => {
     show();
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(useToast.getState().message).toBe('Approved !12'));
     expect(api.forgeApprove).toHaveBeenCalledWith(4, 12);
-    expect(poll.refreshMr).toHaveBeenCalledWith('t', 12);
+    expect(polling.notifyForgeWrite).toHaveBeenCalledTimes(1);
     expect(polling.notifyForgeWrite).toHaveBeenCalledWith('t');
+    expect(poll.refreshMr).not.toHaveBeenCalled();
   });
 
   it('is "You approved it" once you have', () => {
@@ -52,6 +53,8 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     fireEvent.click(send);
     await waitFor(() => expect(useToast.getState().message).toBe('Requested changes on !12'));
     expect(api.forgeRequestChanges).toHaveBeenCalledWith(4, 12, 'Please add a test.');
+    expect(polling.notifyForgeWrite).toHaveBeenCalledTimes(1);
+    expect(poll.refreshMr).not.toHaveBeenCalled();
     expect(screen.queryByRole('form', { name: 'Request changes' })).toBeNull();
   });
 
@@ -78,12 +81,22 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     expect(forgeOf('t').details[12]?.value.mr.title).toBe('Dev work, part 1');
   });
 
+  it('a failed edit says which MR it was', async () => {
+    api.forgeEditMr.mockRejectedValueOnce({ message: 'gitlab.example.com refused: insufficient_scope' });
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('form', { name: 'Edit' });
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Title' }), { target: { value: 'Dev work, part 1' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(useToast.getState().message).toBe("Couldn't edit !12: gitlab.example.com refused: insufficient_scope"));
+  });
+
   it('a failed write says why and leaves the MR as it was', async () => {
     api.forgeApprove.mockRejectedValueOnce({ message: 'gitlab.example.com refused: insufficient_scope' });
     show();
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(useToast.getState().message).toBe("Couldn't approve !12: gitlab.example.com refused: insufficient_scope"));
-    expect(poll.refreshMr).not.toHaveBeenCalled();
+    expect(polling.notifyForgeWrite).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 

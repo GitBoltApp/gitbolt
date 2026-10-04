@@ -3,6 +3,8 @@ import { api } from '../../api/client';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
 import type { MrEdit } from '../../api/gen/MrEdit';
+import { mrRef } from '../labels';
+import { useTabForgeField } from '../mrStore';
 import { putDescription, putMr, forgeWrite } from './writes';
 
 /** Title, description and labels (a comma-separated list: ruling 13). Only what changed is sent. */
@@ -11,6 +13,7 @@ export function EditMr({ tabId, mr, detail, onDone }: { tabId: string; mr: Forge
   const [description, setDescription] = useState(detail?.description ?? '');
   const [labels, setLabels] = useState(mr.labels.join(', '));
   const [busy, setBusy] = useState(false);
+  const kind = useTabForgeField(tabId, 'kind');
   const parsed = labels.split(',').map((l) => l.trim()).filter(Boolean);
   const edit: MrEdit = {
     title: title.trim() !== mr.title ? title.trim() : null,
@@ -20,7 +23,7 @@ export function EditMr({ tabId, mr, detail, onDone }: { tabId: string; mr: Forge
   const changed = edit.title !== null || edit.description !== null || edit.labels !== null;
   const save = async () => {
     setBusy(true);
-    const out = await forgeWrite(tabId, "Couldn't save the changes", (repo) => api.forgeEditMr(repo, mr.number, edit));
+    const out = await forgeWrite(tabId, `Couldn't edit ${mrRef(kind ?? 'gitlab', mr.number)}`, (repo) => api.forgeEditMr(repo, mr.number, edit));
     setBusy(false);
     if (!out) return;
     putMr(tabId, out.value);

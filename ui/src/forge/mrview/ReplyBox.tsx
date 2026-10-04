@@ -4,7 +4,8 @@ import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeNote } from '../../api/gen/ForgeNote';
 import { registerKeyHints } from '../../shortcuts/hints';
-import { patchForge } from '../mrStore';
+import { mrRef } from '../labels';
+import { patchForge, useTabForgeField } from '../mrStore';
 import { clearDraft, draftKey, setDraft, useReplyDrafts } from './drafts';
 import { forgeWrite } from './writes';
 
@@ -18,13 +19,15 @@ export function appendNote(list: ForgeDiscussion[], discussion: string | null, n
 export function ReplyBox({ tabId, number, discussion, onDone }: { tabId: string; number: number; discussion: string | null; onDone?: () => void }) {
   const key = draftKey(tabId, number, discussion);
   const text = useReplyDrafts((s) => s.text[key] ?? '');
+  const kind = useTabForgeField(tabId, 'kind');
   const [busy, setBusy] = useState(false);
   const action = discussion ? 'Reply' : 'Comment';
   const ready = text.trim() !== '' && !busy;
   const send = async () => {
     if (!ready) return;
     setBusy(true);
-    const out = await forgeWrite(tabId, discussion ? "Couldn't reply" : "Couldn't comment", (repo) => api.forgeReply(repo, number, discussion, text));
+    const ref = mrRef(kind ?? 'gitlab', number);
+    const out = await forgeWrite(tabId, discussion ? `Couldn't reply on ${ref}` : `Couldn't comment on ${ref}`, (repo) => api.forgeReply(repo, number, discussion, text));
     setBusy(false);
     if (!out) return;
     if ((useReplyDrafts.getState().text[key] ?? '') === text) clearDraft(key);

@@ -63,7 +63,7 @@ describe('replying in the MR/PR view (spec #4 §4 "4B")', () => {
     render(<ReplyBox tabId="t" number={12} discussion={null} />);
     fireEvent.change(screen.getByRole('textbox', { name: 'Write a comment' }), { target: { value: 'Keep me' } });
     fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
-    await waitFor(() => expect(useToast.getState().message).toBe("Couldn't comment: gitlab.example.com rate limit reached: try again in 2 min"));
+    await waitFor(() => expect(useToast.getState().message).toBe("Couldn't comment on !12: gitlab.example.com rate limit reached: try again in 2 min"));
     expect(screen.getByRole('textbox', { name: 'Write a comment' })).toHaveValue('Keep me');
   });
 

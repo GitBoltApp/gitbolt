@@ -17,6 +17,11 @@ use std::time::Duration;
 pub const FORKS_PER_PAGE: u32 = 100;
 pub const FORK_PAGES: usize = 3;
 
+// --- 4C T3 ---
+pub const USERS_PER_PAGE: u32 = 20;
+pub const LABELS_PER_PAGE: u32 = 50;
+// --- end 4C T3 ---
+
 pub struct GitLabProvider {
     host: String,
     web: String,
@@ -365,6 +370,65 @@ pub mod json {
         }
     }
     // --- end 4B T2 ---
+    // --- 4C T3 ---
+    pub fn label(v: &Value) -> Option<ForgeLabel> {
+        Some(ForgeLabel { name: v["name"].as_str()?.to_string(), color: text(&v["color"]), description: text(&v["description"]) })
+    }
+
+    /// Ruling 9: GitLab's draft is the title prefix, which every version honours.
+    pub fn draft_title(title: &str, draft: bool) -> String {
+        let t = title.trim();
+        let lower = t.to_lowercase();
+        let marked = ["draft:", "[draft]", "(draft)"].iter().any(|p| lower.starts_with(p));
+        if draft && !marked { format!("Draft: {t}") } else { t.to_string() }
+    }
+
+    /// The POST body. A fork's MR is created in the fork (`source_id`) and names the target.
+    pub fn create_body(req: &CreateMr, source_id: u64, target_id: u64) -> Value {
+        let mut b = serde_json::json!({
+            "source_branch": req.source.branch, "target_branch": req.target_branch, "title": draft_title(&req.title, req.draft),
+            "description": req.description, "assignee_ids": req.assignees, "reviewer_ids": req.reviewers, "labels": req.labels.join(","),
+        });
+        if source_id != target_id {
+            b["target_project_id"] = serde_json::json!(target_id);
+        }
+        if let Some(s) = req.squash {
+            b["squash"] = serde_json::json!(s);
+        }
+        if let Some(d) = req.delete_source_branch {
+            b["remove_source_branch"] = serde_json::json!(d);
+        }
+        b
+    }
+
+    /// The MR GitLab answered a create with, under the paths it was made with (the answer has ids).
+    pub fn created_mr(v: &Value, source_project: &str, target_project: &str) -> Option<ForgeMr> {
+        let draft = v["draft"].as_bool().or(v["work_in_progress"].as_bool()).unwrap_or(false);
+        let state = match v["state"].as_str()? {
+            "merged" => MrState::Merged,
+            "closed" | "locked" => MrState::Closed,
+            _ if draft => MrState::Draft,
+            _ => MrState::Open,
+        };
+        Some(ForgeMr {
+            number: v["iid"].as_u64()?,
+            title: v["title"].as_str()?.to_string(),
+            state,
+            author: user(&v["author"])?,
+            source_project: source_project.to_string(),
+            source_branch: v["source_branch"].as_str()?.to_string(),
+            target_project: target_project.to_string(),
+            target_branch: v["target_branch"].as_str()?.to_string(),
+            head_sha: text(&v["sha"]),
+            web_url: v["web_url"].as_str()?.to_string(),
+            pipeline: None,
+            review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
+            conflicts: v["has_conflicts"].as_bool(),
+            labels: v["labels"].as_array().map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect()).unwrap_or_default(),
+            updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
+        })
+    }
+    // --- end 4C T3 ---
 }
 
 // --- 4B T2: merge requests (reads) ---
@@ -419,6 +483,21 @@ impl GitLabProvider {
             Ok(r) => r.json::<Value>(&self.host).map(|v| json::pipelines_by_sha(&v)).unwrap_or_default(),
             Err(_) => HashMap::new(),
         }
+    }
+
+    /// The open MRs for `filter`, newest activity first; `with_pipelines`: with the project's recent
+    /// pipelines (the list), else without (the badges).
+    async fn list_open(&self, project: &ForgeProject, filter: MrFilter, with_pipelines: bool) -> Result<Fresh<Vec<ForgeMr>>, GbError> {
+        let mut path = format!("/projects/{}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page={MR_PER_PAGE}", project.id);
+        match filter {
+            MrFilter::All => {}
+            MrFilter::Mine => path.push_str("&scope=created_by_me"),
+            MrFilter::ReviewRequested => path.push_str(&format!("&reviewer_id={}", self.me().await?.id)),
+        }
+        let r = self.http.get(&path).await?;
+        let list: Vec<Value> = r.json(&self.host)?;
+        let pipelines = if list.is_empty() || !with_pipelines { HashMap::new() } else { self.pipelines(project).await };
+        Ok(Self::fresh(self.mrs_of(project, &list, &pipelines).await, &r))
     }
 
     async fn mrs_of(&self, project: &ForgeProject, list: &[Value], pipelines: &HashMap<String, ForgePipeline>) -> Vec<ForgeMr> {
@@ -566,18 +645,11 @@ impl ForgeProvider for GitLabProvider {
     // --- 4B: merge requests ---
     // --- 4B T2: reads ---
     fn open_mrs<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
-        Box::pin(async move {
-            let mut path = format!("/projects/{}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page={MR_PER_PAGE}", project.id);
-            match filter {
-                MrFilter::All => {}
-                MrFilter::Mine => path.push_str("&scope=created_by_me"),
-                MrFilter::ReviewRequested => path.push_str(&format!("&reviewer_id={}", self.me().await?.id)),
-            }
-            let r = self.http.get(&path).await?;
-            let list: Vec<Value> = r.json(&self.host)?;
-            let pipelines = if list.is_empty() { HashMap::new() } else { self.pipelines(project).await };
-            Ok(Self::fresh(self.mrs_of(project, &list, &pipelines).await, &r))
-        })
+        Box::pin(self.list_open(project, filter, true))
+    }
+
+    fn open_mrs_light<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
+        Box::pin(self.list_open(project, filter, false))
     }
 
     fn mr_for_branch<'a>(&'a self, project: &'a ForgeProject, source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
@@ -597,13 +669,16 @@ impl ForgeProvider for GitLabProvider {
             let v: Value = r.json(&self.host)?;
             let source = self.source_of(project, &v).await;
             // Every tier has `/approvals`; a 404 (an old GitLab) is "no approvals".
-            let approvals = match self.http.get(&format!("{url}/approvals")).await {
-                Ok(a) => Some(a.json::<Value>(&self.host)?),
-                Err(e) if e.kind == GbErrorKind::NotFound => None,
+            let (approvals, approvals_same) = match self.http.get(&format!("{url}/approvals")).await {
+                Ok(a) => (Some(a.json::<Value>(&self.host)?), a.not_modified),
+                Err(e) if e.kind == GbErrorKind::NotFound => (None, false),
                 Err(e) => return Err(e),
             };
             let d = json::detail(&v, &project.path, &source, approvals.as_ref()).ok_or_else(|| unreadable(&self.host, "merge request"))?;
-            Ok(Self::fresh(d, &r))
+            // Not modified only when the MR and its approvals both were (a 304 each).
+            let mut fresh = Self::fresh(d, &r);
+            fresh.not_modified &= approvals_same;
+            Ok(fresh)
         })
     }
 
@@ -709,6 +784,67 @@ impl ForgeProvider for GitLabProvider {
     // --- end 4B T3 ---
     // --- end 4B ---
     // --- 4C ---
+    // --- 4C T3: create, people, labels, templates ---
+    fn create_mr<'a>(&'a self, project: &'a ForgeProject, req: &'a CreateMr) -> ForgeFuture<'a, CreateOutcome> {
+        Box::pin(async move {
+            // GitLab creates in the source project; a fork's MR names its target (ruling 3).
+            let source_id = if req.source.project == project.path { project.id } else { self.project(&req.source.project).await?.value.id };
+            let body = json::create_body(req, source_id, project.id);
+            let r = self.http.send_json(Method::Post, &format!("/projects/{source_id}/merge_requests"), &body).await?;
+            let mr = json::created_mr(&r.json(&self.host)?, &req.source.project, &project.path).ok_or_else(|| unreadable(&self.host, "merge request"))?;
+            Ok(CreateOutcome { mr, failed: Vec::new() })
+        })
+    }
+
+    fn search_users<'a>(&'a self, project: &'a ForgeProject, query: &'a str) -> ForgeFuture<'a, Vec<ForgeUser>> {
+        Box::pin(async move {
+            let path = format!("/projects/{}/members/all?query={}&per_page={USERS_PER_PAGE}", project.id, encode_component(query.trim()));
+            let r = self.http.get(&path).await?;
+            Ok(r.json::<Vec<Value>>(&self.host)?.iter().filter_map(json::user).collect())
+        })
+    }
+
+    fn labels<'a>(&'a self, project: &'a ForgeProject, query: &'a str) -> ForgeFuture<'a, Vec<ForgeLabel>> {
+        Box::pin(async move {
+            let path = format!("/projects/{}/labels?search={}&per_page={LABELS_PER_PAGE}", project.id, encode_component(query.trim()));
+            let r = self.http.get(&path).await?;
+            Ok(r.json::<Vec<Value>>(&self.host)?.iter().filter_map(json::label).collect())
+        })
+    }
+
+    fn mr_templates<'a>(&'a self, project: &'a ForgeProject, branch: &'a str) -> ForgeFuture<'a, Vec<MrTemplate>> {
+        Box::pin(async move {
+            use gitbolt_core::forge::create::{clip_template, is_template_path, sort_templates, template_name, GITLAB_TEMPLATE_DIR, MAX_TEMPLATES};
+            let at = encode_component(branch);
+            let tree = format!("/projects/{}/repository/tree?path={}&ref={at}&per_page=100", project.id, encode_component(GITLAB_TEMPLATE_DIR));
+            let entries: Vec<Value> = match self.http.get(&tree).await {
+                Ok(r) => r.json(&self.host)?,
+                // No such directory on that branch: no templates (a final answer, ruling 7).
+                Err(e) if e.kind == GbErrorKind::NotFound => return Ok(Vec::new()),
+                Err(e) => return Err(e),
+            };
+            let paths: Vec<String> = entries
+                .iter()
+                .filter(|e| e["type"] == "blob")
+                .filter_map(|e| e["path"].as_str())
+                .filter(|p| is_template_path(ForgeKind::GitLab, p))
+                .take(MAX_TEMPLATES)
+                .map(str::to_string)
+                .collect();
+            let mut out = Vec::with_capacity(paths.len());
+            for path in paths {
+                // One file the token can't read (or that went away) is skipped, not the whole list.
+                let r = match self.http.get(&format!("/projects/{}/repository/files/{}/raw?ref={at}", project.id, encode_component(&path))).await {
+                    Ok(r) => r,
+                    Err(e) if e.kind == GbErrorKind::NotFound || crate::http::is_forbidden(&e) => continue,
+                    Err(e) => return Err(e),
+                };
+                out.push(MrTemplate { name: template_name(&path), body: clip_template(&r.body), path });
+            }
+            Ok(sort_templates(out))
+        })
+    }
+    // --- end 4C T3 ---
     // --- end 4C ---
     // --- 4D ---
     // --- end 4D ---
@@ -801,4 +937,41 @@ mod tests {
         assert!(json::pick_for_branch(vec![]).is_none());
     }
     // --- end 4B T2 ---
+    // --- 4C T3 ---
+    #[test]
+    fn a_draft_is_a_title_prefix_never_doubled() {
+        assert_eq!(json::draft_title("Add login", true), "Draft: Add login");
+        assert_eq!(json::draft_title(" [Draft] Add login ", true), "[Draft] Add login");
+        assert_eq!(json::draft_title("Draft: x", false), "Draft: x");
+        assert_eq!(json::draft_title("Add login ", false), "Add login");
+    }
+
+    #[test]
+    fn the_create_body_names_the_target_only_for_a_fork_and_squash_only_when_set() {
+        let req = CreateMr {
+            source: SourceRef { project: "alice/project".into(), branch: "feature".into() }, target_branch: "main".into(), title: "Add login".into(),
+            description: "Why.".into(), draft: false, reviewers: vec![8], assignees: vec![7], labels: vec!["bug".into(), "ui".into()], squash: None, delete_source_branch: Some(true),
+        };
+        assert_eq!(
+            json::create_body(&req, 77, 42),
+            json!({"source_branch": "feature", "target_branch": "main", "title": "Add login", "description": "Why.", "assignee_ids": [7], "reviewer_ids": [8], "labels": "bug,ui", "target_project_id": 42, "remove_source_branch": true})
+        );
+        assert!(json::create_body(&req, 42, 42).get("target_project_id").is_none());
+        assert_eq!(json::create_body(&CreateMr { squash: Some(false), ..req }, 42, 42)["squash"], false);
+    }
+
+    #[test]
+    fn a_created_mr_normalizes_with_the_paths_it_was_made_with() {
+        let v = json!({
+            "iid": 3, "title": "Draft: Add login", "state": "opened", "draft": true, "author": {"id": 7, "username": "ada", "name": "Ada"},
+            "source_branch": "feature", "target_branch": "main", "sha": "abc", "web_url": "https://g/group/project/-/merge_requests/3",
+            "labels": ["bug"], "has_conflicts": false, "updated_at": "2026-10-04T12:00:00Z"
+        });
+        let mr = json::created_mr(&v, "alice/project", "group/project").unwrap();
+        assert_eq!((mr.number, mr.state, mr.source_project.as_str(), mr.target_project.as_str()), (3, MrState::Draft, "alice/project", "group/project"));
+        assert_eq!((mr.labels, mr.conflicts, mr.updated_at, mr.head_sha.as_deref()), (vec!["bug".to_string()], Some(false), 1_791_115_200, Some("abc")));
+        assert_eq!(mr.review.decision, ReviewDecision::None);
+        assert_eq!(json::label(&json!({"name": "bug", "color": "#d9534f", "description": ""})), Some(ForgeLabel { name: "bug".into(), color: Some("#d9534f".into()), description: None }));
+    }
+    // --- end 4C T3 ---
 }

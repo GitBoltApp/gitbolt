@@ -322,3 +322,33 @@ async fn a_graphql_error_says_why() {
     assert!(!seeded(&f, 3).draft);
 }
 // --- end 4B T5 ---
+
+// --- 4B final fix ---
+#[tokio::test(flavor = "multi_thread")]
+async fn a_detail_whose_checks_alone_change_is_not_modified_no_more() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITHUB_TOKEN);
+    let w = widget(&p).await;
+    let status = |d: &Fresh<ForgeMrDetail>| d.value.mr.pipeline.as_ref().map(|p| p.status);
+    let first = p.mr_detail(&w, 3).await.unwrap();
+    assert_eq!((status(&first), first.not_modified), (Some(PipelineStatus::Success), false));
+    assert!(p.mr_detail(&w, 3).await.unwrap().not_modified, "every request answered 304");
+    let mut seed = f.current_seed();
+    let pull = seed.github.pulls.iter_mut().find(|x| x.number == 3).unwrap();
+    pull.checks[0].conclusion = Some("failure".into());
+    f.seed(seed);
+    let after = p.mr_detail(&w, 3).await.unwrap();
+    assert_eq!((status(&after), after.not_modified), (Some(PipelineStatus::Failed), false), "the PR itself answered 304, its checks didn't");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_light_list_reads_no_checks() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITHUB_TOKEN);
+    let w = widget(&p).await;
+    let list = p.open_mrs_light(&w, MrFilter::All).await.unwrap().value;
+    assert_eq!(numbers(&list), [3, 6, 7]);
+    assert!(list.iter().all(|m| m.pipeline.is_none()));
+    assert!(!f.requests().iter().any(|r| r.path.ends_with("/check-runs") || r.path.ends_with("/status")));
+}
+// --- end 4B final fix ---

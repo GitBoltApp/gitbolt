@@ -107,7 +107,8 @@ impl ForgeHub {
     /// MR/PR whose source project is one of the repository's remotes.
     pub async fn branch_mrs(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], refs: &[String]) -> Result<BranchMrs, GbError> {
         let t = self.mr_target(store, remotes).await?;
-        let open = t.provider.open_mrs(&t.project, MrFilter::All).await;
+        // Without pipelines: a badge never shows one, and GitHub's checks are two requests per PR.
+        let open = t.provider.open_mrs_light(&t.project, MrFilter::All).await;
         self.record(&t.key, &open);
         let open = open?;
         // The remotes on the target's host whose project is known: (remote, project path).

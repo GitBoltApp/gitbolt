@@ -112,6 +112,36 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
     expect(api.forgeMerge).not.toHaveBeenCalled();
   });
 
+  // --- 4B final fix ---
+  it("says why the merge options couldn't load, and asks again after the next poll", async () => {
+    api.forgeProjectSettings.mockRejectedValueOnce({ message: 'gitlab.example.com refused: insufficient_scope' });
+    show('gitlab');
+    expect(await screen.findByText("Couldn't load merge options: gitlab.example.com refused: insufficient_scope")).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled();
+    act(() => patchForge('t', { updatedAt: 2 }));
+    expect(await screen.findByText('Merge method: Merge commit')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeEnabled();
+    expect(api.forgeProjectSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the option rows and the reason row in the layout while loading and once clear', async () => {
+    let done!: (s: ForgeProjectSettings) => void;
+    api.forgeProjectSettings.mockReturnValue(new Promise((r) => (done = r)));
+    const { container } = show('gitlab');
+    const rows = () => [...container.querySelectorAll('.mr-merge-row, .mr-merge-reason')].map((e) => (e as HTMLElement).style.visibility || 'visible');
+    expect(rows()).toEqual(['hidden', 'hidden', 'hidden', 'visible']);
+    await act(async () => done(settings()));
+    expect(rows()).toEqual(['visible', 'visible', 'visible', 'hidden']);
+  });
+
+  it('GitHub: one allowed method is shown as a line, like GitLab', async () => {
+    api.forgeProjectSettings.mockResolvedValue(settings({ mergeMethods: ['squash'] }));
+    show('github');
+    expect(await screen.findByText('Merge method: Squash and merge')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Merge method' })).toBeNull();
+  });
+  // --- end 4B final fix ---
+
   it('shows a draft, conflict or pipeline reason as the disabled reason', async () => {
     show('gitlab', detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'The pipeline failed' } }));
     expect(await screen.findByText('The pipeline failed')).toBeTruthy();

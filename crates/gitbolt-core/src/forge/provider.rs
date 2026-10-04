@@ -72,6 +72,11 @@ pub trait ForgeProvider: Send + Sync {
     fn open_mrs<'a>(&'a self, _project: &'a ForgeProject, _filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
         unsupported("Listing merge requests")
     }
+    /// `open_mrs` without pipelines or checks: the badges, which never show one, and cost no
+    /// lookups per MR/PR. By default, `open_mrs` itself.
+    fn open_mrs_light<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
+        self.open_mrs(project, filter)
+    }
     fn mr_for_branch<'a>(&'a self, _project: &'a ForgeProject, _source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
         unsupported("Finding a branch's merge request")
     }
@@ -113,6 +118,13 @@ pub trait ForgeProvider: Send + Sync {
     fn mr_templates<'a>(&'a self, _project: &'a ForgeProject, _branch: &'a str) -> ForgeFuture<'a, Vec<MrTemplate>> {
         unsupported("Reading templates")
     }
+    // --- 4C T1: an addition to 4A's trait, with a refusing default like the others ---
+    /// Adds the parts a create's follow-up calls couldn't (GitHub: reviewers, assignees and labels
+    /// on PR `number`), for the Retry of a partial failure (spec #4 §3.5). The parts still failing.
+    fn complete_create<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _req: &'a CreateMr, _parts: &'a [CreatePart]) -> ForgeFuture<'a, Vec<PartFailure>> {
+        unsupported("Adding reviewers, assignees and labels afterwards")
+    }
+    // --- end 4C T1 ---
     // --- 4D ---
     fn retarget<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _target_branch: &'a str) -> ForgeFuture<'a, ForgeMr> {
         unsupported("Retargeting")
@@ -135,7 +147,8 @@ pub trait TokenStore: Send + Sync {
     /// Deletes it wherever it is.
     fn delete(&self, key: &AccountKey) -> Result<(), GbError>;
     /// Moves a token kept in the file to the system keyring, now that it's there: the keyring
-    /// takes it, then the file copy goes. `Ok(Some(Keyring))` when it moved; `Ok(None)` when
+    /// takes it, then the file copy goes. `Ok(Some(Keyring))` when it moved, or already had
+    /// (the file has none and the keyring holds it: a record still saying File heals); `Ok(None)` when
     /// there's nothing to move or no keyring at all (a store with only one place). An error
     /// leaves the file copy as it was.
     fn migrate_to_keyring(&self, _key: &AccountKey) -> Result<Option<TokenStorage>, GbError> {

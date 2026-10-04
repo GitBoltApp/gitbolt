@@ -266,7 +266,12 @@ impl TokenStore for SystemTokenStore {
 
     fn migrate_to_keyring(&self, key: &AccountKey) -> Result<Option<TokenStorage>, GbError> {
         let Some(k) = &self.keyring else { return Ok(None) };
-        let Some(token) = self.file.get(key, TokenStorage::File)? else { return Ok(None) };
+        let Some(token) = self.file.get(key, TokenStorage::File)? else {
+            // Already moved, but the record still says File (the app stopped between the file
+            // delete and the profile flush): the record heals.
+            let moved = k.get(&key.keyring_account()).ok().flatten().is_some();
+            return Ok(moved.then_some(TokenStorage::Keyring));
+        };
         k.set(&key.keyring_account(), token.expose()).map_err(|e| GbError::other(format!("Couldn't move the token for {} to the system keyring: {}", key.host, e.reason())))?;
         // The keyring has it: one place per token. A copy left behind is still found by `get`
         // and goes with `delete`.
@@ -444,10 +449,25 @@ mod tests {
         assert!(!path.exists() || !std::fs::read_to_string(&path).unwrap().contains(TOKEN), "the file no longer holds it");
         assert_eq!(store.get(&k, TokenStorage::Keyring).unwrap().unwrap().expose(), TOKEN);
         assert_eq!(store.get(&k, TokenStorage::File).unwrap().unwrap().expose(), TOKEN, "a record still saying File finds it in the keyring");
-        assert_eq!(store.migrate_to_keyring(&k).unwrap(), None, "nothing left to move");
+        assert_eq!(store.migrate_to_keyring(&k).unwrap(), Some(TokenStorage::Keyring), "already moved: a record still saying File heals");
+        store.delete(&k).unwrap();
+        assert_eq!(store.migrate_to_keyring(&k).unwrap(), None, "no token anywhere: nothing to move");
         let fileonly = FileTokenStore::new(tmp.path().join("other"));
         fileonly.put(&k, &Secret::new("x")).unwrap();
         assert_eq!(fileonly.migrate_to_keyring(&k).unwrap(), None, "a file-only store has nowhere to move it");
+    }
+
+    #[test]
+    fn a_crash_after_the_move_still_heals_a_record_saying_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let keyring = LateKeyring::default();
+        keyring.up.store(true, std::sync::atomic::Ordering::SeqCst);
+        // The move ran (keyring has it, the file doesn't); the profile still says File.
+        keyring.map.lock().unwrap().insert("default/gitlab.example.com".into(), TOKEN.into());
+        let store = SystemTokenStore::new(Some(Box::new(keyring)), FileTokenStore::new(tmp.path().join("forge-tokens")));
+        let k = key("gitlab.example.com");
+        assert_eq!(store.migrate_to_keyring(&k).unwrap(), Some(TokenStorage::Keyring));
+        assert_eq!(store.migrate_to_keyring(&key("other.example.com")).unwrap(), None, "a token in neither place isn't moved");
     }
 
     #[test]

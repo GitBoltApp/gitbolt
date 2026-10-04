@@ -353,6 +353,69 @@ pub mod json {
         out
     }
     // --- end 4B T4 ---
+    // --- 4C T4 ---
+    /// A label; GitHub's colour has no `#`.
+    pub fn label(v: &Value) -> Option<ForgeLabel> {
+        let color = text(&v["color"]).map(|c| if c.starts_with('#') { c } else { format!("#{c}") });
+        Some(ForgeLabel { name: v["name"].as_str()?.to_string(), color, description: text(&v["description"]) })
+    }
+
+    /// The POST /pulls body. A branch from a fork is `owner:branch` (ruling 3). GitHub takes no
+    /// squash or delete-branch at create (those are merge-time).
+    pub fn create_body(target: &str, req: &CreateMr) -> Value {
+        let owner = req.source.project.split('/').next().unwrap_or("");
+        let head = if req.source.project == target || owner.is_empty() { req.source.branch.clone() } else { format!("{owner}:{}", req.source.branch) };
+        serde_json::json!({ "title": req.title.trim(), "head": head, "base": req.target_branch, "body": req.description, "draft": req.draft })
+    }
+
+    /// The pull request GitHub answered a create with.
+    pub fn created_pull(v: &Value) -> Option<ForgeMr> {
+        let state = if v["merged"].as_bool() == Some(true) || v["merged_at"].is_string() {
+            MrState::Merged
+        } else if v["state"] == "closed" {
+            MrState::Closed
+        } else if v["draft"].as_bool() == Some(true) {
+            MrState::Draft
+        } else {
+            MrState::Open
+        };
+        Some(ForgeMr {
+            number: v["number"].as_u64()?,
+            title: v["title"].as_str()?.to_string(),
+            state,
+            author: user(&v["user"])?,
+            source_project: v["head"]["repo"]["full_name"].as_str().unwrap_or_default().to_string(),
+            source_branch: v["head"]["ref"].as_str()?.to_string(),
+            target_project: v["base"]["repo"]["full_name"].as_str()?.to_string(),
+            target_branch: v["base"]["ref"].as_str()?.to_string(),
+            head_sha: text(&v["head"]["sha"]),
+            web_url: v["html_url"].as_str()?.to_string(),
+            pipeline: None,
+            review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
+            conflicts: v["mergeable"].as_bool().map(|m| !m),
+            labels: v["labels"].as_array().map(|a| a.iter().filter_map(|l| l["name"].as_str().map(str::to_string)).collect()).unwrap_or_default(),
+            updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
+        })
+    }
+
+    /// A `/contents` file's bytes (base64, with GitHub's line breaks).
+    pub fn decode_content(v: &Value) -> Vec<u8> {
+        try_decode_content(v).unwrap_or_default()
+    }
+
+    /// The same, but None when `content` is absent (`encoding: "none"` over 1 MB) or isn't base64.
+    pub fn try_decode_content(v: &Value) -> Option<Vec<u8>> {
+        use base64::Engine;
+        let raw: String = v["content"].as_str()?.chars().filter(|c| !c.is_whitespace()).collect();
+        base64::engine::general_purpose::STANDARD.decode(raw).ok()
+    }
+
+    /// The people search, done here (ruling 11): a case-insensitive part of the login or name.
+    pub fn matches(u: &ForgeUser, query: &str) -> bool {
+        let q = query.trim().to_lowercase();
+        q.is_empty() || u.username.to_lowercase().contains(&q) || u.name.to_lowercase().contains(&q)
+    }
+    // --- end 4C T4 ---
 }
 
 impl ForgeProvider for GitHubProvider {
@@ -448,27 +511,11 @@ impl ForgeProvider for GitHubProvider {
     // --- 4B: pull requests ---
     // --- 4B T4: reads ---
     fn open_mrs<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
-        Box::pin(async move {
-            let repo = Self::repo_url(&project.path)?;
-            let r = self.http.get(&format!("{repo}/pulls?state=open&sort=updated&direction=desc&per_page={PR_PER_PAGE}")).await?;
-            let list: Vec<Value> = r.json(&self.host)?;
-            let me = match filter {
-                MrFilter::All => None,
-                _ => Some(self.me().await?.username),
-            };
-            let keep = |v: &Value| match (filter, me.as_deref()) {
-                (MrFilter::Mine, Some(me)) => v["user"]["login"].as_str() == Some(me),
-                (MrFilter::ReviewRequested, Some(me)) => v["requested_reviewers"].as_array().is_some_and(|a| a.iter().any(|u| u["login"].as_str() == Some(me))),
-                _ => true,
-            };
-            let mut mrs: Vec<ForgeMr> = list.iter().filter(|v| keep(v)).filter_map(json::pr).collect();
-            for m in mrs.iter_mut().take(PIPELINE_LOOKUPS) {
-                if let Some(sha) = m.head_sha.clone() {
-                    m.pipeline = self.checks_soft(project, &sha).await?;
-                }
-            }
-            Ok(Self::fresh(mrs, &r))
-        })
+        Box::pin(self.list_open(project, filter, true))
+    }
+
+    fn open_mrs_light<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
+        Box::pin(self.list_open(project, filter, false))
     }
 
     fn mr_for_branch<'a>(&'a self, project: &'a ForgeProject, source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
@@ -488,10 +535,11 @@ impl ForgeProvider for GitHubProvider {
             let repo = Self::repo_url(&project.path)?;
             let r = self.http.get(&format!("{repo}/pulls/{number}")).await?;
             let v: Value = r.json(&self.host)?;
-            let reviews = self.http.get_pages(&format!("{repo}/pulls/{number}/reviews?per_page=100"), COMMENT_PAGES).await?;
+            let (reviews, reviews_same) = self.pages_fresh(&format!("{repo}/pulls/{number}/reviews?per_page=100"), COMMENT_PAGES).await?;
             let mut mr = json::pr(&v).ok_or_else(|| unreadable(&self.host, "pull request"))?;
+            let mut checks_same = true;
             if let Some(sha) = mr.head_sha.clone() {
-                mr.pipeline = self.checks_soft(project, &sha).await?;
+                (mr.pipeline, checks_same) = self.checks_soft(project, &sha).await?;
             }
             mr.review = json::review(&reviews, &v["requested_reviewers"]);
             let reviewers = mr.review.reviews.iter().map(|x| x.user.clone()).collect();
@@ -504,7 +552,10 @@ impl ForgeProvider for GitHubProvider {
                 delete_source_branch: None,
                 mr,
             };
-            Ok(Self::fresh(detail, &r))
+            // Not modified only when the PR, its reviews and its checks all were (a 304 each).
+            let mut fresh = Self::fresh(detail, &r);
+            fresh.not_modified &= reviews_same && checks_same;
+            Ok(fresh)
         })
     }
 
@@ -601,6 +652,80 @@ impl ForgeProvider for GitHubProvider {
     // --- end 4B T5 ---
     // --- end 4B ---
     // --- 4C ---
+    // --- 4C T4: create (POST /pulls, then the follow-up calls), people, labels, templates ---
+    fn create_mr<'a>(&'a self, project: &'a ForgeProject, req: &'a CreateMr) -> ForgeFuture<'a, CreateOutcome> {
+        Box::pin(async move {
+            let repo = Self::repo_url(&project.path)?;
+            let r = self.http.send_json(Method::Post, &format!("{repo}/pulls"), &json::create_body(&project.path, req)).await?;
+            let mut mr = json::created_pull(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "pull request"))?;
+            let failed = self.follow_up(project, mr.number, req, &[CreatePart::Reviewers, CreatePart::Assignees, CreatePart::Labels]).await;
+            if !failed.iter().any(|f| f.part == CreatePart::Labels) {
+                mr.labels = req.labels.clone();
+            }
+            Ok(CreateOutcome { mr, failed })
+        })
+    }
+
+    fn complete_create<'a>(&'a self, project: &'a ForgeProject, number: u64, req: &'a CreateMr, parts: &'a [CreatePart]) -> ForgeFuture<'a, Vec<PartFailure>> {
+        Box::pin(async move { Ok(self.follow_up(project, number, req, parts).await) })
+    }
+
+    fn search_users<'a>(&'a self, project: &'a ForgeProject, query: &'a str) -> ForgeFuture<'a, Vec<ForgeUser>> {
+        Box::pin(async move {
+            let repo = Self::repo_url(&project.path)?;
+            let all = self.http.get_pages(&format!("{repo}/assignees?per_page=100"), PEOPLE_PAGES).await?;
+            Ok(all.iter().filter_map(json::user).filter(|u| json::matches(u, query)).take(PEOPLE_SHOWN).collect())
+        })
+    }
+
+    fn labels<'a>(&'a self, project: &'a ForgeProject, query: &'a str) -> ForgeFuture<'a, Vec<ForgeLabel>> {
+        Box::pin(async move {
+            let repo = Self::repo_url(&project.path)?;
+            let q = query.trim().to_lowercase();
+            let all = self.http.get_pages(&format!("{repo}/labels?per_page=100"), LABEL_PAGES).await?;
+            Ok(all.iter().filter_map(json::label).filter(|l| l.name.to_lowercase().contains(&q)).collect())
+        })
+    }
+
+    fn mr_templates<'a>(&'a self, project: &'a ForgeProject, branch: &'a str) -> ForgeFuture<'a, Vec<MrTemplate>> {
+        Box::pin(async move {
+            use gitbolt_core::forge::create::{clip_template, is_template_path, sort_templates, template_name, GITHUB_DIR, GITHUB_TEMPLATE_DIR, MAX_TEMPLATES};
+            let repo = Self::repo_url(&project.path)?;
+            let at = encode_component(branch);
+            let top: Vec<Value> = match self.http.get(&format!("{repo}/contents/{GITHUB_DIR}?ref={at}")).await {
+                Ok(r) => r.json(&self.host)?,
+                Err(e) if skippable(&e) => return Ok(Vec::new()),
+                Err(e) => return Err(e),
+            };
+            let mut paths: Vec<String> = Vec::new();
+            for e in &top {
+                let (Some(kind), Some(path)) = (e["type"].as_str(), e["path"].as_str()) else { continue };
+                if kind == "file" && is_template_path(ForgeKind::GitHub, path) {
+                    paths.push(path.to_string());
+                } else if kind == "dir" && e["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(GITHUB_TEMPLATE_DIR)) {
+                    let inner: Vec<Value> = match self.http.get(&format!("{repo}/contents/{}?ref={at}", enc_path(path))).await {
+                        Ok(r) => r.json(&self.host)?,
+                        Err(e) if skippable(&e) => continue,
+                        Err(e) => return Err(e),
+                    };
+                    paths.extend(inner.iter().filter(|x| x["type"] == "file").filter_map(|x| x["path"].as_str()).filter(|p| is_template_path(ForgeKind::GitHub, p)).map(str::to_string));
+                }
+            }
+            paths.truncate(MAX_TEMPLATES);
+            let mut out = Vec::with_capacity(paths.len());
+            for path in paths {
+                let v: Value = match self.http.get(&format!("{repo}/contents/{}?ref={at}", enc_path(&path))).await {
+                    Ok(r) => r.json(&self.host)?,
+                    Err(e) if skippable(&e) => continue,
+                    Err(e) => return Err(e),
+                };
+                let Some(bytes) = json::try_decode_content(&v) else { continue };
+                out.push(MrTemplate { name: template_name(&path), body: clip_template(&bytes), path });
+            }
+            Ok(sort_templates(out))
+        })
+    }
+    // --- end 4C T4 ---
     // --- end 4C ---
     // --- 4D ---
     // --- end 4D ---
@@ -624,21 +749,62 @@ impl GitHubProvider {
         Ok(u)
     }
 
+    /// The open PRs for `filter`, newest activity first; `with_checks`: the first PIPELINE_LOOKUPS
+    /// with their checks (the list), else none (the badges).
+    async fn list_open(&self, project: &ForgeProject, filter: MrFilter, with_checks: bool) -> Result<Fresh<Vec<ForgeMr>>, GbError> {
+        let repo = Self::repo_url(&project.path)?;
+        let r = self.http.get(&format!("{repo}/pulls?state=open&sort=updated&direction=desc&per_page={PR_PER_PAGE}")).await?;
+        let list: Vec<Value> = r.json(&self.host)?;
+        let me = match filter {
+            MrFilter::All => None,
+            _ => Some(self.me().await?.username),
+        };
+        let keep = |v: &Value| match (filter, me.as_deref()) {
+            (MrFilter::Mine, Some(me)) => v["user"]["login"].as_str() == Some(me),
+            (MrFilter::ReviewRequested, Some(me)) => v["requested_reviewers"].as_array().is_some_and(|a| a.iter().any(|u| u["login"].as_str() == Some(me))),
+            _ => true,
+        };
+        let mut mrs: Vec<ForgeMr> = list.iter().filter(|v| keep(v)).filter_map(json::pr).collect();
+        if with_checks {
+            for m in mrs.iter_mut().take(PIPELINE_LOOKUPS) {
+                if let Some(sha) = m.head_sha.clone() {
+                    m.pipeline = self.checks_soft(project, &sha).await?.0;
+                }
+            }
+        }
+        Ok(Self::fresh(mrs, &r))
+    }
+
+    /// Every page of a list (`HttpClient::get_pages`), and whether each page was a 304.
+    async fn pages_fresh(&self, path: &str, max_pages: usize) -> Result<(Vec<Value>, bool), GbError> {
+        let (mut out, mut same) = (Vec::new(), true);
+        let mut next = Some(path.to_string());
+        for _ in 0..max_pages {
+            let Some(p) = next.take() else { break };
+            let r = self.http.get(&p).await?;
+            same &= r.not_modified;
+            out.extend(r.json::<Vec<Value>>(&self.host)?);
+            next = r.next_page;
+        }
+        Ok((out, same))
+    }
+
     /// `checks`, but a token that can't read them (a 403 without a rate limit, or a 404) just has
     /// no pipeline; rate limits, a rejected token (401) and network errors still fail.
-    async fn checks_soft(&self, project: &ForgeProject, sha: &str) -> Result<Option<ForgePipeline>, GbError> {
+    async fn checks_soft(&self, project: &ForgeProject, sha: &str) -> Result<(Option<ForgePipeline>, bool), GbError> {
         match self.checks(project, sha).await {
-            Err(e) if e.kind == GbErrorKind::NotFound || crate::http::is_forbidden(&e) => Ok(None),
+            Err(e) if e.kind == GbErrorKind::NotFound || crate::http::is_forbidden(&e) => Ok((None, false)),
             r => r,
         }
     }
 
-    /// A commit's checks and statuses as one pipeline.
-    async fn checks(&self, project: &ForgeProject, sha: &str) -> Result<Option<ForgePipeline>, GbError> {
+    /// A commit's checks and statuses as one pipeline, and whether both answered 304.
+    async fn checks(&self, project: &ForgeProject, sha: &str) -> Result<(Option<ForgePipeline>, bool), GbError> {
         let repo = Self::repo_url(&project.path)?;
-        let runs: Value = self.http.get(&format!("{repo}/commits/{sha}/check-runs?per_page=100")).await?.json(&self.host)?;
-        let statuses: Value = self.http.get(&format!("{repo}/commits/{sha}/status")).await?.json(&self.host)?;
-        Ok(json::checks(&runs, &statuses, &format!("{}/commit/{sha}", project.web_url)))
+        let runs = self.http.get(&format!("{repo}/commits/{sha}/check-runs?per_page=100")).await?;
+        let statuses = self.http.get(&format!("{repo}/commits/{sha}/status")).await?;
+        let same = runs.not_modified && statuses.not_modified;
+        Ok((json::checks(&runs.json(&self.host)?, &statuses.json(&self.host)?, &format!("{}/commit/{sha}", project.web_url)), same))
     }
 }
 // --- end 4B T4 ---
@@ -677,6 +843,75 @@ impl GitHubProvider {
     }
 }
 // --- end 4B T5 ---
+
+// --- 4C T4: the create's follow-up calls ---
+pub const PEOPLE_PAGES: usize = 3;
+pub const PEOPLE_SHOWN: usize = 20;
+pub const LABEL_PAGES: usize = 3;
+
+impl GitHubProvider {
+    /// The requested parts in order: reviewers, assignees, labels (ruling 12). A failed one is
+    /// recorded and doesn't stop the next; an empty one is skipped.
+    async fn follow_up(&self, project: &ForgeProject, number: u64, req: &CreateMr, parts: &[CreatePart]) -> Vec<PartFailure> {
+        let mut failed = Vec::new();
+        for part in [CreatePart::Reviewers, CreatePart::Assignees, CreatePart::Labels] {
+            if !parts.contains(&part) {
+                continue;
+            }
+            if let Err(e) = self.add_part(project, number, req, part).await {
+                failed.push(PartFailure { part, message: part_message(&self.host, &e) });
+            }
+        }
+        failed
+    }
+
+    async fn add_part(&self, project: &ForgeProject, number: u64, req: &CreateMr, part: CreatePart) -> Result<(), GbError> {
+        let repo = Self::repo_url(&project.path)?;
+        let (path, body) = match part {
+            CreatePart::Reviewers if !req.reviewers.is_empty() => (format!("{repo}/pulls/{number}/requested_reviewers"), json!({ "reviewers": self.logins(&req.reviewers).await? })),
+            CreatePart::Assignees if !req.assignees.is_empty() => (format!("{repo}/issues/{number}/assignees"), json!({ "assignees": self.logins(&req.assignees).await? })),
+            CreatePart::Labels if !req.labels.is_empty() => (format!("{repo}/issues/{number}/labels"), json!({ "labels": req.labels })),
+            _ => return Ok(()),
+        };
+        let r = self.http.send_json(Method::Post, &path, &body).await?;
+        if part == CreatePart::Assignees {
+            let got: Value = r.json(&self.host)?;
+            let have: Vec<String> = got["assignees"].as_array().into_iter().flatten().filter_map(|u| u["login"].as_str().map(str::to_lowercase)).collect();
+            let missing: Vec<String> = body["assignees"].as_array().into_iter().flatten().filter_map(|l| l.as_str()).filter(|l| !have.contains(&l.to_lowercase())).map(str::to_string).collect();
+            if !missing.is_empty() {
+                return Err(GbError::new(GbErrorKind::InvalidInput, format!("couldn't assign: {}", missing.join(", "))));
+            }
+        }
+        Ok(())
+    }
+
+    /// GitHub's reviewers and assignees are logins; `CreateMr` carries ids (ruling 11).
+    /// `GET /user/{id}` is ETag-cached: a repeat is a 304.
+    async fn logins(&self, ids: &[u64]) -> Result<Vec<String>, GbError> {
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let r = self.http.get(&format!("/user/{id}")).await?;
+            out.push(json::user(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "user"))?.username);
+        }
+        Ok(out)
+    }
+}
+
+/// A template entry GitHub won't show us is skipped; network, rate-limit and 401 errors still fail.
+fn skippable(e: &GbError) -> bool {
+    e.kind == GbErrorKind::NotFound || crate::http::is_forbidden(e)
+}
+
+/// The reason alone, for the toast: "github.com: Validation Failed: …" → "Validation Failed: …".
+fn part_message(host: &str, e: &GbError) -> String {
+    e.message.strip_prefix(&format!("{host}: ")).unwrap_or(&e.message).to_string()
+}
+
+/// A repository path for `/contents/…`: each segment encoded, the `/` kept.
+fn enc_path(path: &str) -> String {
+    path.split('/').map(encode_component).collect::<Vec<_>>().join("/")
+}
+// --- end 4C T4 ---
 
 #[cfg(test)]
 mod tests {
@@ -798,4 +1033,46 @@ mod tests {
         assert_eq!(json::hunk_tail("@@ -1 +1 @@"), None);
     }
     // --- end 4B T4 ---
+    // --- 4C T4 ---
+    fn create_req(source: &str) -> CreateMr {
+        CreateMr {
+            source: SourceRef { project: source.into(), branch: "feature".into() }, target_branch: "main".into(), title: " Add the widget ".into(),
+            description: "It spins.".into(), draft: true, reviewers: vec![], assignees: vec![], labels: vec![], squash: Some(true), delete_source_branch: Some(true),
+        }
+    }
+
+    #[test]
+    fn the_create_body_heads_a_fork_with_its_owner_and_drops_gitlab_only_fields() {
+        assert_eq!(json::create_body("octo-org/widget", &create_req("octo-org/widget")), json!({"title": "Add the widget", "head": "feature", "base": "main", "body": "It spins.", "draft": true}));
+        assert_eq!(json::create_body("octo-org/widget", &create_req("octocat/widget"))["head"], "octocat:feature");
+    }
+
+    #[test]
+    fn a_created_pull_normalizes_from_its_head_and_base() {
+        let mut v = json!({
+            "number": 1, "title": "Add the widget", "state": "open", "draft": false, "user": {"id": 583231, "login": "octocat"},
+            "head": {"ref": "feature", "sha": "abc", "repo": {"full_name": "octocat/widget"}}, "base": {"ref": "main", "repo": {"full_name": "octo-org/widget"}},
+            "html_url": "https://github.com/octo-org/widget/pull/1", "labels": [{"name": "bug"}], "mergeable": null, "updated_at": "2026-10-04T12:00:00Z"
+        });
+        let mr = json::created_pull(&v).unwrap();
+        assert_eq!((mr.number, mr.state, mr.source_project.as_str(), mr.target_project.as_str(), mr.conflicts), (1, MrState::Open, "octocat/widget", "octo-org/widget", None));
+        assert_eq!((mr.source_branch.as_str(), mr.target_branch.as_str(), mr.labels.clone()), ("feature", "main", vec!["bug".to_string()]));
+        v["draft"] = json!(true);
+        assert_eq!(json::created_pull(&v).unwrap().state, MrState::Draft);
+    }
+
+    #[test]
+    fn contents_decode_across_githubs_line_breaks_labels_get_a_hash_and_people_match_loosely() {
+        assert_eq!(json::decode_content(&json!({"content": "SGVs\nbG8=\n", "encoding": "base64"})), b"Hello");
+        assert_eq!(json::label(&json!({"name": "bug", "color": "d73a4a", "description": null})).unwrap().color.as_deref(), Some("#d73a4a"));
+        let u = ForgeUser { id: 2, username: "hubot".into(), name: "Hubot".into(), avatar_url: None, web_url: String::new(), email: None };
+        assert!(json::matches(&u, "HUB") && json::matches(&u, " ") && !json::matches(&u, "octo"));
+    }
+    #[test]
+    fn a_file_without_content_does_not_decode() {
+        assert!(json::try_decode_content(&json!({"encoding": "none"})).is_none());
+        assert!(json::try_decode_content(&json!({"content": "!!!"})).is_none());
+        assert_eq!(json::try_decode_content(&json!({"content": "SGk=", "encoding": "base64"})), Some(b"Hi".to_vec()));
+    }
+    // --- end 4C T4 ---
 }

@@ -75,7 +75,8 @@ export function Sidebar() {
   }, [tabId, savedFilter]);
   // --- end 4B T11 ---
 
-  const sections = useMemo(() => (payload ? withMrSection(sectionsOf(payload), mrs) : []), [payload, mrs]); // 4B T11
+  const base = useMemo(() => (payload ? sectionsOf(payload) : null), [payload]);
+  const sections = useMemo(() => (base ? withMrSection(base, mrs) : []), [base, mrs]); // 4B T11: a poll rebuilds only the MR/PR section
   const collapsed = useMemo(() => new Set(rs.collapsed), [rs.collapsed]);
   const panels = useMemo(() => buildPanels(sections, { filter, sort: rs.sidebarSort, collapsed }), [sections, filter, rs.sidebarSort, collapsed]);
   const specs = useMemo(() => panels.map((p) => ({ id: p.section.id, collapsed: p.collapsed, weight: weights[p.section.id] })), [panels, weights]);

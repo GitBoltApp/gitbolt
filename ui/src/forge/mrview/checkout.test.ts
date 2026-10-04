@@ -92,6 +92,27 @@ describe("checking out an MR/PR's branch (spec #4 §4 \"4B\")", () => {
     expect(branches.checkoutRemote).toHaveBeenCalledWith('t', 'origin', 'dev', DEV, 'origin-dev');
   });
 
+  // --- 4B final fix ---
+  it("finds the source's remote with a port on its host and the path in another case", async () => {
+    tab({ remotes: [group('origin', ['dev', DEV])] });
+    const cur = useRuntime.getState().tabs.t as never as { info: { remotes: Array<{ host: string; path: string }> } };
+    cur.info.remotes[0] = { ...cur.info.remotes[0], host: 'GitLab.example.com:8443', path: 'Group/Project.git' };
+    await checkoutMr('t', mrOf(12));
+    expect(branches.checkoutRemote).toHaveBeenCalledWith('t', 'origin', 'dev', DEV);
+    expect(remotes.addForkRemote).not.toHaveBeenCalled();
+  });
+
+  it("is disabled when the source project isn't readable (GitHub's \"\", GitLab's \"project <id>\")", async () => {
+    tab({ remotes: [group('origin')] });
+    for (const sourceProject of ['', 'project 77']) {
+      const mr = mrOf(14, { sourceProject, sourceBranch: 'fix' });
+      expect(checkoutState('t', mr)).toEqual({ label: 'Check out', disabled: "The source project isn't readable" });
+      await checkoutMr('t', mr);
+    }
+    expect(api.forgeProjectByPath).not.toHaveBeenCalled();
+  });
+  // --- end 4B final fix ---
+
   it('switches to <remote>-<branch> when it already tracks the source', async () => {
     tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/other/dev' }, { name: 'origin-dev', upstream: 'refs/remotes/origin/dev' }], remotes: [group('origin', ['dev', DEV])] });
     await checkoutMr('t', mrOf(12));

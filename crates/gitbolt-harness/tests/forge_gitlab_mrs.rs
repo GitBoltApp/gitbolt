@@ -245,3 +245,32 @@ async fn draft_and_ready_round_trip_through_the_title() {
     assert_eq!(seeded(&f, 12).title, "Dev work");
 }
 // --- end 4B T3 ---
+
+// --- 4B final fix ---
+#[tokio::test(flavor = "multi_thread")]
+async fn a_detail_whose_optional_approvals_alone_change_is_not_modified_no_more() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let approved = |d: &Fresh<ForgeMrDetail>| d.value.mr.review.reviews.iter().any(|r| r.user.username == "grace" && r.state == ReviewState::Approved);
+    let first = p.mr_detail(&g, 14).await.unwrap();
+    assert_eq!((approved(&first), first.not_modified), (false, false));
+    assert!(p.mr_detail(&g, 14).await.unwrap().not_modified, "both requests answered 304");
+    let mut seed = f.current_seed();
+    let mr = seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 14).unwrap();
+    assert_eq!(mr.approvals_required, 0, "optional approvals");
+    mr.approved_by.push("grace".into());
+    f.seed(seed);
+    let after = p.mr_detail(&g, 14).await.unwrap();
+    assert_eq!((approved(&after), after.not_modified), (true, false), "the MR answered 304, its approvals didn't");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_light_list_reads_no_pipelines() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    assert!(!p.open_mrs_light(&g, MrFilter::All).await.unwrap().value.is_empty());
+    assert!(!f.requests().iter().any(|r| r.path.ends_with("/pipelines")));
+}
+// --- end 4B final fix ---

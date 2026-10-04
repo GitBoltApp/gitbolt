@@ -9,6 +9,12 @@ vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () =
 vi.mock('../app/graphNav', () => ({ selectCommit: vi.fn(() => true) }));
 const poll = vi.hoisted(() => ({ openMrView: vi.fn(), loadMrDetail: vi.fn(async () => {}) }));
 vi.mock('../forge/poll', () => poll);
+const model = vi.hoisted(() => ({ sectionsOf: vi.fn() }));
+vi.mock('./model', async (importOriginal) => {
+  const m = await importOriginal<typeof import('./model')>();
+  model.sectionsOf.mockImplementation(m.sectionsOf);
+  return { ...m, sectionsOf: model.sectionsOf };
+});
 
 const { Sidebar } = await import('./Sidebar');
 const { EMPTY_GRAPH } = await import('../app/testShell');
@@ -54,6 +60,15 @@ describe('the sidebar MR/PR section (spec #4 §2, §5)', () => {
     fireEvent.keyDown(within(panel).getByRole('tree'), { key: 'ArrowDown' });
     fireEvent.keyDown(within(panel).getByRole('tree'), { key: 'Enter' });
     expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5);
+  });
+
+  it('a new list rebuilds only the MR/PR section, not the repository sections', () => {
+    patchForge('t', { kind: 'gitlab', list: list() });
+    show();
+    const built = model.sectionsOf.mock.calls.length;
+    act(() => patchForge('t', { list: list([mrOf(7, { title: 'Later' })]) }));
+    expect(within(screen.getByRole('region', { name: 'Merge requests' })).getByRole('treeitem', { name: '!7 Later' })).toBeTruthy();
+    expect(model.sectionsOf.mock.calls.length).toBe(built);
   });
 
   it('is "Pull requests" on GitHub, and says when its list is empty', () => {

@@ -44,6 +44,15 @@ pub(crate) struct FakeProvider {
     /// `open_mrs` and `mr_for_branch` fail with this kind.
     pub mr_error: Mutex<Option<GbErrorKind>>,
     // --- end 4B T1 ---
+      // --- 4C T5 ---
+      pub people: Vec<ForgeUser>,
+      pub label_list: Vec<ForgeLabel>,
+      /// `None`: asking for templates fails as an unreachable forge (the local fallback's case).
+      pub templates: Option<Vec<MrTemplate>>,
+      /// What every create's follow-up calls report as failed (GitHub's partial failure).
+      pub fail_parts: Mutex<Vec<PartFailure>>,
+      pub created: Mutex<Vec<CreateMr>>,
+      // --- end 4C T5 ---
 }
 
 impl FakeProvider {
@@ -54,6 +63,9 @@ impl FakeProvider {
             // --- 4B T1 ---
             mrs: Mutex::default(), details: Mutex::default(), threads: Mutex::default(), mr_error: Mutex::new(None),
             // --- end 4B T1 ---
+              // --- 4C T5 ---
+              people: Vec::new(), label_list: Vec::new(), templates: Some(Vec::new()), fail_parts: Mutex::default(), created: Mutex::default(),
+              // --- end 4C T5 ---
         }
     }
 
@@ -178,6 +190,47 @@ impl ForgeProvider for FakeProvider {
         Box::pin(async move { self.change(number, |m| m.state = if draft { MrState::Draft } else { MrState::Open }) })
     }
     // --- end 4B T1 ---
+      // --- 4C T5 ---
+      fn create_mr<'a>(&'a self, project: &'a ForgeProject, req: &'a CreateMr) -> ForgeFuture<'a, CreateOutcome> {
+          self.call(format!("create {} {}", project.path, req.source.branch));
+          Box::pin(async move {
+              self.check()?;
+              let number = {
+                  let mut created = self.created.lock().unwrap();
+                  created.push(req.clone());
+                  created.len() as u64
+              };
+              let mr = ForgeMr {
+                  number, title: req.title.clone(), state: if req.draft { MrState::Draft } else { MrState::Open }, author: self.user.clone(),
+                  source_project: req.source.project.clone(), source_branch: req.source.branch.clone(), target_project: project.path.clone(),
+                  target_branch: req.target_branch.clone(), head_sha: None, web_url: format!("{}/-/merge_requests/{number}", project.web_url), pipeline: None,
+                  review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
+                  conflicts: None, labels: req.labels.clone(), updated_at: 0,
+              };
+              Ok(CreateOutcome { mr, failed: self.fail_parts.lock().unwrap().clone() })
+          })
+      }
+      fn complete_create<'a>(&'a self, _project: &'a ForgeProject, number: u64, _req: &'a CreateMr, parts: &'a [CreatePart]) -> ForgeFuture<'a, Vec<PartFailure>> {
+          self.call(format!("complete {number} {parts:?}"));
+          Box::pin(async move {
+              self.check()?;
+              self.fail_parts.lock().unwrap().retain(|f| !parts.contains(&f.part));
+              Ok(Vec::new())
+          })
+      }
+      fn search_users<'a>(&'a self, _project: &'a ForgeProject, query: &'a str) -> ForgeFuture<'a, Vec<ForgeUser>> {
+          self.call(format!("users {query}"));
+          Box::pin(async move { Ok(self.people.iter().filter(|u| u.username.contains(query)).cloned().collect()) })
+      }
+      fn labels<'a>(&'a self, _project: &'a ForgeProject, query: &'a str) -> ForgeFuture<'a, Vec<ForgeLabel>> {
+          self.call(format!("labels {query}"));
+          Box::pin(async move { Ok(self.label_list.iter().filter(|l| l.name.contains(query)).cloned().collect()) })
+      }
+      fn mr_templates<'a>(&'a self, _project: &'a ForgeProject, branch: &'a str) -> ForgeFuture<'a, Vec<MrTemplate>> {
+          self.call(format!("templates {branch}"));
+          Box::pin(async move { self.templates.clone().ok_or_else(|| GbError::new(GbErrorKind::Network, format!("Couldn't reach {}: timed out", self.host))) })
+      }
+      // --- end 4C T5 ---
 }
 
 // --- 4B T1 ---

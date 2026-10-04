@@ -5,25 +5,46 @@ import type { GbError } from '../api/gen/GbError';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { clampFetchInterval } from '../settings/schema';
+import { sectionKey } from '../sidebar/model';
 import { openFlyout } from '../ui/flyout/flyout';
-import { forgeOf, forgeScratch, keepSame, sameJson, MR_FLYOUT, patchForge, upstreamRefsOf, type MrViewArgs } from './mrStore';
+import { forgeOf, forgeScratch, keepSame, knownMr, sameJson, MR_FLYOUT, patchForge, upstreamRefsOf, writeEpoch, type MrViewArgs, type TabForge } from './mrStore';
 import { backoffMs, type PollOutcome, type PollReason } from './poller';
 
 /** A hover card's detail is asked again once it's this old. */
 export const DETAIL_MAX_AGE_MS = 60_000;
+/** A tab's `activate` polls fully at most this often, whichever poller asks (a tab shown again
+ * soon after keeps what it has; its timer and the focus poll as usual). */
+export const ACTIVATE_GAP_MS = 30_000;
 const IDLE: PollOutcome = { runningPipeline: false, serverIntervalMs: null };
-const isRunning = (p: ForgePipeline | null | undefined) => p?.status === 'running' || p?.status === 'pending';
+const isRunning = (p: ForgePipeline | null | undefined) => p?.status === 'running';
 const repoOf = (tabId: string) => useRuntime.getState().tabs[tabId]?.repo?.id;
 const fetchIntervalMs = () => clampFetchInterval(useAppState.getState().settings.fetchIntervalSecs) * 1000;
 
 const touch = (tabId: string, number: number) => forgeScratch.freshAt.set(`${tabId}:${number}`, Date.now());
 
-/** Stores a detail; one that's not modified or equal to the stored one leaves the store as it was. */
-function putDetail(tabId: string, number: number, value: ForgeMrDetail, notModified = false): void {
+/** A visible MR/PR's pipeline runs (spec #4 §3.4's ~20 s poll): the open MR/PR's, and the list's
+ * while the sidebar's MR/PR section is expanded (`listShown`). A pending one doesn't count. */
+export function fastPollWanted(f: TabForge, listShown: boolean): boolean {
+  if (f.openMr !== null && isRunning((f.details[f.openMr]?.value.mr ?? knownMr(f, f.openMr))?.pipeline)) return true;
+  return listShown && (f.list?.mrs ?? []).some((m) => isRunning(m.pipeline));
+}
+
+/** The tab's MR/PR section is expanded (the repository's collapsed panels). */
+function mrSectionShown(tabId: string): boolean {
+  const path = useRuntime.getState().tabs[tabId]?.repo?.path;
+  const collapsed = path === undefined ? undefined : useAppState.getState().profile.repos[path]?.collapsed;
+  return !(collapsed ?? []).includes(sectionKey('mrs'));
+}
+
+const outcome = (tabId: string, serverIntervalMs: number | null): PollOutcome => ({ runningPipeline: fastPollWanted(forgeOf(tabId), mrSectionShown(tabId)), serverIntervalMs });
+
+/** Stores a detail; one equal to the stored one leaves the store as it was. (Not by
+ * `notModified`: a composite's other parts may change while its first request answers 304.) */
+function putDetail(tabId: string, number: number, value: ForgeMrDetail): void {
   touch(tabId, number);
   patchForge(tabId, (f) => {
     const have = f.details[number];
-    const same = have && (notModified || keepSame(have.value, value) === have.value);
+    const same = have && keepSame(have.value, value) === have.value;
     let detailErrors = f.detailErrors;
     if (number in detailErrors) {
       detailErrors = { ...detailErrors };
@@ -38,6 +59,9 @@ const failed = (tabId: string, number: number, e: unknown) => {
   patchForge(tabId, (f) => ({ detailErrors: f.detailErrors[number] === errorMessage(e) ? f.detailErrors : { ...f.detailErrors, [number]: errorMessage(e) } }));
 };
 
+/** The tab's poll in flight, whichever poller started it. */
+const polling = new Map<string, Promise<PollOutcome>>();
+
 /**
  * One poll of a tab (spec #4 §3.4; `createForgePoller` decides when):
  * - except `fast`: the repo's target project (asked of the forges again on `activate`), the
@@ -45,10 +69,31 @@ const failed = (tabId: string, number: number, e: unknown) => {
  * - always: the sidebar section's list, and the MR/PR open in the flyout.
  * A failure keeps what's shown, says so (`error`), and waits: the failure backoff, or until a
  * rate limit's reset, as the outcome's floor.
+ * One poll per tab at a time: a call while one runs joins it (a new poller after a quick tab
+ * switch), except a `write`, which runs after it. An `activate` within ACTIVATE_GAP_MS of the
+ * last full one asks nothing (unless the last poll failed). An answer to a request that started
+ * before a GitBolt write's answer (`writeEpoch`) is dropped: it may predate the write.
  */
-export async function pollForge(tabId: string, reason: PollReason): Promise<PollOutcome> {
+export function pollForge(tabId: string, reason: PollReason): Promise<PollOutcome> {
+  const busy = polling.get(tabId);
+  if (busy) return reason === 'write' ? busy.then(() => pollForge(tabId, reason), () => pollForge(tabId, reason)) : busy;
+  const p: Promise<PollOutcome> = pollOnce(tabId, reason).finally(() => {
+    if (polling.get(tabId) === p) polling.delete(tabId);
+  });
+  polling.set(tabId, p);
+  return p;
+}
+
+async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome> {
   const repo = repoOf(tabId);
   if (repo === undefined) return IDLE;
+  if (reason === 'activate') {
+    const at = forgeScratch.activatedAt.get(tabId);
+    if (at !== undefined && Date.now() - at < ACTIVATE_GAP_MS && forgeOf(tabId).error === null) return outcome(tabId, null);
+    forgeScratch.activatedAt.set(tabId, Date.now());
+  }
+  const epoch = writeEpoch(tabId);
+  const current = () => writeEpoch(tabId) === epoch;
   let serverSecs = 0;
   const note = (s: number | null) => {
     if (s !== null && s > serverSecs) serverSecs = s;
@@ -72,20 +117,20 @@ export async function pollForge(tabId: string, reason: PollReason): Promise<Poll
       const badges = await api.forgeBranchMrs(repo, refs);
       if (gone()) return IDLE;
       note(badges.pollIntervalSecs);
-      patchForge(tabId, (f) => ({ byRef: keepSame(f.byRef, Object.fromEntries(badges.mrs.map((b) => [b.remoteRef, b.mr]))), upstreams: keepSame(f.upstreams, upstreams) }));
+      if (current()) patchForge(tabId, (f) => ({ byRef: keepSame(f.byRef, Object.fromEntries(badges.mrs.map((b) => [b.remoteRef, b.mr]))), upstreams: keepSame(f.upstreams, upstreams) }));
     }
-    const list = await api.forgeMrList(repo, forgeOf(tabId).filter);
+    const filter = forgeOf(tabId).filter;
+    const list = await api.forgeMrList(repo, filter);
     if (gone()) return IDLE;
     note(list.pollIntervalSecs);
-    patchForge(tabId, (f) => ({ list: f.list && sameJson({ ...f.list, fetchedAt: 0 }, { ...list, fetchedAt: 0 }) ? f.list : list }));
+    // A filter chosen meanwhile has its own list coming (`refreshMrList`).
+    if (current() && forgeOf(tabId).filter === filter) patchForge(tabId, (f) => ({ list: f.list && sameJson({ ...f.list, fetchedAt: 0 }, { ...list, fetchedAt: 0 }) ? f.list : list }));
     const open = forgeOf(tabId).openMr;
     // The open MR's own failure is in `detailErrors`; it doesn't fail the badges and the list.
     if (open !== null) await refreshMr(tabId, open).catch(() => {});
     if (gone()) return IDLE;
     patchForge(tabId, { updatedAt: Date.now(), error: null, failures: 0 });
-    const f = forgeOf(tabId);
-    const runningPipeline = (f.list?.mrs ?? []).some((m) => isRunning(m.pipeline)) || (f.openMr !== null && isRunning(f.details[f.openMr]?.value.mr.pipeline));
-    return { runningPipeline, serverIntervalMs: serverSecs > 0 ? serverSecs * 1000 : null };
+    return outcome(tabId, serverSecs > 0 ? serverSecs * 1000 : null);
   } catch (e) {
     const failures = forgeOf(tabId).failures + 1;
     patchForge(tabId, { error: errorMessage(e), failures });
@@ -95,16 +140,17 @@ export async function pollForge(tabId: string, reason: PollReason): Promise<Poll
   }
 }
 
-/** An MR/PR's detail and discussion, now (the view opening, a poll, after a write). A failure is
- * recorded for the view (`detailErrors`) and thrown. */
+/** An MR/PR's detail and discussion, now (the view opening, a poll). A failure is recorded for
+ * the view (`detailErrors`) and thrown. An answer that may predate a write's is dropped. */
 export async function refreshMr(tabId: string, number: number): Promise<void> {
   const repo = repoOf(tabId);
   if (repo === undefined) return;
+  const epoch = writeEpoch(tabId);
   try {
     const [d, t] = await Promise.all([api.forgeMrDetail(repo, number), api.forgeMrDiscussions(repo, number)]);
-    if (repoOf(tabId) === undefined) return;
-    putDetail(tabId, number, d.value, d.notModified);
-    patchForge(tabId, (f) => (number in f.discussions && (t.notModified || sameJson(f.discussions[number], t.value)) ? {} : { discussions: { ...f.discussions, [number]: t.value } }));
+    if (repoOf(tabId) === undefined || writeEpoch(tabId) !== epoch) return;
+    putDetail(tabId, number, d.value);
+    patchForge(tabId, (f) => (number in f.discussions && sameJson(f.discussions[number], t.value) ? {} : { discussions: { ...f.discussions, [number]: t.value } }));
   } catch (e) {
     failed(tabId, number, e);
     throw e;
@@ -120,14 +166,14 @@ export function loadMrDetail(tabId: string, number: number, maxAgeMs = DETAIL_MA
   if (busy) return busy;
   const repo = repoOf(tabId);
   if (repo === undefined) return Promise.resolve();
-  const p = api.forgeMrDetail(repo, number).then((d) => { if (repoOf(tabId) !== undefined) putDetail(tabId, number, d.value, d.notModified); }, (e: unknown) => { if (repoOf(tabId) !== undefined) failed(tabId, number, e); }).finally(() => forgeScratch.loading.delete(key));
+  const epoch = writeEpoch(tabId);
+  const p = api.forgeMrDetail(repo, number).then((d) => { if (repoOf(tabId) !== undefined && writeEpoch(tabId) === epoch) putDetail(tabId, number, d.value); }, (e: unknown) => { if (repoOf(tabId) !== undefined) failed(tabId, number, e); }).finally(() => forgeScratch.loading.delete(key));
   forgeScratch.loading.set(key, p);
   return p;
 }
 
-/** The MR/PR view (spec #4 §4 "4B"): the tab's flyout, loading the MR/PR at once. */
+/** The MR/PR view (spec #4 §4 "4B"): the tab's flyout. The view loads the MR/PR as it mounts. */
 export function openMrView(tabId: string, number: number): void {
   openFlyout<MrViewArgs>(tabId, MR_FLYOUT, { number });
   patchForge(tabId, { openMr: number });
-  void refreshMr(tabId, number).catch(() => {});
 }

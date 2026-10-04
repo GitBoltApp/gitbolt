@@ -13,11 +13,11 @@ vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => (e && typeo
 const flyout = vi.hoisted(() => ({ openFlyout: vi.fn() }));
 vi.mock('../ui/flyout/flyout', () => flyout);
 
-const { loadMrDetail, openMrView, pollForge, refreshMr } = await import('./poll');
-const { dropForge, forgeOf, patchForge, useForge } = await import('./mrStore');
+const { ACTIVATE_GAP_MS, fastPollWanted, loadMrDetail, openMrView, pollForge, refreshMr } = await import('./poll');
+const { dropForge, EMPTY_FORGE, forgeOf, noteForgeWritten, patchForge, useForge } = await import('./mrStore');
 const { backoffMs } = await import('./poller');
 const { useRuntime } = await import('../app/runtime');
-const { DEFAULT_SETTINGS, useAppState } = await import('../app/state');
+const { DEFAULT_SETTINGS, EMPTY_REPO_SETTINGS, useAppState } = await import('../app/state');
 const { clampFetchInterval } = await import('../settings/schema');
 const { detailOf, mrOf, projectOf } = await import('./testMrs');
 
@@ -129,11 +129,21 @@ describe('a poll that finds nothing new', () => {
 });
 
 describe('opening and loading an MR/PR', () => {
-  it('openMrView opens the flyout and loads the MR', async () => {
+  it('openMrView opens the flyout; the view loads the MR as it mounts, not openMrView too', () => {
     openMrView('t', 12);
     expect(flyout.openFlyout).toHaveBeenCalledWith('t', 'mr', { number: 12 });
     expect(forgeOf('t').openMr).toBe(12);
-    await vi.waitFor(() => expect(forgeOf('t').details[12]).toBeDefined());
+    expect(api.forgeMrDetail).not.toHaveBeenCalled();
+  });
+
+  it('a detail answered not modified is still stored when it differs (a composite: its checks changed)', async () => {
+    await refreshMr('t', 12);
+    const checked = detailOf(mrOf(12, { pipeline: { status: 'failed', webUrl: null } }));
+    api.forgeMrDetail.mockResolvedValueOnce({ ...fresh(checked), notModified: true });
+    api.forgeMrDiscussions.mockResolvedValueOnce({ ...fresh([{ id: 'd1', notes: [], resolvable: false, resolved: false }]), notModified: true });
+    await refreshMr('t', 12);
+    expect(forgeOf('t').details[12]?.value.mr.pipeline?.status).toBe('failed');
+    expect(forgeOf('t').discussions[12]).toHaveLength(1);
   });
 
   it("a failed load is kept for the card and the view to say", async () => {
@@ -158,3 +168,101 @@ describe('opening and loading an MR/PR', () => {
     expect(api.forgeMrDetail).toHaveBeenCalledTimes(2);
   });
 });
+
+// --- 4B final fix ---
+const deferred = <T,>() => {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+};
+const listOf = (filter: string, mrs = [mrOf(12)]) => ({ kind: 'gitlab', remote: 'origin', project, filter, mrs, fetchedAt: 1, pollIntervalSecs: null });
+
+describe('polls and what changes meanwhile', () => {
+  it("a filter chosen during a poll keeps its own list, not the old filter's", async () => {
+    const late = deferred<unknown>();
+    api.forgeMrList.mockReturnValueOnce(late.promise);
+    const p = pollForge('t', 'timer');
+    await vi.waitFor(() => expect(api.forgeMrList).toHaveBeenCalledWith(4, 'all'));
+    patchForge('t', { filter: 'mine', list: listOf('mine', [mrOf(5)]) as never });
+    late.resolve(listOf('all'));
+    await p;
+    expect([forgeOf('t').list?.filter, forgeOf('t').list?.mrs.map((m) => m.number)]).toEqual(['mine', [5]]);
+  });
+
+  it("a poll's answers that started before a write's answer are dropped", async () => {
+    const late = deferred<unknown>();
+    api.forgeMrList.mockReturnValueOnce(late.promise);
+    const p = pollForge('t', 'timer');
+    await vi.waitFor(() => expect(api.forgeMrList).toHaveBeenCalled());
+    const merged = mrOf(12, { state: 'merged' });
+    patchForge('t', { list: listOf('all', [merged]) as never }); // the write's answer (putMr)
+    noteForgeWritten('t');
+    late.resolve(listOf('all'));
+    await p;
+    expect(forgeOf('t').list?.mrs[0]?.state).toBe('merged');
+    await pollForge('t', 'timer'); // the write's own poll
+    expect(forgeOf('t').list?.mrs[0]?.state).toBe('open');
+  });
+
+  it('refreshMr drops a detail that started before a write', async () => {
+    const late = deferred<unknown>();
+    api.forgeMrDetail.mockReturnValueOnce(late.promise);
+    const p = refreshMr('t', 12);
+    noteForgeWritten('t');
+    late.resolve(fresh(detailOf(mrOf(12))));
+    await p;
+    expect(forgeOf('t').details[12]).toBeUndefined();
+  });
+
+  it('one poll per tab at a time: a second poller joins it; a write runs after it', async () => {
+    const late = deferred<unknown>();
+    api.forgeMrList.mockReturnValueOnce(late.promise);
+    const a = pollForge('t', 'timer');
+    const b = pollForge('t', 'activate');
+    const w = pollForge('t', 'write');
+    await vi.waitFor(() => expect(api.forgeMrList).toHaveBeenCalledTimes(1));
+    late.resolve(listOf('all'));
+    expect(await b).toBe(await a);
+    await w;
+    expect(api.forgeMrList).toHaveBeenCalledTimes(2);
+  });
+
+  it('activation polls fully at most every ACTIVATE_GAP_MS per tab, across pollers', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    await pollForge('t', 'activate');
+    vi.clearAllMocks();
+    now.mockReturnValue(1_000_000 + ACTIVATE_GAP_MS - 1);
+    await pollForge('t', 'activate');
+    expect(api.forgeRepoProjects).not.toHaveBeenCalled();
+    expect(api.forgeMrList).not.toHaveBeenCalled();
+    now.mockReturnValue(1_000_000 + ACTIVATE_GAP_MS);
+    await pollForge('t', 'activate');
+    expect(api.forgeRepoProjects).toHaveBeenCalledWith(4, true);
+  });
+});
+
+describe('fastPollWanted (spec #4 §3.4: a visible running pipeline)', () => {
+  const pipe = (status: 'running' | 'pending' | 'success') => ({ pipeline: { status, webUrl: null } });
+  const list = (mrs: ReturnType<typeof mrOf>[]) => listOf('all', mrs) as never;
+  it('counts a running list row only while the section is expanded', () => {
+    const f = { ...EMPTY_FORGE, list: list([mrOf(1, pipe('running'))]) };
+    expect(fastPollWanted(f, true)).toBe(true);
+    expect(fastPollWanted(f, false)).toBe(false);
+  });
+  it('a pending pipeline does not count', () => {
+    expect(fastPollWanted({ ...EMPTY_FORGE, list: list([mrOf(1, pipe('pending'))]) }, true)).toBe(false);
+  });
+  it("counts the open MR's running pipeline, from its detail or the list", () => {
+    expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 2, details: { 2: { value: detailOf(mrOf(2, pipe('running'))), at: 1 } } }, false)).toBe(true);
+    expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 1, list: list([mrOf(1, pipe('running'))]) }, false)).toBe(true);
+    expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 2, list: list([mrOf(1, pipe('running')), mrOf(2, pipe('success'))]) }, false)).toBe(false);
+  });
+  it('a poll reads the collapsed MR/PR section from the repository settings', async () => {
+    useRuntime.setState({ tabs: { t: { status: 'ready', repo: { id: 4, path: '/r' }, sidebar: { locals: [] } } as never } });
+    useAppState.setState((s) => ({ profile: { ...s.profile, repos: { '/r': { ...EMPTY_REPO_SETTINGS, collapsed: ['section:mrs'] } } } }));
+    expect((await pollForge('t', 'timer')).runningPipeline).toBe(false);
+    useAppState.setState((s) => ({ profile: { ...s.profile, repos: {} } }));
+    expect((await pollForge('t', 'timer')).runningPipeline).toBe(true);
+  });
+});
+// --- end 4B final fix ---

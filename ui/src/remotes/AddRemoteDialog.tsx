@@ -12,6 +12,7 @@ import { effectiveKind } from '../forge/urls';
 import { relativeTime } from '../format/relative';
 import { RemoteIcon } from '../icons/brands';
 import { addForkRemote, addRemoteAndFetch } from './addRemote';
+import { remoteIsProject } from './match';
 import './remotes.css';
 
 const useDialog = create<{ tabId: string | null }>(() => ({ tabId: null }));
@@ -76,7 +77,7 @@ function Form({ tabId }: { tabId: string }) {
     closeAddRemote();
     void addForkRemote(tabId, fork);
   };
-  const addedAs = (fork: ForgeProject) => remotes.find((r) => r.host?.toLowerCase() === fork.host.toLowerCase() && r.path?.toLowerCase() === fork.path.toLowerCase())?.name ?? null;
+  const addedAs = (fork: ForgeProject) => remotes.find((r) => remoteIsProject(r, fork.host, fork.path))?.name ?? null;
 
   return (
     <div className="modal-backdrop" onPointerDown={closeAddRemote}>

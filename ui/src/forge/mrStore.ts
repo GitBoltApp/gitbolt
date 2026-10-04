@@ -59,8 +59,15 @@ export const sameJson = (a: unknown, b: unknown): boolean => a === b || JSON.str
 /** `next`, unless it equals `old`: then `old`, so an unchanged answer keeps its identity. */
 export const keepSame = <T,>(old: T, next: T): T => (sameJson(old, next) ? old : next);
 
-/** Per-MR load bookkeeping outside the store (it must not re-render anything). */
-export const forgeScratch = { loading: new Map<string, Promise<void>>(), freshAt: new Map<string, number>() };
+/** Load bookkeeping outside the store (it must not re-render anything): per MR (`<tab>:<n>`),
+ * `loading` and `freshAt`; per tab, `writes` (the write epoch: GitBolt forge writes answered so
+ * far) and `activatedAt` (the last full `activate` poll, which outlives the tab's pollers). */
+export const forgeScratch = { loading: new Map<string, Promise<void>>(), freshAt: new Map<string, number>(), writes: new Map<string, number>(), activatedAt: new Map<string, number>() };
+
+/** The tab's write epoch: a read that started under an older one may predate a write's answer. */
+export const writeEpoch = (tabId: string): number => forgeScratch.writes.get(tabId) ?? 0;
+/** A forge write was answered: reads already under way are dropped when they land. */
+export const noteForgeWritten = (tabId: string): void => void forgeScratch.writes.set(tabId, writeEpoch(tabId) + 1);
 
 /** A closed tab's forge state goes with it. */
 export function dropForge(tabId: string): void {
@@ -71,6 +78,8 @@ export function dropForge(tabId: string): void {
     return { byTab };
   });
   for (const m of [forgeScratch.loading, forgeScratch.freshAt]) for (const k of [...m.keys()]) if (k.startsWith(`${tabId}:`)) m.delete(k);
+  forgeScratch.writes.delete(tabId);
+  forgeScratch.activatedAt.delete(tabId);
 }
 
 export function patchForge(tabId: string, patch: Partial<TabForge> | ((f: TabForge) => Partial<TabForge>)): void {

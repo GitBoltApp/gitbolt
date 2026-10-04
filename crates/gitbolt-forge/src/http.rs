@@ -5,8 +5,10 @@
 //! - rate limits (GitHub `x-ratelimit-*`, GitLab `RateLimit-*`, 429 and `Retry-After`): once
 //!   limited, every request fails fast with `RateLimited` until the time the forge gave;
 //! - timeouts (10 s to connect, 20 s in all) and `User-Agent: GitBolt/<version>`;
-//! - an unreachable API: its requests fail fast with the same `Network` error for
-//!   `NETWORK_COOLDOWN_SECS`, until one gets an answer.
+//! - an unreachable API (no connection could be made: DNS, refused, connect timeout, TLS
+//!   handshake): its requests fail fast with the same `Network` error for
+//!   `NETWORK_COOLDOWN_SECS`, until one gets an answer. A slow API (a read timeout, an answer
+//!   cut short) fails only that request.
 //!
 //! Blocking ureq on the blocking pool, as `gravatar.rs`. The token only leaves in the
 //! `Authorization` header: never in a URL, a log line or an error. Redirects never carry it
@@ -170,10 +172,20 @@ pub fn body_message(body: &[u8]) -> Option<String> {
     let v: serde_json::Value = serde_json::from_slice(body).ok()?;
     let said = ["error_description", "message", "error"].iter().find_map(|k| match &v[*k] {
         serde_json::Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        // --- 4C T1: GitLab's validation messages come as a list of strings ---
+        serde_json::Value::Array(a) if a.iter().all(|x| x.is_string()) => {
+            let parts: Vec<&str> = a.iter().filter_map(|x| x.as_str()).map(str::trim).filter(|x| !x.is_empty()).collect();
+            if parts.is_empty() { None } else { Some(parts.join("; ")) }
+        }
+        // --- end 4C T1 ---
         serde_json::Value::Null => None,
         other if !other.is_string() => Some(other.to_string()),
         _ => None,
     })?;
+    // --- 4C T1: GitHub's "Validation Failed" says what failed in `errors[].message` ---
+    let detail: Vec<&str> = v["errors"].as_array().map(|a| a.iter().filter_map(|e| e["message"].as_str()).collect()).unwrap_or_default();
+    let said = if detail.is_empty() { said } else { format!("{said}: {}", detail.join("; ")) };
+    // --- end 4C T1 ---
     Some(redact(&said).chars().take(200).collect())
 }
 
@@ -261,6 +273,7 @@ impl HttpClient {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(cfg.timeout))
             .timeout_connect(Some(Duration::from_secs(10)))
+            .timeout_resolve(Some(Duration::from_secs(5)))
             .http_status_as_error(false)
             .max_redirects(0)
             .max_redirects_will_error(false)
@@ -421,11 +434,13 @@ impl HttpClient {
             let mut down = self.inner.down.lock().expect("network state poisoned");
             match &result {
                 Ok(_) => *down = None,
-                Err(e) if e.kind == GbErrorKind::Network => *down = Some(((self.inner.clock)().saturating_add(NETWORK_COOLDOWN_SECS), e.message.clone())),
+                // Only a connection that couldn't be made: a slow but live API (a read timeout,
+                // an answer cut short) fails that request and leaves the gate open.
+                Err(f) if f.unreachable => *down = Some(((self.inner.clock)().saturating_add(NETWORK_COOLDOWN_SECS), f.error.message.clone())),
                 Err(_) => {}
             }
         }
-        result
+        result.map_err(|f| f.error)
     }
 
     /// Fails fast while rate limited, and (`api`) while the API's origin is unreachable.
@@ -502,8 +517,33 @@ fn is_redirect(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
 }
 
+/// A request that failed, and whether no connection could be made at all.
+struct Failed {
+    error: GbError,
+    unreachable: bool,
+}
+
+impl From<GbError> for Box<Failed> {
+    fn from(error: GbError) -> Self {
+        Box::new(Failed { error, unreachable: false })
+    }
+}
+
+/// Whether `e` failed before a connection was made: the name didn't resolve, the connection was
+/// refused or timed out, or the TLS handshake failed (rustls's handshake errors come back as
+/// `InvalidData` I/O errors). A timeout or reset once connected is a slow API, not a down one.
+fn connect_failed(e: &ureq::Error) -> bool {
+    use std::io::ErrorKind as K;
+    match e {
+        ureq::Error::HostNotFound | ureq::Error::ConnectionFailed | ureq::Error::Tls(_) => true,
+        ureq::Error::Timeout(t) => matches!(t, ureq::Timeout::Resolve | ureq::Timeout::Connect),
+        ureq::Error::Io(io) => matches!(io.kind(), K::ConnectionRefused | K::HostUnreachable | K::NetworkUnreachable | K::AddrNotAvailable | K::InvalidData),
+        _ => false,
+    }
+}
+
 impl Inner {
-    fn send_blocking(&self, method: Method, url: &str, body: Option<Vec<u8>>, if_none_match: Option<String>, auth: bool, limit: u64) -> Result<Raw, GbError> {
+    fn send_blocking(&self, method: Method, url: &str, body: Option<Vec<u8>>, if_none_match: Option<String>, auth: bool, limit: u64) -> Result<Raw, Box<Failed>> {
         let host = &self.cfg.host;
         let mut b = ureq::http::Request::builder().method(method.as_str()).uri(url);
         if auth && let Some(t) = &self.cfg.token {
@@ -516,7 +556,7 @@ impl Inner {
             b = b.header("If-None-Match", e.as_str());
         }
         let bad = |e: ureq::http::Error| GbError::other(format!("couldn't build a request to {host}: {e}"));
-        let unreachable = |e: ureq::Error| GbError::new(GbErrorKind::Network, format!("Couldn't reach {host}: {}", redact(&e.to_string())));
+        let unreachable = |e: ureq::Error| Box::new(Failed { unreachable: connect_failed(&e), error: GbError::new(GbErrorKind::Network, format!("Couldn't reach {host}: {}", redact(&e.to_string()))) });
         let mut resp = match body {
             Some(bytes) => self.agent.run(b.header("Content-Type", "application/json").body(bytes).map_err(bad)?).map_err(unreachable)?,
             None => self.agent.run(b.body(()).map_err(bad)?).map_err(unreachable)?,
@@ -663,6 +703,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_slow_api_fails_the_request_but_leaves_the_gate_open() {
+        use std::io::{BufRead, BufReader, Write};
+        // A live API: the first connection stalls past the client's timeout, the second's answer
+        // is cut short, the third answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let h2 = hits.clone();
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().enumerate() {
+                let mut stream = stream.unwrap();
+                h2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                        line.clear();
+                    }
+                    match n {
+                        0 => std::thread::sleep(Duration::from_millis(1500)),
+                        1 => drop(stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"id\"")),
+                        _ => drop(stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")),
+                    }
+                });
+            }
+        });
+        let c = HttpClient::with_clock(
+            ClientConfig { host: "gitlab.example.com".into(), api_base: format!("{base}/api/v4"), token: Some(Secret::new(TOKEN)), headers: vec![], timeout: Duration::from_millis(300) },
+            Arc::new(|| NOW),
+        );
+        let stalled = c.get("/user").await.unwrap_err();
+        assert_eq!(stalled.kind, GbErrorKind::Network);
+        let cut = c.get("/user").await.unwrap_err();
+        assert_eq!(cut.kind, GbErrorKind::Network);
+        assert!(cut.message.contains("the answer was cut short"), "{}", cut.message);
+        c.get("/user").await.unwrap();
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 3, "every request was sent: the gate stayed open");
+    }
+
+    #[tokio::test]
     async fn get_image_sends_the_token_only_under_its_own_bases() {
         let s = TestServer::start(|_, _| Canned { status: 200, headers: vec![("Content-Type".into(), "image/png".into())], body: b"\x89PNGx".to_vec() });
         let c = client(&s.base);
@@ -784,4 +864,20 @@ mod tests {
         assert_eq!(status_error("h", 403, br#"{"message":"insufficient_scope"}"#).message, "h refused: insufficient_scope");
         assert_eq!(status_error("h", 502, b"").message, "h answered HTTP 502");
     }
+    // --- 4C T1 ---
+    #[test]
+    fn body_messages_join_gitlab_lists_and_githubs_validation_errors() {
+        assert_eq!(
+            body_message(br#"{"message": ["Another open merge request already exists for this source branch: !1"]}"#).as_deref(),
+            Some("Another open merge request already exists for this source branch: !1")
+        );
+        assert_eq!(
+            body_message(br#"{"message": "Validation Failed", "errors": [{"resource": "PullRequest", "code": "custom", "message": "A pull request already exists for octo-org:feature."}]}"#).as_deref(),
+            Some("Validation Failed: A pull request already exists for octo-org:feature.")
+        );
+        assert_eq!(body_message(br#"{"message": "Validation Failed", "errors": [{"resource": "PullRequest", "field": "head", "code": "missing_field"}]}"#).as_deref(), Some("Validation Failed"));
+        assert_eq!(body_message(br#"{"message": ["", " "]}"#), None);
+        assert_eq!(status_error("gitlab.example.com", 409, br#"{"message": ["a", "b"]}"#).message, "gitlab.example.com: a; b");
+    }
+    // --- end 4C T1 ---
 }

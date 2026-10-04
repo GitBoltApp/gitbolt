@@ -14,7 +14,7 @@ export const FAST_POLL_MS = 20_000;
 export type PollReason = 'activate' | 'timer' | 'focus' | 'write' | 'fast';
 
 export interface PollOutcome {
-  /** A visible MR/PR has a running (or pending) pipeline. */
+  /** A visible MR/PR has a running pipeline (`fastPollWanted`). */
   runningPipeline: boolean;
   /** The server's `Poll-Interval` / `X-Poll-Interval`, in ms: a floor. */
   serverIntervalMs: number | null;

@@ -73,6 +73,14 @@ describe('Add remote', () => {
     await waitFor(() => expect(added.addForkRemote).toHaveBeenCalledWith('t1', expect.objectContaining({ path: 'alice/project' })));
   });
 
+  it('a fork on a ported host shows as added when a remote reaches it without the port', async () => {
+    api.forgeForks.mockResolvedValueOnce([{ ...project('bob/project', 1), host: 'gitlab.example.com:8443' }]);
+    show();
+    const rows = await screen.findAllByRole('listitem');
+    expect(rows[0].textContent).toContain('Added as bob');
+    expect(screen.queryByRole('button', { name: "Add bob's fork" })).toBeNull();
+  });
+
   it('shows no forks section without an account', async () => {
     api.forgeRepoProjects.mockResolvedValueOnce({ remotes: [{ remote: 'origin', host: 'gitlab.example.com', path: 'group/project', account: null, project: null, error: null }], target: null });
     show();

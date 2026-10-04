@@ -6,6 +6,7 @@ import { forkCloneUrl, freeRemoteName } from '../forge/remoteUrl';
 import { useToast } from '../ui/toast';
 import { runWrite } from '../write/client';
 import { writeCtx } from '../write/ctx';
+import { remoteIsProject } from './match';
 
 /** Adds `name` → `url`, says so, then fetches only that remote (spec #4 §4 4A). `true` once
  * added; the fetch reports its own failure (and the remote stays). */
@@ -25,11 +26,10 @@ export async function addRemoteAndFetch(tabId: string, name: string, url: string
  * remote already on that project is reused. Resolves the remote's name, or `null`. */
 export async function addForkRemote(tabId: string, fork: ForgeProject): Promise<string | null> {
   const remotes = useRuntime.getState().tabs[tabId]?.info?.remotes ?? [];
-  const same = (a: string | null, b: string | null | undefined) => (a ?? '').toLowerCase() === (b ?? '').toLowerCase();
-  const existing = remotes.find((r) => same(r.host, fork.host) && same(r.path, fork.path));
+  const existing = remotes.find((r) => remoteIsProject(r, fork.host, fork.path));
   if (existing) return existing.name;
   const owner = fork.owner.split('/').pop() || fork.owner;
   const name = freeRemoteName(owner, remotes.map((r) => r.name));
-  const origin = (remotes.find((r) => r.name === 'origin') ?? remotes.find((r) => same(r.host, fork.host) && same(r.path, fork.forkOf)) ?? remotes[0])?.url;
+  const origin = (remotes.find((r) => r.name === 'origin') ?? remotes.find((r) => remoteIsProject(r, fork.host, fork.forkOf)) ?? remotes[0])?.url;
   return (await addRemoteAndFetch(tabId, name, forkCloneUrl(origin, fork), `Added ${owner}'s fork as ${name}`)) ? name : null;
 }

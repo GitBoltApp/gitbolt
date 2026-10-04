@@ -16,6 +16,9 @@ import { forgeWrite, putMr } from './writes';
 
 export const METHOD_LABELS: Record<MergeMethod, string> = { merge: 'Merge commit', squash: 'Squash and merge', rebase: 'Rebase and merge', semiLinear: 'Merge commit with semi-linear history', fastForward: 'Fast-forward merge' };
 
+/** A row kept in the layout but not shown (visibility, not display: its space stays). */
+const reserved = (hidden: boolean) => (hidden ? { style: { visibility: 'hidden' as const }, 'aria-hidden': true } : {});
+
 /** Why Merge is disabled (spec #4 §2: "disabled with the reason when blocked"); null: it isn't. */
 export function mergeBlock(kind: ForgeKind, detail: ForgeMrDetail | null): string | null {
   if (!detail) return 'Loading…';
@@ -34,14 +37,14 @@ export function mergeBlock(kind: ForgeKind, detail: ForgeMrDetail | null): strin
  */
 export function MergeBox({ tabId, kind, mr, detail }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null }) {
   const remote = useForge((s) => s.byTab[tabId]?.remote ?? null);
-  const settings = useProjectSettings(tabId, remote);
+  const { settings, error: settingsError } = useProjectSettings(tabId, remote);
   const [method, setMethod] = useState<MergeMethod | null>(null);
   const [squash, setSquash] = useState<boolean | null>(null);
   const [del, setDel] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   if (mr.state !== 'open' && mr.state !== 'draft') return null;
   const ref = mrRef(kind, mr.number);
-  const blocked = mergeBlock(kind, detail) ?? (settings ? null : 'Loading merge options…');
+  const blocked = mergeBlock(kind, detail) ?? (settings ? null : settingsError ? `Couldn't load merge options: ${settingsError}` : 'Loading merge options…');
   const methods = settings?.mergeMethods ?? [];
   const chosen = method ?? methods[0] ?? null;
   const squashOpt = settings?.squash ?? 'defaultOff';
@@ -63,21 +66,22 @@ export function MergeBox({ tabId, kind, mr, detail }: { tabId: string; kind: For
   };
   return (
     <section className="mr-merge" aria-label="Merge">
-      {kind === 'gitlab' && settings && <div className="mr-dim">Merge method: {METHOD_LABELS[methods[0] ?? 'merge']}</div>}
-      {kind === 'github' && chosen && methods.length > 1 && (
-        <div className="mr-field">Merge method <Select aria-label="Merge method" value={chosen} options={methods.map((m) => [m, METHOD_LABELS[m]] as const)} onChange={(v) => setMethod(v as MergeMethod)} /></div>
+      {/* The rows are reserved while the options load (hidden, not removed), so nothing shifts. */}
+      {kind === 'gitlab' && (
+        <>
+          <div className="mr-dim mr-merge-row" {...reserved(!settings)}>Merge method: {METHOD_LABELS[methods[0] ?? 'merge']}</div>
+          <label className="mr-check mr-merge-row" {...reserved(!settings || squashOpt === 'never')}><input type="checkbox" checked={squashOn} disabled={!settings || squashOpt === 'always'} onChange={(e) => setSquash(e.target.checked)} /> Squash commits</label>
+          <label className="mr-check mr-merge-row" {...reserved(!settings)}><input type="checkbox" checked={delOn} disabled={!settings} onChange={(e) => setDel(e.target.checked)} /> Delete the source branch</label>
+        </>
       )}
-      {kind === 'gitlab' && settings && squashOpt !== 'never' && (
-        <label className="mr-check"><input type="checkbox" checked={squashOn} disabled={squashOpt === 'always'} onChange={(e) => setSquash(e.target.checked)} /> Squash commits</label>
-      )}
-      {kind === 'gitlab' && settings && (
-        <label className="mr-check"><input type="checkbox" checked={delOn} onChange={(e) => setDel(e.target.checked)} /> Delete the source branch</label>
-      )}
+      {kind === 'github' && (chosen && methods.length > 1
+        ? <div className="mr-field mr-merge-row">Merge method <Select aria-label="Merge method" value={chosen} options={methods.map((m) => [m, METHOD_LABELS[m]] as const)} onChange={(v) => setMethod(v as MergeMethod)} /></div>
+        : <div className="mr-dim mr-merge-row" {...reserved(!chosen)}>Merge method: {METHOD_LABELS[chosen ?? 'merge']}</div>)}
       {kind === 'github' && settings?.deleteSourceBranch && <div className="mr-dim">GitHub deletes the branch after merging (repository setting)</div>}
       <div className="mr-form-row">
         <button type="button" className="mr-button primary" disabled={blocked !== null || busy} onClick={() => void merge()}>{busy ? 'Merging…' : 'Merge'}</button>
       </div>
-      {blocked && <p className="mr-merge-reason" role="note">{blocked}</p>}
+      <p className="mr-merge-reason" role="note" {...reserved(!blocked)}>{blocked ?? '\u00a0'}</p>
     </section>
   );
 }

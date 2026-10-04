@@ -30,6 +30,8 @@
 .mr-merge { padding: 8px; border: 1px solid var(--section-border); border-radius: 6px; gap: 6px; }
 .mr-check, .mr-field { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .mr-merge-reason { margin: 0; font-size: 11px; color: var(--orange); }
+/* Reserved rows (4B final fix): a GitHub method select and its plain line take the same height. */
+.mr-merge-row { min-height: 22px; }
 
 /* --- 4B T13: forms and buttons (button.mr-button outranks details/header.css's `all: unset` .mr-button) --- */
 .mr-reply, .mr-edit { display: flex; flex-direction: column; gap: 6px; }

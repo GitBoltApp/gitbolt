@@ -38,7 +38,7 @@ export async function refreshMrList(tabId: string): Promise<void> {
   if (repo === undefined || !kind) return;
   try {
     const list = await api.forgeMrList(repo, filter);
-    if (forgeOf(tabId).filter === list.filter) patchForge(tabId, { list });
+    if (forgeOf(tabId).filter === list.filter) patchForge(tabId, { list, error: null });
   } catch (e) {
     patchForge(tabId, { error: errorMessage(e) });
   }

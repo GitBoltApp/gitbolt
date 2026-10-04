@@ -17,6 +17,7 @@ vi.mock('../write/client', () => ({
 }));
 
 const { addForkRemote, addRemoteAndFetch } = await import('./addRemote');
+const { hostName } = await import('./match');
 const { useRuntime } = await import('../app/runtime');
 
 const fork: ForgeProject = {
@@ -53,5 +54,17 @@ describe('adding remotes', () => {
     setRemotes([{ name: 'upstream-alice', url: 'u', host: 'gitlab.example.com', path: 'alice/project' }]);
     expect(await addForkRemote('t1', fork)).toBe('upstream-alice');
     expect(api.addRemote).not.toHaveBeenCalled();
+  });
+
+  it.each([['https://h:8443/o/p.git'], ['git@h:o/p.git']])('a fork on a ported host counts as added when a remote reaches it at %s', async (url) => {
+    setRemotes([{ name: 'o', url, host: 'h', path: 'o/p' }]);
+    expect(await addForkRemote('t1', { ...fork, host: 'h:8443', path: 'O/p' })).toBe('o');
+    expect(api.addRemote).not.toHaveBeenCalled();
+  });
+
+  it('hostName drops the port and the case', () => {
+    expect(hostName('H:8443')).toBe('h');
+    expect(hostName('gitlab.example.com')).toBe('gitlab.example.com');
+    expect(hostName(null)).toBe('');
   });
 });

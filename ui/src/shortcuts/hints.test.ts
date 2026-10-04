@@ -17,6 +17,7 @@ const EXEMPT: Record<string, string> = {
   'ui/Toast.tsx': 'toast dismissal',
   'ui/Select.tsx': 'dropdown arrows / Esc',
   'ui/RefPicker.tsx': 'picker arrows / Enter / Esc',
+  'forge/create/SearchPicker.tsx': 'picker arrows / Enter / Backspace',
   'ui/resetHandle.ts': 'resize handle Enter',
   'graph/ColumnResizer.tsx': 'resize handle arrows',
   'repo/PanelResizer.tsx': 'resize handle arrows',

@@ -87,6 +87,13 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(screen.getByRole('dialog', { name: 'Pull request #12' })).toHaveTextContent("Couldn't load Pull request #12: Not found on github.com");
   });
 
+  it("says when the MR/PR's own refresh failed while an older detail is shown", () => {
+    patchForge('t', { detailErrors: { 12: "Couldn't reach gitlab.example.com: timed out" } });
+    show();
+    expect(screen.getByRole('status')).toHaveTextContent("Couldn't refresh !12: Couldn't reach gitlab.example.com: timed out");
+    expect(screen.getByRole('region', { name: 'Description' })).toHaveTextContent('Adds the dev work.');
+  });
+
   it('keeps what it shows after a failed poll, with a note', () => {
     patchForge('t', { error: 'boom', updatedAt: Date.now() - 60_000 });
     show();

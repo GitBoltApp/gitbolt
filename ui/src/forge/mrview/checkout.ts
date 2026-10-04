@@ -5,16 +5,27 @@ import { runFetch } from '../../app/fetchSchedule';
 import { useRuntime } from '../../app/runtime';
 import { checkoutLocal, checkoutRemote } from '../../branches/checkout';
 import { addForkRemote } from '../../remotes/addRemote';
+import { hostName } from '../../remotes/match';
 import { useToast } from '../../ui/toast';
 import { forgeOf } from '../mrStore';
 import { ownerOf } from '../mrText';
 
 const tabOf = (tabId: string) => useRuntime.getState().tabs[tabId];
 
-/** The repository's remote on the MR's source project, if it has one. */
+/** A project path as forges compare it: case-insensitive, without a trailing `.git` or slash. */
+const barePath = (path: string | null | undefined): string => (path ?? '').trim().replace(/\/+$/, '').replace(/\.git$/i, '').toLowerCase();
+
+/** The MR's source project couldn't be read: GitHub's "" (a deleted fork), GitLab's `project <id>`. */
+export const unreadableSource = (mr: ForgeMr): boolean => mr.sourceProject === '' || /^project \d+$/.test(mr.sourceProject);
+
+/** The repository's remote on the MR's source project, if it has one (the host without its port,
+ * the path in any case). */
 export function sourceRemote(tabId: string, mr: ForgeMr): string | null {
-  const host = forgeOf(tabId).project?.host;
-  return tabOf(tabId)?.info?.remotes.find((r) => r.host === host && r.path === mr.sourceProject)?.name ?? null;
+  if (unreadableSource(mr)) return null;
+  const host = hostName(forgeOf(tabId).project?.host);
+  if (!host) return null;
+  const path = barePath(mr.sourceProject);
+  return tabOf(tabId)?.info?.remotes.find((r) => hostName(r.host) === host && barePath(r.path) === path)?.name ?? null;
 }
 
 const remoteTip = (tabId: string, remote: string, branch: string): string | null =>
@@ -22,6 +33,7 @@ const remoteTip = (tabId: string, remote: string, branch: string): string | null
 
 /** The Check out button's label, and why it's disabled (null: it isn't). */
 export function checkoutState(tabId: string, mr: ForgeMr): { label: string; disabled: string | null } {
+  if (unreadableSource(mr)) return { label: 'Check out', disabled: "The source project isn't readable" };
   const remote = sourceRemote(tabId, mr);
   if (!remote) return { label: `Add ${ownerOf(mr.sourceProject).split('/').pop()}'s fork and check out`, disabled: null };
   const head = tabOf(tabId)?.sidebar?.locals.find((l) => l.isHead);
@@ -37,7 +49,7 @@ export function checkoutState(tabId: string, mr: ForgeMr): { label: string; disa
  */
 export async function checkoutMr(tabId: string, mr: ForgeMr): Promise<void> {
   const repo = tabOf(tabId)?.repo?.id;
-  if (repo === undefined) return;
+  if (repo === undefined || unreadableSource(mr)) return;
   let remote = sourceRemote(tabId, mr);
   if (!remote) {
     let fork: ForgeProject;

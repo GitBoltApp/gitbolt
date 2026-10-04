@@ -117,6 +117,15 @@ import type { MergeOptions } from './gen/MergeOptions';
 import type { MrEdit } from './gen/MrEdit';
 import type { MrFilter } from './gen/MrFilter';
 import type { MrList } from './gen/MrList';
+// --- 4C T5 ---
+import type { CreateContext } from './gen/CreateContext';
+import type { CreateMr } from './gen/CreateMr';
+import type { CreateOutcome } from './gen/CreateOutcome';
+import type { CreatePart } from './gen/CreatePart';
+import type { ForgeLabel } from './gen/ForgeLabel';
+import type { ForgeUser } from './gen/ForgeUser';
+import type { PartFailure } from './gen/PartFailure';
+// --- end 4C T5 ---
 // --- end 4B T1 ---
 // --- end 2D T20 ---
 
@@ -450,6 +459,15 @@ export const api = {
   /** The common ancestor of two commits; null when the repo lacks one of them. */
   mergeBase: (repo: number, a: string, b: string) => call<string | null>({ method: 'mergeBase', params: { repo, a, b } }),
   // --- end 4B T1 ---
+  // --- 4C T5: the Create flyout (spec #4 §4 "4C") ---
+  forgeCreateContext: (repo: number, remote: string, sourceRemote: string, branch: string, target: string) =>
+    call<CreateContext>({ method: 'forgeCreateContext', params: { repo, remote, sourceRemote, branch, target } }),
+  forgeSearchUsers: (repo: number, remote: string, query: string) => call<ForgeUser[]>({ method: 'forgeSearchUsers', params: { repo, remote, query } }),
+  forgeLabels: (repo: number, remote: string, query: string) => call<ForgeLabel[]>({ method: 'forgeLabels', params: { repo, remote, query } }),
+  forgeCreateMr: (repo: number, remote: string, req: CreateMr) => call<CreateOutcome>({ method: 'forgeCreateMr', params: { repo, remote, req } }),
+  forgeCompleteCreate: (repo: number, remote: string, number: number, req: CreateMr, parts: CreatePart[]) =>
+    call<PartFailure[]>({ method: 'forgeCompleteCreate', params: { repo, remote, number, req, parts } }),
+  // --- end 4C T5 ---
 };
 
 // --- 2D T18 ---

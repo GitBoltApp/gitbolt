@@ -2,7 +2,7 @@ import { errorMessage } from '../../api/client';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import { useRuntime } from '../../app/runtime';
 import { useToast } from '../../ui/toast';
-import { patchForge } from '../mrStore';
+import { noteForgeWritten, patchForge } from '../mrStore';
 import { notifyForgeWrite } from '../usePolling';
 
 /**
@@ -15,6 +15,7 @@ export async function forgeWrite<T>(tabId: string, failure: string, send: (repo:
   if (repo === undefined) return null;
   try {
     const value = await send(repo);
+    noteForgeWritten(tabId); // a poll or load already under way may predate this answer
     notifyForgeWrite(tabId);
     return { value };
   } catch (e) {

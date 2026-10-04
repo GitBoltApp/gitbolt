@@ -7,7 +7,6 @@ import { HoverTooltip } from '../../ui/HoverTooltip';
 import { useToast } from '../../ui/toast';
 import { mrRef } from '../labels';
 import { useForge } from '../mrStore';
-import { refreshMr } from '../poll';
 import { EditMr } from './EditMr';
 import { forgeWrite, putMr } from './writes';
 
@@ -26,7 +25,6 @@ function RequestChanges({ tabId, kind, mr, onDone }: { tabId: string; kind: Forg
     setBusy(false);
     if (!out) return;
     useToast.getState().show(`Requested changes on ${ref}`);
-    void refreshMr(tabId, mr.number).catch(() => {});
     onDone();
   };
   return (
@@ -54,7 +52,6 @@ export function MrActions({ tabId, kind, mr, detail }: { tabId: string; kind: Fo
     setBusy(null);
     if (!out) return;
     useToast.getState().show(`Approved ${ref}`);
-    void refreshMr(tabId, mr.number).catch(() => {});
   };
   const toggleDraft = async () => {
     const draft = mr.state !== 'draft';

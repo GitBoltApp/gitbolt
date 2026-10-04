@@ -51,6 +51,8 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
     >
       <ForgeStaleNote tabId={tabId} />
       {!mr && <p className="mr-wait">{error ? `Couldn't load ${label}: ${error}` : 'Loading…'}</p>}
+      {/* The MR/PR's own refresh failed: what's shown is older. */}
+      {mr && error && <p className="forge-stale-note" role="status">{`Couldn't refresh ${ref}: ${error}`}</p>}
       {mr && <MrHeader kind={kind} mr={mr} detail={detail} />}
       {/* --- 4D: the stack --- */}
       {/* --- end 4D --- */}

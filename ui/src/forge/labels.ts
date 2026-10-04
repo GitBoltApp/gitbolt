@@ -10,3 +10,7 @@ export const mrSectionLabel = (k: ForgeKind): 'Merge requests' | 'Pull requests'
 export const mrName = (k: ForgeKind): 'Merge request' | 'Pull request' => (k === 'gitlab' ? 'Merge request' : 'Pull request');
 export const pipelineNoun = (k: ForgeKind): 'Pipeline' | 'Checks' => (k === 'gitlab' ? 'Pipeline' : 'Checks');
 // --- end 4B T8 ---
+
+// --- 4C T6 ---
+export const mrLongNoun = (k: ForgeKind): 'merge request' | 'pull request' => (k === 'gitlab' ? 'merge request' : 'pull request');
+// --- end 4C T6 ---

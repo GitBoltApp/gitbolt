@@ -73,6 +73,24 @@ async fn a_github_repo_gets_its_pull_requests() {
     assert_eq!(draft["state"], "draft");
 }
 
+// --- 4B final fix ---
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_github_poll_reads_each_prs_checks_once() {
+    let h = Harness::for_tests().await;
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "github.com", "kind": "github", "token": GITHUB_TOKEN}})).await.unwrap();
+    let r = repo_on("https://github.com/octo-org/widget.git");
+    let id = open(&h.api, &r).await;
+    let checks = |h: &Harness| h.forge.requests().iter().filter(|q| q.path.ends_with("/check-runs")).count();
+    let before = checks(&h);
+    // The poll's badges, then its list (UI forge/poll.ts).
+    call(&h.api, json!({"method": "forgeBranchMrs", "params": {"repo": id, "refs": ["refs/remotes/origin/dev"]}})).await.unwrap();
+    assert_eq!(checks(&h), before, "the badges read no checks");
+    let list = call(&h.api, json!({"method": "forgeMrList", "params": {"repo": id, "filter": "all"}})).await.unwrap();
+    assert_eq!(list["mrs"].as_array().unwrap().len(), 3);
+    assert_eq!(checks(&h) - before, 3, "once per open PR, not twice");
+}
+// --- end 4B final fix ---
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_add_account_helper_the_test_route_uses_adds_an_account() {
     let h = Harness::for_tests().await;

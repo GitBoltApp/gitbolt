@@ -860,6 +860,27 @@ pub enum Request {
     /// The common ancestor of two commits (the MR/PR view's diff of a note's file): `string | null`.
     MergeBase { repo: u32, a: String, b: String },
     // --- end 4B T1 ---
+      // --- 4C T5 ---
+      /// What the Create flyout needs (spec #4 §4 "4C"): `CreateContext`. `remote`: the target
+      /// project's remote; `source_remote`: where `branch` is pushed; `target`: the target branch.
+      ForgeCreateContext { repo: u32, remote: String, source_remote: String, branch: String, target: String },
+      /// People in `remote`'s project who can review or be assigned, matching `query`: `ForgeUser[]`.
+      ForgeSearchUsers { repo: u32, remote: String, query: String },
+      /// `remote`'s project's labels matching `query`: `ForgeLabel[]`.
+      ForgeLabels { repo: u32, remote: String, query: String },
+      /// Creates the MR/PR in `remote`'s project: `CreateOutcome` (spec #4 §3.5). A forge write:
+      /// the repository isn't touched, and the journal doesn't record it.
+      ForgeCreateMr { repo: u32, remote: String, req: crate::forge::CreateMr },
+      /// Retries the parts a GitHub create couldn't add: the parts still failing (`PartFailure[]`).
+      ForgeCompleteCreate {
+          repo: u32,
+          remote: String,
+          #[ts(type = "number")]
+          number: u64,
+          req: crate::forge::CreateMr,
+          parts: Vec<crate::forge::CreatePart>,
+      },
+      // --- end 4C T5 ---
 }
 
 impl Request {
@@ -877,6 +898,9 @@ impl Request {
             | Request::ForgeProjectByPath { .. } | Request::ForgeReply { .. } | Request::ForgeApprove { .. } | Request::ForgeRequestChanges { .. }
             | Request::ForgeMerge { .. } | Request::ForgeEditMr { .. } | Request::ForgeSetDraft { .. } | Request::MergeBase { .. } => false,
             // --- end 4B T1 ---
+              // --- 4C T5: forge reads and forge writes; none touches the repository ---
+              Request::ForgeCreateContext { .. } | Request::ForgeSearchUsers { .. } | Request::ForgeLabels { .. } | Request::ForgeCreateMr { .. } | Request::ForgeCompleteCreate { .. } => false,
+              // --- end 4C T5 ---
             // Remote-tracking refs and objects.
             // --- 4A T7 ---
             Request::AddRemote { .. } => true,
@@ -2136,6 +2160,35 @@ impl Api {
             }
             Request::MergeBase { repo, a, b } => to_json(merge_base(&self.handle(repo)?.repo.to_thread_local(), &a, &b)?),
             // --- end 4B T1 ---
+              // --- 4C T5 ---
+              Request::ForgeCreateContext { repo, remote, source_remote, branch, target } => {
+                  let hub = self.forge_hub()?;
+                  let h = self.handle(repo)?;
+                  let list = crate::details::forge_remotes(&h.repo.to_thread_local());
+                  let ask = crate::forge::hub::CreateAsk { remote: &remote, source_remote: &source_remote, branch: &branch, target: &target };
+                  to_json(hub.create_context(&self.store, &self.cli, &h.workdir, &list, ask).await?)
+              }
+              Request::ForgeSearchUsers { repo, remote, query } => {
+                  let hub = self.forge_hub()?;
+                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  to_json(hub.search_users(&self.store, &list, &remote, &query).await?)
+              }
+              Request::ForgeLabels { repo, remote, query } => {
+                  let hub = self.forge_hub()?;
+                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  to_json(hub.labels(&self.store, &list, &remote, &query).await?)
+              }
+              Request::ForgeCreateMr { repo, remote, req } => {
+                  let hub = self.forge_hub()?;
+                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  to_json(hub.create_mr(&self.store, &list, &remote, &req).await?)
+              }
+              Request::ForgeCompleteCreate { repo, remote, number, req, parts } => {
+                  let hub = self.forge_hub()?;
+                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  to_json(hub.complete_create(&self.store, &list, &remote, number, &req, &parts).await?)
+              }
+              // --- end 4C T5 ---
             Request::Clone { url, dest } => to_json(self.clone_repo(url, dest).await?),
             Request::RepoInfo { repo } => {
                 let h = self.handle(repo)?;
@@ -3800,6 +3853,13 @@ mod tests {
             json!({"method": "forgeSetDraft", "params": {"repo": id, "number": 1, "draft": true}}),
             json!({"method": "mergeBase", "params": {"repo": id, "a": r.git(&["rev-parse", "HEAD"]), "b": r.git(&["rev-parse", "HEAD~1"])}}),
             // --- end 4B T1 ---
+            // --- 4C T5 ---
+            json!({"method": "forgeCreateContext", "params": {"repo": id, "remote": "origin", "sourceRemote": "origin", "branch": "main", "target": "main"}}),
+            json!({"method": "forgeSearchUsers", "params": {"repo": id, "remote": "origin", "query": ""}}),
+            json!({"method": "forgeLabels", "params": {"repo": id, "remote": "origin", "query": ""}}),
+            json!({"method": "forgeCreateMr", "params": {"repo": id, "remote": "origin", "req": {"source": {"project": "p", "branch": "main"}, "targetBranch": "main", "title": "t", "description": "", "draft": false, "reviewers": [], "assignees": [], "labels": [], "squash": null, "deleteSourceBranch": null}}}),
+            json!({"method": "forgeCompleteCreate", "params": {"repo": id, "remote": "origin", "number": 1, "req": {"source": {"project": "p", "branch": "main"}, "targetBranch": "main", "title": "t", "description": "", "draft": false, "reviewers": [], "assignees": [], "labels": [], "squash": null, "deleteSourceBranch": null}, "parts": ["labels"]}}),
+            // --- end 4C T5 ---
             // --- 4A T5 ---
             json!({"method": "forgeAccounts"}),
             json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": "glpat-FAKE-never-sent"}}),
@@ -4045,7 +4105,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {
@@ -4214,4 +4274,119 @@ mod tests {
         assert_eq!(ask("zz", &side).await.unwrap_err().message, "zz isn't a commit id");
     }
     // --- end 4B T1 ---
+    // --- 4C T5 ---
+    mod create_mr {
+        use super::*;
+        use crate::forge::fake::{project, FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::*;
+        use serde_json::{json, Value};
+
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        const HOST: &str = "gitlab.example.com";
+
+        async fn ask(api: &Api, method: &str, params: Value) -> Result<Value, GbError> {
+            api.dispatch(serde_json::from_value(json!({ "method": method, "params": params })).unwrap()).await
+        }
+
+        /// main (its local copy of origin/main), then feature: "Add login" (with a body), "Fix typo".
+        fn branched(with_templates: bool) -> TestRepo {
+            let r = TestRepo::new();
+            if with_templates {
+                r.write(".gitlab/merge_request_templates/Default.md", "## Why\n");
+                r.write(".gitlab/merge_request_templates/Bug.md", "## Bug\n");
+                r.git(&["add", "-A"]);
+                r.git(&["commit", "-q", "-m", "templates"]);
+            } else {
+                r.commit("one");
+            }
+            r.git(&["remote", "add", "origin", "https://gitlab.example.com/group/project.git"]);
+            r.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+            r.switch_new("feature");
+            r.commit("Add login\n\nWhy it matters.");
+            r.commit("Fix typo");
+            r
+        }
+
+        fn provider() -> FakeProvider {
+            FakeProvider {
+                settings: Some(ForgeProjectSettings { merge_methods: vec![MergeMethod::Merge], squash: SquashOption::DefaultOn, delete_source_branch: true }),
+                templates: Some(vec![MrTemplate { name: "Default".into(), path: ".gitlab/merge_request_templates/Default.md".into(), body: "## From the forge".into() }]),
+                ..FakeProvider::new(ForgeKind::GitLab, HOST)
+            }
+        }
+
+        async fn setup(p: FakeProvider, r: &TestRepo) -> (Api, Arc<FakeProvider>, u32) {
+            p.projects.lock().unwrap().insert("group/project".into(), project(HOST, "group/project", None, 200));
+            let conn = FakeConnector::with(TOKEN, p);
+            let fake = conn.by_token.lock().unwrap()[TOKEN].clone();
+            let api = api().with_forge(conn, MemTokens::new(TokenStorage::Keyring));
+            ask(&api, "addForgeAccount", json!({"host": HOST, "kind": "gitlab", "token": TOKEN})).await.unwrap();
+            let id = open(&api, r).await as u32;
+            (api, fake, id)
+        }
+
+        fn context(id: u32) -> Value {
+            json!({"repo": id, "remote": "origin", "sourceRemote": "origin", "branch": "feature", "target": "main"})
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn the_context_prefills_from_the_first_commit_and_the_forges_templates() {
+            let r = branched(false);
+            let (api, fake, id) = setup(provider(), &r).await;
+            let v = ask(&api, "forgeCreateContext", context(id)).await.unwrap();
+            assert_eq!(v["project"]["path"], "group/project");
+            assert_eq!(v["sourceProject"], "group/project");
+            assert_eq!(v["settings"]["squash"], "defaultOn");
+            assert_eq!((v["templates"][0]["body"].as_str(), v["templatesLocal"].as_bool()), (Some("## From the forge"), Some(false)));
+            assert_eq!(v["firstCommit"], json!({"summary": "Add login", "body": "Why it matters.", "count": 2}));
+            assert!(fake.calls().contains(&"templates main".to_string()), "{:?}", fake.calls());
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn templates_fall_back_to_the_local_copy_of_the_target_when_the_forge_cant_be_asked() {
+            let r = branched(true);
+            let (api, _, id) = setup(FakeProvider { templates: None, ..provider() }, &r).await;
+            let v = ask(&api, "forgeCreateContext", context(id)).await.unwrap();
+            assert_eq!(v["templatesLocal"], true);
+            let names: Vec<&str> = v["templates"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+            assert_eq!(names, ["Default", "Bug"]);
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn an_unknown_source_remote_says_so() {
+            let r = branched(false);
+            let (api, _, id) = setup(provider(), &r).await;
+            let e = ask(&api, "forgeCreateContext", json!({"repo": id, "remote": "origin", "sourceRemote": "fork", "branch": "feature", "target": "main"})).await.unwrap_err();
+            assert_eq!(e.message, "No remote fork");
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn people_and_labels_are_asked_of_the_target_project() {
+            let r = branched(false);
+            let p = FakeProvider { people: vec![crate::forge::fake::user("Grace")], label_list: vec![ForgeLabel { name: "bug".into(), color: None, description: None }], ..provider() };
+            let (api, fake, id) = setup(p, &r).await;
+            let people = ask(&api, "forgeSearchUsers", json!({"repo": id, "remote": "origin", "query": "gra"})).await.unwrap();
+            assert_eq!(people[0]["username"], "grace");
+            let labels = ask(&api, "forgeLabels", json!({"repo": id, "remote": "origin", "query": "b"})).await.unwrap();
+            assert_eq!(labels[0]["name"], "bug");
+            assert!(fake.calls().contains(&"users gra".to_string()));
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_create_reports_failed_parts_and_a_retry_completes_them() {
+            let r = branched(false);
+            let p = provider();
+            *p.fail_parts.lock().unwrap() = vec![PartFailure { part: CreatePart::Reviewers, message: "not a collaborator".into() }];
+            let (api, fake, id) = setup(p, &r).await;
+            let req = json!({"source": {"project": "group/project", "branch": "feature"}, "targetBranch": "main", "title": "Add login", "description": "Why it matters.", "draft": false, "reviewers": [8], "assignees": [], "labels": ["bug"], "squash": true, "deleteSourceBranch": true});
+            let out = ask(&api, "forgeCreateMr", json!({"repo": id, "remote": "origin", "req": req})).await.unwrap();
+            assert_eq!((out["mr"]["number"].as_u64(), out["mr"]["targetProject"].as_str()), (Some(1), Some("group/project")));
+            assert_eq!(out["failed"], json!([{"part": "reviewers", "message": "not a collaborator"}]));
+            assert_eq!(fake.created.lock().unwrap()[0].labels, ["bug"]);
+            let still = ask(&api, "forgeCompleteCreate", json!({"repo": id, "remote": "origin", "number": 1, "req": req, "parts": ["reviewers"]})).await.unwrap();
+            assert_eq!(still, json!([]));
+            assert!(fake.calls().contains(&"complete 1 [Reviewers]".to_string()), "{:?}", fake.calls());
+        }
+    }
+    // --- end 4C T5 ---
 }
