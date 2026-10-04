@@ -24,6 +24,9 @@ export interface TabRuntime {
   lastFetchAt: number;
   /** Status-bar warning after a background fetch was skipped for credentials. */
   fetchSkipped: string | null;
+  /** UX round 4, T.1: remotes whose last fetch failed (by name), with a short reason and when;
+   * in memory only, cleared by the next successful fetch. */
+  remoteFetchErrors?: Record<string, { reason: string; at: number }>;
   /** Commit window override (find: a hash deeper than the default window); null = setting. */
   limit: number | null;
   /** The tab's active worktree (spec #2 §11.2), canonical as the backend spells it; null until
@@ -31,7 +34,7 @@ export interface TabRuntime {
   worktree: string | null;
 }
 
-const EMPTY: TabRuntime = { status: 'loading', error: null, repo: null, graph: null, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, limit: null, worktree: null };
+const EMPTY: TabRuntime = { status: 'loading', error: null, repo: null, graph: null, info: null, sidebar: null, lastFetchAt: 0, fetchSkipped: null, remoteFetchErrors: {}, limit: null, worktree: null };
 
 /** The worktree a tab acts on: its active one, else (not open yet) its repository's path. */
 export const worktreeOf = (rt: Pick<TabRuntime, 'repo' | 'worktree'> | undefined): string | null => rt?.worktree ?? rt?.repo?.path ?? null;

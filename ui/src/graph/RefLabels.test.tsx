@@ -315,6 +315,35 @@ describe('RefLabels, several labels (K104)', () => {
     expect(more).toHaveClass('ref-more-head');
   });
 
+  it('warns, first in the chip, when the upstream has another branch name; its own instant tooltip (UX round 3, M.1)', () => {
+    const tip = "Tracks origin/feature/b, not a branch named feature/a. That's often a mistake.";
+    const { container, rerender } = render(<RefLabels labels={[{ ...local('feature/a'), upstreamMismatch: 'origin/feature/b' }]} color={0} />);
+    const chip = container.querySelector('.ref-labels > .ref-label')!;
+    const warn = screen.getByRole('img', { name: tip });
+    expect(chip.firstElementChild).toBe(warn);
+    fireEvent.mouseEnter(warn);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(tip);
+    fireEvent.mouseLeave(warn);
+    rerender(<RefLabels labels={[local('feature/a')]} color={0} />);
+    expect(container.querySelector('.upstream-warn')).toBeNull();
+  });
+
+  it("marks an annotated tag and shows its message, tagger and date; a lightweight tag's names its commit (UX round 3, M.2)", () => {
+    const tag = (annotation?: RefLabel['annotation']): RefLabel => ({ row: 0, name: 'v1.0', local: null, tag: true, isHead: false, worktree: null, checkedOut: null, remotes: [], ...(annotation && { annotation }) });
+    const { container, rerender } = render(<RefLabels labels={[tag({ message: 'Release 1.0\n\nNotes', truncated: true, tagger: 'Ada', time: 1_700_000_000 })]} color={0} sha={'abcdef1234'.padEnd(40, '0')} />);
+    expect(screen.getByLabelText('annotated tag')).toBeInTheDocument();
+    fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label')!);
+    const tip = screen.getByRole('tooltip');
+    expect(tip.querySelector('.tag-tip-message')!.textContent).toBe('Release 1.0\n\nNotes\n…');
+    expect(tip.querySelector('.tag-tip-meta')).toHaveTextContent(/^Ada · 2023-11-1\d/);
+    fireEvent.mouseLeave(container.querySelector('.ref-labels > .ref-label')!);
+    rerender(<RefLabels labels={[tag()]} color={0} sha={'abcdef1234'.padEnd(40, '0')} />);
+    expect(screen.queryByLabelText('annotated tag')).toBeNull();
+    expect(screen.getByLabelText('tag')).toBeInTheDocument();
+    fireEvent.mouseEnter(container.querySelector('.ref-labels > .ref-label')!);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Lightweight tagabcdef');
+  });
+
   it('compact, or no width: the first chip and +N; the badge is not lit off the active branch', () => {
     const { container, rerender } = render(<RefLabels labels={labels} color={0} width={600} compact />);
     expect(container.querySelectorAll('.ref-labels > .ref-label')).toHaveLength(1);

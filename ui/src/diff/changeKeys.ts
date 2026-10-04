@@ -1,5 +1,6 @@
 import { useKeys } from '../ui/keyRouter';
 import { goToChange } from './DiffToolbar';
+import { registerKeyHints } from '../shortcuts/hints';
 
 /** Where Shift+↑/↓ keep their usual meaning, extending a selection: Monaco (its text area, find
  * widget, …), any other text field, and any editable text (`isContentEditable`: every spelling of
@@ -39,3 +40,9 @@ export function useChangeKeys(on: boolean): void {
     on,
   );
 }
+
+// Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
+registerKeyHints([
+  { id: 'key.nextChange', section: 'Diff', label: 'Next change', keys: ['F7', 'Shift+Down'], source: 'diff/changeKeys.ts' },
+  { id: 'key.prevChange', section: 'Diff', label: 'Previous change', keys: ['Shift+F7', 'Shift+Up'], source: 'diff/changeKeys.ts' },
+]);

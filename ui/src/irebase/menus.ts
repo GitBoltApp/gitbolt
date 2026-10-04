@@ -16,7 +16,8 @@ import { squashSelection } from './squash';
  *   HEAD: an interactive rebase rewrites HEAD's branch, and there is none.
  * - Onto Y: hidden on WIP and stash rows, when Y is HEAD's branch or at HEAD, and when HEAD is
  *   already in Y's history (nothing to rebase).
- * - From here: hidden for merge and root commits and for commits known not to be in HEAD's branch.
+ * - After this commit: hidden at HEAD and for commits known not to be in HEAD's branch.
+ * - The selection's from here: from its oldest commit's parent.
  * - Selection rows: hidden unless every selected commit is a non-merge commit not known to be
  *   outside HEAD's branch, and the oldest has exactly one parent.
  */
@@ -49,16 +50,17 @@ export function ontoRows(t: CommitTarget, env: MenuEnv): MenuRow[] {
   }];
 }
 
-/** "Interactive rebase from here" (Ruling 10): the commit and those above it on HEAD's branch. */
+/** "Interactive rebase after this commit" (UX4 Q.5): the clicked commit is the
+ * base, its descendants on HEAD's branch the rows. Hidden at HEAD (nothing to rebase) and off
+ * HEAD's history; a merge or a root is a base like any other. */
 export function fromHereRows(t: CommitTarget, env: MenuEnv): MenuRow[] {
   const x = headName(env);
   if (!env.write || t.isWip || t.isStash || !x || !env.headSha) return [];
-  const row = rowOf(env, t.sha);
-  if (!row || row.parents.length !== 1 || env.isAncestor?.(t.sha, env.headSha) === false) return [];
-  const [tabId, base] = [env.write.tabId, row.parents[0]];
+  if (t.sha === env.headSha || env.isAncestor?.(t.sha, env.headSha) === false) return [];
+  const [tabId, base] = [env.write.tabId, t.sha];
   return [{
-    kind: 'action', id: 'irebase.fromHere', label: 'Interactive rebase from here', icon: ListOrdered,
-    tooltip: `Edit ${x}'s commits from ${short(t.sha)} up`, disabledReason: busy(env),
+    kind: 'action', id: 'irebase.fromHere', label: 'Interactive rebase after this commit', icon: ListOrdered,
+    tooltip: `Edit ${x}'s commits after ${short(t.sha)}`, disabledReason: busy(env),
     run: () => { if (env.headBranch) void openRebaseEditor(tabId, { branch: env.headBranch, base }); },
   }];
 }
@@ -74,17 +76,23 @@ function fromOldest(t: SelectionTarget, env: MenuEnv): { tabId: string; branch: 
   return { tabId: env.write.tabId, branch, base: row.parents[0], oids: t.commits.map((c) => c.oid) };
 }
 
-/** The selection's Squash, with "Squash interactively…" (the editor, preset the same way). */
+/** The selection's two plain rows: "Squash N commits" and "Squash N commits interactively…" (the editor, preset the same way). */
 export function squashRows(t: SelectionTarget, env: MenuEnv): MenuRow[] {
   const s = fromOldest(t, env);
   if (!s) return [];
   const into = short(s.oids[s.oids.length - 1]);
-  return [{
-    kind: 'action', id: 'irebase.squash', label: 'Squash', icon: Combine,
-    tooltip: `Squash the ${s.oids.length} commits into ${into}, their messages merged`, disabledReason: busy(env),
-    run: () => { if (env.headBranch) void squashSelection(s.tabId, s.branch, s.oids, s.base, false); },
-    variants: [{ id: 'irebase.squashInteractive', label: 'Squash interactively…', icon: ListOrdered, tooltip: 'Open the interactive rebase with them set to squash', disabledReason: busy(env), run: () => { if (env.headBranch) void squashSelection(s.tabId, s.branch, s.oids, s.base, true); } }],
-  }];
+  const n = s.oids.length;
+  const run = (interactive: boolean) => () => { if (env.headBranch) void squashSelection(s.tabId, s.branch, s.oids, s.base, interactive); };
+  return [
+    {
+      kind: 'action', id: 'irebase.squash', label: `Squash ${n} commits`, icon: Combine,
+      tooltip: `Squash the ${n} commits into ${into}, their messages merged`, disabledReason: busy(env), run: run(false),
+    },
+    {
+      kind: 'action', id: 'irebase.squashInteractive', label: `Squash ${n} commits interactively…`, icon: ListOrdered,
+      tooltip: 'Open the interactive rebase with them set to squash', disabledReason: busy(env), run: run(true),
+    },
+  ];
 }
 
 /** The selection's "Interactive rebase from here": from its oldest commit up. */

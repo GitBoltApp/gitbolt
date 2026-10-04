@@ -257,7 +257,7 @@ describe('the commit box in an operation', () => {
     h.staged = [{ status: 'M' }];
     await show();
     fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
-    expect(h.confirm.mock.lastCall?.[0].arm).toBe('Click again to abort: your work from the stop is kept');
+    expect(h.confirm.mock.lastCall?.[0].arm).toBe('Click again to abort: new work from the stop is kept');
   });
 
   it('a Commit at the stop is a piece: the WIP stays selected, the box empties, the rebase stays stopped (UX L)', async () => {
@@ -317,10 +317,10 @@ describe('the commit box in an operation', () => {
     expect(await abortSays()).toBe('Click again to abort the rebase');
     h.head = 'n';
     rerender(<CommitBox />);
-    expect(await abortSays()).toBe('Click again to abort: your commits from the stop are kept on a branch');
+    expect(await abortSays()).toBe('Click again to abort: new commits from the stop are kept on a branch');
     h.unstaged = [{ status: 'M' }];
     rerender(<CommitBox />);
-    expect(await abortSays()).toBe('Click again to abort: your work from the stop is kept');
+    expect(await abortSays()).toBe('Click again to abort: new work from the stop is kept');
   });
 
   it('git\'s own Edit stop HEAD has left: a normal commit box, and Continue waits for the changes to be committed', async () => {
@@ -365,22 +365,29 @@ describe('the commit box in an operation', () => {
     h.rebaseControl.mockImplementationOnce(async () => ({ status: 'aborted', stash: 's'.repeat(40), branch: 'feature/x-rebase-work' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Abort rebase' })).not.toHaveAttribute('aria-disabled', 'true'));
     fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
-    expect(h.confirm.mock.lastCall?.[0]).toMatchObject({ arm: 'Click again to abort: your work from the stop is kept' });
+    expect(h.confirm.mock.lastCall?.[0]).toMatchObject({ arm: 'Click again to abort: new work from the stop is kept' });
     // The stash has the core's own banner (fix 1 M4): the toast names the branch only, a timed
     // warning (final fix M3).
     await waitFor(() => expect(useToast.getState()).toMatchObject({ message: 'Your commits from the stop are on feature/x-rebase-work', sticky: false, tone: 'warning' }));
   });
 
-  it('a conflict stop: Abort says the resolution is discarded only once something is resolved (fix 1 M5)', async () => {
+  it('a conflict stop: Abort keeps hand-made changes in GitBolt\'s rebase (its journal session), discards the resolution otherwise (fix 1 M5, UX N)', async () => {
     h.inProgress = rebase(1);
     h.unstaged = [{ status: 'U' }];
     h.staged = [{ status: 'M' }];
-    await show();
-    h.rebaseControl.mockImplementationOnce(async () => ({ status: 'aborted', discarded: 2 }));
+    const { useJournal, journalKey } = await import('../undo/store');
+    const paused = { entry: 1, kind: 'rebase' as const, label: 'rebase feature/x', target: 'main', irebase: true };
+    useJournal.setState({ states: { [journalKey(1, '/r')]: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [], paused } } });
+    const { rerender } = await show();
+    fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
+    expect(h.confirm.mock.lastCall?.[0]).toMatchObject({ arm: 'Click again to abort: changes you made by hand are kept' });
+    useJournal.setState({ states: { [journalKey(1, '/r')]: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [], paused: { ...paused, irebase: false } } } });
+    const { CommitBox } = await import('./CommitBox');
+    rerender(<CommitBox />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Abort rebase' })).not.toHaveAttribute('aria-disabled', 'true'));
     fireEvent.click(screen.getByRole('button', { name: 'Abort rebase' }));
     expect(h.confirm.mock.lastCall?.[0]).toMatchObject({ arm: 'Click again to abort: discards the conflict resolution so far' });
-    const { useToast } = await import('../ui/toast');
-    await waitFor(() => expect(useToast.getState().message).toBe("2 files' changes were discarded"));
+    useJournal.setState({ states: {} });
   });
 
   it('an Edit stop of a rebase started in a terminal: no Commit, the box stays Continue\'s (fix 1 A1; UX L leaves it git\'s)', async () => {

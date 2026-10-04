@@ -27,4 +27,8 @@ pushBehind: number | null,
  * GitBolt rewrote it since its last push (a live rewrite mark, §12.3): Push forces with
  * the lease recorded then when `push_behind` > 0.
  */
-rewritten: Rewritten | null, };
+rewritten: Rewritten | null, 
+/**
+ * The upstream's short name when its branch name differs from this one's (UX round 3, M.1).
+ */
+upstreamMismatch?: string, };

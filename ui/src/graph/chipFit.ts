@@ -10,6 +10,8 @@ export const CHIP_SPACING = 4;
 export const CONNECTOR_MIN = 8;
 const ICON = 14;
 const HEAD_CHECK = 16;
+/** The upstream-name warning (UX round 3, M.1: UpstreamWarning.tsx), at the chip's 12 px. */
+const WARN = 12;
 
 const widthCache = new Map<string, number>();
 
@@ -46,8 +48,9 @@ export function textWidth(name: string, font: string): number {
 /** A chip's estimated width: padding, the name, and its icons with the gaps between them.
  * `iconOnly`: the chip shows no name (the compact column, a crowded detached HEAD). */
 export function chipWidth(label: RefLabel, font: string, iconOnly = false): number {
-  const icons = (label.isHead ? 1 : 0) + (label.tag ? 1 : 0) + (label.local ? 1 : 0) + label.remotes.length + (label.worktree ? 1 : 0);
-  const iconW = (label.isHead ? HEAD_CHECK : 0) + (label.tag ? 12 : 0) + (label.local ? ICON : 0) + label.remotes.length * ICON + (label.worktree ? ICON : 0);
+  const warn = label.upstreamMismatch ? 1 : 0;
+  const icons = warn + (label.isHead ? 1 : 0) + (label.tag ? 1 : 0) + (label.local ? 1 : 0) + label.remotes.length + (label.worktree ? 1 : 0);
+  const iconW = warn * WARN + (label.isHead ? HEAD_CHECK : 0) + (label.tag ? 12 : 0) + (label.local ? ICON : 0) + label.remotes.length * ICON + (label.worktree ? ICON : 0);
   if (iconOnly) return CHIP_PAD + iconW + Math.max(0, icons - 1) * CHIP_GAP;
   return CHIP_PAD + textWidth(label.name, font) + iconW + icons * CHIP_GAP;
 }

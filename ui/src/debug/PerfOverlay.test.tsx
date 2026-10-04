@@ -39,6 +39,16 @@ it('shows only when toggled, with the latest backend calls first, and stops its 
   expect(cancel).toHaveBeenCalledWith(7);
 });
 
+it('its Close (top right) turns it off', () => {
+  vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(7);
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+  render(<PerfOverlay />);
+  act(() => useActivityUi.getState().togglePerfOverlay());
+  act(() => screen.getByRole('button', { name: 'Close performance overlay' }).click());
+  expect(screen.queryByRole('region', { name: 'Performance' })).toBeNull();
+  expect(useActivityUi.getState().perfOverlay).toBe(false);
+});
+
 it("lists none of the Debug tools' own calls, and their polling doesn't re-render it: no feedback loop", async () => {
   vi.useFakeTimers();
   vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1); // no frame windows: only calls can re-render it

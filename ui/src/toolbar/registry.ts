@@ -44,6 +44,9 @@ export interface ToolbarButton {
   picker?: ToolbarPicker;
   /** The caret's rows, built from the snapshot when it opens (Push's upstream rows). */
   menuRows?: (ctx: RepoCtx) => MenuRow[];
+  /** Awaited before the caret's menu opens (`menuRows` then reads what it loaded): the Undo
+   * dropdown's rows come from their own read, not from every journal state (UX Y review 3). */
+  prepareMenu?: (ctx: RepoCtx) => Promise<void>;
   /** A hook: true while what the button starts is running for this tab (a spinner; disabled). */
   useBusy?: (ctx: RepoCtx) => boolean;
   /** A hook: an op this button starts waits in the queue (spec #2 §3.6): a small badge. */

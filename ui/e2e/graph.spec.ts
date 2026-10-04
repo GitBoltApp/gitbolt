@@ -947,8 +947,9 @@ test.describe('resizable columns', () => {
     const w = async () => columnWidths(page);
     const right = (c: { headerX: number; header: number }) => c.headerX + c.header;
     // Graph starts at its lanes' width (its max, F2), so it's dragged left; the others right.
-    // Date is dragged left (SHA takes the width; rightward SHA could give only 5 px).
-    for (const [name, col, dx] of [['Branch / Tag', 'labels', 30], ['Graph', 'graph', -12], ['Commit message', 'message', 30], ['Author', 'author', 30], ['Date', 'date', -30]] as const) {
+    // W.1: each edge resizes only the column on its left. Message fills the window, so it is dragged
+    // left.
+    for (const [name, col, dx] of [['Branch / Tag', 'labels', 30], ['Graph', 'graph', -12], ['Commit message', 'message', -30], ['Author', 'author', 30], ['Date', 'date', 30]] as const) {
       const handle = page.getByRole('separator', { name: `Resize ${name} column` });
       const before = await w();
       // The handle sits on the column's right edge.
@@ -959,19 +960,67 @@ test.describe('resizable columns', () => {
       await page.mouse.down();
       for (let d = Math.sign(dx); Math.abs(d) <= Math.abs(dx); d += Math.sign(dx) * 3) {
         await page.mouse.move(x0 + d, y);
-        const now = await w();
-        expect(right(now[col]), `${col} right edge, d=${d}`).toBeCloseTo(right(before[col]) + d, 0);
-        expect(now[col].cell, `${col} width, d=${d}`).toBeCloseTo(before[col].cell + d, 0);
+        // Once the table is full, Author/Date/SHA grow out of Message, so their own right edge stays
+        // put; the width is what tracks the pointer there.
+        if (!['date', 'sha'].includes(col)) await expect.poll(async () => right((await w())[col]), { message: `${col} right edge, d=${d}` }).toBeCloseTo(right(before[col]) + d, 0);
+        await expect.poll(async () => (await w())[col].cell, { message: `${col} width, d=${d}` }).toBeCloseTo(before[col].cell + d, 0);
       }
       await page.mouse.up();
     }
   });
 
-  test('SHA: shows the app-wide 6 characters by default; Date\'s handle trades with it between 6 whole hex characters and all 40, walls holding (F3 review, H15)', async ({ page }) => {
+  test('SHA\'s right edge (the last) is dragged once there is empty space past it (W.1)', async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 700 });
     await page.goto(openUrl(fixtures.basic));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-    await expect(page.locator('.graph-header [data-col="sha"] [role="separator"]')).toHaveCount(0);
+    const message = page.getByRole('separator', { name: 'Resize Commit message column' });
+    await message.focus();
+    for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowLeft');
+    const before = await columnWidths(page);
+    const box = (await page.getByRole('separator', { name: 'Resize SHA column' }).boundingBox())!;
+    const y = box.y + box.height / 2, x0 = box.x + box.width / 2;
+    await page.mouse.move(x0, y);
+    await page.mouse.down();
+    for (let d = 3; d <= 30; d += 3) await page.mouse.move(x0 + d, y);
+    await page.mouse.up();
+    await expect.poll(async () => (await columnWidths(page)).sha.cell).toBeCloseTo(before.sha.cell + 30, 0);
+    const now = await columnWidths(page);
+    expect(now.message.cell).toBeCloseTo(before.message.cell, 0);
+    expect(now.date.cell).toBeCloseTo(before.date.cell, 0);
+    await page.mouse.move(x0 + 30, y);
+    await page.mouse.down();
+    await page.mouse.move(x0 - 400, y, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => (await columnWidths(page)).sha.cell).toBeCloseTo(COLUMN_MIN.sha, 0);
+  });
+
+  test('with empty space past the last column, the selected row\'s highlight reaches the panel\'s right edge (W.2)', async ({ page }) => {
+    await page.setViewportSize({ width: 2200, height: 700 });
+    await page.goto(openUrl(fixtures.basic));
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+    const row = page.getByRole('row').nth(3);
+    await row.locator('[data-col="message"]').click();
+    await expect(row).toHaveAttribute('aria-selected', 'true');
+    // Narrowing Message (after the details panel took its share) leaves free space on the right.
+    const message = page.getByRole('separator', { name: 'Resize Commit message column' });
+    await message.focus();
+    for (let i = 0; i < 25; i++) await page.keyboard.press('ArrowLeft');
+    await expect.poll(async () => (await row.locator('[data-col="filler"]').boundingBox())!.width).toBeGreaterThan(50);
+    const [filler, grid, sha] = await Promise.all([row.locator('[data-col="filler"]').boundingBox(), page.getByRole('grid', { name: 'Commit graph' }).evaluate((el) => { const r = el.getBoundingClientRect(); return r.left + el.clientWidth; }), row.locator('[data-col="sha"]').boundingBox()]);
+    expect(filler!.width, 'there is empty space').toBeGreaterThan(50);
+    expect(filler!.x, 'the filler starts where SHA ends').toBeCloseTo(sha!.x + sha!.width, 0);
+    expect(filler!.x + filler!.width, 'and reaches the right edge').toBeCloseTo(grid, 0);
+    await expect(row.locator('[data-col="filler"]')).toHaveCSS('background-color', await row.locator('[data-col="sha"]').evaluate((el) => getComputedStyle(el).backgroundColor));
+    // The header's filler is blank and has no handle.
+    await expect(page.locator('.graph-header [data-col="filler"]')).toHaveText('');
+    await expect(page.locator('.graph-header [data-col="filler"] [role="separator"]')).toHaveCount(0);
+  });
+
+  test('SHA: shows the app-wide 6 characters by default; SHA\'s own right edge resizes it between 6 whole hex characters and all 40, walls holding (F3 review, H15)', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 700 });
+    await page.goto(openUrl(fixtures.basic));
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+    await expect(page.locator('.graph-header [data-col="sha"] [role="separator"]')).toHaveCount(1);
     const sha = page.getByTestId('sha').first();
     /** Whole characters the SHA button shows: its width in `ch` of its own font. */
     const shown = () => sha.evaluate((el) => {
@@ -993,25 +1042,27 @@ test.describe('resizable columns', () => {
     const start = await columnWidths(page);
     expect(start.sha.cell).toBeCloseTo(COLUMN_MIN.sha, 0);
     expect(await shown()).toBeCloseTo(SHORT_SHA_LEN, 1);
-    // Minimum: Date can't grow into SHA below it (no fallback to Message either).
-    await press('Date', 'ArrowRight', 5);
+    // Minimum: SHA's own edge can't shrink it below 6 characters.
+    await press('SHA', 'ArrowLeft', 5);
     let w = await columnWidths(page);
     expect(w.sha.cell).toBeCloseTo(COLUMN_MIN.sha, 0);
-    expect(w.date.cell).toBeCloseTo(start.date.cell, 0);
-    expect(w.message.cell).toBeCloseTo(start.message.cell, 0);
     expect(await shown()).toBeCloseTo(SHORT_SHA_LEN, 1);
-    // Maximum: make Date wide (Message -> Author -> Date), then give SHA all of it it can take.
-    await press('Commit message', 'ArrowLeft', 40);
-    await press('Author', 'ArrowLeft', 60);
-    await press('Date', 'ArrowLeft', 60);
+    // Date's edge leaves SHA alone (W.1).
+    await press('Date', 'ArrowRight', 3);
+    w = await columnWidths(page);
+    expect(w.sha.cell).toBeCloseTo(COLUMN_MIN.sha, 0);
+    expect(w.date.cell).toBeCloseTo(start.date.cell + 24, 0);
+    // Maximum: even after Message was resized, SHA's own edge grows it to all 40 characters.
+    await press('Commit message', 'ArrowLeft', 4);
+    await press('SHA', 'ArrowRight', 40);
     w = await columnWidths(page);
     expect(w.sha.cell).toBeCloseTo(SHA_MAX, 0);
     expect(await shown()).toBeCloseTo(40, 1);
-    // The table still ends where it did: SHA's right edge is the table's end.
+    // Message flexed: the table still ends where it did.
     expect(w.sha.headerX + w.sha.header).toBeCloseTo(start.sha.headerX + start.sha.header, 0);
   });
 
-  test('the old F3 bug: dragging Author\'s right edge resizes Author (and Date), not the commit message', async ({ page }) => {
+  test('W.1: dragging Author\'s right edge resizes Author only (Message flexes, Date keeps its width)', async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 700 });
     await page.goto(openUrl(fixtures.basic));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
@@ -1023,9 +1074,10 @@ test.describe('resizable columns', () => {
     await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 5 });
     await page.mouse.up();
     const now = await columnWidths(page);
+    // W.1: only Author changes; Message gives up the width (it flexes), Date keeps its own.
     expect(now.author.cell).toBeCloseTo(start.author.cell + 40, 0);
-    expect(now.date.cell).toBeCloseTo(start.date.cell - 40, 0);
-    expect(now.message.cell).toBeCloseTo(start.message.cell, 0);
+    expect(now.date.cell).toBeCloseTo(start.date.cell, 0);
+    expect(now.message.cell).toBeCloseTo(start.message.cell - 40, 0);
   });
 
   test('squeezed Author/Date: the handle under the pointer moves 1:1, and walls hold', async ({ page }) => {
@@ -1038,22 +1090,16 @@ test.describe('resizable columns', () => {
     expect(start.message.cell).toBeCloseTo(COLUMN_MIN.message, 0);
     expect(start.author.cell).toBeLessThan(DEFAULT_COLUMN_PREFS.author);
 
-    // Commit message: narrowing hits its own minimum (a wall); widening moves its right edge
-    // 8 px out of Author, after which narrowing gives it back.
+    // Commit message: at its minimum, narrowing is a wall, and widening has no free space to use.
     const message = page.getByRole('separator', { name: 'Resize Commit message column' });
     await message.focus();
     await page.keyboard.press('ArrowLeft');
-    expect((await w()).message.cell).toBe(start.message.cell);
     await page.keyboard.press('ArrowRight');
-    let now = await w();
-    expect([now.author.cell, now.message.cell]).toEqual([start.author.cell - 8, start.message.cell + 8]);
-    expect(now.author.headerX).toBeCloseTo(start.author.headerX + 8, 0);
-    await page.keyboard.press('ArrowLeft');
-    now = await w();
+    const now = await w();
     expect([now.author.cell, now.message.cell]).toEqual([start.author.cell, start.message.cell]);
 
     // Author: dragging its right edge left 1 px at a time moves it exactly with the pointer,
-    // giving the width to Date, until Author is at its minimum.
+    // Date keeps its width and follows, until Author is at its minimum.
     const author = page.getByRole('separator', { name: 'Resize Author column' });
     const box = (await author.boundingBox())!;
     const y = box.y + box.height / 2;
@@ -1074,6 +1120,9 @@ test.describe('resizable columns', () => {
   test('Branch/Tag widened in a wide window keeps its width after the window narrows (no snap-back)', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 700 });
     await page.goto(openUrl(fixtures.basic));
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+    // Layout settled (the handle at its default edge) before the drag's start point is measured.
+    await expect(page.getByRole('separator', { name: 'Resize Branch / Tag column' })).toHaveAttribute('aria-valuenow', '200');
     const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
     const box = (await handle.boundingBox())!;
     const y = box.y + box.height / 2;

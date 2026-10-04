@@ -73,6 +73,11 @@ pub(crate) struct UndoIntent {
     /// "Undo the stopped cherry-pick?" was confirmed: its changes are discarded.
     pub(crate) confirm_discard: bool,
     // --- end 3B T2 ---
+    // --- UX Y ---
+    /// An older entry, undone from the Undo dropdown out of order (`journal::history`): it needs
+    /// no Redo; its undo is a new entry that takes its place in the stack.
+    pub(crate) out_of_order: bool,
+    // --- end UX Y ---
 }
 
 // --- 3B T2 fix round 1 (D) ---
@@ -157,6 +162,10 @@ impl UndoIntent {
         // asks, never refuses ("Undo anyway" is sometimes exactly what's wanted).
         let snapshot_restore = self.entry.undo == UndoKind::Restore || (self.entry.undo == UndoKind::Stash && self.snapshot().is_some());
         if snapshot_restore {
+            // UX Y: out of order, the plan checked HEAD path by path (`out_of_order_check`).
+            if self.out_of_order {
+                return Ok(None);
+            }
             // HEAD's commit (a commit on the branch moves it), or its branch. Restore never moves
             // HEAD: it stays where it is now, and the files are restored over it (2B final I1).
             // A branch switch is shown by branch, so the prompt never reads "at X, not X".
@@ -209,7 +218,7 @@ impl UndoIntent {
             Direction::Undo => j.undo_top().map(|e| e.id),
             Direction::Redo => j.redo_top().map(|e| e.id),
         };
-        if top != Some(self.entry.id) || !matches!(self.head_moved(head), Ok(None)) {
+        if (!self.out_of_order && top != Some(self.entry.id)) || !matches!(self.head_moved(head), Ok(None)) {
             return Ok(true);
         }
         if self.snapshot().is_some_and(|s| !snapshot::exists(root, s)) {
@@ -390,9 +399,10 @@ impl WriteIntent for UndoIntent {
         format!("{} {}", self.verb(), self.entry.label)
     }
 
-    /// Not an entry of its own: it moves one between the stacks (§5.4).
+    /// Not an entry of its own: it moves one between the stacks (§5.4). UX Y: an out-of-order
+    /// undo is one (its `before` is the entry's `after`, and the reverse), so it can be undone.
     fn undo(&self) -> Option<UndoKind> {
-        None
+        self.out_of_order.then_some(self.entry.undo)
     }
 
     /// `git switch` runs post-checkout.
@@ -412,6 +422,10 @@ impl WriteIntent for UndoIntent {
     /// Restore on `dirty ∩ P`.
     async fn plan(&self, pre: &crate::write::Pre<'_>) -> Result<crate::write::Plan, GbError> {
         use crate::journal::autostash::{AutostashRule, AutostashSpec};
+        // UX Y: every refusal of an out-of-order undo comes here, before anything is written.
+        if self.out_of_order {
+            self.out_of_order_check(pre).await?;
+        }
         if self.changes_nothing(pre.api, pre.root, &pre.before.head)? {
             return Ok(crate::write::Plan::default());
         }
@@ -487,7 +501,10 @@ impl WriteIntent for UndoIntent {
                     if let Some(p) = unmerged.iter().find(|p| s.paths.contains(*p)) {
                         return Err(GbError::new(GbErrorKind::InProgress, format!("{p} has merge conflicts: resolve conflicts first")));
                     }
+                    // UX Y: out of order, a change to P is refused (`out_of_order_check`, and again
+                    // just before the restore), never stashed: only what's in the way is.
                     let mut paths = match self.left() {
+                        _ if self.out_of_order => Vec::new(),
                         Some(left) => crate::write::precheck::changed_since(&pre.api.cli, pre.root, left).await?,
                         None => s.paths.clone(),
                     };
@@ -573,15 +590,31 @@ impl WriteIntent for UndoIntent {
             },
             // --- end 2C T7 ---
         };
-        Ok(crate::write::Plan { autostash: spec, ..Default::default() })
+        // UX Y review 2: an out-of-order restore's entry snapshots P first, as any destructive
+        // write does: its `before` is its own objects.
+        let snapshot = match (&self.entry.before, &self.entry.after) {
+            (Some(b), Some(a)) if self.out_of_order && self.entry.undo == UndoKind::Restore => {
+                let paths: Vec<String> = b.paths.iter().chain(&a.paths).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+                let untracked = untracked_files(pre.api, pre.root, &paths).await?;
+                Some((paths, untracked))
+            }
+            _ => None,
+        };
+        Ok(crate::write::Plan { autostash: spec, snapshot })
     }
 
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<UndoOutcome, GbError> {
         let store = cx.api.journal(cx.root)?;
         let (id, now) = (self.entry.id, cx.api.now());
         // Expiry is checked before every undo (§5.1); this entry must still be on top.
+        // UX Y: out of order, it must still be independent of everything after it (its own new
+        // entry, written ahead, aside), and unchanged.
+        let own = cx.entry().map(|(_, own)| own);
         let top = store.update(|j| {
             j.expire(now);
+            if self.out_of_order {
+                return j.out_of_order(id, own).ok().filter(|e| **e == self.entry).map(|e| e.id);
+            }
             match self.dir {
                 Direction::Undo => j.undo_top().map(|e| e.id),
                 Direction::Redo => j.redo_top().map(|e| e.id),
@@ -642,7 +675,23 @@ impl WriteIntent for UndoIntent {
             moved.push(m);
         }
         if !moved.is_empty() {
+            // UX Y: out of order, nothing is undone "anyway" (the plan refused already).
+            if self.out_of_order {
+                return Err(GbError::stale(format!("{} moved since {}; it can't be undone out of order", short_ref(&moved[0].name), self.entry.label)));
+            }
             return Ok(UndoOutcome::Moved { label: self.entry.label.clone(), refs: moved });
+        }
+        // UX Y: the new entry's `before` is its own snapshot of P, taken at step 4 (the plan's), so
+        // a crash leaves a Restore banner. Review 5: P is checked again just before the restore
+        // (an editor's autosave since the plan is refused, with nothing changed); review 1: from
+        // there on the worktree may change, so a failure or a Stop keeps the entry.
+        if self.out_of_order && self.entry.undo == UndoKind::Restore {
+            if let Some(after) = &self.entry.after
+                && let Some(p) = crate::write::precheck::changed_since(&cx.api.cli, cx.root, after).await?.first()
+            {
+                return Err(GbError::stale(format!("{p} changed since {}; it can't be undone out of order", self.entry.label)));
+            }
+            cx.partial = true;
         }
         // "Stage all & commit": the index first, so a refusal changes nothing; if the ref move
         // then fails, it's read back (as Rewind does).
@@ -689,7 +738,34 @@ impl WriteIntent for UndoIntent {
         }
         // --- 2C T1: config replay, the note ---
         // Every kind replays the entry's `branch.<name>.*` changes (Deviation 10).
+        if self.out_of_order {
+            let back = self.entry.config.iter().map(|c| crate::journal::ConfigChange { key: c.key.clone(), old: c.new.clone(), new: c.old.clone() }).collect();
+            cx.record_config(back)?;
+        }
         crate::write::config::apply(cx, &self.entry.config, self.dir == Direction::Undo).await?;
+        // UX Y: the undone entry leaves the stack (no Redo); its undo's entry takes its place, so
+        // the entries after it stay Undo's, in order. The Redo stack stays when every redo entry
+        // is independent of it (review 7). That entry's `after` is a fresh snapshot of P (review
+        // 2: its objects are its own, with its own lifetime).
+        if self.out_of_order {
+            cx.keep_redo = store.update(|j| {
+                let keep = j.redo_survives(&self.entry);
+                if let Some(at) = j.undo.iter().position(|e| e.id == id) {
+                    j.undo.remove(at);
+                    if let Some(n) = own.and_then(|own| j.undo.iter().position(|e| e.id == own)) {
+                        let e = j.undo.remove(n);
+                        j.undo.insert(at.min(j.undo.len()), e);
+                    }
+                }
+                keep
+            })?;
+            if let Some(p) = &cx.snapshot {
+                let paths = p.paths.clone();
+                let untracked = untracked_files(cx.api, cx.root, &paths).await?;
+                cx.after = Some(snapshot::create(&cx.snapshots(), &self.label(), &paths, &untracked).await?);
+            }
+            return Ok(UndoOutcome::Done { label: self.entry.label.clone(), note: self.entry.note.clone() });
+        }
         // 3B T2 fix round 1 (F): an undone stopped pick has no `after` to redo to: it goes.
         let gone = self.stopped_pick().is_some();
         store.update(|j| {
@@ -714,8 +790,117 @@ pub(crate) async fn undo_or_redo(api: &Api, repo: u32, worktree: &str, dir: Dire
         Direction::Redo => journal.redo_top(),
     };
     let entry = top.filter(|e| e.id == entry).cloned().ok_or_else(|| GbError::stale("The undo history changed; refreshed"))?;
-    run_write(api, repo, worktree, Expect::default(), UndoIntent { dir, entry, confirm, autostash_ok, without_index, confirm_discard }).await
+    run_write(api, repo, worktree, Expect::default(), UndoIntent { dir, entry, confirm, autostash_ok, without_index, confirm_discard, out_of_order: false }).await
 }
+
+// --- UX Y: out-of-order undo ---
+/// Why an out-of-order undo is refused: the history changed (Stale), or a later action depends
+/// on it (the dropdown's reason).
+fn dependent(why: String) -> GbError {
+    if why.starts_with("The undo history changed") { GbError::stale(why) } else { GbError::new(GbErrorKind::InvalidInput, why) }
+}
+
+/// The untracked files among `paths` themselves (a folder standing at one of them doesn't list
+/// its files: what's in the way is the autostash's). A read.
+async fn untracked_files(api: &Api, root: &std::path::Path, paths: &[String]) -> Result<Vec<String>, GbError> {
+    let mut found = crate::write::precheck::untracked_among(&api.cli, root, paths).await?;
+    found.retain(|u| paths.contains(u));
+    Ok(found)
+}
+
+/// `git config --local --get-all <key>`: its values, in order (unset: none). A read.
+async fn config_values(api: &Api, root: &std::path::Path, key: &str) -> Result<Vec<String>, GbError> {
+    match api.cli.run(GitInvocation::new(root, ["config", "--local", "--null", "--get-all", key])).await {
+        Ok(out) => Ok(out.stdout.split(|b| *b == 0).filter(|v| !v.is_empty()).map(|v| String::from_utf8_lossy(v).into_owned()).collect()),
+        Err(e) if e.stderr.as_deref().is_some_and(|s| s.trim().is_empty()) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+impl UndoIntent {
+    /// The out-of-order undo's CAS (refuse rather than guess), under the write lock and before
+    /// anything is written: the entry is still independent of every later one and unchanged, and
+    /// what it changed is still as it left it: its paths as its `after` snapshot holds them (index
+    /// and worktree), its refs and config keys at their new values, HEAD where it left it. A
+    /// branch it moves mustn't be checked out in another worktree, nor deleted while checked out.
+    async fn out_of_order_check(&self, pre: &crate::write::Pre<'_>) -> Result<(), GbError> {
+        let e = &self.entry;
+        let mut j = pre.api.journal(pre.root)?.load()?;
+        j.expire(pre.api.now());
+        let stored = j.out_of_order(e.id, None).map_err(dependent)?;
+        if stored != e {
+            return Err(GbError::stale("The undo history changed; refreshed"));
+        }
+        for s in [&e.before, &e.after].into_iter().flatten() {
+            if !snapshot::exists(pre.root, s) {
+                return Err(GbError::new(GbErrorKind::NotFound, format!("Undo information for {} is missing: git has garbage-collected it.", e.label)));
+            }
+        }
+        let changed = |what: &str| GbError::stale(format!("{what} changed since {}; it can't be undone out of order", e.label));
+        // HEAD may have moved since (a later commit of other files): its tree must hold each of
+        // the entry's paths as it did, as the snapshot's index entries were taken against it.
+        if e.undo == UndoKind::Restore && pre.before.head.oid != e.head_after.oid {
+            let (Some(then), Some(now)) = (e.head_after.oid.as_deref(), pre.before.head.oid.as_deref()) else { return Err(changed("HEAD")) };
+            let repo = gix::open(pre.root).map_err(gix_err)?;
+            let id = |s: &str| gix::ObjectId::from_hex(s.as_bytes()).map_err(|_| changed("HEAD"));
+            let moved = crate::write::precheck::tree_diff_paths(&repo, id(then)?, id(now)?)?;
+            let paths: std::collections::BTreeSet<&str> = e.after.iter().chain(&e.before).flat_map(|s| s.paths.iter().map(String::as_str)).collect();
+            let moved: std::collections::BTreeSet<&str> = moved.iter().map(String::as_str).collect();
+            if let Some(p) = crate::journal::history::first_overlap(&paths, &moved) {
+                return Err(GbError::stale(format!("HEAD changed {p} since {}; it can't be undone out of order", e.label)));
+            }
+        }
+        if let Some(after) = &e.after
+            && let Some(p) = crate::write::precheck::changed_since(&pre.api.cli, pre.root, after).await?.first()
+        {
+            return Err(changed(p));
+        }
+        {
+            let repo = gix::open(pre.root).map_err(gix_err)?;
+            for m in &e.refs {
+                if read_ref(&repo, &m.name)? != m.new {
+                    return Err(changed(short_ref(&m.name)));
+                }
+            }
+        }
+        for c in &e.config {
+            if config_values(pre.api, pre.root, &c.key).await? != c.new {
+                return Err(changed(&c.key));
+            }
+        }
+        let branches: Vec<&RefMove> = e.refs.iter().filter(|m| m.name.starts_with("refs/heads/")).collect();
+        if !branches.is_empty() {
+            let here = pre.root.canonicalize().unwrap_or_else(|_| pre.root.to_path_buf());
+            let trees = crate::worktree::list_worktrees(&pre.api.cli, pre.root).await?;
+            for m in branches {
+                let name = short_ref(&m.name);
+                for w in trees.iter().filter(|w| w.branch.as_deref() == Some(m.name.as_str())) {
+                    if w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != here {
+                        return Err(GbError::new(GbErrorKind::InvalidInput, format!("{name} is checked out in {}", w.path.display())));
+                    }
+                    if m.old.is_none() {
+                        return Err(GbError::new(GbErrorKind::InvalidInput, format!("{name} is checked out: switch away from it to undo {}", e.label)));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The Undo dropdown's rows (UX Y): undoes `entry` out of order, when it's independent of every
+/// later entry. The newest one is the toolbar's own Undo.
+pub(crate) async fn undo_out_of_order(api: &Api, repo: u32, worktree: &str, entry: u64, autostash_ok: bool) -> Result<WriteResult<UndoOutcome>, GbError> {
+    let h = api.handle(repo)?;
+    let root = api.worktree_dir(&h, worktree).await?;
+    let journal = api.journal(&root)?.load()?;
+    if journal.undo_top().map(|e| e.id) == Some(entry) {
+        return undo_or_redo(api, repo, worktree, Direction::Undo, entry, BTreeMap::new(), autostash_ok, false, false).await;
+    }
+    let found = journal.out_of_order(entry, None).map_err(dependent)?.clone();
+    run_write(api, repo, worktree, Expect::default(), UndoIntent { dir: Direction::Undo, entry: found, confirm: BTreeMap::new(), autostash_ok, without_index: false, confirm_discard: false, out_of_order: true }).await
+}
+// --- end UX Y ---
 
 #[cfg(test)]
 mod tests {
@@ -1399,4 +1584,379 @@ mod tests {
         assert_eq!(r.git(&["show", "stash@{0}:notes/a.txt"]), "staged\nunstaged edit", "the unstaged half");
     }
     // --- end 2C repo-safety ---
+
+    // --- UX Y: out-of-order undo ---
+    async fn undo_entry(api: &Api, id: u32, r: &TestRepo, entry: u64) -> Result<serde_json::Value, GbError> {
+        api.dispatch(Request::UndoEntry { repo: id, worktree: wt(r), entry, confirm_autostash: None }).await
+    }
+
+    async fn save(api: &Api, id: u32, r: &TestRepo, path: &str, text: &str) -> u64 {
+        let base = crate::blob::worktree_id(&std::fs::read(r.path().join(path)).unwrap());
+        let res = api.dispatch(Request::WriteWorktreeFile { repo: id, worktree: wt(r), path: path.into(), text: text.into(), base }).await.unwrap();
+        res["journal"]["undo"]["entry"].as_u64().unwrap()
+    }
+
+    fn read(r: &TestRepo, path: &str) -> String {
+        std::fs::read_to_string(r.path().join(path)).unwrap()
+    }
+
+    /// The dropdown's rows (`journalHistory`).
+    async fn history(api: &Api, id: u32, r: &TestRepo) -> serde_json::Value {
+        api.dispatch(Request::JournalHistory { repo: id, worktree: wt(r) }).await.unwrap()
+    }
+
+    /// Y.3: discard A, edit B, undo the discard from the dropdown: A is back, B's edit stays,
+    /// and Undo then undoes B's save. The out-of-order undo is an entry of its own, in the
+    /// discard's place: undoing it discards A again.
+    #[tokio::test]
+    async fn undoing_an_older_discard_keeps_a_later_edit_and_undo_order() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "dirty A\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        let b_before = read(&r, "file_1.txt");
+        let saved = save(&api, id, &r, "file_1.txt", "edited B\n").await;
+        let s = history(&api, id, &r).await;
+        let rows = s.as_array().unwrap();
+        assert_eq!(rows.len(), 2, "{s}");
+        assert_eq!((rows[0]["entry"].as_u64(), rows[1]["entry"].as_u64()), (Some(saved), Some(discard)));
+        assert!(rows[1]["blocked"].is_null(), "independent: {s}");
+        assert_eq!(rows[1]["touched"], serde_json::json!(["file_0.txt"]));
+        let res = undo_entry(&api, id, &r, discard).await.unwrap();
+        assert_eq!(res["outcome"], serde_json::json!({"status": "done", "label": "discard file_0.txt"}));
+        assert_eq!(read(&r, "file_0.txt"), "dirty A\n", "A is back");
+        assert_eq!(read(&r, "file_1.txt"), "edited B\n", "B's edit is intact");
+        assert_eq!(res["journal"]["undo"]["entry"].as_u64(), Some(saved), "Undo is B's save");
+        assert!(res["journal"]["redo"].is_null(), "no Redo for it");
+        let rows = history(&api, id, &r).await.as_array().unwrap().clone();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1]["label"], "undo discard file_0.txt", "its undo took the discard's place");
+        assert!(done(&undo(&api, id, &r, saved, None).await.unwrap()));
+        assert_eq!(read(&r, "file_1.txt"), b_before, "Undo undid B's save");
+        assert_eq!(read(&r, "file_0.txt"), "dirty A\n");
+        let s = journal(&api, id, &r).await;
+        let back = s["undo"]["entry"].as_u64().unwrap();
+        assert_eq!(s["undo"]["label"], "undo discard file_0.txt");
+        assert!(done(&undo(&api, id, &r, back, None).await.unwrap()));
+        assert_eq!(r.git(&["status", "--porcelain"]), "", "undoing the undo discards A again");
+    }
+
+    /// A later action on the same path: refused before anything is written, with the reason.
+    #[tokio::test]
+    async fn a_dependent_entry_is_refused_and_nothing_changes() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "first\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let first = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        r.write("file_0.txt", "second\n");
+        op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        assert_eq!(history(&api, id, &r).await[1]["blocked"], "A later action changed file_0.txt");
+        let (state, file) = (RepoState::capture(&r), std::fs::read(api.journal(&r.path().canonicalize().unwrap()).unwrap().path()).unwrap());
+        let err = undo_entry(&api, id, &r, first).await.unwrap_err();
+        assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::InvalidInput, "A later action changed file_0.txt"));
+        assert_eq!(RepoState::capture(&r), state, "nothing changed");
+        assert_eq!(std::fs::read(api.journal(&r.path().canonicalize().unwrap()).unwrap().path()).unwrap(), file, "the journal is untouched");
+    }
+
+    /// The CAS at run time: a path the entry restores changed since (outside GitBolt), though
+    /// the journal still calls it independent: refused, nothing changed, nothing stashed.
+    #[tokio::test]
+    async fn a_cas_mismatch_at_run_time_refuses_with_nothing_changed() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "dirty A\n");
+        r.write("file_1.txt", "dirty B\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let a = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_1.txt".into()] }).await;
+        r.write("file_0.txt", "edited outside\n");
+        let s = history(&api, id, &r).await;
+        assert!(s[1]["blocked"].is_null(), "the journal can't see it: {s}");
+        let jpath = api.journal(&r.path().canonicalize().unwrap()).unwrap().path().to_path_buf();
+        let (state, file) = (RepoState::capture(&r), std::fs::read(&jpath).unwrap());
+        let err = undo_entry(&api, id, &r, a).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Stale);
+        assert_eq!(err.message, "file_0.txt changed since discard file_0.txt; it can't be undone out of order");
+        assert_eq!(RepoState::capture(&r), state, "nothing changed");
+        assert_eq!(std::fs::read(&jpath).unwrap(), file, "no entry was written");
+        // Staged since, the file as the discard left it (the index side of the CAS): refused too.
+        r.write("file_0.txt", "staged\n");
+        r.git(&["add", "file_0.txt"]);
+        r.git(&["restore", "--source=HEAD", "--worktree", "--", "file_0.txt"]);
+        let state = RepoState::capture(&r);
+        let err = undo_entry(&api, id, &r, a).await.unwrap_err();
+        assert_eq!(err.message, "file_0.txt changed since discard file_0.txt; it can't be undone out of order");
+        assert_eq!(RepoState::capture(&r), state, "nothing changed");
+        r.git(&["reset", "-q"]);
+        assert!(done(&undo_entry(&api, id, &r, a).await.unwrap()), "back as the discard left it: allowed");
+        assert_eq!(read(&r, "file_0.txt"), "dirty A\n");
+    }
+
+    /// A ref move out of order: a branch created earlier is deleted past a later discard, as an
+    /// entry of its own; a branch moved since refuses.
+    #[tokio::test]
+    async fn a_created_branch_undoes_out_of_order_and_refuses_once_moved() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "dirty\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let (c1, c2) = (r.git(&["rev-parse", "HEAD~1"]), r.git(&["rev-parse", "HEAD"]));
+        let x = op(&api, id, &r, expect_ref("refs/heads/x", None), TestIntent::MoveRef { name: "refs/heads/x".into(), to: Some(c1.clone()) }).await;
+        let y = op(&api, id, &r, expect_ref("refs/heads/y", None), TestIntent::MoveRef { name: "refs/heads/y".into(), to: Some(c1.clone()) }).await;
+        op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        r.git(&["update-ref", "refs/heads/y", &c2]);
+        let state = RepoState::capture(&r);
+        let err = undo_entry(&api, id, &r, y).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Stale);
+        assert!(err.message.starts_with("y changed since ") && err.message.ends_with("; it can't be undone out of order"), "{}", err.message);
+        assert_eq!(RepoState::capture(&r), state);
+        assert!(done(&undo_entry(&api, id, &r, x).await.unwrap()));
+        assert!(r.try_git(&["rev-parse", "--verify", "-q", "refs/heads/x"]).is_err(), "x is gone");
+        assert_eq!(r.git(&["status", "--porcelain"]), "", "the discard stays");
+        let s = history(&api, id, &r).await;
+        let n = s.as_array().unwrap().iter().find(|row| row["label"].as_str().is_some_and(|l| l.starts_with("undo "))).unwrap()["entry"].as_u64().unwrap();
+        assert!(done(&undo_entry(&api, id, &r, n).await.unwrap()), "its undo is undoable in turn");
+        assert_eq!(r.git(&["rev-parse", "refs/heads/x"]), c1);
+    }
+
+    /// A commit touches only the paths it changed: a discard of another file stays undoable past
+    /// it (over the moved HEAD), and the commit is left as it is; a commit of the discarded file
+    /// makes the discard dependent.
+    #[tokio::test]
+    async fn a_commit_of_other_files_leaves_an_earlier_discard_undoable() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "dirty A\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        r.write("file_1.txt", "B committed\n");
+        r.git(&["add", "file_1.txt"]);
+        op(&api, id, &r, Expect::default(), TestIntent::Commit { message: "Commit B".into(), allow_empty: false }).await;
+        let tip = r.git(&["rev-parse", "HEAD"]);
+        let s = history(&api, id, &r).await;
+        assert_eq!(s[0]["touched"], serde_json::json!(["file_1.txt", "main"]), "{s}");
+        assert!(s[1]["blocked"].is_null(), "{s}");
+        assert!(done(&undo_entry(&api, id, &r, discard).await.unwrap()));
+        assert_eq!(read(&r, "file_0.txt"), "dirty A\n", "A is back");
+        assert_eq!(r.git(&["rev-parse", "HEAD"]), tip, "B's commit is intact");
+        assert_eq!(r.git(&["show", "HEAD:file_1.txt"]), "B committed");
+        assert_eq!(r.git(&["status", "--porcelain"]), " M file_0.txt");
+    }
+
+    #[tokio::test]
+    async fn a_commit_of_the_discarded_file_makes_the_discard_dependent() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "dirty A\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        r.write("file_0.txt", "A again\n");
+        r.git(&["add", "file_0.txt"]);
+        op(&api, id, &r, Expect::default(), TestIntent::Commit { message: "Commit A".into(), allow_empty: false }).await;
+        let state = RepoState::capture(&r);
+        let err = undo_entry(&api, id, &r, discard).await.unwrap_err();
+        assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::InvalidInput, "A later action changed file_0.txt"));
+        assert_eq!(RepoState::capture(&r), state, "nothing changed");
+    }
+
+    /// An outside commit of the discarded file (no entry of its own): the HEAD check, path by
+    /// path, refuses.
+    #[tokio::test]
+    async fn an_outside_commit_of_the_file_refuses_at_run_time() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "dirty A\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        op(&api, id, &r, expect_ref("refs/heads/y", None), TestIntent::MoveRef { name: "refs/heads/y".into(), to: Some(r.git(&["rev-parse", "HEAD"])) }).await;
+        // HEAD's file_0.txt changes; its index entry and file stay as the discard left them.
+        r.write("file_0.txt", "committed outside\n");
+        r.git(&["commit", "-q", "-am", "outside"]);
+        r.git(&["reset", "-q", "HEAD~1", "--", "file_0.txt"]);
+        r.git(&["checkout", "--", "file_0.txt"]);
+        let state = RepoState::capture(&r);
+        let err = undo_entry(&api, id, &r, discard).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Stale);
+        assert!(err.message.contains("file_0.txt"), "{}", err.message);
+        assert_eq!(RepoState::capture(&r), state, "nothing changed");
+    }
+
+    /// Review 2: the new entry snapshots P itself, before and after the restore: its objects are
+    /// its own, so a 13-day-old target gives an entry that lives its full 14 days.
+    #[tokio::test]
+    async fn the_undos_entry_has_its_own_snapshots_and_a_full_term() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("file_0.txt", "dirty A\n");
+        let now = Arc::new(AtomicI64::new(1_000));
+        let clock = now.clone();
+        let api = api(data.path()).with_clock(Arc::new(move || clock.load(Ordering::SeqCst)));
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        let store = api.journal(&r.path().canonicalize().unwrap()).unwrap();
+        let original = store.load().unwrap().undo[0].clone();
+        let day = 24 * 60 * 60 * 1000;
+        let undone_at = 1_000 + 13 * day;
+        now.store(undone_at, Ordering::SeqCst);
+        let y = op(&api, id, &r, expect_ref("refs/heads/y", None), TestIntent::MoveRef { name: "refs/heads/y".into(), to: Some(r.git(&["rev-parse", "HEAD"])) }).await;
+        assert!(done(&undo_entry(&api, id, &r, discard).await.unwrap()));
+        let n = store.load().unwrap().undo[0].clone();
+        assert_eq!(n.at_ms, undone_at);
+        let (nb, na) = (n.before.clone().unwrap(), n.after.clone().unwrap());
+        assert_ne!(Some(&nb.commit), original.after.as_ref().map(|s| &s.commit), "its own before");
+        assert_ne!(Some(&na.commit), original.before.as_ref().map(|s| &s.commit), "its own after");
+        assert_eq!(r.git(&["show", &format!("{}:file_0.txt", na.commit)]), "dirty A", "after: A as restored");
+        // Past the target's term: it stays, and stays undoable.
+        now.store(1_000 + crate::journal::SNAPSHOT_TTL_MS + 1, Ordering::SeqCst);
+        let rows: Vec<u64> = history(&api, id, &r).await.as_array().unwrap().iter().map(|r| r["entry"].as_u64().unwrap()).collect();
+        assert_eq!(rows, vec![y, n.id], "its full term");
+        // Past its own: gone.
+        now.store(undone_at + crate::journal::SNAPSHOT_TTL_MS + 1, Ordering::SeqCst);
+        let rows: Vec<u64> = history(&api, id, &r).await.as_array().unwrap().iter().map(|r| r["entry"].as_u64().unwrap()).collect();
+        assert_eq!(rows, vec![y]);
+    }
+
+    /// Review 1: the restore fails between its worktree step and its index step (a smudge filter
+    /// takes the index lock): the worktree changed, so the new entry stays, undoable, with its
+    /// `before`; the undone entry is still there.
+    #[tokio::test]
+    async fn a_restore_failing_midway_keeps_the_new_entry() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write(".gitattributes", "t.lock filter=locker\n");
+        r.write("t.lock", "base\n");
+        r.git(&["add", ".gitattributes", "t.lock"]);
+        r.git(&["commit", "-q", "-m", "lock filter"]);
+        r.write("t.lock", "dirty\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["t.lock".into()] }).await;
+        op(&api, id, &r, expect_ref("refs/heads/y", None), TestIntent::MoveRef { name: "refs/heads/y".into(), to: Some(r.git(&["rev-parse", "HEAD"])) }).await;
+        let lock = r.path().join(".git/index.lock");
+        r.git(&["config", "filter.locker.smudge", &format!("sh -c 'touch {}; cat'", lock.display())]);
+        r.git(&["config", "filter.locker.clean", "cat"]);
+        assert!(undo_entry(&api, id, &r, discard).await.is_err(), "update-index meets the lock");
+        assert!(lock.exists());
+        std::fs::remove_file(&lock).unwrap();
+        assert_eq!(read(&r, "t.lock"), "dirty\n", "the worktree step ran");
+        let j = api.journal(&r.path().canonicalize().unwrap()).unwrap().load().unwrap();
+        let n = j.undo.iter().find(|e| e.label == "undo discard t.lock").expect("the new entry stays");
+        assert_eq!(n.state, crate::journal::EntryState::Done);
+        assert!(n.before.is_some(), "its before: P as it was");
+        assert!(j.undo.iter().any(|e| e.id == discard), "the undone entry stays too");
+        assert_eq!(j.undo_top().map(|e| e.id), Some(n.id), "Undo puts P back");
+    }
+
+    /// Review 1: a Stop while the autostash is restored, after the restore ran: the write fails,
+    /// and the new entry (in the undone one's place) stays.
+    #[tokio::test]
+    async fn a_stop_restoring_the_autostash_keeps_the_new_entry() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write(".gitattributes", "notes filter=toucher\n*.slow filter=slow\n");
+        r.write("t.slow", "slow\n");
+        r.git(&["add", ".gitattributes", "t.slow"]);
+        r.git(&["commit", "-q", "-m", "filters"]);
+        r.write("notes", "my notes\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["notes".into()] }).await;
+        op(&api, id, &r, expect_ref("refs/heads/y", None), TestIntent::MoveRef { name: "refs/heads/y".into(), to: Some(r.git(&["rev-parse", "HEAD"])) }).await;
+        r.write("notes/a.txt", "in the way\n");
+        // The restore of `notes` makes t.slow stat-dirty; the stash apply's index refresh then
+        // cleans it, and its clean filter hangs when `git stash apply` runs it, until the Stop.
+        let t_slow = r.path().join("t.slow");
+        r.git(&["config", "filter.toucher.smudge", &format!("touch -d 2001-01-01 {}; cat", t_slow.display())]);
+        r.git(&["config", "filter.toucher.clean", "cat"]);
+        r.git(&["config", "filter.slow.clean", "case \"$(tr '\\0' ' ' < /proc/$PPID/cmdline)\" in *\"stash apply\"*) sleep 30;; esac; cat"]);
+        r.git(&["config", "filter.slow.smudge", "cat"]);
+        let mut rx = api.subscribe();
+        let stop = async {
+            loop {
+                let Ok(ev) = tokio::time::timeout(std::time::Duration::from_secs(20), rx.recv()).await else { return };
+                if let Ok(crate::events::AppEvent::OpStashStep { op, step: Some(crate::events::StashStep::Restoring), .. }) = ev {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    api.dispatch(Request::CancelOp { op }).await.unwrap();
+                    return;
+                }
+            }
+        };
+        let started = std::time::Instant::now();
+        let run = api.dispatch(Request::UndoEntry { repo: id, worktree: wt(&r), entry: discard, confirm_autostash: Some(true) });
+        let (res, ()) = tokio::join!(run, stop);
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "stopped: {res:?}");
+        let err = res.unwrap_err();
+        assert!(err.message.starts_with("Stopped restoring your changes"), "{}", err.message);
+        assert_eq!(read(&r, "notes"), "my notes\n", "the restore ran");
+        let j = api.journal(&r.path().canonicalize().unwrap()).unwrap().load().unwrap();
+        assert!(j.undo.iter().any(|e| e.label == "undo discard notes" && e.before.is_some()), "the new entry stays: {:?}", j.undo.iter().map(|e| &e.label).collect::<Vec<_>>());
+        assert!(!j.undo.iter().any(|e| e.id == discard), "in the undone entry's place");
+        assert!(r.git(&["stash", "list", "--format=%gs"]).contains("autostash before undo discard notes"), "the stash is kept");
+    }
+
+    /// Review 5: a change to P between the plan's check and the restore (an editor's autosave)
+    /// is refused just before the restore, with nothing changed.
+    #[tokio::test]
+    async fn a_change_after_the_plan_is_refused_before_the_restore() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write(".gitattributes", "b.flt filter=autosave\n");
+        r.write("b.flt", "b\n");
+        r.git(&["add", ".gitattributes", "b.flt"]);
+        r.git(&["commit", "-q", "-m", "autosave filter"]);
+        r.write("a.txt", "dirty a\n");
+        r.git(&["add", "a.txt"]);
+        r.git(&["commit", "-q", "-m", "a"]);
+        r.write("a.txt", "dirty a, edited\n");
+        r.write("b.flt", "dirty b\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["a.txt".into(), "b.flt".into()] }).await;
+        op(&api, id, &r, expect_ref("refs/heads/y", None), TestIntent::MoveRef { name: "refs/heads/y".into(), to: Some(r.git(&["rev-parse", "HEAD"])) }).await;
+        // Hashing b.flt (after a.txt, in P's order) "autosaves" a.txt: the plan's check has read
+        // a.txt by then; the check before the restore hasn't.
+        let a = r.path().join("a.txt");
+        r.git(&["config", "filter.autosave.clean", &format!("sh -c 'printf autosaved > {}; cat'", a.display())]);
+        r.git(&["config", "filter.autosave.smudge", "cat"]);
+        let jfile = api.journal(&r.path().canonicalize().unwrap()).unwrap();
+        let err = undo_entry(&api, id, &r, discard).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::Stale);
+        assert_eq!(err.message, "a.txt changed since discard 2 files; it can't be undone out of order");
+        assert_eq!(read(&r, "a.txt"), "autosaved", "the autosave stands");
+        assert_eq!(read(&r, "b.flt"), "b\n", "nothing restored");
+        let j = jfile.load().unwrap();
+        assert!(j.undo.iter().any(|e| e.id == discard) && !j.undo.iter().any(|e| e.label.starts_with("undo ")), "no new entry");
+        assert_eq!(r.git(&["stash", "list"]), "");
+    }
+
+    /// Review 7: A, B, C, Undo C, then A from the dropdown: C's Redo stays (independent).
+    #[tokio::test]
+    async fn an_out_of_order_undo_keeps_an_independent_redo() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        for f in ["file_0.txt", "file_1.txt", "new.txt"] {
+            r.write(f, &format!("dirty {f}\n"));
+        }
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let a = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
+        op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_1.txt".into()] }).await;
+        let c = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["new.txt".into()] }).await;
+        assert!(done(&undo(&api, id, &r, c, None).await.unwrap()));
+        let res = undo_entry(&api, id, &r, a).await.unwrap();
+        assert_eq!(res["journal"]["redo"]["entry"].as_u64(), Some(c), "C's Redo stays: {res}");
+        assert!(done(&redo(&api, id, &r, c).await.unwrap()));
+        assert!(!r.path().join("new.txt").exists(), "C redone");
+        assert_eq!(read(&r, "file_0.txt"), "dirty file_0.txt\n");
+    }
+    // --- end UX Y ---
 }

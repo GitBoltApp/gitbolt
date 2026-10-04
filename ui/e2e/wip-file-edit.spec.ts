@@ -49,6 +49,25 @@ test.describe('UX round 2 G: editing a working-tree file in File View', () => {
     await expect.poll(() => notes(repo)).toBe(before);
   });
 
+  test('UX5 V: Ctrl+Z after a save undoes the typed edit in the editor', async ({ page }) => {
+    const repo = await openWip(page);
+    const before = notes(repo);
+    await fileRow(page, 'staged', 'notes.txt').click();
+    await page.getByRole('button', { name: 'File View' }).click();
+    await expect(fileView(page)).toContainText('note 01', { timeout: 15_000 });
+    await fileView(page).click();
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.type('Q');
+    await page.keyboard.press('Control+s');
+    await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
+    await expect.poll(() => notes(repo)).toBe(`Q${before}`);
+    await page.keyboard.press('Control+z');
+    await expect(fileView(page)).not.toContainText('Qnote 01');
+    await expect(page.getByLabel('Unsaved changes')).toBeVisible();
+    await page.keyboard.press('Control+s');
+    await expect.poll(() => notes(repo)).toBe(before);
+  });
+
   test('View all files on the WIP opens an unchanged tracked file, editable (what a clean Edit stop needs)', async ({ page }) => {
     const repo = freshFixture('wip_staging');
     writeFileSync(join(repo, 'clean.txt'), 'clean 1\nclean 2\n');

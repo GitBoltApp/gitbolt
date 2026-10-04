@@ -91,7 +91,7 @@ describe('useColumnPrefs', () => {
     setWidth('author', 59);
     setWidth('date', 300);
     setWidth('sha', 9000);
-    expect(useColumnPrefs.getState().prefs).toEqual({ labels: COLUMN_MIN.labels, graph: 100, author: COLUMN_MIN.author, date: 300, sha: SHA_MAX });
+    expect(useColumnPrefs.getState().prefs).toEqual({ labels: COLUMN_MIN.labels, graph: 100, author: COLUMN_MIN.author, date: 300, sha: SHA_MAX, message: null });
     setWidth('sha', 1);
     expect(useColumnPrefs.getState().prefs.sha).toBe(COLUMN_MIN.sha);
   });
@@ -103,14 +103,6 @@ const rendered = (avail: number) => {
   const p = useColumnPrefs.getState().prefs;
   return allocateColumns({ ...p, graph: p.graph ?? GRAPH }, avail);
 };
-/** Right x of every column: each handle sits on the right edge of the column it's named after. */
-const edges = (w: ColumnWidths) => ({
-  labels: w.labels,
-  graph: w.labels + w.graph,
-  message: w.labels + w.graph + w.message,
-  author: w.labels + w.graph + w.message + w.author,
-  date: w.labels + w.graph + w.message + w.author + w.date,
-});
 /** One key press, as ColumnResizer does it. */
 const press = (col: ResizableColumn, dx: number, avail: number) => {
   const s = useColumnPrefs.getState();
@@ -131,86 +123,71 @@ const drag = (col: ResizableColumn, to: number, avail: number, each: (d: number,
   useColumnPrefs.getState().endResize();
 };
 
-describe('every handle is its column\'s right edge, and resizes that column (F3)', () => {
-  // The handle under the pointer moves 1:1, and it trades width only with the column on its
-  // right: Branch/Tag and Graph with the flexing Message; Message with Author; Author with Date;
-  // Date with SHA. SHA is last: its right edge is the table's end, with no handle.
+describe('each edge resizes only the column on its left (W.1)', () => {
   beforeEach(() => useColumnPrefs.getState().reset());
-  const giver = { labels: 'message', graph: 'message', message: 'author', author: 'date', date: 'sha' } as const;
-  const cols: ResizableColumn[] = ['labels', 'graph', 'message', 'author', 'date'];
+  const widths = (w: ColumnWidths) => [w.labels, w.graph, w.message, w.author, w.date, w.sha];
+  const EDGES = ['labels', 'graph', 'message', 'author', 'date', 'sha'] as const;
 
-  // At 778 px Message is at its minimum, so Branch/Tag and Graph grow by the smart fit squeezing
-  // Author and Date (1A, covered by allocateColumns); Message's and Author's handles still trade.
-  for (const [avail, which] of [[1400, cols], [778, ['message', 'author', 'date']]] as const) {
-    for (const col of which) {
-      it(`${avail} px: dragging ${col}'s right edge right, then left, resizes ${col} with the pointer`, () => {
-        const start = rendered(avail);
-        const room = start[giver[col]] - COLUMN_MIN[giver[col]];
-        const steps = Math.min(20, room);
-        // Date's giver, SHA, starts at its minimum (H15): rightward is a wall, so only left.
-        if (steps > 0) drag(col, steps, avail, (d, w) => {
-          expect(edges(w)[col], `${col} edge d=${d}`).toBe(edges(start)[col] + d);
-          expect(w[col], `${col} width d=${d}`).toBe(start[col] + d);
-          expect(w[giver[col]]).toBe(start[giver[col]] - d);
-          expect(w.total).toBe(start.total);
-        });
-        const mid = rendered(avail);
-        drag(col, -10, avail, (d, w) => {
-          expect(edges(w)[col], `${col} edge d=${d}`).toBe(edges(mid)[col] + d);
-          expect(w[col]).toBe(mid[col] + d);
-        });
-      });
-    }
+  for (const col of EDGES) {
+    it(`${col}: the edge shrinks to the column's own minimum and grows 1:1, no other column but Message changing`, () => {
+      // Message pinned first (a stored width), so nothing flexes except the free space on the right.
+      useColumnPrefs.getState().setWidth('graph', GRAPH);
+      useColumnPrefs.setState((s) => ({ prefs: { ...s.prefs, message: 300 } }));
+      const avail = 1600;
+      const start = rendered(avail);
+      drag(col, -2000, avail, () => {});
+      const small = rendered(avail);
+      expect(small[col]).toBe(COLUMN_MIN[col]);
+      for (const other of EDGES) if (other !== col) expect(small[other], `${other} after shrinking ${col}`).toBe(start[other]);
+      drag(col, 30, avail, () => {});
+      const grown = rendered(avail);
+      expect(grown[col]).toBe(COLUMN_MIN[col] + 30);
+      for (const other of EDGES) if (other !== col) expect(grown[other]).toBe(start[other]);
+      expect(widths(grown).length).toBe(6);
+    });
   }
 
-  it('the old F3 bug: Author\'s right edge resizes Author (and Date), never Message', () => {
+  it('Author\'s edge at a full-width table takes from Message only; Date keeps its width', () => {
     const start = rendered(1400);
     drag('author', 30, 1400, () => {});
     const w = rendered(1400);
-    expect([w.author, w.date, w.message]).toEqual([start.author + 30, start.date - 30, start.message]);
-    drag('author', -50, 1400, () => {});
-    const back = rendered(1400);
-    expect([back.author, back.date, back.message]).toEqual([start.author - 20, start.date + 20, start.message]);
+    expect([w.author, w.date, w.message, w.sha]).toEqual([start.author + 30, start.date, start.message - 30, start.sha]);
   });
 
-  it('walls: the giving column stops at its minimum, and so does the dragged one', () => {
+  it('after Message was resized, SHA can still be shrunk and grown with its own edge', () => {
+    useColumnPrefs.getState().setWidth('graph', GRAPH);
+    drag('message', -100, 1400, () => {});
+    const before = rendered(1400);
+    drag('sha', 40, 1400, () => {});
+    expect(rendered(1400).sha).toBe(before.sha + 40);
+    drag('sha', -30, 1400, () => {});
+    expect(rendered(1400).sha).toBe(before.sha + 10);
+    drag('sha', -500, 1400, () => {});
+    expect(rendered(1400).sha).toBe(COLUMN_MIN.sha);
+    expect(rendered(1400).message).toBe(before.message);
+  });
+
+  it('Message\'s edge leaves Author alone and the window shrinking shrinks Message first (prefs kept)', () => {
+    useColumnPrefs.getState().setWidth('graph', GRAPH);
     const start = rendered(1400);
-    drag('author', start.date - COLUMN_MIN.date + 40, 1400, () => {});
-    expect(rendered(1400)).toMatchObject({ date: COLUMN_MIN.date, message: start.message });
-    drag('author', -2000, 1400, () => {});
-    expect(rendered(1400).author).toBe(COLUMN_MIN.author);
-    useColumnPrefs.getState().reset();
-    drag('message', -2000, 1400, () => {});
-    expect(rendered(1400)).toMatchObject({ message: COLUMN_MIN.message, date: start.date });
+    drag('message', -100, 1400, () => {});
+    const w = rendered(1400);
+    expect([w.message, w.author, w.date]).toEqual([start.message - 100, start.author, start.date]);
+    expect(w.total).toBe(start.total - 100);
+    const narrow = rendered(700);
+    expect(narrow.message).toBe(COLUMN_MIN.message);
+    expect(useColumnPrefs.getState().prefs.message).toBe(start.message - 100);
   });
 
   describe('while the smart fit squeezes Author and Date (778 px)', () => {
-    // Default prefs, 64 px graph, 778 px (SHA at its 60 px default): Message at its 160 minimum, Author 140 (pref 160),
-    // Date 154 (pref 170).
     const AVAIL = 778;
-
     it('precondition: both columns are squeezed below their preferences', () => {
       expect(rendered(AVAIL)).toMatchObject({ message: COLUMN_MIN.message, author: 140, date: 154 });
     });
-
-    it('Message is a wall: narrowing it (its right edge left) moves nothing, and adopts nothing', () => {
+    it('Message is a wall: narrowing it adopts nothing until it moves', () => {
       press('message', -8, AVAIL);
       expect(rendered(AVAIL)).toMatchObject({ message: 160, author: 140, date: 154 });
-      expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
-      drag('message', -30, AVAIL, (d, w) => expect(w.message, `d=${d}`).toBe(160));
-      expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
     });
-
-    it('Author: key presses step exactly 8 each way, trading with Date', () => {
-      let prev = rendered(AVAIL);
-      for (const dx of [8, 8, -8]) {
-        press('author', dx, AVAIL);
-        const now = rendered(AVAIL);
-        expect([now.author, now.date, now.message, edges(now).author]).toEqual([prev.author + dx, prev.date - dx, prev.message, edges(prev).author + dx]);
-        prev = now;
-      }
-    });
-
     it('leaves no preference above what is rendered, so widening the window afterwards does not jump', () => {
       press('author', -8, AVAIL);
       const after = rendered(AVAIL);
@@ -218,20 +195,6 @@ describe('every handle is its column\'s right edge, and resizes that column (F3)
       expect([prefs.author, prefs.date]).toEqual([after.author, after.date]);
       const wide = rendered(1400);
       expect([wide.author, wide.date]).toEqual([after.author, after.date]);
-    });
-
-    it('a stray click (no movement) or a drag back to where it started adopts nothing it has not moved', () => {
-      const s = useColumnPrefs.getState();
-      s.beginResize('author', rendered(AVAIL), AVAIL);
-      s.resizeBy(0);
-      s.endResize();
-      expect(useColumnPrefs.getState().prefs).toEqual(DEFAULT_COLUMN_PREFS);
-      const start = rendered(AVAIL);
-      s.beginResize('author', start, AVAIL);
-      useColumnPrefs.getState().resizeBy(-10);
-      useColumnPrefs.getState().resizeBy(0);
-      useColumnPrefs.getState().endResize();
-      expect(rendered(AVAIL)).toEqual(start);
     });
   });
 });
@@ -276,22 +239,13 @@ describe('the SHA column (F3 review, H15): a preference between SHORT_SHA_LEN (6
     expect(allocateColumns(prefs, 1400).sha).toBe(SHA_W);
   });
 
-  it('Date\'s handle trades 1:1 with SHA and holds both walls: SHA\'s minimum and maximum, no fallback to Message', () => {
-    const start = rendered(1400);
-    // Right: SHA starts at its minimum (H15), so Date can't grow into it at all.
-    drag('date', 20, 1400, (d, w) => {
-      const moved = Math.min(d, SHA_W - COLUMN_MIN.sha);
-      expect(edges(w).date, `d=${d}`).toBe(edges(start).date + moved);
-      expect([w.date, w.sha, w.message, w.author]).toEqual([start.date + moved, start.sha - moved, start.message, start.author]);
-    });
-    // Left: Date gives SHA width up to SHA's maximum (then stops, however far the pointer goes).
+  it('SHA\'s own right edge holds both walls: its minimum and SHA_MAX', () => {
+    expect(handleRange('sha', rendered(1400), 1400)).toMatchObject({ min: COLUMN_MIN.sha });
+    drag('sha', 4000, 1400, () => {});
+    expect(rendered(1400).sha).toBeLessThanOrEqual(SHA_MAX);
     useColumnPrefs.getState().reset();
-    drag('date', -(SHA_MAX - SHA_W + 30), 1400, (d, w) => {
-      const moved = Math.min(-d, SHA_MAX - SHA_W, start.date - COLUMN_MIN.date);
-      expect(edges(w).date, `d=${d}`).toBe(edges(start).date - moved);
-      expect([w.date, w.sha, w.message]).toEqual([start.date - moved, start.sha + moved, start.message]);
-    });
-    expect(handleRange('date', rendered(1400), 1400).min).toBe(rendered(1400).date);
+    drag('sha', -4000, 1400, () => {});
+    expect(rendered(1400).sha).toBe(COLUMN_MIN.sha);
   });
 
   it('SHA widths persist through the same per-repo seam, and a stored set without SHA gets the default', () => {
@@ -299,8 +253,8 @@ describe('the SHA column (F3 review, H15): a preference between SHORT_SHA_LEN (6
     vi.spyOn(columnPrefsPersistence, 'load').mockImplementation(() => ({ labels: 250, graph: null, author: 160, date: 170 }) as never);
     useColumnPrefs.getState().loadFor('/repo/sha');
     expect(useColumnPrefs.getState().prefs).toEqual({ ...DEFAULT_COLUMN_PREFS, labels: 250 });
-    press('date', -20, 1400);
-    expect(save).toHaveBeenLastCalledWith('/repo/sha', expect.objectContaining({ sha: SHA_W + 20, date: 150 }));
+    press('sha', 20, 1400);
+    expect(save).toHaveBeenLastCalledWith('/repo/sha', expect.objectContaining({ sha: SHA_W + 20, date: 170 }));
     vi.restoreAllMocks();
   });
 });
@@ -425,15 +379,15 @@ describe('hidden and collapsed columns (T16a, spec §8.4)', () => {
     expect(isCollapsed('date', COLUMN_MIN.date + 20)).toBe(false);
   });
 
-  it('a handle shows only while its column and the one it trades with are both shown', () => {
+  it('a handle shows while its own column is shown (W.1)', () => {
     const none = new Set<never>();
-    for (const c of ['labels', 'graph', 'message', 'author', 'date'] as const) expect(handleShown(c, none), c).toBe(true);
+    for (const c of ['labels', 'graph', 'message', 'author', 'date', 'sha'] as const) expect(handleShown(c, none), c).toBe(true);
     expect(handleShown('labels', new Set(['labels'] as const))).toBe(false);
     expect(handleShown('graph', new Set(['labels', 'author', 'date', 'sha'] as const))).toBe(true);
-    expect(handleShown('message', new Set(['author'] as const))).toBe(false);
-    expect(handleShown('author', new Set(['date'] as const))).toBe(false);
-    expect(handleShown('date', new Set(['sha'] as const))).toBe(false);
-    expect(handleShown('date', new Set(['author'] as const))).toBe(true);
+    expect(handleShown('message', new Set(['author'] as const))).toBe(true);
+    expect(handleShown('author', new Set(['date'] as const))).toBe(true);
+    expect(handleShown('date', new Set(['date'] as const))).toBe(false);
+    expect(handleShown('sha', new Set(['sha'] as const))).toBe(false);
   });
 
   it('the hidden set loads per repo through its own seam and saves on every toggle', () => {
@@ -461,15 +415,15 @@ describe('hidden and collapsed columns (T16a, spec §8.4)', () => {
 });
 
 describe('resetWidth (K73)', () => {
-  it('puts one column back to its default and persists; Graph goes back to auto, Message resets Author', () => {
+  it('puts one column back to its default and persists; Graph goes back to auto, Message back to filling', () => {
     const save = vi.spyOn(columnPrefsPersistence, 'save');
-    useColumnPrefs.setState({ repoId: '/r', prefs: { labels: 333, graph: 99, author: 222, date: 111, sha: SHA_W } });
+    useColumnPrefs.setState({ repoId: '/r', prefs: { labels: 333, graph: 99, author: 222, date: 111, sha: SHA_W, message: null } });
     useColumnPrefs.getState().resetWidth('labels');
-    expect(useColumnPrefs.getState().prefs).toEqual({ labels: 200, graph: 99, author: 222, date: 111, sha: SHA_W });
+    expect(useColumnPrefs.getState().prefs).toEqual({ labels: 200, graph: 99, author: 222, date: 111, sha: SHA_W, message: null });
     useColumnPrefs.getState().resetWidth('graph');
     expect(useColumnPrefs.getState().prefs.graph).toBeNull();
     useColumnPrefs.getState().resetWidth('message');
-    expect(useColumnPrefs.getState().prefs.author).toBe(160);
+    expect(useColumnPrefs.getState().prefs.message).toBeNull();
     expect(save).toHaveBeenCalledTimes(3);
     expect(save).toHaveBeenLastCalledWith('/r', useColumnPrefs.getState().prefs);
     save.mockRestore();

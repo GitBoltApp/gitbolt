@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useActivityUi } from '../app/activityLog';
 import { recentCalls, subscribeCalls } from './calls';
@@ -13,7 +14,11 @@ function Overlay() {
   useEffect(() => startFrameMeter((w) => setFrames((p) => (Math.round(p.fps) === Math.round(w.fps) && p.dropped === w.dropped ? p : w))), []);
   return (
     <section aria-label="Performance" className="perf-overlay">
-      <div className="perf-fps">{frames.fps.toFixed(0)} fps · {frames.dropped} dropped</div>
+      <div className="perf-head">
+        <span className="perf-fps">{frames.fps.toFixed(0)} fps · {frames.dropped} dropped</span>
+        {/* The one control that takes clicks: the rest of the overlay lets them pass through. */}
+        <button type="button" className="icon-button perf-close" aria-label="Close performance overlay" onClick={() => useActivityUi.getState().togglePerfOverlay()}><X size={12} /></button>
+      </div>
       <table>
         <tbody>
           {calls.slice().reverse().map((c, i) => (
@@ -26,7 +31,7 @@ function Overlay() {
 }
 
 /** The perf overlay (the Debug modal's toggle, spec §16.2): fps over the last 500 ms and the last
- * 50 backend calls with their times. Clicks pass through it. Mounted only while it's on, so the
+ * 50 backend calls with their times. Clicks pass through it, except its Close (top right). Mounted only while it's on, so the
  * frame loop costs nothing otherwise. */
 export function PerfOverlay() {
   const on = useActivityUi((s) => s.perfOverlay);

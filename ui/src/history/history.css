@@ -25,6 +25,7 @@
 /* 3A T5: the Blame toggle and gutter (spec #3 §3.10). */
 .blame-toggle { all: unset; cursor: pointer; padding: 2px 8px; border-radius: 4px; color: var(--text-secondary); }
 .blame-toggle[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
+.blame-toggle[aria-disabled="true"] { cursor: default; opacity: 0.5; }
 .blame-toggle:focus-visible { outline: 1px solid var(--focus-outline); }
 .file-margin { overflow: hidden; }
 .blame-gutter { position: absolute; inset: 0; }

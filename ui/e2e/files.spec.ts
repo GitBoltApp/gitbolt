@@ -213,8 +213,8 @@ test.describe('file list and diff takeover', () => {
     const opened = await page.evaluate(() => window.__gbMenuLatency!);
     expect(opened).toBeGreaterThanOrEqual(0);
     expect(opened).toBeLessThan(2000);
-    // 3A (spec #3 §3.8, §4.2): Restore from <sha6> first, File history and Blame last.
-    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText([`Restore from ${sha.slice(0, 6)}`, 'Copy path', 'Forge link', 'Open in', 'View', 'File history', 'Blame']);
+    // 3A (spec #3 §3.8, §4.2): Restore from this commit first, File history and Blame, then Create file… (UX round 3 O.1).
+    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Restore from this commit', 'Copy path', 'Forge link', 'Open in', 'View', 'File history', 'Blame', 'Create file…']);
     await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
     // Every row's tooltip shows at once.
     await menu.getByRole('menuitem', { name: /^Copy path/ }).hover();

@@ -1,0 +1,9 @@
+/* UX round 3 O.1: the inline "new file path" input, on top of a file list (CreateFileInput.tsx),
+   styled as the branch name's (branchInput.css): blue when focused, red when the path can't be
+   used; the hint or the error below it, in the flow (the rows move down). */
+.create-file-inline { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: column; gap: 3px; padding: 4px 8px; background: var(--panel-bg1); }
+.create-file-input { box-sizing: border-box; width: 100%; height: calc(var(--file-row-h) - 2px); padding: 0 6px; font: inherit; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 3px; outline: none; user-select: text; }
+.create-file-input:focus { border-color: var(--blue); }
+.create-file-input.invalid { border-color: var(--red); }
+.create-file-note { font-size: 11px; color: var(--text-normal); }
+.create-file-note.error { color: var(--red); }

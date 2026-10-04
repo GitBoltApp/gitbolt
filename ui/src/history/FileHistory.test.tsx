@@ -57,7 +57,9 @@ describe('File History (spec #3 §4.2)', () => {
     expect(options.map((o) => o.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false']);
     expect(fileHistory).toHaveBeenCalledWith(1, '/r', 'src/story.txt', null, 0, 200);
     expect(await screen.findByTestId('file-view')).toHaveTextContent('src/story.txt at a1');
-    expect(screen.getByText('Added in c3')).toBeInTheDocument();
+    // "Added in" names the commit with a copyable hash, like the rows' (UX: the user's follow-up).
+    expect(screen.getByText(/^Added in/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^Copy c3/ })).toHaveLength(2); // the row's and Added in's
     expect(screen.getByText('End of history')).toBeInTheDocument();
   });
 
@@ -164,7 +166,7 @@ describe('File History (spec #3 §4.2)', () => {
     expect(useToast.getState().message).toBe('Not in the loaded history');
   });
 
-  it('a binary shows File View\'s hex panes at the commit, not a placeholder, and has no Blame (lane K)', async () => {
+  it('a binary shows File View\'s hex panes at the commit, not a placeholder, and its Blame toggle is disabled, in place (lane K)', async () => {
     fileHistory.mockResolvedValue({ rows: [row('a1', 'M', 'data/blob.bin'), row('b2', 'M', 'data/pic.png'), row('c3', 'A')], more: false });
     const store = createRepoViewStore(1, '/r', graph, fakeServices({ contents }));
     // Opened as Blame (the diff toolbar's button): the binary still shows, with no blame over it.
@@ -174,11 +176,12 @@ describe('File History (spec #3 §4.2)', () => {
     expect(hex).toHaveTextContent('data/blob.bin hex at a1');
     expect(screen.queryByText(/no text to show/)).toBeNull();
     expect(screen.queryByTestId('blame-stub')).toBeNull();
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Blame' })).toBeNull());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Blame' })).toHaveAttribute('aria-disabled', 'true'));
+    expect(screen.getByRole('button', { name: 'Blame' })).toHaveAttribute('aria-pressed', 'false');
     // An image's dumps load on their own (HexBody), in File View too.
     fireEvent.click(screen.getAllByRole('option')[1]);
     expect(await screen.findByTestId('hex-body')).toHaveAttribute('data-mode', 'file');
-    expect(screen.queryByRole('button', { name: 'Blame' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Blame' })).toHaveAttribute('aria-disabled', 'true');
     // A text file: the file, the toggle and the blame are back.
     fireEvent.click(screen.getAllByRole('option')[2]);
     expect(await screen.findByTestId('file-view')).toBeInTheDocument();

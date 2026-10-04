@@ -53,9 +53,9 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     const menu = await commitMenu(page, 'Fix typo');
     // Spec #2 §14: 2C's Commit-group Reset row (placed early, right after the sync rows) and its
     // Branch group (Checkout ▸, Create worktree from ▸, Create branch here) sit above 1C's rows.
-    // Spec #3 §4.3: the Commit group gains Revert, Create tag here and Interactive rebase from here
+    // Spec #3 §4.3: the Commit group gains Revert, Create tag here and Interactive rebase after this commit
     // (no Cherry-pick: Fix typo is already on main).
-    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Revert this commit', 'Create tag here', 'Interactive rebase from here', 'Copy SHA', 'Copy message', 'Compare with working tree']);
+    await expect(menu.locator('[data-depth="0"] > [role="menuitem"] .ctx-label')).toHaveText(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Revert this commit', 'Create tag here', 'Interactive rebase after this commit', 'Copy SHA', 'Copy message', 'Compare with working tree']);
     // The latency budgets (cold tripwire, warm median) live in menu-perf.spec.ts, so a loaded
     // machine can't fail this functional test. Here: the opening was timed, and wasn't absurd.
     const opened = await page.evaluate(() => window.__gbMenuLatency!);
@@ -102,12 +102,12 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
     // UX round 1: only what can apply. feature/login is merged into main (behind it): only the
     // fast-forward, no merge or rebase; nothing to push. Spec #3 §4.3: the interactive rebase
     // still applies (main's commits above feature/login), and the Commit group gains Revert,
-    // Create tag here and Interactive rebase from here (no Cherry-pick: it's on main).
+    // Create tag here and Interactive rebase after this commit (no Cherry-pick: it's on main).
     const expected = [
       'Pull', 'Set upstream', 'Reset main to this commit',
       'Fast-forward feature/login to main', 'Interactive rebase main onto feature/login',
       'Checkout', 'Create worktree from', 'Create branch here',
-      'Revert this commit', 'Create tag here', 'Interactive rebase from here',
+      'Revert this commit', 'Create tag here', 'Interactive rebase after this commit',
       'Rename feature/login', 'Delete',
       'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD',
     ];
@@ -168,8 +168,8 @@ test.describe('forge rows (a GitLab remote, fixtures.details)', () => {
 
   test("MR references in the message get one Open row each, the issue reference none; Forge link on a plain commit: no known branch, so the label copies the permalink and there's no ⎇", async ({ page }) => {
     const menu = await commitMenu(page, 'Rename guide and update assets');
-    // Spec #3 §4.3's Commit group (Revert, Create tag here, Interactive rebase from here) sits above the Forge rows.
-    await expect(rowLabels(menu)).resolves.toEqual(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Revert this commit', 'Create tag here', 'Interactive rebase from here', 'Open !42', 'Open group/sub/project!7', 'Copy SHA', 'Copy message', 'Forge link', 'Compare with working tree']);
+    // Spec #3 §4.3's Commit group (Revert, Create tag here, Interactive rebase after this commit) sits above the Forge rows.
+    await expect(rowLabels(menu)).resolves.toEqual(['Reset main to this commit', 'Checkout', 'Create worktree from', 'Create branch here', 'Revert this commit', 'Create tag here', 'Interactive rebase after this commit', 'Open !42', 'Open group/sub/project!7', 'Copy SHA', 'Copy message', 'Forge link', 'Compare with working tree']);
     await expect(menu.getByRole('menuitem', { name: 'Open #12' })).toHaveCount(0);
     const forge = action(menu, 'Forge link');
     const sha = await row(page, 'Rename guide and update assets').getByTestId('sha').textContent();

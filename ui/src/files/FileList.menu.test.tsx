@@ -79,7 +79,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     expect(row('src/app.php')).toHaveAttribute('data-context', 'true');
     expect(row('src/app.php')).toHaveAttribute('aria-selected', 'false');
     // No forge row: the repo has no GitLab/GitHub remote.
-    expect(topLabels()).toEqual(['Copy path', 'Open in', 'View']);
+    expect(topLabels()).toEqual(['Copy path', 'Open in', 'View', 'Create file…']);
     // H32: every opening re-detects (the backend caches briefly).
     await waitFor(() => expect(listOpeners).toHaveBeenCalledTimes(2));
   });
@@ -101,7 +101,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     setup(undefined, GITLAB);
     await act(async () => {});
     fireEvent.contextMenu(row('src/app.php'));
-    expect(topLabels()).toEqual(['Copy path', 'Forge link', 'Open in', 'View']);
+    expect(topLabels()).toEqual(['Copy path', 'Forge link', 'Open in', 'View', 'Create file…']);
     const permalink = `https://gitlab.example.com/acme/shop/-/blob/${COMMIT}/src/app.php`;
     fireEvent.click(screen.getByText('Forge link'));
     await waitFor(() => expect(copyText).toHaveBeenLastCalledWith(permalink));
@@ -139,7 +139,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     setup({ kind: 'wip', worktree: '/wt/feature', staged: false });
     await act(async () => {});
     fireEvent.contextMenu(row('README.md'));
-    expect(topLabels()).toEqual(['Copy path', 'Open in', 'View']);
+    expect(topLabels()).toEqual(['Copy path', 'Open in', 'View', 'Create file…']);
     fireEvent.click(screen.getByRole('button', { name: /absolute path/ }));
     await waitFor(() => expect(copyText).toHaveBeenLastCalledWith('/wt/feature/README.md'));
     fireEvent.contextMenu(row('README.md'));
@@ -191,7 +191,7 @@ describe('the file row context menu (spec §7 file menu)', () => {
     const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 4, clientY: 4 });
     act(() => { folder.dispatchEvent(e); });
     expect(e.defaultPrevented).toBe(true);
-    expect(topLabels()).toEqual(['Copy path', 'Open in']);
+    expect(topLabels()).toEqual(['Copy path', 'Open in', 'Create file…']);
     fireEvent.click(screen.getByRole('button', { name: /absolute path/ }));
     await waitFor(() => expect(copyText).toHaveBeenLastCalledWith('/wt/feature/src'));
     fireEvent.contextMenu(folder);

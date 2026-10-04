@@ -136,7 +136,8 @@ vi.mock('./setup', () => {
       findRun: vi.fn(async () => {}),
       getAction: vi.fn((id: string) => (id === 'actions.find' ? { run: ed.findRun } : null)),
       updateOptions: vi.fn(),
-      setModel: vi.fn(),
+      setModel: vi.fn((m: never) => { ed.model = m; }),
+      getValue: () => (ed.model as { text?: string } | null)?.text ?? '',
       layout: vi.fn(),
       // Shift+F10 / the ContextMenu key (fix round 1, item 1): keyed by the keybinding number, as
       // the real `addCommand` is (there is no separate "get the handler for this key" API).
@@ -673,6 +674,17 @@ describe('MonacoHost', () => {
     expect((file.firstElementChild as HTMLElement).style.visibility).toBe('hidden');
     await expect(host.showFile(next)).rejects.toThrow('grammar failed');
     expect((file.firstElementChild as HTMLElement).style.visibility).toBe('');
+  });
+
+  it('showFile of the same path and text keeps the model (a save keeps the undo history)', async () => {
+    const { host, state } = await fresh();
+    host.attachFile(document.createElement('div'));
+    const req = { path: 'a.txt', text: 'one\n', language: 'plaintext', wordWrap: false };
+    await host.showFile(req);
+    await host.showFile(req);
+    expect(state.files[0].setModel).toHaveBeenCalledTimes(1);
+    await host.showFile({ ...req, text: 'two\n' });
+    expect(state.files[0].setModel).toHaveBeenCalledTimes(2);
   });
 
   it('re-attached for another file, File View hides the one it still holds until the new one is shown (H6)', async () => {

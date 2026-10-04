@@ -50,8 +50,9 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
     </HoverTooltip>
   );
   if (!b.menu?.length && !b.picker && !b.menuRows) return button;
-  const openCaret = (el: HTMLElement) => {
+  const openCaret = async (el: HTMLElement) => {
     if (b.picker) return setPickerAt(el);
+    if (b.prepareMenu) await b.prepareMenu(ctx);
     const build = () => (b.menuRows ? b.menuRows(ctx) : menuRows(b.menu ?? []));
     openMenuAt(el, build(), undefined, build, `${label} options`);
   };
@@ -59,7 +60,7 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
     <div className="tb-split">
       {button}
       <HoverTooltip content={`${label} options`}>
-        <button type="button" className="tb-btn tb-caret" aria-label={`${label} options`} aria-haspopup="menu" onClick={(e) => openCaret(e.currentTarget)}>
+        <button type="button" className="tb-btn tb-caret" aria-label={`${label} options`} aria-haspopup="menu" onClick={(e) => { void openCaret(e.currentTarget); }}>
           <ChevronDown size={12} aria-hidden />
         </button>
       </HoverTooltip>

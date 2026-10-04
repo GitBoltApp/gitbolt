@@ -281,14 +281,14 @@ describe('graph.css text selection (J20)', () => {
 });
 
 describe('graph.css selected and hovered rows (H14)', () => {
-  const TEXT = ':is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"])';
+  const TEXT = ':is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"], [data-col="filler"])';
 
   it('the row itself gets no background: the chip and graph columns never turn blue', () => {
     expect(ruleBody('.graph-row:hover')).toBe('');
     expect(ruleBody('.graph-row[aria-selected="true"]')).not.toMatch(/background/);
   });
 
-  it('only the text columns (message, author, date, SHA) do, over the full row height', () => {
+  it('only the text columns (message, author, date, SHA) and the filler (W.2) do, over the full row height', () => {
     expect(ruleBody(`.graph-row:hover > ${TEXT}`)).toMatch(/background:\s*var\(--hover-row\)/);
     expect(ruleBody(`.graph-row[aria-selected="true"] > ${TEXT}`)).toMatch(/background:\s*var\(--selected-row\)/);
     const cells = ruleBody(`.graph-row > ${TEXT}`);

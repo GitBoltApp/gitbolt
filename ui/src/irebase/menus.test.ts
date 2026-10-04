@@ -43,25 +43,29 @@ describe('interactive rebase menu rows (spec #3 §4.3)', () => {
     expect(open).toHaveBeenCalledWith('t1', { branch: 'topic', base: 'origin/main' });
   });
 
-  it('a commit: "Interactive rebase from here" from its parent; hidden on merges, roots and other branches', () => {
+  it('a commit: "Interactive rebase after this commit" onto it (UX4 Q.5); hidden at HEAD and off HEAD\'s branch', () => {
     const [row] = act(fromHereRows(commit('c1'), env()));
-    expect(row.label).toBe('Interactive rebase from here');
+    expect(row.label).toBe('Interactive rebase after this commit');
     row.run();
-    expect(open).toHaveBeenLastCalledWith('t1', { branch: 'topic', base: 'p1' });
-    expect(fromHereRows(commit('m'), env())).toEqual([]);
-    expect(fromHereRows(commit('root'), env())).toEqual([]);
+    expect(open).toHaveBeenLastCalledWith('t1', { branch: 'topic', base: 'c1' });
+    // A merge or a root is a base like any other.
+    act(fromHereRows(commit('m'), env()))[0].run();
+    expect(open).toHaveBeenLastCalledWith('t1', { branch: 'topic', base: 'm' });
+    act(fromHereRows(commit('root'), env()))[0].run();
+    expect(open).toHaveBeenLastCalledWith('t1', { branch: 'topic', base: 'root' });
+    expect(fromHereRows(commit('h'), env())).toEqual([]);
     expect(fromHereRows(commit('c1'), env({ isAncestor: () => false }))).toEqual([]);
     expect(act(fromHereRows(commit('c1'), env({ headBranch: null })))).toEqual([]);
     expect(act(fromHereRows(commit('c1'), env({ inProgress: 'merge' })))[0].disabledReason).toBe('Finish or abort the merge first');
   });
 
-  it('a selection: Squash with "Squash interactively…", and Interactive rebase from its oldest', () => {
-    const [sq] = act(squashRows(sel, env()));
-    expect(sq.label).toBe('Squash');
-    expect(sq.variants?.[0].label).toBe('Squash interactively…');
+  it('a selection: two Squash rows, plain and interactive, and Interactive rebase from its oldest', () => {
+    const [sq, sqi] = act(squashRows(sel, env()));
+    expect(sq.label).toBe('Squash 2 commits');
+    expect(sqi.label).toBe('Squash 2 commits interactively…');
     sq.run();
     expect(squash).toHaveBeenCalledWith('t1', 'topic', ['c2', 'c1'], 'p1', false);
-    sq.variants![0].run();
+    sqi.run();
     expect(squash).toHaveBeenLastCalledWith('t1', 'topic', ['c2', 'c1'], 'p1', true);
     act(selectionFromHereRows(sel, env()))[0].run();
     expect(open).toHaveBeenLastCalledWith('t1', { branch: 'topic', base: 'p1' });
@@ -81,8 +85,8 @@ describe('interactive rebase menu rows (spec #3 §4.3)', () => {
     const reason = (r: MenuRow[]) => act(r).map((x) => [x.label, x.disabledReason]);
     expect(reason(ontoRows(label('main'), rebasing))).toEqual([['Interactive rebase HEAD onto main', 'Finish or abort the rebase first']]);
     const inBranch = env({ headBranch: null, inProgress: 'rebase' });
-    expect(reason(fromHereRows(commit('c1'), inBranch))).toEqual([['Interactive rebase from here', 'Finish or abort the rebase first']]);
-    expect(reason(squashRows(sel, inBranch))).toEqual([['Squash', 'Finish or abort the rebase first']]);
+    expect(reason(fromHereRows(commit('c1'), inBranch))).toEqual([['Interactive rebase after this commit', 'Finish or abort the rebase first']]);
+    expect(reason(squashRows(sel, inBranch))).toEqual([['Squash 2 commits', 'Finish or abort the rebase first'], ['Squash 2 commits interactively…', 'Finish or abort the rebase first']]);
     expect(reason(selectionFromHereRows(sel, inBranch))).toEqual([['Interactive rebase from here', 'Finish or abort the rebase first']]);
   });
 

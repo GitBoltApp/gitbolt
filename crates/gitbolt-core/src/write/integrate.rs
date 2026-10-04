@@ -71,17 +71,12 @@ pub enum IntegrateOutcome {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         branch: Option<String>,
-        /// Fix round 2: a conflict stop: how many files' changes the abort discarded (fix round
-        /// 3: the conflicted files and the user's unstaged edits; not what git merged cleanly).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        discarded: Option<u32>,
     },
 }
 
 impl IntegrateOutcome {
     pub(crate) const UP_TO_DATE: IntegrateOutcome = IntegrateOutcome::UpToDate { warning: None };
-    pub(crate) const ABORTED: IntegrateOutcome = IntegrateOutcome::Aborted { stash: None, branch: None, discarded: None };
+    pub(crate) const ABORTED: IntegrateOutcome = IntegrateOutcome::Aborted { stash: None, branch: None };
     pub(crate) fn done(commits: u32, fast_forward: bool) -> IntegrateOutcome {
         IntegrateOutcome::Done { commits, fast_forward, warning: None, rewritten: None }
     }

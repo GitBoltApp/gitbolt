@@ -65,6 +65,27 @@ test.describe('fetch', () => {
     await expect(statusBar(page)).not.toContainText('Fetching…');
   });
 
+  // UX round 4, T.1: only the failing remote's sidebar row warns, until a fetch of it works.
+  test('a remote whose fetch failed shows a warning on its sidebar row until the next good fetch', async ({ page }) => {
+    const repo = freshFixture('basic');
+    const origin = join(dirname(repo), 'origin.git');
+    git(repo, 'remote', 'add', 'gone', origin);
+    git(repo, 'fetch', '-q', 'gone');
+    git(repo, 'remote', 'set-url', 'gone', join(dirname(repo), 'missing.git'));
+    await page.goto(openUrl(repo));
+    await expect(graph(page)).toBeVisible();
+    const sidebar = page.getByRole('tree', { name: 'Remote items' });
+    await expect(sidebar.getByRole('treeitem', { name: /gone/ })).toBeVisible();
+    await fetchButton(page).click();
+    const warn = sidebar.locator('[data-remote-fetch-warning="gone"]');
+    await expect(warn).toBeVisible({ timeout: 10_000 });
+    await expect(sidebar.locator('[data-remote-fetch-warning]')).toHaveCount(1);
+    await expect(warn).toHaveAttribute('aria-label', /^Last fetch failed: repository not found \(just now\)$/);
+    git(repo, 'remote', 'set-url', 'gone', origin);
+    await fetchButton(page).click();
+    await expect(warn).toHaveCount(0, { timeout: 10_000 });
+  });
+
   // The Fetch dropdown is the default picker now (spec #2 §12.1): picking runs nothing, so the
   // palette's "Fetch all" (`repo.fetch`) is the other way to fetch.
   test('Fetch all, from the palette, fetches too', async ({ page }) => {

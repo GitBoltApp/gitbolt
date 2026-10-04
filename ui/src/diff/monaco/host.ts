@@ -221,6 +221,7 @@ class Host implements MonacoHost {
   private diffPath = '';
   private diffIdentity: string | undefined;
   private fileIdentity: string | undefined;
+  private filePathShown: string | undefined;
   private filePath = '';
   private diffSeq = 0;
   private fileSeq = 0;
@@ -557,11 +558,14 @@ class Host implements MonacoHost {
     this.fileIdentity = req.identity;
     this.setFileEditable(false);
     ed.updateOptions({ ...fileViewOptions(this.fileWrap, this.menu === null, sticky(), fontSize()), ...this.margin?.options() });
-    const model = monaco.editor.createModel(req.text, lang);
-    ed.setModel(model);
+    // The same content we already show (a save's reload): keep the model, so Monaco's undo stack survives.
+    const same = this.fileModel && this.filePathShown === req.path && ed.getValue() === req.text && ed.getModel() === this.fileModel;
+    const model = same ? this.fileModel! : monaco.editor.createModel(req.text, lang);
+    if (!same) ed.setModel(model);
+    this.filePathShown = req.path;
     this.fileShown = { path: req.path, text: req.text };
     setHidden(this.fileEl, false);
-    this.fileModel?.dispose();
+    if (this.fileModel !== model) this.fileModel?.dispose();
     this.fileModel = model;
     if (this.keptView?.file && this.keptView.filePath === req.path) ed.restoreViewState(this.keptView.file);
     this.keptView = null;

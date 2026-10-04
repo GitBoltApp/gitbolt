@@ -72,6 +72,10 @@ pub struct LocalBranch {
     /// GitBolt rewrote it since its last push (a live rewrite mark, §12.3): Push forces with
     /// the lease recorded then when `push_behind` > 0.
     pub rewritten: Option<crate::write::rewrites::Rewritten>,
+    /// The upstream's short name when its branch name differs from this one's (UX round 3, M.1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub upstream_mismatch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -136,6 +140,10 @@ pub struct TagItem {
     pub target: String,
     #[ts(type = "number")]
     pub time: i64,
+    /// An annotated tag's message and tagger (UX round 3, M.2); absent on a lightweight tag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub annotation: Option<crate::payload::TagAnnotation>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -207,9 +215,10 @@ pub fn parse_track(s: &str) -> (u32, u32, bool) {
     (ahead, behind, false)
 }
 
-const FIELDS: [&str; 14] = [
+const FIELDS: [&str; 16] = [
     "%(refname)", "%(symref)", "%(objecttype)", "%(objectname)", "%(*objecttype)", "%(*objectname)", "%(upstream)",
     "%(upstream:track,nobracket)", "%(committerdate:unix)", "%(*committerdate:unix)", "%(subject)", "%(*subject)", "%(authorname)", "%(*authorname)",
+    "%(upstream:remotename)", "%(upstream:remoteref)",
 ];
 
 fn canonical(p: &Path) -> std::path::PathBuf {
@@ -276,6 +285,7 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
                 push_target: None,
                 push_behind: None,
                 rewritten: None,
+                upstream_mismatch: crate::refs::mismatched_upstream(name, f[14], f[15]),
                 target,
                 full_name: full,
             });
@@ -287,7 +297,9 @@ pub async fn sidebar(cli: &GitCli, repo: &gix::ThreadSafeRepository, workdir: &P
                 None => s.remotes.push(RemoteGroup { host: host_of(&remote), host_kind: host_kind_of(&remote), name: remote, branches: vec![branch], default_branch: None }),
             }
         } else if let Some(name) = full.strip_prefix("refs/tags/") {
-            s.tags.push(TagItem { name: name.into(), full_name: full.clone(), target, time: tip_time });
+            // An annotated tag (`objecttype` tag): its message, read in process and cached by object.
+            let annotation = if f[2] == "tag" { gix::ObjectId::from_hex(f[3].as_bytes()).ok().and_then(|id| crate::refs::read_tag(&local, id)).and_then(|t| t.annotation) } else { None };
+            s.tags.push(TagItem { name: name.into(), full_name: full.clone(), target, time: tip_time, annotation });
         }
     }
     // --- 3D T1: each remote's default branch (`for-each-ref` sorts `HEAD` before the branches) ---
@@ -484,6 +496,14 @@ mod tests {
         assert_eq!(s.tags[0].name, "v1.0");
         assert_eq!(s.tags[0].target, r.git(&["rev-parse", "v1.0^{commit}"]), "annotated tags peel to their commit");
         assert!(s.tags[0].time > 0);
+        // UX round 3, M.2 / M.1: the annotated tag's message; no mismatch on same-name upstreams.
+        assert_eq!(s.tags[0].annotation.as_ref().map(|a| a.message.as_str()), Some("v1.0"));
+        assert!(s.locals.iter().all(|b| b.upstream_mismatch.is_none()));
+        r.git(&["tag", "light", "main"]);
+        r.git(&["branch", "--set-upstream-to=origin/feature/login", "hotfix"]);
+        let s = sidebar(&cli(), &repo, &workdir).await.unwrap();
+        assert_eq!(s.tags.iter().find(|t| t.name == "light").unwrap().annotation, None);
+        assert_eq!(s.locals.iter().find(|b| b.name == "hotfix").unwrap().upstream_mismatch.as_deref(), Some("origin/feature/login"));
     }
 
     #[tokio::test]

@@ -284,6 +284,9 @@ pub(crate) struct WriteCx<'a> {
     /// The run may have changed the working tree before it failed: a failed write keeps its
     /// entry (and `before` snapshot) only then, or when a ref or HEAD moved.
     pub partial: bool,
+    /// UX Y review 7: finalizing this write's entry leaves the Redo stack (an out-of-order undo
+    /// independent of every redo entry).
+    pub keep_redo: bool,
     /// The intent changed the journal itself (undo, redo, banners): announce it.
     pub journal_changed: bool,
     // --- 2C T1 / 2D T1: the entry, the lock and holds travel with the write ---
@@ -1034,6 +1037,7 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
         snapshot: None,
         after: None,
         partial: false,
+        keep_redo: false, // UX Y
         journal_changed: false,
         journal: None,
         autostashed: false,
@@ -1220,6 +1224,7 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
     // A kept autostash isn't a reason to keep the entry: it has its own banner (`Journal::kept`).
     let unchanged_failure = result.is_err() && !unverified && moves.is_empty() && head_after == before.head && !cx.partial;
     let mut journal_changed = cx.journal_changed;
+    let keep_redo = cx.keep_redo; // UX Y review 7
     // UX G.2: a save on top of a save of the same file, with nothing changed in between, merges.
     let coalesce_into = match (&store, entry, &cx.snapshot, &after_snapshot) {
         (Some(s), Some(id), Some(before_snap), Some(_)) if intent.coalesces() && cx.paused.is_none() && !unverified => s.load().ok().and_then(|j| {
@@ -1234,6 +1239,18 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
                 });
             same.then_some(prev.id)
         }),
+        _ => None,
+    };
+    // UX Y: what a commit, checkout or stash changed beyond its snapshots, for the Undo
+    // dropdown's dependency check (read now, while the objects are at hand).
+    let tree_paths = match (&store, entry) {
+        (Some(s), Some(id)) if cx.paused.is_none() && !unverified && !unchanged_failure && (head_after != before.head || intent.undo() == Some(UndoKind::Stash)) => match s.load().ok().and_then(|j| j.undo.iter().find(|e| e.id == id).cloned()) {
+            Some(mut e) => {
+                e.head_after = head_after.clone();
+                crate::journal::history::tree_paths(&api.cli, root, &e).await
+            }
+            None => None,
+        },
         _ => None,
     };
     if let (Some(s), Some(id)) = (&store, entry) {
@@ -1262,6 +1279,7 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
                     e.refs = moves.clone();
                     e.after = after_snapshot;
                     e.owner = None;
+                    e.tree_paths = tree_paths; // UX Y
                     if unverified {
                         e.blocked = Some(crate::journal::UNVERIFIED.to_string());
                     }
@@ -1269,7 +1287,7 @@ async fn steps<I: WriteIntent>(api: &Api, h: &Arc<RepoHandle>, root: &Path, expe
                 if let Some(into) = coalesce_into {
                     return j.coalesce(id, into);
                 }
-                j.finalize(id)
+                j.finalize_with(id, keep_redo)
             }),
         };
         journal_changed |= finalized.unwrap_or(false);

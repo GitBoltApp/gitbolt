@@ -31,9 +31,11 @@
    and Graph columns keep their own look (the canvas brightens the selected row's band instead,
    draw.ts). The text cells are stretched to the full row height, their text centred by the line
    height, so the four backgrounds read as one full-height band. */
-.graph-row > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { align-self: stretch; line-height: var(--graph-row-h); }
-.graph-row:hover > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { background: var(--hover-row); }
-.graph-row[aria-selected="true"] > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"]) { background: var(--selected-row); }
+/* The filler (W.2) takes the leftover width of the row, so its highlights reach the panel's edge. */
+.graph-row > .col-filler, .graph-header-inner > .col-filler { flex: 1 1 0; min-width: 0; padding: 0; }
+.graph-row > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"], [data-col="filler"]) { align-self: stretch; line-height: var(--graph-row-h); }
+.graph-row:hover > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"], [data-col="filler"]) { background: var(--hover-row); }
+.graph-row[aria-selected="true"] > :is([data-col="message"], [data-col="author"], [data-col="date"], [data-col="sha"], [data-col="filler"]) { background: var(--selected-row); }
 /* The row a context menu is open for (UX round 2): a right-click doesn't select, so the row gets
    this temporary outline instead, across the whole row and above the canvas (z-index 2: under
    the hover-expanded chips and the inline editor), never taking the pointer. */

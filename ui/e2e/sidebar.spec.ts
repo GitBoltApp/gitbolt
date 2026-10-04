@@ -224,7 +224,7 @@ test.describe('sidebar item menus', () => {
     // Spec #2 §14: the Sync, Commit (Reset), Integrate, Branch and Manage groups come first. Only
     // what can apply (UX round 1): hotfix has no upstream (no Pull), is checked out in wt-hotfix
     // (no Fast-forward) and isn't on a remote, so it can't be deleted (no Delete). Spec #3 §4.3:
-    // Cherry-pick and Create tag here; no Revert or Interactive rebase from here (hotfix's tip
+    // Cherry-pick and Create tag here; no Revert or Interactive rebase after this commit (hotfix's tip
     // isn't on main), no Interactive rebase main onto hotfix (main is in its history).
     expect(await labels(page)).toEqual([
       'Push', 'Set upstream', 'Reset main to this commit',

@@ -6,6 +6,7 @@ import { historyStartOf } from './fromDiff';
 import type { FileHistoryArgs } from './model';
 import { FILE_HISTORY, openFileHistory } from './open';
 import './menus';
+import { registerKeyHints } from '../shortcuts/hints';
 
 // Lazy: the view pulls in File View (Monaco) and Shiki's language registry, which stay out of
 // the startup chunk (spec §10.3 of #1; `npm run build` checks it).
@@ -28,3 +29,8 @@ const offActions = registerActions([
   { id: 'history.blame', label: 'Blame the open file', group: 'View', icon: User, tooltip: 'Show who last changed each line of the open file', menu: false, when: () => openFileStart() !== null, run: () => openOpenFile(true) },
 ]);
 import.meta.hot?.dispose(offActions);
+
+// Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
+registerKeyHints([
+  { id: 'key.fh.close', section: 'File history', label: 'Close file history', keys: ['Esc'], context: '(when not typing)', source: 'history/FileHistory.tsx' },
+]);

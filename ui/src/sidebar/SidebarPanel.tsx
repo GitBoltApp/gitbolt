@@ -4,6 +4,8 @@ import { stashLabel } from './stashLabel';
 import { memo, useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { selectCommit } from '../app/graphNav';
 import { useAppState } from '../app/state';
+import { useRuntime } from '../app/runtime';
+import { RemoteFetchWarning } from './RemoteFetchWarning';
 import { RemoteIcon } from '../icons/brands';
 import { StashIcon } from '../icons/stash';
 import { sidebarItemMenu, sidebarRemoteMenu } from '../menu/menuEnv';
@@ -17,6 +19,7 @@ import { HEADER_H, ROW_H, rowIndent } from './layout';
 import { sectionKey, type FlatRow, type Panel, type SideItem } from './model';
 import { useHeaderActions, sidebarDoubleClick, type HeaderAction } from './itemActions';
 import { SectionIcon } from './SectionIcon';
+import { UpstreamWarning } from '../branches/UpstreamWarning';
 
 const toggle = (list: string[], key: string) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
 
@@ -28,7 +31,8 @@ function ItemIcon({ item }: { item: SideItem }) {
     return <Icon size={13} data-wt={item.worktree.isMain ? 'main' : 'linked'} aria-label={item.worktree.isCurrent ? 'current worktree' : undefined} aria-hidden={item.worktree.isCurrent ? undefined : true} />;
   }
   if (item.kind === 'stash') return <StashIcon size={13} />;
-  return <Tag size={13} />;
+  // UX round 3, M.2: an annotated tag's icon is filled, a lightweight one's outlined.
+  return item.tag.annotation ? <Tag size={13} fill="currentColor" aria-label="annotated tag" /> : <Tag size={13} />;
 }
 
 /**
@@ -56,6 +60,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
   const updateRepo = useAppState((s) => s.updateRepo);
   const headerActions = useHeaderActions((s) => s.bySection[section.id] ?? NO_ACTIONS);
   const store = useRepoViewStore();
+  const fetchErrors = useRuntime((s) => s.tabs[tabId]?.remoteFetchErrors);
   const [cursor, setCursor] = useState(0);
   const [hover, setHover] = useState<{ item: SideItem; top: number; left: number } | null>(null);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
@@ -179,6 +184,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   <div key={row.key} role="treeitem" aria-level={row.depth} aria-expanded={!row.collapsed} data-active={active} data-context={row.key === contextKey || undefined} className="sb-row sb-folder" style={style} onClick={() => { setCursor(vi.index); activate(row); }} onContextMenu={(e) => onRowMenu(e, row)}>
                     {row.remote ? <RemoteIcon kind={row.hostKind ?? 'generic'} host={row.host} remote={row.remote} size={13} /> : row.collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
                     <span className="sb-label">{row.name}</span>
+                    {row.remote && fetchErrors?.[row.remote] && <RemoteFetchWarning remote={row.remote} {...fetchErrors[row.remote]!} />}
                   </div>
                 );
               }
@@ -202,6 +208,8 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   onContextMenu={(e) => { setHover(null); onRowMenu(e, row); }}
                 >
                   <ItemIcon item={it} />
+                  {/* UX round 3, M.1: an upstream with another branch name, before the name. */}
+                  {it.kind === 'local' && it.branch.upstreamMismatch && <UpstreamWarning branch={it.name} upstream={it.branch.upstreamMismatch} size={13} />}
                   <span className="sb-label" title={it.kind === 'stash' ? `stash@{${it.stash.index}}` : undefined}>{it.kind === 'stash' ? <StashText label={row.label} /> : row.label}</span>
                   {it.kind === 'local' && (it.branch.ahead > 0 || it.branch.behind > 0) && <span className="sb-ab" aria-label={`${it.branch.ahead} ahead, ${it.branch.behind} behind`}><span>{it.branch.ahead}<ArrowUp size={12} strokeWidth={2.5} aria-hidden /></span><span>{it.branch.behind}<ArrowDown size={12} strokeWidth={2.5} aria-hidden /></span></span>}
                 </div>

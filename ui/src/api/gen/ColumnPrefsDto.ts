@@ -3,4 +3,8 @@
 /**
  * Mirrors `ColumnPrefs` in `ui/src/graph/columns.ts` (graph `None` = fit the lanes).
  */
-export type ColumnPrefsDto = { labels: number, graph: number | null, author: number, date: number, sha: number, };
+export type ColumnPrefsDto = { labels: number, graph: number | null, author: number, date: number, sha: number, 
+/**
+ * The Message column's dragged width; `None` = it fills the table (the default until dragged).
+ */
+message: number | null, };

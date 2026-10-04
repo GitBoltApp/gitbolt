@@ -14,13 +14,14 @@ export type RowAction = RebaseRowAction;
 export const ACTIONS: readonly RowAction[] = ['pick', 'reword', 'squash', 'fixup', 'drop', 'edit'];
 export const ACTION_KEYS: Readonly<Record<string, RowAction>> = { p: 'pick', r: 'reword', s: 'squash', f: 'fixup', d: 'drop', e: 'edit' };
 export const ACTION_LABEL: Readonly<Record<RowAction, string>> = { pick: 'Pick', reword: 'Reword', squash: 'Squash', fixup: 'Fixup', drop: 'Drop', edit: 'Edit' };
+/** UX4 Q.2: each action's explanation, on the closed dropdown and on its row in the open list. */
 export const ACTION_TIP: Readonly<Record<RowAction, string>> = {
-  pick: 'Keep the commit',
-  reword: 'Keep the commit, with a new message',
-  squash: 'Squash into the commit below, merging the messages',
-  fixup: 'Squash, discard this message',
-  drop: 'Leave the commit out',
-  edit: 'Stop before committing this commit: its changes are staged and its message is in the commit box, so you can change, split or reword it, then Continue.',
+  pick: 'Keep this commit as is.',
+  reword: 'Keep the changes, edit the message.',
+  squash: 'Fold into the commit below, combining both messages.',
+  fixup: 'Fold into the commit below, keeping only its message.',
+  drop: 'Remove this commit.',
+  edit: 'Stop before this commit is made: its changes staged, its message in the box, to change, split or reword it.',
 };
 
 export interface EditorRow {

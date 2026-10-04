@@ -128,6 +128,32 @@ pub struct RefLabel {
     pub worktree: Option<String>,
     /// The worktree (any, the open one included) whose HEAD is this local branch.
     pub checked_out: Option<String>,
+    /// A local branch whose upstream has another branch name (`feature/a` tracking
+    /// `origin/feature/b`): that upstream's short name, for the chip's warning (UX round 3, M.1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub upstream_mismatch: Option<String>,
+    /// An annotated tag's message and tagger (UX round 3, M.2); absent on a lightweight tag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub annotation: Option<TagAnnotation>,
+}
+
+/// An annotated tag's message and tagger, for the tag chip's and the sidebar row's tooltip (UX
+/// round 3, M.2). Read in process with the refs, cached by tag object (`refs::read_tag`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TagAnnotation {
+    /// The message's first `refs::TAG_MESSAGE_LINES` lines (any signature left out), trimmed.
+    pub message: String,
+    /// More of the message follows.
+    pub truncated: bool,
+    /// The tagger's name.
+    pub tagger: Option<String>,
+    /// When it was tagged (unix seconds); 0 without a tagger.
+    #[ts(type = "number")]
+    pub time: i64,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

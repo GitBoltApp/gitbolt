@@ -6,6 +6,7 @@
 //! GitBolt's own operations; CAS (spec §4) protects them from outside changes.
 
 pub(crate) mod autostash;
+pub mod history; // UX Y
 pub(crate) mod resolve_step;
 pub(crate) mod snapshot;
 pub(crate) mod staging;
@@ -274,6 +275,9 @@ pub struct PausedInfo {
     pub kind: PausedKind,
     pub label: String,
     pub target: String,
+    /// UX N fix round 1: GitBolt's interactive rebase (the pause carries its session): its Abort
+    /// keeps the work done at the stop.
+    pub irebase: bool,
 }
 // --- end 2D T2 ---
 
@@ -357,6 +361,14 @@ pub struct JournalEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stopped_pick: Option<StoppedPick>,
     // --- end 3B T2 ---
+    // --- UX Y: out-of-order undo ---
+    /// The paths whose HEAD tree entry, index entry or stash the write changed (a commit's or a
+    /// checkout's tree diff, the index paths "Stage all & commit" consumed, a stash's files),
+    /// recorded when it finished: what the dropdown's dependency check holds it touched. `None`
+    /// on an entry that moved HEAD or a stash: not recorded, so it counts as touching every path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_paths: Option<Vec<String>>,
+    // --- end UX Y ---
 }
 
 // --- 3B T2 ---
@@ -468,8 +480,7 @@ impl JournalEntry {
     /// It holds git objects that expire with `gc.pruneExpire`.
     fn holds_objects(&self) -> bool {
         self.before.is_some() || self.after.is_some()
-    }
-}
+    }}
 
 /// What `run_write` knows when it writes an entry ahead (§3.2 step 3).
 pub struct NewEntry {
@@ -607,6 +618,7 @@ impl Journal {
             paused: None,
             note: None,
             stopped_pick: None, // 3B T2
+            tree_paths: None,   // UX Y
         }
     }
 
@@ -682,13 +694,21 @@ impl Journal {
     /// §3.2 step 9: done, or dropped if nothing changed. A kept entry is a new operation: redo
     /// clears and the 50-entry cap applies. `true` when kept.
     pub fn finalize(&mut self, id: u64) -> bool {
+        self.finalize_with(id, false)
+    }
+
+    /// `finalize`; `keep_redo`: an out-of-order undo whose Redo stack is independent of it
+    /// (UX Y review 7) leaves Redo as it is.
+    pub fn finalize_with(&mut self, id: u64, keep_redo: bool) -> bool {
         let Some(i) = self.undo.iter().position(|e| e.id == id) else { return false };
         if !self.undo[i].changed() {
             self.undo.remove(i);
             return false;
         }
         self.undo[i].state = EntryState::Done;
-        self.redo.clear();
+        if !keep_redo {
+            self.redo.clear();
+        }
         cap(&mut self.undo);
         true
     }
@@ -908,7 +928,7 @@ impl Journal {
             };
             banners.push(Banner { entry: k.id, kind, label: k.label.clone(), stash: Some(oid.clone()), stash_message: Some(k.message.clone()), target: k.target.clone(), snapshot: false, files, can_drop: k.reason.droppable(), binary });
         }
-        let paused = self.paused().and_then(|e| e.paused.as_ref().map(|p| PausedInfo { entry: e.id, kind: p.kind, label: e.label.clone(), target: p.target.clone() }));
+        let paused = self.paused().and_then(|e| e.paused.as_ref().map(|p| PausedInfo { entry: e.id, kind: p.kind, label: e.label.clone(), target: p.target.clone(), irebase: p.irebase.is_some() }));
         JournalState { undo: top.map(JournalTop::of), redo: self.redo_top().map(JournalTop::of), undo_blocked, redo_blocked, banners, paused }
     }
 }

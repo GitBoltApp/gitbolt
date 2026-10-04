@@ -1,10 +1,13 @@
 import { Redo2, Undo2 } from 'lucide-react';
 import { api } from '../api/client';
+import type { HistoryRow } from '../api/gen/HistoryRow';
 import type { JournalState } from '../api/gen/JournalState';
 import type { JournalTop } from '../api/gen/JournalTop';
 import type { MovedRef } from '../api/gen/MovedRef';
 import { activeRuntime, activeTab, registerActions, type Action } from '../app/actions';
 import type { RepoCtx } from '../app/repoContext';
+import { compactRelativeTime } from '../format/relative';
+import type { MenuRow } from '../menu/types';
 import { useQueuedKind } from '../queue/store';
 import { registerToolbarButton, type ButtonView } from '../toolbar/registry';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
@@ -106,7 +109,79 @@ export async function redo(ctx: WriteCtx): Promise<void> {
   });
 }
 
-const view = (which: 'undo' | 'redo') => ({ repoId, worktree }: RepoCtx): ButtonView => {
+// --- UX Y: the Undo dropdown ---
+/** What a row's tooltip says it touched: "a.txt, src/b.ts and 3 more". */
+export function touchedText(touched: string[]): string {
+  const shown = touched.slice(0, 3).join(', ');
+  return touched.length > 3 ? `${shown} and ${touched.length - 3} more` : shown;
+}
+
+/** An older dropdown row: undone out of order, as an entry of its own, with no Redo. A question
+ * it brings (the clean-restore warning) arms its row in place: started from the row, `runWrite`
+ * holds the menu open for the answer (spec §ui confirms, Y.4). */
+export async function undoFromHistory(ctx: WriteCtx, row: HistoryRow): Promise<void> {
+  const origin = currentOrigin();
+  await once(ctx, async () => {
+    const out = await runWrite(ctx, (_, asked) => api.undoEntry(ctx.repoId, ctx.worktree, Number(row.entry), asked.autostash));
+    if (!out) return;
+    // Review 8: the list was stale and the entry was the newest, undone as Undo does: a branch
+    // that moved since asks the same "Undo anyway" question, then Undo runs with what it showed.
+    if (out.status === 'moved') {
+      const body = movedText(out.label, out.refs);
+      const ok = await confirmAction({ title: `Undo ${out.label}?`, body, confirmLabel: 'Undo anyway', arm: `Click again to undo ${out.label} anyway`, caption: body, danger: true }, origin);
+      if (ok) await undoEntry(ctx, { entry: row.entry, label: row.label, kind: row.kind }, Object.fromEntries(out.refs.map((r) => [r.name, r.actual])), origin);
+      return;
+    }
+    const text = `Undid ${out.label}${out.note ? ` (${out.note})` : ''}`;
+    // The list was stale and the entry was the newest by then: the core undid it as Undo does,
+    // onto the Redo stack, so the toast offers Redo as Undo's does.
+    const redone = stateOf(ctx)?.redo?.entry === row.entry;
+    useToast.getState().show(text, redone ? { action: { label: 'Redo', run: () => { void redo(ctx); } } } : undefined);
+  });
+}
+
+/** The ▾ under Undo (Y.1): the newest undoable entries, newest first. The first is Undo itself;
+ * an older one is listed disabled, with the reason, unless it's independent of every later one. */
+export function historyRows(loaded: HistoryRow[] | undefined, s: JournalState | undefined, ctx: WriteCtx, now = Date.now()): MenuRow[] {
+  // Not loaded (the read failed): Undo's own row, from the journal state.
+  const top = s?.undo;
+  const rows: HistoryRow[] = loaded?.length ? loaded : top ? [{ entry: top.entry, label: top.label, kind: top.kind, atMs: now, touched: [], blocked: s?.undoBlocked ?? null }] : [];
+  if (!rows.length) {
+    const why = s?.undoBlocked ?? 'Nothing to undo';
+    return [{ kind: 'action', id: 'undo.history.none', label: 'Nothing to undo', icon: Undo2, tooltip: why, disabledReason: why, run: () => {} }];
+  }
+  return rows.map((r, i): MenuRow => {
+    const when = compactRelativeTime(r.atMs / 1000, now / 1000);
+    const touched = r.touched.length ? `; touched ${touchedText(r.touched)}` : '';
+    return {
+      kind: 'action',
+      id: `undo.history.${r.entry}`,
+      label: r.label,
+      icon: Undo2,
+      tooltip: `Undo ${r.label}${i === 0 ? '' : ' out of order'} (${when === 'now' ? 'just now' : `${when} ago`})${touched}`,
+      shortcut: when,
+      ...(r.blocked ? { disabledReason: r.blocked } : {}),
+      run: () => { void (i === 0 ? undo(ctx) : undoFromHistory(ctx, r)); },
+    };
+  });
+}
+
+/** The dropdown's rows, read when it opens (review 3: the dependency check isn't part of every
+ * journal state). Keyed as the journal store. */
+const loadedHistory = new Map<string, HistoryRow[]>();
+export async function loadHistory(repoId: number, worktree: string): Promise<void> {
+  const key = journalKey(repoId, worktree);
+  try {
+    loadedHistory.set(key, await api.journalHistory(repoId, worktree));
+  } catch (e) {
+    console.warn('[gitbolt] undo history', e);
+    loadedHistory.delete(key);
+  }
+}
+export const historyOf = (repoId: number, worktree: string) => loadedHistory.get(journalKey(repoId, worktree));
+// --- end UX Y ---
+
+const view =(which: 'undo' | 'redo') => ({ repoId, worktree }: RepoCtx): ButtonView => {
   const s = useJournal((st) => st.states[journalKey(repoId, worktree)]);
   const top = which === 'undo' ? s?.undo : s?.redo;
   const blocked = which === 'undo' ? s?.undoBlocked : s?.redoBlocked;
@@ -139,7 +214,12 @@ const actions: Action[] = [
 const offs = [
   registerActions(actions),
   // Spec #2 §14: repo · branch picker · Undo · Redo · Fetch/Pull · …
-  registerToolbarButton({ action: 'edit.undo', label: 'Undo', order: 1, useView: view('undo'), useQueued: ({ repoId }) => useQueuedKind(repoId, 'undo') }),
+  registerToolbarButton({
+    action: 'edit.undo', label: 'Undo', order: 1, useView: view('undo'), useQueued: ({ repoId }) => useQueuedKind(repoId, 'undo'),
+    // UX Y: the ▾ lists the recent entries, an older one undoable out of order.
+    prepareMenu: ({ repoId, worktree }) => loadHistory(repoId, worktree),
+    menuRows: ({ tabId, repoId, worktree }) => historyRows(historyOf(repoId, worktree), stateOf({ tabId, repoId, worktree }), { tabId, repoId, worktree }),
+  }),
   registerToolbarButton({ action: 'edit.redo', label: 'Redo', order: 2, useView: view('redo'), useQueued: ({ repoId }) => useQueuedKind(repoId, 'redo') }),
 ];
 import.meta.hot?.dispose(() => { for (const off of offs) off(); });

@@ -8,6 +8,8 @@ import { oid, plan } from './testPlan';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { useTabViews } from '../app/tabStores';
+import { useMenu } from '../menu/menuStore';
+import { ACTION_TIP } from './model';
 import { createRepoViewStore } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 
@@ -229,5 +231,70 @@ describe('the interactive rebase editor (spec #3 §4.1)', () => {
     expect(shown()).toBe(oid('e'));
     expect(base.getAttribute('aria-selected')).toBe('false');
     useTabViews.setState({ views: {} });
+  });
+
+  it('UX4 Q.1: the ⚠ sits just left of the action dropdown, in a slot every row has', () => {
+    show();
+    act(() => editSession('t1', (s) => ({ ...s, prediction: { status: 'ready', byRow: { [oid('c')]: ['notes.txt'] }, first: oid('c'), note: null } })));
+    for (const c of ['c', 'd']) {
+      const cells = [...row(c).children].map((el) => String(el.getAttribute('class')).split(' ')[0]);
+      expect(cells.indexOf('irebase-conflict')).toBe(cells.indexOf('irebase-action') - 1);
+    }
+    expect(row('c').querySelector('.irebase-conflict [aria-label="Predicted conflict"]')).toBeTruthy();
+    expect(row('d').querySelector('.irebase-conflict')!.childElementCount).toBe(0);
+  });
+
+  it('UX4 Q.2/Q.3: the open list explains each action; choosing Reword opens the row\'s message, focused, caret at its end', () => {
+    show();
+    fireEvent.click(row('c').querySelector('.irebase-action button')!);
+    const rows = useMenu.getState().rows!;
+    expect(rows.map((r) => r.kind === 'action' && [r.label, r.tooltip])).toEqual([
+      ['Pick', ACTION_TIP.pick], ['Reword', ACTION_TIP.reword], ['Squash', ACTION_TIP.squash],
+      ['Fixup', ACTION_TIP.fixup], ['Drop', ACTION_TIP.drop], ['Edit', ACTION_TIP.edit],
+    ]);
+    expect(ACTION_TIP.fixup).toBe('Fold into the commit below, keeping only its message.');
+    act(() => { const r = rows[1]; if (r.kind === 'action') r.run(); useMenu.getState().close(); });
+    expect(sessionOf('t1')!.state.rows.find((r) => r.oid === oid('c'))!.action).toBe('reword');
+    expect(sessionOf('t1')!.editing).toBe(oid('c'));
+    const summary = screen.getByRole('textbox', { name: 'Commit summary' }) as HTMLInputElement;
+    expect(document.activeElement).toBe(summary);
+    expect(summary.selectionStart).toBe(summary.value.length);
+    expect(summary.selectionEnd).toBe(summary.value.length);
+  });
+
+  it('UX4 Q.3: the r key on one row opens its message too', () => {
+    show();
+    fireEvent.click(row('b'));
+    key('r');
+    expect(sessionOf('t1')!.editing).toBe(oid('b'));
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Commit summary' }));
+  });
+
+  it('UX4 Q.4: Save keeps the new message; Cancel and Esc close it with the previous one', () => {
+    show();
+    const edited = () => sessionOf('t1')!.state.rows.find((r) => r.oid === oid('b'))!.edited;
+    const button = (cls: string) => row('b').querySelector<HTMLElement>(`.irebase-message-actions .${cls}`)!;
+    fireEvent.click(row('b'));
+    key('Enter');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Commit summary' }), { target: { value: 'B, dropped' } });
+    expect(button('commit-neutral').textContent).toBe('Cancel');
+    fireEvent.click(button('commit-neutral'));
+    expect(sessionOf('t1')!.editing).toBeNull();
+    expect(edited()).toBeNull();
+    key('Enter');
+    const summary = screen.getByRole('textbox', { name: 'Commit summary' }) as HTMLInputElement;
+    expect(summary.value).toBe('B');
+    fireEvent.change(summary, { target: { value: 'B, escaped' } });
+    fireEvent.keyDown(summary, { key: 'Escape' });
+    expect(sessionOf('t1')!.editing).toBeNull();
+    expect(edited()).toBeNull();
+    key('Enter');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Commit summary' }), { target: { value: 'B, saved' } });
+    expect(button('commit-positive').textContent).toBe('Save');
+    fireEvent.click(button('commit-positive'));
+    expect(sessionOf('t1')!.editing).toBeNull();
+    expect(edited()).toBe('B, saved\n');
+    // The editor's clicks don't change the selection.
+    expect(sessionOf('t1')!.state.selected).toEqual([oid('b')]);
   });
 });

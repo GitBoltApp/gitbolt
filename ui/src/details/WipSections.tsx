@@ -1,7 +1,7 @@
 import { CheckCheck, ChevronDown, ChevronRight, ListMinus, ListPlus, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type { FileChange } from '../api/gen/FileChange';
-import { countByStatus, type FileRow } from '../files/fileTree';
+import { countByStatus, matchesFilter, type FileRow } from '../files/fileTree';
 import { FileList, StatusCountsView, useFileRowH, type FileListHandle } from '../files/FileList';
 import { PathTreeToggle } from '../files/PathTreeToggle';
 import { useFileListPrefs } from '../files/fileListPrefs';
@@ -15,6 +15,8 @@ import type { WriteCtx } from '../write/client';
 import { loadWipPanel, saveWipPanel, WIP_PANEL, wipSplitBounds, type WipPanelPrefs } from './wipPanelPrefs';
 import { SplitResizer } from './SplitResizer';
 import { splitConflicted } from './conflicted';
+import { setWipFilter, useWipFilter, wipFilterOf } from './wipFilter';
+import { useRepoContext } from '../app/repoContext';
 // --- 2D T15 ---
 import { markResolved } from '../conflicts/resolve';
 // --- end 2D T15 ---
@@ -73,7 +75,11 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
 }) {
   const label = section.title ?? which;
   const list = section.list;
-  const ready = list.status === 'ready' ? list.data : null;
+  const full = list.status === 'ready' ? list.data : null;
+  // UX round 4 R.2: the header's filter narrows every list; counts read "n of m" meanwhile.
+  const { tabId } = useRepoContext();
+  const query = useWipFilter((s) => { const f = wipFilterOf(s.byTab, tabId); return f.open ? f.text.trim().toLowerCase() : ''; });
+  const ready = useMemo(() => (full && query ? { ...full, files: full.files.filter((f) => matchesFilter(f.path, query)) } : full), [full, query]);
   const counts = ready ? countByStatus(ready.files) : null;
   // A collapsed section stays mounted, hidden, so its folders and keyboard cursor survive.
   const ctx = useWipCtx();
@@ -101,7 +107,7 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
       {ready.deleted > 0 && <span className="deleted">−{ready.deleted}</span>}
     </span>
   ) : null;
-  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} allFilesWorktree={allFilesWorktree} sharedMode onLeave={onLeave} renderActions={renderActions} toolEnd={totals} />;
+  if (ready) body = <FileList ref={listRef} list={ready} spec={section.spec} label={label} allFilesWorktree={allFilesWorktree} sharedMode onLeave={onLeave} renderActions={renderActions} toolEnd={totals} canCreate={which === 'unstaged'} />;
   else if (list.status === 'error' && !collapsed) body = <div role="alert" className="file-section-status">{list.message}</div>;
   return (
     <section
@@ -116,7 +122,7 @@ function WipSection({ section, which, collapsed, onToggle, sizeRef, basis, listR
         <h3 className="file-section-title">
           <button type="button" aria-expanded={!collapsed}>
             {collapsed ? <ChevronRight size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
-            {label}{ready && ` (${ready.files.length})`}
+            {label}{ready && (query && full ? ` (${ready.files.length} of ${full.files.length})` : ` (${ready.files.length})`)}
           </button>
         </h3>
         {counts && <span className="wip-section-summary"><StatusCountsView counts={counts} testId={`${which}-counts`} size={12} /></span>}
@@ -178,6 +184,8 @@ export function WipSections({ sections }: { sections: FileSection[] }) {
     }
     return false;
   };
+  const { tabId } = useRepoContext();
+  const filter = useWipFilter((s) => wipFilterOf(s.byTab, tabId));
   const both = !prefs.collapsed.unstaged && !prefs.collapsed.staged;
   return (
     <div className="wip-sections">
@@ -188,6 +196,20 @@ export function WipSections({ sections }: { sections: FileSection[] }) {
         <PathTreeToggle />
         {ctx && <StagingUndoButtons ctx={ctx} />}
       </div>
+      {filter.open && tabId && (
+        <div className="wip-filter-row">
+          <input
+            className="wip-filter-input"
+            autoFocus
+            aria-label="Filter files"
+            placeholder="Filter files"
+            spellCheck={false}
+            value={filter.text}
+            onChange={(e) => setWipFilter(tabId, { text: e.target.value })}
+            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); setWipFilter(tabId, { open: false, text: '' }); } }}
+          />
+        </div>
+      )}
       {conflicted && <WipSection key={`${filesKey(conflicted.spec)}|conflicted`} section={conflicted} which="conflicted" collapsed={prefs.collapsed.conflicted} onToggle={() => toggle('conflicted')} listRef={lists.conflicted} onLeave={leave('conflicted')} />}
       {/* The split is of this box, the height left once Conflicted has taken its share. */}
       <div ref={ref} className="wip-split">

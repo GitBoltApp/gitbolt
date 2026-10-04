@@ -1,6 +1,7 @@
 import { act, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LocalBranch } from '../api/gen/LocalBranch';
+import type { TagItem } from '../api/gen/TagItem';
 import type { SideItem } from './model';
 
 const lastPush = vi.fn(async () => ({ time: 100, kind: 'push' as const }));
@@ -43,5 +44,23 @@ describe('HoverCard lastPush request coalescing (fix round 1, item 7)', () => {
     expect(lastPush.mock.calls.length).toBeLessThanOrEqual(2);
     // The row the pointer settled on (the last one) is the one that actually asked.
     expect(lastPush).toHaveBeenLastCalledWith(2, 'refs/remotes/origin/echo');
+  });
+});
+
+describe('HoverCard on a tag (UX round 3, M.2)', () => {
+  const tag = (annotation?: TagItem['annotation']): SideItem => ({
+    key: 'refs/tags/v1.0', kind: 'tag', name: 'v1.0', target: 'f'.repeat(40), time: 10,
+    tag: { name: 'v1.0', fullName: 'refs/tags/v1.0', target: 'f'.repeat(40), time: 10, ...(annotation && { annotation }) },
+  });
+  it("shows an annotated tag's message and tagger, a lightweight tag's commit, and asks the backend nothing", async () => {
+    lastPush.mockClear();
+    const { getByRole, rerender } = render(<HoverCard item={tag({ message: 'Release notes', truncated: false, tagger: 'Grace', time: 1_700_000_000 })} repoId={3} top={0} left={0} />);
+    expect(getByRole('tooltip')).toHaveTextContent('Release notes');
+    expect(getByRole('tooltip').querySelector('.tag-tip-meta')).toHaveTextContent(/^Grace · /);
+    rerender(<HoverCard item={tag()} repoId={3} top={0} left={0} />);
+    expect(getByRole('tooltip')).toHaveTextContent('Lightweight tag');
+    expect(getByRole('tooltip').querySelector('.tag-tip-meta')).toHaveTextContent('ffffff');
+    await nextFrame();
+    expect(lastPush).not.toHaveBeenCalled();
   });
 });

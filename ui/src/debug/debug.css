@@ -4,7 +4,9 @@
 .perf-overlay td { padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .perf-overlay td:last-child { text-align: right; padding-left: 8px; }
 .perf-overlay tr.failed td { color: var(--status-deleted); }
-.perf-fps { color: var(--text-selected); margin-bottom: 4px; }
+.perf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.perf-fps { color: var(--text-selected); }
+.perf-close { pointer-events: auto; padding: 0; }
 
 /* The Debug modal's entries (DebugRow): one compact row of aligned columns, expanding into a
  * selectable monospace block. The row itself is a disclosure control, so it isn't selectable. */

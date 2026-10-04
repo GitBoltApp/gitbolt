@@ -240,6 +240,8 @@ pub struct ColumnPrefsDto {
     pub author: u32,
     pub date: u32,
     pub sha: u32,
+    /// The Message column's dragged width; `None` = it fills the table (the default until dragged).
+    pub message: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -916,7 +918,7 @@ mod tests {
         let mut p = store.active_profile();
         p.repos_folder = Some("/home/u/repos".into());
         p.right_panel_width = Some(420);
-        p.repos.insert("/r".into(), RepoSettings { columns: Some(ColumnPrefsDto { labels: 200, graph: None, author: 160, date: 170, sha: 90 }), ..Default::default() });
+        p.repos.insert("/r".into(), RepoSettings { columns: Some(ColumnPrefsDto { labels: 200, graph: None, author: 160, date: 170, sha: 90, message: Some(333) }), ..Default::default() });
         store.save_profile(p).unwrap();
         store.flush_now().unwrap();
         let settings = read(&dir.path().join("settings.json"));
@@ -926,6 +928,7 @@ mod tests {
         assert_eq!(profile["version"], PROFILE_VERSION);
         assert_eq!(profile["reposFolder"], "/home/u/repos");
         assert_eq!(profile["repos"]["/r"]["columns"]["sha"], 90);
+        assert_eq!(profile["repos"]["/r"]["columns"]["message"], 333);
         let again = SettingsStore::open(dir.path()).state();
         assert_eq!(again.settings.commit_limit, 500);
         assert_eq!(again.profile.repos_folder.as_deref(), Some("/home/u/repos"));

@@ -38,7 +38,7 @@ const offRestore = registerMenu<FileTarget, MenuEnv>({
     const run = () => void restoreFile(ctx, src.sha, t.path, src.absent);
     return [src.absent
       ? row({ id: 'file.restore', label: `Delete ${t.path}`, icon: Trash2, tooltip: `${t.path} isn't in ${sha}: delete it from the working tree (you can undo this)`, run })
-      : row({ id: 'file.restore', label: `Restore from ${sha}`, icon: RotateCcw, tooltip: `Write ${t.path} as it is in ${sha} into the working tree, unstaged (you can undo this)`, run })];
+      : row({ id: 'file.restore', label: 'Restore from this commit', icon: RotateCcw, tooltip: `Write ${t.path} as it is in ${sha} into the working tree, unstaged (you can undo this)`, run })];
   },
 });
 

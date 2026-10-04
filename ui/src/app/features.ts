@@ -61,3 +61,9 @@ import '../irebase/feature';
 // --- 3B T6 ---
 import '../pick/feature';
 // --- end 3B T6 ---
+// --- UX round 3 O.1 ---
+import '../files/createFileFeature';
+// --- end UX round 3 O.1 ---
+// --- UX round 5 X ---
+import '../shortcuts/feature';
+// --- end UX round 5 X ---

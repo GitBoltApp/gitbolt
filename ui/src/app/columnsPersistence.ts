@@ -14,10 +14,10 @@ export function installColumnPersistence(): void {
   installed = true;
   columnPrefsPersistence.load = (repoId) => {
     const c = useAppState.getState().profile.repos[repoId]?.columns;
-    return c ? { labels: c.labels, graph: c.graph, author: c.author, date: c.date, sha: c.sha } : null;
+    return c ? { labels: c.labels, graph: c.graph, author: c.author, date: c.date, sha: c.sha, message: c.message ?? null } : null;
   };
   columnPrefsPersistence.save = (repoId, prefs) => {
-    useAppState.getState().updateRepo(repoId, (r) => ({ ...r, columns: { labels: prefs.labels, graph: prefs.graph, author: prefs.author, date: prefs.date, sha: prefs.sha } }));
+    useAppState.getState().updateRepo(repoId, (r) => ({ ...r, columns: { labels: prefs.labels, graph: prefs.graph, author: prefs.author, date: prefs.date, sha: prefs.sha, message: prefs.message } }));
   };
   hiddenColumnsPersistence.load = (repoId) => useAppState.getState().profile.repos[repoId]?.hiddenColumns ?? null;
   hiddenColumnsPersistence.save = (repoId, hidden) => {

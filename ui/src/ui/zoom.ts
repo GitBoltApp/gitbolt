@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { registerKeys } from './keyRouter';
+import { registerKeyHints } from '../shortcuts/hints';
 
 /**
  * App zoom (spec §12.2): Ctrl+= / Ctrl++ zoom in, Ctrl+- out, Ctrl+0 resets, through the stepped
@@ -116,3 +117,10 @@ export function installZoom(apply: (pct: number) => void = applyWebviewZoom): ()
     window.removeEventListener('wheel', onWheel, { capture: true });
   };
 }
+
+// Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
+registerKeyHints([
+  { id: 'key.zoomIn', section: 'Navigation', label: 'Zoom in', keys: ['Ctrl+='], source: 'ui/zoom.ts' },
+  { id: 'key.zoomOut', section: 'Navigation', label: 'Zoom out', keys: ['Ctrl+-'], source: 'ui/zoom.ts' },
+  { id: 'key.zoomReset', section: 'Navigation', label: 'Reset zoom', keys: ['Ctrl+0'], source: 'ui/zoom.ts' },
+]);

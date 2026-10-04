@@ -260,6 +260,9 @@ const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start,
           )}
         </span>
       )}
+      {/* The empty space past the last column (W.2): takes the row's highlights to the panel's right
+          edge. Not a gridcell: a click selects the row through the row's own handler. */}
+      <span aria-hidden="true" data-col="filler" className="col-filler" />
     </div>
   );
 });
@@ -567,8 +570,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
           table's scrollLeft so it tracks horizontal scrolling. */}
       {/* Right-click: the `column` menu, to hide or show columns (spec §8.4). */}
       <div className="graph-header" onContextMenu={onHeaderMenu} onKeyDown={onHeaderKeyDown}>
-        <div className="graph-header-inner" style={{ width: cols.total, transform: `translateX(${-scrollLeft}px)` }}>
-          {/* Every handle is on the right edge of the column it resizes (F3); SHA is last: none.
+        <div className="graph-header-inner" style={{ width: Math.max(cols.total, viewportW), transform: `translateX(${-scrollLeft}px)` }}>
+          {/* Every handle is on the right edge of the column it resizes (F3); SHA's is the table's last edge.
               A hidden column has no header cell, and a handle whose trade partner is hidden goes
               too (columns.ts handleShown). At its minimum a column's title is its icon (§8.4). */}
           {cols.labels > 0 && <span data-col="labels" style={{ width: cols.labels }}><HeaderCell col="labels" width={cols.labels} title="BRANCH / TAG" name="Branch / Tag" icon={GitBranch} /><ColumnResizer col="labels" name="Branch / Tag" cols={cols} available={viewportW} /></span>}
@@ -576,7 +579,9 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
           <span data-col="message" style={{ width: cols.message }}><HeaderCell col="message" width={cols.message} title="COMMIT MESSAGE" name="Commit message" icon={MessageSquare} />{handleShown('message', hidden) && <ColumnResizer col="message" name="Commit message" cols={cols} available={viewportW} />}</span>
           {cols.author > 0 && <span data-col="author" style={{ width: cols.author }}><HeaderCell col="author" width={cols.author} title="AUTHOR" name="Author" icon={User} />{handleShown('author', hidden) && <ColumnResizer col="author" name="Author" cols={cols} available={viewportW} />}</span>}
           {cols.date > 0 && <span data-col="date" style={{ width: cols.date }}><HeaderCell col="date" width={cols.date} title="COMMIT DATE / TIME" name="Commit date / time" icon={Clock} />{handleShown('date', hidden) && <ColumnResizer col="date" name="Date" cols={cols} available={viewportW} />}</span>}
-          {cols.sha > 0 && <span data-col="sha" style={{ width: cols.sha }}><span className="col-title">SHA</span></span>}
+          {cols.sha > 0 && <span data-col="sha" style={{ width: cols.sha }}><span className="col-title">SHA</span>{handleShown('sha', hidden) && <ColumnResizer col="sha" name="SHA" cols={cols} available={viewportW} />}</span>}
+          {/* Blank and not resizable: the empty space past the last column (W.2). */}
+          <span data-col="filler" aria-hidden="true" className="col-filler" />
         </div>
       </div>
       <div className="graph-body">
@@ -585,7 +590,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
           setScrollTop(e.currentTarget.scrollTop);
           setScrollLeft(e.currentTarget.scrollLeft);
         }}>
-          <div style={{ height: v.getTotalSize(), width: cols.total, position: 'relative' }}>
+          <div style={{ height: v.getTotalSize(), width: Math.max(cols.total, viewportW), position: 'relative' }}>
             {v.getVirtualItems().map((item) => {
               const row = graph.rows[item.index];
               const isSelected = item.index === selected || alsoSelected.has(item.index);

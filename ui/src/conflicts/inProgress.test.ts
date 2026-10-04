@@ -7,13 +7,13 @@ const rebase = (o: Partial<Extract<InProgress, { kind: 'rebase' }>> = {}): InPro
 
 describe('the commit panel\'s operation status (spec #2 §13.2, ux round 1)', () => {
   it('names the merge for the user, by short names', () => {
-    const v = operationView(merge("Merge branch 'feature/x'\n", 2), { entry: 1, kind: 'merge', label: 'merge feature/x into main', target: 'feature/x' }, 'refs/heads/main', () => null);
+    const v = operationView(merge("Merge branch 'feature/x'\n", 2), { entry: 1, kind: 'merge', label: 'merge feature/x into main', target: 'feature/x', irebase: false }, 'refs/heads/main', () => null);
     expect(v).toMatchObject({ region: 'Merge in progress', title: 'Merging feature/x into main', hint: 'Resolve 2 conflicted files first', primary: 'Commit and merge', skip: false, message: '' });
     expect(operationView(merge("Merge branch 'other'\n", 1), null, 'main', () => null)).toMatchObject({ title: 'Merging other into main', hint: 'Resolve 1 conflicted file first' });
   });
 
   it('names the rebase step and the stopped commit, and prefills its message without git\'s comments', () => {
-    const v = operationView(rebase(), { entry: 1, kind: 'rebase', label: 'rebase main onto origin/main', target: 'origin/main' }, null, () => 'Fix x');
+    const v = operationView(rebase(), { entry: 1, kind: 'rebase', label: 'rebase main onto origin/main', target: 'origin/main', irebase: false }, null, () => 'Fix x');
     expect(v).toMatchObject({ region: 'Rebase in progress', title: 'Rebasing main onto origin/main (step 2 of 5)', detail: 'Stopped at a1b2c3d Fix x', primary: 'Continue rebase', skip: true });
     expect(v.message.trim()).toBe('Fix x');
   });

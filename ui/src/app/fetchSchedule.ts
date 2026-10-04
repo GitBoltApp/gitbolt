@@ -83,6 +83,21 @@ export class FetchScheduler {
   }
 }
 
+/** T.1: the remotes a failed fetch named, each with its short reason. A failure that names none
+ * (git died before reaching a remote) marks the only remote when the repo has just one. */
+function failedRemotes(e: GbError | null, repoId: number): Record<string, { reason: string; at: number }> {
+  const at = Date.now();
+  const out: Record<string, { reason: string; at: number }> = {};
+  const detail = e?.detail;
+  if (detail?.kind === 'fetchFailed') for (const r of detail.remotes) out[r.name] = { reason: r.reason, at };
+  else {
+    const tab = Object.values(useRuntime.getState().tabs).find((t) => t.repo?.id === repoId);
+    const remotes = tab?.sidebar?.remotes ?? [];
+    if (remotes.length === 1) out[remotes[0]!.name] = { reason: e?.kind === 'AuthFailed' ? 'authentication failed' : "couldn't reach the remote", at };
+  }
+  return out;
+}
+
 /** Repos (by id) whose last fetch failed: a background failure reaches the bell only when it
  * starts, not on every tick of an outage (K30). */
 const failing = new Set<number>();
@@ -100,7 +115,7 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
   const rt = useRuntime.getState().tabs[tabId];
   if (!rt?.repo) return;
   const repo = rt.repo;
-  const patch = (p: { lastFetchAt?: number; fetchSkipped?: string | null }) => {
+  const patch = (p: { lastFetchAt?: number; fetchSkipped?: string | null; remoteFetchErrors?: Record<string, { reason: string; at: number }> }) => {
     // The tab may have been closed (or re-pointed) while the fetch ran.
     if (useRuntime.getState().tabs[tabId]?.repo?.id === repo.id) useRuntime.getState().patch(tabId, p);
   };
@@ -110,7 +125,7 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
     if (out.status === 'done') {
       // A fetch that worked says nothing (except a user's with server output, which links it, and a server warning, spec #2 §12.4), user-initiated or not: the button's spinner and the
       // graph are enough, and a toast every time is noise (the user's call, after K96).
-      patch({ lastFetchAt: Date.now(), fetchSkipped: null });
+      patch({ lastFetchAt: Date.now(), fetchSkipped: null, remoteFetchErrors: {} });
       if (!background && out.server.lines > 0) showServerResult(`Fetched ${repo.name}`, `Fetched ${repo.name}; the server reported a problem`, out.server, out.op);
       else if (background && out.server.warning) showServerResult('', `Background fetch of ${repo.name}: the server reported a problem`, out.server, out.op);
     } else if (out.reason === 'authRequired') patch({ lastFetchAt: Date.now(), fetchSkipped: FETCH_SKIPPED_AUTH });
@@ -123,6 +138,7 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
     patch({ lastFetchAt: Date.now() });
     const kind = (e as GbError | null)?.kind;
     if (kind === 'Cancelled') return;
+    patch({ remoteFetchErrors: failedRemotes(e as GbError | null, repo.id) });
     // git's own first line for a rejected credential is the server's ("remote: authentication
     // required"); the kind says what happened.
     const text = kind === 'AuthFailed' ? `Authentication failed (${errorMessage(e)})` : errorMessage(e);

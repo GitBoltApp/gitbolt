@@ -317,4 +317,51 @@ test.describe('interactive rebase (spec #3 §7)', () => {
     expect(git(repo, 'merge-base', 'main', 'feature/c')).toBe(git(repo, 'rev-parse', 'main'));
     expect(git(repo, 'status', '--porcelain')).toBe('');
   });
+
+  test('the action dropdown: rows in their colours, each explained on hover; Reword opens the message, Save and Cancel (UX4 Q.2–Q.4)', async ({ page }) => {
+    await openEditor(page);
+    // By its oid: while editing, its subject is in the text box, not the row's text.
+    const c1 = page.getByTestId('irebase').locator(`[data-oid="${await row(page, 'C1 Edit notes again').getAttribute('data-oid')}"]`);
+    await c1.getByRole('button', { name: /^Action for / }).click();
+    const menu = page.getByTestId('context-menu');
+    const option = (name: string) => menu.getByRole('menuitem', { name, exact: true });
+    await expect(option('Pick')).toBeVisible();
+    const colour = (name: string) => option(name).evaluate((el) => getComputedStyle(el).color);
+    expect(await colour('Pick')).not.toBe(await colour('Drop'));
+    expect(await colour('Squash')).toBe(await colour('Reword'));
+    // Narrow: the longest label and the check, no wider than the closed button's column allows.
+    expect((await menu.boundingBox())!.width).toBeLessThan(140);
+    await option('Squash').hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Fold into the commit below, combining both messages.');
+    await option('Reword').click();
+    const summary = c1.getByRole('textbox', { name: 'Commit summary' });
+    await expect(summary).toBeFocused();
+    expect(await summary.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd, el.value.length])).toEqual([19, 19, 19]);
+    expect((await c1.locator('.irebase-message-editor').boundingBox())!.width).toBeLessThanOrEqual(440);
+    await summary.fill('C1 Better words');
+    await c1.getByRole('button', { name: 'Cancel' }).click();
+    await expect(c1.locator('.irebase-summary')).toHaveText('C1 Edit notes again');
+    await c1.dblclick();
+    await c1.getByRole('textbox', { name: 'Commit summary' }).fill('C1 Better words');
+    await c1.getByRole('button', { name: 'Save' }).click();
+    await expect(c1.locator('.irebase-summary')).toHaveText('C1 Better words');
+  });
+
+  test('"Interactive rebase after this commit": the clicked commit is the base (UX4 Q.5)', async ({ page }) => {
+    await page.goto(openUrl(freshFixture('irebase')));
+    const graph = page.getByRole('grid', { name: 'Commit graph' });
+    await graph.getByRole('row').filter({ hasText: 'B2 Refine lexer' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Interactive rebase after this commit' }).click();
+    const editor = page.getByTestId('irebase');
+    await expect(editor).toBeVisible();
+    await expect(editor.locator('.irebase-base .irebase-summary')).toHaveText('B2 Refine lexer');
+    await expect(row(page, 'B2 Refine lexer')).toHaveCount(0);
+    await expect(row(page, 'C2 Polish')).toHaveCount(1);
+    await editor.getByRole('button', { name: 'Cancel' }).first().click();
+    await expect(editor).toBeHidden();
+    // At HEAD there's nothing to rebase: no row.
+    await graph.getByRole('row').filter({ hasText: 'C2 Polish' }).click({ button: 'right' });
+    await expect(page.getByTestId('context-menu')).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Interactive rebase after this commit' })).toHaveCount(0);
+  });
 });

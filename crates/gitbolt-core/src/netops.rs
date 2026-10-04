@@ -66,6 +66,55 @@ pub enum FetchOutcome {
     Skipped { reason: SkipReason },
 }
 
+/// The host of a git URL or scp-like address, without any userinfo (a token never reaches a reason).
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or("").split(':').next().unwrap_or("");
+    (!host.is_empty() && host.chars().all(|c| c.is_ascii_alphanumeric() || "-._".contains(c))).then(|| host.to_string())
+}
+
+/// A short plain reason for one remote's stderr block.
+fn fetch_reason(block: &str) -> String {
+    use crate::error::{classify_stderr, GbErrorKind};
+    if classify_stderr(block) == GbErrorKind::AuthFailed {
+        return "authentication failed".into();
+    }
+    if block.contains("does not appear to be a git repository") || block.contains("not found") {
+        return "repository not found".into();
+    }
+    let host = block.lines().find_map(|l| {
+        if let Some(h) = l.split("Could not resolve host: ").nth(1).or_else(|| l.split("Could not resolve hostname ").nth(1)) {
+            return url_host(h.split([':', ' ']).next().unwrap_or(""));
+        }
+        let u = l.split("unable to access '").nth(1)?.split('\'').next()?;
+        url_host(u)
+    });
+    match host {
+        Some(h) => format!("couldn't reach {h}"),
+        None => "couldn't reach the remote".into(),
+    }
+}
+
+/// The remotes a `git fetch --all` reported failing (`error: Could not fetch <name>`), each with
+/// the reason from the stderr since its `Fetching <name>` line.
+pub(crate) fn failed_remotes(stderr: &str) -> Vec<crate::error::FailedRemote> {
+    let mut out = Vec::new();
+    let mut block = String::new();
+    for l in stderr.lines() {
+        if l.starts_with("Fetching ") {
+            block.clear();
+        } else if let Some(name) = l.strip_prefix("error: Could not fetch ").or_else(|| l.strip_prefix("error: could not fetch ")) {
+            out.push(crate::error::FailedRemote { name: name.trim().to_string(), reason: fetch_reason(&block) });
+            block.clear();
+        } else {
+            block.push_str(l);
+            block.push('\n');
+        }
+    }
+    out
+}
+
 /// Every ref and what it points at, to tell whether a fetch moved anything.
 fn ref_state(repo: &gix::ThreadSafeRepository) -> Result<BTreeMap<String, String>, GbError> {
     let repo = repo.to_thread_local();
@@ -250,7 +299,10 @@ impl Api {
             Err(e) if background && e.kind == GbErrorKind::Cancelled && !op.prompt_cancelled() => (OpOutcome::Skipped, Ok(FetchOutcome::Skipped { reason: SkipReason::Busy })),
             Err(e) if e.kind == GbErrorKind::Cancelled || prompt_dismissed(&e, &op) => (OpOutcome::Cancelled, Err(user_cancelled(e, &op))),
             Err(_) if op.auth_denied() => (OpOutcome::Skipped, Ok(FetchOutcome::Skipped { reason: SkipReason::AuthRequired })),
-            Err(e) => (OpOutcome::Failed, Err(e)),
+            Err(e) => {
+                let remotes = e.stderr.as_deref().map(failed_remotes).unwrap_or_default();
+                (OpOutcome::Failed, Err(if remotes.is_empty() { e } else { e.with_detail(crate::error::ErrorDetail::FetchFailed { remotes }) }))
+            }
         };
         let message = result.as_ref().err().map(|e| e.message.clone());
         self.bus.emit(AppEvent::OpFinished { op: op.id, kind: OpKind::Fetch, repo: Some(id), outcome, message, command });
@@ -453,6 +505,26 @@ mod tests {
         cmd.current_dir(r.path()).args(["fetch", "-q", "origin"]).envs(isolated_git_env()).env("GIT_TRACE2_EVENT", &trace);
         assert!(cmd.status().unwrap().success());
         assert!(spawned_maintenance(), "a plain fetch starts maintenance, so the check above means something");
+    }
+
+    #[test]
+    fn failed_remotes_name_each_failing_remote_with_a_short_reason() {
+        let err = "Fetching a\nfatal: unable to access 'https://tok:sekrit@git.example.com/x.git/': Could not resolve host: git.example.com\nerror: Could not fetch a\nFetching ok\nFetching b\nfatal: Authentication failed for 'https://h/x.git/'\nerror: Could not fetch b\n";
+        let got = failed_remotes(err);
+        assert_eq!(got.iter().map(|f| (f.name.as_str(), f.reason.as_str())).collect::<Vec<_>>(), [("a", "couldn't reach git.example.com"), ("b", "authentication failed")]);
+        assert!(!format!("{got:?}").contains("sekrit"));
+    }
+
+    /// A remote that can't be reached fails the fetch with its name; the others still fetch.
+    #[tokio::test]
+    async fn a_failing_remote_is_named_in_the_error() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        r.git(&["remote", "add", "gone", r.root().join("nope.git").to_str().unwrap()]);
+        let api = api();
+        let id = open(&api, &r).await;
+        let e = api.fetch(id, false).await.unwrap_err();
+        assert!(matches!(&e.detail, Some(crate::error::ErrorDetail::FetchFailed { remotes }) if remotes.len() == 1 && remotes[0].name == "gone"), "{e:?}");
     }
 
     /// K30: `opStarted` says whether the op is the user's, so the UI can keep background ops out

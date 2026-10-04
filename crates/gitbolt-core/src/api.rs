@@ -243,6 +243,25 @@ pub enum Request {
         without_index: Option<bool>,
         // --- end 2C T7 ---
     },
+    // --- UX Y: the Undo dropdown ---
+    /// Undo `entry` from the Undo dropdown (`JournalState.history`): the newest is Undo itself;
+    /// an older one only when it's independent of every later entry, as its own new entry, with
+    /// no Redo: `WriteResult<UndoOutcome>`. Refused, with nothing changed, when anything it
+    /// changed has changed since.
+    UndoEntry {
+        repo: u32,
+        worktree: String,
+        #[ts(type = "number")]
+        entry: u64,
+        /// The clean-restore warning (§6.2) was confirmed.
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_autostash: Option<bool>,
+    },
+    /// The Undo dropdown's rows, newest first: `HistoryRow[]` (each older one's dependency check
+    /// runs here, when the dropdown opens, never with every `JournalState`).
+    JournalHistory { repo: u32, worktree: String },
+    // --- end UX Y ---
     /// What Undo/Redo and the banners show for a worktree (§5.5).
     JournalState { repo: u32, worktree: String },
     // --- end undo / redo (2A T10) ---
@@ -330,6 +349,11 @@ pub enum Request {
     /// `WriteResult<SaveOutcome>`; `Stale` when the file's bytes no longer hash to `base`.
     WriteWorktreeFile { repo: u32, worktree: String, path: String, text: String, base: String },
     // --- end 2B T6 ---
+    // --- UX round 3 O.1 ---
+    /// A new, empty file at `path` (folders made as needed): `WriteResult<SaveOutcome>`. Refused
+    /// when it exists or isn't plainly inside the worktree. Journaled: Undo removes it.
+    CreateWorktreeFile { repo: u32, worktree: String, path: String },
+    // --- end UX round 3 O.1 ---
     // --- 2B T1: stage and unstage (spec #2 §7.2) ---
     /// Stage `paths` (`git add -A`): `WriteResult<null>`. An immediate write (§3.6), not
     /// journaled; the staging undo log records it (§7.6).
@@ -743,7 +767,7 @@ impl Request {
         match self {
             // Remote-tracking refs and objects.
             Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
-            Request::WriteWorktreeFile { .. } => true,
+            Request::WriteWorktreeFile { .. } | Request::CreateWorktreeFile { .. } => true,
             // 2B T1.
             Request::Stage { .. } | Request::Unstage { .. } | Request::StageAll { .. } | Request::UnstageAll { .. } => true,
             // 2B T2.
@@ -753,6 +777,8 @@ impl Request {
             Request::TestWrite { .. } => true,
             // Undo / redo (2A T10); a journal file isn't the repository.
             Request::Undo { .. } | Request::Redo { .. } => true,
+            Request::UndoEntry { .. } => true, // UX Y
+            Request::JournalHistory { .. } => false,
             Request::JournalState { .. } => false,
             // Autostash banners (2A T11): × only edits the journal; Drop stash writes.
             Request::ApplyKeptStash { .. } => true,
@@ -1294,6 +1320,17 @@ impl Api {
         while !writing().is_empty() && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    /// UX Y: the Undo dropdown's rows. A read: the journal is loaded (a copy, the lock released)
+    /// and expired in memory; the dependency check runs outside the journal's lock.
+    pub(crate) fn journal_history(&self, root: &Path) -> Result<Vec<crate::journal::history::HistoryRow>, GbError> {
+        let mut j = self.journal(root)?.load()?;
+        let repo = gix::open(root).map_err(crate::error::gix_err)?;
+        let busy = repo.state().and_then(crate::write::in_progress_name);
+        j.expire(self.now());
+        let blocked = j.state(busy).undo_blocked;
+        Ok(j.history(busy, &blocked))
     }
 
     /// What Undo/Redo and the banners show; expired entries go first (§5.1).
@@ -1897,6 +1934,12 @@ impl Api {
             // --- Undo / redo (2A T10) ---
             Request::Undo { repo, worktree, entry, confirm, confirm_autostash, without_index, confirm_discard } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Undo, entry, confirm.unwrap_or_default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false), confirm_discard.unwrap_or(false)).await?),
             Request::Redo { repo, worktree, entry, confirm_autostash, without_index } => to_json(crate::journal::undo::undo_or_redo(self, repo, &worktree, crate::journal::undo::Direction::Redo, entry, Default::default(), confirm_autostash.unwrap_or(false), without_index.unwrap_or(false), false).await?),
+            Request::UndoEntry { repo, worktree, entry, confirm_autostash } => to_json(crate::journal::undo::undo_out_of_order(self, repo, &worktree, entry, confirm_autostash.unwrap_or(false)).await?), // UX Y
+            Request::JournalHistory { repo, worktree } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(self.journal_history(&root)?)
+            }
             Request::JournalState { repo, worktree } => {
                 let h = self.handle(repo)?;
                 let root = self.worktree_dir(&h, &worktree).await?;
@@ -1944,6 +1987,7 @@ impl Api {
                 crate::write::test_intents::run(self, repo, &worktree, expect, intent).await
             }
             Request::WriteWorktreeFile { repo, worktree, path, text, base } => to_json(crate::write::files::write_worktree_file(self, repo, &worktree, path, text, base).await?),
+            Request::CreateWorktreeFile { repo, worktree, path } => to_json(crate::write::files::create_worktree_file(self, repo, &worktree, path).await?),
             Request::RemoveIndexLock { repo, path, mtime_ms, ino, dev } => {
                 crate::write::index_lock::remove_index_lock(self, repo, &path, mtime_ms, ino, dev).await?;
                 to_json(())
@@ -3520,6 +3564,7 @@ mod tests {
             json!({"method": "queueClear", "params": {"repo": id}}),
             // Undo / redo (2A T10).
             json!({"method": "journalState", "params": {"repo": id, "worktree": wt}}),
+            json!({"method": "journalHistory", "params": {"repo": id, "worktree": wt}}), // UX Y
             // Autostash banners (2A T11).
             json!({"method": "dismissBanner", "params": {"repo": id, "worktree": wt, "entry": 999}}),
             // 2B T5.
@@ -3551,7 +3596,7 @@ mod tests {
     }
 
     /// The methods that write (`is_write`), which the never-write test leaves out.
-    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
+    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "undoEntry","applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "createWorktreeFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
         // --- 2C T5: checkout ---
         "checkout",
         // --- end 2C T5 ---
@@ -3604,6 +3649,7 @@ mod tests {
             // Undo / redo (2A T10).
             json!({"method": "undo", "params": {"repo": id, "worktree": wt, "entry": 1}}),
             json!({"method": "redo", "params": {"repo": id, "worktree": wt, "entry": 1}}),
+            json!({"method": "undoEntry", "params": {"repo": id, "worktree": wt, "entry": 1}}), // UX Y
             // Autostash banners (2A T11).
             json!({"method": "applyKeptStash", "params": {"repo": id, "worktree": wt, "entry": 1}}),
             // Remove stale lock (2A T12).
@@ -3621,6 +3667,8 @@ mod tests {
             // --- end 2C T8 ---
             // Save a working file (2B T6): refused as Stale before writing.
             json!({"method": "writeWorktreeFile", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "text": "x", "base": "0"}}),
+            // UX round 3 O.1: refused (it exists) before writing.
+            json!({"method": "createWorktreeFile", "params": {"repo": id, "worktree": wt, "path": "file_1.txt"}}),
             // 2B T1.
             json!({"method": "stage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),
             json!({"method": "unstage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),

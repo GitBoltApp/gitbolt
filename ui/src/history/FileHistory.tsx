@@ -24,6 +24,7 @@ import { registerKeys } from '../ui/keyRouter';
 import { isEditableTarget } from '../ui/keys';
 import { useToast } from '../ui/toast';
 import { BlameLayer } from './BlameGutter';
+import { NO_BINARY_BLAME } from './HistoryButtons';
 import { historyEnd, selectedRow, type FileHistoryArgs } from './model';
 import { clampListW, LIST_W, loadListW, saveListW } from './listWidth';
 import { createHistoryStore, HISTORY_PAGE, type HistoryStore } from './store';
@@ -78,11 +79,10 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
       <header className="file-history-header">
         <h2 className="file-history-title">File History: <span className="file-history-path">{props.path}</span></h2>
         <div className="file-history-tools">
-          {!binary && (
-            <HoverTooltip content={blame ? 'Hide who last changed each line' : 'Show who last changed each line'}>
-              <button type="button" className="blame-toggle" aria-pressed={blame} onClick={() => store.getState().setBlame(!blame)}>Blame</button>
-            </HoverTooltip>
-          )}
+          {/* A binary keeps the toggle, disabled, so the bar (and Close) never moves between files. */}
+          <HoverTooltip content={binary ? NO_BINARY_BLAME : blame ? 'Hide who last changed each line' : 'Show who last changed each line'}>
+            <button type="button" className="blame-toggle" aria-pressed={!binary && blame} aria-disabled={binary || undefined} onClick={() => { if (!binary) store.getState().setBlame(!blame); }}>Blame</button>
+          </HoverTooltip>
           <HoverTooltip content="Close (Esc)">
             <button type="button" className="icon-button" aria-label="Close file history" onClick={close}><X size={14} /></button>
           </HoverTooltip>
@@ -146,7 +146,14 @@ function HistoryList({ store, path }: { store: StoreApi<HistoryStore>; path: str
       {end && (
         <div className="file-history-end">
           {s.rows.length === 0 && <div>No commit changed {path}</div>}
-          {end.addedIn && <div>Added in {shortSha(end.addedIn)}</div>}
+          {end.addedIn && (
+            <div>
+              Added in{' '}
+              <HoverTooltip content={`Copy ${end.addedIn}`}>
+                <button type="button" tabIndex={-1} className="fh-sha" aria-label={`Copy ${end.addedIn}`} onMouseDown={(e) => e.preventDefault()} onClick={(e) => copySha(e, end.addedIn!)}>{shortSha(end.addedIn)}</button>
+              </HoverTooltip>
+            </div>
+          )}
           <div>End of history</div>
         </div>
       )}

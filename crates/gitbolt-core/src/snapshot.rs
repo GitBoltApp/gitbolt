@@ -608,6 +608,8 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], here: &Path, index: &Ha
             is_head: refs.head.branch.as_deref() == Some(local.full_name.as_str()),
             worktree: checked_out_elsewhere.get(local.full_name.as_str()).cloned(),
             checked_out: checked_out.get(local.full_name.as_str()).cloned(),
+            upstream_mismatch: local.upstream_mismatch.clone(),
+            annotation: None,
         });
     }
     // Remote-only refs: one label per (commit, branch name), so the same branch on several
@@ -628,19 +630,19 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], here: &Path, index: &Ha
             Some(&i) => labels[i].remotes.push(remote_label),
             None => {
                 remote_only.insert((rr.target, branch), labels.len());
-                labels.push(RefLabel { row, name: branch.to_string(), local: None, remotes: vec![remote_label], tag: false, is_head: false, worktree: None, checked_out: None });
+                labels.push(RefLabel { row, name: branch.to_string(), local: None, remotes: vec![remote_label], tag: false, is_head: false, worktree: None, checked_out: None, upstream_mismatch: None, annotation: None });
             }
         }
     }
     for t in refs.refs.iter().filter(|r| r.kind == RefKind::Tag) {
         if let Some(row) = row_of(&t.target) {
-            labels.push(RefLabel { row, name: t.short_name.clone(), local: None, remotes: vec![], tag: true, is_head: false, worktree: None, checked_out: None });
+            labels.push(RefLabel { row, name: t.short_name.clone(), local: None, remotes: vec![], tag: true, is_head: false, worktree: None, checked_out: None, upstream_mismatch: None, annotation: t.annotation.clone() });
         }
     }
     if refs.head.detached
         && let Some(row) = refs.head.target.as_ref().and_then(row_of)
     {
-        labels.push(RefLabel { row, name: "HEAD".into(), local: None, remotes: vec![], tag: false, is_head: true, worktree: None, checked_out: None });
+        labels.push(RefLabel { row, name: "HEAD".into(), local: None, remotes: vec![], tag: false, is_head: true, worktree: None, checked_out: None, upstream_mismatch: None, annotation: None });
     }
     let priority = |l: &RefLabel| if l.is_head { 0 } else if l.local.is_some() { 1 } else if !l.tag { 2 } else { 3 };
     labels.sort_by_key(|l| (l.row, priority(l)));

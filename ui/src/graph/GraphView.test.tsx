@@ -433,13 +433,12 @@ describe('GraphView columns', () => {
   const cell = (col: string) => screen.getAllByRole('row')[0].querySelector<HTMLElement>(`[data-col="${col}"]`)!;
   const separator = (name: RegExp) => screen.getByRole('separator', { name });
 
-  it('renders a keyboard-focusable vertical separator on the right edge of every column but SHA (the last)', () => {
+  it('renders a keyboard-focusable vertical separator on the right edge of every column, SHA at the end', () => {
     render(<GraphView graph={graph} repoId="/repo" />);
     const seps = screen.getAllByRole('separator');
-    expect(seps.map((s) => s.getAttribute('aria-label'))).toEqual(['Resize Branch / Tag column', 'Resize Graph column', 'Resize Commit message column', 'Resize Author column', 'Resize Date column']);
-    expect(header('sha').querySelector('[role="separator"]')).toBeNull();
+    expect(seps.map((s) => s.getAttribute('aria-label'))).toEqual(['Resize Branch / Tag column', 'Resize Graph column', 'Resize Commit message column', 'Resize Author column', 'Resize Date column', 'Resize SHA column']);
     // Each sits in (and on the right edge of) the header cell of the column it resizes (F3).
-    for (const [name, col] of [[/Branch/, 'labels'], [/Graph/, 'graph'], [/Commit message/, 'message'], [/Author/, 'author'], [/Date/, 'date']] as const) {
+    for (const [name, col] of [[/Branch/, 'labels'], [/Graph/, 'graph'], [/Commit message/, 'message'], [/Author/, 'author'], [/Date/, 'date'], [/SHA/, 'sha']] as const) {
       expect(separator(name).parentElement).toBe(header(col));
       expect(separator(name)).toHaveClass('end');
     }
@@ -470,16 +469,18 @@ describe('GraphView columns', () => {
     expect(header('graph')).toHaveStyle({ width: `${graphW - 8}px` });
     expect(cell('graph')).toHaveStyle({ width: `${graphW - 8}px` });
 
-    // Commit message's right edge trades with Author; Author's right edge trades with Date (F3).
-    const message = parseFloat(cell('message').style.width);
-    fireEvent.keyDown(separator(/Commit message/), { key: 'ArrowRight' });
-    expect(cell('message')).toHaveStyle({ width: `${message + 8}px` });
-    expect(cell('author')).toHaveStyle({ width: '152px' });
-    fireEvent.keyDown(separator(/Author/), { key: 'ArrowRight' });
+    // Each edge resizes only the column on its left (W.1).
+    const message = cellW('message');
+    fireEvent.keyDown(separator(/Commit message/), { key: 'ArrowLeft' });
+    expect(cell('message')).toHaveStyle({ width: `${message - 8}px` });
     expect(cell('author')).toHaveStyle({ width: '160px' });
-    expect(cell('date')).toHaveStyle({ width: '162px' });
-    expect(header('date')).toHaveStyle({ width: '162px' });
-    expect(cell('message')).toHaveStyle({ width: `${message + 8}px` });
+    fireEvent.keyDown(separator(/Author/), { key: 'ArrowRight' });
+    expect(cell('author')).toHaveStyle({ width: '168px' });
+    expect(cell('date')).toHaveStyle({ width: '170px' });
+    expect(cell('message')).toHaveStyle({ width: `${message - 8}px` });
+    fireEvent.keyDown(separator(/SHA/), { key: 'ArrowRight' });
+    expect(cell('sha')).toHaveStyle({ width: `${SHA_W + 8}px` });
+    expect(cell('date')).toHaveStyle({ width: '170px' });
   });
 
   // Heavy, not stuck: ~120 one-pixel drag steps, each re-rendering the view and reading widths
@@ -488,23 +489,13 @@ describe('GraphView columns', () => {
   it('dragging each column\'s right-edge handle resizes that column, the handle staying under the pointer (F3)', () => {
     render(<GraphView graph={graph} repoId="/repo" />);
     const right = (col: string) => leftOf(col) + cellW(col);
-    for (const [name, col, dx] of [[/Branch/, 'labels', 12], [/Commit message/, 'message', 12], [/Author/, 'author', 12], [/Date/, 'date', -12]] as const) {
+    for (const [name, col, dx] of [[/Branch/, 'labels', 12], [/Commit message/, 'message', -12], [/Author/, 'author', 12], [/Date/, 'date', 12], [/SHA/, 'sha', 12]] as const) {
       const w0 = cellW(col), x0 = right(col);
-      // Date's handle is dragged left (SHA takes the width): rightward, SHA can't give any
-      // (its default is its minimum, H15).
-      if (dx < 0) {
-        dragBy(separator(name), dx, (d) => {
-          expect(right(col), `${col} d=${d}`).toBe(x0 + d);
-          expect(cellW(col)).toBe(w0 + d);
-          expect(cellW('sha')).toBe(SHA_W - d);
-        });
-        continue;
-      }
       dragBy(separator(name), dx, (d) => {
         expect(right(col), `${col} d=${d}`).toBe(x0 + d);
         expect(cellW(col)).toBe(w0 + d);
       });
-      dragBy(separator(name), -20, (d) => expect(cellW(col), `${col} d=${d}`).toBe(w0 + 12 + d));
+      dragBy(separator(name), -20, (d) => expect(cellW(col), `${col} d=${d}`).toBe(Math.max(COLUMN_MIN[col], w0 + dx + d)));
     }
     // Graph is at its lanes' width by default: narrowing tracks the pointer.
     const g0 = cellW('graph'), gx = right('graph');
@@ -530,6 +521,14 @@ describe('GraphView columns', () => {
     fireEvent.pointerUp(sep, { clientX: 160, pointerId: 1 });
     fireEvent.pointerMove(sep, { clientX: 400, pointerId: 1 });
     expect(cell('labels')).toHaveStyle({ width: '260px' });
+  });
+
+  it('an empty filler ends every row and the header, past the last column (W.2)', () => {
+    render(<GraphView graph={graph} repoId="/repo" />);
+    for (const r of screen.getAllByRole('row')) expect(r.lastElementChild).toHaveAttribute('data-col', 'filler');
+    const f = document.querySelector('.graph-header [data-col="filler"]')!;
+    expect(f.textContent).toBe('');
+    expect(f.querySelector('[role="separator"]')).toBeNull();
   });
 
   it('Message takes the remaining width and cells match their header', () => {
@@ -561,12 +560,15 @@ describe('GraphView columns: aria, persistence, canvas clip', () => {
     const message = cellW('message');
     expect(sep(/Commit message/)).toHaveAttribute('aria-valuenow', String(message));
     expect(sep(/Commit message/)).toHaveAttribute('aria-valuemin', String(COLUMN_MIN.message));
-    expect(sep(/Commit message/)).toHaveAttribute('aria-valuemax', String(message + 160 - COLUMN_MIN.author));
+    // W.1: Message grows into free space only (none here); Author, Date and SHA also take from Message.
+    expect(sep(/Commit message/)).toHaveAttribute('aria-valuemax', String(message));
+    const room = message - COLUMN_MIN.message;
     expect(sep(/Author/)).toHaveAttribute('aria-valuemin', String(COLUMN_MIN.author));
-    expect(sep(/Author/)).toHaveAttribute('aria-valuemax', String(160 + 170 - COLUMN_MIN.date));
-    // Date trades with SHA: down to what SHA_MAX allows, up to SHA's minimum.
-    expect(sep(/Date/)).toHaveAttribute('aria-valuemin', String(Math.max(COLUMN_MIN.date, 170 - (SHA_MAX - SHA_W))));
-    expect(sep(/Date/)).toHaveAttribute('aria-valuemax', String(170 + SHA_W - COLUMN_MIN.sha));
+    expect(sep(/Author/)).toHaveAttribute('aria-valuemax', String(160 + room));
+    expect(sep(/Date/)).toHaveAttribute('aria-valuemin', String(COLUMN_MIN.date));
+    expect(sep(/Date/)).toHaveAttribute('aria-valuemax', String(170 + room));
+    expect(sep(/SHA/)).toHaveAttribute('aria-valuemin', String(COLUMN_MIN.sha));
+    expect(sep(/SHA/)).toHaveAttribute('aria-valuemax', String(Math.min(SHA_MAX, SHA_W + room)));
   });
 
   it('the SHA cell holds the whole hash (the column shows as many whole characters as fit)', () => {
@@ -638,28 +640,22 @@ describe('GraphView columns while Author/Date are squeezed (clientWidth 778)', (
     expect([cellW('message'), cellW('author'), cellW('date')]).toEqual([COLUMN_MIN.message, 140, 154]);
   });
 
-  it('Commit message: ArrowLeft/drag-left hit its own minimum (a wall); ArrowRight/drag-right track exactly, out of Author', () => {
+  it('Commit message: ArrowLeft/drag-left hit its own minimum (a wall); Author and Date keep their widths', () => {
     render(<GraphView graph={graph} repoId="/repo" />);
     const sep = screen.getByRole('separator', { name: /Commit message/ });
     fireEvent.keyDown(sep, { key: 'ArrowLeft' });
     expect([cellW('message'), cellW('author'), cellW('date')]).toEqual([160, 140, 154]);
     dragBy(sep, -20, () => expect(cellW('message')).toBe(160));
-    fireEvent.keyDown(sep, { key: 'ArrowRight' });
-    expect([cellW('message'), cellW('author'), cellW('date')]).toEqual([168, 132, 154]);
-    const x0 = leftOf('author');
-    dragBy(sep, 30, (d) => expect(leftOf('author'), `d=${d}`).toBe(x0 + d));
   });
 
-  it('Author: its right edge trades 1:1 with Date (handle under the pointer) until either is at its minimum', () => {
+  it('Author: its right edge resizes Author alone; Date keeps its width, Message is pinned', () => {
     render(<GraphView graph={graph} repoId="/repo" />);
     const sep = screen.getByRole('separator', { name: /Author/ });
-    fireEvent.keyDown(sep, { key: 'ArrowRight' });
-    expect([cellW('author'), cellW('date'), cellW('message')]).toEqual([148, 146, 160]);
-    const x0 = leftOf('date');
-    const room = cellW('author') - COLUMN_MIN.author; // 88
-    dragBy(sep, -100, (d) => expect(leftOf('date'), `d=${d}`).toBe(x0 - Math.min(-d, room)));
+    fireEvent.keyDown(sep, { key: 'ArrowLeft' });
+    expect([cellW('author'), cellW('date'), cellW('message')]).toEqual([132, 154, 160]);
+    dragBy(sep, -100, () => {});
     expect(cellW('author')).toBe(COLUMN_MIN.author);
-    expect(cellW('message')).toBe(160);
+    expect(cellW('date')).toBe(154);
   });
 });
 

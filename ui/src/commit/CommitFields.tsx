@@ -1,6 +1,7 @@
 import { useRef, type KeyboardEvent } from 'react';
 import { flushDrafts, WIP_DRAFT_COUNTER_FROM, WIP_DRAFT_WARN_FROM, type WipDraft } from './draft';
 import './commit.css';
+import { registerKeyHints } from '../shortcuts/hints';
 
 const isSubmit = (e: KeyboardEvent) => e.key === 'Enter' && (e.ctrlKey || e.metaKey);
 
@@ -84,3 +85,10 @@ export function CommitFields({ value, onChange, onSubmit, onEscape, disabled = f
     </div>
   );
 }
+
+// Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
+registerKeyHints([
+  { id: 'key.commit', section: 'Commit message', label: 'Commit', keys: ['Ctrl+Enter'], context: '(when in message input)', source: 'commit/CommitFields.tsx' },
+  { id: 'key.msgNext', section: 'Commit message', label: 'Summary to description', keys: ['Enter'], context: '(when in the summary)', source: 'commit/CommitFields.tsx' },
+  { id: 'key.msgBlur', section: 'Commit message', label: 'Leave the message input', keys: ['Esc'], context: '(when in message input)', source: 'commit/CommitFields.tsx' },
+]);

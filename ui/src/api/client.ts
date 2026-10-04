@@ -31,6 +31,7 @@ import type { ScannedRepo } from './gen/ScannedRepo';
 import type { SequenceOutcome } from './gen/SequenceOutcome';
 import type { QueueStatePayload } from './gen/QueueStatePayload';
 import type { JournalState } from './gen/JournalState';
+import type { HistoryRow } from './gen/HistoryRow';
 import type { IntegrateOutcome } from './gen/IntegrateOutcome';
 // --- 2D T19 ---
 import type { PullMode } from './gen/PullMode';
@@ -221,6 +222,14 @@ export const api = {
   redo: (repo: number, worktree: string, entry: number, confirmAutostash: boolean, withoutIndex = false) =>
     call<WriteResult<UndoOutcome>>({ method: 'redo', params: { repo, worktree, entry, confirmAutostash, ...(withoutIndex && { withoutIndex }) } }),
   // --- end 2C T7 ---
+  // --- UX Y ---
+  /** The Undo dropdown's row `entry` (`JournalState.history`): an older one is undone out of
+   * order, as an entry of its own, when it's independent of every later one. */
+  undoEntry: (repo: number, worktree: string, entry: number, confirmAutostash: boolean) =>
+    call<WriteResult<UndoOutcome>>({ method: 'undoEntry', params: { repo, worktree, entry, confirmAutostash } }),
+  /** The Undo dropdown's rows, read when it opens. */
+  journalHistory: (repo: number, worktree: string) => call<HistoryRow[]>({ method: 'journalHistory', params: { repo, worktree } }),
+  // --- end UX Y ---
   /** A banner's Apply / Restore (spec #2 §6.4); `withoutIndex` after "Apply without restoring
    * what was staged?"; `confirmAutostash`: a Restore's clean-restore warning was confirmed. */
   applyKeptStash: (repo: number, worktree: string, entry: number, withoutIndex: boolean, confirmAutostash: boolean) =>
@@ -232,6 +241,9 @@ export const api = {
    * puts the file back as it was. */
   writeWorktreeFile: (repo: number, worktree: string, path: string, text: string, base: string) =>
     call<WriteResult<SaveOutcome>>({ method: 'writeWorktreeFile', params: { repo, worktree, path, text, base } }),
+  /** UX round 3 O.1: a new, empty file (its folders made); journaled, so Undo removes it. */
+  createWorktreeFile: (repo: number, worktree: string, path: string) =>
+    call<WriteResult<SaveOutcome>>({ method: 'createWorktreeFile', params: { repo, worktree, path } }),
   // --- end 2B T6 ---
   // Plan 2B T1: stage and unstage (spec #2 §7.2). Immediate writes; not journaled.
   stage: (repo: number, worktree: string, paths: string[]) => call<WriteResult<null>>({ method: 'stage', params: { repo, worktree, paths } }),

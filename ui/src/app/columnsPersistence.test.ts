@@ -21,7 +21,7 @@ describe('column persistence (spec §8.4)', () => {
     // What `endResize` calls once a gesture changed something.
     const { prefs } = useColumnPrefs.getState();
     columnPrefsPersistence.save('/r', prefs);
-    expect(useAppState.getState().profile.repos['/r'].columns).toEqual({ labels: prefs.labels, graph: null, author: 90, date: prefs.date, sha: 120 });
+    expect(useAppState.getState().profile.repos['/r'].columns).toEqual({ labels: prefs.labels, graph: null, author: 90, date: prefs.date, sha: 120, message: null });
     useColumnPrefs.getState().reset();
     useColumnPrefs.getState().loadFor('/r');
     expect(useColumnPrefs.getState().prefs).toMatchObject({ author: 90, sha: 120 });
@@ -38,10 +38,10 @@ describe('column persistence (spec §8.4)', () => {
   });
 
   it('a profile switch reloads the widths from the new profile', () => {
-    useAppState.setState({ profile: { ...EMPTY_PROFILE, id: 'a', repos: { '/r': { ...EMPTY_REPO_SETTINGS, columns: { labels: 100, graph: null, author: 70, date: 100, sha: 80 } } } } });
+    useAppState.setState({ profile: { ...EMPTY_PROFILE, id: 'a', repos: { '/r': { ...EMPTY_REPO_SETTINGS, columns: { labels: 100, graph: null, author: 70, date: 100, sha: 80, message: null } } } } });
     useColumnPrefs.getState().loadFor('/r');
     expect(useColumnPrefs.getState().prefs.author).toBe(70);
-    useAppState.setState({ profile: { ...EMPTY_PROFILE, id: 'b', repos: { '/r': { ...EMPTY_REPO_SETTINGS, columns: { labels: 100, graph: null, author: 95, date: 100, sha: 80 } } } } });
+    useAppState.setState({ profile: { ...EMPTY_PROFILE, id: 'b', repos: { '/r': { ...EMPTY_REPO_SETTINGS, columns: { labels: 100, graph: null, author: 95, date: 100, sha: 80, message: null } } } } });
     useColumnPrefs.getState().loadFor('/r');
     expect(useColumnPrefs.getState().prefs.author).toBe(95);
   });

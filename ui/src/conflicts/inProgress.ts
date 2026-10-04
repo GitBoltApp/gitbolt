@@ -43,6 +43,10 @@ export interface OperationView {
    * whether the index differs from the commit (an Abort keeps it). */
   editAdded?: string[];
   editChanged?: boolean;
+  /** UX N: GitBolt's own interactive rebase (fix round 1: its journal session, as the core
+   * decides): its Abort keeps the work done at the stop that can't be had again (changes made by
+   * hand in a conflict resolution too). */
+  keepsWork?: boolean;
   /** UX L: a short line under the hint (amending in a terminal at the stop). */
   caution?: string | null;
   /** The status block's accessible name. */
@@ -118,6 +122,7 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
         editBase: base,
         editAdded: base ? p.editAdded : [],
         editChanged: !!base && p.editChanged,
+        keepsWork: !!paused?.irebase,
         caution: base ? AMEND_IN_TERMINAL : null,
         region: 'Rebase in progress',
         title: `Rebasing ${branchOf(p.headName)} onto ${onto} (step ${p.step} of ${p.total})`,

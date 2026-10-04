@@ -119,11 +119,16 @@ export type KeptWork = 'commits' | 'work' | null;
 function abortConfirm(op: OperationView, name: string, resolved: number, kept: KeptWork) {
   const back = `The branch goes back to how it was before the ${name}.`;
   // --- 3C T13: an Edit stop's work is kept; a rebase's conflict stop loses its resolution ---
+  // UX N: the core keeps only what can't be had again, so the copy says "new".
   if (op.kind === 'rebase' && op.editStop && kept === 'commits') {
-    return { arm: 'Click again to abort: your commits from the stop are kept on a branch', body: `${back} Your commits from the stop are kept on a branch.` };
+    return { arm: 'Click again to abort: new commits from the stop are kept on a branch', body: `${back} New commits from the stop are kept on a branch.` };
   }
   if (op.kind === 'rebase' && op.editStop && kept === 'work') {
-    return { arm: 'Click again to abort: your work from the stop is kept', body: `${back} Your work from the stop is kept.` };
+    return { arm: 'Click again to abort: new work from the stop is kept', body: `${back} New work from the stop is kept.` };
+  }
+  if (op.kind === 'rebase' && !op.editStop && resolved > 0 && op.keepsWork) {
+    // Fix round 1: a side taken whole (ours, theirs) is in the commits: only hand-made changes are kept.
+    return { arm: 'Click again to abort: changes you made by hand are kept', body: `${back} Changes you made by hand are kept in a stash.` };
   }
   if (op.kind === 'rebase' && !op.editStop && resolved > 0) {
     return { arm: 'Click again to abort: discards the conflict resolution so far', body: `${back} The conflict resolution so far is discarded.` };

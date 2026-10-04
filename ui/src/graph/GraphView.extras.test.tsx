@@ -97,8 +97,8 @@ describe('hidden columns (spec §8.4)', () => {
     run('Hide Author');
     expect(header('author')).toBeNull();
     expect(cell('author')).toBeNull();
-    // Message's handle traded with Author: gone; the others stay.
-    expect(screen.queryByRole('separator', { name: /Commit message/ })).toBeNull();
+    // Each handle resizes its own column: Message's stays.
+    expect(screen.getByRole('separator', { name: /Commit message/ })).toBeInTheDocument();
     expect(screen.getByRole('separator', { name: /Date/ })).toBeInTheDocument();
     fireEvent.contextMenu(document.querySelector('.graph-header')!, { clientX: 10, clientY: 10 });
     expect(labels()).toContain('Show Author');

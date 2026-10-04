@@ -2,7 +2,7 @@
    (theme/themes.test.ts). Every cell keeps its width, so a dot, a ⚠ or a chip appearing never
    shifts the row. Action colours: Pick --green, Reword/Squash/Fixup --orange, Drop --red,
    Edit --blue (tokens.css has no --positive / --warning / --danger / --accent). */
-.irebase { --irebase-chips-w: 220px; display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--app-bg0); outline: none; }
+.irebase { --irebase-chips-w: 220px; --irebase-action-w: 84px; display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--app-bg0); outline: none; }
 
 .irebase-header { flex: none; display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 4px 10px; background: var(--file-bar-bg); border-bottom: 1px solid var(--section-border); }
 .irebase-header h2 { flex: none; margin: 0; font-size: 13px; font-weight: 600; color: var(--text-selected); white-space: nowrap; }
@@ -21,7 +21,7 @@
 .irebase-row {
   position: relative;
   display: grid;
-  grid-template-columns: 18px var(--irebase-chips-w) 92px 16px 22px 1fr 12px 18px;
+  grid-template-columns: 18px var(--irebase-chips-w) 16px var(--irebase-action-w) 16px 22px 1fr 12px;
   column-gap: 6px;
   align-items: start;
   min-height: 30px;
@@ -57,7 +57,7 @@
 .irebase-action.is-reword, .irebase-action.is-squash, .irebase-action.is-fixup { --act: var(--orange); }
 .irebase-action.is-drop { --act: var(--red); }
 .irebase-action.is-edit { --act: var(--blue); }
-.irebase-action button { padding: 2px 6px 2px 8px; font-size: 12px; font-weight: 600; color: var(--act); background: color-mix(in srgb, var(--act) 14%, var(--app-bg0)); border-color: color-mix(in srgb, var(--act) 45%, transparent); }
+.irebase-action button { gap: 4px; padding: 2px 4px 2px 7px; font-size: 12px; font-weight: 600; color: var(--act); background: color-mix(in srgb, var(--act) 14%, var(--app-bg0)); border-color: color-mix(in srgb, var(--act) 45%, transparent); }
 .irebase-action button:hover { background: color-mix(in srgb, var(--act) 24%, var(--app-bg0)); }
 .irebase-action.is-base { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); padding-left: 8px; }
 
@@ -67,6 +67,15 @@
 .irebase-conflict { display: inline-grid; place-items: center; color: var(--yellow); }
 /* A prediction under way keeps the previous marks, dimmed, until its answer replaces them. */
 .irebase-rows.predicting .irebase-conflict { opacity: 0.4; }
+/* UX4 Q.2: the action dropdown's open list (the app's menu, named "Action for <sha>"): as narrow
+   as its longest label, each row in its action's colour, as the closed button is. Its row
+   tooltips sit beside it, so near the pointer. */
+.ctx-menu[aria-label^="Action for "] { min-width: 0; }
+.ctx-menu[aria-label^="Action for "] .ctx-row[data-row-id^="select."] { font-weight: 600; color: var(--act, var(--text-normal)); }
+.ctx-menu[aria-label^="Action for "] .ctx-row[data-row-id="select.pick"] { --act: var(--green); }
+.ctx-menu[aria-label^="Action for "] .ctx-row:is([data-row-id="select.reword"], [data-row-id="select.squash"], [data-row-id="select.fixup"]) { --act: var(--orange); }
+.ctx-menu[aria-label^="Action for "] .ctx-row[data-row-id="select.drop"] { --act: var(--red); }
+.ctx-menu[aria-label^="Action for "] .ctx-row[data-row-id="select.edit"] { --act: var(--blue); }
 
 /* Cells start at the row's top and keep its 30 px, so the message editor growing the row moves
    none of them (no layout shift). */
@@ -81,15 +90,17 @@
 .irebase-row.is-drop .avatar { opacity: 0.5; }
 .irebase-row.is-folded > :not(.irebase-action):not(.irebase-fold):not(.irebase-handle) { opacity: 0.6; }
 
-/* The message editor spans the summary column and grows the row. */
-.irebase-message-editor { grid-column: 6 / 7; padding: 4px 0; min-width: 0; }
+/* The message editor sits in the summary column, at most the details panel's usual width (UX4
+   Q.4, left-aligned), with Cancel and Save under it; it grows the row. */
+.irebase-message-editor { grid-column: 7 / 8; display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 440px; padding: 4px 0 6px; min-width: 0; box-sizing: border-box; }
+.irebase-message-actions { display: flex; justify-content: flex-end; gap: 6px; }
 
 /* The base's tip: read-only, its text dimmed (not the row: its selection highlight stays full);
    a click shows the base commit (R2). */
 .irebase-base { cursor: pointer; border-top: 1px dashed var(--section-border); }
 .irebase-base > * { opacity: 0.6; }
 .irebase-base .irebase-handle { cursor: pointer; }
-.irebase-base .irebase-summary { grid-column: 6 / -1; }
+.irebase-base .irebase-summary { grid-column: 7 / -1; }
 
 .irebase-footer { flex: none; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 10px; background: var(--file-bar-bg); border-top: 1px solid var(--section-border); }
 .irebase-keys { flex: 1; min-width: 0; font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

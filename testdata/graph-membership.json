@@ -11,6 +11,7 @@
           "remotes": [],
           "row": 0,
           "tag": false,
+          "upstreamMismatch": "origin/main",
           "worktree": null
         },
         {
@@ -150,6 +151,7 @@
           "remotes": [],
           "row": 0,
           "tag": false,
+          "upstreamMismatch": "origin/main",
           "worktree": null
         },
         {

@@ -827,6 +827,8 @@ impl WriteIntent for RebaseControl {
                 // Review N1: if the update list couldn't be pruned at GitBolt's pause, git moves
                 // the merged-in branches at the end; they go back here (only then, N6).
                 let keep = put_back_of_pause(cx)?;
+                // UX N: the stop this step starts at; a stop it makes has another key.
+                let at = crate::write::irebase::split::stop_key(cx.root);
                 // The message the user typed in the box (the UI sends one only when edited).
                 let typed = self.message.as_deref().filter(|m| self.action == RebaseAction::Continue && !m.trim().is_empty());
                 // --- UX F: a stop where the commit failed (the signer) can go on ---
@@ -911,7 +913,7 @@ impl WriteIntent for RebaseControl {
                 }
                 // --- 3C T4: an interactive rebase's deletes, or its next Edit message ---
                 match &session {
-                    Some(s) => crate::write::irebase::run::after_step(cx, s, out, failed.as_ref()).await,
+                    Some(s) => crate::write::irebase::run::after_step(cx, s, out, failed.as_ref(), &at).await,
                     None => Ok(out),
                 }
                 // --- end 3C T4 ---
@@ -959,7 +961,9 @@ impl WriteIntent for RebaseControl {
                     cx.touch(k);
                 }
                 Ok(match work {
-                    Some(w) => IntegrateOutcome::Aborted { stash: w.stash, branch: w.branch, discarded: w.discarded },
+                    // UX N: a conflict stop's work is kept too, in the stash: nothing is counted
+                    // as discarded any more.
+                    Some(w) => IntegrateOutcome::Aborted { stash: w.stash, branch: w.branch },
                     None => IntegrateOutcome::ABORTED,
                 })
             }

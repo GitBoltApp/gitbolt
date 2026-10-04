@@ -510,6 +510,30 @@ pub fn irebase(r: &TestRepo) {
 }
 // --- end 3C T1 ---
 
+/// The playground's `rebase-lab`: `lab` is six commits on `main`, which then edited the line `L2`
+/// rewrote, so an interactive rebase onto main predicts a conflict on `L2`. `L4` edits the line
+/// `L3` appended: moving L4 above L3 predicts a conflict, moving it back clears it. The six are
+/// consecutive on the checked-out branch, for the multi-select Squash rows. HEAD: lab.
+pub fn rebase_lab(r: &TestRepo) {
+    r.write("notes.txt", "one\ntwo\nthree\n");
+    r.git(&["add", "notes.txt"]);
+    r.git(&["commit", "-q", "-m", "Base"]);
+    r.switch_new("lab");
+    r.commit("L1 Add parser");
+    r.write("notes.txt", "one\ntwo, lab\nthree\n");
+    r.git(&["commit", "-q", "-am", "L2 Reword line two"]);
+    r.write("notes.txt", "one\ntwo, lab\nthree\nfour\n");
+    r.git(&["commit", "-q", "-am", "L3 Append four"]);
+    r.write("notes.txt", "one\ntwo, lab\nthree\nfour, refined\n");
+    r.git(&["commit", "-q", "-am", "L4 Refine four"]);
+    r.commit("L5 Add tests");
+    r.commit("L6 Add docs");
+    r.switch("main");
+    r.write("notes.txt", "one\ntwo, main\nthree\n");
+    r.git(&["commit", "-q", "-am", "Main edits line two"]);
+    r.switch("lab");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

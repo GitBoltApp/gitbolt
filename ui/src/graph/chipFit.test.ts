@@ -27,4 +27,8 @@ describe('chipWidth', () => {
     expect(chipWidth(head, '12px sans-serif', true)).toBe(CHIP_PAD + 16);
     expect(chipWidth(head, '12px sans-serif')).toBeGreaterThan(chipWidth(head, '12px sans-serif', true) + 20);
   });
+  it("counts the upstream-name warning (UX round 3, M.1): the chip's width already holds it", () => {
+    const branch = { row: 0, name: 'feature/a', local: 'refs/heads/feature/a', tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [] };
+    expect(chipWidth({ ...branch, upstreamMismatch: 'origin/feature/b' }, '12px sans-serif')).toBe(chipWidth(branch, '12px sans-serif') + 12 + 3);
+  });
 });

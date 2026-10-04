@@ -1,11 +1,10 @@
-import { Trash2 } from 'lucide-react';
+import { Funnel, Trash2 } from 'lucide-react';
 import { useRef } from 'react';
-import { StashIcon } from '../icons/stash';
 import { useRepoContext } from '../app/repoContext';
 import { useRepoView } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';
-import { stashPushFor } from '../stash/actions';
+import { toggleWipFilter, useWipFilter, wipFilterOf } from './wipFilter';
 import { discardAll, useWipCtx } from '../stage/actions';
 import { ActionIcon } from '../stage/RowActions';
 import { COMMIT_QUEUED, useCommitting, useDiscardingAll } from '../stage/store';
@@ -50,8 +49,9 @@ export function WipHeader() {
     for (const sec of secs) if (sec.list.status === 'ready') for (const f of sec.list.data.files) { paths.add(f.path); if (f.oldPath) paths.add(f.oldPath); }
     return [...paths].join('\0');
   });
-  const { tabId, repoId } = useRepoContext();
+  const { tabId } = useRepoContext();
   const wipCtx = useWipCtx();
+  const filterOpen = useWipFilter((s) => wipFilterOf(s.byTab, tabId).open);
   // Discard all is off during a merge or rebase (spec #2 §7.2).
   const midOp = useRepoView((s) => {
     const sel = s.panel?.selection;
@@ -80,15 +80,14 @@ export function WipHeader() {
       {branch && <>{' '}<span>on</span>{' '}<HoverTooltip content={`Worktree ${selection.name}`} disabled={!selection.name}><span className="wip-branch">{branch}</span></HoverTooltip></>}
       </span>
       <span className="wip-head-right">
-      {/* --- 2C T13: stash this worktree's changes --- */}
-      {tabId && count > 0 && (
-        <HoverTooltip content="Stash every change, named from the WIP message">
-          <button type="button" className="icon-button" aria-label="Stash" onClick={() => void stashPushFor({ tabId, repoId, worktree: selection.worktree })}>
-            <StashIcon size={14} aria-hidden />
+      {/* UX round 4 R.2: filters Conflicted, Unstaged and Staged at once (Stash is the toolbar's). */}
+      {tabId && (
+        <HoverTooltip content="Filter files">
+          <button type="button" className="icon-button" aria-label="Filter files" aria-pressed={filterOpen} onClick={() => toggleWipFilter(tabId)}>
+            <Funnel size={14} aria-hidden />
           </button>
         </HoverTooltip>
       )}
-      {/* --- end 2C T13 --- */}
       </span>
     </header>
   );

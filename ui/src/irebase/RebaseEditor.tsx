@@ -31,6 +31,9 @@ const FINISH_MESSAGE = 'Finish editing the message first';
 /** A control as a key's origin: the confirm arms it in place (spec §ui confirms). */
 const keyOrigin = (el: HTMLElement | null): Origin | null => (el ? { el, rect: null, via: 'key', control: true, holds: 0 } : null);
 
+/** The action dropdown's rows, each with its explanation (Q.2). */
+const ACTION_OPTIONS = ACTIONS.map((a) => [a, ACTION_LABEL[a], ACTION_TIP[a]] as const);
+
 const startEditing = (tabId: string, oid: string | null) => editSession(tabId, (s) => ({ ...s, editing: oid }));
 
 /** The keys (spec #3 §4.1), before the app's own: none of them while typing in the message editor. */
@@ -81,15 +84,34 @@ function useEditorKeys(tabId: string, root: React.RefObject<HTMLElement | null>,
   }), [tabId, root, cancel]);
 }
 
+/**
+ * A row's message, edited in place (UX4 Q.4): at most the details panel's width, with Save
+ * (Ctrl+Enter) and Cancel (Esc). Only Save writes the plan: closing any other way (Cancel, Esc,
+ * another row's editor) leaves the previous message. It opens focused, the caret at the
+ * summary's end (Q.3).
+ */
 function InlineMessage({ tabId, oid, text }: { tabId: string; oid: string; text: string }) {
   const [value, setValue] = useState<WipDraft>(() => splitMessage(text));
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const input = box.current?.querySelector<HTMLInputElement>('.commit-summary');
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, []);
   const save = () => {
     editState(tabId, (s) => editMessage(s, oid, draftMessage(value)));
     startEditing(tabId, null);
   };
+  const cancel = () => startEditing(tabId, null);
   return (
-    <div className="irebase-message-editor">
-      <CommitFields value={value} onChange={setValue} onSubmit={save} onEscape={() => startEditing(tabId, null)} autoFocus />
+    // Its clicks are the editor's: they don't select the row.
+    <div ref={box} className="irebase-message-editor" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+      <CommitFields value={value} onChange={setValue} onSubmit={save} onEscape={cancel} autoFocus />
+      <div className="irebase-message-actions">
+        <button type="button" className="commit-neutral" onClick={cancel}>Cancel</button>
+        <button type="button" className="commit-positive" onClick={save}>Save</button>
+      </div>
     </div>
   );
 }
@@ -104,7 +126,11 @@ function Row({ tabId, row, index, state, g, chips, conflict, editing, drag }: {
   const text = targetMessage(state, row.oid, g);
   const over = useChipDrag((x) => x.drag?.over === row.oid);
   const count = drag.count(index);
-  const choose = (a: RowAction) => editState(tabId, (s) => setActions(s, s.selected.includes(row.oid) ? s.selected : [row.oid], a));
+  const choose = (a: RowAction) => {
+    editState(tabId, (s) => setActions(s, s.selected.includes(row.oid) ? s.selected : [row.oid], a));
+    // Q.3: Reword opens the row's message at once.
+    if (a === 'reword') startEditing(tabId, row.oid);
+  };
   return (
     <li
       data-irebase-row=""
@@ -120,19 +146,20 @@ function Row({ tabId, row, index, state, g, chips, conflict, editing, drag }: {
       <span className="irebase-handle" aria-hidden="true"><GripVertical size={14} /></span>
       {count !== null && <span className="irebase-drag-count" role="status">{count} commits</span>}
       <ChipColumn tabId={tabId} row={row.oid} state={chips.state} g={chips.g} />
+      {/* Q.1: the ⚠ just left of the action, in a slot of its own (nothing shifts when it shows). */}
+      <span className="irebase-conflict">
+        {conflict && <HoverTooltip content={`Predicted conflict in ${conflict.join(', ')}`}><TriangleAlert size={13} aria-label="Predicted conflict" /></HoverTooltip>}
+      </span>
       <HoverTooltip content={ACTION_TIP[row.action]}>
         {/* On a selected row the dropdown sets every selected row: the click keeps the selection. */}
         <span className={`irebase-action is-${row.action}`} onClick={(e) => { if (selected) e.stopPropagation(); }} onDoubleClick={(e) => e.stopPropagation()}>
-          <Select aria-label={`Action for ${short(row.oid)}`} value={row.action} options={ACTIONS.map((a) => [a, ACTION_LABEL[a]] as const)} onChange={choose} />
+          <Select aria-label={`Action for ${short(row.oid)}`} value={row.action} options={ACTION_OPTIONS} onChange={choose} />
         </span>
       </HoverTooltip>
       <span className="irebase-fold">{into && <HoverTooltip content={`Folds into ${short(into)}`}><ArrowDown size={13} aria-label={`Folds into ${short(into)}`} /></HoverTooltip>}</span>
       <Avatar name={row.authorName} email={row.authorEmail} size={20} />
       {editing ? <InlineMessage tabId={tabId} oid={row.oid} text={text} /> : <span className="irebase-summary">{firstLine(text)}</span>}
       <span className="irebase-dot">{row.edited !== null && <span aria-label="Message edited">•</span>}</span>
-      <span className="irebase-conflict">
-        {conflict && <HoverTooltip content={`Predicted conflict in ${conflict.join(', ')}`}><TriangleAlert size={13} aria-label="Predicted conflict" /></HoverTooltip>}
-      </span>
     </li>
   );
 }
@@ -197,6 +224,7 @@ export function RebaseEditor({ tabId }: CenterViewProps<object>) {
         <li className={`irebase-row irebase-base${baseShown ? ' is-selected' : ''}`} role="option" aria-selected={baseShown} onClick={() => inspectBase(tabId)}>
           <span className="irebase-handle" />
           <ChipColumn tabId={tabId} row={state.base.oid} state={chips.state} g={chips.g} />
+          <span className="irebase-conflict" />
           <span className="irebase-action is-base">{short(state.base.oid)}</span>
           <span className="irebase-fold" />
           <span className="irebase-summary">{state.base.summary}</span>

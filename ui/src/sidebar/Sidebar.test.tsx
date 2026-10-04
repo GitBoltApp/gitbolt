@@ -47,6 +47,26 @@ describe('Sidebar panels', () => {
     expect(within(panel('Stashes')).getByLabelText('Stashes count')).toHaveTextContent('0');
   });
 
+  it("warns on a local row whose upstream has another name, before the name; marks an annotated tag's icon (UX round 3, M.1/M.2)", () => {
+    const s = useRuntime.getState().tabs.t.sidebar!;
+    useRuntime.getState().patch('t', {
+      sidebar: {
+        ...s,
+        locals: [{ ...branch('feature/a'), upstream: 'refs/remotes/origin/feature/b', upstreamMismatch: 'origin/feature/b' }, branch('main', true)],
+        tags: [{ ...s.tags[0], annotation: { message: 'Release', truncated: false, tagger: 'Ada', time: 1 } }, { name: 'v2', fullName: 'refs/tags/v2', target: 'u'.repeat(40), time: 0 }],
+      },
+    });
+    renderIt();
+    const tip = "Tracks origin/feature/b, not a branch named feature/a. That's often a mistake.";
+    const row = within(panel('Local')).getByRole('treeitem', { name: 'feature/a' });
+    const warn = within(row).getByRole('img', { name: tip });
+    expect(warn.nextElementSibling).toHaveClass('sb-label');
+    fireEvent.mouseEnter(warn);
+    expect(screen.getAllByRole('tooltip').some((t) => t.textContent === tip)).toBe(true);
+    expect(within(panel('Local')).getAllByRole('img', { name: tip })).toHaveLength(1);
+    expect(within(panel('Tags')).getAllByLabelText('annotated tag')).toHaveLength(1);
+  });
+
   it('ahead/behind shows each count with a 12px arrow icon, labelled for screen readers (K67)', () => {
     const s = useRuntime.getState().tabs.t.sidebar!;
     useRuntime.getState().patch('t', { sidebar: { ...s, locals: [{ ...branch('hotfix'), upstream: 'refs/remotes/origin/hotfix', ahead: 10, behind: 11 }] } });

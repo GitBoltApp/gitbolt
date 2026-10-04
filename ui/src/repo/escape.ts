@@ -3,6 +3,7 @@ import { registerKeys } from '../ui/keyRouter';
 import { isEditableTarget, markEditorKey } from '../ui/keys';
 import { centerViewOf, centerViewOnTop } from './centerView';
 import type { RepoViewStore } from './store';
+import { registerKeyHints } from '../shortcuts/hints';
 
 /** Whether `e` (an Esc) belongs to something before the app: an editor overlay (Monaco's find
  * widget, its context menu, a hover, …) that the key was pressed in or for. */
@@ -97,3 +98,8 @@ export function useAppEscape(store: RepoViewStore, root?: RefObject<HTMLElement 
     };
   }, [store, root, tabId]);
 }
+
+// Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
+registerKeyHints([
+  { id: 'key.esc.file', section: 'Navigation', label: 'Close the open file or leave compare', keys: ['Esc'], context: '(when not typing)', source: 'repo/escape.ts' },
+]);

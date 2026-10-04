@@ -256,9 +256,12 @@ fn not_applied(why: &str) -> String {
 ///   message file, which Continue commits with and the panel prefills; once per stop, never over
 ///   a message typed there since.
 /// - A reword script that failed (M2, `failed`: git's error): why, for the panel.
+/// - UX N: a stop this write's git step just made (`before.made`: its key isn't the one of the
+///   stop the step started at; never when that's unknown) notes what git left there
+///   (`split::note_stop`), for an Abort.
 ///
 /// The returned warning: the new message wasn't applied (M1, M2).
-pub(crate) async fn at_stop(cx: &mut WriteCx<'_>, s: &IrebaseState, failed: Option<&GbError>) -> Option<String> {
+pub(crate) async fn at_stop(cx: &mut WriteCx<'_>, s: &IrebaseState, failed: Option<&GbError>, before: &super::split::Before) -> Option<String> {
     use crate::in_progress::{last_done, stop_note, write_stop_note, InProgress, MESSAGE_APPLIED, MESSAGE_FAILED, REFUSED};
     let root = cx.root.to_path_buf();
     let read = move || -> Result<(Option<InProgress>, PathBuf, String), GbError> {
@@ -275,6 +278,9 @@ pub(crate) async fn at_stop(cx: &mut WriteCx<'_>, s: &IrebaseState, failed: Opti
     };
     let Some(InProgress::Rebase { edit_stop, edit_conflict, stopped_at, .. }) = state else { return None };
     let at = last_done(&git_dir)?;
+    if before.made(&at) {
+        super::split::note_stop(cx, &git_dir, &at).await;
+    }
     let note = |name: &str, text: &str| {
         if let Err(e) = write_stop_note(&git_dir, name, &at, text) {
             tracing::warn!(target: "gitbolt_core::write", "noting the interactive rebase's stop ({name}): {e}");
@@ -381,7 +387,7 @@ pub(crate) fn session_of_pause(cx: &WriteCx<'_>) -> Result<Option<IrebaseState>,
 /// moves the todo's `update-ref` lines made, then the chips marked delete, all recorded on the
 /// paused entry as they happen (I1); a chip that couldn't be deleted is the outcome's warning
 /// (R1). Stopped again: the next stop's Edit message.
-pub(crate) async fn after_step(cx: &mut WriteCx<'_>, s: &IrebaseState, out: IntegrateOutcome, failed: Option<&GbError>) -> Result<IntegrateOutcome, GbError> {
+pub(crate) async fn after_step(cx: &mut WriteCx<'_>, s: &IrebaseState, out: IntegrateOutcome, failed: Option<&GbError>, before: &super::split::Before) -> Result<IntegrateOutcome, GbError> {
     match out {
         IntegrateOutcome::Done { commits, fast_forward, rewritten, .. } => {
             let warning = completed_step(cx, s).await;
@@ -392,7 +398,7 @@ pub(crate) async fn after_step(cx: &mut WriteCx<'_>, s: &IrebaseState, out: Inte
             Ok(IntegrateOutcome::UpToDate { warning })
         }
         IntegrateOutcome::Stopped { kind, files, warning } => {
-            let warning = at_stop(cx, s, failed).await.or(warning);
+            let warning = at_stop(cx, s, failed, before).await.or(warning);
             Ok(IntegrateOutcome::Stopped { kind, files, warning })
         }
         o => Ok(o),
@@ -560,7 +566,7 @@ impl WriteIntent for IrebaseIntent {
                 }
                 mark_gitbolt(cx.root, &p.dir);
                 // M1: the pause stands whatever happens to the stop's message.
-                let warning = at_stop(cx, &state, failed.as_ref()).await.or(stopped);
+                let warning = at_stop(cx, &state, failed.as_ref(), &super::split::Before::Start).await.or(stopped);
                 Ok(IntegrateOutcome::Stopped { kind, files, warning })
             }
             Ok(o) => {

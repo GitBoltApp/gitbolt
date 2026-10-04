@@ -29,9 +29,4 @@ stash?: string,
 /**
  * Fix round 2: the branch the commits made at the stop were kept on.
  */
-branch?: string, 
-/**
- * Fix round 2: a conflict stop: how many files' changes the abort discarded (fix round
- * 3: the conflicted files and the user's unstaged edits; not what git merged cleanly).
- */
-discarded?: number, };
+branch?: string, };

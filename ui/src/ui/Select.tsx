@@ -11,7 +11,8 @@ const Blank = (() => null) as unknown as LucideIcon;
 export interface SelectProps<T extends string | number> {
   id?: string;
   value: T;
-  options: ReadonlyArray<readonly [T, string]>;
+  /** `[value, label]`, or `[value, label, tooltip]`: the open list's row tooltip (default: the label). */
+  options: ReadonlyArray<readonly [T, string] | readonly [T, string, string]>;
   onChange(v: T): void;
   'aria-label'?: string;
   'aria-labelledby'?: string;
@@ -27,8 +28,8 @@ export function Select<T extends string | number>({ id, value, options, onChange
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
-  const rows = (): MenuRow[] => options.map(([v, l]) => ({
-    kind: 'action', id: `select.${v}`, label: l, icon: v === value ? Check : Blank, tooltip: l, run: () => onChange(v),
+  const rows = (): MenuRow[] => options.map(([v, l, tip]) => ({
+    kind: 'action', id: `select.${v}`, label: l, icon: v === value ? Check : Blank, tooltip: tip ?? l, run: () => onChange(v),
   }));
   const show = () => setOpen(openMenuAt(btn.current!, rows(), `select.${value}`, rows, rest['aria-label']));
   useEffect(() => useMenu.subscribe((s) => { if (s.rows === null) setOpen(false); }), []);

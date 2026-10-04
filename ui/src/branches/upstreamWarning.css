@@ -1,0 +1,3 @@
+/* UX round 3, M.1 (UpstreamWarning.tsx): the app's warning colour, as the commit panel's identity
+   warning and the rebase editor's. */
+.upstream-warn { display: inline-flex; flex: none; color: var(--orange); }

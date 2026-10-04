@@ -16,7 +16,7 @@ export const REBASE_VIEW = 'irebase';
 /**
  * Opens the interactive rebase editor in tab `tabId`: `branch` (checked out in the tab's active
  * worktree) onto `base`, rows preset as `preset` says. It's the contract's entry point (the
- * branch chip menu, "Interactive rebase from here", "Squash interactively…", the palette, and
+ * branch chip menu, "Interactive rebase after this commit", "Squash interactively…", the palette, and
  * 3D's "Rebase stack"). False when it didn't open (a toast says why).
  *
  * The tab's open session is never silently replaced. While Start's write runs, the tab is only

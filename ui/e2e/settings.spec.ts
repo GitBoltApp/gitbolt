@@ -136,6 +136,9 @@ test.describe('settings', () => {
     await page.getByRole('menuitem', { name: '26/09/2026 15:14' }).click();
     await expect(date).toHaveText('26/09/2026 15:14');
     await expect(page.getByRole('menu')).toHaveCount(0);
+    // The keyboard half is a keyboard user's: the pointer isn't parked where the next menu opens (a
+    // stationary pointer under a menu that appears fires a late hover that moves the active row).
+    await page.mouse.move(0, 0);
     await date.focus();
     await page.keyboard.press('ArrowDown');
     await expect(page.getByRole('menu')).toBeVisible();

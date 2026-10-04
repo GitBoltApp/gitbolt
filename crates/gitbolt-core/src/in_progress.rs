@@ -105,6 +105,9 @@ pub(crate) const REFUSED: &str = "rebase-merge/gitbolt-refused";
 /// UX L: this Edit stop is (being) soft-reset, "about to commit": an `EditStaged`, as JSON. It's
 /// written before the reset, so a note with HEAD still on `amend` is a reset that didn't happen.
 pub(crate) const EDIT_STAGED: &str = "rebase-merge/gitbolt-edit-staged";
+/// UX N: what git itself left at a stop it just made (its merge result staged, a conflicted file's
+/// markers): JSON, path → content. An Abort doesn't keep what's still exactly that.
+pub(crate) const STOP_CONTENT: &str = "rebase-merge/gitbolt-stop-content";
 
 /// UX L: an `EDIT_STAGED` note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]

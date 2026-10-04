@@ -81,6 +81,17 @@ pub enum ErrorDetail {
     /// the stop is kept, its commits on `branch`, its edits in the stash `stash`.
     AbortKeptWork { stash: Option<Box<str>>, branch: Option<Box<str>> },
     // --- end 3C fix round 3 ---
+    /// A `fetch --all` where some remotes failed: which, and a short plain reason each (never a
+    /// URL with credentials). The sidebar's Remote rows warn on them until a fetch succeeds.
+    FetchFailed { remotes: Vec<FailedRemote> },
+}
+
+/// One remote a fetch couldn't get, with a short reason ("couldn't reach host", "authentication failed").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct FailedRemote {
+    pub name: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, TS, thiserror::Error)]

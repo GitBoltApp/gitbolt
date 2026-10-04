@@ -3,3 +3,8 @@
 .tag-inline-below { position: absolute; left: 0; top: calc(100% + 3px); z-index: 5; display: flex; flex-direction: column; gap: 3px; width: max(100%, 320px); }
 .tag-inline-message { box-sizing: border-box; width: 100%; padding: 4px 6px; font: inherit; resize: none; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--blue); border-radius: 3px; outline: none; box-shadow: 0 1px 4px var(--shadow-popup); user-select: text; }
 .tag-inline-below .branch-inline-note { position: static; }
+/* A tag's tooltip (TagTip.tsx, UX round 3 M.2): the annotated message as written, then its tagger
+   and date, dimmed. */
+.tag-tip { display: flex; flex-direction: column; gap: 4px; }
+.tag-tip-message { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tag-tip-meta { color: var(--text-secondary); }

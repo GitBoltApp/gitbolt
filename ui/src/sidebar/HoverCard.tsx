@@ -4,6 +4,7 @@ import { relativeTime } from '../format/relative';
 import { shortSha } from '../format/sha';
 import { getLastPush } from './lastPushCache';
 import type { SideItem } from './model';
+import { TagTip } from '../tags/TagTip';
 
 /**
  * Spec §6.4 hover card: tip, author, date, ahead/behind, last push (or last seen on remote).
@@ -46,6 +47,15 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
         <div className="hc-meta">{w.branch ? `Branch: ${w.branch}` : `Detached${w.head ? ` at ${shortSha(w.head)}` : ''}`}</div>
         {w.head && w.branch && <div className="hc-meta">HEAD {shortSha(w.head)}</div>}
         <div className="hc-meta">{[w.isMain ? 'Main checkout' : 'Linked worktree', w.isCurrent ? 'current' : ''].filter(Boolean).join(' · ')}</div>
+      </div>
+    );
+  }
+  if (item.kind === 'tag') {
+    // UX round 3, M.2: an annotated tag's message, tagger and date; a lightweight tag's commit.
+    return (
+      <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
+        <div className="hc-name">{item.name}</div>
+        <div className="hc-summary"><TagTip annotation={item.tag.annotation} sha={item.tag.target} /></div>
       </div>
     );
   }

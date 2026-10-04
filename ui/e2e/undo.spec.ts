@@ -1,8 +1,8 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl, testWrite } from './fixtures';
 import { expect, test, type Page, confirmArmed, armedOverlay } from './test';
-import { selectWip, timedClick } from './wip';
+import { fileRow, selectWip, timedClick } from './wip';
 
 const undoButton = (page: Page) => page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true });
 const graph = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
@@ -161,3 +161,48 @@ test.describe('undo of a discard (spec #2 §5.3, 2B)', () => {
     await expect.poll(() => git(repo, 'status', '--porcelain')).toBe(before);
   });
 });
+
+// --- UX Y: out-of-order undo from the Undo dropdown ---
+test.describe('the Undo dropdown (UX Y)', () => {
+  test("Y.3: discard A, edit B, undo the discard from the dropdown: A is back, B stays, Undo is B's", async ({ page, request }) => {
+    const repo = freshFixture('wip_staging');
+    const a = join(repo, 'space name.txt');
+    const b = join(repo, 'notes.txt');
+    const aBefore = readFileSync(a, 'utf8');
+    const bBefore = readFileSync(b, 'utf8');
+    expect((await testWrite(request, repo, { op: 'discard', paths: ['space name.txt'] })).ok).toBeDefined();
+    expect(readFileSync(a, 'utf8')).toBe('one\n');
+    await open(page, repo);
+    await selectWip(page);
+    // B: edited in File View and saved (journaled).
+    await fileRow(page, 'staged', 'notes.txt').click();
+    await page.getByRole('button', { name: 'File View' }).click();
+    const view = page.getByTestId('file-view').locator('.view-lines');
+    await expect(view).toContainText('note 01', { timeout: 15_000 });
+    await view.click();
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.type('X');
+    await page.keyboard.press('Control+s');
+    await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
+    await expect.poll(() => readFileSync(b, 'utf8')).toBe(`X${bBefore}`);
+    // The ▾ under Undo: the save (Undo's own), then the discard, independent of it.
+    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo options' }).click();
+    const rows = page.locator('.ctx-menu [role="menuitem"]');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText('save notes.txt');
+    const discardRow = page.getByRole('menuitem', { name: /discard space name\.txt/ });
+    await expect(discardRow).not.toHaveAttribute('aria-disabled', 'true');
+    await discardRow.click();
+    await expect(page.getByRole('status').filter({ hasText: 'Undid discard space name.txt' })).toBeVisible();
+    await expect.poll(() => readFileSync(a, 'utf8')).toBe(aBefore);
+    expect(readFileSync(b, 'utf8')).toBe(`X${bBefore}`);
+    // The normal Undo now undoes B's save.
+    await page.mouse.move(0, 0);
+    await undoButton(page).hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Undo save notes.txt (Ctrl+Z)');
+    await undoButton(page).click();
+    await expect.poll(() => readFileSync(b, 'utf8')).toBe(bBefore);
+    expect(readFileSync(a, 'utf8')).toBe(aBefore);
+  });
+});
+// --- end UX Y ---

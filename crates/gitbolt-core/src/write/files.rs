@@ -205,6 +205,92 @@ pub(crate) async fn write_worktree_file(api: &Api, repo: u32, worktree: &str, pa
     run_write(api, repo, worktree, Expect::default(), WriteWorktreeFile { path, text, base, checked: Default::default() }).await
 }
 
+// --- UX round 3 O.1: Create file ---
+/// A new, empty file in the worktree (UX round 3 O.1), with any folders its path names. Journaled
+/// as a restore of its path and the folders it made: Undo removes them, Redo makes them again.
+struct CreateWorktreeFile {
+    path: String,
+}
+
+impl CreateWorktreeFile {
+    fn bad(&self, why: &str) -> GbError {
+        GbError::new(GbErrorKind::InvalidInput, format!("{} {why}", self.path))
+    }
+}
+
+impl WriteIntent for CreateWorktreeFile {
+    type Outcome = SaveOutcome;
+    fn kind(&self) -> OpKind {
+        OpKind::Save
+    }
+    /// Not the save's label: a save's coalescing (`coalesces`, run_write) matches the previous
+    /// entry's label and kind, so a Ctrl+S right after the create is its own Undo step, never
+    /// folded into the create (whose Undo would delete the file and the edits with it).
+    fn label(&self) -> String {
+        format!("create {}", self.path)
+    }
+    fn class(&self) -> WriteClass {
+        WriteClass::Immediate
+    }
+    fn undo(&self) -> Option<UndoKind> {
+        Some(UndoKind::Restore)
+    }
+    fn allowed_in_progress(&self) -> bool {
+        true
+    }
+    fn staging(&self) -> Staging {
+        Staging::Keep
+    }
+    /// Every refusal comes before the snapshot: a path that isn't plainly inside the worktree
+    /// (absolute, `..`, a `.git` segment, through a symlink, into a nested repository), one under
+    /// a file, one that already exists. The snapshot's P is the file, then the folders it makes,
+    /// deepest first: the order Undo removes them in.
+    async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
+        crate::blob::check_relative(&self.path)?;
+        let root = pre.root.canonicalize()?;
+        let parts: Vec<&str> = self.path.split('/').collect();
+        let mut dir = root.clone();
+        let mut made = Vec::new();
+        for (i, part) in parts[..parts.len() - 1].iter().enumerate() {
+            dir.push(part);
+            match dir.symlink_metadata() {
+                Ok(m) if m.file_type().is_symlink() => return Err(self.bad("goes through a symbolic link")),
+                Ok(m) if !m.is_dir() => return Err(self.bad(&format!("can't be made: {} is a file", parts[..=i].join("/")))),
+                Ok(_) if dir.join(".git").symlink_metadata().is_ok() => return Err(self.bad("is in a nested repository: create it there")),
+                Ok(_) => {}
+                Err(_) => made.push(parts[..=i].join("/")),
+            }
+        }
+        if root.join(&self.path).symlink_metadata().is_ok() {
+            return Err(self.bad("already exists"));
+        }
+        let mut p = vec![self.path.clone()];
+        p.extend(made.into_iter().rev());
+        Ok(Plan { snapshot: Some((p.clone(), p)), ..Plan::default() })
+    }
+    async fn run(&self, cx: &mut WriteCx<'_>) -> Result<SaveOutcome, GbError> {
+        let snap = cx.snapshot.clone().ok_or_else(|| GbError::other("the create has no snapshot"))?;
+        let file = cx.root.join(&self.path);
+        cx.partial = true;
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        // `create_new`: a file made there since the plan is never overwritten.
+        std::fs::OpenOptions::new().write(true).create_new(true).open(&file).map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => self.bad("already exists"),
+            _ => e.into(),
+        })?;
+        cx.after = Some(snapshot::create(&cx.snapshots(), &self.label(), &snap.paths, &snap.untracked).await?);
+        cx.touch(ChangeKind::Worktree);
+        Ok(SaveOutcome { hash: worktree_id(b"") })
+    }
+}
+
+pub(crate) async fn create_worktree_file(api: &Api, repo: u32, worktree: &str, path: String) -> Result<WriteResult<SaveOutcome>, GbError> {
+    run_write(api, repo, worktree, Expect::default(), CreateWorktreeFile { path }).await
+}
+// --- end UX round 3 O.1 ---
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,6 +510,78 @@ mod tests {
         let err = save(&api, id, &r, "gone.txt", "x", &b).await.unwrap_err();
         assert_eq!(err.kind, crate::error::GbErrorKind::Stale);
     }
+
+    // --- UX round 3 O.1 ---
+    async fn create(api: &Api, id: u32, r: &TestRepo, path: &str) -> Result<Value, crate::error::GbError> {
+        call(api, "createWorktreeFile", json!({ "repo": id, "worktree": wt(r.path()), "path": path })).await
+    }
+
+    /// O.1: an empty file, its new folders made; Undo removes the file and the folders it made
+    /// (not one that was there), Redo makes them again.
+    #[tokio::test]
+    async fn a_created_file_and_its_new_folders_undo_and_redo() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write("docs/keep.txt", "k\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let res = create(&api, id, &r, "docs/new/deep/x.md").await.unwrap();
+        assert_eq!(std::fs::read(r.path().join("docs/new/deep/x.md")).unwrap(), b"");
+        assert_eq!(res["outcome"]["hash"], crate::blob::worktree_id(b""));
+        assert_eq!(res["journal"]["undo"]["label"], "create docs/new/deep/x.md");
+        let unstaged: Vec<&str> = res["wip"]["unstaged"]["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect();
+        assert!(unstaged.contains(&"docs/new/deep/x.md"), "{unstaged:?}");
+        journal_step(&api, id, r.path(), "undo").await.unwrap();
+        assert!(!r.path().join("docs/new").exists(), "undo removes the file and the folders it made");
+        assert_eq!(std::fs::read_to_string(r.path().join("docs/keep.txt")).unwrap(), "k\n", "an existing folder stays");
+        journal_step(&api, id, r.path(), "redo").await.unwrap();
+        assert_eq!(std::fs::read(r.path().join("docs/new/deep/x.md")).unwrap(), b"");
+    }
+
+    /// A save right after the create (Ctrl+S on the new file) never merges into the create's
+    /// entry: one Undo puts back the empty file, the next removes it.
+    #[tokio::test]
+    async fn a_save_after_a_create_is_its_own_undo_step() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let created = create(&api, id, &r, "n/x.md").await.unwrap();
+        let entry = created["journal"]["undo"]["entry"].as_u64().unwrap();
+        for text in ["one\n", "two\n"] {
+            let saved = save(&api, id, &r, "n/x.md", text, &base(&r, "n/x.md")).await.unwrap();
+            assert_eq!(saved["journal"]["undo"]["label"], "save n/x.md");
+            assert_ne!(saved["journal"]["undo"]["entry"].as_u64(), Some(entry), "not merged into the create");
+        }
+        journal_step(&api, id, r.path(), "undo").await.unwrap();
+        assert_eq!(std::fs::read(r.path().join("n/x.md")).unwrap(), b"", "first Undo: the empty file");
+        journal_step(&api, id, r.path(), "undo").await.unwrap();
+        assert!(!r.path().join("n").exists(), "second Undo: the create");
+    }
+
+    /// O.1: refused before anything is written or journaled.
+    #[tokio::test]
+    async fn create_refuses_existing_outside_and_git_paths() {
+        let data = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let r = repo();
+        std::os::unix::fs::symlink(outside.path(), r.path().join("linkdir")).unwrap();
+        std::fs::create_dir(r.path().join("inner")).unwrap();
+        r.git(&["-C", "inner", "init", "-q"]);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let abs = outside.path().join("x").display().to_string();
+        for p in ["a.txt", "../x", "a/../../x", abs.as_str(), ".git/x", "sub/.git/x", "linkdir/x", "a.txt/x", "inner/x", "", "d/"] {
+            let err = create(&api, id, &r, p).await.unwrap_err();
+            assert_eq!(err.kind, crate::error::GbErrorKind::InvalidInput, "{p}: {}", err.message);
+        }
+        assert_eq!(create(&api, id, &r, "a.txt").await.unwrap_err().message, "a.txt already exists");
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+        assert!(!r.path().join("sub").exists() && !r.path().join("a").exists());
+        let state = call(&api, "journalState", json!({ "repo": id, "worktree": wt(r.path()) })).await.unwrap();
+        assert!(state["undo"]["entry"].is_null(), "a refused create leaves no journal entry: {state}");
+    }
+    // --- end UX round 3 O.1 ---
 
     #[tokio::test]
     async fn a_latin1_file_round_trips() {

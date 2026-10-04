@@ -7,6 +7,8 @@ import { useTheme } from '../theme/store';
 import { chipRefs, type BranchMembership } from './membership';
 import { useHoverTooltip } from '../ui/HoverTooltip';
 import { CHIP_SPACING, chipFont, chipWidth, fitCount, rebasingWidth } from './chipFit';
+import { UpstreamWarning } from '../branches/UpstreamWarning';
+import { TagTip } from '../tags/TagTip';
 
 
 /** J22's branch-hover focus: a chip entered (the refs it stands for) or left (null). */
@@ -76,9 +78,12 @@ export const SOURCE_OUTLINE = 14;
 function ChipContent({ label, full = false, compact = false }: { label: RefLabel; full?: boolean; compact?: boolean }) {
   return (
     <>
+      {/* UX round 3, M.1: an upstream with another branch name, first in the chip (its width counted in chipFit.ts). */}
+      {label.upstreamMismatch && <UpstreamWarning branch={label.name} upstream={label.upstreamMismatch} />}
       {/* The checked-out branch's check, ~1.4x the other icons (J21, graph.css .ref-head-check). */}
       {label.isHead && <Check size={12} className="ref-head-check" aria-label="HEAD" />}
-      {label.tag && <Tag size={12} aria-label="tag" />}
+      {/* UX round 3, M.2: an annotated tag's icon is filled, a lightweight one's outlined. */}
+      {label.tag && (label.annotation ? <Tag size={12} fill="currentColor" className="ref-tag-annotated" aria-label="annotated tag" /> : <Tag size={12} aria-label="tag" />)}
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}
       {!(compact && !full) && <span className={full ? 'ref-name-full' : 'ref-name'}>{label.name}</span>}
       {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>}
@@ -142,19 +147,25 @@ function Chip({ color, className = 'ref-label', content, refs = NO_REFS, onBranc
 
 /** One row of the label stack (K77): a full chip for one ref. Hovering it starts that ref's
  * branch focus (J22), ended on leaving or unmounting; right-clicking opens that label's menu. */
-function StackRow({ label, onBranchHover, onContextMenu, onDoubleClick }: { label: RefLabel; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
+function StackRow({ label, sha, first, onBranchHover, onContextMenu, onDoubleClick }: { label: RefLabel; sha: string | null; first: boolean; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
   const focusing = useRef<BranchHover | null>(null);
   useEffect(() => () => focusing.current?.(null), []);
+  // A tag's row has the tag's tooltip, as its chip does (UX round 3, M.2); not the first row, which
+  // lies over that chip and its own tooltip (`first`).
+  const { triggerProps, tooltip } = useHoverTooltip({ content: label.tag ? <TagTip annotation={label.annotation} sha={sha} /> : null, disabled: !label.tag || first });
   return (
     <span
       className="ref-stack-row"
-      onMouseEnter={() => {
+      onMouseOver={triggerProps.onMouseOver}
+      onMouseEnter={(e) => {
+        triggerProps.onMouseEnter(e);
         const refs = chipRefs(label);
         if (!onBranchHover || refs.length === 0) return;
         focusing.current = onBranchHover;
         onBranchHover(refs);
       }}
-      onMouseLeave={() => {
+      onMouseLeave={(e) => {
+        triggerProps.onMouseLeave(e);
         focusing.current?.(null);
         focusing.current = null;
       }}
@@ -162,6 +173,7 @@ function StackRow({ label, onBranchHover, onContextMenu, onDoubleClick }: { labe
       onDoubleClick={onDoubleClick && ((e) => { e.stopPropagation(); onDoubleClick(label, e); })}
     >
       <ChipContent label={label} full />
+      {tooltip}
     </span>
   );
 }
@@ -173,7 +185,7 @@ function StackRow({ label, onBranchHover, onContextMenu, onDoubleClick }: { labe
  * open while the pointer is anywhere over it. Absolutely positioned from the row (as the single
  * copy is: `.col-labels` clips nothing it doesn't contain); measured once on mount, before paint.
  */
-function LabelStack({ labels, onBranchHover, onContextMenu, onDoubleClick }: { labels: RefLabel[]; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
+function LabelStack({ labels, sha, onBranchHover, onContextMenu, onDoubleClick }: { labels: RefLabel[]; sha: string | null; onBranchHover?: BranchHover; onContextMenu?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void; onDoubleClick?: (label: RefLabel, e: MouseEvent<HTMLElement>) => void }) {
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -197,7 +209,7 @@ function LabelStack({ labels, onBranchHover, onContextMenu, onDoubleClick }: { l
   }, []);
   return (
     <span ref={ref} className="ref-stack" aria-hidden="true">
-      {labels.map((l, i) => <StackRow key={`${i}:${l.name}`} label={l} onBranchHover={onBranchHover} onContextMenu={onContextMenu} onDoubleClick={onDoubleClick} />)}
+      {labels.map((l, i) => <StackRow key={`${i}:${l.name}`} label={l} sha={sha} first={i === 0} onBranchHover={onBranchHover} onContextMenu={onContextMenu} onDoubleClick={onDoubleClick} />)}
     </span>
   );
 }
@@ -281,7 +293,7 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   // The checked-out branch (HEAD's label always sorts first): its chip is always lit and its
   // connector is the graph line's width and colour (J21, graph.css; draw.ts `headRow`).
   const head = labels[0].isHead;
-  const stack = hidden > 0 ? () => <LabelStack labels={labels} onBranchHover={onBranchHover} onContextMenu={onContextMenu} onDoubleClick={onDoubleClick} /> : undefined;
+  const stack = hidden > 0 ? () => <LabelStack labels={labels} sha={sha} onBranchHover={onBranchHover} onContextMenu={onContextMenu} onDoubleClick={onDoubleClick} /> : undefined;
   return (
     // `--lane-color` is set here (not just on the chip) so `.ref-connector`, a sibling of the
     // chip, can read it too: it continues the connector drawn in the canvas (see draw.ts).
@@ -298,7 +310,7 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
           onDoubleClick={onDoubleClick && ((e) => { e.stopPropagation(); onDoubleClick(l, e); })}
           stack={i === 0 ? stack : undefined}
           content={(full) => <ChipContent label={l} full={full} compact={iconOnly(l)} />}
-          tip={!compact && iconOnly(l) ? `HEAD (detached at ${sha ? sha.slice(0, 7) : 'this commit'})` : undefined}
+          tip={l.tag ? <TagTip annotation={l.annotation} sha={sha} /> : !compact && iconOnly(l) ? `HEAD (detached at ${sha ? sha.slice(0, 7) : 'this commit'})` : undefined}
         />
       ))}
       {stack && <More count={hidden} stack={stack} head={head} />}

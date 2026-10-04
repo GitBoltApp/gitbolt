@@ -1,0 +1,15 @@
+.modal.sc-modal { width: 640px; max-width: calc(100vw - 32px); height: 80vh; box-sizing: border-box; }
+.sc-head { display: flex; align-items: center; gap: 10px; }
+.sc-head h2 { flex: 1; min-width: 0; white-space: nowrap; }
+.modal .sc-filter { width: 220px; }
+.sc-body { flex: 1; min-height: 0; overflow: auto; }
+.sc-body h3 { margin: 14px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; user-select: none; }
+.sc-body ul { list-style: none; margin: 0; padding: 0; }
+.sc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 4px; border-bottom: 1px solid var(--section-border); }
+.sc-ctx { color: var(--text-secondary); font-size: 11px; }
+.sc-keys { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.sc-alt { display: inline-flex; align-items: center; gap: 6px; }
+.sc-or { color: var(--text-secondary); font-size: 11px; }
+.sc-chord { display: inline-flex; gap: 3px; vertical-align: middle; }
+.sc-key { font: inherit; font-size: 11px; line-height: 1; min-width: 18px; padding: 3px 6px; box-sizing: border-box; text-align: center; border: 1px solid var(--section-border); border-bottom-width: 2px; border-radius: 4px; background: var(--app-bg0); color: var(--text-selected); }
+.sc-empty { padding: 16px 4px; color: var(--text-secondary); }
