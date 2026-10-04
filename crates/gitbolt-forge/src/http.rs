@@ -4,7 +4,9 @@
 //! - the forges' `Poll-Interval` / `X-Poll-Interval` hints;
 //! - rate limits (GitHub `x-ratelimit-*`, GitLab `RateLimit-*`, 429 and `Retry-After`): once
 //!   limited, every request fails fast with `RateLimited` until the time the forge gave;
-//! - timeouts (10 s to connect, 20 s in all) and `User-Agent: GitBolt/<version>`.
+//! - timeouts (10 s to connect, 20 s in all) and `User-Agent: GitBolt/<version>`;
+//! - an unreachable API: its requests fail fast with the same `Network` error for
+//!   `NETWORK_COOLDOWN_SECS`, until one gets an answer.
 //!
 //! Blocking ureq on the blocking pool, as `gravatar.rs`. The token only leaves in the
 //! `Authorization` header: never in a URL, a log line or an error. Redirects never carry it
@@ -31,6 +33,9 @@ pub const DEFAULT_LIMIT_WAIT_SECS: i64 = 60;
 pub const MAX_LIMIT_WAIT_SECS: i64 = 3600;
 /// The ETag cache's body budget per account.
 pub const ETAG_BYTES: usize = 32 * 1024 * 1024;
+/// After a request to the API's origin can't reach it, its requests fail fast for this long: an
+/// unreachable forge mustn't hold every avatar for the connect timeout.
+pub const NETWORK_COOLDOWN_SECS: i64 = 60;
 
 pub type SecsClock = Arc<dyn Fn() -> i64 + Send + Sync>;
 #[cfg(test)]
@@ -172,11 +177,15 @@ pub fn body_message(body: &[u8]) -> Option<String> {
     Some(redact(&said).chars().take(200).collect())
 }
 
+/// A 403 (the token works but isn't allowed this), as opposed to a 401 (the token is rejected).
+/// Core's, so the hub tells them apart too.
+pub use gitbolt_core::forge::{is_forbidden, FORBIDDEN_MARK as REFUSED};
+
 pub fn status_error(host: &str, status: u16, body: &[u8]) -> GbError {
     let said = body_message(body);
     match status {
         401 => GbError::new(GbErrorKind::AuthFailed, format!("{host} rejected the token: add the account again in Settings › Accounts")),
-        403 => GbError::new(GbErrorKind::AuthFailed, format!("{host} refused: {}", said.unwrap_or_else(|| "the token isn't allowed to do this".into()))),
+        403 => GbError::new(GbErrorKind::AuthFailed, format!("{host}{REFUSED}{}", said.unwrap_or_else(|| "the token isn't allowed to do this".into()))),
         404 => GbError::new(GbErrorKind::NotFound, format!("Not found on {host}")),
         409 | 422 => GbError::new(GbErrorKind::InvalidInput, format!("{host}: {}", said.unwrap_or_else(|| format!("HTTP {status}")))),
         _ => GbError::other(format!("{host} answered HTTP {status}{}", said.map(|m| format!(": {m}")).unwrap_or_default())),
@@ -230,6 +239,8 @@ struct Inner {
     agent: ureq::Agent,
     etags: Mutex<EtagCache>,
     rate: Mutex<RateLimitState>,
+    /// Until when the API's origin is taken as unreachable, and the error that said so.
+    down: Mutex<Option<(i64, String)>>,
     permits: Arc<tokio::sync::Semaphore>,
     clock: SecsClock,
     #[cfg(test)]
@@ -262,6 +273,7 @@ impl HttpClient {
                 agent,
                 etags: Mutex::default(),
                 rate: Mutex::default(),
+                down: Mutex::default(),
                 permits: Arc::new(tokio::sync::Semaphore::new(PARALLEL)),
                 clock,
                 #[cfg(test)]
@@ -393,24 +405,39 @@ impl HttpClient {
     /// One request, no redirects: fails fast while limited (checked again once a permit is held),
     /// and keeps the permit until the blocking call is done.
     async fn once(&self, method: Method, url: &str, body: Option<Vec<u8>>, etag: Option<String>, auth: bool, limit: u64) -> Result<Raw, GbError> {
-        self.gate()?;
+        // Only the API's own origin: an avatar host that's down says nothing about the forge.
+        let api = same_origin(url, &self.inner.cfg.api_base);
+        self.gate(api)?;
         let permit = self.inner.permits.clone().acquire_owned().await.map_err(|e| GbError::other(e.to_string()))?;
-        self.gate()?;
-        let (inner, url) = (self.inner.clone(), url.to_string());
-        tokio::task::spawn_blocking(move || {
+        self.gate(api)?;
+        let (inner, target) = (self.inner.clone(), url.to_string());
+        let result = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            inner.send_blocking(method, &url, body, etag, auth, limit)
+            inner.send_blocking(method, &target, body, etag, auth, limit)
         })
         .await
-        .map_err(|e| GbError::other(format!("request task failed: {e}")))?
+        .map_err(|e| GbError::other(format!("request task failed: {e}")))?;
+        if api {
+            let mut down = self.inner.down.lock().expect("network state poisoned");
+            match &result {
+                Ok(_) => *down = None,
+                Err(e) if e.kind == GbErrorKind::Network => *down = Some(((self.inner.clock)().saturating_add(NETWORK_COOLDOWN_SECS), e.message.clone())),
+                Err(_) => {}
+            }
+        }
+        result
     }
 
-    fn gate(&self) -> Result<(), GbError> {
+    /// Fails fast while rate limited, and (`api`) while the API's origin is unreachable.
+    fn gate(&self, api: bool) -> Result<(), GbError> {
         let now = (self.inner.clock)();
-        match self.inner.rate.lock().expect("rate state poisoned").limited_until.filter(|u| *u > now) {
-            Some(until) => Err(rate_limited_error(self.host(), until, now)),
-            None => Ok(()),
+        if let Some(until) = self.inner.rate.lock().expect("rate state poisoned").limited_until.filter(|u| *u > now) {
+            return Err(rate_limited_error(self.host(), until, now));
         }
+        if api && let Some((_, message)) = self.inner.down.lock().expect("network state poisoned").as_ref().filter(|(until, _)| *until > now) {
+            return Err(GbError::new(GbErrorKind::Network, message.clone()));
+        }
+        Ok(())
     }
 
     /// Records what a response said about the rate limit; `Err` if it limits us.
@@ -426,7 +453,9 @@ impl HttpClient {
                 Err(rate_limited_error(self.host(), until, now))
             }
             None => {
-                r.limited_until = None;
+                // A request that started before a 429 may still come back 200: only a limit
+                // that's over is cleared.
+                r.limited_until = r.limited_until.filter(|u| *u > now);
                 Ok(rh)
             }
         }
@@ -558,6 +587,19 @@ mod tests {
         assert_eq!(c.rate_limit().limited_until, Some(NOW + 120));
     }
 
+    #[tokio::test]
+    async fn a_success_that_started_before_a_429_keeps_the_limit() {
+        let s = TestServer::start(|_, _| Canned::json(200, "{}"));
+        let c = client(&s.base);
+        c.inner.rate.lock().unwrap().limited_until = Some(NOW + 120);
+        let raw = Raw { status: 200, body: vec![], headers: HashMap::new() };
+        c.observe(&raw).unwrap();
+        assert_eq!(c.rate_limit().limited_until, Some(NOW + 120), "not over yet");
+        c.inner.rate.lock().unwrap().limited_until = Some(NOW - 1);
+        c.observe(&raw).unwrap();
+        assert_eq!(c.rate_limit().limited_until, None, "an expired limit is cleared");
+    }
+
     #[test]
     fn github_primary_and_secondary_limits_are_403s_that_say_so() {
         let spent = RateHeaders { remaining: Some(0), reset_at: Some(NOW + 600), retry_after_secs: None };
@@ -590,6 +632,34 @@ mod tests {
         let e = client(&closed_base()).get("/user").await.unwrap_err();
         assert_eq!(e.kind, GbErrorKind::Network);
         assert!(e.message.starts_with("Couldn't reach gitlab.example.com: "), "{}", e.message);
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_api_fails_fast_for_a_minute_then_is_tried_again() {
+        let base = closed_base();
+        let now = Arc::new(std::sync::atomic::AtomicI64::new(NOW));
+        let clock = now.clone();
+        let c = HttpClient::with_clock(
+            ClientConfig { host: "gitlab.example.com".into(), api_base: format!("{base}/api/v4"), token: Some(Secret::new(TOKEN)), headers: vec![], timeout: Duration::from_secs(5) },
+            Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)),
+        );
+        let first = c.get("/user").await.unwrap_err();
+        assert_eq!(first.kind, GbErrorKind::Network);
+        // The port answers now, but the gate is closed: nothing is sent.
+        let s = TestServer::start_at(base.trim_start_matches("http://"), |_, _| Canned::json(200, "{}"));
+        let started = std::time::Instant::now();
+        for _ in 0..3 {
+            let again = c.get("/projects/1").await.unwrap_err();
+            assert_eq!((again.kind, again.message.as_str()), (GbErrorKind::Network, first.message.as_str()));
+        }
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(s.hits(), 0, "no request while the forge is taken as down");
+        now.store(NOW + NETWORK_COOLDOWN_SECS + 1, std::sync::atomic::Ordering::SeqCst);
+        c.get("/user").await.unwrap();
+        assert_eq!(s.hits(), 1);
+        now.store(NOW, std::sync::atomic::Ordering::SeqCst);
+        c.get("/user").await.unwrap();
+        assert_eq!(s.hits(), 2, "a success opened the gate");
     }
 
     #[tokio::test]

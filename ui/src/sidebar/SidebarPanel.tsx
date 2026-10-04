@@ -20,12 +20,22 @@ import { sectionKey, type FlatRow, type Panel, type SideItem } from './model';
 import { useHeaderActions, sidebarDoubleClick, type HeaderAction } from './itemActions';
 import { SectionIcon } from './SectionIcon';
 import { UpstreamWarning } from '../branches/UpstreamWarning';
+// --- 4B T10 ---
+import { LocalBranchBadge } from '../forge/MrBadge';
+// --- end 4B T10 ---
+// --- 4B T11 ---
+import { MrStateIcon, PipelineIcon } from '../forge/MrIcons';
+import { openMrView } from '../forge/poll';
+import { MrFilterButton } from '../forge/MrFilterButton';
+import { ForgeStaleIcon } from '../forge/ForgeStale';
+// --- end 4B T11 ---
 
 const toggle = (list: string[], key: string) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
 
 function ItemIcon({ item }: { item: SideItem }) {
   if (item.kind === 'local') return item.branch.isHead ? <span className="co-check" aria-label="current branch"><Check size={11} strokeWidth={3} /></span> : <GitBranch size={13} />;
   if (item.kind === 'remote') return <GitBranch size={13} />;
+  if (item.kind === 'mr') return <MrStateIcon state={item.mr.state} size={13} />; // 4B T11
   if (item.kind === 'worktree') {
     const Icon = item.worktree.isMain ? House : TreePine;
     return <Icon size={13} data-wt={item.worktree.isMain ? 'main' : 'linked'} aria-label={item.worktree.isCurrent ? 'current worktree' : undefined} aria-hidden={item.worktree.isCurrent ? undefined : true} />;
@@ -73,6 +83,12 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
   useEffect(() => { setCursor((c) => Math.min(c, Math.max(0, rows.length - 1))); }, [rows.length]);
 
   const jump = (item: SideItem, focus = false) => {
+    // --- 4B T11: an MR/PR row opens its view ---
+    if (item.kind === 'mr') {
+      openMrView(tabId, item.mr.number);
+      return;
+    }
+    // --- end 4B T11 ---
     if (!item.target || !selectCommit(tabId, item.target, { focus })) useToast.getState().show('Not in the loaded history');
   };
   const flip = (key: string) => updateRepo(path, (r) => ({ ...r, collapsed: toggle(r.collapsed, key) }));
@@ -90,7 +106,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
   /** The row's context menu (spec §7): a branch, tag, stash or worktree item, or a remote's folder. */
   const menuOf = (row: FlatRow | undefined) => {
     if (!row) return null;
-    if (row.type === 'item') return sidebarItemMenu(store, row.item);
+    if (row.type === 'item') return row.item.kind === 'mr' ? null : sidebarItemMenu(store, row.item); // 4B T11: an MR/PR row has no menu in 4B
     return row.remote && section.kind === 'remote' ? sidebarRemoteMenu(store, row.remote) : null;
   };
   // A right-click never moves the active row (UX round 2): the row it was on gets the temporary
@@ -154,6 +170,10 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
           </HoverTooltip>
         ))}
         {/* --- end 2C T9 --- */}
+        {/* --- 4B T11: the MR/PR section's warning and filter --- */}
+        {section.kind === 'mrs' && <ForgeStaleIcon tabId={tabId} />}
+        {section.kind === 'mrs' && <MrFilterButton tabId={tabId} path={path} />}
+        {/* --- end 4B T11 --- */}
         {section.nests && !collapsed && (
           <HoverTooltip content={panel.sort === 'tree' ? 'Sorted as a directory tree. Click: newest first' : 'Newest first. Click: directory tree'}>
             <button type="button" className="icon-button sb-sort" aria-label={sortLabel} onClick={() => updateRepo(path, (r) => ({ ...r, sidebarSort: { ...r.sidebarSort, [section.id]: panel.sort === 'tree' ? 'recent' : 'tree' } }))}>
@@ -171,7 +191,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
           tabIndex={0}
           onKeyDown={onKey}
         >
-          {rows.length === 0 && <div className="sb-empty">{panel.filtering ? 'No matches' : 'Nothing here'}</div>}
+          {rows.length === 0 && <div className="sb-empty">{panel.filtering ? 'No matches' : section.empty ?? 'Nothing here'}</div>}
           <div style={{ height: v.getTotalSize(), position: 'relative' }}>
             {v.getVirtualItems().map((vi) => {
               const row = rows[vi.index];
@@ -212,6 +232,12 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   {it.kind === 'local' && it.branch.upstreamMismatch && <UpstreamWarning branch={it.name} upstream={it.branch.upstreamMismatch} size={13} />}
                   <span className="sb-label" title={it.kind === 'stash' ? `stash@{${it.stash.index}}` : undefined}>{it.kind === 'stash' ? <StashText label={row.label} /> : row.label}</span>
                   {it.kind === 'local' && (it.branch.ahead > 0 || it.branch.behind > 0) && <span className="sb-ab" aria-label={`${it.branch.ahead} ahead, ${it.branch.behind} behind`}><span>{it.branch.ahead}<ArrowUp size={12} strokeWidth={2.5} aria-hidden /></span><span>{it.branch.behind}<ArrowDown size={12} strokeWidth={2.5} aria-hidden /></span></span>}
+                  {/* --- 4B T10: the branch's MR/PR badge (spec #4 §5) --- */}
+                  {it.kind === 'local' && <LocalBranchBadge tabId={tabId} upstream={it.branch.upstream} />}
+                  {/* --- end 4B T10 --- */}
+                  {/* --- 4B T11: an MR/PR row's pipeline --- */}
+                  {it.kind === 'mr' && it.mr.pipeline && <PipelineIcon pipeline={it.mr.pipeline} size={12} />}
+                  {/* --- end 4B T11 --- */}
                 </div>
               );
             })}

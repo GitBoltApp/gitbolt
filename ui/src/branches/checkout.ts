@@ -105,7 +105,7 @@ export function checkoutLocal(tabId: string, name: string): void {
 }
 
 /** The palette's `@origin/x`: the remote branch. */
-export function checkoutRemote(tabId: string, remote: string, branch: string, target: string): void {
+export async function checkoutRemote(tabId: string, remote: string, branch: string, target: string, local?: string): Promise<void> {
   const ctx = ctxOf(tabId);
-  if (ctx) void checkout(ctx, { kind: 'remote', remote, branch }, { head: headOf(tabId), refs: { [`refs/remotes/${remote}/${branch}`]: target } });
+  if (ctx) await checkout(ctx, { kind: 'remote', remote, branch, ...(local ? { local } : {}) }, { head: headOf(tabId), refs: { [`refs/remotes/${remote}/${branch}`]: target } });
 }

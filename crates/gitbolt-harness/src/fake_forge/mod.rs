@@ -6,7 +6,16 @@
 //! `github::route`, and their seed fields with `#[serde(default)]`.
 
 pub mod github;
+// --- 4C T2 ---
+pub mod create;
+// --- end 4C T2 ---
+// --- 4B T4 ---
+pub mod github_pulls;
+// --- end 4B T4 ---
 pub mod gitlab;
+// --- 4B T2 ---
+pub mod gitlab_mrs;
+// --- end 4B T2 ---
 
 use axum::body::Bytes;
 use axum::extract::State;
@@ -65,6 +74,17 @@ pub struct FakeProject {
     pub settings: Value,
 }
 
+// --- 4C T2 ---
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FakeLabel {
+    pub name: String,
+    /// As each forge spells it: GitLab `#d9534f`, GitHub `d73a4a`.
+    pub color: String,
+    pub description: Option<String>,
+}
+// --- end 4C T2 ---
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct GitLabSeed {
@@ -74,6 +94,21 @@ pub struct GitLabSeed {
     /// Lowercase email → the `avatar_url` `/avatar` answers.
     pub avatars: BTreeMap<String, String>,
     // --- 4B: merge request seed fields go here ---
+    // --- 4B T2 ---
+    /// Merge requests of the seed's projects (`gitlab_mrs.rs`).
+    pub merge_requests: Vec<gitlab_mrs::FakeMergeRequest>,
+    /// Users who appear in merge requests without a token of their own.
+    pub users: Vec<FakeUser>,
+    // --- end 4B T2 ---
+    // --- 4C T2 ---
+    /// `/members/all`: who can review or be assigned.
+    pub members: Vec<FakeUser>,
+    pub labels: Vec<FakeLabel>,
+    /// Project path → file path → text, served at every ref (templates).
+    pub files: BTreeMap<String, BTreeMap<String, String>>,
+    /// Merge requests created through the API, as GitLab answered them.
+    pub created: Vec<Value>,
+    // --- end 4C T2 ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -82,7 +117,21 @@ pub struct GitHubSeed {
     pub tokens: Vec<FakeToken>,
     pub repos: Vec<FakeProject>,
     // --- 4B: pull request seed fields go here ---
-}
+      // --- 4B T4 ---
+      /// Pull requests of the seed's repositories (`github_pulls.rs`).
+      pub pulls: Vec<github_pulls::FakePull>,
+      /// Users who appear in pull requests without a token of their own.
+      pub users: Vec<FakeUser>,
+      // --- end 4B T4 ---
+      // --- 4C T2 ---
+      /// `/assignees`: who can be assigned or asked to review.
+      pub assignees: Vec<FakeUser>,
+      pub labels: Vec<FakeLabel>,
+      pub files: BTreeMap<String, BTreeMap<String, String>>,
+      /// Pull requests created through the API, with their reviewers, assignees and labels.
+      pub created: Vec<Value>,
+      // --- end 4C T2 ---
+  }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -263,6 +312,16 @@ pub fn default_seed(base: &str) -> ForgeSeed {
                 project(78, "ada/project", Some("group/project"), "2026-09-01"),
             ],
             avatars: BTreeMap::from([("ada@example.com".to_string(), format!("{base}/gitlab/uploads/ada.png")), ("grace@example.com".to_string(), "https://secure.gravatar.com/avatar/0123".to_string())]),
+            // --- 4B T2 ---
+            merge_requests: gitlab_mrs::default_mrs(),
+            users: gitlab_mrs::default_users(),
+            // --- end 4B T2 ---
+            // --- 4C T2 ---
+            members: create::seed_gitlab_members(base),
+            labels: create::seed_gitlab_labels(),
+            files: BTreeMap::new(),
+            created: Vec::new(),
+            // --- end 4C T2 ---
         },
         github: GitHubSeed {
             tokens: vec![
@@ -271,7 +330,17 @@ pub fn default_seed(base: &str) -> ForgeSeed {
                 FakeToken { token: GITHUB_READONLY_TOKEN.into(), user: octocat, scopes: vec!["read:user".into()], fine_grained: false },
             ],
             repos: vec![project(501, "octo-org/widget", None, "2026-10-04"), project(502, "octocat/widget", Some("octo-org/widget"), "2026-10-02")],
-        },
+              // --- 4B T4 ---
+              pulls: github_pulls::default_pulls(),
+              users: github_pulls::default_users(),
+              // --- end 4B T4 ---
+              // --- 4C T2 ---
+              assignees: create::seed_github_assignees(base),
+              labels: create::seed_github_labels(),
+              files: BTreeMap::new(),
+              created: Vec::new(),
+              // --- end 4C T2 ---
+          },
     }
 }
 

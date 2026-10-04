@@ -39,6 +39,25 @@ describe('runFetch', () => {
     expect(rt().fetchSkipped).toBeNull();
   });
 
+  it("a one-remote fetch clears or sets only that remote's error, and leaves the schedule's time and skip alone", async () => {
+    const old = { reason: "couldn't reach the remote", at: 1 };
+    useRuntime.getState().patch('t', { lastFetchAt: 5, fetchSkipped: 'x', remoteFetchErrors: { origin: old, alice: old } });
+    api.fetch.mockResolvedValueOnce({ status: 'done', changed: true, server: { lines: 0, warning: null }, op: 1 });
+    await runFetch('t', false, 'alice');
+    expect(api.fetch).toHaveBeenCalledWith(4, false, 'alice');
+    expect(rt().remoteFetchErrors).toEqual({ origin: old });
+    expect(rt().lastFetchAt).toBe(5);
+    expect(rt().fetchSkipped).toBe('x');
+    api.fetch.mockRejectedValueOnce({ kind: 'Other', message: 'boom', detail: { kind: 'fetchFailed', remotes: [{ name: 'bob', reason: 'repository not found' }] } });
+    await runFetch('t', false, 'bob');
+    expect(rt().remoteFetchErrors).toEqual({ origin: old, bob: { reason: 'repository not found', at: expect.any(Number) } });
+    expect(rt().lastFetchAt).toBe(5);
+    api.fetch.mockRejectedValueOnce({ kind: 'AuthFailed', message: 'denied' });
+    await runFetch('t', false, 'carol');
+    expect(Object.keys(rt().remoteFetchErrors ?? {})).toEqual(['origin', 'bob', 'carol']);
+    expect(rt().remoteFetchErrors?.carol?.reason).toBe('authentication failed');
+  });
+
   it('a user fetch with server output links it; a background one toasts only a warning (spec #2 §12.4)', async () => {
     api.fetch.mockResolvedValueOnce({ status: 'done', changed: true, server: { lines: 1, warning: null }, op: 4 });
     await runFetch('t', false);

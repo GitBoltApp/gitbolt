@@ -1,0 +1,46 @@
+/* The MR/PR view (spec #4 §4 "4B"), its actions (4B T13) and merge box (4B T14). */
+.mr-header, .mr-description, .mr-thread-list, .mr-merge { display: flex; flex-direction: column; gap: 4px; }
+.mr-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-normal); }
+.mr-state { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.mr-branches { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.mr-labels { display: flex; gap: 4px; flex-wrap: wrap; }
+.mr-label { padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--control-bg); color: var(--text-normal); }
+.mr-description { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; padding-top: 8px; border-top: 1px solid var(--section-border); }
+.mr-dim { color: var(--text-secondary); font-size: 11px; }
+.mr-wait { margin: 0; color: var(--text-secondary); }
+.mr-thread-list { gap: 8px; padding-top: 8px; border-top: 1px solid var(--section-border); }
+.mr-discussion { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--section-border); border-radius: 6px; }
+.mr-pos { display: flex; flex-direction: column; gap: 2px; }
+.mr-snippet { margin: 0; padding: 4px 6px; font: 11px/1.4 var(--font-mono); white-space: pre; overflow-x: auto; background: var(--app-bg0); border-radius: 4px; }
+.mr-note { display: flex; flex-direction: column; gap: 2px; }
+.mr-note-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.mr-note-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.mr-system { font-size: 11px; color: var(--text-secondary); }
+.mr-link { padding: 0; border: none; background: none; color: var(--link); font: inherit; cursor: pointer; text-align: left; }
+.mr-link:hover { text-decoration: underline; }
+.mr-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.mr-button { padding: 3px 10px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); font: inherit; font-size: 12px; cursor: pointer; }
+.mr-button:hover:not(:disabled) { background: var(--control-hover-bg); }
+.mr-button:disabled { color: var(--text-disabled); cursor: default; }
+.mr-button.primary { background: var(--blue); border-color: var(--blue); color: var(--text-on-accent); }
+.mr-reply textarea, .mr-edit textarea, .mr-edit input { font: inherit; font-size: 12px; color: var(--text-normal); background: var(--wip-input-bg); border: 1px solid var(--wip-input-border); border-radius: 4px; padding: 4px 6px; }
+.mr-reply textarea, .mr-edit textarea { min-height: 56px; resize: vertical; }
+.mr-edit label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--text-secondary); }
+.mr-form-row { display: flex; justify-content: flex-end; gap: 6px; }
+.mr-merge { padding: 8px; border: 1px solid var(--section-border); border-radius: 6px; gap: 6px; }
+.mr-check, .mr-field { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.mr-merge-reason { margin: 0; font-size: 11px; color: var(--orange); }
+
+/* --- 4B T13: forms and buttons (button.mr-button outranks details/header.css's `all: unset` .mr-button) --- */
+.mr-reply, .mr-edit { display: flex; flex-direction: column; gap: 6px; }
+.mr-reply textarea, .mr-edit textarea, .mr-edit input { font: inherit; font-size: 12px; color: inherit; background: var(--wip-input-bg); border: 1px solid var(--wip-input-border); border-radius: 6px; padding: 4px 6px; transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
+.mr-reply textarea::placeholder, .mr-edit textarea::placeholder, .mr-edit input::placeholder { color: var(--wip-input-placeholder); }
+.mr-reply textarea:focus, .mr-edit textarea:focus, .mr-edit input:focus { outline: none; border-color: var(--focus-outline); box-shadow: 0 0 0 1px var(--focus-outline); }
+.mr-reply textarea, .mr-edit textarea { min-height: 4.5em; resize: vertical; }
+.mr-form-row { display: flex; flex-direction: row; justify-content: flex-end; gap: 6px; }
+button.mr-button { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); font: inherit; font-size: 12px; cursor: pointer; }
+button.mr-button:hover:not(:disabled) { background: var(--control-hover-bg); }
+button.mr-button:disabled { color: var(--text-disabled); cursor: default; }
+button.mr-button.primary { background: var(--blue); border-color: var(--blue); color: var(--text-on-accent); }
+button.mr-button:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
+/* --- end 4B T13 --- */

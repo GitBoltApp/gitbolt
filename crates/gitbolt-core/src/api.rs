@@ -796,6 +796,70 @@ pub enum Request {
     /// `remote`'s project's forks, newest first: `ForgeProject[]`.
     ForgeForks { repo: u32, remote: String },
     // --- end 4A T6 ---
+    // --- 4B T1 ---
+    /// The repository's open MRs/PRs for the sidebar section (spec #4 §4 "4B"): `MrList`.
+    ForgeMrList { repo: u32, filter: crate::forge::MrFilter },
+    /// The badges: `refs` are the local branches' upstreams, newest first: `BranchMrs`.
+    ForgeBranchMrs { repo: u32, refs: Vec<String> },
+    /// One MR/PR's detail (hover card, MR/PR view): `Fresh<ForgeMrDetail>`.
+    ForgeMrDetail {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+    },
+    /// Its discussion, oldest first: `Fresh<ForgeDiscussion[]>`.
+    ForgeMrDiscussions {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+    },
+    /// A project on the target's forge by path (an MR's fork): `ForgeProject`.
+    ForgeProjectByPath { repo: u32, path: String },
+    /// Replies in `discussion`, or starts one: `ForgeNote`.
+    ForgeReply {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        discussion: Option<String>,
+        body: String,
+    },
+    /// `null`.
+    ForgeApprove {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+    },
+    /// `null`.
+    ForgeRequestChanges {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        body: String,
+    },
+    /// Merges it on the forge (spec §3.5: no optimistic UI): the merged `ForgeMr`.
+    ForgeMerge {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        options: crate::forge::MergeOptions,
+    },
+    /// `ForgeMr`.
+    ForgeEditMr {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        edit: crate::forge::MrEdit,
+    },
+    /// Draft ⇄ ready: `ForgeMr`.
+    ForgeSetDraft {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        draft: bool,
+    },
+    /// The common ancestor of two commits (the MR/PR view's diff of a note's file): `string | null`.
+    MergeBase { repo: u32, a: String, b: String },
+    // --- end 4B T1 ---
 }
 
 impl Request {
@@ -808,6 +872,11 @@ impl Request {
             // --- 4A T6 ---
             Request::ForgeRepoProjects { .. } | Request::ForgeProjectSettings { .. } | Request::ForgeForks { .. } => false,
             // --- end 4A T6 ---
+            // --- 4B T1: forge calls and a read, never a repository write ---
+            Request::ForgeMrList { .. } | Request::ForgeBranchMrs { .. } | Request::ForgeMrDetail { .. } | Request::ForgeMrDiscussions { .. }
+            | Request::ForgeProjectByPath { .. } | Request::ForgeReply { .. } | Request::ForgeApprove { .. } | Request::ForgeRequestChanges { .. }
+            | Request::ForgeMerge { .. } | Request::ForgeEditMr { .. } | Request::ForgeSetDraft { .. } | Request::MergeBase { .. } => false,
+            // --- end 4B T1 ---
             // Remote-tracking refs and objects.
             // --- 4A T7 ---
             Request::AddRemote { .. } => true,
@@ -1095,6 +1164,16 @@ fn cacheable(kind: SignatureKind) -> bool {
 
 /// `opener_refresh` unless changed.
 const OPENER_REFRESH: Duration = Duration::from_secs(30);
+
+// --- 4B T1 ---
+/// The common ancestor of `a` and `b`; `None` when the repository lacks one of them (an MR's
+/// commits not fetched yet) or they share no history.
+fn merge_base(repo: &gix::Repository, a: &str, b: &str) -> Result<Option<String>, GbError> {
+    let oid = |s: &str| gix::ObjectId::from_hex(s.trim().as_bytes()).map_err(|_| GbError::new(GbErrorKind::InvalidInput, format!("{s} isn't a commit id")));
+    let (a, b) = (oid(a)?, oid(b)?);
+    Ok(repo.merge_base(a, b).ok().map(|m| m.detach().to_string()))
+}
+// --- end 4B T1 ---
 
 fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, GbError> {
     serde_json::to_value(v).map_err(|e| GbError::other(format!("serialize: {e}")))
@@ -1993,21 +2072,70 @@ impl Api {
             // --- 4A T6 ---
             Request::ForgeRepoProjects { repo, refresh } => {
                 let h = self.handle(repo)?;
-                let list = remotes(&h.repo.to_thread_local());
+                let list = crate::details::forge_remotes(&h.repo.to_thread_local());
                 match &self.forge {
                     Some(hub) => to_json(hub.repo_projects(&self.store, &list, refresh).await),
                     None => to_json(crate::forge::hub::RepoProjects::without_accounts(&list)),
                 }
             }
             Request::ForgeProjectSettings { repo, remote } => {
-                let list = remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
                 to_json(self.forge_hub()?.project_settings(&self.store, &list, &remote).await?)
             }
             Request::ForgeForks { repo, remote } => {
-                let list = remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
                 to_json(self.forge_hub()?.forks(&self.store, &list, &remote).await?)
             }
             // --- end 4A T6 ---
+            // --- 4B T1 ---
+            Request::ForgeMrList { repo, filter } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.mr_list(&self.store, &list, filter).await?)
+            }
+            Request::ForgeBranchMrs { repo, refs } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.branch_mrs(&self.store, &list, &refs).await?)
+            }
+            Request::ForgeMrDetail { repo, number } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.mr_detail(&self.store, &list, number).await?)
+            }
+            Request::ForgeMrDiscussions { repo, number } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.mr_discussions(&self.store, &list, number).await?)
+            }
+            Request::ForgeProjectByPath { repo, path } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.project_by_path(&self.store, &list, &path).await?)
+            }
+            Request::ForgeReply { repo, number, discussion, body } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.reply(&self.store, &list, number, crate::forge::NewNote { discussion, body }).await?)
+            }
+            Request::ForgeApprove { repo, number } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                self.forge_hub()?.approve(&self.store, &list, number).await?;
+                to_json(())
+            }
+            Request::ForgeRequestChanges { repo, number, body } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                self.forge_hub()?.request_changes(&self.store, &list, number, body).await?;
+                to_json(())
+            }
+            Request::ForgeMerge { repo, number, options } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.merge(&self.store, &list, number, options).await?)
+            }
+            Request::ForgeEditMr { repo, number, edit } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.edit_mr(&self.store, &list, number, edit).await?)
+            }
+            Request::ForgeSetDraft { repo, number, draft } => {
+                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.set_draft(&self.store, &list, number, draft).await?)
+            }
+            Request::MergeBase { repo, a, b } => to_json(merge_base(&self.handle(repo)?.repo.to_thread_local(), &a, &b)?),
+            // --- end 4B T1 ---
             Request::Clone { url, dest } => to_json(self.clone_repo(url, dest).await?),
             Request::RepoInfo { repo } => {
                 let h = self.handle(repo)?;
@@ -3658,6 +3786,20 @@ mod tests {
         let root = r.root().display().to_string();
         use serde_json::json;
         vec![
+            // --- 4B T1 ---
+            json!({"method": "forgeMrList", "params": {"repo": id, "filter": "all"}}),
+            json!({"method": "forgeBranchMrs", "params": {"repo": id, "refs": ["refs/remotes/origin/main"]}}),
+            json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 1}}),
+            json!({"method": "forgeMrDiscussions", "params": {"repo": id, "number": 1}}),
+            json!({"method": "forgeProjectByPath", "params": {"repo": id, "path": "group/project"}}),
+            json!({"method": "forgeReply", "params": {"repo": id, "number": 1, "discussion": null, "body": "x"}}),
+            json!({"method": "forgeApprove", "params": {"repo": id, "number": 1}}),
+            json!({"method": "forgeRequestChanges", "params": {"repo": id, "number": 1, "body": "x"}}),
+            json!({"method": "forgeMerge", "params": {"repo": id, "number": 1, "options": {"method": null, "squash": null, "deleteSourceBranch": null, "expectedSha": null}}}),
+            json!({"method": "forgeEditMr", "params": {"repo": id, "number": 1, "edit": {"title": "t", "description": null, "labels": null}}}),
+            json!({"method": "forgeSetDraft", "params": {"repo": id, "number": 1, "draft": true}}),
+            json!({"method": "mergeBase", "params": {"repo": id, "a": r.git(&["rev-parse", "HEAD"]), "b": r.git(&["rev-parse", "HEAD~1"])}}),
+            // --- end 4B T1 ---
             // --- 4A T5 ---
             json!({"method": "forgeAccounts"}),
             json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": "glpat-FAKE-never-sent"}}),
@@ -3903,7 +4045,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {
@@ -4025,4 +4167,51 @@ mod tests {
         assert_eq!(rp, serde_json::json!({"remotes": [{"remote": "origin", "host": "gitlab.example.com", "path": "group/project", "account": null, "project": null, "error": null}], "target": null}));
     }
     // --- end 4A T6 ---
+    // --- 4B T1 ---
+    #[tokio::test]
+    async fn forge_mr_requests_reach_the_repos_target_project() {
+        use crate::forge::fake::{mr, project, FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::{ForgeKind, MrState, TokenStorage};
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        let p = FakeProvider::new(ForgeKind::GitLab, "gitlab.example.com");
+        p.projects.lock().unwrap().insert("group/project".into(), project("gitlab.example.com", "group/project", None, 1));
+        p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
+        let conn = Arc::new(FakeConnector::default());
+        let fake = conn.add(TOKEN, p);
+        let api = api().with_forge(conn, MemTokens::new(TokenStorage::Keyring));
+        api.dispatch(req(serde_json::json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": TOKEN}}))).await.unwrap();
+        let r = TestRepo::new();
+        r.commit("a");
+        r.git(&["remote", "add", "origin", "https://gitlab.example.com/group/project.git"]);
+        let id = open(&api, &r).await as u32;
+        let list = api.dispatch(req(serde_json::json!({"method": "forgeMrList", "params": {"repo": id, "filter": "all"}}))).await.unwrap();
+        assert_eq!((list["kind"].as_str(), list["remote"].as_str(), list["mrs"][0]["number"].as_u64()), (Some("gitlab"), Some("origin"), Some(12)));
+        let badges = api.dispatch(req(serde_json::json!({"method": "forgeBranchMrs", "params": {"repo": id, "refs": ["refs/remotes/origin/dev"]}}))).await.unwrap();
+        assert_eq!(badges["mrs"][0]["remoteRef"], "refs/remotes/origin/dev");
+        let e = api.dispatch(req(serde_json::json!({"method": "forgeReply", "params": {"repo": id, "number": 12, "discussion": null, "body": " "}}))).await.unwrap_err();
+        assert_eq!(e.message, "Write a reply first");
+        let merged = api.dispatch(req(serde_json::json!({"method": "forgeMerge", "params": {"repo": id, "number": 12, "options": {"method": null, "squash": true, "deleteSourceBranch": null, "expectedSha": null}}}))).await.unwrap();
+        assert_eq!(merged["state"], "merged");
+        assert!(fake.calls().iter().any(|c| c == "merge 12 Some(true)"));
+    }
+
+    #[tokio::test]
+    async fn merge_base_answers_the_common_ancestor_or_null() {
+        let r = TestRepo::new();
+        r.commit("base");
+        let base = r.git(&["rev-parse", "HEAD"]);
+        r.git(&["switch", "-q", "-c", "side"]);
+        r.commit("side");
+        let side = r.git(&["rev-parse", "HEAD"]);
+        r.git(&["switch", "-q", "-"]);
+        r.commit("main");
+        let main = r.git(&["rev-parse", "HEAD"]);
+        let api = api();
+        let id = open(&api, &r).await as u32;
+        let ask = |a: &str, b: &str| api.dispatch(req(serde_json::json!({"method": "mergeBase", "params": {"repo": id, "a": a, "b": b}})));
+        assert_eq!(ask(&main, &side).await.unwrap(), serde_json::json!(base));
+        assert!(ask(&main, &"0".repeat(40)).await.unwrap().is_null(), "an object the repository doesn't have");
+        assert_eq!(ask("zz", &side).await.unwrap_err().message, "zz isn't a commit id");
+    }
+    // --- end 4B T1 ---
 }

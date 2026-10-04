@@ -112,6 +112,22 @@ describe('Settings › Accounts', () => {
     await waitFor(() => expect(api.removeForgeAccount).toHaveBeenCalledWith('gitlab.example.com'));
   });
 
+  it("a failed Remove keeps its error on screen after the list is read again, and the account's row", async () => {
+    const message = "Couldn't delete the token for gitlab.example.com from the system keyring: access denied";
+    api.forgeAccounts.mockResolvedValue([ada('keyring')]);
+    api.removeForgeAccount.mockRejectedValueOnce({ kind: 'Other', message });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove the gitlab.example.com account' }));
+    const clock = armClock();
+    const confirm = await screen.findByRole('button', { name: 'Remove account' });
+    clock.settle();
+    press(confirm);
+    clock.restore();
+    await waitFor(() => expect(api.forgeAccounts).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(message));
+    expect(await row()).toBeTruthy();
+  });
+
   it('while checking, the button reads Checking… and a second submit is ignored', async () => {
     let done!: (v: unknown) => void;
     api.addForgeAccount.mockReturnValueOnce(new Promise((r) => { done = r; }));

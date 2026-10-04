@@ -49,6 +49,25 @@ pub fn parse_remote_url(url: &str) -> Option<RemoteUrl> {
     Some(RemoteUrl { host: host_part.to_ascii_lowercase(), path })
 }
 
+/// The host a forge account for `url` is named by (spec #4 §3.3): `parse_remote_url`'s, plus an
+/// http(s) URL's non-default port (`gitlab.example.com:8443`), since the web and API are there.
+/// An SSH or scp-style URL's port says nothing about the web's: it's dropped.
+pub fn forge_host(url: &str) -> Option<String> {
+    let host = parse_remote_url(url)?.host;
+    let Some((scheme, rest)) = url.trim().split_once("://") else { return Some(host) };
+    let default = match scheme.to_ascii_lowercase().as_str() {
+        "https" => "443",
+        "http" => "80",
+        _ => return Some(host),
+    };
+    let authority = rest.split('/').next().unwrap_or("");
+    let port = authority.rsplit('@').next().and_then(|h| h.split_once(':')).map(|(_, p)| p).filter(|p| !p.is_empty() && *p != default && p.chars().all(|c| c.is_ascii_digit()));
+    Some(match port {
+        Some(p) => format!("{host}:{p}"),
+        None => host,
+    })
+}
+
 /// `remote`'s effective URL for `direction`, with `url.<base>.insteadOf`/`pushInsteadOf` rewrites
 /// applied (gix's `Remote::url`, via `find_remote`). Reading `remote.<name>.url` straight out of
 /// the config, as the rest of this codebase used to, silently skips a rewritten alias (e.g. `gh:`
@@ -86,6 +105,19 @@ mod tests {
         assert_eq!(p("https://user:tok@github.com/o/r/"), Some(("github.com".into(), "o/r".into())));
         assert_eq!(p("/tmp/origin.git"), None);
         assert_eq!(p("file:///tmp/origin.git"), None);
+    }
+
+    #[test]
+    fn an_https_remote_keeps_its_port_for_forge_matching_and_ssh_drops_it() {
+        assert_eq!(forge_host("https://gitlab.example.com:8443/group/project.git").as_deref(), Some("gitlab.example.com:8443"));
+        assert_eq!(forge_host("https://user:tok@GitLab.example.com:8443/group/project.git").as_deref(), Some("gitlab.example.com:8443"));
+        assert_eq!(forge_host("https://gitlab.example.com:443/group/project.git").as_deref(), Some("gitlab.example.com"));
+        assert_eq!(forge_host("http://gitlab.example.com:8080/group/project.git").as_deref(), Some("gitlab.example.com:8080"));
+        assert_eq!(forge_host("ssh://git@gitlab.example.com:2222/group/project.git").as_deref(), Some("gitlab.example.com"));
+        assert_eq!(forge_host("git@gitlab.example.com:group/project.git").as_deref(), Some("gitlab.example.com"));
+        assert_eq!(forge_host("/tmp/origin.git"), None);
+        // Everyone else still sees the host alone.
+        assert_eq!(parse_remote_url("https://gitlab.example.com:8443/group/project.git").unwrap().host, "gitlab.example.com");
     }
 
     #[test]

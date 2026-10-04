@@ -1,0 +1,8 @@
+import { lazy } from 'react';
+import { registerFlyout } from '../../ui/flyout/flyout';
+import { MR_FLYOUT, type MrViewArgs } from '../mrStore';
+
+// Lazy: the view stays out of the startup chunk until an MR/PR is opened.
+const MrView = lazy(() => import('./MrView').then((m) => ({ default: m.MrView })));
+const off = registerFlyout<MrViewArgs>(MR_FLYOUT, MrView);
+import.meta.hot?.dispose(off);

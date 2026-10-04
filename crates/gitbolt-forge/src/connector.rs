@@ -70,4 +70,47 @@ mod tests {
         let app = Forge::new(ForgeConfig { overrides: HashMap::new(), only_overrides: false, avatar_dir: None });
         assert_eq!(app.connect(ForgeKind::GitHub, "github.com", Secret::new("x")).unwrap().kind(), ForgeKind::GitHub);
     }
+
+    /// One token in memory.
+    struct OneToken;
+    impl gitbolt_core::forge::TokenStore for OneToken {
+        fn put(&self, _: &gitbolt_core::forge::AccountKey, _: &Secret) -> Result<gitbolt_core::forge::TokenStorage, GbError> {
+            Ok(gitbolt_core::forge::TokenStorage::Keyring)
+        }
+        fn get(&self, _: &gitbolt_core::forge::AccountKey, _: gitbolt_core::forge::TokenStorage) -> Result<Option<Secret>, GbError> {
+            Ok(Some(Secret::new("glpat-FAKE-test-token")))
+        }
+        fn delete(&self, _: &gitbolt_core::forge::AccountKey) -> Result<(), GbError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_forge_is_skipped_for_avatars_and_shown_in_settings() {
+        use crate::test_server::{closed_base, Canned, TestServer};
+        use gitbolt_core::forge::accounts::{AccountStatus, ForgeAccount};
+        use gitbolt_core::forge::hub::ForgeHub;
+        use gitbolt_core::forge::{ForgeUser, TokenStorage};
+        use gitbolt_core::settings::SettingsStore;
+        const HOST: &str = "gitlab.example.com";
+        let base = closed_base();
+        let overrides = HashMap::from([(HOST.to_string(), HostEndpoints { api: format!("{base}/api/v4"), web: base.clone(), avatars: None })]);
+        let forge = Arc::new(Forge::new(ForgeConfig { overrides, only_overrides: true, avatar_dir: None }));
+        let now_secs = crate::time::unix_now();
+        let hub = ForgeHub::new(forge, Arc::new(OneToken), Arc::new(move || now_secs * 1000));
+        let store = SettingsStore::in_memory();
+        let user = ForgeUser { id: 1, username: "ada".into(), name: "Ada".into(), avatar_url: None, web_url: String::new(), email: None };
+        store.set_forge_accounts("default", vec![ForgeAccount { host: HOST.into(), kind: ForgeKind::GitLab, user, storage: TokenStorage::Keyring, version: None, version_checked_at: now_secs, added_at: now_secs }]).unwrap();
+        assert!(hub.avatar(&store, "ada@example.com").await.is_none());
+        let status = hub.accounts(&store)[0].status.clone();
+        assert!(matches!(&status, AccountStatus::Unreachable { message } if message.starts_with("Couldn't reach gitlab.example.com")), "{status:?}");
+        // The port answers now; within the cooldown nothing is sent to it.
+        let s = TestServer::start_at(base.trim_start_matches("http://"), |_, _| Canned::json(200, "{}"));
+        let started = std::time::Instant::now();
+        for _ in 0..3 {
+            assert!(hub.avatar(&store, "ada@example.com").await.is_none());
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(s.hits(), 0);
+    }
 }

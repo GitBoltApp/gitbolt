@@ -629,6 +629,10 @@ export function sidebarItemMenu(store: RepoViewStore, item: SideItem): () => Men
         return view({ what: 'stash', sha: item.stash.id, message: item.stash.message });
       case 'worktree':
         return view({ what: 'worktree', path: item.worktree.path, branch: item.worktree.branch, head: item.worktree.head });
+      // --- 4B T11: an MR/PR row has no menu ---
+      case 'mr':
+        return [];
+      // --- end 4B T11 ---
     }
   };
 }

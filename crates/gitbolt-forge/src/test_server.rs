@@ -33,7 +33,12 @@ pub(crate) struct TestServer {
 impl TestServer {
     /// `answer(n, head)`: the n-th request (from 0) and its head.
     pub fn start(answer: impl Fn(usize, &str) -> Canned + Send + Sync + 'static) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        Self::start_at("127.0.0.1:0", answer)
+    }
+
+    /// The same, on `addr` (a port a test closed earlier).
+    pub fn start_at(addr: &str, answer: impl Fn(usize, &str) -> Canned + Send + Sync + 'static) -> Self {
+        let listener = TcpListener::bind(addr).unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (heads, hits) = (Arc::new(Mutex::new(Vec::new())), Arc::new(AtomicUsize::new(0)));
         let answer = Arc::new(answer);

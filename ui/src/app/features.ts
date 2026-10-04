@@ -73,3 +73,9 @@ import '../ui/flyout/feature';
 // --- 4A T12 ---
 import '../remotes/feature';
 // --- end 4A T12 ---
+// --- 4B T12 ---
+import '../forge/mrview/feature';
+// --- end 4B T12 ---
+// --- 4B T15 ---
+import '../forge/entryPoints';
+// --- end 4B T15 ---

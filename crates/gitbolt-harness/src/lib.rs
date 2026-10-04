@@ -275,7 +275,7 @@ impl Harness {
 /// `GET /test/watched` (the ids of the repos with a live file watcher, sorted),
 /// `POST /test/write` (a test-only write intent, behind the fixture guard),
 /// `ANY /test/auth/*` (a git remote that always answers 401), and the fake forge's controls
-/// `GET|POST /test/forge/seed`, `POST /test/forge/script`, `GET /test/forge/requests`.
+/// `GET|POST /test/forge/seed`, `POST /test/forge/script`, `GET /test/forge/requests`, `POST /test/forge/account`.
 pub async fn serve(listener: tokio::net::TcpListener, harness: Harness) {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -290,6 +290,9 @@ pub async fn serve(listener: tokio::net::TcpListener, harness: Harness) {
         .route("/test/forge/seed", get(test_forge_seed_get).post(test_forge_seed))
         .route("/test/forge/script", post(test_forge_script))
         .route("/test/forge/requests", get(test_forge_requests))
+        // --- 4B T16 ---
+        .route("/test/forge/account", post(test_forge_account))
+        // --- end 4B T16 ---
         .with_state(Arc::new(harness));
     // Small frames go out at once (no Nagle wait for the previous frame's delayed ACK).
     let listener = listener.tap_io(|tcp| {
@@ -587,3 +590,29 @@ mod tests {
         assert!(res["journal"]["undo"].is_null(), "{res}");
     }
 }
+
+// --- 4B T16: a forge account without the Settings form (4A's spec covers the form) ---
+#[derive(serde::Deserialize)]
+struct TestForgeAccount {
+    host: String,
+    kind: gitbolt_core::forge::ForgeKind,
+    token: String,
+}
+
+impl Harness {
+    /// The app's own `addForgeAccount` (tests only: the fake forge's tokens).
+    pub async fn add_forge_account_for_test(&self, host: &str, kind: gitbolt_core::forge::ForgeKind, token: &str) -> Result<serde_json::Value, GbError> {
+        self.api.dispatch(Request::AddForgeAccount { host: host.to_string(), kind, token: gitbolt_core::redact::Secret::new(token) }).await
+    }
+}
+
+async fn test_forge_account(State(h): State<Arc<Harness>>, headers: HeaderMap, Json(b): Json<TestForgeAccount>) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match h.add_forge_account_for_test(&b.host, b.kind, &b.token).await {
+        Ok(v) => Json(serde_json::json!({ "ok": v })).into_response(),
+        Err(e) => Json(serde_json::json!({ "err": e })).into_response(),
+    }
+}
+// --- end 4B T16 ---

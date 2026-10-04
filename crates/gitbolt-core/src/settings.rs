@@ -264,6 +264,10 @@ pub struct RepoSettings {
     pub collapsed: Vec<String>,
     /// Overrides the profile's editor for this repo.
     pub editor: Option<EditorChoice>,
+    // --- 4B T11 ---
+    /// The sidebar MR/PR section's filter (spec #4 §2 "MR/PR list"); `None` is All.
+    pub mr_filter: Option<crate::forge::MrFilter>,
+    // --- end 4B T11 ---
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

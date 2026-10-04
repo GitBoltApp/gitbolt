@@ -21,7 +21,7 @@ export const EMPTY_PROFILE: Profile = {
   version: 1, id: '', name: '', color: '#4d88ff', tabs: [], activeTab: null, closedTabs: [], recent: [], reposFolder: null, reposFolders: null,
   editor: null, extraGitconfig: null, hostOverrides: {}, sidebarWidth: 240, sidebarNarrow: false, sidebarPanels: {}, rightPanelWidth: null, flyoutWidth: null, repos: {},
 };
-export const EMPTY_REPO_SETTINGS: RepoSettings = { pin: null, columns: null, hiddenColumns: [], sidebarSort: {}, collapsed: [], editor: null };
+export const EMPTY_REPO_SETTINGS: RepoSettings = { pin: null, columns: null, hiddenColumns: [], sidebarSort: {}, collapsed: [], editor: null, mrFilter: null };
 
 // UI → backend saves are debounced here too (the backend debounces disk writes on top).
 const saveSettings = debounce((s: AppSettings) => api.saveSettings(s), 150);

@@ -3,6 +3,7 @@ import { onEvent } from '../api/client';
 import { PanelErrorBoundary } from '../errors/PanelErrorBoundary';
 import type { TabState } from '../api/gen/TabState';
 import { useFetchScheduler } from './fetchSchedule';
+import { useForgePolling } from '../forge/usePolling';
 import { RepoContext } from './repoContext';
 import { useRuntime } from './runtime';
 import { tabLabel } from './tabs';
@@ -92,6 +93,9 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
 
   // Background fetch (spec §15): this tab's timer lives only while it's shown.
   useFetchScheduler(tab.id, repoId);
+  // --- 4B T9: the forge poller (spec #4 §3.4), live only while the tab shows ---
+  useForgePolling(tab.id, repoId);
+  // --- end 4B T9 ---
 
   // The window title follows the active tab (1A's e2e checks `GitBolt — repo`). A linked
   // worktree's tab is titled by its folder, as its label is (`tabLabel`, without the alias).

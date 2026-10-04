@@ -5,6 +5,13 @@ import { shortSha } from '../format/sha';
 import { getLastPush } from './lastPushCache';
 import type { SideItem } from './model';
 import { TagTip } from '../tags/TagTip';
+// --- 4B T10 ---
+import { useRepoContext } from '../app/repoContext';
+import { BranchMrBlock } from '../forge/MrBadge';
+// --- end 4B T10 ---
+// --- 4B T11 ---
+import { MrCardLive } from '../forge/MrCardLive';
+// --- end 4B T11 ---
 
 /**
  * Spec §6.4 hover card: tip, author, date, ahead/behind, last push (or last seen on remote).
@@ -19,6 +26,7 @@ import { TagTip } from '../tags/TagTip';
  * once; only the request itself waits.
  */
 export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId: number; top: number; left: number }) {
+  const { tabId } = useRepoContext(); // 4B T10
   const [push, setPush] = useState<LastPushPayload | null | undefined>(undefined);
   const remoteRef = item.kind === 'local' ? item.branch.upstream : item.kind === 'remote' ? item.branch.fullName : null;
   useEffect(() => {
@@ -36,6 +44,15 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
       cancelAnimationFrame(raf);
     };
   }, [repoId, remoteRef]);
+  // --- 4B T11: an MR/PR row's card ---
+  if (item.kind === 'mr') {
+    return (
+      <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
+        <MrCardLive tabId={tabId} kind={item.forge} mr={item.mr} hint="Click to open" />
+      </div>
+    );
+  }
+  // --- end 4B T11 ---
   const summary = item.kind === 'local' || item.kind === 'remote' ? item.branch.summary : item.kind === 'stash' ? item.stash.message : '';
   const author = item.kind === 'local' || item.kind === 'remote' ? item.branch.author : '';
   if (item.kind === 'worktree') {
@@ -72,6 +89,9 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
           {push === undefined ? 'Loading…' : push === null ? 'Never seen on the remote' : push.kind === 'push' ? `Last push: ${relativeTime(push.time)}` : `Last seen on remote: ${relativeTime(push.time)}`}
         </div>
       )}
+      {/* --- 4B T10: the branch's MR/PR --- */}
+      {item.kind === 'local' && <BranchMrBlock tabId={tabId} upstream={item.branch.upstream} />}
+      {/* --- end 4B T10 --- */}
     </div>
   );
 }

@@ -43,6 +43,10 @@ describe('Add remote', () => {
     show();
     fireEvent.change(screen.getByLabelText('Remote URL'), { target: { value: 'git@gitlab.example.com:carol/project.git' } });
     expect(screen.getByTestId('add-remote-detected').textContent).toContain('GitLab · gitlab.example.com/carol/project');
+    // A generic host is just the host and path.
+    fireEvent.change(screen.getByLabelText('Remote URL'), { target: { value: 'https://code.example.com/carol/project.git' } });
+    expect(screen.getByTestId('add-remote-detected').textContent?.trim()).toBe('code.example.com/carol/project');
+    fireEvent.change(screen.getByLabelText('Remote URL'), { target: { value: 'git@gitlab.example.com:carol/project.git' } });
     expect((screen.getByLabelText('Remote name') as HTMLInputElement).value).toBe('carol');
     fireEvent.change(screen.getByLabelText('Remote name'), { target: { value: 'origin' } });
     expect(screen.getByRole('alert').textContent).toBe('A remote named origin already exists');

@@ -1,0 +1,160 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LocalBranch } from '../api/gen/LocalBranch';
+
+const api = vi.hoisted(() => ({
+  forgeRepoProjects: vi.fn(),
+  forgeAccounts: vi.fn(),
+  forgeBranchMrs: vi.fn(),
+  forgeMrList: vi.fn(),
+  forgeMrDetail: vi.fn(),
+  forgeMrDiscussions: vi.fn(),
+}));
+vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)) }));
+const flyout = vi.hoisted(() => ({ openFlyout: vi.fn() }));
+vi.mock('../ui/flyout/flyout', () => flyout);
+
+const { loadMrDetail, openMrView, pollForge, refreshMr } = await import('./poll');
+const { dropForge, forgeOf, patchForge, useForge } = await import('./mrStore');
+const { backoffMs } = await import('./poller');
+const { useRuntime } = await import('../app/runtime');
+const { DEFAULT_SETTINGS, useAppState } = await import('../app/state');
+const { clampFetchInterval } = await import('../settings/schema');
+const { detailOf, mrOf, projectOf } = await import('./testMrs');
+
+const project = projectOf();
+const target = { remote: 'origin', host: 'gitlab.example.com', path: 'group/project', account: 'gitlab', project, error: null };
+const fresh = <T,>(value: T) => ({ value, notModified: false, pollIntervalSecs: null, fetchedAt: 1 });
+const branch = (name: string, upstream: string | null, tipTime: number) => ({ name, fullName: `refs/heads/${name}`, upstream, tipTime, gone: false }) as LocalBranch;
+const running = mrOf(5, { state: 'draft', pipeline: { status: 'running', webUrl: null } });
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  dropForge('t');
+  useForge.setState({ byTab: {} });
+  useAppState.setState({ settings: { ...DEFAULT_SETTINGS, fetchIntervalSecs: 300 } });
+  useRuntime.setState({ tabs: { t: { status: 'ready', repo: { id: 4 }, sidebar: { locals: [branch('dev', 'refs/remotes/origin/dev', 5), branch('old', 'refs/remotes/origin/old', 9), branch('loose', null, 1)] } } as never } });
+  api.forgeRepoProjects.mockResolvedValue({ remotes: [target], target: 'origin' });
+  api.forgeAccounts.mockResolvedValue([{ account: { host: 'gitlab.example.com', user: { username: 'ada' } }, status: { kind: 'ok' } }]);
+  api.forgeBranchMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', mrs: [{ remoteRef: 'refs/remotes/origin/dev', mr: mrOf(12) }], fetchedAt: 1, pollIntervalSecs: 30 });
+  api.forgeMrList.mockResolvedValue({ kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(12), running], fetchedAt: 1, pollIntervalSecs: null });
+  api.forgeMrDetail.mockResolvedValue(fresh(detailOf(mrOf(12))));
+  api.forgeMrDiscussions.mockResolvedValue(fresh([]));
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe('pollForge (spec #4 §3.4)', () => {
+  it('a full poll maps the badges, the list and the open MR, and says a pipeline runs', async () => {
+    patchForge('t', { openMr: 12 });
+    const out = await pollForge('t', 'timer');
+    expect(api.forgeRepoProjects).toHaveBeenCalledWith(4, false);
+    expect(api.forgeBranchMrs).toHaveBeenCalledWith(4, ['refs/remotes/origin/old', 'refs/remotes/origin/dev']);
+    const f = forgeOf('t');
+    expect([f.kind, f.remote, f.me]).toEqual(['gitlab', 'origin', 'ada']);
+    expect(f.byRef['refs/remotes/origin/dev']?.number).toBe(12);
+    expect(f.upstreams['refs/heads/dev']).toBe('refs/remotes/origin/dev');
+    expect(f.list?.mrs.map((m) => m.number)).toEqual([12, 5]);
+    expect([f.details[12]?.value.mr.number, f.discussions[12], f.error, f.failures]).toEqual([12, [], null, 0]);
+    expect(f.updatedAt).not.toBeNull();
+    expect(out).toEqual({ runningPipeline: true, serverIntervalMs: 30_000 });
+  });
+
+  it('activation asks the forges for the projects again; a fast poll reads only the list and the open MR', async () => {
+    await pollForge('t', 'activate');
+    expect(api.forgeRepoProjects).toHaveBeenCalledWith(4, true);
+    vi.clearAllMocks();
+    await pollForge('t', 'fast');
+    expect(api.forgeRepoProjects).not.toHaveBeenCalled();
+    expect(api.forgeBranchMrs).not.toHaveBeenCalled();
+    expect(api.forgeAccounts).not.toHaveBeenCalled();
+    expect(api.forgeMrList).toHaveBeenCalledWith(4, 'all');
+  });
+
+  it('a repository without a forge target has no MR/PR UI', async () => {
+    api.forgeRepoProjects.mockResolvedValue({ remotes: [{ ...target, account: null, project: null }], target: null });
+    patchForge('t', { kind: 'gitlab', byRef: { r: mrOf(1) } });
+    expect(await pollForge('t', 'timer')).toEqual({ runningPipeline: false, serverIntervalMs: null });
+    expect([forgeOf('t').kind, forgeOf('t').byRef, forgeOf('t').list]).toEqual([null, {}, null]);
+    expect(api.forgeBranchMrs).not.toHaveBeenCalled();
+  });
+
+  it('a failed poll keeps the data and backs off; a rate limit waits until its reset', async () => {
+    await pollForge('t', 'timer');
+    api.forgeMrList.mockRejectedValueOnce({ kind: 'Network', message: "Couldn't reach gitlab.example.com: timed out" });
+    const out = await pollForge('t', 'timer');
+    expect(forgeOf('t').error).toBe("Couldn't reach gitlab.example.com: timed out");
+    expect(forgeOf('t').list?.mrs).toHaveLength(2);
+    expect(forgeOf('t').byRef['refs/remotes/origin/dev']?.number).toBe(12);
+    expect(out).toEqual({ runningPipeline: false, serverIntervalMs: backoffMs(clampFetchInterval(300) * 1000, 1) });
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+    api.forgeMrList.mockRejectedValueOnce({ kind: 'RateLimited', message: 'limited', detail: { kind: 'rateLimited', until: 1_003_600 } });
+    expect((await pollForge('t', 'timer')).serverIntervalMs).toBe(3_600_000);
+    expect(forgeOf('t').failures).toBe(2);
+    await pollForge('t', 'timer');
+    expect([forgeOf('t').error, forgeOf('t').failures]).toEqual([null, 0]);
+  });
+});
+
+describe('a poll that finds nothing new', () => {
+  it('keeps the identities of byRef, list and details', async () => {
+    patchForge('t', { openMr: 12 });
+    await pollForge('t', 'timer');
+    const a = forgeOf('t');
+    api.forgeBranchMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', mrs: [{ remoteRef: 'refs/remotes/origin/dev', mr: mrOf(12) }], fetchedAt: 2, pollIntervalSecs: 30 });
+    api.forgeMrList.mockResolvedValue({ kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(12), running], fetchedAt: 2, pollIntervalSecs: null });
+    api.forgeMrDetail.mockResolvedValue(fresh(detailOf(mrOf(12))));
+    await pollForge('t', 'timer');
+    const b = forgeOf('t');
+    expect(b.byRef).toBe(a.byRef);
+    expect(b.upstreams).toBe(a.upstreams);
+    expect(b.list).toBe(a.list);
+    expect(b.details).toBe(a.details);
+    expect(b.discussions).toBe(a.discussions);
+  });
+
+  it('a failing open MR does not fail the poll', async () => {
+    patchForge('t', { openMr: 12 });
+    api.forgeMrDetail.mockRejectedValue({ message: 'gone' });
+    await pollForge('t', 'timer');
+    expect([forgeOf('t').error, forgeOf('t').detailErrors[12], forgeOf('t').list?.mrs.length]).toEqual([null, 'gone', 2]);
+  });
+
+  it('a dropped tab keeps nothing, and a late result is ignored', async () => {
+    await pollForge('t', 'timer');
+    dropForge('t');
+    expect(useForge.getState().byTab.t).toBeUndefined();
+    useRuntime.setState({ tabs: {} });
+    await pollForge('t', 'timer');
+    expect(useForge.getState().byTab.t).toBeUndefined();
+  });
+});
+
+describe('opening and loading an MR/PR', () => {
+  it('openMrView opens the flyout and loads the MR', async () => {
+    openMrView('t', 12);
+    expect(flyout.openFlyout).toHaveBeenCalledWith('t', 'mr', { number: 12 });
+    expect(forgeOf('t').openMr).toBe(12);
+    await vi.waitFor(() => expect(forgeOf('t').details[12]).toBeDefined());
+  });
+
+  it("a failed load is kept for the card and the view to say", async () => {
+    api.forgeMrDetail.mockRejectedValueOnce({ message: 'Not found on gitlab.example.com' });
+    await expect(refreshMr('t', 12)).rejects.toBeTruthy();
+    expect(forgeOf('t').detailErrors[12]).toBe('Not found on gitlab.example.com');
+  });
+
+  it('a failed hover load is not asked again within the window', async () => {
+    api.forgeMrDetail.mockRejectedValue({ message: 'nope' });
+    await loadMrDetail('t', 12);
+    await loadMrDetail('t', 12);
+    expect(api.forgeMrDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads a detail once while it runs, and not again while it is fresh', async () => {
+    await Promise.all([loadMrDetail('t', 12), loadMrDetail('t', 12)]);
+    expect(api.forgeMrDetail).toHaveBeenCalledTimes(1);
+    await loadMrDetail('t', 12);
+    expect(api.forgeMrDetail).toHaveBeenCalledTimes(1);
+    await loadMrDetail('t', 12, 0);
+    expect(api.forgeMrDetail).toHaveBeenCalledTimes(2);
+  });
+});

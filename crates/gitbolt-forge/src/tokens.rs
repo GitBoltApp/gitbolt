@@ -232,7 +232,12 @@ impl TokenStore for SystemTokenStore {
 
     fn get(&self, key: &AccountKey, storage: TokenStorage) -> Result<Option<Secret>, GbError> {
         match storage {
-            TokenStorage::File => self.file.get(key, storage),
+            // A token moved to the keyring whose account record still says File (the profile
+            // write failed after the move) is found there.
+            TokenStorage::File => match self.file.get(key, storage)? {
+                Some(t) => Ok(Some(t)),
+                None => Ok(self.keyring.as_ref().and_then(|k| k.get(&key.keyring_account()).ok().flatten()).map(Secret::new)),
+            },
             TokenStorage::Keyring => {
                 let k = self.keyring.as_ref().ok_or_else(|| GbError::other(format!("Couldn't read the token for {} from the system keyring: this build has none", key.host)))?;
                 k.get(&key.keyring_account())
@@ -258,6 +263,18 @@ impl TokenStore for SystemTokenStore {
             None => Ok(()),
         }
     }
+
+    fn migrate_to_keyring(&self, key: &AccountKey) -> Result<Option<TokenStorage>, GbError> {
+        let Some(k) = &self.keyring else { return Ok(None) };
+        let Some(token) = self.file.get(key, TokenStorage::File)? else { return Ok(None) };
+        k.set(&key.keyring_account(), token.expose()).map_err(|e| GbError::other(format!("Couldn't move the token for {} to the system keyring: {}", key.host, e.reason())))?;
+        // The keyring has it: one place per token. A copy left behind is still found by `get`
+        // and goes with `delete`.
+        if let Err(e) = self.file.delete(key) {
+            tracing::warn!("forge token for {} moved to the keyring, but the file copy wasn't removed: {}", key.host, e.message);
+        }
+        Ok(Some(TokenStorage::Keyring))
+    }
 }
 
 #[cfg(test)]
@@ -265,6 +282,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
 
     const TOKEN: &str = "glpat-FAKE-test-token";
 
@@ -369,7 +387,7 @@ mod tests {
         file.put(&key("gitlab.example.com"), &Secret::new("old")).unwrap();
         let store = SystemTokenStore::new(Some(Box::new(FakeKeyring { up: true, ..Default::default() })), FileTokenStore::new(tmp.path().join("forge-tokens")));
         store.put(&key("gitlab.example.com"), &Secret::new(TOKEN)).unwrap();
-        assert!(store.get(&key("gitlab.example.com"), TokenStorage::File).unwrap().is_none(), "the file copy is gone");
+        assert!(file.get(&key("gitlab.example.com"), TokenStorage::File).unwrap().is_none(), "the file copy is gone");
         store.delete(&key("gitlab.example.com")).unwrap();
         assert!(store.get(&key("gitlab.example.com"), TokenStorage::Keyring).unwrap().is_none());
     }
@@ -381,6 +399,55 @@ mod tests {
         let e = store.get(&key("gitlab.example.com"), TokenStorage::Keyring).unwrap_err();
         assert_eq!(e.message, "Couldn't read the token for gitlab.example.com from the system keyring: no Secret Service on the session bus");
         assert_eq!(format!("{:?}", FileTokenStore::new(tmp.path().join("t"))), format!("FileTokenStore {{ path: {:?} }}", tmp.path().join("t")));
+    }
+
+    /// A keyring that comes up later (`up` flips), as at a restart with GNOME Keyring started.
+    #[derive(Default, Clone)]
+    struct LateKeyring {
+        up: Arc<std::sync::atomic::AtomicBool>,
+        map: Arc<Mutex<HashMap<String, String>>>,
+    }
+    impl SecretBackend for LateKeyring {
+        fn set(&self, account: &str, secret: &str) -> Result<(), BackendError> {
+            if !self.up.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(BackendError::Unavailable("no Secret Service on the session bus".into()));
+            }
+            self.map.lock().unwrap().insert(account.into(), secret.into());
+            Ok(())
+        }
+        fn get(&self, account: &str) -> Result<Option<String>, BackendError> {
+            if !self.up.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(BackendError::Unavailable("no Secret Service on the session bus".into()));
+            }
+            Ok(self.map.lock().unwrap().get(account).cloned())
+        }
+        fn delete(&self, account: &str) -> Result<(), BackendError> {
+            self.map.lock().unwrap().remove(account);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_file_token_moves_to_the_keyring_once_it_comes_up() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("forge-tokens");
+        let keyring = LateKeyring::default();
+        let store = SystemTokenStore::new(Some(Box::new(keyring.clone())), FileTokenStore::new(path.clone()));
+        let k = key("gitlab.example.com");
+        assert_eq!(store.put(&k, &Secret::new(TOKEN)).unwrap(), TokenStorage::File);
+        let e = store.migrate_to_keyring(&k).unwrap_err();
+        assert_eq!(e.message, "Couldn't move the token for gitlab.example.com to the system keyring: no Secret Service on the session bus");
+        assert_eq!(store.get(&k, TokenStorage::File).unwrap().unwrap().expose(), TOKEN, "a failed move keeps the file copy");
+        keyring.up.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(store.migrate_to_keyring(&k).unwrap(), Some(TokenStorage::Keyring));
+        assert_eq!(keyring.map.lock().unwrap().get("default/gitlab.example.com").map(String::as_str), Some(TOKEN));
+        assert!(!path.exists() || !std::fs::read_to_string(&path).unwrap().contains(TOKEN), "the file no longer holds it");
+        assert_eq!(store.get(&k, TokenStorage::Keyring).unwrap().unwrap().expose(), TOKEN);
+        assert_eq!(store.get(&k, TokenStorage::File).unwrap().unwrap().expose(), TOKEN, "a record still saying File finds it in the keyring");
+        assert_eq!(store.migrate_to_keyring(&k).unwrap(), None, "nothing left to move");
+        let fileonly = FileTokenStore::new(tmp.path().join("other"));
+        fileonly.put(&k, &Secret::new("x")).unwrap();
+        assert_eq!(fileonly.migrate_to_keyring(&k).unwrap(), None, "a file-only store has nowhere to move it");
     }
 
     #[test]

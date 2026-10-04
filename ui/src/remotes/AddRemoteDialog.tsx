@@ -89,7 +89,7 @@ function Form({ tabId }: { tabId: string }) {
           </label>
           {parsed && kind && (
             <p className="add-remote-detected" data-testid="add-remote-detected">
-              <RemoteIcon kind={detectHostKind(parsed.host)} host={parsed.host} remote={effName || 'remote'} /> {HOST_KIND_NAMES[kind]} · {parsed.host}/{parsed.path}
+              <RemoteIcon kind={detectHostKind(parsed.host)} host={parsed.host} remote={effName || 'remote'} /> {kind === 'generic' ? '' : `${HOST_KIND_NAMES[kind]} · `}{parsed.host}/{parsed.path}
             </p>
           )}
           <label className="modal-field">

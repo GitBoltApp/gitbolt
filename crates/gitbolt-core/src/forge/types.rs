@@ -51,9 +51,13 @@ pub struct ForgeUser {
     pub username: String,
     /// The display name; the username when the forge has none.
     pub name: String,
+    // `default`: a profile file from an older or newer GitBolt still loads.
+    #[serde(default)]
     pub avatar_url: Option<String>,
+    #[serde(default)]
     pub web_url: String,
     /// The public email, or the account's own for its own user, when the forge says.
+    #[serde(default)]
     pub email: Option<String>,
 }
 

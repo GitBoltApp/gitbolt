@@ -25,6 +25,14 @@ pub fn repo_json(p: &FakeProject, base: &str) -> Value {
 }
 
 pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
+    // --- 4B T4: pull requests (github_pulls.rs), before the borrows below; without a token, 4A's
+    // first arm answers 401. ---
+    if r.token.is_some()
+        && let Some(reply) = super::github_pulls::route(st, r)
+    {
+        return reply.header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", "4999").header("x-ratelimit-reset", "4102444800");
+    }
+    // --- end 4B T4 ---
     let segs: Vec<&str> = r.segments.iter().map(String::as_str).collect();
     let repos = &st.seed.github.repos;
     let reply = match (r.method, segs.as_slice()) {
@@ -48,6 +56,9 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
             Reply::page(items, r, &format!("{}/github{}", r.base, r.path))
         }
         // --- 4B: pull request routes go here ---
+        // --- 4C T2: a user by id (avatars of reviewers and assignees) ---
+        ("GET", ["user", id]) => super::create::github_user(st, r, id),
+        // --- end 4C T2 ---
         _ => Reply::status(404, json!({ "message": "Not Found" })),
     };
     reply.header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", &5000u64.saturating_sub(st.served).to_string()).header("x-ratelimit-used", &st.served.min(5000).to_string()).header("x-ratelimit-reset", "4102444800")

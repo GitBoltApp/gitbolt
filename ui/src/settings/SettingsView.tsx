@@ -182,6 +182,7 @@ function SettingsDialog() {
     });
     if (!ok) return;
     changeGravatar(true);
+    changeForgeAvatars(true);
     setSettings({ dateFormat: 'ymd12h', commitLimit: DEFAULT_COMMIT_LIMIT, fetchIntervalSecs: 60, prune: true });
     useDensity.getState().setDensity(DEFAULT_DENSITY);
     useEditorSettings.getState().set({ ...DEFAULT_EDITOR_SETTINGS });

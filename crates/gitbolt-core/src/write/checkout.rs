@@ -46,7 +46,14 @@ use ts_rs::TS;
 pub enum CheckoutTarget {
     Branch { name: String },
     /// `remote` and `branch` are separate: a remote's name may hold `/` (Review Focus 3).
-    Remote { remote: String, branch: String },
+    Remote {
+        remote: String,
+        branch: String,
+        /// The local branch to create or track; the remote branch's own name when absent.
+        #[serde(default)]
+        #[ts(optional)]
+        local: Option<String>,
+    },
     /// A commit id (hex, 4 to 64 digits).
     Detached { oid: String },
 }
@@ -104,7 +111,7 @@ impl Checkout {
             (CheckoutTarget::Detached { .. }, Some(Case::Detach { oid })) => short(oid).to_string(),
             (CheckoutTarget::Detached { oid }, _) => short(oid).to_string(),
             (CheckoutTarget::Branch { name }, _) => name.clone(),
-            (CheckoutTarget::Remote { remote, branch }, _) => format!("{remote}/{branch}"),
+            (CheckoutTarget::Remote { remote, branch, .. }, _) => format!("{remote}/{branch}"),
         }
     }
 }
@@ -467,7 +474,7 @@ impl WriteIntent for Checkout {
     fn refs(&self) -> Vec<String> {
         match &self.target {
             CheckoutTarget::Branch { name } => vec![heads(name)],
-            CheckoutTarget::Remote { remote, branch } => vec![heads(branch), format!("refs/remotes/{remote}/{branch}")],
+            CheckoutTarget::Remote { remote, branch, local } => vec![heads(local.as_ref().unwrap_or(branch)), format!("refs/remotes/{remote}/{branch}")],
             CheckoutTarget::Detached { .. } => Vec::new(),
         }
     }
@@ -490,36 +497,37 @@ impl WriteIntent for Checkout {
                     Case::Switch { name: name.clone(), to }
                 }
             }
-            CheckoutTarget::Remote { remote, branch } => {
+            CheckoutTarget::Remote { remote, branch, local: pick } => {
+                let lname = pick.as_ref().unwrap_or(branch);
                 let remote_ref = format!("refs/remotes/{remote}/{branch}");
                 let shown_remote = format!("{remote}/{branch}");
                 let Some(to) = read(&remote_ref) else {
                     return Err(GbError::new(GbErrorKind::NotFound, format!("No branch {shown_remote}")));
                 };
-                let here = here_branch.as_deref() == Some(branch.as_str());
-                match read(&heads(branch)) {
-                    None => Case::Track { name: branch.clone(), remote_ref, to },
+                let here = here_branch.as_deref() == Some(lname.as_str());
+                match read(&heads(lname)) {
+                    None => Case::Track { name: lname.clone(), remote_ref, to },
                     Some(local) => {
                         // Every case below lands this worktree on the branch: one checked out in
                         // another worktree is refused first, before any question is asked.
-                        if !here && let Some(shown) = elsewhere(pre, &heads(branch)).await? {
-                            return Err(GbError::checked_out_elsewhere(branch, &shown));
+                        if !here && let Some(shown) = elsewhere(pre, &heads(lname)).await? {
+                            return Err(GbError::checked_out_elsewhere(lname, &shown));
                         }
                         let (ahead, behind) = ahead_behind(&pre.api.cli, pre.root, &local, &to).await?;
                         match (ahead, behind) {
-                            (_, 0) if here => Case::Noop { name: branch.clone() },
-                            (_, 0) => Case::Switch { name: branch.clone(), to: local },
+                            (_, 0) if here => Case::Noop { name: lname.clone() },
+                            (_, 0) => Case::Switch { name: lname.clone(), to: local },
                             (0, _) if here => Case::MergeFfOnly { remote: shown_remote, remote_ref, to },
-                            (0, _) => Case::FastForward { name: branch.clone(), remote: shown_remote, from: local, to },
+                            (0, _) => Case::FastForward { name: lname.clone(), remote: shown_remote, from: local, to },
                             (ahead, behind) => match self.on_diverged {
-                                None => Case::Diverged { name: branch.clone(), remote: shown_remote, ahead, behind, local_oid: local, remote_oid: to },
+                                None => Case::Diverged { name: lname.clone(), remote: shown_remote, ahead, behind, local_oid: local, remote_oid: to },
                                 Some(OnDiverged::Reset) => {
                                     // Review M2: the Reset is the one the dialog showed. Preflight
                                     // compared `expect` with the refs (RefMoved when they moved).
-                                    if !pre.expect.refs.contains_key(&heads(branch)) || !pre.expect.refs.contains_key(&remote_ref) {
-                                        return Err(GbError::new(GbErrorKind::InvalidInput, format!("Reset {branch} needs the commits the question showed")));
+                                    if !pre.expect.refs.contains_key(&heads(lname)) || !pre.expect.refs.contains_key(&remote_ref) {
+                                        return Err(GbError::new(GbErrorKind::InvalidInput, format!("Reset {lname} needs the commits the question showed")));
                                     }
-                                    Case::Reset { name: branch.clone(), from: local, to, here }
+                                    Case::Reset { name: lname.clone(), from: local, to, here }
                                 }
                             },
                         }
@@ -778,6 +786,18 @@ mod tests {
         assert_eq!(r.git(&["rev-parse", "--abbrev-ref", "feature/x@{upstream}"]), "origin/feature/x");
         let after = RepoState::capture(&r);
         undo_redo(&env.api, id, &r, &before, &after).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_remote_branch_with_a_local_name_tracks_that_name_and_leaves_the_same_name_branch() {
+        let env = WriteEnv::new();
+        let r = repo();
+        let id = open(&env.api, &r).await;
+        let same = oid(&r, "feature/x");
+        send(&env.api, checkout(id, &r, json!({"kind": "remote", "remote": "origin", "branch": "feature/x", "local": "origin-feature/x"}))).await.unwrap();
+        assert_eq!(r.git(&["symbolic-ref", "HEAD"]), "refs/heads/origin-feature/x");
+        assert_eq!(r.git(&["rev-parse", "--abbrev-ref", "origin-feature/x@{upstream}"]), "origin/feature/x");
+        assert_eq!(oid(&r, "feature/x"), same, "the same-name branch is untouched");
     }
 
     #[tokio::test(flavor = "multi_thread")]

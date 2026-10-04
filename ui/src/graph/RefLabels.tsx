@@ -1,5 +1,5 @@
 import { Check, Laptop, LoaderCircle, Tag, TreePine } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { RefLabel } from '../api/gen/RefLabel';
 import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
 import { RemoteIcon } from '../icons/brands';
@@ -9,6 +9,10 @@ import { useHoverTooltip } from '../ui/HoverTooltip';
 import { CHIP_SPACING, chipFont, chipWidth, fitCount, rebasingWidth } from './chipFit';
 import { UpstreamWarning } from '../branches/UpstreamWarning';
 import { TagTip } from '../tags/TagTip';
+// --- 4B T10 ---
+import { useRepoContext } from '../app/repoContext';
+import { MrBadge, useChipMr } from '../forge/MrBadge';
+// --- end 4B T10 ---
 
 
 /** J22's branch-hover focus: a chip entered (the refs it stands for) or left (null). */
@@ -76,6 +80,12 @@ export const isDetachedHead = (l: RefLabel) => l.isHead && l.name === 'HEAD' && 
 export const SOURCE_OUTLINE = 14;
 
 function ChipContent({ label, full = false, compact = false }: { label: RefLabel; full?: boolean; compact?: boolean }) {
+  // --- 4B T10: the MR/PR badge takes the place of the icon of the ref it was found through, in
+  // the same box, so the chip never changes width (spec #4 §5; ruling 1) ---
+  const { tabId } = useRepoContext();
+  const badge = useChipMr(tabId, label);
+  const badgeAt = (via: string, size: number) => (badge?.via === via ? <MrBadge tabId={tabId} kind={badge.kind} mr={badge.mr} size={size} /> : null);
+  // --- end 4B T10 ---
   return (
     <>
       {/* UX round 3, M.1: an upstream with another branch name, first in the chip (its width counted in chipFit.ts). */}
@@ -86,8 +96,8 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
       {label.tag && (label.annotation ? <Tag size={12} fill="currentColor" className="ref-tag-annotated" aria-label="annotated tag" /> : <Tag size={12} aria-label="tag" />)}
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}
       {!(compact && !full) && <span className={full ? 'ref-name-full' : 'ref-name'}>{label.name}</span>}
-      {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>}
-      {label.remotes.map((r) => <SourceIcon key={r.fullName} tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} host={r.host} remote={r.remote} size={12} /></SourceIcon>)}
+      {label.local && (badgeAt('local', SOURCE_OUTLINE) ?? <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>)}
+      {label.remotes.map((r) => <Fragment key={r.fullName}>{badgeAt(r.fullName, 12) ?? <SourceIcon tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} host={r.host} remote={r.remote} size={12} /></SourceIcon>}</Fragment>)}
       {label.worktree && <SourceIcon tip={`Checked out in ${label.worktree}`}><TreePine size={SOURCE_OUTLINE} aria-label="checked out in another worktree" /></SourceIcon>}
     </>
   );

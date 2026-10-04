@@ -2104,6 +2104,7 @@ name = "gitbolt-harness"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.23.1",
  "futures-util",
  "gitbolt-core",
  "gitbolt-forge",

@@ -202,7 +202,7 @@ describe('SettingsView', () => {
   });
 
   it('reset asks first (Cancel changes nothing), then restores the defaults it owns', async () => {
-    useAppState.setState({ settings: { ...DEFAULT_SETTINGS, dateFormat: 'dmy24h', prune: false, fetchIntervalSecs: 0 } });
+    useAppState.setState({ settings: { ...DEFAULT_SETTINGS, dateFormat: 'dmy24h', prune: false, fetchIntervalSecs: 0, forgeAvatars: false } });
     useDensity.getState().setDensity('compact');
     show();
     fireEvent.click(screen.getByRole('button', { name: /Reset settings to defaults/ }));
@@ -218,6 +218,7 @@ describe('SettingsView', () => {
     await waitFor(() => expect(useAppState.getState().settings.dateFormat).toBe('ymd12h'));
     expect(useAppState.getState().settings.prune).toBe(true);
     expect(useAppState.getState().settings.fetchIntervalSecs).toBe(60);
+    expect(useAppState.getState().settings.forgeAvatars).toBe(true);
     expect(useDensity.getState().density).toBe('standard');
   });
 

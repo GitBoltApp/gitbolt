@@ -1,3 +1,7 @@
+// --- 4B T11 ---
+import type { ForgeKind } from '../api/gen/ForgeKind';
+import type { ForgeMr } from '../api/gen/ForgeMr';
+// --- end 4B T11 ---
 import type { HostKind } from '../api/gen/HostKind';
 import type { LocalBranch } from '../api/gen/LocalBranch';
 import type { RemoteBranch } from '../api/gen/RemoteBranch';
@@ -13,10 +17,13 @@ export type SideItem =
   | (Base & { kind: 'remote'; remote: string; branch: RemoteBranch })
   | (Base & { kind: 'worktree'; worktree: WorktreeItem })
   | (Base & { kind: 'stash'; stash: StashItem })
-  | (Base & { kind: 'tag'; tag: TagItem });
+  | (Base & { kind: 'tag'; tag: TagItem })
+  // --- 4B T11 ---
+  | (Base & { kind: 'mr'; mr: ForgeMr; forge: ForgeKind });
+  // --- end 4B T11 ---
 
-export type SectionKind = 'local' | 'remote' | 'worktrees' | 'stashes' | 'tags';
-export interface Section { id: SectionKind; kind: SectionKind; label: string; hosts?: Record<string, HostKind>; hostNames?: Record<string, string | null>; items: SideItem[]; nests: boolean }
+export type SectionKind = 'local' | 'remote' | 'mrs' | 'worktrees' | 'stashes' | 'tags';
+export interface Section { id: SectionKind; kind: SectionKind; label: string; hosts?: Record<string, HostKind>; hostNames?: Record<string, string | null>; items: SideItem[]; nests: boolean; /** The empty body's text (default "Nothing here"). */ empty?: string }
 
 /** The sidebar's panels, in fixed display order (spec §6.4): Local, Remote (one top-level folder
  * per remote), Worktrees, Stashes, Tags. */

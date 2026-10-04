@@ -11,6 +11,9 @@ pub mod hub;
 #[cfg(test)]
 pub(crate) mod fake;
 // --- end 4A T5 ---
+// --- 4B T1 ---
+pub mod mrs;
+// --- end 4B T1 ---
 
 pub use provider::*;
 pub use types::*;

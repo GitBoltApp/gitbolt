@@ -133,3 +133,16 @@ export async function setForgeSeed(request: APIRequestContext, seed: ForgeSeed):
   if (!res.ok()) throw new Error(`forge seed refused: ${res.status()}`);
 }
 // --- end 4A T14 ---
+
+// --- 4B T16 ---
+/** The app's own addForgeAccount, through the harness (4A's spec covers the Settings form). */
+export async function addForgeAccount(request: APIRequestContext, host: string, kind: 'gitlab' | 'github', token: string): Promise<void> {
+  const res = await request.post(`${harnessHttp}/test/forge/account`, { data: { host, kind, token } });
+  const body = (await res.json()) as { ok?: unknown; err?: { message: string } };
+  if (!res.ok() || body.err) throw new Error(`forge account refused: ${body.err?.message ?? res.status()}`);
+}
+/** The fake forge's request log (never a token). */
+export async function forgeRequests(request: APIRequestContext): Promise<Array<{ forge: string; method: string; path: string; query: string; authorized: boolean }>> {
+  return (await (await request.get(`${harnessHttp}/test/forge/requests`)).json()) as Array<{ forge: string; method: string; path: string; query: string; authorized: boolean }>;
+}
+// --- end 4B T16 ---

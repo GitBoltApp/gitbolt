@@ -36,6 +36,14 @@ pub(crate) struct FakeProvider {
     pub avatars: HashMap<String, AvatarPayload>,
     pub limited_until: Mutex<Option<i64>>,
     pub calls: Mutex<Vec<String>>,
+    // --- 4B T1 ---
+    /// Every MR/PR of the fake project (open_mrs keeps the open and draft ones).
+    pub mrs: Mutex<Vec<ForgeMr>>,
+    pub details: Mutex<HashMap<u64, ForgeMrDetail>>,
+    pub threads: Mutex<HashMap<u64, Vec<ForgeDiscussion>>>,
+    /// `open_mrs` and `mr_for_branch` fail with this kind.
+    pub mr_error: Mutex<Option<GbErrorKind>>,
+    // --- end 4B T1 ---
 }
 
 impl FakeProvider {
@@ -43,6 +51,9 @@ impl FakeProvider {
         Self {
             kind, host: host.into(), reject: false, user: user("Ada"), write: WriteAccess::Yes, version: Some("18.9.1-ee".into()),
             projects: Mutex::default(), forks: Vec::new(), settings: None, avatars: HashMap::new(), limited_until: Mutex::new(None), calls: Mutex::default(),
+            // --- 4B T1 ---
+            mrs: Mutex::default(), details: Mutex::default(), threads: Mutex::default(), mr_error: Mutex::new(None),
+            // --- end 4B T1 ---
         }
     }
 
@@ -57,6 +68,15 @@ impl FakeProvider {
     fn check(&self) -> Result<(), GbError> {
         if self.reject { Err(GbError::new(GbErrorKind::AuthFailed, format!("{} rejected the token: add the account again in Settings › Accounts", self.host))) } else { Ok(()) }
     }
+
+    // --- 4B T1 ---
+    fn mr_failure(&self) -> Result<(), GbError> {
+        match *self.mr_error.lock().unwrap() {
+            Some(kind) => Err(GbError::new(kind, "fake failure")),
+            None => Ok(()),
+        }
+    }
+    // --- end 4B T1 ---
 }
 
 impl ForgeProvider for FakeProvider {
@@ -106,7 +126,81 @@ impl ForgeProvider for FakeProvider {
         self.call(format!("avatar {email}"));
         Box::pin(async move { Ok(self.avatars.get(email).cloned()) })
     }
+    // --- 4B T1 ---
+    fn open_mrs<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
+        self.call(format!("open_mrs {} {filter:?}", project.path));
+        Box::pin(async move {
+            self.check()?;
+            self.mr_failure()?;
+            let mrs = self.mrs.lock().unwrap().iter().filter(|m| matches!(m.state, MrState::Open | MrState::Draft)).filter(|m| filter != MrFilter::Mine || m.author.username == self.user.username).cloned().collect();
+            Ok(Fresh { value: mrs, not_modified: false, poll_interval_secs: Some(30), fetched_at: 9 })
+        })
+    }
+    fn mr_for_branch<'a>(&'a self, _project: &'a ForgeProject, source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
+        self.call(format!("mr_for_branch {} {}", source.project, source.branch));
+        Box::pin(async move {
+            self.check()?;
+            self.mr_failure()?;
+            let found = self.mrs.lock().unwrap().iter().filter(|m| m.source_project == source.project && m.source_branch == source.branch).max_by_key(|m| m.updated_at).cloned();
+            Ok(Fresh::new(found, 9))
+        })
+    }
+    fn mr_detail<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, Fresh<ForgeMrDetail>> {
+        self.call(format!("mr_detail {number}"));
+        Box::pin(async move { self.details.lock().unwrap().get(&number).cloned().map(|d| Fresh::new(d, 9)).ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("Not found on {}", self.host))) })
+    }
+    fn discussions<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, Fresh<Vec<ForgeDiscussion>>> {
+        self.call(format!("discussions {number}"));
+        Box::pin(async move { Ok(Fresh::new(self.threads.lock().unwrap().get(&number).cloned().unwrap_or_default(), 9)) })
+    }
+    fn reply<'a>(&'a self, _project: &'a ForgeProject, number: u64, note: &'a NewNote) -> ForgeFuture<'a, ForgeNote> {
+        self.call(format!("reply {number} {:?} {}", note.discussion, note.body));
+        Box::pin(async move { Ok(ForgeNote { id: "n1".into(), author: self.user.clone(), body: note.body.clone(), created_at: 9, system: false, position: None }) })
+    }
+    fn approve<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ()> {
+        self.call(format!("approve {number}"));
+        Box::pin(async { Ok(()) })
+    }
+    fn request_changes<'a>(&'a self, _project: &'a ForgeProject, number: u64, body: &'a str) -> ForgeFuture<'a, ()> {
+        self.call(format!("request_changes {number} {body}"));
+        Box::pin(async { Ok(()) })
+    }
+    fn merge<'a>(&'a self, _project: &'a ForgeProject, number: u64, opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
+        self.call(format!("merge {number} {:?}", opts.squash));
+        Box::pin(async move { self.change(number, |m| m.state = MrState::Merged) })
+    }
+    fn edit<'a>(&'a self, _project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
+        self.call(format!("edit {number} {:?}", edit.title));
+        Box::pin(async move { self.change(number, |m| if let Some(t) = &edit.title { m.title = t.clone() }) })
+    }
+    fn set_draft<'a>(&'a self, _project: &'a ForgeProject, number: u64, draft: bool) -> ForgeFuture<'a, ForgeMr> {
+        self.call(format!("set_draft {number} {draft}"));
+        Box::pin(async move { self.change(number, |m| m.state = if draft { MrState::Draft } else { MrState::Open }) })
+    }
+    // --- end 4B T1 ---
 }
+
+// --- 4B T1 ---
+impl FakeProvider {
+    fn change(&self, number: u64, f: impl FnOnce(&mut ForgeMr)) -> Result<ForgeMr, GbError> {
+        let mut mrs = self.mrs.lock().unwrap();
+        let m = mrs.iter_mut().find(|m| m.number == number).ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("Not found on {}", self.host)))?;
+        f(m);
+        Ok(m.clone())
+    }
+}
+
+/// An MR of `group/project` from `source_project`'s `branch`.
+pub(crate) fn mr(number: u64, source_project: &str, branch: &str, state: MrState) -> ForgeMr {
+    ForgeMr {
+        number, title: format!("MR {number}"), state, author: user("Ada"),
+        source_project: source_project.into(), source_branch: branch.into(), target_project: "group/project".into(), target_branch: "main".into(),
+        head_sha: Some(format!("{number:040}")), web_url: format!("https://gitlab.example.com/group/project/-/merge_requests/{number}"),
+        pipeline: None, review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: vec![] },
+        conflicts: Some(false), labels: vec![], updated_at: number as i64,
+    }
+}
+// --- end 4B T1 ---
 
 /// Hands out providers by token: a known token (for that host) gets its provider, any other a
 /// rejecting one. Counts connects.

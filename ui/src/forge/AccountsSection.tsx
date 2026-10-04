@@ -33,10 +33,10 @@ export function statusText(v: ForgeAccountView): string | null {
 export function AccountsSection() {
   const [accounts, setAccounts] = useState<ForgeAccountView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (keepError = false) => {
     try {
       setAccounts(await api.forgeAccounts());
-      setError(null);
+      if (!keepError) setError(null);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -59,7 +59,10 @@ export function AccountsSection() {
     try {
       await api.removeForgeAccount(host);
     } catch (e) {
+      // The list is read again, but the error stays to be read.
       setError(errorMessage(e));
+      await reload(true);
+      return;
     }
     await changed();
   };

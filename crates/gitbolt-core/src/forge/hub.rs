@@ -8,7 +8,7 @@
 
 use crate::error::{ErrorDetail, GbError, GbErrorKind};
 use crate::forge::accounts::{check_kind_host, normalize_host, AccountStatus, ForgeAccount, ForgeAccountView};
-use crate::forge::{AccountKey, ForgeConnector, ForgeKind, ForgeProvider, TokenStore, WriteAccess};
+use crate::forge::{is_forbidden, AccountKey, ForgeConnector, ForgeKind, ForgeProvider, TokenStorage, TokenStore, WriteAccess};
 use crate::journal::Clock;
 use crate::redact::Secret;
 use crate::settings::{Profile, SettingsStore};
@@ -18,16 +18,28 @@ use std::sync::{Arc, Mutex};
 /// GitLab's version is read again once it's this old (spec #4 §3.2: "refreshed daily").
 pub const VERSION_MAX_AGE_SECS: i64 = 24 * 3600;
 
+/// A token read that failed, kept for the account record it was read for (`added_at`,
+/// `storage`): a dismissed keyring prompt doesn't come back on every avatar.
+struct FailedRead {
+    added_at: i64,
+    storage: TokenStorage,
+    error: GbError,
+}
+
 pub struct ForgeHub {
     connector: Arc<dyn ForgeConnector>,
     tokens: Arc<dyn TokenStore>,
     providers: Mutex<HashMap<AccountKey, Arc<dyn ForgeProvider>>>,
     status: Mutex<HashMap<AccountKey, AccountStatus>>,
+    /// One per account: held across a token read and the provider build (single flight), and
+    /// across an add or remove.
+    locks: Mutex<HashMap<AccountKey, Arc<tokio::sync::Mutex<()>>>>,
+    failed: Mutex<HashMap<AccountKey, FailedRead>>,
     /// Unix milliseconds (`journal::Clock`).
     clock: Clock,
     // --- 4A T6 ---
-    /// Projects by (host, path), until a refresh or the account changes (spec #4 §3.3).
-    projects: Mutex<HashMap<(String, String), crate::forge::ForgeProject>>,
+    /// Projects by (profile, host, path), until a refresh or the account changes (spec #4 §3.3).
+    projects: Mutex<HashMap<(String, String, String), crate::forge::ForgeProject>>,
     // --- end 4A T6 ---
 }
 
@@ -38,6 +50,8 @@ impl ForgeHub {
             tokens,
             providers: Mutex::default(),
             status: Mutex::default(),
+            locks: Mutex::default(),
+            failed: Mutex::default(),
             clock,
             // --- 4A T6 ---
             projects: Mutex::default(),
@@ -51,6 +65,10 @@ impl ForgeHub {
 
     pub fn key(profile: &str, host: &str) -> AccountKey {
         AccountKey { profile: profile.to_string(), host: host.to_string() }
+    }
+
+    fn lock_for(&self, key: &AccountKey) -> Arc<tokio::sync::Mutex<()>> {
+        self.locks.lock().expect("locks poisoned").entry(key.clone()).or_default().clone()
     }
 
     /// The active profile's accounts, with what their last requests said (no request now).
@@ -83,6 +101,8 @@ impl ForgeHub {
         }
         let provider = self.connector.connect(kind, &host, token.clone())?;
         let check = provider.check_token().await.map_err(|e| match e.kind {
+            // A 403: the token is good, its scope isn't.
+            GbErrorKind::AuthFailed if is_forbidden(&e) => GbError::new(GbErrorKind::AuthFailed, format!("{host} accepted the token but it can't read your user: give it the api scope (GitLab) or read access (GitHub)")),
             GbErrorKind::AuthFailed => GbError::new(GbErrorKind::AuthFailed, format!("{host} rejected this token: check that you copied all of it")),
             _ => e,
         })?;
@@ -95,6 +115,8 @@ impl ForgeHub {
         };
         let profile = store.active_profile();
         let key = Self::key(&profile.id, &host);
+        let lock = self.lock_for(&key);
+        let _held = lock.lock().await;
         let (tokens, k, t) = (self.tokens.clone(), key.clone(), token.clone());
         let storage = crate::api::blocking(move || tokens.put(&k, &t)).await?;
         let now = self.now();
@@ -116,6 +138,8 @@ impl ForgeHub {
             return Err(no_account(&host));
         }
         let key = Self::key(&profile.id, &host);
+        let lock = self.lock_for(&key);
+        let _held = lock.lock().await;
         let (tokens, k) = (self.tokens.clone(), key.clone());
         crate::api::blocking(move || tokens.delete(&k)).await?;
         store.set_forge_accounts(&profile.id, profile.forge_accounts.into_iter().filter(|a| a.host != host).collect())?;
@@ -136,6 +160,8 @@ impl ForgeHub {
     }
 
     /// The account for `host` in the active profile and its provider; `Ok(None)` without one.
+    /// The first use reads the token (once, however many ask at the same time); a read that
+    /// failed answers the same until the account changes.
     pub async fn provider_for_host(&self, store: &Arc<SettingsStore>, host: &str) -> Result<Option<(ForgeAccount, Arc<dyn ForgeProvider>)>, GbError> {
         let profile = store.active_profile();
         let Some(account) = profile.forge_accounts.iter().find(|a| a.host == host).cloned() else { return Ok(None) };
@@ -143,32 +169,86 @@ impl ForgeHub {
         if let Some(p) = self.providers.lock().expect("providers poisoned").get(&key).cloned() {
             return Ok(Some((account, p)));
         }
+        let lock = self.lock_for(&key);
+        let held = lock.lock().await;
+        // Another caller may have built it, or failed, while this one waited.
+        if let Some(p) = self.providers.lock().expect("providers poisoned").get(&key).cloned() {
+            return Ok(Some((account, p)));
+        }
+        if let Some(f) = self.failed.lock().expect("failed poisoned").get(&key).filter(|f| f.added_at == account.added_at && f.storage == account.storage) {
+            return Err(f.error.clone());
+        }
+        let account = self.move_to_keyring(store, &key, account).await;
         let (tokens, k, storage) = (self.tokens.clone(), key.clone(), account.storage);
-        let Some(token) = crate::api::blocking(move || tokens.get(&k, storage)).await? else {
-            self.status.lock().expect("status poisoned").insert(key, AccountStatus::TokenMissing);
-            return Err(GbError::new(GbErrorKind::AuthFailed, format!("The token for {host} is missing: add the account again in Settings › Accounts")));
+        let token = match crate::api::blocking(move || tokens.get(&k, storage)).await {
+            Ok(Some(token)) => token,
+            Ok(None) => {
+                self.status.lock().expect("status poisoned").insert(key.clone(), AccountStatus::TokenMissing);
+                return Err(self.fail(key, &account, GbError::new(GbErrorKind::AuthFailed, format!("The token for {host} is missing: add the account again in Settings › Accounts"))));
+            }
+            // The keyring refused or is away: Settings shows it, not OK.
+            Err(e) => {
+                self.status.lock().expect("status poisoned").insert(key.clone(), AccountStatus::AuthFailed { message: e.message.clone() });
+                return Err(self.fail(key, &account, e));
+            }
         };
         let provider = self.connector.connect(account.kind, host, token)?;
         self.providers.lock().expect("providers poisoned").insert(key, provider.clone());
+        drop(held);
         let account = self.refresh_version(store, &profile.id, account, &provider).await;
         Ok(Some((account, provider)))
     }
 
+    fn fail(&self, key: AccountKey, account: &ForgeAccount, error: GbError) -> GbError {
+        self.failed.lock().expect("failed poisoned").insert(key, FailedRead { added_at: account.added_at, storage: account.storage, error: error.clone() });
+        error
+    }
+
+    /// A token kept in the file goes to the system keyring once it's there (spec #4 §2: the
+    /// file is the fallback, and Settings says a restart secures it). A failure keeps the file.
+    async fn move_to_keyring(&self, store: &Arc<SettingsStore>, key: &AccountKey, account: ForgeAccount) -> ForgeAccount {
+        if account.storage != TokenStorage::File {
+            return account;
+        }
+        let (tokens, k) = (self.tokens.clone(), key.clone());
+        match crate::api::blocking(move || tokens.migrate_to_keyring(&k)).await {
+            Ok(Some(storage)) => self.update_account(store, &key.profile, &account, |a| a.storage = storage).unwrap_or(ForgeAccount { storage, ..account }),
+            Ok(None) => account,
+            Err(_) => {
+                tracing::warn!("forge token for {} stays in the file: the system keyring didn't take it", key.host);
+                account
+            }
+        }
+    }
+
+    /// Changes `account`'s stored record, only if it's still the one read (same `added_at`): a
+    /// re-add in the meantime wins. The record as changed, or `None`.
+    fn update_account(&self, store: &Arc<SettingsStore>, profile: &str, account: &ForgeAccount, change: impl FnOnce(&mut ForgeAccount)) -> Option<ForgeAccount> {
+        let mut accounts = store.forge_accounts(profile);
+        let a = accounts.iter_mut().find(|a| a.host == account.host && a.added_at == account.added_at)?;
+        change(a);
+        let changed = a.clone();
+        match store.set_forge_accounts(profile, accounts) {
+            Ok(()) => Some(changed),
+            Err(e) => {
+                tracing::warn!("forge account {} not updated: {}", account.host, e.message);
+                None
+            }
+        }
+    }
+
     /// GitLab's version, once it's a day old (best effort: a failure keeps the old one).
-    async fn refresh_version(&self, store: &Arc<SettingsStore>, profile: &str, mut account: ForgeAccount, provider: &Arc<dyn ForgeProvider>) -> ForgeAccount {
+    async fn refresh_version(&self, store: &Arc<SettingsStore>, profile: &str, account: ForgeAccount, provider: &Arc<dyn ForgeProvider>) -> ForgeAccount {
         if account.kind != ForgeKind::GitLab || self.now() - account.version_checked_at <= VERSION_MAX_AGE_SECS {
             return account;
         }
-        if let Ok(version) = provider.version().await {
-            account.version = version;
-            account.version_checked_at = self.now();
-            let mut accounts = store.forge_accounts(profile);
-            if let Some(a) = accounts.iter_mut().find(|a| a.host == account.host) {
-                *a = account.clone();
-            }
-            let _ = store.set_forge_accounts(profile, accounts);
-        }
-        account
+        let Ok(version) = provider.version().await else { return account };
+        let now = self.now();
+        self.update_account(store, profile, &account, |a| {
+            a.version = version.clone();
+            a.version_checked_at = now;
+        })
+        .unwrap_or(ForgeAccount { version, version_checked_at: now, ..account })
     }
 
     /// Notes what a provider call said about its account: auth, reachability, rate limit.
@@ -190,6 +270,7 @@ impl ForgeHub {
     pub fn reset(&self) {
         self.providers.lock().expect("providers poisoned").clear();
         self.status.lock().expect("status poisoned").clear();
+        self.failed.lock().expect("failed poisoned").clear();
         // --- 4A T6 ---
         self.projects.lock().expect("projects poisoned").clear();
         // --- end 4A T6 ---
@@ -198,8 +279,9 @@ impl ForgeHub {
     fn drop_host(&self, key: &AccountKey) {
         self.providers.lock().expect("providers poisoned").remove(key);
         self.status.lock().expect("status poisoned").remove(key);
+        self.failed.lock().expect("failed poisoned").remove(key);
         // --- 4A T6 ---
-        self.projects.lock().expect("projects poisoned").retain(|(h, _), _| h != &key.host);
+        self.projects.lock().expect("projects poisoned").retain(|(p, h, _), _| !(p == &key.profile && h == &key.host));
         // --- end 4A T6 ---
     }
 }
@@ -260,15 +342,36 @@ pub fn target_remote(list: &[RemoteProject]) -> Option<String> {
     Some(first.remote.clone())
 }
 
+/// The profile's account for a remote's host (spec #4 §3.3). The host itself first: an https
+/// remote keeps a non-default port (`h:8443`, `remotes::forge_host`). A host without a port (an
+/// SSH remote, whose port says nothing about the web's) also maps to the only account on that
+/// host, whatever its port. Two such accounts (`h:8443`, `h:9443`) are ambiguous: none. With
+/// `h` and `h:8443`, the port-less `h` is an exact match and wins.
+pub fn account_for<'a>(accounts: &'a [ForgeAccount], host: &str) -> Option<&'a ForgeAccount> {
+    if let Some(a) = accounts.iter().find(|a| a.host == host) {
+        return Some(a);
+    }
+    if host.contains(':') {
+        return None;
+    }
+    let mut same_name = accounts.iter().filter(|a| a.host.split_once(':').is_some_and(|(name, _)| name == host));
+    match (same_name.next(), same_name.next()) {
+        (Some(a), None) => Some(a),
+        _ => None,
+    }
+}
+
 impl ForgeHub {
-    /// The project at `path` on `host` with its provider; `Ok(None)` without an account.
+    /// The project at `path` on `host` (a remote's) with its provider; `Ok(None)` without an account.
     async fn project_on(&self, store: &Arc<SettingsStore>, host: &str, path: &str, refresh: bool) -> Result<Option<(Arc<dyn ForgeProvider>, ForgeProject)>, GbError> {
-        let Some((_, provider)) = self.provider_for_host(store, host).await? else { return Ok(None) };
-        let cache_key = (host.to_string(), path.to_string());
+        let profile = store.active_profile();
+        let Some(host) = account_for(&profile.forge_accounts, host).map(|a| a.host.clone()) else { return Ok(None) };
+        let Some((_, provider)) = self.provider_for_host(store, &host).await? else { return Ok(None) };
+        let cache_key = (profile.id.clone(), host.clone(), path.to_string());
         if !refresh && let Some(p) = self.projects.lock().expect("projects poisoned").get(&cache_key).cloned() {
             return Ok(Some((provider, p)));
         }
-        let key = Self::key(&store.active_profile().id, host);
+        let key = Self::key(&profile.id, &host);
         let result = provider.project(path).await;
         self.record(&key, &result);
         let project = result?.value;
@@ -284,7 +387,7 @@ impl ForgeHub {
         for r in remotes {
             let mut rp = RemoteProject { remote: r.name.clone(), host: r.host.clone(), path: r.path.clone(), account: None, project: None, error: None };
             if let (Some(host), Some(path)) = (&r.host, &r.path) {
-                rp.account = accounts.iter().find(|a| &a.host == host).map(|a| a.kind);
+                rp.account = account_for(&accounts, host).map(|a| a.kind);
                 if rp.account.is_some() {
                     match self.project_on(store, host, path, refresh).await {
                         Ok(found) => rp.project = found.map(|(_, p)| p),
@@ -305,7 +408,9 @@ impl ForgeHub {
             return Err(GbError::new(GbErrorKind::InvalidInput, format!("{remote} isn't on a forge")));
         };
         let (provider, project) = self.project_on(store, host, path, false).await?.ok_or_else(|| no_account(host))?;
-        Ok((Self::key(&store.active_profile().id, host), provider, project))
+        let profile = store.active_profile();
+        let account_host = account_for(&profile.forge_accounts, host).map_or_else(|| host.clone(), |a| a.host.clone());
+        Ok((Self::key(&profile.id, &account_host), provider, project))
     }
 
     /// `remote`'s project's forks, newest activity first, each naming its parent.
@@ -334,13 +439,19 @@ impl ForgeHub {
         if email.trim().is_empty() {
             return None;
         }
-        let hosts: Vec<String> = store.active_profile().forge_accounts.iter().map(|a| a.host.clone()).collect();
-        for host in hosts {
+        let profile = store.active_profile();
+        for host in profile.forge_accounts.iter().map(|a| a.host.clone()) {
             let Ok(Some((_, provider))) = self.provider_for_host(store, &host).await else { continue };
             match provider.avatar_for_email(email).await {
                 Ok(Some(found)) => return Some(found),
                 Ok(None) => {}
-                Err(e) => tracing::debug!("forge avatar from {host}: {}", e.message),
+                Err(e) => {
+                    tracing::debug!("forge avatar from {host}: {}", e.message);
+                    // Settings shows an unreachable forge (its client then skips it a while).
+                    if e.kind == GbErrorKind::Network {
+                        self.record::<()>(&Self::key(&profile.id, &host), &Err(e));
+                    }
+                }
             }
         }
         None
@@ -580,4 +691,253 @@ mod tests {
         assert_eq!(hub.forks(&store, &gh, "origin").await.unwrap_err().message, "No account for github.com: add one in Settings › Accounts");
     }
     // --- end 4A T6 ---
+
+    // --- 4A final review ---
+    use crate::avatar::AvatarPayload as Avatar;
+    use crate::forge::{ForgeFuture, ForgeUser, Fresh, RateLimitState, TokenCheck};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    /// MemTokens that counts reads, can fail them (a dismissed keyring prompt), and has a
+    /// "keyring" that takes file tokens once `keyring_up`.
+    struct Counting {
+        mem: Arc<MemTokens>,
+        reads: AtomicUsize,
+        fail: AtomicBool,
+        keyring_up: AtomicBool,
+        migrations: AtomicUsize,
+    }
+
+    impl Counting {
+        fn new(storage: TokenStorage) -> Arc<Self> {
+            Arc::new(Self { mem: MemTokens::new(storage), reads: AtomicUsize::new(0), fail: AtomicBool::new(false), keyring_up: AtomicBool::new(false), migrations: AtomicUsize::new(0) })
+        }
+        fn reads(&self) -> usize {
+            self.reads.load(Ordering::SeqCst)
+        }
+    }
+
+    impl TokenStore for Counting {
+        fn put(&self, key: &AccountKey, token: &Secret) -> Result<TokenStorage, GbError> {
+            self.mem.put(key, token)
+        }
+        fn get(&self, key: &AccountKey, storage: TokenStorage) -> Result<Option<Secret>, GbError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            // Long enough for every concurrent caller to be waiting.
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(GbError::other(format!("Couldn't read the token for {} from the system keyring: the unlock prompt was dismissed", key.host)));
+            }
+            self.mem.get(key, storage)
+        }
+        fn delete(&self, key: &AccountKey) -> Result<(), GbError> {
+            self.mem.delete(key)
+        }
+        fn migrate_to_keyring(&self, key: &AccountKey) -> Result<Option<TokenStorage>, GbError> {
+            if !self.keyring_up.load(Ordering::SeqCst) {
+                return Err(GbError::other("no Secret Service on the session bus"));
+            }
+            self.migrations.fetch_add(1, Ordering::SeqCst);
+            Ok(self.mem.token(&key.profile, &key.host).map(|_| TokenStorage::Keyring))
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_first_uses_read_the_token_once_and_build_one_provider() {
+        let conn = FakeConnector::with(TOKEN, FakeProvider::new(ForgeKind::GitLab, HOST));
+        let tokens = Counting::new(TokenStorage::Keyring);
+        let hub = ForgeHub::new(conn.clone(), tokens.clone(), Arc::new(|| NOW_MS));
+        let store = SettingsStore::in_memory();
+        hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
+        hub.reset();
+        let connects = conn.connects.load(Ordering::SeqCst);
+        let all = futures_util::future::join_all((0..8).map(|_| hub.provider_for_host(&store, HOST))).await;
+        assert!(all.iter().all(|r| matches!(r, Ok(Some(_)))));
+        assert_eq!(tokens.reads(), 1);
+        assert_eq!(conn.connects.load(Ordering::SeqCst), connects + 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_token_read_is_kept_until_the_account_changes_and_settings_shows_it() {
+        let mut p = FakeProvider::new(ForgeKind::GitLab, HOST);
+        p.avatars.insert("grace@example.com".into(), Avatar { mime: "image/png".into(), base64: "Rk9SR0U=".into() });
+        let conn = FakeConnector::with(TOKEN, p);
+        let tokens = Counting::new(TokenStorage::Keyring);
+        let hub = ForgeHub::new(conn, tokens.clone(), Arc::new(|| NOW_MS));
+        let store = SettingsStore::in_memory();
+        hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
+        hub.reset();
+        tokens.fail.store(true, Ordering::SeqCst);
+        for _ in 0..5 {
+            assert!(hub.avatar(&store, "grace@example.com").await.is_none());
+        }
+        assert_eq!(tokens.reads(), 1, "one prompt, not one per avatar");
+        let message = "Couldn't read the token for gitlab.example.com from the system keyring: the unlock prompt was dismissed";
+        assert_eq!(hub.accounts(&store)[0].status, AccountStatus::AuthFailed { message: message.into() });
+        // Adding the account again clears it.
+        tokens.fail.store(false, Ordering::SeqCst);
+        hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
+        hub.providers.lock().unwrap().clear();
+        assert!(hub.avatar(&store, "grace@example.com").await.is_some());
+        assert_eq!(tokens.reads(), 2);
+        // So does removing it.
+        hub.providers.lock().unwrap().clear();
+        tokens.fail.store(true, Ordering::SeqCst);
+        assert!(hub.provider_for_host(&store, HOST).await.is_err());
+        assert_eq!(hub.failed.lock().unwrap().len(), 1);
+        hub.remove_account(&store, HOST).await.unwrap();
+        assert!(hub.failed.lock().unwrap().is_empty());
+    }
+
+    /// Delegates to a FakeProvider; `on_version` runs inside `version()`, `check` replaces
+    /// `check_token`'s answer.
+    struct Hooked {
+        inner: FakeProvider,
+        on_version: Box<dyn Fn() + Send + Sync>,
+        check: Option<GbError>,
+    }
+
+    impl ForgeProvider for Hooked {
+        fn kind(&self) -> ForgeKind {
+            self.inner.kind()
+        }
+        fn host(&self) -> &str {
+            self.inner.host()
+        }
+        fn rate_limit(&self) -> RateLimitState {
+            self.inner.rate_limit()
+        }
+        fn check_token(&self) -> ForgeFuture<'_, TokenCheck> {
+            match &self.check {
+                Some(e) => {
+                    let e = e.clone();
+                    Box::pin(async move { Err(e) })
+                }
+                None => self.inner.check_token(),
+            }
+        }
+        fn current_user(&self) -> ForgeFuture<'_, ForgeUser> {
+            self.inner.current_user()
+        }
+        fn version(&self) -> ForgeFuture<'_, Option<String>> {
+            (self.on_version)();
+            self.inner.version()
+        }
+        fn project<'a>(&'a self, path: &'a str) -> ForgeFuture<'a, Fresh<ForgeProject>> {
+            self.inner.project(path)
+        }
+        fn project_settings<'a>(&'a self, p: &'a ForgeProject) -> ForgeFuture<'a, ForgeProjectSettings> {
+            self.inner.project_settings(p)
+        }
+        fn forks<'a>(&'a self, p: &'a ForgeProject) -> ForgeFuture<'a, Vec<ForgeProject>> {
+            self.inner.forks(p)
+        }
+        fn avatar_for_email<'a>(&'a self, e: &'a str) -> ForgeFuture<'a, Option<Avatar>> {
+            self.inner.avatar_for_email(e)
+        }
+    }
+
+    struct One(Arc<Hooked>);
+    impl ForgeConnector for One {
+        fn connect(&self, _: ForgeKind, _: &str, _: Secret) -> Result<Arc<dyn ForgeProvider>, GbError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn account(name: &str, added_at: i64, version: &str, checked: i64) -> ForgeAccount {
+        ForgeAccount { host: HOST.into(), kind: ForgeKind::GitLab, user: user(name), storage: TokenStorage::Keyring, version: Some(version.into()), version_checked_at: checked, added_at }
+    }
+
+    #[tokio::test]
+    async fn a_re_add_during_a_version_refresh_is_never_overwritten() {
+        let store = SettingsStore::in_memory();
+        store.set_forge_accounts("default", vec![account("Ada", 1, "18.0.0", 0)]).unwrap();
+        let s2 = store.clone();
+        // While GitLab is asked its version, the user adds the account again.
+        let readd = move || s2.set_forge_accounts("default", vec![account("Grace", 2, "19.1.0", NOW_MS / 1000)]).unwrap();
+        let p = Arc::new(Hooked { inner: FakeProvider::new(ForgeKind::GitLab, HOST), on_version: Box::new(readd), check: None });
+        let tokens = MemTokens::new(TokenStorage::Keyring);
+        tokens.put(&ForgeHub::key("default", HOST), &Secret::new(TOKEN)).unwrap();
+        let hub = ForgeHub::new(Arc::new(One(p)), tokens, Arc::new(|| NOW_MS));
+        hub.provider_for_host(&store, HOST).await.unwrap().unwrap();
+        assert_eq!(store.forge_accounts("default"), vec![account("Grace", 2, "19.1.0", NOW_MS / 1000)]);
+    }
+
+    #[tokio::test]
+    async fn a_token_that_cant_read_the_user_asks_for_scope_not_a_recopy() {
+        let check = Some(GbError::new(GbErrorKind::AuthFailed, format!("{HOST}{}insufficient_scope", crate::forge::FORBIDDEN_MARK)));
+        let p = Arc::new(Hooked { inner: FakeProvider::new(ForgeKind::GitLab, HOST), on_version: Box::new(|| {}), check });
+        let hub = ForgeHub::new(Arc::new(One(p)), MemTokens::new(TokenStorage::Keyring), Arc::new(|| NOW_MS));
+        let e = hub.add_account(&SettingsStore::in_memory(), HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap_err();
+        assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::AuthFailed, "gitlab.example.com accepted the token but it can't read your user: give it the api scope (GitLab) or read access (GitHub)"));
+    }
+
+    #[tokio::test]
+    async fn a_file_token_moves_to_the_keyring_on_first_use_once_it_is_up() {
+        let conn = FakeConnector::with(TOKEN, FakeProvider::new(ForgeKind::GitLab, HOST));
+        let tokens = Counting::new(TokenStorage::File);
+        let hub = ForgeHub::new(conn, tokens.clone(), Arc::new(|| NOW_MS));
+        let store = SettingsStore::in_memory();
+        assert_eq!(hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap().account.storage, TokenStorage::File);
+        hub.reset();
+        // The keyring is still away: the token stays in the file, and works.
+        hub.provider_for_host(&store, HOST).await.unwrap().unwrap();
+        assert_eq!(store.forge_accounts("default")[0].storage, TokenStorage::File);
+        assert_eq!(tokens.mem.token("default", HOST).as_deref(), Some(TOKEN));
+        hub.reset();
+        tokens.keyring_up.store(true, Ordering::SeqCst);
+        let (account, _) = hub.provider_for_host(&store, HOST).await.unwrap().unwrap();
+        assert_eq!(account.storage, TokenStorage::Keyring);
+        assert_eq!(store.forge_accounts("default")[0].storage, TokenStorage::Keyring);
+        assert_eq!(tokens.migrations.load(Ordering::SeqCst), 1);
+        hub.reset();
+        hub.provider_for_host(&store, HOST).await.unwrap().unwrap();
+        assert_eq!(tokens.migrations.load(Ordering::SeqCst), 1, "moved once");
+    }
+
+    #[tokio::test]
+    async fn an_account_with_a_port_maps_its_https_and_ssh_remotes() {
+        const PORTED: &str = "gitlab.example.com:8443";
+        let p = FakeProvider::new(ForgeKind::GitLab, PORTED);
+        p.projects.lock().unwrap().insert("group/project".into(), project(PORTED, "group/project", None, 1));
+        let conn = FakeConnector::with(TOKEN, p);
+        let hub = hub(conn.clone(), MemTokens::new(TokenStorage::Keyring));
+        let store = SettingsStore::in_memory();
+        hub.add_account(&store, PORTED, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
+        // `details::forge_remotes`: https keeps the port, SSH doesn't.
+        let remotes = [remote("origin", Some(PORTED), Some("group/project")), remote("ssh", Some(HOST), Some("group/project"))];
+        let rp = hub.repo_projects(&store, &remotes, false).await;
+        for r in &rp.remotes {
+            assert_eq!((r.account, r.project.as_ref().map(|p| p.host.as_str())), (Some(ForgeKind::GitLab), Some(PORTED)), "{}", r.remote);
+        }
+        assert!(hub.forks(&store, &remotes, "ssh").await.is_ok());
+        // A second account on the host, without a port: SSH remotes are its (an exact match).
+        let q = FakeProvider::new(ForgeKind::GitLab, HOST);
+        q.projects.lock().unwrap().insert("group/project".into(), project(HOST, "group/project", None, 2));
+        conn.add(TOKEN2, q);
+        hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN2)).await.unwrap();
+        let rp = hub.repo_projects(&store, &remotes, false).await;
+        assert_eq!(rp.remotes[0].project.as_ref().unwrap().host, PORTED);
+        assert_eq!(rp.remotes[1].project.as_ref().unwrap().host, HOST);
+        // Two accounts with ports on one host: an SSH remote is ambiguous.
+        let two = [ForgeAccount { host: PORTED.into(), ..account("Ada", 1, "x", 0) }, ForgeAccount { host: "gitlab.example.com:9443".into(), ..account("Ada", 1, "x", 0) }];
+        assert!(account_for(&two, HOST).is_none());
+        assert_eq!(account_for(&two, PORTED).map(|a| a.host.as_str()), Some(PORTED));
+    }
+
+    #[tokio::test]
+    async fn one_profiles_cached_project_never_answers_for_another() {
+        let (_, hub, store) = mapped().await;
+        let remotes = [remote("origin", Some(HOST), Some("group/project"))];
+        assert!(hub.repo_projects(&store, &remotes, false).await.remotes[0].project.is_some());
+        let work = store.create_profile("Work", "#00f").unwrap();
+        store.switch_profile(&work.id).unwrap();
+        // Work's own account on the host, whose token sees no such project.
+        let conn = FakeConnector::with(TOKEN2, FakeProvider::new(ForgeKind::GitLab, HOST));
+        let fresh = ForgeHub::new(conn, MemTokens::new(TokenStorage::Keyring), Arc::new(|| NOW_MS));
+        fresh.projects.lock().unwrap().insert(("default".into(), HOST.into(), "group/project".into()), project(HOST, "group/project", None, 1));
+        fresh.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN2)).await.unwrap();
+        let rp = fresh.repo_projects(&store, &remotes, false).await;
+        assert_eq!(rp.remotes[0].error.as_deref(), Some("Not found on gitlab.example.com"), "Default's cached project isn't Work's");
+    }
+    // --- end 4A final review ---
 }

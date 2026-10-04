@@ -16,9 +16,13 @@ pub struct ForgeAccount {
     pub user: ForgeUser,
     pub storage: TokenStorage,
     /// GitLab's version (`19.1.0-ee`), read at add and once a day (spec #4 §3.2).
+    // `default`: a profile file from an older or newer GitBolt still loads.
+    #[serde(default)]
     pub version: Option<String>,
+    #[serde(default)]
     #[ts(type = "number")]
     pub version_checked_at: i64,
+    #[serde(default)]
     #[ts(type = "number")]
     pub added_at: i64,
 }
@@ -108,6 +112,22 @@ mod tests {
     fn create_token_pages_are_prefilled_with_write_scope() {
         assert_eq!(token_page_url(ForgeKind::GitLab, "gitlab.example.com"), "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=GitBolt&description=GitBolt%20desktop%20client&scopes=api");
         assert_eq!(token_page_url(ForgeKind::GitHub, "github.com"), "https://github.com/settings/personal-access-tokens/new?name=GitBolt&description=GitBolt%20desktop%20client&pull_requests=write&issues=write&checks=read&statuses=read&metadata=read&profile=read");
+    }
+
+    #[test]
+    fn an_account_saved_without_the_optional_fields_still_loads() {
+        let profile = serde_json::json!({
+            "version": 1, "id": "default", "name": "Default",
+            "forgeAccounts": [{
+                "host": "gitlab.example.com", "kind": "gitlab", "storage": "keyring",
+                "user": {"id": 7, "username": "ada", "name": "Ada"},
+                "somethingNewer": true,
+            }],
+        });
+        let profile: crate::settings::Profile = serde_json::from_value(profile).unwrap();
+        let a = profile.forge_accounts.into_iter().next().unwrap();
+        assert_eq!((a.version, a.version_checked_at, a.added_at), (None, 0, 0));
+        assert_eq!((a.user.avatar_url, a.user.email, a.user.web_url.as_str()), (None, None, ""));
     }
 
     #[test]

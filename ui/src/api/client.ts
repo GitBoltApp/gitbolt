@@ -106,6 +106,18 @@ import type { ForgeProject } from './gen/ForgeProject';
 import type { ForgeProjectSettings } from './gen/ForgeProjectSettings';
 import type { RepoProjects } from './gen/RepoProjects';
 // --- end 4A T12 ---
+// --- 4B T1 ---
+import type { BranchMrs } from './gen/BranchMrs';
+import type { ForgeDiscussion } from './gen/ForgeDiscussion';
+import type { ForgeMr } from './gen/ForgeMr';
+import type { ForgeMrDetail } from './gen/ForgeMrDetail';
+import type { ForgeNote } from './gen/ForgeNote';
+import type { Fresh } from './gen/Fresh';
+import type { MergeOptions } from './gen/MergeOptions';
+import type { MrEdit } from './gen/MrEdit';
+import type { MrFilter } from './gen/MrFilter';
+import type { MrList } from './gen/MrList';
+// --- end 4B T1 ---
 // --- end 2D T20 ---
 
 const handlers = new Set<EventHandler>();
@@ -421,6 +433,23 @@ export const api = {
   revert: (repo: number, worktree: string, oids: string[], opts: { noCommit: boolean; confirmAutostash?: boolean; expect?: Expect }) =>
     call<WriteResult<SequenceOutcome>>({ method: 'revert', params: { repo, worktree, oids, noCommit: opts.noCommit, expect: opts.expect ?? NO_EXPECT, confirm: { autostash: opts.confirmAutostash ?? false } } }),
   // --- end 3B T6 ---
+  // --- 4B T1 ---
+  /** The repo's open MRs/PRs for the sidebar section (spec #4 §4 "4B"). */
+  forgeMrList: (repo: number, filter: MrFilter) => call<MrList>({ method: 'forgeMrList', params: { repo, filter } }),
+  /** The badges: `refs` are the local branches' upstreams, newest tip first. */
+  forgeBranchMrs: (repo: number, refs: string[]) => call<BranchMrs>({ method: 'forgeBranchMrs', params: { repo, refs } }),
+  forgeMrDetail: (repo: number, number: number) => call<Fresh<ForgeMrDetail>>({ method: 'forgeMrDetail', params: { repo, number } }),
+  forgeMrDiscussions: (repo: number, number: number) => call<Fresh<ForgeDiscussion[]>>({ method: 'forgeMrDiscussions', params: { repo, number } }),
+  forgeProjectByPath: (repo: number, path: string) => call<ForgeProject>({ method: 'forgeProjectByPath', params: { repo, path } }),
+  forgeReply: (repo: number, number: number, discussion: string | null, body: string) => call<ForgeNote>({ method: 'forgeReply', params: { repo, number, discussion, body } }),
+  forgeApprove: (repo: number, number: number) => call<null>({ method: 'forgeApprove', params: { repo, number } }),
+  forgeRequestChanges: (repo: number, number: number, body: string) => call<null>({ method: 'forgeRequestChanges', params: { repo, number, body } }),
+  forgeMerge: (repo: number, number: number, options: MergeOptions) => call<ForgeMr>({ method: 'forgeMerge', params: { repo, number, options } }),
+  forgeEditMr: (repo: number, number: number, edit: MrEdit) => call<ForgeMr>({ method: 'forgeEditMr', params: { repo, number, edit } }),
+  forgeSetDraft: (repo: number, number: number, draft: boolean) => call<ForgeMr>({ method: 'forgeSetDraft', params: { repo, number, draft } }),
+  /** The common ancestor of two commits; null when the repo lacks one of them. */
+  mergeBase: (repo: number, a: string, b: string) => call<string | null>({ method: 'mergeBase', params: { repo, a, b } }),
+  // --- end 4B T1 ---
 };
 
 // --- 2D T18 ---

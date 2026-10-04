@@ -33,6 +33,14 @@ pub fn project_json(p: &FakeProject, all: &[FakeProject], base: &str) -> Value {
 }
 
 pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
+    // --- 4B T2: merge requests and pipelines (gitlab_mrs.rs). They write the seed, so they're
+    // answered before the borrows below; without a token, 4A's arms answer 401. ---
+    if r.token.is_some()
+        && let Some(reply) = super::gitlab_mrs::route(st, r)
+    {
+        return reply.header("RateLimit-Limit", "2000").header("RateLimit-Remaining", "1999");
+    }
+    // --- end 4B T2 ---
     let segs: Vec<&str> = r.segments.iter().map(String::as_str).collect();
     let projects = &st.seed.gitlab.projects;
     let reply = match (r.method, segs.as_slice()) {

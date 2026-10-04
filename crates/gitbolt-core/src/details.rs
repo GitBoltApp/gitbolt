@@ -68,6 +68,18 @@ pub fn remotes(repo: &gix::Repository) -> Vec<RemotePayload> {
     out
 }
 
+/// `remotes`, each host as forge accounts name it (`remotes::forge_host`: an https remote keeps
+/// a non-default port). For the forge hub only: the UI's links and host settings use `remotes`.
+pub fn forge_remotes(repo: &gix::Repository) -> Vec<RemotePayload> {
+    let mut out = remotes(repo);
+    for r in &mut out {
+        if r.host.is_some() {
+            r.host = remote_url(repo, &r.name, Direction::Fetch).and_then(|u| crate::remotes::forge_host(&u));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -19,6 +19,14 @@ pub fn unsupported<'a, T: Send + 'a>(what: &'static str) -> ForgeFuture<'a, T> {
     Box::pin(async move { Err(GbError::new(GbErrorKind::InvalidInput, format!("{what} isn't supported by this forge yet"))) })
 }
 
+/// Set on a 403's message (an `AuthFailed` like a 401's): see [`is_forbidden`].
+pub const FORBIDDEN_MARK: &str = " refused: ";
+
+/// A 403 (the token works but isn't allowed this), as opposed to a 401 (the token is rejected).
+pub fn is_forbidden(e: &GbError) -> bool {
+    e.kind == GbErrorKind::AuthFailed && e.message.contains(FORBIDDEN_MARK)
+}
+
 /// The keyring's service name (core spec §14.3).
 pub const KEYRING_SERVICE: &str = "gitbolt";
 
@@ -126,4 +134,11 @@ pub trait TokenStore: Send + Sync {
     fn get(&self, key: &AccountKey, storage: TokenStorage) -> Result<Option<Secret>, GbError>;
     /// Deletes it wherever it is.
     fn delete(&self, key: &AccountKey) -> Result<(), GbError>;
+    /// Moves a token kept in the file to the system keyring, now that it's there: the keyring
+    /// takes it, then the file copy goes. `Ok(Some(Keyring))` when it moved; `Ok(None)` when
+    /// there's nothing to move or no keyring at all (a store with only one place). An error
+    /// leaves the file copy as it was.
+    fn migrate_to_keyring(&self, _key: &AccountKey) -> Result<Option<TokenStorage>, GbError> {
+        Ok(None)
+    }
 }

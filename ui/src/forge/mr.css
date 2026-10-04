@@ -18,3 +18,12 @@
 .mr-pipeline-icon.spin { animation: mr-spin 1s linear infinite; }
 @keyframes mr-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .mr-pipeline-icon.spin { animation: none; } }
+
+/* 4B T9: stale data after a failed poll. */
+.forge-stale { display: inline-flex; color: var(--orange); }
+.forge-stale-note { margin: 0; font-size: 11px; color: var(--orange); }
+
+/* 4B T10: the badge (a chip's icon box, a Local row's end) and the sidebar hover card's block. */
+.mr-badge { cursor: pointer; }
+.sb-row .mr-badge { flex: none; margin-left: 4px; }
+.hc-mr { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--section-border); }

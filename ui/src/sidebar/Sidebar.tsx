@@ -5,6 +5,10 @@ import { useRuntime } from '../app/runtime';
 import { useDiffOpen, useFocusZone } from '../app/seams1b';
 import { EMPTY_REPO_SETTINGS, useAppState } from '../app/state';
 import { leaveFileView, useCenterViewSidebar } from '../repo/centerView';
+// --- 4B T11 ---
+import { mrSection, refreshMrList, withMrSection } from '../forge/mrSection';
+import { forgeOf, patchForge, useTabForgeField } from '../forge/mrStore';
+// --- end 4B T11 ---
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { onResetDoubleClick } from '../ui/resetHandle';
 import { dividerTargets, layoutPanels } from './layout';
@@ -57,7 +61,21 @@ export function Sidebar() {
   const scrollTo = useRef<string | null>(null);
   const narrow = manualNarrow || diffOpen || viewSidebar === 'narrow';
 
-  const sections = useMemo(() => (payload ? sectionsOf(payload) : []), [payload]);
+  // --- 4B T11: the MR/PR section (spec #4 §2), after Remote, with the repository's filter ---
+  const forgeKind = useTabForgeField(tabId, 'kind');
+  const forgeList = useTabForgeField(tabId, 'list');
+  const forgeFilter = useTabForgeField(tabId, 'filter');
+  const forgeError = useTabForgeField(tabId, 'error');
+  const mrs = useMemo(() => mrSection({ kind: forgeKind, list: forgeList, filter: forgeFilter, error: forgeError }), [forgeKind, forgeList, forgeFilter, forgeError]);
+  const savedFilter = rs.mrFilter ?? 'all';
+  useEffect(() => {
+    if (forgeOf(tabId).filter === savedFilter) return;
+    patchForge(tabId, { filter: savedFilter });
+    void refreshMrList(tabId);
+  }, [tabId, savedFilter]);
+  // --- end 4B T11 ---
+
+  const sections = useMemo(() => (payload ? withMrSection(sectionsOf(payload), mrs) : []), [payload, mrs]); // 4B T11
   const collapsed = useMemo(() => new Set(rs.collapsed), [rs.collapsed]);
   const panels = useMemo(() => buildPanels(sections, { filter, sort: rs.sidebarSort, collapsed }), [sections, filter, rs.sidebarSort, collapsed]);
   const specs = useMemo(() => panels.map((p) => ({ id: p.section.id, collapsed: p.collapsed, weight: weights[p.section.id] })), [panels, weights]);

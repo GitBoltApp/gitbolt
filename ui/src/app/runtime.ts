@@ -8,6 +8,7 @@ import type { RepoSummary } from '../api/gen/RepoSummary';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import { useAppState } from './state';
 import { closeCenterView } from '../repo/centerView';
+import { dropForge } from '../forge/mrStore';
 import { closeFlyout } from '../ui/flyout/flyout';
 import { dropTabView, feedTabView } from './tabStores';
 import { withActiveSidebar } from '../worktrees/active';
@@ -148,6 +149,7 @@ export const useRuntime = create<RuntimeState>((set, get) => ({
     // Spec #3: a closed tab's center view (File History, the rebase editor) goes with it.
     closeCenterView(tabId);
     closeFlyout(tabId); // 4B T6: and its flyout, with the focus it would return to
+    dropForge(tabId); // 4B T9: and its forge state
     if (!(tabId in get().tabs)) return;
     set((s) => {
       const tabs = { ...s.tabs };
