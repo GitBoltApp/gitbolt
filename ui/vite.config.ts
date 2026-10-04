@@ -33,5 +33,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test-setup.ts'],
+    // The dev machine is power-capped and often runs several builds at once: a loaded run took
+    // 5-9 s for tests that finish in under 1 s idle. 15 s keeps real hangs failing.
+    testTimeout: 15_000,
   },
 });

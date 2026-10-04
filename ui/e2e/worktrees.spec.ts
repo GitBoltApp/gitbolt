@@ -56,7 +56,7 @@ test.describe('the active worktree (spec #2 §11.2)', () => {
     await page.getByRole('menuitem', { name: /wt-two/ }).click();
     await expect(repoButton(page)).toContainText('wt-two');
     await expect(headChip(page)).toContainText('wt-two');
-    await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    await expect(page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
 
   test('a linked tab\'s sidebar marks its own current branch and worktree', async ({ page }) => {

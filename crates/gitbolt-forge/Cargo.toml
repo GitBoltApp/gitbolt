@@ -13,6 +13,7 @@ tracing.workspace = true
 base64.workspace = true
 sha2.workspace = true
 ureq.workspace = true
-
-[dev-dependencies]
+keyring.workspace = true
+nix.workspace = true
+httpdate.workspace = true
 tempfile.workspace = true

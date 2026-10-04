@@ -23,6 +23,9 @@ use axum::serve::ListenerExt;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
+pub mod fake_forge;
+use gitbolt_forge::{connector::{Forge, ForgeConfig}, endpoints::HostEndpoints, tokens::FileTokenStore};
+
 /// The "Open in…" launches the harness recorded instead of running anything (tests never start
 /// a real application). Served as JSON at `GET /launches`: `[{program, args}]`, oldest first.
 #[derive(Default)]
@@ -108,6 +111,15 @@ pub struct Harness {
     pub api: Arc<Api>,
     pub store: Arc<SettingsStore>,
     pub launches: Arc<Launches>,
+    // --- 4A T4 ---
+    /// The fake GitLab and GitHub (spec #4 §7); T10 points the providers at it.
+    pub forge: Arc<fake_forge::FakeForge>,
+    // --- end 4A T4 ---
+    // --- 4A T10 ---
+    /// Forge tokens: a file in the harness's temp dir, never the keyring (storage `file`).
+    pub tokens: Arc<FileTokenStore>,
+    tokens_path: std::path::PathBuf,
+    // --- end 4A T10 ---
     /// The settings directory when none was given; lives as long as the harness.
     _config_tmp: Option<tempfile::TempDir>,
     /// Old versions opened "in an editor" are copied here; lives as long as the harness.
@@ -161,10 +173,10 @@ fn harness_defaults(store: &Arc<SettingsStore>) {
 
 impl Harness {
     /// The backend the e2e suite drives: git with an isolated environment, settings in
-    /// `config_dir` or a fresh temp dir (never `~/.config`), no avatar provider (tests never
-    /// touch the network), a URL opener that only logs (the UI's link buttons are checked by
-    /// their data-url attribute instead), and fake openers whose "Open in…" launches are
-    /// recorded (`GET /launches`) instead of run.
+    /// `config_dir` or a fresh temp dir (never `~/.config`), and no Gravatar. Forge accounts reach
+    /// only the fake forge, with their tokens in a file in the temp dir. The URL opener only logs
+    /// (the UI's link buttons are checked by their data-url attribute instead), and fake openers
+    /// record "Open in…" launches (`GET /launches`) instead of running them.
     pub async fn new(opts: HarnessOptions) -> Self {
         let (store, config_tmp) = match opts.config_dir {
             Some(dir) => (SettingsStore::open(dir), None),
@@ -191,10 +203,21 @@ impl Harness {
             std::fs::create_dir_all(&dot).expect("bulk repo dir");
             std::fs::write(dot.join("HEAD"), "ref: refs/heads/bulk\n").expect("bulk HEAD");
         }
+        let forge = fake_forge::FakeForge::start().await;
+        // --- 4A T10: the real providers, pointed at the fake forge; no other host is reachable ---
+        let tokens_path = runtime_tmp.path().join("forge-tokens");
+        let tokens = Arc::new(FileTokenStore::new(tokens_path.clone()));
+        let overrides = std::collections::HashMap::from([
+            (fake_forge::GITLAB_HOST.to_string(), HostEndpoints { api: forge.gitlab_api(), web: forge.gitlab_web(), avatars: None }),
+            (fake_forge::GITHUB_HOST.to_string(), HostEndpoints { api: forge.github_api(), web: forge.github_web(), avatars: Some(forge.github_avatars()) }),
+        ]);
+        let connector = Arc::new(Forge::new(ForgeConfig { overrides, only_overrides: true, avatar_dir: None }));
+        // --- end 4A T10 ---
         let next_pick = picks.clone();
         let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
             // The journal and temp index files: the harness's own, never ~/.local/share.
             .with_data_dir(runtime_tmp.path().join("data"))
+            .with_forge(connector, tokens.clone())
             .with_url_opener(Arc::new(|url: &str| {
                 tracing::info!("openUrl {url}");
                 Ok(())
@@ -209,7 +232,12 @@ impl Harness {
         // itself unless a test names one), which asks this server over its socket.
         let exe = opts.askpass_exe.unwrap_or_else(harness_exe);
         api.start_askpass(runtime_tmp.path(), exe).await.expect("askpass socket");
-        Self { api, store, launches, picks, home, _config_tmp: config_tmp, _open_cache: open_cache, _runtime_tmp: runtime_tmp }
+        Self { forge, tokens, tokens_path, api, store, launches, picks, home, _config_tmp: config_tmp, _open_cache: open_cache, _runtime_tmp: runtime_tmp }
+    }
+
+    /// Where the harness keeps forge tokens (tests check its mode).
+    pub fn tokens_path(&self) -> &std::path::Path {
+        &self.tokens_path
     }
 
     /// The harness's home (`suggestReposFolder` looks for `repos` in it).
@@ -234,6 +262,9 @@ impl Harness {
         self.picks.clear();
         self.api.forget_scans();
         self.api.take_open_requests();
+        self.forge.reset();
+        self.tokens.clear();
+        self.api.forge_reset();
     }
 }
 
@@ -242,8 +273,9 @@ impl Harness {
 /// `takeOpenRequests`, as the app's single-instance guard does), `POST /test/reset`,
 /// `POST /test/next-pick` (`{"path": string | null}`: the folder picker's next answer),
 /// `GET /test/watched` (the ids of the repos with a live file watcher, sorted),
-/// `POST /test/write` (a test-only write intent, behind the fixture guard), and
-/// `ANY /test/auth/*` (a git remote that always answers 401).
+/// `POST /test/write` (a test-only write intent, behind the fixture guard),
+/// `ANY /test/auth/*` (a git remote that always answers 401), and the fake forge's controls
+/// `GET|POST /test/forge/seed`, `POST /test/forge/script`, `GET /test/forge/requests`.
 pub async fn serve(listener: tokio::net::TcpListener, harness: Harness) {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -255,6 +287,9 @@ pub async fn serve(listener: tokio::net::TcpListener, harness: Harness) {
         .route("/test/auth/{*rest}", any(test_auth))
         .route("/test/watched", get(test_watched))
         .route("/test/write", post(test_write))
+        .route("/test/forge/seed", get(test_forge_seed_get).post(test_forge_seed))
+        .route("/test/forge/script", post(test_forge_script))
+        .route("/test/forge/requests", get(test_forge_requests))
         .with_state(Arc::new(harness));
     // Small frames go out at once (no Nagle wait for the previous frame's delayed ACK).
     let listener = listener.tap_io(|tcp| {
@@ -314,6 +349,38 @@ struct TestWriteBody {
     expect: gitbolt_core::write::types::Expect,
     intent: gitbolt_core::write::test_intents::TestIntent,
 }
+
+// --- 4A T4: the fake forge's controls (Playwright scripts it through the harness port) ---
+async fn test_forge_seed_get(State(h): State<Arc<Harness>>, headers: HeaderMap) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(h.forge.current_seed()).into_response()
+}
+
+async fn test_forge_seed(State(h): State<Arc<Harness>>, headers: HeaderMap, Json(seed): Json<fake_forge::ForgeSeed>) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    h.forge.seed(seed);
+    "ok".into_response()
+}
+
+async fn test_forge_script(State(h): State<Arc<Harness>>, headers: HeaderMap, Json(s): Json<fake_forge::Scripted>) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    h.forge.script(s);
+    "ok".into_response()
+}
+
+async fn test_forge_requests(State(h): State<Arc<Harness>>, headers: HeaderMap) -> Response {
+    if foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(h.forge.requests()).into_response()
+}
+// --- end 4A T4 ---
 
 /// `POST /test/write`: a test-only write intent (spec #2 §18 2A) on the repository at `path`
 /// (opened if it isn't), in `worktree` (default: `path`). Answers `{ok}` or `{err}` like the

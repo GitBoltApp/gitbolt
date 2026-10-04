@@ -97,6 +97,15 @@ import type { ConflictFilePayload } from './gen/ConflictFilePayload';
 import type { BlamePayload } from './gen/BlamePayload';
 import type { FileHistoryPage } from './gen/FileHistoryPage';
 import type { TagPushOutcome } from './gen/TagPushOutcome';
+// --- 4A T11 ---
+import type { ForgeAccountView } from './gen/ForgeAccountView';
+import type { ForgeKind } from './gen/ForgeKind';
+// --- end 4A T11 ---
+// --- 4A T12 ---
+import type { ForgeProject } from './gen/ForgeProject';
+import type { ForgeProjectSettings } from './gen/ForgeProjectSettings';
+import type { RepoProjects } from './gen/RepoProjects';
+// --- end 4A T12 ---
 // --- end 2D T20 ---
 
 const handlers = new Set<EventHandler>();
@@ -186,8 +195,17 @@ export const api = {
   /** Clones `url` into the absolute `dest` (spec §13); the op's label is `dest`. */
   clone: (url: string, dest: string) => call<RepoSummary>({ method: 'clone', params: { url, dest } }),
   suggestReposFolder: () => call<string | null>({ method: 'suggestReposFolder' }),
-  /** `git fetch --all` (spec §15). `background`: GitBolt's own timer, which never prompts. */
-  fetch: (repo: number, background: boolean) => call<FetchOutcome>({ method: 'fetch', params: { repo, background } }),
+  /** `git fetch --all` (spec §15), or one `remote` (a remote just added, spec #4). `background`: GitBolt's own timer, which never prompts. */
+  fetch: (repo: number, background: boolean, remote?: string) => call<FetchOutcome>({ method: 'fetch', params: remote === undefined ? { repo, background } : { repo, background, remote } }),
+  // --- 4A T12 ---
+  /** Every remote with its forge project, and the remote MRs/PRs target (spec #4 §3.3). */
+  forgeRepoProjects: (repo: number, refresh = false) => call<RepoProjects>({ method: 'forgeRepoProjects', params: { repo, refresh } }),
+  forgeProjectSettings: (repo: number, remote: string) => call<ForgeProjectSettings>({ method: 'forgeProjectSettings', params: { repo, remote } }),
+  /** `remote`'s project's forks, newest first. */
+  forgeForks: (repo: number, remote: string) => call<ForgeProject[]>({ method: 'forgeForks', params: { repo, remote } }),
+  /** `git remote add` (not journaled); fetch it with `fetch(repo, false, name)`. */
+  addRemote: (repo: number, worktree: string, name: string, url: string) => call<WriteResult<null>>({ method: 'addRemote', params: { repo, worktree, name, url } }),
+  // --- end 4A T12 ---
   /** The action queue (spec #2 §3.6). */
   queueState: (repo: number) => call<QueueStatePayload>({ method: 'queueState', params: { repo } }),
   queueRemove: (repo: number, id: number) => call<boolean>({ method: 'queueRemove', params: { repo, id } }),
@@ -380,6 +398,15 @@ export const api = {
     call<WriteResult<IntegrateOutcome>>({ method: 'interactiveRebase', params: { repo, worktree, branch: req.branch, base: req.base, expect: req.expect, rows: req.rows, chips: req.chips, confirm: { autostash: req.confirmAutostash ?? false } } }),
   /** Conflict prediction for a plan (spec #3 §3.2; a read). */
   predictRebase: (repo: number, worktree: string, base: string, rows: RebaseRow[]) => call<Prediction>({ method: 'predictRebase', params: { repo, worktree, base, rows } }),
+  // --- 4A T11 ---
+  /** The active profile's forge accounts and their last known status (no network). */
+  forgeAccounts: () => call<ForgeAccountView[]>({ method: 'forgeAccounts' }),
+  /** Checks the token against the host and keeps it (system keyring, else the 0600 file). */
+  addForgeAccount: (host: string, kind: ForgeKind, token: string) => call<ForgeAccountView>({ method: 'addForgeAccount', params: { host, kind, token } }),
+  removeForgeAccount: (host: string) => call<null>({ method: 'removeForgeAccount', params: { host } }),
+  /** The forge's prefilled "new token" page: open it with `openUrl`. */
+  forgeTokenPage: (host: string, kind: ForgeKind) => call<string>({ method: 'forgeTokenPage', params: { host, kind } }),
+  // --- end 4A T11 ---
   // --- end 3C T10 ---
   // --- 3C T13 ---
   /** Reword an older commit of HEAD's branch in place (spec #3 §3.6); `confirmAutostash` after the clean-restore question. */

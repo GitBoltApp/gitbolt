@@ -33,6 +33,11 @@ syncButton: SyncButtonMode,
  */
 pushFollowTags: boolean, 
 /**
+ * "Load avatars from your forge accounts" (spec #4 §2 "Avatars"): the forges first, then
+ * Gravatar (its own setting), then initials.
+ */
+forgeAvatars: boolean, 
+/**
  * Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
  * the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
  */

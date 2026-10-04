@@ -1,0 +1,12 @@
+/* The left flyout (spec #4 §5): over the left of the tab's center (`.center-slot` is
+   position: relative), right of the sidebar. Above the graph and the diff; below the sidebar's
+   hover cards (700), modals (800) and menus (900). */
+.flyout-host { position: absolute; top: 0; bottom: 0; left: 0; z-index: 600; display: flex; max-width: 100%; }
+.flyout { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel-bg1); color: var(--text-normal); border-right: 1px solid var(--section-border); box-shadow: 4px 0 16px var(--shadow-popup); }
+.flyout-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--section-border); }
+.flyout-title { flex: 1; min-width: 0; margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text-selected); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; outline: none; }
+.flyout-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.flyout-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--section-border); }
+.flyout-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; }
+.flyout-resize:focus-visible { outline: 2px solid var(--focus-outline); }
+.flyout-host[hidden] { display: none; }

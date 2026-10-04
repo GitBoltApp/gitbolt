@@ -34,7 +34,7 @@ test.describe('checkout (spec #2 §9.3)', () => {
     }
     expect(Math.min(...times), `checkout times ${times.join(', ')} ms`).toBeLessThan(300);
     expect(head(repo)).toBe('feature/login');
-    await page.getByRole('button', { name: 'Undo' }).click();
+    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => head(repo)).toBe('main');
   });
 
@@ -66,7 +66,7 @@ test.describe('checkout (spec #2 §9.3)', () => {
     await expect(page.getByRole('alertdialog')).toContainText('feature/login and origin/feature/login have diverged (1 ahead, 1 behind).');
     await confirmArmed(page.getByRole('button', { name: 'Reset feature/login to origin/feature/login' }));
     await expect.poll(() => git(repo, 'rev-parse', 'feature/login')).toBe(git(repo, 'rev-parse', 'origin/feature/login'));
-    await page.getByRole('button', { name: 'Undo' }).click();
+    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => git(repo, 'rev-parse', 'feature/login')).toBe(mine);
   });
 
@@ -124,7 +124,7 @@ test.describe('reset (spec #2 §9.4)', () => {
     };
     await resetRow('Soft');
     await expect.poll(() => git(repo, 'rev-parse', 'main')).not.toBe(tip);
-    await page.getByRole('button', { name: 'Undo' }).click();
+    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => git(repo, 'rev-parse', 'main')).toBe(tip);
     // The fixture's main worktree is dirty (file_1.txt): Hard asks.
     await resetRow('Hard');
@@ -132,7 +132,7 @@ test.describe('reset (spec #2 §9.4)', () => {
     await confirmArmed(page.getByRole('menuitem', { name: /^Click again to reset main and discard changes to 1 file/ }));
     await expect(page.getByRole('alertdialog')).toBeHidden();
     await expect.poll(() => git(repo, 'status', '--porcelain', '--untracked-files=no')).toBe('');
-    await page.getByRole('button', { name: 'Undo' }).click();
+    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => git(repo, 'status', '--porcelain', '--untracked-files=no')).toContain('file_1.txt');
     // Clean: no question.
     git(repo, 'stash', 'push', '-q', '-m', 'clean');

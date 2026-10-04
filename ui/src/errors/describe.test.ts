@@ -77,3 +77,12 @@ describe('per-kind error actions (spec §16.1)', () => {
     expect(toGbError(err('Io')).kind).toBe('Io');
   });
 });
+
+// --- 4A T1 ---
+it('names a rate limit and an unreachable forge, and offers Retry for the network', () => {
+  expect(describeError({ kind: 'RateLimited', message: 'gitlab.example.com rate limit reached: try again in 2 min', commandId: null, stderr: null })).toEqual({ title: 'Rate limited', message: 'gitlab.example.com rate limit reached: try again in 2 min' });
+  expect(describeError({ kind: 'Network', message: "Couldn't reach gitlab.example.com: timed out", commandId: null, stderr: null })?.title).toBe("Couldn't reach the server");
+  const retry = vi.fn();
+  expect(actionsFor({ kind: 'Network', message: 'x', commandId: null, stderr: null }, { retry }, { openDetails: vi.fn(), copy: vi.fn() }).map((a) => a.id)).toEqual(['retry']);
+});
+// --- end 4A T1 ---

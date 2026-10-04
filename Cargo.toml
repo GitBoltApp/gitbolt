@@ -23,7 +23,11 @@ tracing-appender = "0.2.5"
 regex = "1.13"
 nix = { version = "0.31", features = ["signal", "process", "user", "fs"] }
 ts-rs = "12.0.1"
+# Forge tokens in the Secret Service (spec #4 §2; core spec §14.3). v1 feature: zbus Secret Service on Linux.
+keyring = "4.2"
 tempfile = "3.27"
+# Retry-After as an HTTP date (forge HTTP, 4A T2). Already in the tree through hyper.
+httpdate = "1.0.3"
 encoding_rs = "0.8.42"
 base64 = "0.23.1"
 insta = "1.48"

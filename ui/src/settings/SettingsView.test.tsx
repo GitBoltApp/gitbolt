@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, EMPTY_PROFILE } from '../app/state';
 import { armClock, press } from '../ui/arm/armTesting';
 
 const api = vi.hoisted(() => ({
+  forgeAccounts: vi.fn(async () => []),
   saveSettings: vi.fn(async () => null),
   saveProfile: vi.fn(async () => null),
   pickFolder: vi.fn(async () => null),
@@ -315,4 +316,20 @@ describe('SettingsView', () => {
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
   });
+  // --- 4A T11 ---
+  it('Accounts is a section of its own, titled with the profile, and deep links reach it', async () => {
+    show('forgeAccounts');
+    expect(screen.getByRole('region', { name: 'Accounts' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Accounts (Work)' })).toBeTruthy();
+    await waitFor(() => expect(api.forgeAccounts).toHaveBeenCalled());
+  });
+
+  it('the forge avatars switch saves and asks for every avatar again', async () => {
+    const reset = vi.spyOn(avatars, 'reset');
+    show('forgeAvatars');
+    fireEvent.click(screen.getByLabelText('Load avatars from your forge accounts'));
+    expect(useAppState.getState().settings.forgeAvatars).toBe(false);
+    await waitFor(() => expect(reset).toHaveBeenCalled());
+  });
+  // --- end 4A T11 ---
 });

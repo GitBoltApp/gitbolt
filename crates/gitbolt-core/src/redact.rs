@@ -28,6 +28,40 @@ pub fn redact(s: &str) -> String {
     AUTH_HEADER.replace_all(&s, "${1}***").into_owned()
 }
 
+// --- 4A T1: secrets ---
+/// A token in memory (spec #4 §6). It deserializes from a plain JSON string, but never
+/// serializes, displays or debug-prints its value. `expose` is for the places that must have it:
+/// the `Authorization` header and the token store.
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(transparent)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+
+    /// Without the whitespace a copy from a browser brings along (a trailing newline, spaces).
+    pub fn trimmed(&self) -> Self {
+        Self(self.0.trim().to_string())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(***)")
+    }
+}
+// --- end 4A T1 ---
+
 #[cfg(test)]
 mod tests {
     use super::redact;
@@ -93,4 +127,14 @@ mod tests {
         assert_eq!(redact("https://github.com/o/r/blob/main/a@b.txt"), "https://github.com/o/r/blob/main/a@b.txt");
         assert_eq!(redact("commit -m hello"), "commit -m hello");
     }
+    // --- 4A T1 ---
+    #[test]
+    fn a_secret_never_shows_its_value() {
+        let s: super::Secret = serde_json::from_str("\"  glpat-FAKE-test-token\\n\"").unwrap();
+        assert_eq!(format!("{s:?}"), "Secret(***)");
+        assert_eq!(format!("{:?}", Some(s.clone())), "Some(Secret(***))");
+        assert_eq!(s.trimmed().expose(), "glpat-FAKE-test-token");
+        assert!(super::Secret::new(" \n").trimmed().is_empty());
+    }
+    // --- end 4A T1 ---
 }

@@ -11,6 +11,7 @@ pub mod diff;
 pub mod error;
 pub mod events;
 pub mod find;
+pub mod forge;
 pub mod git;
 pub mod logging;
 pub mod instance;

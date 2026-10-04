@@ -88,6 +88,11 @@ pub struct AppSettings {
     /// "Push tags with branches" (spec #3 §3.9): every push adds `--follow-tags`, sending the
     /// annotated tags on the pushed commits that the remote lacks. Off by default.
     pub push_follow_tags: bool,
+    // --- 4A T6 ---
+    /// "Load avatars from your forge accounts" (spec #4 §2 "Avatars"): the forges first, then
+    /// Gravatar (its own setting), then initials.
+    pub forge_avatars: bool,
+    // --- end 4A T6 ---
     /// Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
     /// the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
     #[ts(type = "Record<string, (string | null)[]>")]
@@ -145,6 +150,7 @@ impl Default for AppSettings {
             debug_logging: false,
             sync_button: SyncButtonMode::FetchAll,
             push_follow_tags: false,
+            forge_avatars: true,
             graph_color_overrides: BTreeMap::new(),
             window: None,
         }
@@ -288,8 +294,19 @@ pub struct Profile {
     pub sidebar_panels: BTreeMap<String, u32>,
     /// The details panel's width; `None` is the UI's default.
     pub right_panel_width: Option<u32>,
+    // --- 4B T6 ---
+    /// The left flyout's width (spec #4 §5); `None` is the UI's default.
+    pub flyout_width: Option<u32>,
+    // --- end 4B T6 ---
     /// Keyed by canonical repo path.
     pub repos: BTreeMap<String, RepoSettings>,
+    // --- 4A T5 ---
+    /// Forge accounts (spec #4 §3.2): host, kind, user, where the token is (never the token).
+    /// Owned by the store (`set_forge_accounts`): left out of the TypeScript bindings, and
+    /// `save_profile` keeps the store's copy whatever the UI sends, as `AppSettings.window`.
+    #[ts(skip)]
+    pub forge_accounts: Vec<crate::forge::accounts::ForgeAccount>,
+    // --- end 4A T5 ---
 }
 
 impl Default for Profile {
@@ -312,7 +329,11 @@ impl Default for Profile {
             sidebar_narrow: false,
             sidebar_panels: BTreeMap::new(),
             right_panel_width: None,
+            // --- 4B T6 ---
+            flyout_width: None,
+            // --- end 4B T6 ---
             repos: BTreeMap::new(),
+            forge_accounts: Vec::new(),
         }
     }
 }
@@ -606,6 +627,9 @@ impl SettingsStore {
             if !g.profiles.contains_key(&profile.id) {
                 return Err(GbError::new(GbErrorKind::InvalidInput, format!("unknown profile {}", profile.id)));
             }
+            // --- 4A T5: the store's accounts, not the UI's copy ---
+            profile.forge_accounts = g.profiles.get(&profile.id).map(|p| p.forge_accounts.clone()).unwrap_or_default();
+            // --- end 4A T5 ---
             g.dirty_profiles.insert(profile.id.clone());
             g.profiles.insert(profile.id.clone(), profile);
         }
@@ -662,6 +686,28 @@ impl SettingsStore {
         self.schedule();
         Ok(left)
     }
+
+    // --- 4A T5: forge accounts ---
+    /// One profile by id (its accounts, to delete their tokens with it).
+    pub fn profile(&self, id: &str) -> Option<Profile> {
+        self.lock().profiles.get(id).cloned()
+    }
+
+    pub fn forge_accounts(&self, profile: &str) -> Vec<crate::forge::accounts::ForgeAccount> {
+        self.lock().profiles.get(profile).map(|p| p.forge_accounts.clone()).unwrap_or_default()
+    }
+
+    pub fn set_forge_accounts(self: &Arc<Self>, profile: &str, accounts: Vec<crate::forge::accounts::ForgeAccount>) -> Result<(), GbError> {
+        {
+            let mut g = self.lock();
+            let p = g.profiles.get_mut(profile).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("unknown profile {profile}")))?;
+            p.forge_accounts = accounts;
+            g.dirty_profiles.insert(profile.to_string());
+        }
+        self.schedule();
+        Ok(())
+    }
+    // --- end 4A T5 ---
 
     /// Failed flushes in a row; 0 once one succeeds.
     pub fn save_failures(&self) -> u32 {

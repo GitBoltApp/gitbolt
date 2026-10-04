@@ -121,6 +121,9 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
               {graph.rows.length === 0 && graph.head.unborn
                 ? <div className="center-message">No commits yet</div>
                 : <RepoView key={repo.id} repo={repo.id} repoPath={repo.path} graph={graph} services={view.services} store={view.store} graphOverlay={<TabSlot name="graphOverlay" tab={tab} />} />}
+              {/* --- 4B T6: the left flyout (spec #4 §5) --- */}
+              <TabSlot name="centerOverlay" tab={tab} />
+              {/* --- end 4B T6 --- */}
             </div>
           </div>
         </div>

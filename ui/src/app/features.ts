@@ -67,3 +67,9 @@ import '../files/createFileFeature';
 // --- UX round 5 X ---
 import '../shortcuts/feature';
 // --- end UX round 5 X ---
+// --- 4B T6 ---
+import '../ui/flyout/feature';
+// --- end 4B T6 ---
+// --- 4A T12 ---
+import '../remotes/feature';
+// --- end 4A T12 ---

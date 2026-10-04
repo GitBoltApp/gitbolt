@@ -103,7 +103,7 @@ function failedRemotes(e: GbError | null, repoId: number): Record<string, { reas
 const failing = new Set<number>();
 
 /**
- * One fetch of the tab's repo (spec §15). `background`: the scheduler's, which never prompts
+ * One fetch of the tab's repo (spec §15); `remote`: only that one (a remote just added). `background`: the scheduler's, which never prompts
  * (§5.4) and shows nothing while it runs or when it succeeds: it's only in the activity log (K30,
  * `useOps().activity`). A fetch that would need credentials comes back skipped and shows as a
  * status-bar warning until a fetch succeeds. Errors: a background one goes to the bell's history
@@ -111,7 +111,7 @@ const failing = new Set<number>();
  * link (§16.1, K96); a fetch that worked says nothing (7c303cc), a failure still toasts. A cancel is quiet. A user's fetch
  * that finds a background one running waits on that one: the Fetch button shows it as busy.
  */
-export async function runFetch(tabId: string, background: boolean): Promise<void> {
+export async function runFetch(tabId: string, background: boolean, remote?: string): Promise<void> {
   const rt = useRuntime.getState().tabs[tabId];
   if (!rt?.repo) return;
   const repo = rt.repo;
@@ -120,7 +120,7 @@ export async function runFetch(tabId: string, background: boolean): Promise<void
     if (useRuntime.getState().tabs[tabId]?.repo?.id === repo.id) useRuntime.getState().patch(tabId, p);
   };
   try {
-    const out = await api.fetch(repo.id, background);
+    const out = await (remote === undefined ? api.fetch(repo.id, background) : api.fetch(repo.id, background, remote));
     if (out.status === 'done' || out.reason === 'authRequired') failing.delete(repo.id);
     if (out.status === 'done') {
       // A fetch that worked says nothing (except a user's with server output, which links it, and a server warning, spec #2 §12.4), user-initiated or not: the button's spinner and the

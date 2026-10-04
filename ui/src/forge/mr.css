@@ -1,0 +1,20 @@
+/* MR/PR states and pipelines (spec #4 §2 "Badge": a state-coloured icon). */
+.mr-state-icon { flex: none; }
+.mr-state-icon[data-state="open"] { color: var(--green); }
+.mr-state-icon[data-state="draft"] { color: var(--text-secondary); }
+.mr-state-icon[data-state="merged"] { color: var(--blue); }
+.mr-state-icon[data-state="closed"] { color: var(--red); }
+.mr-pipeline-icon { flex: none; vertical-align: -2px; }
+.mr-pipeline-icon[data-status="success"] { color: var(--green); }
+.mr-pipeline-icon[data-status="failed"] { color: var(--red); }
+.mr-pipeline-icon[data-status="running"] { color: var(--blue); }
+.mr-pipeline-icon[data-status="pending"] { color: var(--yellow); }
+.mr-pipeline-icon[data-status="canceled"], .mr-pipeline-icon[data-status="skipped"], .mr-pipeline-icon[data-status="manual"] { color: var(--text-secondary); }
+.mr-card { display: flex; flex-direction: column; gap: 3px; max-width: 320px; }
+.mr-card-title { color: var(--text-selected); font-weight: 600; overflow-wrap: anywhere; }
+.mr-card-ref { color: var(--text-secondary); font-weight: 400; }
+.mr-card-meta { font-size: 11px; color: var(--text-secondary); }
+.mr-card-hint { font-size: 11px; color: var(--text-disabled); margin-top: 2px; }
+.mr-pipeline-icon.spin { animation: mr-spin 1s linear infinite; }
+@keyframes mr-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mr-pipeline-icon.spin { animation: none; } }

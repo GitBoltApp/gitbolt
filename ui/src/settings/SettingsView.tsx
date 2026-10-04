@@ -15,12 +15,13 @@ import { confirmAction } from '../ui/ConfirmDialog';
 import { DEFAULT_DENSITY, DENSITIES, useDensity, type Density } from '../theme/density';
 import { Select } from '../ui/Select';
 import { AppearanceSection } from '../theme/AppearanceSection';
+import { AccountsSection } from '../forge/AccountsSection';
 import { EditorPicker } from './EditorPicker';
 import { Row } from './Row';
 import { clampFetchInterval, useSettingsUi, type SettingsSection } from './schema';
 import './settings.css';
 
-const SECTIONS: SettingsSection[] = ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Hosts', 'Advanced', 'Repository'];
+const SECTIONS: SettingsSection[] = ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Accounts', 'Hosts', 'Advanced', 'Repository'];
 const FETCH_CHOICES: Array<[number, string]> = [[0, 'Off'], [60, 'Every minute'], [300, 'Every 5 minutes'], [600, 'Every 10 minutes'], [1800, 'Every 30 minutes']];
 const DATE_CHOICES: Array<[DateFormat, string]> = [['ymd12h', '2026-09-26 @ 3:14 PM'], ['ymd24h', '2026-09-26 15:14'], ['dmy24h', '26/09/2026 15:14'], ['mdy12h', '09/26/2026 3:14 PM']];
 const DENSITY_LABELS: Record<Density, [string, string]> = {
@@ -165,6 +166,12 @@ function SettingsDialog() {
     // The backend learns the setting with the save; what it answers changes after that.
     void flushSaves().then(() => avatars.reset());
   };
+  // --- 4A T11 ---
+  const changeForgeAvatars = (on: boolean) => {
+    setSettings({ forgeAvatars: on });
+    void flushSaves().then(() => avatars.reset());
+  };
+  // --- end 4A T11 ---
   const resetAll = async () => {
     const ok = await confirmAction({
       title: 'Reset settings to their defaults?',
@@ -200,7 +207,7 @@ function SettingsDialog() {
           <div ref={bodyRef} className="settings-body">
             {[section].map((s) => (
               <section key={s} className="settings-section" aria-label={s} data-section={s}>
-                <h3>{s}{s === 'Profile' ? ` (${profile.name})` : s === 'Repository' ? ` (${rt?.repo?.name})` : ''}</h3>
+                <h3>{s}{s === 'Profile' || s === 'Accounts' ? ` (${profile.name})` : s === 'Repository' ? ` (${rt?.repo?.name})` : ''}</h3>
                 {s === 'General' && <>
                   <Row id="reposFolder">
                     <TextField id="reposFolder" value={profile.reposFolder ?? ''} placeholder="/home/you/repos" onCommit={(v) => updateProfile((p) => ({ ...p, reposFolder: v || null }))} />
@@ -222,6 +229,9 @@ function SettingsDialog() {
                     </div>
                   </Row>
                   <Row id="gravatar"><input id="input-gravatar" type="checkbox" checked={settings.gravatar} onChange={(e) => changeGravatar(e.target.checked)} /></Row>
+                  {/* --- 4A T11 --- */}
+                  <Row id="forgeAvatars"><input id="input-forgeAvatars" type="checkbox" checked={settings.forgeAvatars} onChange={(e) => changeForgeAvatars(e.target.checked)} /></Row>
+                  {/* --- end 4A T11 --- */}
                 </>}
                 {s === 'Appearance' && <AppearanceSection />}
                 {s === 'Fetch' && <>
@@ -241,6 +251,7 @@ function SettingsDialog() {
                     <TextField id="extraGitconfig" value={profile.extraGitconfig ?? ''} placeholder="/home/you/.gitconfig-work" onCommit={(v) => updateProfile((p) => ({ ...p, extraGitconfig: v || null }))} />
                   </Row>
                 )}
+                {s === 'Accounts' && <AccountsSection />}
                 {s === 'Hosts' && <Row id="hostOverrides" group><HostRows detected={detected} /></Row>}
                 {s === 'Advanced' && (
                   <Row id="debugLogging"><input id="input-debugLogging" type="checkbox" checked={settings.debugLogging} onChange={(e) => setSettings({ debugLogging: e.target.checked })} /></Row>

@@ -1,0 +1,16 @@
+.accounts-box { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
+.accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.account { display: flex; align-items: flex-start; gap: 10px; padding: 8px; border: 1px solid var(--section-border); border-radius: 6px; background: var(--panel-bg0); }
+.account-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.account-line { overflow-wrap: anywhere; }
+.account-name { color: var(--text-selected); }
+.account-storage { font-size: 12px; color: var(--text-secondary); }
+.account-storage.is-file { color: var(--orange); }
+.account-warning, .account-status { margin: 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.account-warning { color: var(--orange); }
+.account > button { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.account-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-add input { flex: 1 1 180px; min-width: 0; }
+.account-add .setting-error { flex-basis: 100%; margin: 0; }
+.account-submit { min-width: 112px; }
+.account-add .account-add-error { min-height: 1.4em; line-height: 1.4em; }

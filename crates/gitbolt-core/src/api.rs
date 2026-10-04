@@ -146,7 +146,17 @@ pub enum Request {
         op: u64,
     },
     /// `git fetch --all` (spec §15): `FetchOutcome`. `background` = GitBolt-started (never prompts).
-    Fetch { repo: u32, background: bool },
+    Fetch {
+        repo: u32,
+        background: bool,
+        #[serde(default)]
+        #[ts(optional)]
+        remote: Option<String>,
+    },
+    // --- 4A T7 ---
+    /// `git remote add <name> <url>` (spec #4 §4 4A): `WriteResult<null>`. Not journaled.
+    AddRemote { repo: u32, worktree: String, name: String, url: String },
+    // --- end 4A T7 ---
     /// Clones `url` into the absolute `dest` (spec §13) and opens it: `RepoSummary`.
     Clone { url: String, dest: String },
     /// Every remote with its redacted URL, and the main worktree of a linked one: `RepoInfoPayload`.
@@ -759,13 +769,49 @@ pub enum Request {
         tag: Option<String>,
     },
     // --- end 3B T3 ---
+    // --- 4A T5 ---
+    /// The active profile's forge accounts, with what their last requests said (no network):
+    /// `ForgeAccountView[]`. Empty when this build has no forges.
+    ForgeAccounts,
+    /// Checks `token` against `host` (its user, its write scope, GitLab's version) and keeps it in
+    /// the token store (spec #4 §3.2): `ForgeAccountView`. Replaces the host's account if it has one.
+    AddForgeAccount {
+        host: String,
+        kind: crate::forge::ForgeKind,
+        #[ts(type = "string")]
+        token: crate::redact::Secret,
+    },
+    /// Removes the account and deletes its token: `null`.
+    RemoveForgeAccount { host: String },
+    /// The forge's prefilled "new token" page for `host`: a URL for `openUrl`.
+    ForgeTokenPage { host: String, kind: crate::forge::ForgeKind },
+    // --- end 4A T5 ---
+    // --- 4A T6 ---
+    /// Every remote with its forge project, and the remote MRs/PRs target (spec #4 §3.3):
+    /// `RepoProjects`. `refresh` asks the forges again (conditional requests).
+    ForgeRepoProjects { repo: u32, refresh: bool },
+    /// The project settings of `remote`'s project (squash, merge methods, delete source branch):
+    /// `ForgeProjectSettings`.
+    ForgeProjectSettings { repo: u32, remote: String },
+    /// `remote`'s project's forks, newest first: `ForgeProject[]`.
+    ForgeForks { repo: u32, remote: String },
+    // --- end 4A T6 ---
 }
 
 impl Request {
     /// Whether it writes to a repository (spec #2 §17.1).
     pub fn is_write(&self) -> bool {
         match self {
+            // --- 4A T5: settings and the token store, never the repository ---
+            Request::ForgeAccounts | Request::AddForgeAccount { .. } | Request::RemoveForgeAccount { .. } | Request::ForgeTokenPage { .. } => false,
+            // --- end 4A T5 ---
+            // --- 4A T6 ---
+            Request::ForgeRepoProjects { .. } | Request::ForgeProjectSettings { .. } | Request::ForgeForks { .. } => false,
+            // --- end 4A T6 ---
             // Remote-tracking refs and objects.
+            // --- 4A T7 ---
+            Request::AddRemote { .. } => true,
+            // --- end 4A T7 ---
             Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
             Request::WriteWorktreeFile { .. } | Request::CreateWorktreeFile { .. } => true,
             // 2B T1.
@@ -955,6 +1001,11 @@ pub struct Api {
     /// user can fix their configuration between calls without the commit changing at all.
     pub(crate) signatures: Mutex<HashMap<(PathBuf, ObjectId), SignaturePayload>>,
     pub(crate) avatars: Option<Arc<dyn AvatarProvider>>,
+    // --- 4A T5 ---
+    /// Forge accounts and providers (spec #4 §3.2). `None` (most tests): the account list is
+    /// empty and the other forge requests refuse.
+    pub(crate) forge: Option<Arc<crate::forge::hub::ForgeHub>>,
+    // --- end 4A T5 ---
     pub(crate) url_opener: Option<UrlOpener>,
     pub(crate) openers: Option<Arc<OpenerSource>>,
     /// "Other…" (H32): the system's Open With chooser; listed only when set.
@@ -1153,6 +1204,7 @@ impl Api {
             version: OnceCell::new(),
             signatures: Mutex::new(HashMap::new()),
             avatars: None,
+            forge: None,
             url_opener: None,
             openers: None,
             chooser: None,
@@ -1545,6 +1597,26 @@ impl Api {
         self
     }
 
+    // --- 4A T5 ---
+    /// The forge connector and token store (gitbolt-forge's `Forge` and `SystemTokenStore` in
+    /// the app; the fake forge's and a temp file in the harness).
+    pub fn with_forge(mut self, connector: Arc<dyn crate::forge::ForgeConnector>, tokens: Arc<dyn crate::forge::TokenStore>) -> Self {
+        self.forge = Some(Arc::new(crate::forge::hub::ForgeHub::new(connector, tokens, self.clock.clone())));
+        self
+    }
+
+    /// Harness reset: forgets cached providers, statuses and projects.
+    pub fn forge_reset(&self) {
+        if let Some(h) = &self.forge {
+            h.reset();
+        }
+    }
+
+    pub(crate) fn forge_hub(&self) -> Result<&Arc<crate::forge::hub::ForgeHub>, GbError> {
+        self.forge.as_ref().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "Forge accounts aren't available here"))
+    }
+    // --- end 4A T5 ---
+
     pub fn with_url_opener(mut self, opener: UrlOpener) -> Self {
         self.url_opener = Some(opener);
         self
@@ -1779,10 +1851,20 @@ impl Api {
                 }
                 to_json(s)
             }
-            Request::Avatar { email } => match &self.avatars {
-                Some(p) => to_json(p.avatar(&email).await?),
-                None => to_json(Option::<AvatarPayload>::None),
-            },
+            Request::Avatar { email } => {
+                // --- 4A T6: the forges first (spec #4 §2 "Avatars") ---
+                if self.store.state().settings.forge_avatars
+                    && let Some(hub) = &self.forge
+                    && let Some(found) = hub.avatar(&self.store, &email).await
+                {
+                    return to_json(Some(found));
+                }
+                // --- end 4A T6 ---
+                match &self.avatars {
+                    Some(p) => to_json(p.avatar(&email).await?),
+                    None => to_json(Option::<AvatarPayload>::None),
+                }
+            }
             Request::ListOpeners => self.list_openers(None).await,
             Request::ListOpenersFor { repo } => {
                 let workdir = self.handle(repo)?.workdir.display().to_string();
@@ -1868,7 +1950,16 @@ impl Api {
                 self.apply_profile_git_config();
                 to_json(st)
             }
-            Request::DeleteProfile { id } => to_json(self.store.delete_profile(&id)?),
+            Request::DeleteProfile { id } => {
+                // --- 4A T5: its tokens go with it ---
+                let gone = self.store.profile(&id);
+                let left = self.store.delete_profile(&id)?;
+                if let (Some(hub), Some(p)) = (&self.forge, gone) {
+                    hub.forget_profile(&p).await;
+                }
+                // --- end 4A T5 ---
+                to_json(left)
+            }
             Request::AuthAnswer { prompt, answer } => {
                 let server = self.askpass.get().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "askpass is not running"))?;
                 server.answer(prompt, answer)?;
@@ -1878,7 +1969,45 @@ impl Api {
                 self.ops.cancel(op);
                 to_json(())
             }
-            Request::Fetch { repo, background } => to_json(self.fetch(repo, background).await?),
+            Request::Fetch { repo, background, remote } => to_json(self.fetch_remote(repo, background, remote).await?),
+            // --- 4A T7 ---
+            Request::AddRemote { repo, worktree, name, url } => {
+                let done = crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::remotes::AddRemote { name, url }).await?;
+                self.reopen_repo(repo)?;
+                to_json(done)
+            }
+            // --- end 4A T7 ---
+            // --- 4A T5 ---
+            Request::ForgeAccounts => to_json(self.forge.as_ref().map(|f| f.accounts(&self.store)).unwrap_or_default()),
+            Request::AddForgeAccount { host, kind, token } => to_json(self.forge_hub()?.add_account(&self.store, &host, kind, token).await?),
+            Request::RemoveForgeAccount { host } => {
+                self.forge_hub()?.remove_account(&self.store, &host).await?;
+                to_json(())
+            }
+            Request::ForgeTokenPage { host, kind } => {
+                let host = crate::forge::accounts::normalize_host(&host)?;
+                crate::forge::accounts::check_kind_host(kind, &host)?;
+                to_json(crate::forge::accounts::token_page_url(kind, &host))
+            }
+            // --- end 4A T5 ---
+            // --- 4A T6 ---
+            Request::ForgeRepoProjects { repo, refresh } => {
+                let h = self.handle(repo)?;
+                let list = remotes(&h.repo.to_thread_local());
+                match &self.forge {
+                    Some(hub) => to_json(hub.repo_projects(&self.store, &list, refresh).await),
+                    None => to_json(crate::forge::hub::RepoProjects::without_accounts(&list)),
+                }
+            }
+            Request::ForgeProjectSettings { repo, remote } => {
+                let list = remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.project_settings(&self.store, &list, &remote).await?)
+            }
+            Request::ForgeForks { repo, remote } => {
+                let list = remotes(&self.handle(repo)?.repo.to_thread_local());
+                to_json(self.forge_hub()?.forks(&self.store, &list, &remote).await?)
+            }
+            // --- end 4A T6 ---
             Request::Clone { url, dest } => to_json(self.clone_repo(url, dest).await?),
             Request::RepoInfo { repo } => {
                 let h = self.handle(repo)?;
@@ -2189,6 +2318,28 @@ impl Api {
             .cloned()
             .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("no open repository with id {id}")))
     }
+
+    // --- 4A T7 ---
+    /// Replaces handle `id` with one reopened from its workdir: gix keeps the config snapshot
+    /// from when a repository opened, so a remote added since is unknown to `remote_names()`
+    /// (the sidebar, the graph's labels, the forge mapping). The caches move over. Holders of the
+    /// old handle finish with it.
+    pub(crate) fn reopen_repo(&self, id: u32) -> Result<(), GbError> {
+        let old = self.handle(id)?;
+        let repo = gix::ThreadSafeRepository::open(&old.workdir).map_err(crate::error::gix_err)?;
+        let fresh = Arc::new(RepoHandle {
+            repo,
+            workdir: old.workdir.clone(),
+            name: old.name.clone(),
+            common_dir: old.common_dir.clone(),
+            wip: old.wip.clone(),
+            snapshot: Mutex::new(old.snapshot.lock().expect("snapshot poisoned").clone()),
+            walk: old.walk.clone(),
+        });
+        self.repos.lock().expect("repos poisoned").insert(id, fresh);
+        Ok(())
+    }
+    // --- end 4A T7 ---
 
     pub(crate) async fn open_repo(&self, path: &str) -> Result<RepoSummary, GbError> {
         self.git_version().await?;
@@ -3507,6 +3658,17 @@ mod tests {
         let root = r.root().display().to_string();
         use serde_json::json;
         vec![
+            // --- 4A T5 ---
+            json!({"method": "forgeAccounts"}),
+            json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": "glpat-FAKE-never-sent"}}),
+            json!({"method": "removeForgeAccount", "params": {"host": "gitlab.example.com"}}),
+            json!({"method": "forgeTokenPage", "params": {"host": "gitlab.example.com", "kind": "gitlab"}}),
+            // --- end 4A T5 ---
+            // --- 4A T6 ---
+            json!({"method": "forgeRepoProjects", "params": {"repo": id, "refresh": false}}),
+            json!({"method": "forgeProjectSettings", "params": {"repo": id, "remote": "origin"}}),
+            json!({"method": "forgeForks", "params": {"repo": id, "remote": "origin"}}),
+            // --- end 4A T6 ---
             json!({"method": "openRepo", "params": {"path": wt}}),
             json!({"method": "logFrontend", "params": {"level": "info", "message": "x", "stack": null}}),
             json!({"method": "setDebugLogging", "params": {"debug": false}}),
@@ -3597,6 +3759,8 @@ mod tests {
 
     /// The methods that write (`is_write`), which the never-write test leaves out.
     const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "undoEntry","applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "createWorktreeFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
+        // 4A T7
+        "addRemote",
         // --- 2C T5: checkout ---
         "checkout",
         // --- end 2C T5 ---
@@ -3644,6 +3808,9 @@ mod tests {
         let wt = r.path().canonicalize().unwrap().display().to_string();
         vec![
             json!({"method": "fetch", "params": {"repo": id, "background": false}}),
+            // --- 4A T7 ---
+            json!({"method": "addRemote", "params": {"repo": id, "worktree": wt, "name": "x", "url": "/nonexistent/x.git"}}),
+            // --- end 4A T7 ---
             json!({"method": "clone", "params": {"url": "https://example.com/x.git", "dest": "/nonexistent/x"}}),
             json!({"method": "testWrite", "params": {"repo": id, "worktree": wt, "intent": {"op": "barrier", "label": "x"}}}),
             // Undo / redo (2A T10).
@@ -3736,7 +3903,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {
@@ -3788,4 +3955,74 @@ mod tests {
         let writes: std::collections::BTreeSet<String> = write_samples(1, &r).iter().map(|s| s["method"].as_str().unwrap().to_string()).collect();
         assert_eq!(writes, WRITE_METHODS.iter().map(|m| m.to_string()).collect(), "one sample per write method");
     }
+    // --- 4A T5 ---
+    #[tokio::test]
+    async fn forge_account_requests_round_trip_and_the_token_never_shows() {
+        use crate::forge::fake::{FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::{ForgeKind, TokenStorage};
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        let tokens = MemTokens::new(TokenStorage::File);
+        let api = api().with_forge(FakeConnector::with(TOKEN, FakeProvider::new(ForgeKind::GitLab, "gitlab.example.com")), tokens.clone());
+        let req: Request = serde_json::from_value(serde_json::json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": TOKEN}})).unwrap();
+        assert!(!format!("{req:?}").contains(TOKEN), "Request's Debug (the dispatch log) never shows a token");
+        let added = api.dispatch(req).await.unwrap();
+        assert_eq!(added["account"]["storage"], "file");
+        assert!(!added.to_string().contains(TOKEN));
+        let list = api.dispatch(serde_json::from_value(serde_json::json!({"method": "forgeAccounts"})).unwrap()).await.unwrap();
+        assert_eq!(list[0]["account"]["user"]["username"], "ada");
+        assert_eq!(list[0]["status"]["kind"], "ok");
+        let page = api.dispatch(serde_json::from_value(serde_json::json!({"method": "forgeTokenPage", "params": {"host": "https://gitlab.example.com/", "kind": "gitlab"}})).unwrap()).await.unwrap();
+        assert!(page.as_str().unwrap().starts_with("https://gitlab.example.com/-/user_settings/personal_access_tokens?"));
+        api.dispatch(serde_json::from_value(serde_json::json!({"method": "removeForgeAccount", "params": {"host": "gitlab.example.com"}})).unwrap()).await.unwrap();
+        assert!(tokens.map.lock().unwrap().is_empty());
+        let none = api.dispatch(serde_json::from_value(serde_json::json!({"method": "forgeAccounts"})).unwrap()).await.unwrap();
+        assert_eq!(none, serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn deleting_a_profile_deletes_its_tokens() {
+        use crate::forge::fake::{FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::{ForgeKind, TokenStorage};
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        let tokens = MemTokens::new(TokenStorage::Keyring);
+        let api = api().with_forge(FakeConnector::with(TOKEN, FakeProvider::new(ForgeKind::GitLab, "gitlab.example.com")), tokens.clone());
+        let work = api.dispatch(req(serde_json::json!({"method": "createProfile", "params": {"name": "Work", "color": "#336699"}}))).await.unwrap();
+        let id = work["id"].as_str().unwrap().to_string();
+        api.dispatch(req(serde_json::json!({"method": "switchProfile", "params": {"id": id}}))).await.unwrap();
+        api.dispatch(req(serde_json::json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": TOKEN}}))).await.unwrap();
+        assert_eq!(tokens.token(&id, "gitlab.example.com").as_deref(), Some(TOKEN));
+        api.dispatch(req(serde_json::json!({"method": "switchProfile", "params": {"id": "default"}}))).await.unwrap();
+        api.dispatch(req(serde_json::json!({"method": "deleteProfile", "params": {"id": id}}))).await.unwrap();
+        assert!(tokens.map.lock().unwrap().is_empty(), "no orphaned token");
+    }
+    // --- end 4A T5 ---
+    // --- 4A T6 ---
+    #[tokio::test]
+    async fn forge_avatars_come_before_gravatar_and_follow_their_setting() {
+        use crate::forge::fake::{FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::{ForgeKind, TokenStorage};
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        let mut p = FakeProvider::new(ForgeKind::GitLab, "gitlab.example.com");
+        p.avatars.insert("grace@example.com".into(), crate::avatar::AvatarPayload { mime: "image/png".into(), base64: "Rk9SR0U=".into() });
+        let api = api().with_avatars(Arc::new(FakeAvatars)).with_forge(FakeConnector::with(TOKEN, p), MemTokens::new(TokenStorage::Keyring));
+        api.dispatch(req(serde_json::json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": TOKEN}}))).await.unwrap();
+        let ask = |email: &'static str| api.dispatch(req(serde_json::json!({"method": "avatar", "params": {"email": email}})));
+        assert_eq!(ask("grace@example.com").await.unwrap()["base64"], "Rk9SR0U=", "the forge's first");
+        assert_eq!(ask("ada@example.com").await.unwrap()["base64"], "iVBO", "then Gravatar");
+        api.dispatch(req(serde_json::json!({"method": "saveSettings", "params": {"settings": {"forgeAvatars": false}}}))).await.unwrap();
+        assert!(ask("grace@example.com").await.unwrap().is_null(), "off: the forge isn't asked");
+        assert_eq!(ask("ada@example.com").await.unwrap()["base64"], "iVBO");
+    }
+
+    #[tokio::test]
+    async fn repo_projects_without_a_forge_list_the_remotes_unmapped() {
+        let r = TestRepo::new();
+        r.commit("a");
+        r.git(&["remote", "add", "origin", "https://gitlab.example.com/group/project.git"]);
+        let api = api();
+        let id = open(&api, &r).await as u32;
+        let rp = api.dispatch(req(serde_json::json!({"method": "forgeRepoProjects", "params": {"repo": id, "refresh": false}}))).await.unwrap();
+        assert_eq!(rp, serde_json::json!({"remotes": [{"remote": "origin", "host": "gitlab.example.com", "path": "group/project", "account": null, "project": null, "error": null}], "target": null}));
+    }
+    // --- end 4A T6 ---
 }

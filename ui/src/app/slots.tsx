@@ -11,14 +11,15 @@ import type { TabState } from '../api/gen/TabState';
  *   the panels: autostash, crash-recovery and conflict banners, spec #2 §3.7), `sidebar` (left of its center),
  *   both inside the tab's `RepoContext` and `RepoViewContext`; `graphOverlay` (floats over the
  *   graph panel, hidden with it while a file is open: the find box, spec §8.7); `openTab` (the
- *   whole page of an Open tab, spec §13).
+ *   whole page of an Open tab, spec §13); `centerOverlay` (over the whole center, the graph or an open
+ *   file alike: the left flyout, spec #4 §5).
  * An empty slot renders nothing (no placeholder UI). Register at import time; `app/features.ts`
  * imports every feature module once. Like `registerActions`, a registration throws on a duplicate
  * id, so a module that registers releases them on a dev-server hot update:
  * `import.meta.hot?.dispose(registerAppSlot(…))` (see `coreActions.ts`).
  */
 export type AppSlotName = 'header' | 'statusBar' | 'overlay';
-export type TabSlotName = 'toolbar' | 'banner' | 'sidebar' | 'openTab' | 'graphOverlay';
+export type TabSlotName = 'toolbar' | 'banner' | 'sidebar' | 'openTab' | 'graphOverlay' | 'centerOverlay';
 export interface TabSlotProps { tab: TabState }
 
 interface Entry<P> { id: string; order: number; Component: ComponentType<P> }
@@ -29,7 +30,7 @@ interface SlotState {
 
 const useSlots = create<SlotState>(() => ({
   app: { header: [], statusBar: [], overlay: [] },
-  tab: { toolbar: [], banner: [], sidebar: [], openTab: [], graphOverlay: [] },
+  tab: { toolbar: [], banner: [], sidebar: [], openTab: [], graphOverlay: [], centerOverlay: [] },
 }));
 
 function add<P>(list: Entry<P>[], entry: Entry<P>): Entry<P>[] {

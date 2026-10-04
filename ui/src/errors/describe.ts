@@ -36,6 +36,10 @@ const TITLES: Record<Exclude<GbErrorKind, 'Cancelled'>, string> = {
   HookFailed: 'A hook failed',
   InProgress: 'Operation in progress',
   Stale: 'Changed since it was shown',
+  // --- 4A T1 ---
+  RateLimited: 'Rate limited',
+  Network: "Couldn't reach the server",
+  // --- end 4A T1 ---
 };
 
 /** Title and message for a notification, or null for errors that never notify (Cancelled). */
@@ -67,7 +71,7 @@ type Slot = 'retry' | 'refresh' | 'remove-recent' | 'remove-lock' | 'copy';
 const SLOTS: Record<GbErrorKind, Slot[]> = {
   AuthFailed: ['retry'], NonFastForward: ['refresh'], Conflict: ['refresh'], DirtyWorktree: ['refresh'], RefMoved: ['refresh'],
   IndexLocked: ['remove-lock', 'retry'], NotFound: ['remove-recent'], InvalidInput: [], GitTooOld: [], Io: ['copy'], Other: ['copy'], Cancelled: [],
-  HookFailed: ['retry'], InProgress: [], Stale: ['refresh'],
+  HookFailed: ['retry'], InProgress: [], Stale: ['refresh'], RateLimited: [], Network: ['retry'],
 };
 
 /** Suggested actions for one error (spec §16.1): the kind's slots the context can fill, then Details if a command is linked. */

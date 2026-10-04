@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 gitbolt-core = { workspace = true, features = ["testing"] }
+gitbolt-forge.workspace = true
 tokio.workspace = true
 axum.workspace = true
 serde.workspace = true
@@ -17,3 +18,4 @@ tempfile.workspace = true
 
 [dev-dependencies]
 tokio-tungstenite.workspace = true
+ureq.workspace = true

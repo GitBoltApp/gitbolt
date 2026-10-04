@@ -30,6 +30,9 @@ pub(crate) mod patch;
 pub(crate) mod precheck;
 pub(crate) mod queue;
 pub(crate) mod refs;
+// --- 4A T7 ---
+pub(crate) mod remotes;
+// --- end 4A T7 ---
 pub(crate) mod rewrites;
 // --- 2C T6: modules ---
 pub(crate) mod reset;

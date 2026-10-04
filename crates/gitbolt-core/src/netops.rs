@@ -12,6 +12,7 @@ use crate::error::{gix_err, GbError, GbErrorKind};
 use crate::events::{AppEvent, EventBus, OpKind, OpOutcome};
 use crate::git::GitInvocation;
 use crate::ops::{OpEntry, OpId};
+use gix::bstr::ByteSlice;
 use crate::payload::RepoSummary;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -239,8 +240,24 @@ impl Api {
     /// the worktree, the index or a local branch (a fetch writes remote-tracking refs, a clone
     /// only a folder of its own), and the e2e specs open and clone repositories outside the
     /// marked fixture root.
+    #[cfg(test)] // the dispatch calls `fetch_remote`; tests keep the short form
     pub(crate) async fn fetch(&self, id: u32, background: bool) -> Result<FetchOutcome, GbError> {
+        self.fetch_remote(id, background, None).await
+    }
+
+    /// `fetch`, of `remote` only when given (a remote just added, spec #4 §4 4A), else `--all`.
+    pub(crate) async fn fetch_remote(&self, id: u32, background: bool, remote: Option<String>) -> Result<FetchOutcome, GbError> {
         let h = self.handle(id)?;
+        // --- 4A T7 ---
+        if let Some(r) = &remote {
+            // A fresh read of the config: a remote added outside GitBolt counts too.
+            let fresh = gix::open(&h.workdir).map_err(gix_err)?;
+            let known = fresh.remote_names().into_iter().any(|n| n.to_str_lossy() == r.as_str());
+            if !known {
+                return Err(GbError::new(GbErrorKind::NotFound, format!("No remote {r}")));
+            }
+        }
+        // --- end 4A T7 ---
         let writes = self.repo_writes(&h);
         let op = self.ops.begin(OpKind::Fetch, Some(id), !background);
         // Spec #2 §3.6. A background fetch isn't a queue item: it runs only when the queue is
@@ -267,7 +284,9 @@ impl Api {
             // ran by hand (then `git merge FETCH_HEAD`) isn't replaced behind their back, and a
             // failed background fetch doesn't empty it (git ≥ 2.29; the minimum is 2.40).
             let fetch_head = background.then_some("--no-write-fetch-head");
-            let args: Vec<&str> = ["fetch", "--all", prune, "--no-prune-tags"].into_iter().chain(fetch_head).chain(NO_UPKEEP).chain(["--progress"]).collect();
+            // 4A T7: one remote (named last, after the options), or every remote.
+            let target: Vec<&str> = match &remote { Some(r) => vec!["--end-of-options", r.as_str()], None => vec!["--all"] };
+            let args: Vec<&str> = ["fetch", prune, "--no-prune-tags"].into_iter().chain(fetch_head).chain(NO_UPKEEP).chain(["--progress"]).chain(target).collect();
             command = Some(display_command(&args));
             let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(args))
                 .timeout(None)
@@ -851,7 +870,7 @@ mod tests {
         api.fetch(id, false).await.unwrap();
         let cmds: Vec<Option<String>> = drain(&mut rx).into_iter().filter_map(|e| match e { AppEvent::OpFinished { command, .. } => Some(command), _ => None }).collect();
         assert_eq!(cmds.len(), 1);
-        assert!(cmds[0].as_deref().unwrap().starts_with("git fetch --all"), "{cmds:?}");
+        assert!(cmds[0].as_deref().unwrap().starts_with("git fetch --prune"), "{cmds:?}");
         let dest = r.root().join("clone-dest");
         let _ = api.clone_repo("ssh://ada:hunter2@127.0.0.1:1/x".into(), dest.to_str().unwrap().into()).await;
         let cmds: Vec<Option<String>> = drain(&mut rx).into_iter().filter_map(|e| match e { AppEvent::OpFinished { command, .. } => Some(command), _ => None }).collect();

@@ -118,3 +118,18 @@ export function writeHook(repo: string, name: string, script: string): void {
 /** Creates an empty file (a hook's go signal). */
 export const touch = (path: string): void => writeFileSync(path, '');
 // --- end 2D T17 ---
+
+// --- 4A T14 ---
+/** The harness's fake forge (crates/gitbolt-harness/src/fake_forge): GitLab's token for Ada in its
+ * default seed (`GITLAB_TOKEN`). Tests reach the fake only through the harness port. */
+export const E2E_GITLAB_TOKEN = 'glpat-FAKE-e2e-ada';
+export type ForgeSeed = { gitlab: { projects: Array<Record<string, unknown>> } & Record<string, unknown> } & Record<string, unknown>;
+/** The fake forge's current seed (reset to the default before every test). */
+export async function forgeSeed(request: APIRequestContext): Promise<ForgeSeed> {
+  return (await (await request.get(`${harnessHttp}/test/forge/seed`)).json()) as ForgeSeed;
+}
+export async function setForgeSeed(request: APIRequestContext, seed: ForgeSeed): Promise<void> {
+  const res = await request.post(`${harnessHttp}/test/forge/seed`, { data: seed });
+  if (!res.ok()) throw new Error(`forge seed refused: ${res.status()}`);
+}
+// --- end 4A T14 ---

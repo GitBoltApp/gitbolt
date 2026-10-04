@@ -24,6 +24,12 @@ pub enum GbErrorKind {
     InProgress,
     /// a file or the index changed since it was shown
     Stale,
+    // --- 4A T1 ---
+    /// A forge's rate limit: no request until `ErrorDetail::RateLimited.until` (spec #4 §3.1).
+    RateLimited,
+    /// A forge (or any HTTP server) couldn't be reached: DNS, connect, TLS or a timeout.
+    Network,
+    // --- end 4A T1 ---
 }
 
 /// What a write error needs beyond its kind (spec #2 §15). Tagged by `kind`, camelCase in TS.
@@ -84,6 +90,13 @@ pub enum ErrorDetail {
     /// A `fetch --all` where some remotes failed: which, and a short plain reason each (never a
     /// URL with credentials). The sidebar's Remote rows warn on them until a fetch succeeds.
     FetchFailed { remotes: Vec<FailedRemote> },
+    // --- 4A T1 ---
+    /// `RateLimited`: when the forge takes requests again (unix seconds).
+    RateLimited {
+        #[ts(type = "number")]
+        until: i64,
+    },
+    // --- end 4A T1 ---
 }
 
 /// One remote a fetch couldn't get, with a short reason ("couldn't reach host", "authentication failed").
@@ -281,4 +294,14 @@ mod tests {
         assert_eq!(serde_json::to_value(&d).unwrap(), serde_json::json!({"kind": "restoreOverChanges", "path": "src/a b.txt"}));
     }
     // --- end 3A T3 ---
+    // --- 4A T1 ---
+    #[test]
+    fn rate_limited_errors_carry_until_when() {
+        let e = GbError::new(GbErrorKind::RateLimited, "x").with_detail(ErrorDetail::RateLimited { until: 1_791_115_200 });
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "RateLimited");
+        assert_eq!(v["detail"], serde_json::json!({"kind": "rateLimited", "until": 1_791_115_200i64}));
+        assert_eq!(serde_json::to_value(GbErrorKind::Network).unwrap(), "Network");
+    }
+    // --- end 4A T1 ---
 }

@@ -22,6 +22,7 @@ const EXEMPT: Record<string, string> = {
   'repo/PanelResizer.tsx': 'resize handle arrows',
   'sidebar/PanelDivider.tsx': 'resize handle arrows',
   'details/SplitResizer.tsx': 'resize handle arrows',
+  'ui/flyout/FlyoutHost.tsx': 'resize handle arrows',
   'tabs/useTabDrag.ts': 'drag cancel (Esc)',
   'irebase/rowDrag.ts': 'drag cancel (Esc)',
   'irebase/chipDrag.ts': 'drag cancel (Esc)',

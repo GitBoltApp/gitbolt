@@ -41,11 +41,11 @@ pub fn email_key(email: &str) -> String {
     Sha256::digest(email.trim().to_lowercase().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-fn mime_for(ext: &str) -> &'static str {
+pub(crate) fn mime_for(ext: &str) -> &'static str {
     match ext {
         "png" => "image/png",
         "gif" => "image/gif",
@@ -56,7 +56,7 @@ fn mime_for(ext: &str) -> &'static str {
 
 /// The cache extension for an image content type. `None` for anything else (for example a
 /// captive portal's HTML page), which is a transient failure and never cached.
-fn ext_for(content_type: &str) -> Option<&'static str> {
+pub(crate) fn ext_for(content_type: &str) -> Option<&'static str> {
     match content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase().as_str() {
         "image/png" => Some("png"),
         "image/gif" => Some("gif"),
@@ -68,7 +68,7 @@ fn ext_for(content_type: &str) -> Option<&'static str> {
 
 /// Creates the cache directory (and parents) owner-only, and tightens one that already exists
 /// (minor #9): the index lists which hashed authors the user browsed.
-fn ensure_private_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn ensure_private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -87,7 +87,7 @@ fn ensure_private_dir(dir: &Path) -> std::io::Result<()> {
 /// Writes a temp file, then renames it, so a crash never leaves a half-written file. The temp
 /// name is unique per call (`.<name>.<pid>.<counter>.tmp`), so concurrent writers of the same
 /// path never share, truncate or steal each other's temp file.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = path.with_file_name(format!(".{name}.{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
@@ -98,7 +98,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     written
 }
 
-fn payload(ext: &str, bytes: &[u8]) -> AvatarPayload {
+pub(crate) fn payload(ext: &str, bytes: &[u8]) -> AvatarPayload {
     AvatarPayload { mime: mime_for(ext).into(), base64: base64::engine::general_purpose::STANDARD.encode(bytes) }
 }
 

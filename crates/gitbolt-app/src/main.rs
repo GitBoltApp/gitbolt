@@ -57,8 +57,17 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook) -> Ap
     match dirs::cache_dir() {
         Some(cache) => api
             .with_open_cache(cache.join("gitbolt").join("open"))
-            .with_avatars(Arc::new(Gravatar::new(cache.join("gitbolt").join("avatars"), DEFAULT_BASE_URL)) as Arc<dyn AvatarProvider>),
-        None => api,
+            .with_avatars(Arc::new(Gravatar::new(cache.join("gitbolt").join("avatars"), DEFAULT_BASE_URL)) as Arc<dyn AvatarProvider>)
+            // --- 4A T10: forge accounts (spec #4 §3.2): the system keyring, else the 0600 file ---
+            .with_forge(
+                Arc::new(gitbolt_forge::connector::Forge::new(gitbolt_forge::connector::ForgeConfig { overrides: Default::default(), only_overrides: false, avatar_dir: Some(cache.join("gitbolt").join("forge-avatars")) })),
+                Arc::new(gitbolt_forge::tokens::SystemTokenStore::system(paths::data_dir().join("forge-tokens"))),
+            ),
+            // --- end 4A T10 ---
+        None => api.with_forge(
+            Arc::new(gitbolt_forge::connector::Forge::new(gitbolt_forge::connector::ForgeConfig { overrides: Default::default(), only_overrides: false, avatar_dir: None })),
+            Arc::new(gitbolt_forge::tokens::SystemTokenStore::system(paths::data_dir().join("forge-tokens"))),
+        ),
     }
 }
 

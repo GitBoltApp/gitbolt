@@ -36,6 +36,10 @@ sidebarPanels: { [key in string]: number },
  */
 rightPanelWidth: number | null, 
 /**
+ * The left flyout's width (spec #4 §5); `None` is the UI's default.
+ */
+flyoutWidth: number | null, 
+/**
  * Keyed by canonical repo path.
  */
 repos: { [key in string]: RepoSettings }, };

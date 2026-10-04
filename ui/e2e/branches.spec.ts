@@ -21,7 +21,7 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
     await expect(input).toBeHidden();
     await expect(chip(page, 'topic/new')).toBeVisible();
     expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/topic/new');
-    await page.getByRole('button', { name: 'Undo' }).click();
+    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect(chip(page, 'topic/new')).toBeHidden();
     expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
   });
@@ -114,10 +114,10 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
     // One confirmation only: no second (unmerged) dialog follows.
     await expect(page.getByRole('alertdialog')).toBeHidden();
     await expect(chip(page, 'feature/login')).toBeHidden();
-    await page.getByRole('button', { name: 'Undo' }).click();
+    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect(page.getByText('Undid delete branch feature/login and origin/feature/login (origin/feature/login stays deleted)')).toBeVisible();
     await expect(chip(page, 'feature/login')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    await expect(page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
 
   test('Set upstream picks a remote branch, and None unsets it', async ({ page }) => {

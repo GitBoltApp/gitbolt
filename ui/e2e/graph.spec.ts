@@ -1001,6 +1001,12 @@ test.describe('resizable columns', () => {
     const row = page.getByRole('row').nth(3);
     await row.locator('[data-col="message"]').click();
     await expect(row).toHaveAttribute('aria-selected', 'true');
+    // The details panel appears only once the selection's details loaded (F12), and the columns
+    // refit to the narrower grid a render later: resizing before that sizes Message for the wider
+    // grid, which then no longer fits and fills the grid (the preference is kept, by design).
+    await expect(page.getByRole('complementary', { name: 'Commit details' })).toBeVisible();
+    const gridWidth = await page.getByRole('grid', { name: 'Commit graph' }).evaluate((el) => el.clientWidth);
+    await expect.poll(async () => Math.round(Object.values(await columnWidths(page)).reduce((sum, c) => sum + c.header, 0))).toBe(gridWidth);
     // Narrowing Message (after the details panel took its share) leaves free space on the right.
     const message = page.getByRole('separator', { name: 'Resize Commit message column' });
     await message.focus();
