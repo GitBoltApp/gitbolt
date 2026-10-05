@@ -1,9 +1,14 @@
 import { create } from 'zustand';
 
 export type DiffMode = 'hunk' | 'inline' | 'split';
-export interface DiffPrefs { mode: DiffMode; ignoreWhitespace: boolean; wordWrap: boolean }
-/** Inline by default (plan 1B amendment 3); the user's last pick is remembered app-wide. */
-export const DEFAULT_DIFF_PREFS: DiffPrefs = { mode: 'inline', ignoreWhitespace: false, wordWrap: false };
+/** Spec #5 §3.3: how File View shows a Markdown file, app-wide. */
+export type MarkdownView = 'rendered' | 'source';
+export interface DiffPrefs { mode: DiffMode; ignoreWhitespace: boolean; wordWrap: boolean; markdownView: MarkdownView }
+/** What the diff editor's options are built from (`diffEditorOptions`). */
+export type EditorDiffPrefs = Pick<DiffPrefs, 'mode' | 'ignoreWhitespace' | 'wordWrap'>;
+/** Inline by default (plan 1B amendment 3); Markdown rendered (spec #5 §3.3). The user's last
+ * pick is remembered app-wide. */
+export const DEFAULT_DIFF_PREFS: DiffPrefs = { mode: 'inline', ignoreWhitespace: false, wordWrap: false, markdownView: 'rendered' };
 
 const MODES: readonly DiffMode[] = ['hunk', 'inline', 'split'];
 
@@ -19,6 +24,7 @@ export function parseDiffPrefs(raw: unknown): DiffPrefs | null {
     mode: MODES.includes(r.mode as DiffMode) ? (r.mode as DiffMode) : DEFAULT_DIFF_PREFS.mode,
     ignoreWhitespace: typeof r.ignoreWhitespace === 'boolean' ? r.ignoreWhitespace : DEFAULT_DIFF_PREFS.ignoreWhitespace,
     wordWrap: typeof r.wordWrap === 'boolean' ? r.wordWrap : DEFAULT_DIFF_PREFS.wordWrap,
+    markdownView: r.markdownView === 'source' || r.markdownView === 'rendered' ? r.markdownView : DEFAULT_DIFF_PREFS.markdownView,
   };
 }
 

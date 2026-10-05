@@ -170,6 +170,10 @@ export interface RepoViewState {
   /** Spec #2 §7.5: asked before the open file is left (`openFile`, `closeDiff`, `closeDiffTo`,
    * `selectRow`). It returns `true` when it took over: it calls `go` itself, or never. */
   setLeaveGuard(guard: ((go: () => void) => boolean) | null): void;
+  /** Runs `go` once leaving the open file is settled: at once, or after the leave guard's prompt
+   * (never, if it's cancelled). For what opens a file another way: spec #5's Back/Forward and
+   * Markdown links ask once, not once per step. */
+  leaveThen(go: () => void): void;
 }
 
 export type RepoViewStore = StoreApi<RepoViewState>;
@@ -689,6 +693,10 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
 
       setLeaveGuard(guard) {
         leaveGuard = guard;
+      },
+
+      leaveThen(go) {
+        if (!leaveGuard?.(go)) go();
       },
     };
     // Spec #2 §7.5: leaving the open file asks the guard first.

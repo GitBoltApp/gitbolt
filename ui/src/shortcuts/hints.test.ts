@@ -39,6 +39,7 @@ const EXEMPT: Record<string, string> = {
   'diff/monaco/host.ts': 'Monaco-owned keys',
   'diff/monaco/hexPanes.ts': 'hex pane keys',
   'app/shortcuts.ts': 'the Ctrl-chord dispatcher (its actions are listed by the panel)',
+  'nav/input.ts': 'Alt+←/→ dispatch (its actions, Go back / Go forward, are listed by the panel)',
   'shortcuts/ShortcutsPanel.tsx': 'this panel',
 };
 

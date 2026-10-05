@@ -1,4 +1,4 @@
-import type { DiffPrefs } from './diffPrefs';
+import type { EditorDiffPrefs } from './diffPrefs';
 import { DEFAULT_EDITOR_SETTINGS } from './editorSettings';
 
 /** Hunk mode's collapsed unchanged regions (spec §10.2). */
@@ -23,7 +23,7 @@ export const EDITOR_SCROLLBAR = { verticalScrollbarSize: 10, horizontalScrollbar
  * editorSettings.ts). The only fixed settings are the spec'd read-only and
  * no-language-service ones. It returns plain data (no Monaco import), so it's unit-testable.
  */
-export function diffEditorOptions(p: DiffPrefs, contextMenu: boolean, stickyScroll = DEFAULT_EDITOR_SETTINGS.stickyScroll, fontSize = EDITOR_FONT_SIZE) {
+export function diffEditorOptions(p: EditorDiffPrefs, contextMenu: boolean, stickyScroll = DEFAULT_EDITOR_SETTINGS.stickyScroll, fontSize = EDITOR_FONT_SIZE) {
   return {
     readOnly: true,
     automaticLayout: false,

@@ -90,3 +90,13 @@ import '../forge/stack/createFeature';
 // --- 4D T8 ---
 import '../forge/stack/afterMergeFeature';
 // --- end 4D T8 ---
+
+// --- 5B T2 ---
+import '../nav/feature';
+// --- end 5B T2 ---
+// --- 5B T3 ---
+import '../nav/mrPlaces';
+// --- end 5B T3 ---
+// --- 5B T4 ---
+import '../nav/repoPlaces';
+// --- end 5B T4 ---

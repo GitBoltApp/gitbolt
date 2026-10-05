@@ -215,3 +215,19 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(screen.getByRole('region', { name: 'Description' })).toHaveTextContent('Adds the dev work.');
   });
 });
+
+// --- 5B T3 ---
+describe('navigation history (spec #5 §3.4)', () => {
+  it('comes back to where the view was scrolled, and notes its scroll for the next step', async () => {
+    const { scrollOf, setPendingScroll } = await import('../../nav/scroll');
+    setPendingScroll('t', 'mr', { key: 'mr:12', view: null, top: 300, anchor: null });
+    show();
+    const body = document.querySelector<HTMLElement>('.flyout-body')!;
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 4000 });
+    await waitFor(() => expect(body.scrollTop).toBe(300));
+    body.scrollTop = 120;
+    fireEvent.scroll(body);
+    expect(scrollOf('t', 'mr', 'mr:12')).toBe(120);
+  });
+});
+// --- end 5B T3 ---

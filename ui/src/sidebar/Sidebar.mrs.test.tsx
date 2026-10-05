@@ -87,15 +87,15 @@ describe('the sidebar MR/PR section (spec #4 §2, §5)', () => {
     it('Down / Up move the selection, opening each view; Home and End go to the ends', () => {
       const { tree } = open();
       fireEvent.keyDown(tree, { key: 'ArrowDown' });
-      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5);
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5, 'replace');
       fireEvent.keyDown(tree, { key: 'ArrowDown' });
-      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 3);
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 3, 'replace');
       fireEvent.keyDown(tree, { key: 'ArrowUp' });
-      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5);
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5, 'replace');
       fireEvent.keyDown(tree, { key: 'End' });
-      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 3);
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 3, 'replace');
       fireEvent.keyDown(tree, { key: 'Home' });
-      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 12);
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 12, 'replace');
     });
 
     it('closing the view clears the selection; opening one from elsewhere selects its row', () => {

@@ -5,6 +5,7 @@ import type { GbError } from '../api/gen/GbError';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { clampFetchInterval } from '../settings/schema';
+import { recordPlace } from '../nav/history';
 import { sectionKey } from '../sidebar/model';
 import { openFlyout } from '../ui/flyout/flyout';
 import { forgeOf, forgeScratch, keepSame, knownMr, sameJson, MR_FLYOUT, patchForge, upstreamRefsOf, writeEpoch, type MrViewArgs, type TabForge } from './mrStore';
@@ -188,8 +189,11 @@ export function loadMrDetail(tabId: string, number: number, maxAgeMs = DETAIL_MA
   return p;
 }
 
-/** The MR/PR view (spec #4 §4 "4B"): the tab's flyout. The view loads the MR/PR as it mounts. */
-export function openMrView(tabId: string, number: number): void {
+/** The MR/PR view (spec #4 §4 "4B"): the tab's flyout. The view loads the MR/PR as it mounts.
+ * Spec #5 §3.4: a navigation place, recorded first (the view being left saves its scroll);
+ * `replace` (the sidebar list's arrow keys) swaps the current MR/PR place instead of adding one. */
+export function openMrView(tabId: string, number: number, how: 'push' | 'replace' = 'push'): void {
+  recordPlace(tabId, { kind: 'mr', number, scrollTop: 0 }, how);
   openFlyout<MrViewArgs>(tabId, MR_FLYOUT, { number });
   patchForge(tabId, { openMr: number });
 }

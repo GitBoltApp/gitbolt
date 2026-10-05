@@ -20,6 +20,7 @@ import { useEscapeOwner } from '../repo/escape';
 import { useFocusZone } from '../repo/focus';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { HistoryButtons } from '../history/HistoryButtons';
+import { filePlaceKey } from '../nav/repoPlaces';
 import { OpenInButton } from '../openIn/OpenInMenu';
 import { contentKey, type RepoServices } from '../repo/services';
 import { contentsRequest, useRepoView, useRepoViewStore, type DiffTarget, type Loadable } from '../repo/store';
@@ -218,6 +219,7 @@ function ImageBody({ target, contents: c, onSourceChange, onHex }: { target: Dif
  * still shows the previous file: it's this file's (K7). */
 function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange, onHex, editable = false, onEdit, draft }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
   const { repoId } = useRepoContext();
+  const selection = useRepoView((s) => s.selection);
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
   const c = contents.data;
@@ -258,7 +260,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     <>
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} <ArrowGlyph /> {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
-        ? <FileView identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} />
+        ? <FileView identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} />
         : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined} />}
       {/* Spec #2 §7.3: hunk and line buttons on a WIP text diff. */}
       {target.view === 'diff' && wip && <HunkActions target={target} />}

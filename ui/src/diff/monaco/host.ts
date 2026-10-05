@@ -1,5 +1,5 @@
 import type * as MonacoNs from 'monaco-editor/editor/editor.api';
-import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../diffPrefs';
+import { DEFAULT_DIFF_PREFS, type EditorDiffPrefs } from '../diffPrefs';
 import { useEditorSettings } from '../editorSettings';
 import { clampEditorFont, diffEditorOptions, EDITOR_SCROLLBAR, fileViewOptions } from '../options';
 import { enableDeletedLineCopy } from './deletedCopy';
@@ -13,7 +13,7 @@ import { useAppState } from '../../app/state';
 import { bindEditorTheme, currentEditorTheme } from '../../theme/editorThemes';
 import { ensureLanguage, ensureTheme } from './shiki';
 
-export interface DiffShowRequest { /** The target's key (repo/worktree and path): what `modifiedText` checks. */ identity?: string; path: string; original: string; modified: string; language: string; prefs: DiffPrefs; hunkZones?: HunkZoneRequest }
+export interface DiffShowRequest { /** The target's key (repo/worktree and path): what `modifiedText` checks. */ identity?: string; path: string; original: string; modified: string; language: string; prefs: EditorDiffPrefs; hunkZones?: HunkZoneRequest }
 export type { LineGutterSpec };
 export type { FileMargin };
 export type { HexShowRequest, HexView } from './hexPanes';
@@ -63,7 +63,7 @@ export interface MonacoHost {
    * stays there (the top or bottom, when scrolled to one), including after a recompute
    * (Ignore whitespace), until the user takes over (a pointer, the wheel, a key, Next/Previous
    * change) or another file shows. No jump to the first change: that's for a new file only. */
-  setDiffPrefs(prefs: DiffPrefs): void;
+  setDiffPrefs(prefs: EditorDiffPrefs): void;
   goToChange(direction: 'next' | 'previous'): void;
   /** `next`: as `attachDiff`'s, for File View. */
   attachFile(el: HTMLElement, next?: FileContent): void;
@@ -108,6 +108,13 @@ export interface MonacoHost {
   onFileEdit(cb: (() => void) | null): void;
   /** The next `showDiff`/`showFile` of the same path restores today's cursor and scroll (a save's reload). */
   keepViewOnNextShow(): void;
+  /** File View's scroll position; `null` with no file shown (spec #5 §3.4: a place's scroll). */
+  fileScrollTop(): number | null;
+  /** Scrolls File View to `top`, at once (spec #5 §3.4: Back/Forward). */
+  setFileScrollTop(top: number): void;
+  /** File View's cursor and scroll, to put back after the rendered Markdown view (spec #5 §3.3). */
+  fileViewState(): MonacoNs.editor.ICodeEditorViewState | null;
+  restoreFileViewState(state: MonacoNs.editor.ICodeEditorViewState | null): void;
   /** Spec #2 §7.3: the gutter's per-line stage/unstage button (`LineGutter`); `null` removes it. */
   setLineGutter(spec: LineGutterSpec | null): void;
   /** Each selection in either editor (and again when it scrolls), as the lines it covers on that
@@ -213,7 +220,7 @@ class Host implements MonacoHost {
   private fileShown: FileContent | null = null;
   // The latest diff prefs and File View wrap, whoever set them last: a show call adopts its own
   // at call time, and a later set* call during its grammar load still wins.
-  private prefs: DiffPrefs = DEFAULT_DIFF_PREFS;
+  private prefs: EditorDiffPrefs = DEFAULT_DIFF_PREFS;
   private fileWrap = DEFAULT_DIFF_PREFS.wordWrap;
   private computedCount = 0;
   private menu: ((e: EditorContextMenuEvent) => void) | null = null;
@@ -394,7 +401,7 @@ class Host implements MonacoHost {
     m.setScrollTop(m.getTopForLineNumber(Math.max(1, line - REVEAL_CONTEXT_LINES)), SCROLL_IMMEDIATE);
   }
 
-  setDiffPrefs(prefs: DiffPrefs): void {
+  setDiffPrefs(prefs: EditorDiffPrefs): void {
     const ed = this.diff;
     const recomputes = prefs.ignoreWhitespace !== this.prefs.ignoreWhitespace;
     // An anchor still held (a relayout or recompute not in yet) is the truer place than the
@@ -441,7 +448,7 @@ class Host implements MonacoHost {
     });
   }
 
-  private applyDiffPrefs(prefs: DiffPrefs): void {
+  private applyDiffPrefs(prefs: EditorDiffPrefs): void {
     const modeChanged = prefs.mode !== this.prefs.mode;
     this.prefs = prefs;
     this.diff?.updateOptions(diffEditorOptions(prefs, this.menu === null, sticky(), fontSize()));
@@ -640,6 +647,22 @@ class Host implements MonacoHost {
     // A save that changed nothing shows nothing again: the kept place isn't held for a later show.
     clearTimeout(this.keptTimer);
     this.keptTimer = setTimeout(() => { this.keptView = null; }, KEPT_VIEW_MS);
+  }
+
+  fileScrollTop(): number | null {
+    return this.file && this.fileEl.parentElement && this.fileModel ? this.file.getScrollTop() : null;
+  }
+
+  setFileScrollTop(top: number): void {
+    if (this.file && this.fileEl.parentElement) this.file.setScrollTop(top, SCROLL_IMMEDIATE);
+  }
+
+  fileViewState(): MonacoNs.editor.ICodeEditorViewState | null {
+    return this.file && this.fileEl.parentElement ? this.file.saveViewState() : null;
+  }
+
+  restoreFileViewState(state: MonacoNs.editor.ICodeEditorViewState | null): void {
+    if (state && this.file) this.file.restoreViewState(state);
   }
 
   setFileWordWrap(on: boolean): void {

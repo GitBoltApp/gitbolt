@@ -126,7 +126,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
     v.scrollToIndex(c, { align: 'auto' });
     // In the MR/PR list the selection is the open view: moving it opens that row's.
     const r = rows[c];
-    if (section.kind === 'mrs' && r?.type === 'item' && r.item.kind === 'mr' && c !== cursor) openMrView(tabId, r.item.mr.number);
+    if (section.kind === 'mrs' && r?.type === 'item' && r.item.kind === 'mr' && c !== cursor) openMrView(tabId, r.item.mr.number, 'replace');
   };
   /** The row's context menu (spec §7): a branch, tag, stash, worktree or MR/PR item, or a remote's folder. */
   const menuOf = (row: FlatRow | undefined) => {

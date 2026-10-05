@@ -1,8 +1,12 @@
 import { ExternalLink } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { FlyoutFrame } from '../../ui/flyout/FlyoutFrame';
 import type { FlyoutProps } from '../../ui/flyout/flyout';
 import { HoverTooltip } from '../../ui/HoverTooltip';
+// --- 5B T3 ---
+import { placeKey } from '../../nav/history';
+import { useScrollPlace } from '../../nav/scroll';
+// --- end 5B T3 ---
 import { ForgeStaleNote } from '../ForgeStale';
 import { EmojiText } from '../emoji';
 import { mrName, mrRef } from '../labels';
@@ -43,6 +47,18 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
   const ref = mrRef(kind, number);
   const label = `${mrName(kind)} ${ref}`;
   const error = f.detailErrors[number];
+  // --- 5B T3: Back/Forward come back to where this view was scrolled (spec #5 §3.4) ---
+  const probe = useRef<HTMLSpanElement>(null);
+  useScrollPlace({
+    tabId,
+    kind: 'mr',
+    key: placeKey({ kind: 'mr', number, scrollTop: 0 }),
+    el: () => probe.current?.closest<HTMLElement>('.flyout-body') ?? null,
+    active: true,
+    ready: !!detail && f.discussions[number] !== undefined,
+    view: null,
+  });
+  // --- end 5B T3 ---
   return (
     <FlyoutFrame
       label={label}
@@ -54,6 +70,7 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
         </HoverTooltip>
       )}
     >
+      <span ref={probe} hidden />
       <ForgeStaleNote tabId={tabId} />
       {!mr && <p className="mr-wait">{error ? `Couldn't load ${label}: ${error}` : 'Loading…'}</p>}
       {/* The MR/PR's own refresh failed: what's shown is older. */}
