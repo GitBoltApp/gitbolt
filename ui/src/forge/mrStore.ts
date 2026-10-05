@@ -120,7 +120,7 @@ export function mrForLabel(f: TabForge, label: { local: string | null; remotes: 
 export const mrForUpstream = (f: TabForge, upstream: string | null | undefined): ForgeMr | null => (upstream ? f.byRef[upstream] ?? null : null);
 
 /** An MR/PR by number from what's loaded: its detail, the list, a badge. */
-export function knownMr(f: TabForge, n: number): ForgeMr | null {
+export function knownMr(f: Pick<TabForge, 'details' | 'list' | 'byRef'>, n: number): ForgeMr | null {
   return f.details[n]?.value.mr ?? f.list?.mrs.find((m) => m.number === n) ?? Object.values(f.byRef).find((m) => m.number === n) ?? null;
 }
 

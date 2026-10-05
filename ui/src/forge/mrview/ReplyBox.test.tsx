@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
 const api = vi.hoisted(() => ({ forgeReply: vi.fn() }));
@@ -14,6 +14,11 @@ const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
 const { useToast } = await import('../../ui/toast');
 const { mrOf, user } = await import('../testMrs');
+const { preloadMarkdown } = await import('../../markdown/lazy');
+
+// The Markdown chunk loaded before any test (test-setup does it too, but quietly): the preview then
+// renders in the click's own update, with nothing to wait for.
+beforeAll(() => preloadMarkdown(), 60_000);
 
 const ada = user('Ada Lovelace');
 const thread = (id: string): ForgeDiscussion => ({ id, resolvable: false, resolved: false, notes: [{ id: '1', author: user('Grace Hopper'), body: 'Why?', createdAt: 1, system: false, position: null }] });
@@ -78,5 +83,13 @@ describe('replying in the MR/PR view (spec #4 §4 "4B")', () => {
     unmount();
     render(<Discussion tabId="t" kind="github" mr={mrOf(12)} d={thread('issue-41')} />);
     expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
+  });
+
+  it('previews the comment rendered before sending (spec #5 §3.2)', () => {
+    render(<ReplyBox tabId="t" number={12} discussion={null} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Write a comment' }), { target: { value: '**Looks** good' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    expect(document.querySelector('.md-field-preview strong')).toHaveTextContent('Looks');
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeEnabled();
   });
 });

@@ -53,6 +53,10 @@ pub(crate) struct FakeProvider {
       pub fail_parts: Mutex<Vec<PartFailure>>,
       pub created: Mutex<Vec<CreateMr>>,
       // --- end 4C T5 ---
+      // --- 5A T1 ---
+      /// URL → what `image` answers; any other URL isn't this forge's (`None`).
+      pub images: Mutex<HashMap<String, ForgeImage>>,
+      // --- end 5A T1 ---
 }
 
 impl FakeProvider {
@@ -66,6 +70,9 @@ impl FakeProvider {
               // --- 4C T5 ---
               people: Vec::new(), label_list: Vec::new(), templates: Some(Vec::new()), fail_parts: Mutex::default(), created: Mutex::default(),
               // --- end 4C T5 ---
+              // --- 5A T1 ---
+              images: Mutex::default(),
+              // --- end 5A T1 ---
         }
     }
 
@@ -173,7 +180,7 @@ impl ForgeProvider for FakeProvider {
     }
     fn reply<'a>(&'a self, _project: &'a ForgeProject, number: u64, note: &'a NewNote) -> ForgeFuture<'a, ForgeNote> {
         self.call(format!("reply {number} {:?} {}", note.discussion, note.body));
-        Box::pin(async move { Ok(ForgeNote { id: "n1".into(), author: self.user.clone(), body: note.body.clone(), created_at: 9, system: false, position: None }) })
+        Box::pin(async move { Ok(ForgeNote { id: "n1".into(), author: self.user.clone(), body: note.body.clone(), created_at: 9, system: false, position: None, body_html: None }) })
     }
     fn approve<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ()> {
         self.call(format!("approve {number}"));
@@ -237,6 +244,13 @@ impl ForgeProvider for FakeProvider {
           Box::pin(async move { self.templates.clone().ok_or_else(|| GbError::new(GbErrorKind::Network, format!("Couldn't reach {}: timed out", self.host))) })
       }
       // --- end 4C T5 ---
+    // --- 5A T1 ---
+    fn image<'a>(&'a self, _project: &'a ForgeProject, url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        self.call(format!("image {url}"));
+        let found = self.images.lock().unwrap().get(url).cloned()?;
+        Some(Box::pin(async move { Ok(found) }))
+    }
+    // --- end 5A T1 ---
 }
 
 // --- 4B T1 ---
@@ -267,6 +281,11 @@ pub(crate) fn mr(number: u64, source_project: &str, branch: &str, state: MrState
 pub(crate) struct FakeConnector {
     pub by_token: Mutex<HashMap<String, Arc<FakeProvider>>>,
     pub connects: AtomicUsize,
+    // --- 5A T1 ---
+    /// URL → what `public_image` answers (else a network error); every URL asked, in order.
+    pub public: Mutex<HashMap<String, ForgeImage>>,
+    pub public_calls: Mutex<Vec<String>>,
+    // --- end 5A T1 ---
 }
 
 impl FakeConnector {
@@ -292,6 +311,13 @@ impl ForgeConnector for FakeConnector {
             None => Arc::new(FakeProvider { reject: true, ..FakeProvider::new(kind, host) }),
         })
     }
+    // --- 5A T1 ---
+    fn public_image<'a>(&'a self, url: &'a str) -> ForgeFuture<'a, ForgeImage> {
+        self.public_calls.lock().unwrap().push(url.to_string());
+        let found = self.public.lock().unwrap().get(url).cloned();
+        Box::pin(async move { found.ok_or_else(|| GbError::new(GbErrorKind::Network, "Couldn't reach the image host")) })
+    }
+    // --- end 5A T1 ---
 }
 
 /// Tokens in memory. `put` answers `storage`.
@@ -470,7 +496,7 @@ impl ForgeProvider for StackFake {
         let found = self.mrs.lock().unwrap().iter().find(|(m, _)| m.number == number).cloned();
         Box::pin(async move {
             let (mr, description) = found.ok_or_else(|| self.missing(number))?;
-            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None }, 1))
+            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None }, 1))
         })
     }
     fn edit<'a>(&'a self, _project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {

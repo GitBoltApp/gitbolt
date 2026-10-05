@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeNote } from '../../api/gen/ForgeNote';
+import { MarkdownField } from '../../markdown/MarkdownField';
 import { registerKeyHints } from '../../shortcuts/hints';
 import { mrRef } from '../labels';
 import { patchForge, useTabForgeField } from '../mrStore';
@@ -37,11 +38,14 @@ export function ReplyBox({ tabId, number, discussion, onDone }: { tabId: string;
   };
   return (
     <form className="mr-reply" aria-label={action} onSubmit={(e) => { e.preventDefault(); void send(); }}>
-      <textarea
-        aria-label={discussion ? 'Reply' : 'Write a comment'}
+      {/* --- 5A T9: Write / Preview --- */}
+      <MarkdownField
+        label={discussion ? 'Reply' : 'Write a comment'}
         placeholder={discussion ? 'Write a reply' : 'Write a comment'}
         value={text}
-        onChange={(e) => setDraft(key, e.target.value)}
+        onChange={(v) => setDraft(key, v)}
+        flavor={kind ?? 'gitlab'}
+        context={{ kind: 'forge', tabId }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
@@ -49,6 +53,7 @@ export function ReplyBox({ tabId, number, discussion, onDone }: { tabId: string;
           }
         }}
       />
+      {/* --- end 5A T9 --- */}
       <div className="mr-form-row">
         {onDone && <button type="button" className="mr-button" onClick={onDone}>Cancel</button>}
         <button type="submit" className="mr-button primary" disabled={!ready}>{busy ? 'Sending…' : action}</button>

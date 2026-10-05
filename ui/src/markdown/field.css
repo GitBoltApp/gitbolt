@@ -1,0 +1,11 @@
+/* Write / Preview (spec #5 §3.2): the preview lies over the textarea, which keeps the size. */
+.md-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.md-field-tabs { display: flex; gap: 2px; }
+.md-field-tab { padding: 2px 8px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--text-secondary); font: inherit; font-size: 11px; cursor: pointer; transition: color var(--motion-fast), background-color var(--motion-fast); }
+.md-field-tab[aria-selected="true"] { color: var(--text-normal); background: var(--control-bg); border-color: var(--section-border); }
+.md-field-tab:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
+.md-field-body { position: relative; display: flex; flex-direction: column; }
+.md-field[data-mode="preview"] .md-field-body > textarea { visibility: hidden; }
+.md-field-preview { position: absolute; inset: 0; overflow: auto; padding: 4px 6px; box-sizing: border-box; border: 1px solid var(--section-border); border-radius: 6px; background: var(--panel-bg1); color: var(--text-normal); }
+.md-field-preview:focus-visible { outline: none; border-color: var(--focus-outline); box-shadow: 0 0 0 1px var(--focus-outline); }
+.md-field-empty { margin: 0; color: var(--text-secondary); }

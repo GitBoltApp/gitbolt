@@ -571,6 +571,15 @@ impl ForgeHub {
 }
 // --- end 4A T6 ---
 
+// --- 5A T1 ---
+impl ForgeHub {
+    /// The connector (a clicked Markdown image, `image.rs`).
+    pub(crate) fn connector(&self) -> &Arc<dyn ForgeConnector> {
+        &self.connector
+    }
+}
+// --- end 5A T1 ---
+
 // --- 4C T5: the Create flyout (spec #4 §4 "4C") ---
 /// What the Create flyout asks about (`forgeCreateContext`).
 pub struct CreateAsk<'a> {

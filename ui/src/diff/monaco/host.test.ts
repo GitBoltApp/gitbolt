@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MonacoHost } from './host';
 
 // A fake Monaco that models what matters here: an editor created with an undefined theme falls
@@ -276,6 +276,11 @@ const prefs = { mode: 'inline', ignoreWhitespace: false, wordWrap: false } as co
 const diffReq = (path: string, language = 'plaintext', p: typeof prefs | { mode: 'hunk' | 'split' | 'inline'; ignoreWhitespace: boolean; wordWrap: boolean } = prefs) => ({ path, original: `${path} old\n`.repeat(200), modified: `${path} new\n`.repeat(200), language, prefs: p });
 const menuEvent = () => ({ target: { position: { lineNumber: 7 } }, event: { posx: 10, posy: 20, preventDefault: vi.fn() } });
 
+// The first import of the host's module graph (host.ts, @shikijs/monaco, the theme registrations)
+// is its transform: ~100 ms idle, 3 s and more under load, which the first test paid inside its own
+// timeout. Paid once here, with the hook's budget; each test's fresh() then re-evaluates cached
+// modules.
+beforeAll(async () => { await fresh(); }, 60_000);
 beforeEach(() => {
   vi.useRealTimers();
   gate.wait = null;

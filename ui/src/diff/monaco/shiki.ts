@@ -65,3 +65,35 @@ export function ensureLanguage(monaco: Monaco, lang: string): Promise<string> {
   }
   return p;
 }
+
+// --- 5A T8: Markdown code blocks (spec #5 §3.1) ---
+export interface CodeTokens { lines: Array<Array<{ content: string; color?: string; fontStyle?: number }>>; fg?: string; bg?: string }
+
+const grammars = new Map<string, Promise<void>>();
+let loaded: Awaited<ReturnType<typeof getHighlighter>> | null = null;
+
+/** Loads a fenced block's grammar (once) on the diff's highlighter; resolves the language id, or
+ * `null` for a language Shiki doesn't ship (the block stays plain). */
+export async function ensureGrammar(lang: string): Promise<string | null> {
+  const id = lang.toLowerCase();
+  if (!Object.hasOwn(bundledLanguages, id)) return null;
+  const h = await getHighlighter();
+  let p = grammars.get(id);
+  if (!p) {
+    p = h.loadLanguage(bundledLanguages[id as keyof typeof bundledLanguages]).then(() => {});
+    grammars.set(id, p);
+    p.catch(() => grammars.delete(id));
+  }
+  await p;
+  loaded = h;
+  return id;
+}
+
+/** A block's tokens in the current editor theme, synchronously (`ensureGrammar(id)` resolved
+ * first): the highlight queue times each call. */
+export function tokensFor(code: string, id: string): CodeTokens {
+  if (!loaded) throw new Error('tokensFor before ensureGrammar');
+  const r = loaded.codeToTokens(code, { lang: id, theme: currentEditorTheme() });
+  return { lines: r.tokens.map((line) => line.map((t) => ({ content: t.content, color: t.color, fontStyle: t.fontStyle }))), fg: r.fg, bg: r.bg };
+}
+// --- end 5A T8 ---

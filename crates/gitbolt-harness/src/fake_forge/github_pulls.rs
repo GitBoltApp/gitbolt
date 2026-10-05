@@ -288,6 +288,57 @@ fn not_found() -> Reply {
     Reply::status(404, json!({ "message": "Not Found" }))
 }
 
+// --- 5A T3: GitHub's `full` media type and its signed images ---
+/// `body_html` as far as GitBolt reads it: each `…/user-attachments/assets/<uuid>` in `body`
+/// becomes a signed `private-user-images` URL (here `<base>/github-images/583231/<n>-<uuid>.png?jwt=<jwt>`),
+/// as a linked image, in document order.
+pub fn fake_body_html(body: &str, base: &str, jwt: &str) -> String {
+    const MARK: &str = "/user-attachments/assets/";
+    let mut out = String::from("<p>");
+    let mut rest = body;
+    let mut n = 0;
+    while let Some(i) = rest.find(MARK) {
+        let after = &rest[i + MARK.len()..];
+        let uuid: String = after.chars().take_while(|c| c.is_ascii_hexdigit() || *c == '-').collect();
+        if uuid.len() == 36 {
+            n += 1;
+            let url = format!("{base}/github-images/583231/{}-{uuid}.png?jwt={jwt}", 400_000 + n);
+            out.push_str(&format!("<a target=\"_blank\" rel=\"noopener noreferrer\" href=\"{url}\"><img src=\"{url}\" alt=\"image\"></a>"));
+        }
+        rest = &after[uuid.len()..];
+    }
+    out.push_str("</p>");
+    out
+}
+
+/// A GET answered with GitHub's `full` media type: every object with a `body` gets `body_html`.
+fn with_body_html(reply: Reply, base: &str, jwt: &str) -> Reply {
+    if reply.status != 200 || reply.content_type != "application/json" {
+        return reply;
+    }
+    let Ok(mut v) = serde_json::from_slice::<Value>(&reply.body) else { return reply };
+    fn add(o: &mut Value, base: &str, jwt: &str) {
+        if let Some(b) = o.get("body").and_then(Value::as_str).map(str::to_string) {
+            o["body_html"] = fake_body_html(&b, base, jwt).into();
+        }
+    }
+    if let Value::Array(items) = &mut v {
+        items.iter_mut().for_each(|o| add(o, base, jwt));
+    } else if v.is_object() {
+        add(&mut v, base, jwt);
+    }
+    Reply { body: v.to_string().into_bytes(), ..reply }
+}
+
+/// `<base>/github-images/…?jwt=<jwt>`: the seed's `image_jwt` is the one valid signature.
+pub(crate) fn image(st: &ForgeState, r: &FakeRequest) -> Reply {
+    match r.query.get("jwt") {
+        Some(j) if *j == st.seed.github.image_jwt => Reply::png(),
+        _ => Reply::status(403, json!({ "message": "Request has expired" })),
+    }
+}
+// --- end 5A T3 ---
+
 // --- 4B T5 ---
 fn body_of(r: &FakeRequest) -> Value {
     serde_json::from_slice(r.body).unwrap_or(Value::Null)
@@ -558,5 +609,10 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         // --- end 4C T2 ---
         _ => return None,
     };
+    // --- 5A T3 ---
+    if r.method == "GET" && r.accept.as_deref().is_some_and(|a| a.contains("full+json")) {
+        return Some(with_body_html(reply, &base, &st.seed.github.image_jwt));
+    }
+    // --- end 5A T3 ---
     Some(reply)
 }

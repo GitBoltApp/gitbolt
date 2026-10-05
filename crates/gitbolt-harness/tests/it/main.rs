@@ -18,4 +18,5 @@ mod forge_gitlab_create;
 mod forge_gitlab_mrs;
 mod forge_mrs;
 mod forge_stacks;
+mod markdown_images;
 mod ws;

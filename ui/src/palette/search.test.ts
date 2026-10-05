@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { growth } from '../test-perf';
 import { parseQuery, preparedCount, searchPalette, type PaletteEntry } from './search';
 
 const e = (group: PaletteEntry['group'], label: string): PaletteEntry => ({ id: `${group}:${label}`, group, label, run: () => {} });
@@ -42,14 +43,22 @@ describe('palette search', () => {
 });
 
 describe('palette search at scale', () => {
-  it('prepares each entry once per entries array, not per keystroke, and ranks 50k paths quickly', () => {
-    const many = Array.from({ length: 50_000 }, (_, i) => e('file', `src/module_${i % 500}/component_${i}.tsx`));
+  const paths = (n: number) => Array.from({ length: n }, (_, i) => e('file', `src/module_${i % 500}/component_${i}.tsx`));
+  const typing = ['/c', '/co', '/com', '/comp', '/compo', '/component_4'];
+
+  it('prepares each entry once per entries array, not per keystroke', () => {
+    const many = paths(10_000);
     const before = preparedCount.n;
-    const t0 = performance.now();
-    for (const q of ['/c', '/co', '/com', '/comp', '/compo', '/component_4']) searchPalette(q, many);
-    expect(preparedCount.n - before).toBe(50_000);
-    expect(performance.now() - t0).toBeLessThan(5000);
+    for (const q of typing) searchPalette(q, many);
+    expect(preparedCount.n - before).toBe(10_000);
     searchPalette('/x', many);
-    expect(preparedCount.n - before).toBe(50_000);
+    expect(preparedCount.n - before).toBe(10_000);
   });
+
+  it('ranks 50k paths in linear time: typing a query costs 4x for 4x the paths', () => {
+    // Growth, not a budget (see test-perf.ts): preparing fresh entries and six keystrokes over
+    // them cost about 4x (4.0-4.1x measured, idle or loaded) from 12.5k to 50k paths; anything per pair would cost 16x.
+    const g = growth((n) => { const many = paths(n); return () => { for (const q of typing) searchPalette(q, many); }; }, 12_500);
+    expect(g.ratio, `12.5k: ${g.small.toFixed(0)} ms, 50k: ${g.large.toFixed(0)} ms`).toBeLessThan(8);
+  }, 60_000);
 });

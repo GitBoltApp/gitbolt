@@ -6,7 +6,7 @@
 .create-mr-target { justify-self: start; max-width: 100%; padding: 2px 6px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); cursor: pointer; }
 .create-mr-target:hover { background: var(--control-hover-bg); }
 .create-mr-field { display: flex; flex-direction: column; gap: 4px; }
-.create-mr-field span { color: var(--text-secondary); }
+.create-mr-field > span { color: var(--text-secondary); }
 .create-mr-field input, .create-mr-field textarea { padding: 4px 6px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--wip-input-bg); color: var(--text-normal); font: inherit; }
 .create-mr-field textarea { min-height: 10em; resize: vertical; }
 .create-mr-template { display: flex; align-items: center; gap: 8px; }

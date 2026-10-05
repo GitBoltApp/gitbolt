@@ -16,7 +16,7 @@ import { closeFlyout, flyoutOf, openFlyout, registerFlyout } from '../ui/flyout/
 import { useToast } from '../ui/toast';
 import { historyOf, navBack, placeKey, recordPlace, useNavHistory } from './history';
 import { fileCommitOf } from './repoPlaces';
-import { noteScroll, takePendingScroll } from './scroll';
+import { noteScroll, registerScrollSource, takePendingScroll } from './scroll';
 
 registerFlyout(MR_FLYOUT, () => null);
 const A = 'a'.repeat(40);
@@ -111,6 +111,21 @@ describe('File View places (spec #5 §3.4)', () => {
     expect(takePendingScroll('t', 'file', `file:${A}:docs/guide.md`, 'source')).toMatchObject({ top: 640 });
   });
 
+  it('a long rendered document is captured with its first visible block, and Back asks its view for that block', async () => {
+    store.getState().selectRow(1);
+    await flush();
+    store.getState().openFile({ ...targetFor(change('docs/guide.md'), specA), view: 'file' });
+    const key = `file:${A}:docs/guide.md`;
+    const off = registerScrollSource('t', 'file', key, () => 9_000, () => ({ block: 42, offset: 7 }));
+    store.getState().selectRow(2);
+    await flush();
+    store.getState().openFile({ ...targetFor(change('README.md'), specB), view: 'file' });
+    off();
+    expect(historyOf('t').places[0]).toEqual({ kind: 'file', path: 'docs/guide.md', commit: A, view: 'rendered', scrollTop: 9_000, block: { block: 42, offset: 7 } });
+    await navBack('t');
+    expect(takePendingScroll('t', 'file', key, 'rendered')).toMatchObject({ top: 9_000, block: { block: 42, offset: 7 } });
+  });
+
   it('a file missing at its commit toasts and Back goes on to the place before it', async () => {
     recordPlace('t', { kind: 'file', path: 'README.md', commit: B, view: 'rendered', scrollTop: 0 });
     recordPlace('t', { kind: 'file', path: 'docs/guide.md', commit: B, view: 'rendered', scrollTop: 0 });
@@ -147,8 +162,22 @@ describe('File View places (spec #5 §3.4)', () => {
     await navBack('t');
     expect(asked).toBe(1);
     expect(store.getState().diff).toBeNull();
+    // The prompt is still open: the history hasn't moved yet.
+    expect(historyOf('t').cursor).toBe(1);
     held.go!();
     expect(store.getState().diff).toMatchObject({ path: 'README.md', view: 'file' });
+    expect(historyOf('t').cursor).toBe(0);
+    expect(keys()).toEqual([`file:${A}:README.md`, `commit:${B}`]);
+  });
+
+  it('a cancelled leave prompt leaves the history where it was', async () => {
+    recordPlace('t', { kind: 'file', path: 'README.md', commit: A, view: 'rendered', scrollTop: 0 });
+    recordPlace('t', { kind: 'commit', sha: B });
+    store.getState().setLeaveGuard(() => true); // asks, and the user cancels: `go` never runs
+    await navBack('t');
+    expect(historyOf('t').cursor).toBe(1);
+    expect(keys()).toEqual([`file:${A}:README.md`, `commit:${B}`]);
+    expect(store.getState().diff).toBeNull();
   });
 
   it('a tab that moves to another repository (a new view store) loses its history', () => {

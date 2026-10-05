@@ -7,4 +7,9 @@ export type ForgeMrDetail = { mr: ForgeMr,
 /**
  * Plain text in phase 4 (spec #4 §2).
  */
-description: string, reviewers: Array<ForgeUser>, assignees: Array<ForgeUser>, mergeStatus: MergeStatus, squash: boolean | null, deleteSourceBranch: boolean | null, };
+description: string, reviewers: Array<ForgeUser>, assignees: Array<ForgeUser>, mergeStatus: MergeStatus, squash: boolean | null, deleteSourceBranch: boolean | null, 
+/**
+ * GitHub's rendered description (the `full` media type): its signed attachment URLs
+ * (spec #5 §4.2). `None` for GitLab.
+ */
+bodyHtml?: string, };

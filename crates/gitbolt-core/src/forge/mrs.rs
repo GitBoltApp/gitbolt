@@ -521,7 +521,7 @@ mod tests {
     async fn the_list_details_and_discussions_come_from_the_target_project() {
         let (p, hub, store, remotes) = setup().await;
         p.mrs.lock().unwrap().extend([mr(12, "group/project", "dev", MrState::Open), mr(5, "group/project", "x", MrState::Draft)]);
-        let detail = ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: "d".into(), reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None };
+        let detail = ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: "d".into(), reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None };
         p.details.lock().unwrap().insert(12, detail.clone());
         let list = hub.mr_list(&store, &remotes, MrFilter::Mine).await.unwrap();
         assert_eq!((list.filter, list.remote.as_str(), list.mrs.len(), list.fetched_at), (MrFilter::Mine, "origin", 2, 9));

@@ -20,13 +20,16 @@ import { useEscapeOwner } from '../repo/escape';
 import { useFocusZone } from '../repo/focus';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { HistoryButtons } from '../history/HistoryButtons';
-import { filePlaceKey } from '../nav/repoPlaces';
 import { OpenInButton } from '../openIn/OpenInMenu';
 import { contentKey, type RepoServices } from '../repo/services';
-import { contentsRequest, useRepoView, useRepoViewStore, type DiffTarget, type Loadable } from '../repo/store';
+import { contentsRequest, useRepoView, useRepoViewStore, type DiffTarget, type Loadable, type Selection } from '../repo/store';
 import { useChangeKeys } from './changeKeys';
 import { DiffToolbar } from './DiffToolbar';
+import type { FileCommit } from '../nav/history';
+import { fileCommitOf, filePlaceKey } from '../nav/repoPlaces';
+import { FileBody, MarkdownViewToggle } from './FileBody';
 import { FileView } from './FileView';
+import { isMarkdownPath, TOO_LARGE_TO_RENDER, useTooLargeToRender } from './markdownFiles';
 import { firstChangedLine } from './firstChange';
 import { eolLabel, formatBytes } from './format';
 import { BinaryNote, fileSideOf, HexBody, HexView } from './hex';
@@ -188,6 +191,12 @@ function showsTextDiff(target: DiffTarget, contents: Loadable<DiffContentsPayloa
 }
 
 /** A binary that isn't shown as an image: its hex dump (hex.tsx), with its sizes in the file bar. */
+/** A Markdown file in File View, with the commit its relative links resolve against; `null`
+ * for any other file, or a Markdown file with no commit (a deletion: Source only). */
+const markdownOf = (selection: Selection, t: DiffTarget): { commit: FileCommit } | null => {
+  const commit = isMarkdownPath(t.path) ? fileCommitOf({ selection }, t) : null;
+  return commit === null ? null : { commit };
+};
 const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !isImage(target, c) && !!(c.old?.binary || c.new?.binary);
 
 /**
@@ -260,7 +269,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     <>
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} <ArrowGlyph /> {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
-        ? <FileView identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} />
+        ? <FileBody identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} markdown={markdownOf(selection, target)} />
         : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined} />}
       {/* Spec #2 §7.3: hunk and line buttons on a WIP text diff. */}
       {target.view === 'diff' && wip && <HunkActions target={target} />}
@@ -295,7 +304,7 @@ export const editorOwnsEscape = () =>
 /** Targets inside the zone that use ← themselves. */
 const OWNS_ARROWS = '.monaco-host, .hex-view, input, textarea, select, [role="slider"]';
 /** Targets a click leaves alone: controls, and the editor (Monaco focuses itself). */
-const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .hex-view';
+const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .hex-view, .md-rendered';
 
 /**
  * The center-panel takeover (spec §10.1). The graph stays mounted, hidden, underneath.
@@ -388,6 +397,14 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // Splits both full texts, so it is worked out once per loaded payload (the loader's cached
   // object), not on each of a file switch's several renders (review M1).
   const loaded = contents.status === 'ready' ? contents.data : null;
+  const selection = useRepoView((s) => s.selection);
+  // Spec #5 §3.3: the toggle for a Markdown file's text in File View (not a large-file prompt, a
+  // hex view or an image).
+  // §3.1: the toggle says why Rendered can't be picked for a file too large to render.
+  const tooLarge = useTooLargeToRender(filePlaceKey({ selection }, shown), loaded?.new?.text ?? loaded?.old?.text ?? '');
+  const markdownToggle = shown.view === 'file' && loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded) && markdownOf(selection, shown)
+    ? <MarkdownViewToggle forced={tooLarge ? TOO_LARGE_TO_RENDER : null} />
+    : null;
   const openLine = useMemo(() => openInLine(loaded), [loaded]);
   // An SVG's Source toggle, per file: its text diff gets the text-diff controls (H26).
   const [sourceOf, setSourceOf] = useState<string | null>(null);
@@ -422,7 +439,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const onClick = (e: MouseEvent) => {
     const el = ref.current;
     if (!el || !(e.target instanceof Element) || e.target.closest(OWNS_CLICKS)) return;
-    if (!el.querySelector('.monaco-host, .hex-view') || window.getSelection()?.isCollapsed === false) return;
+    if (!el.querySelector('.monaco-host, .hex-view, .md-rendered') || window.getSelection()?.isCollapsed === false) return;
     void loadMonacoHost().then((h) => h.focus());
   };
   return (
@@ -437,6 +454,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
         leading={<OpenInButton target={shown} line={openLine} />}
         staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
         history={<HistoryButtons target={shown} binary={!!loaded && !!(loaded.old?.binary || loaded.new?.binary)} />}
+        markdown={markdownToggle}
       />
       <div className="diff-body">
         <Body target={body.target} contents={body.contents} forced={forced} banner={shown.key === body.target.key} onLoadAnyway={() => setForcedKey(`${session}|${body.target.key}`)} onShown={onShown} onSourceChange={(on) => setSourceOf(on ? body.target.key : null)} onHex={(key, hex) => setBodyHex({ key, hex })} editable={editable} onEdit={onEdit} draft={bodyCopy?.draft} />

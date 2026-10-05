@@ -9,6 +9,9 @@ pub mod tokens;
 pub mod avatar_cache;
 pub mod endpoints;
 pub mod http;
+// --- 5A T2 ---
+pub mod images;
+// --- end 5A T2 ---
 pub mod time;
 #[cfg(test)]
 pub(crate) mod test_server;

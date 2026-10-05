@@ -5,6 +5,7 @@ import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
 import type { MrEdit } from '../../api/gen/MrEdit';
 import { useRuntime } from '../../app/runtime';
+import { MarkdownField } from '../../markdown/MarkdownField';
 import { SearchPicker } from '../create/SearchPicker';
 import { mrRef } from '../labels';
 import { useTabForgeField } from '../mrStore';
@@ -39,7 +40,9 @@ export function EditMr({ tabId, mr, detail, onDone }: { tabId: string; mr: Forge
   return (
     <form className="mr-edit" aria-label="Edit" onSubmit={(e) => { e.preventDefault(); if (changed && title.trim() && !busy) void save(); }}>
       <label>Title<input aria-label="Title" value={title} onChange={(e) => setTitle(e.target.value)} /></label>
-      <label>Description<textarea aria-label="Description" rows={10} value={description} disabled={!detail} onChange={(e) => setDescription(e.target.value)} /></label>
+      {/* --- 5A T9: Write / Preview --- */}
+      <div className="mr-edit-field"><span>Description</span><MarkdownField label="Description" rows={10} value={description} disabled={!detail} onChange={setDescription} flavor={kind ?? 'gitlab'} context={{ kind: 'forge', tabId }} /></div>
+      {/* --- end 5A T9 --- */}
       {repoId !== undefined && remote ? (
         <SearchPicker<ForgeLabel>
           label="Labels"

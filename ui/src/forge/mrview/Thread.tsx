@@ -1,5 +1,5 @@
 import { AtSign, Check, CircleAlert, CircleDot, CircleX, GitCommitHorizontal, GitMerge, GitPullRequestDraft, MessageSquare, Pencil, Tag, Type, type LucideIcon } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
@@ -9,6 +9,13 @@ import type { ForgeUser } from '../../api/gen/ForgeUser';
 import { ForgeAvatar } from '../../avatars/Avatar';
 import { relativeTime } from '../../format/relative';
 import { EmojiText } from '../emoji';
+// --- 5A T10 ---
+import { signedAttachments } from '../../markdown/attachments';
+import { Markdown } from '../../markdown/lazy';
+import { MR_BODY_MAX_BYTES } from '../../markdown/limits';
+import { whenIdle } from '../../markdown/idle';
+import { PlainBody } from '../../markdown/PlainBody';
+// --- end 5A T10 ---
 import { openInBrowser } from './MrHeader';
 import { openNoteFile } from './openNote';
 import { ThreadReply } from './ReplyBox';
@@ -59,7 +66,16 @@ function SystemEvent({ n, kind, parts }: { n: { author: ForgeUser; createdAt: nu
   );
 }
 
-function Note({ n, reply, resolved }: { n: ForgeNote; reply: boolean; resolved: boolean }) {
+/** Bodies rendered in the first paint; the rest follow, a few per idle callback, so opening a
+ * long MR/PR isn't one long task. */
+export const FIRST_BODIES = 20;
+const BODIES_PER_IDLE = 5;
+
+/** A comment, memoized on its data: a poll that changes nothing re-renders none. `deferred`: its
+ * plain text holds the place until the timeline's idle rendering reaches it. */
+const Note = memo(function Note({ tabId, kind, n, reply, resolved, deferred }: { tabId: string; kind: ForgeKind; n: ForgeNote; reply: boolean; resolved: boolean; deferred: boolean }) {
+  const text = useMemo(() => signedAttachments(n.body, n.bodyHtml ?? null), [n.body, n.bodyHtml]);
+  const context = useMemo(() => ({ kind: 'forge', tabId }) as const, [tabId]);
   return (
     <div className={`mr-note${reply ? ' mr-reply-note' : ''}`}>
       <ForgeAvatar user={n.author} size={28} />
@@ -69,15 +85,22 @@ function Note({ n, reply, resolved }: { n: ForgeNote; reply: boolean; resolved: 
           <span className="mr-when">{relativeTime(n.createdAt)}</span>
           {resolved && <span className="mr-resolved">Resolved</span>}
         </div>
-        <div className="mr-note-body">{n.body}</div>
+        {/* --- 5A T10: rendered Markdown (spec #5 §2: every comment) --- */}
+        <div className="mr-note-body">
+          {deferred ? <PlainBody text={text} className="md" /> : <Markdown text={text} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />}
+        </div>
+        {/* --- end 5A T10 --- */}
       </div>
     </div>
   );
-}
+});
 
 /** One discussion as a card: its notes (replies indented), the diff note's `file:line` (which
- * opens the file) and snippet, a Resolved chip, and Reply in its footer. */
-export function Discussion({ tabId, kind, mr, d }: { tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion }) {
+ * opens the file) and snippet, a Resolved chip, and Reply in its footer. `firstBody`: the
+ * timeline's count of comment bodies before this thread; `rendered`: how many render yet. */
+export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBody = 0, rendered = Infinity }: {
+  tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion; firstBody?: number; rendered?: number;
+}) {
   const notes = d.notes.filter((n) => !n.system);
   if (notes.length === 0) return null;
   const pos = d.notes.find((n) => n.position)?.position ?? null;
@@ -90,13 +113,15 @@ export function Discussion({ tabId, kind, mr, d }: { tabId: string; kind: ForgeK
           {pos.snippet && <pre className="mr-snippet">{pos.snippet}</pre>}
         </div>
       )}
-      {notes.map((n, i) => <Note key={n.id} n={n} reply={i > 0} resolved={d.resolved && i === 0} />)}
+      {notes.map((n, i) => <Note key={n.id} tabId={tabId} kind={kind} n={n} reply={i > 0} resolved={d.resolved && i === 0} deferred={firstBody + i >= rendered} />)}
       {/* --- 4B T13: reply in this thread --- */}
       <ThreadReply tabId={tabId} kind={kind} number={mr.number} d={d} />
       {/* --- end 4B T13 --- */}
     </article>
   );
-}
+});
+
+const bodiesOf = (d: ForgeDiscussion) => d.notes.reduce((c, n) => c + (n.system ? 0 : 1), 0);
 
 type Entry =
   | { at: number; key: string; t: 'system'; note: ForgeNote }
@@ -147,6 +172,14 @@ export function Thread({ tabId, kind, mr, discussions, reviews = [] }: { tabId: 
   const diffs = threads.filter((e) => e.d.notes.some((n) => n.position));
   const shown = tab === 'activity' ? entries : tab === 'comments' ? threads : diffs;
   const tabs: Array<[Tab, string, number | null]> = [['activity', 'Activity', null], ['comments', 'Comments', threads.length], ['diff', 'Diff notes', diffs.length]];
+  // How many comment bodies render as Markdown yet: the first FIRST_BODIES, then more per idle callback.
+  const bodies = shown.reduce((c, e) => c + (e.t === 'thread' ? bodiesOf(e.d) : 0), 0);
+  const [rendered, setRendered] = useState(FIRST_BODIES);
+  useEffect(() => {
+    if (rendered >= bodies) return;
+    return whenIdle(() => setRendered((r) => r + BODIES_PER_IDLE));
+  }, [rendered, bodies]);
+  let body = 0;
   return (
     <section className="mr-activity" aria-label="Activity">
       <div className="mr-tabs" role="tablist" aria-label="Activity views">
@@ -168,10 +201,12 @@ export function Thread({ tabId, kind, mr, discussions, reviews = [] }: { tabId: 
             const w = REVIEW_WORDS[e.r.state]!;
             return <SystemEvent key={e.key} n={{ author: e.r.user, createdAt: e.at }} kind={w.kind} parts={[{ t: 'text', text: w.text }]} />;
           }
+          const firstBody = body;
+          body += bodiesOf(e.d);
           return (
             <div key={e.key} className="mr-ev mr-thread-ev">
               <Node kind="thread" icon={MessageSquare} />
-              <Discussion tabId={tabId} kind={kind} mr={mr} d={e.d} />
+              <Discussion tabId={tabId} kind={kind} mr={mr} d={e.d} firstBody={firstBody} rendered={rendered} />
             </div>
           );
         })}

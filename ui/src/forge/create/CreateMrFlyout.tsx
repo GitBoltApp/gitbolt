@@ -5,6 +5,7 @@ import type { ForgeLabel } from '../../api/gen/ForgeLabel';
 import type { ForgeUser } from '../../api/gen/ForgeUser';
 import { copyText } from '../../api/transport';
 import { useRuntime } from '../../app/runtime';
+import { MarkdownField } from '../../markdown/MarkdownField';
 import { stackBase, stackFor, stacksOf } from '../../stacks/detect';
 import { registerKeyHints } from '../../shortcuts/hints';
 import { openPushUpstream, pushBranch } from '../../sync/push';
@@ -239,10 +240,12 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
             <Select aria-label="Template" value={draft.template ?? ''} options={templateOptions} onChange={(v) => { void chooseTemplate(v); }} />
             {ctx.templatesLocal && <span className="create-mr-hint">From the local copy of {draft.targetBranch}</span>}
           </div>
-          <label className="create-mr-field">
+          {/* --- 5A T9: Write / Preview --- */}
+          <div className="create-mr-field">
             <span>Description</span>
-            <textarea aria-label="Description" rows={10} value={draft.description} spellCheck={false} onChange={(e) => update({ ...draft, description: e.target.value })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
-          </label>
+            <MarkdownField label="Description" rows={10} value={draft.description} spellCheck={false} flavor={kind} context={{ kind: 'forge', tabId }} onChange={(v) => update({ ...draft, description: v })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
+          </div>
+          {/* --- end 5A T9 --- */}
           <SearchPicker
             label="Reviewers"
             chips={draft.reviewers.map((u) => ({ key: String(u.id), label: u.name }))}

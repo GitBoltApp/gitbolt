@@ -148,15 +148,19 @@ describe('Add remote', () => {
 
   describe('lazy forks', () => {
     const page = (from: number, n: number, next: number | null) => ({ forks: Array.from({ length: n }, (_, i) => project(`user${from + i}/project`, 1000 - from - i)), next });
+    // Every mocked call resolves in microtasks, so one macrotask inside act() settles all pending
+    // pages and effects with no polling and no timeout to race under load.
+    const flush = () => act(async () => { await new Promise<void>((r) => setTimeout(r, 0)); });
     const rows = () => screen.getAllByRole('listitem').filter((r) => r.classList.contains('fork-row'));
 
     it('loads page 2 on the button, appends it, and hides the button on the last page', async () => {
       api.forgeForks.mockResolvedValueOnce(page(0, 10, 2)).mockResolvedValueOnce(page(10, 5, null));
       show();
-      await screen.findAllByRole('listitem');
+      await flush();
       expect(rows()).toHaveLength(10);
       fireEvent.click(screen.getByRole('button', { name: 'Load more forks' }));
-      await waitFor(() => expect(rows()).toHaveLength(15));
+      await flush();
+      expect(rows()).toHaveLength(15);
       expect(api.forgeForks).toHaveBeenLastCalledWith(7, 'origin', 2, 10);
       expect(screen.queryByRole('button', { name: 'Load more forks' })).toBeNull();
     });
@@ -167,24 +171,27 @@ describe('Add remote', () => {
       let resolve: (v: unknown) => void = () => {};
       api.forgeForks.mockResolvedValueOnce(page(0, 10, 2)).mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
       show();
-      await screen.findAllByRole('listitem');
+      await flush();
       act(() => { fire?.(); fire?.(); });
       expect(screen.getByText('Loading…')).toBeTruthy();
       expect(api.forgeForks).toHaveBeenCalledTimes(2); // page 1 and one page 2
       await act(async () => { resolve(page(10, 3, null)); });
-      await waitFor(() => expect(rows()).toHaveLength(13));
+      await flush();
+      expect(rows()).toHaveLength(13);
       vi.unstubAllGlobals();
     });
 
     it('keeps what is loaded when a page fails and retries', async () => {
       api.forgeForks.mockResolvedValueOnce(page(0, 10, 2)).mockRejectedValueOnce({ message: 'boom' }).mockResolvedValueOnce(page(10, 2, null));
       show();
-      await screen.findAllByRole('listitem');
+      await flush();
       fireEvent.click(screen.getByRole('button', { name: 'Load more forks' }));
-      expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load more forks: boom");
+      await flush();
+      expect(screen.getByRole('alert').textContent).toContain("Couldn't load more forks: boom");
       expect(rows()).toHaveLength(10);
       fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      await waitFor(() => expect(rows()).toHaveLength(12));
+      await flush();
+      expect(rows()).toHaveLength(12);
     });
   });
 });

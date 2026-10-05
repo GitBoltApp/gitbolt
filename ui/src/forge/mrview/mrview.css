@@ -5,12 +5,12 @@
 /* A forge label (`--chip-color` and its readable `--chip-text`, from the forge) is a solid pill as GitHub draws it; without a colour it keeps the token look. */
 .mr-label { padding: 0 7px; border-radius: 2em; font-size: 12px; font-weight: 500; background: var(--control-bg); color: var(--text-normal); }
 .mr-label[data-colored] { background: var(--chip-color); color: var(--chip-text, var(--text-normal)); }
-.mr-description { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; padding-top: 8px; border-top: 1px solid var(--section-border); }
+.mr-description { overflow-wrap: anywhere; font-size: 12px; padding-top: 8px; border-top: 1px solid var(--section-border); }
 .mr-merge + .mr-description { padding-top: 0; border-top: 0; }  /* the merge box's own border already divides it from the description */
 .mr-dim { color: var(--text-secondary); font-size: 11px; }
 .mr-wait { margin: 0; color: var(--text-secondary); }
 .mr-snippet { margin: 0; padding: 4px 6px; font: 11px/1.4 var(--font-mono); white-space: pre; overflow-x: auto; background: var(--app-bg0); border-radius: 4px; }
-.mr-note-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.mr-note-body { overflow-wrap: anywhere; font-size: 12px; }
 .mr-link { padding: 0; border: none; background: none; color: var(--link); font: inherit; cursor: pointer; text-align: left; }
 .mr-link:hover { text-decoration: underline; }
 .mr-actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -129,8 +129,14 @@ button.mr-button.merge:disabled { background: var(--control-bg); border-color: v
 .mr-reply-note { padding-left: 36px; }
 .mr-note-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .mr-note-head b { color: var(--text-selected); }
-.mr-note-body { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.mr-note-body { margin-top: 2px; overflow-wrap: anywhere; font-size: 12px; }
 .mr-resolved { font-size: 11px; color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); border-radius: 10px; padding: 0 7px; }
 .mr-thread-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--section-border); }
 .mr-thread-foot .mr-reply { align-self: stretch; }
 .mr-new-comment { padding: 10px 12px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); }
+
+/* --- 5A T9: Edit's description as a Write/Preview field --- */
+.mr-edit-field { display: flex; flex-direction: column; gap: 2px; }
+.mr-edit-field > span { font-size: 11px; color: var(--text-secondary); }
+.mr-edit .md-field textarea, .mr-reply .md-field textarea { width: 100%; box-sizing: border-box; }
+/* --- end 5A T9 --- */

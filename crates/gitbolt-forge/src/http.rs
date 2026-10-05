@@ -259,6 +259,19 @@ struct Inner {
     link_rewrite: Option<LinkRewrite>,
 }
 
+// --- 5A T2 ---
+/// What `get_image_within` found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageFetch {
+    Found { content_type: String, bytes: Vec<u8> },
+    Missing,
+    /// 401/403.
+    Forbidden,
+    /// It redirected to an address the allowlist refuses: its host.
+    Elsewhere(String),
+}
+// --- end 5A T2 ---
+
 #[derive(Clone)]
 pub struct HttpClient {
     inner: Arc<Inner>,
@@ -317,27 +330,78 @@ impl HttpClient {
 
     /// A conditional GET: a 304 answers from the ETag cache (`not_modified`).
     pub async fn get(&self, path: &str) -> Result<HttpResponse, GbError> {
-        self.request(Method::Get, path, None).await
+        self.request(Method::Get, path, None, None).await
     }
 
     /// A write: never cached, never conditional.
     pub async fn send_json(&self, method: Method, path: &str, body: &serde_json::Value) -> Result<HttpResponse, GbError> {
-        self.request(method, path, Some(body.to_string().into_bytes())).await
+        self.request(method, path, Some(body.to_string().into_bytes()), None).await
     }
 
     /// Every page of a list, following `Link: rel="next"` on the API's own origin, at most `max_pages`.
     pub async fn get_pages(&self, path: &str, max_pages: usize) -> Result<Vec<serde_json::Value>, GbError> {
+        self.pages(path, max_pages, None).await
+    }
+
+    // --- 5A T2 ---
+    /// A conditional GET with its own `Accept` (GitHub's `full` media type adds `body_html`).
+    pub async fn get_as(&self, path: &str, accept: &'static str) -> Result<HttpResponse, GbError> {
+        self.request(Method::Get, path, None, Some(accept)).await
+    }
+
+    /// `get_pages` with `get_as`'s `Accept`.
+    pub async fn get_pages_as(&self, path: &str, max_pages: usize, accept: &'static str) -> Result<Vec<serde_json::Value>, GbError> {
+        self.pages(path, max_pages, Some(accept)).await
+    }
+
+    async fn pages(&self, path: &str, max_pages: usize, accept: Option<&'static str>) -> Result<Vec<serde_json::Value>, GbError> {
         let mut out = Vec::new();
         let mut next = Some(path.to_string());
         for _ in 0..max_pages {
             let Some(p) = next.take() else { break };
-            let r = self.get(&p).await?;
+            let r = self.request(Method::Get, &p, None, accept).await?;
             let page: Vec<serde_json::Value> = r.json(self.host())?;
             out.extend(page);
             next = r.next_page;
         }
         Ok(out)
     }
+
+    /// `get_image` for Markdown images (spec #5 §4.2): the token only under `own_origin` or the
+    /// API base; one redirect, followed only when `allowed` accepts its target (never https →
+    /// http), else `Elsewhere(<host>)` without asking it; 401/403 are `Forbidden` (a signature
+    /// that ran out), 404/410 `Missing`.
+    pub async fn get_image_within(&self, url: &str, own_origin: &str, allowed: &(dyn Fn(&str) -> bool + Sync)) -> Result<ImageFetch, GbError> {
+        let api = self.inner.cfg.api_base.clone();
+        let mut target = url.to_string();
+        let mut may_auth = true;
+        for hop in 0..2 {
+            let auth = may_auth && (under(&target, own_origin) || under(&target, &api));
+            may_auth = auth;
+            let raw = self.once(Method::Get, &target, None, None, auth, MAX_IMAGE, None).await?;
+            if auth && under(&target, &api) {
+                self.observe(&raw)?;
+            }
+            if is_redirect(raw.status) && hop == 0 {
+                let next = self.redirect_target(&target, &raw)?;
+                // --- 5A T3: https → http is "ask" too, never an error ---
+                if !image_redirect_followed(&target, &next, allowed) {
+                    return Ok(ImageFetch::Elsewhere(origin(&next).map(|(_, a)| a).unwrap_or_default()));
+                }
+                // --- end 5A T3 ---
+                target = next;
+                continue;
+            }
+            return match raw.status {
+                200 => Ok(ImageFetch::Found { content_type: raw.headers.get("content-type").cloned().unwrap_or_default(), bytes: raw.body }),
+                404 | 410 => Ok(ImageFetch::Missing),
+                401 | 403 => Ok(ImageFetch::Forbidden),
+                s => Err(status_error(self.host(), s, &raw.body)),
+            };
+        }
+        Err(GbError::other(format!("{} redirected an image too many times", self.host())))
+    }
+    // --- end 5A T2 ---
 
     /// An image (`Ok(None)` for a 404), with the token only when `url` is under `own_origin` (a
     /// forge's web base) or the API base. Not ETag-cached: the avatar disk cache keeps what it needs.
@@ -349,7 +413,7 @@ impl HttpClient {
         for hop in 0..2 {
             let auth = may_auth && (under(&target, own_origin) || under(&target, &api));
             may_auth = auth;
-            let raw = self.once(Method::Get, &target, None, None, auth, MAX_IMAGE).await?;
+            let raw = self.once(Method::Get, &target, None, None, auth, MAX_IMAGE, None).await?;
             if auth && under(&target, &api) {
                 self.observe(&raw)?;
             }
@@ -380,24 +444,29 @@ impl HttpClient {
         if loc.starts_with('/') && !loc.starts_with("//") { Ok(format!("{scheme}://{authority}{loc}")) } else { Err(GbError::other(format!("{} sent a redirect GitBolt couldn't follow", self.host()))) }
     }
 
-    async fn request(&self, method: Method, path: &str, body: Option<Vec<u8>>) -> Result<HttpResponse, GbError> {
+    async fn request(&self, method: Method, path: &str, body: Option<Vec<u8>>, accept: Option<&'static str>) -> Result<HttpResponse, GbError> {
         let url = self.url(path);
-        let snapshot = if method == Method::Get { self.inner.etags.lock().expect("etags poisoned").map.get(&url).cloned() } else { None };
+        // Another representation (GitHub's `full`) of the same URL has its own ETag and body.
+        let key = match accept {
+            Some(a) => format!("{url}\n{a}"),
+            None => url.clone(),
+        };
+        let snapshot = if method == Method::Get { self.inner.etags.lock().expect("etags poisoned").map.get(&key).cloned() } else { None };
         let etag = snapshot.as_ref().map(|c| c.etag.clone());
-        let mut raw = self.send(method, &url, body.clone(), etag).await?;
+        let mut raw = self.send(method, &url, body.clone(), etag, accept).await?;
         // A 304 with no copy to answer from (nothing was cached): ask again, unconditionally, once.
         if raw.status == 304 && snapshot.is_none() {
-            raw = self.send(method, &url, body, None).await?;
+            raw = self.send(method, &url, body, None, accept).await?;
         }
-        self.finish(method, url, raw, snapshot)
+        self.finish(method, key, raw, snapshot)
     }
 
     /// An API request: refused unless under the API base, then redirects handled by hand.
-    async fn send(&self, method: Method, url: &str, body: Option<Vec<u8>>, etag: Option<String>) -> Result<Raw, GbError> {
+    async fn send(&self, method: Method, url: &str, body: Option<Vec<u8>>, etag: Option<String>, accept: Option<&'static str>) -> Result<Raw, GbError> {
         if !under(url, &self.inner.cfg.api_base) {
             return Err(GbError::other(format!("GitBolt refused to send {}'s token to an address outside its API", self.host())));
         }
-        let raw = self.once(method, url, body, etag, true, MAX_BODY).await?;
+        let raw = self.once(method, url, body, etag, true, MAX_BODY, accept).await?;
         if !is_redirect(raw.status) {
             return Ok(raw);
         }
@@ -408,7 +477,7 @@ impl HttpClient {
         if !under(&target, &self.inner.cfg.api_base) {
             return Err(GbError::other(format!("{} redirected the request somewhere else; GitBolt didn't follow it", self.host())));
         }
-        let again = self.once(Method::Get, &target, None, None, true, MAX_BODY).await?;
+        let again = self.once(Method::Get, &target, None, None, true, MAX_BODY, accept).await?;
         if is_redirect(again.status) {
             return Err(GbError::other(format!("{} redirected the request too many times", self.host())));
         }
@@ -417,7 +486,8 @@ impl HttpClient {
 
     /// One request, no redirects: fails fast while limited (checked again once a permit is held),
     /// and keeps the permit until the blocking call is done.
-    async fn once(&self, method: Method, url: &str, body: Option<Vec<u8>>, etag: Option<String>, auth: bool, limit: u64) -> Result<Raw, GbError> {
+    #[allow(clippy::too_many_arguments)]
+    async fn once(&self, method: Method, url: &str, body: Option<Vec<u8>>, etag: Option<String>, auth: bool, limit: u64, accept: Option<&'static str>) -> Result<Raw, GbError> {
         // Only the API's own origin: an avatar host that's down says nothing about the forge.
         let api = same_origin(url, &self.inner.cfg.api_base);
         self.gate(api)?;
@@ -426,7 +496,7 @@ impl HttpClient {
         let (inner, target) = (self.inner.clone(), url.to_string());
         let result = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            inner.send_blocking(method, &target, body, etag, auth, limit)
+            inner.send_blocking(method, &target, body, etag, auth, limit, accept)
         })
         .await
         .map_err(|e| GbError::other(format!("request task failed: {e}")))?;
@@ -476,7 +546,7 @@ impl HttpClient {
         }
     }
 
-    fn finish(&self, method: Method, url: String, raw: Raw, snapshot: Option<Arc<Cached>>) -> Result<HttpResponse, GbError> {
+    fn finish(&self, method: Method, key: String, raw: Raw, snapshot: Option<Arc<Cached>>) -> Result<HttpResponse, GbError> {
         let host = self.host();
         let get = |n: &str| raw.headers.get(n).cloned();
         self.observe(&raw)?;
@@ -491,7 +561,7 @@ impl HttpClient {
             let c = snapshot.ok_or_else(|| GbError::other(format!("{host} answered 304 for a request GitBolt has no copy of")))?;
             {
                 let mut etags = self.inner.etags.lock().expect("etags poisoned");
-                if let Some(pos) = etags.order.iter().position(|u| *u == url) {
+                if let Some(pos) = etags.order.iter().position(|u| *u == key) {
                     let u = etags.order.remove(pos).expect("position is valid");
                     etags.order.push_back(u);
                 }
@@ -506,7 +576,7 @@ impl HttpClient {
             && body.len() <= MAX_CACHED_BODY
             && let Some(etag) = get("etag")
         {
-            self.inner.etags.lock().expect("etags poisoned").put(url, Cached { etag, body: body.clone(), poll_interval_secs, next_page: next_page.clone(), oauth_scopes: oauth_scopes.clone() });
+            self.inner.etags.lock().expect("etags poisoned").put(key, Cached { etag, body: body.clone(), poll_interval_secs, next_page: next_page.clone(), oauth_scopes: oauth_scopes.clone() });
         }
         tracing::debug!(target: "gitbolt_forge::http", host, method = method.as_str(), status = raw.status, "forge request");
         Ok(HttpResponse { status: raw.status, body, not_modified: false, poll_interval_secs, next_page, oauth_scopes })
@@ -516,6 +586,19 @@ impl HttpClient {
 fn is_redirect(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
 }
+
+// --- 5A T3 ---
+fn is_https(url: &str) -> bool {
+    url.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+}
+
+/// A Markdown image's redirect from `from` to `next` is followed only when it stays on https (or
+/// started on plain http: the harness) and `allowed` takes it; otherwise `get_image_within` answers
+/// `Elsewhere(<host>)` and the UI offers "Load image from <host>".
+fn image_redirect_followed(from: &str, next: &str, allowed: &(dyn Fn(&str) -> bool + Sync)) -> bool {
+    !(is_https(from) && !is_https(next)) && allowed(next)
+}
+// --- end 5A T3 ---
 
 /// A request that failed, and whether no connection could be made at all.
 struct Failed {
@@ -543,14 +626,22 @@ fn connect_failed(e: &ureq::Error) -> bool {
 }
 
 impl Inner {
-    fn send_blocking(&self, method: Method, url: &str, body: Option<Vec<u8>>, if_none_match: Option<String>, auth: bool, limit: u64) -> Result<Raw, Box<Failed>> {
+    #[allow(clippy::too_many_arguments)]
+    fn send_blocking(&self, method: Method, url: &str, body: Option<Vec<u8>>, if_none_match: Option<String>, auth: bool, limit: u64, accept: Option<&'static str>) -> Result<Raw, Box<Failed>> {
         let host = &self.cfg.host;
         let mut b = ureq::http::Request::builder().method(method.as_str()).uri(url);
         if auth && let Some(t) = &self.cfg.token {
             b = b.header("Authorization", format!("Bearer {}", t.expose()));
         }
         for (k, v) in &self.cfg.headers {
+            // A request's own Accept replaces the client's.
+            if accept.is_some() && k.eq_ignore_ascii_case("accept") {
+                continue;
+            }
             b = b.header(*k, *v);
+        }
+        if let Some(a) = accept {
+            b = b.header("Accept", a);
         }
         if let Some(e) = &if_none_match {
             b = b.header("If-None-Match", e.as_str());
@@ -880,4 +971,69 @@ mod tests {
         assert_eq!(status_error("gitlab.example.com", 409, br#"{"message": ["a", "b"]}"#).message, "gitlab.example.com: a; b");
     }
     // --- end 4C T1 ---
+    // --- 5A T2 ---
+    #[tokio::test]
+    async fn get_as_sends_its_own_accept_and_keeps_its_own_etag_copy() {
+        let s = TestServer::start(|n, head| {
+            let full = head.contains("accept: application/vnd.github.full+json");
+            match n {
+                0 => {
+                    assert!(!full, "{head}");
+                    Canned::json(200, r#"{"v":"plain"}"#).header("ETag", "\"p\"")
+                }
+                1 => {
+                    assert!(full && !head.contains("if-none-match"), "another representation: not the plain copy's ETag: {head}");
+                    Canned::json(200, r#"{"v":"full"}"#).header("ETag", "\"f\"")
+                }
+                _ => {
+                    assert!(full && head.contains("if-none-match: \"f\""), "{head}");
+                    Canned::json(304, "")
+                }
+            }
+        });
+        let c = client(&s.base);
+        let v = |r: HttpResponse| r.json::<serde_json::Value>("h").unwrap()["v"].clone();
+        assert_eq!(v(c.get("/x").await.unwrap()), "plain");
+        assert_eq!(v(c.get_as("/x", "application/vnd.github.full+json").await.unwrap()), "full");
+        let again = c.get_as("/x", "application/vnd.github.full+json").await.unwrap();
+        assert!(again.not_modified);
+        assert_eq!(v(again), "full");
+    }
+
+    #[tokio::test]
+    async fn get_image_within_rechecks_a_redirect_and_tells_forbidden_from_missing() {
+        let other = TestServer::start(|_, _| Canned { status: 200, headers: vec![("Content-Type".into(), "image/png".into())], body: b"\x89PNGz".to_vec() });
+        let to = format!("{}/elsewhere.png", other.base);
+        let s = TestServer::start(move |n, _| match n {
+            0 => Canned { status: 302, headers: vec![("Location".into(), to.clone())], body: Vec::new() },
+            1 => Canned::json(403, r#"{"message":"expired"}"#),
+            _ => Canned::json(404, r#"{"message":"404 Not Found"}"#),
+        });
+        let c = client(&s.base);
+        let web = format!("{}/web", s.base);
+        let only_web = |u: &str| under(u, &web);
+        let host = other.base.trim_start_matches("http://").to_string();
+        assert_eq!(c.get_image_within(&format!("{web}/a.png"), &web, &only_web).await.unwrap(), ImageFetch::Elsewhere(host));
+        assert_eq!(other.hits(), 0, "the address off the allowlist was never asked");
+        assert_eq!(c.get_image_within(&format!("{web}/b.png"), &web, &only_web).await.unwrap(), ImageFetch::Forbidden);
+        assert_eq!(c.get_image_within(&format!("{web}/c.png"), &web, &only_web).await.unwrap(), ImageFetch::Missing);
+        let anywhere = |_: &str| true;
+        let direct = c.get_image_within(&format!("{}/d.png", other.base), &web, &anywhere).await.unwrap();
+        assert_eq!(direct, ImageFetch::Found { content_type: "image/png".into(), bytes: b"\x89PNGz".to_vec() });
+        assert!(!other.heads.lock().unwrap()[0].contains("authorization"), "another origin never gets the token");
+    }
+    // --- end 5A T2 ---
+
+    // --- 5A T3 ---
+    #[test]
+    fn an_image_redirect_to_plain_http_is_asked_like_one_off_the_allowlist() {
+        let anywhere = |_: &str| true;
+        let nowhere = |_: &str| false;
+        assert!(!image_redirect_followed("https://github.com/a.png", "http://github.com/a.png", &anywhere), "https → http: ask, even on an allowed host");
+        assert!(!image_redirect_followed("HTTPS://github.com/a.png", "http://cdn.example.org/a.png", &anywhere));
+        assert!(image_redirect_followed("https://github.com/a.png", "HTTPS://raw.githubusercontent.com/a.png", &anywhere));
+        assert!(image_redirect_followed("http://127.0.0.1:9/a.png", "http://127.0.0.1:9/b.png", &anywhere), "the harness's plain http");
+        assert!(!image_redirect_followed("https://github.com/a.png", "https://cdn.example.org/a.png", &nowhere));
+    }
+    // --- end 5A T3 ---
 }

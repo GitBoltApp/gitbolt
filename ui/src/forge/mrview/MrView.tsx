@@ -1,5 +1,5 @@
 import { ExternalLink } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { FlyoutFrame } from '../../ui/flyout/FlyoutFrame';
 import type { FlyoutProps } from '../../ui/flyout/flyout';
 import { HoverTooltip } from '../../ui/HoverTooltip';
@@ -7,11 +7,16 @@ import { HoverTooltip } from '../../ui/HoverTooltip';
 import { placeKey } from '../../nav/history';
 import { useScrollPlace } from '../../nav/scroll';
 // --- end 5B T3 ---
+// --- 5A T10 ---
+import { signedAttachments } from '../../markdown/attachments';
+import { Markdown } from '../../markdown/lazy';
+import { MR_BODY_MAX_BYTES } from '../../markdown/limits';
+// --- end 5A T10 ---
 import { ForgeStaleNote } from '../ForgeStale';
 import { EmojiText } from '../emoji';
 import { mrName, mrRef } from '../labels';
 import { MrStateIcon } from '../MrIcons';
-import { knownMr, patchForge, useTabForge, type MrViewArgs } from '../mrStore';
+import { knownMr, patchForge, useTabForgeField, type MrViewArgs } from '../mrStore';
 import { refreshMr } from '../poll';
 import { MrHeader, openInBrowser } from './MrHeader';
 import { CheckoutButton } from './CheckoutButton';
@@ -34,19 +39,27 @@ const REFRESH_GRACE_MS = 120;
 
 export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
   const { number } = props;
-  const f = useTabForge(tabId);
-  const kind = f.kind ?? 'gitlab';
+  // The fields it shows, not the whole forge state: a poll tick (`updatedAt`) re-renders nothing.
+  const kind = useTabForgeField(tabId, 'kind') ?? 'gitlab';
+  const details = useTabForgeField(tabId, 'details');
+  const detailErrors = useTabForgeField(tabId, 'detailErrors');
+  const discussions = useTabForgeField(tabId, 'discussions');
+  const list = useTabForgeField(tabId, 'list');
+  const byRef = useTabForgeField(tabId, 'byRef');
   useEffect(() => {
     patchForge(tabId, { openMr: number });
     // A beat of grace: arrowing down the sidebar's list opens each row in turn; only the one it rests on loads.
     const t = setTimeout(() => { void refreshMr(tabId, number).catch(() => {}); }, REFRESH_GRACE_MS);
     return () => { clearTimeout(t); patchForge(tabId, (cur) => (cur.openMr === number ? { openMr: null } : {})); };
   }, [tabId, number]);
-  const detail = f.details[number]?.value ?? null;
-  const mr = detail?.mr ?? knownMr(f, number);
+  const detail = details[number]?.value ?? null;
+  const mr = detail?.mr ?? knownMr({ details, list, byRef }, number);
   const ref = mrRef(kind, number);
   const label = `${mrName(kind)} ${ref}`;
-  const error = f.detailErrors[number];
+  const error = detailErrors[number];
+  // --- 5A final review: the description's text and context keep their identity across renders ---
+  const description = useMemo(() => (detail ? signedAttachments(detail.description, detail.bodyHtml ?? null) : ''), [detail]);
+  const context = useMemo(() => ({ kind: 'forge', tabId }) as const, [tabId]);
   // --- 5B T3: Back/Forward come back to where this view was scrolled (spec #5 §3.4) ---
   const probe = useRef<HTMLSpanElement>(null);
   useScrollPlace({
@@ -55,7 +68,7 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
     key: placeKey({ kind: 'mr', number, scrollTop: 0 }),
     el: () => probe.current?.closest<HTMLElement>('.flyout-body') ?? null,
     active: true,
-    ready: !!detail && f.discussions[number] !== undefined,
+    ready: !!detail && discussions[number] !== undefined,
     view: null,
   });
   // --- end 5B T3 ---
@@ -87,10 +100,16 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
       {/* --- end 4B T14 --- */}
       {mr && (
         <section className="mr-description" aria-label="Description">
-          {detail ? (detail.description.trim() ? detail.description : <span className="mr-dim">No description</span>) : <span className="mr-dim">Loading…</span>}
+          {/* --- 5A T10: rendered Markdown (spec #5 §1), plain over 1 MB --- */}
+          {detail
+            ? (detail.description.trim()
+              ? <Markdown text={description} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />
+              : <span className="mr-dim">No description</span>)
+            : <span className="mr-dim">Loading…</span>}
+          {/* --- end 5A T10 --- */}
         </section>
       )}
-      {mr && <Thread tabId={tabId} kind={kind} mr={mr} discussions={f.discussions[number] ?? null} reviews={detail?.mr.review.reviews} />}
+      {mr && <Thread tabId={tabId} kind={kind} mr={mr} discussions={discussions[number] ?? null} reviews={detail?.mr.review.reviews} />}
       {/* --- 4B T13: new comment --- */}
       {mr && <div className="mr-new-comment"><ReplyBox tabId={tabId} number={number} discussion={null} /></div>}
       {/* --- end 4B T13 --- */}

@@ -352,6 +352,13 @@ pub struct ForgeMrDetail {
     pub merge_status: MergeStatus,
     pub squash: Option<bool>,
     pub delete_source_branch: Option<bool>,
+    // --- 5A T1 ---
+    /// GitHub's rendered description (the `full` media type): its signed attachment URLs
+    /// (spec #5 §4.2). `None` for GitLab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub body_html: Option<String>,
+    // --- end 5A T1 ---
 }
 
 /// Where a diff-line note sits (spec #4 §2: shown in the thread with `file:line` and a snippet).
@@ -378,6 +385,12 @@ pub struct ForgeNote {
     /// A forge-generated note ("added 2 commits").
     pub system: bool,
     pub position: Option<DiffPosition>,
+    // --- 5A T1 ---
+    /// GitHub's rendered body (the `full` media type): its signed attachment URLs. `None` for GitLab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub body_html: Option<String>,
+    // --- end 5A T1 ---
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -527,4 +540,17 @@ mod tests {
         let old = r#"{"number":1,"title":"t","state":"open","author":{"id":1,"username":"a","name":"A"},"sourceProject":"p","sourceBranch":"b","targetProject":"p","targetBranch":"main","headSha":null,"webUrl":"","pipeline":null,"review":{"decision":"none","approvals":0,"approvalsRequired":null,"reviews":[]},"conflicts":null,"labels":["a"],"updatedAt":0}"#;
         assert!(serde_json::from_str::<ForgeMr>(old).unwrap().label_colors.is_empty());
     }
+
+    // --- 5A T1 ---
+    #[test]
+    fn body_html_is_sent_only_when_the_forge_gave_one() {
+        let author = ForgeUser { id: 1, username: "ada".into(), name: "Ada".into(), avatar_url: None, web_url: "https://x/ada".into(), email: None };
+        let mut n = ForgeNote { id: "1".into(), author, body: "b".into(), created_at: 0, system: false, position: None, body_html: None };
+        assert!(serde_json::to_value(&n).unwrap().get("bodyHtml").is_none());
+        n.body_html = Some("<p>b</p>".into());
+        assert_eq!(serde_json::to_value(&n).unwrap()["bodyHtml"], "<p>b</p>");
+        let back: ForgeNote = serde_json::from_value(serde_json::json!({"id": "1", "author": {"id": 1, "username": "ada", "name": "Ada", "avatarUrl": null, "webUrl": "https://x/ada", "email": null}, "body": "b", "createdAt": 0, "system": false, "position": null})).unwrap();
+        assert_eq!(back.body_html, None);
+    }
+    // --- end 5A T1 ---
 }

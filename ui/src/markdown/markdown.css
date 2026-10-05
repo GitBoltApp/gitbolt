@@ -1,0 +1,68 @@
+/* Rendered Markdown (spec #5 §3.1): GitHub-like typography on the theme's tokens. Full width in the
+   MR/PR flyout; 5B caps File View's reading width. */
+.md { font-size: 12px; line-height: 1.55; color: var(--text-normal); overflow-wrap: anywhere; min-width: 0; }
+.md > :first-child, .md > .md-chunk:first-child > :first-child { margin-top: 0; }
+.md > :last-child, .md > .md-chunk:last-child > :last-child { margin-bottom: 0; }
+/* A large document's chunks (Task 12): off-screen ones skip layout and paint. Each chunk sets its
+   own placeholder height from its source length (`chunkHeightOf`); this one is the fallback. */
+.md-chunk { content-visibility: auto; contain-intrinsic-size: auto 600px; }
+.md p, .md ul, .md ol, .md blockquote, .md table, .md pre, .md details, .md .md-code, .md .md-mermaid { margin: 0 0 10px; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 16px 0 8px; font-weight: 600; line-height: 1.25; color: var(--text-selected); }
+.md h1 { font-size: 1.6em; padding-bottom: 0.3em; border-bottom: 1px solid var(--section-border); }
+.md h2 { font-size: 1.3em; padding-bottom: 0.3em; border-bottom: 1px solid var(--section-border); }
+.md h3 { font-size: 1.15em; }
+.md h4 { font-size: 1em; }
+.md h5 { font-size: 0.9em; }
+.md h6 { font-size: 0.85em; color: var(--text-secondary); }
+.md ul, .md ol { padding-left: 2em; }
+.md li + li { margin-top: 2px; }
+.md li > ul, .md li > ol { margin: 2px 0 0; }
+.md li:has(> input[type="checkbox"]) { list-style: none; }
+.md input.md-task { margin: 0 6px 0 -1.4em; vertical-align: middle; }
+.md blockquote { padding: 0 1em; color: var(--text-secondary); border-left: 3px solid var(--section-border); }
+.md hr { height: 2px; margin: 16px 0; border: 0; background: var(--section-border); }
+.md table { display: block; width: max-content; max-width: 100%; overflow: auto; border-collapse: collapse; }
+.md th, .md td { padding: 4px 10px; border: 1px solid var(--section-border); }
+.md th { font-weight: 600; }
+.md tr:nth-child(2n) { background: var(--panel-bg1); }
+.md code { padding: 0.15em 0.35em; border-radius: 4px; background: var(--app-bg0); font: 0.92em var(--font-mono); }
+.md pre { padding: 8px 10px; overflow-x: auto; border-radius: 6px; background: var(--app-bg0); font: 11px/1.45 var(--font-mono); white-space: pre; }
+.md pre code { padding: 0; background: none; font: inherit; }
+.md kbd { display: inline-block; padding: 1px 5px; font: 0.85em var(--font-mono); border: 1px solid var(--section-border); border-bottom-width: 2px; border-radius: 4px; background: var(--panel-bg1); }
+.md summary { cursor: pointer; }
+.md del { color: var(--text-secondary); }
+.md sup, .md sub { line-height: 0; }
+.md section[data-footnotes] { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--section-border); font-size: 0.9em; color: var(--text-secondary); }
+.md section[data-footnotes] > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Links and references */
+.md-link { color: var(--link); cursor: pointer; text-decoration: none; }
+.md-link:hover { text-decoration: underline; }
+.md-link:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; border-radius: 2px; }
+.md-ref { font-weight: 500; }
+.md-inert { color: inherit; }
+.md-user-card { display: inline-flex; align-items: center; gap: 6px; }
+.md-user-login { color: var(--text-secondary); }
+
+/* Code blocks: Copy sits over the block, never in the flow */
+.md-code { position: relative; }
+.md-copy { position: absolute; top: 4px; right: 4px; display: inline-flex; padding: 3px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-secondary); cursor: pointer; opacity: 0; transition: opacity var(--motion-fast); }
+.md-code:hover .md-copy, .md-copy:focus-visible { opacity: 1; }
+.md-copy:hover { color: var(--text-normal); background: var(--control-hover-bg); }
+
+/* Mermaid */
+.md-mermaid img { display: block; max-width: 100%; height: auto; }
+.md-mermaid-error { margin: 4px 0 0; color: var(--red); font-size: 11px; }
+
+/* Images: the box keeps an image's reserved size while it loads, fails or waits for a click */
+.md-img { max-width: 100%; height: auto; vertical-align: middle; }
+.md-img-box { display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%; min-height: 24px; padding: 4px 8px; box-sizing: border-box; vertical-align: middle; border: 1px dashed var(--section-border); border-radius: 4px; color: var(--text-secondary); font-size: 11px; }
+.md-img-loading { background: var(--panel-bg1); }
+.md-img-alt { overflow: hidden; text-overflow: ellipsis; }
+.md-img-load { padding: 2px 8px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); font: inherit; cursor: pointer; }
+.md-img-load:hover { background: var(--control-hover-bg); }
+
+/* Fallbacks */
+.md-plain { white-space: pre-wrap; }
+.md-plain-chunk { content-visibility: auto; contain-intrinsic-size: auto 400px; }
+.md-rendering, .md-error { margin: 0; color: var(--text-secondary); font-size: 11px; }

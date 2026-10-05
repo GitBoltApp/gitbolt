@@ -561,8 +561,8 @@ pub fn detect_system() -> Vec<Opener> {
 /// runtime set for itself (`GDK_BACKEND=x11`, `IBUS_ENABLE_SYNC_MODE=1`), on top of
 /// `CHROME_DEVEL_SANDBOX`, which `launch_command` always strips (`I2`). The caller
 /// (`links::validate_web_url`, run before the API ever calls the opener) has already checked
-/// `url` starts with `http(s)://` and has no userinfo, so it can never be read as an `xdg-open`
-/// option.
+/// `url` starts with `http(s)://` (no userinfo) or `mailto:` (one plausible address), so it can
+/// never be read as an `xdg-open` option.
 pub fn system_url_opener(hook: ChildEnvHook) -> Option<UrlOpener> {
     #[cfg(target_os = "linux")]
     {

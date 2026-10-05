@@ -1,17 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}), loadMrDetail: vi.fn(async () => {}), openMrView: vi.fn() }));
 vi.mock('../poll', () => poll);
-const api = vi.hoisted(() => ({ openUrl: vi.fn(async () => null) }));
+const api = vi.hoisted(() => ({ openUrl: vi.fn(async () => null), forgeImage: vi.fn(async () => ({ kind: 'found', mime: 'image/png', base64: 'iVBORw==' })), forgeProjectSettings: vi.fn(() => new Promise(() => {})) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: String }));
 const note = vi.hoisted(() => ({ openNoteFile: vi.fn(async () => {}) }));
 vi.mock('./openNote', () => note);
 
 const { MrView } = await import('./MrView');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
-const { detailOf, mrOf, user } = await import('../testMrs');
+const { detailOf, mrOf, projectOf, user } = await import('../testMrs');
+const { useRuntime } = await import('../../app/runtime');
 
 const grace = user('Grace Hopper');
 const mr = mrOf(12, { title: 'Dev work', pipeline: { status: 'success', webUrl: 'https://gitlab.example.com/p/-/pipelines/1' }, labels: ['backend'] });
@@ -24,13 +25,62 @@ const threads: ForgeDiscussion[] = [
 const close = vi.fn();
 const show = () => render(<MrView tabId="t" props={{ number: 12 }} close={close} />);
 
+// The lazy Markdown chunk's first import is slow: load it once before the tests.
+beforeAll(async () => { await import('../../markdown/Markdown'); });
+
 beforeEach(() => {
   vi.clearAllMocks();
   useForge.setState({ byTab: {} });
+  useRuntime.setState({ tabs: { t: { repo: { id: 4 } } as never } });
   patchForge('t', { kind: 'gitlab', remote: 'origin', details: { 12: { value: detail, at: 1 } }, discussions: { 12: threads } });
 });
 
 describe('the MR/PR view (spec #4 §4 "4B")', () => {
+  it('renders the description as Markdown, with its references (spec #5 §1)', async () => {
+    // A reference links only with a project to resolve it against (inert without one).
+    patchForge('t', { project: projectOf(), details: { 12: { value: { ...detail, description: '## What / why\n\nFollows !5.' }, at: 1 } } });
+    show();
+    const region = screen.getByRole('region', { name: 'Description' });
+    expect(await within(region).findByRole('heading', { name: 'What / why' })).toBeInTheDocument();
+    expect(within(region).getByRole('link', { name: '!5' })).toBeInTheDocument();
+  });
+
+  it('renders every comment as Markdown, and keeps system notes as events', async () => {
+    patchForge('t', { discussions: { 12: [{ ...threads[0]!, notes: [{ ...threads[0]!.notes[0]!, body: 'Use **this**' }] }, threads[2]!] } });
+    show();
+    const activity = screen.getByRole('region', { name: 'Activity' });
+    await waitFor(() => expect(activity.querySelector('.mr-note-body strong')).toHaveTextContent('this'));
+    expect(activity).toHaveTextContent('added 1 commit');
+  });
+
+  it('keeps a description over 1 MB as plain text', async () => {
+    const big = `## Big\n\n${'x'.repeat(1_000_100)}`;
+    patchForge('t', { details: { 12: { value: { ...detail, description: big }, at: 1 } } });
+    show();
+    const region = screen.getByRole('region', { name: 'Description' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(region).queryByRole('heading', { name: 'Big' })).toBeNull();
+    expect(region.querySelector('.md-plain')).not.toBeNull();
+  });
+
+  it('loads a GitHub attachment through its signed URL from bodyHtml', async () => {
+    const uuid = '1b2c3d4e-0000-4000-8000-00000000abcd';
+    const signedUrl = `https://private-user-images.githubusercontent.com/1/2-${uuid}.png?jwt=a`;
+    patchForge('t', { kind: 'github', project: projectOf('octo-org/widget', 'github'), details: { 12: { value: { ...detail, description: `![shot](https://github.com/user-attachments/assets/${uuid})`, bodyHtml: `<p><img src="${signedUrl}"></p>` }, at: 1 } } });
+    show();
+    await waitFor(() => expect(api.forgeImage).toHaveBeenCalledWith(4, signedUrl, false));
+  });
+
+  it('renders the new text when a poll or an edit changes the description', async () => {
+    patchForge('t', { details: { 12: { value: { ...detail, description: '## Before' }, at: 1 } } });
+    show();
+    const region = screen.getByRole('region', { name: 'Description' });
+    expect(await within(region).findByRole('heading', { name: 'Before' })).toBeInTheDocument();
+    act(() => { patchForge('t', { details: { 12: { value: { ...detail, description: '## After' }, at: 2 } } }); });
+    expect(await within(region).findByRole('heading', { name: 'After' })).toBeInTheDocument();
+    expect(within(region).queryByRole('heading', { name: 'Before' })).toBeNull();
+  });
+
   it('is the flyout "Merge request !12", with its state, branches, author, pipeline, review, conflicts, reviewers and labels', () => {
     show();
     const view = screen.getByRole('dialog', { name: 'Merge request !12' });
@@ -148,7 +198,7 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
   it('keeps the tab bar while loading, and shows a forge note inside a human thread as an event', () => {
     patchForge('t', { discussions: {} });
     const { unmount } = show();
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab').filter((t) => !t.classList.contains('md-field-tab'))).toHaveLength(3);
     expect(screen.getByText('Loading the discussion…')).toBeTruthy();
     unmount();
     patchForge('t', { discussions: { 12: [{ id: 'm', resolvable: false, resolved: false, notes: [

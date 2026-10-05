@@ -15,6 +15,14 @@ use std::sync::Mutex;
 pub const MAX_ENTRIES: usize = 2000;
 const EXTS: [&str; 4] = ["png", "gif", "webp", "jpg"];
 
+// --- 5A T3 ---
+/// sha256 of `s` exactly as given (no trimming, no case folding), as hex.
+pub fn exact_key(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+// --- end 5A T3 ---
+
 fn valid_key(k: &str) -> bool {
     k.len() == 64 && k.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -120,8 +128,27 @@ impl DiskAvatarCache {
     }
 
     pub fn lookup(&self, email: &str) -> Lookup {
-        let key = email_key(email);
-        let Some(entry) = self.with_index(|i| i.get(&key).cloned()) else { return Lookup::Unknown };
+        self.lookup_hashed(&email_key(email))
+    }
+
+    // --- 5A T3: Markdown images keep their case ---
+    /// `lookup` by an exact key (`exact_key`): a Markdown image's URL, whose path and query can
+    /// differ only in case (base64, case-sensitive hosts). Avatars keep `lookup`'s folded key.
+    pub fn lookup_exact(&self, key: &str) -> Lookup {
+        self.lookup_hashed(&exact_key(key))
+    }
+
+    pub fn store_found_exact(&self, key: &str, content_type: &str, bytes: &[u8]) -> Option<AvatarPayload> {
+        self.store_found_hashed(&exact_key(key), content_type, bytes)
+    }
+
+    pub fn store_missing_exact(&self, key: &str) {
+        self.remember(&exact_key(key), None);
+    }
+    // --- end 5A T3 ---
+
+    fn lookup_hashed(&self, key: &str) -> Lookup {
+        let Some(entry) = self.with_index(|i| i.get(key).cloned()) else { return Lookup::Unknown };
         let ttl = if entry.ext.is_some() { FOUND_TTL_SECS } else { MISSING_TTL_SECS };
         if now() - entry.fetched >= ttl {
             return Lookup::Unknown;
@@ -137,13 +164,16 @@ impl DiskAvatarCache {
 
     /// Keeps an image and answers its payload; `None` (and nothing kept) if it isn't one.
     pub fn store_found(&self, email: &str, content_type: &str, bytes: &[u8]) -> Option<AvatarPayload> {
+        self.store_found_hashed(&email_key(email), content_type, bytes)
+    }
+
+    fn store_found_hashed(&self, key: &str, content_type: &str, bytes: &[u8]) -> Option<AvatarPayload> {
         let ext = ext_for(content_type)?;
-        let key = email_key(email);
         let written = ensure_private_dir(&self.dir).and_then(|_| write_atomic(&self.dir.join(format!("{key}.{ext}")), bytes));
         if let Err(e) = written {
             tracing::warn!("forge avatar not cached: {e}");
         } else {
-            self.remember(&key, Some(ext));
+            self.remember(key, Some(ext));
         }
         Some(payload(ext, bytes))
     }
@@ -228,6 +258,25 @@ mod tests {
         assert!(!d.join(format!("{old}.png")).exists(), "expired image deleted");
         assert_eq!(cache.with_index(|i| i.len()), 1);
     }
+
+    // --- 5A T3 ---
+    #[test]
+    fn image_keys_keep_their_case_and_avatar_keys_still_fold_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DiskAvatarCache::new(dir.path().join("github.com"));
+        let a = "img:https://raw.githubusercontent.com/o/r/main/Shot.png";
+        let b = "img:https://raw.githubusercontent.com/o/r/main/shot.png";
+        cache.store_found_exact(a, "image/png", b"\x89PNGa").unwrap();
+        assert!(matches!(cache.lookup_exact(a), Lookup::Found(_)));
+        assert!(matches!(cache.lookup_exact(b), Lookup::Unknown), "a URL differing only in case is another image");
+        cache.store_missing_exact(b);
+        assert!(matches!(cache.lookup_exact(a), Lookup::Found(_)), "and doesn't overwrite it");
+        assert!(matches!(cache.lookup_exact(b), Lookup::Missing));
+        assert_ne!(exact_key(a), email_key(a));
+        cache.store_found("Ada@Example.com", "image/png", b"\x89PNGx").unwrap();
+        assert!(matches!(cache.lookup("ada@example.com"), Lookup::Found(_)), "avatar keys are unchanged");
+    }
+    // --- end 5A T3 ---
 
     #[test]
     fn payload_of_takes_images_only() {

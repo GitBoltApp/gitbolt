@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { growth } from '../../test-perf';
 import { decodeEntities, parseSystemNote, safeUrl } from './systemNote';
 
 const BASE = 'https://gitlab.example.com/Acme/shop/-/merge_requests/1203';
@@ -85,26 +86,29 @@ describe('system notes as structured parts (never HTML)', () => {
     expect(n.parts.some((p) => p.t === 'link')).toBe(false);
   });
 
-  it('parses adversarial 200 kB bodies in linear time, with bounded output', () => {
-    // The body is capped at 20 kB and every span is bounded, so the worst unit (`[`, ~300 chars
-    // scanned each) costs ~25 ms here; quadratic parsing of 20 kB would take seconds. The ceiling
-    // leaves room for a loaded machine without letting a regression through.
-    const best = (body: string) => {
-      let ms = Infinity;
-      for (let k = 0; k < 3; k++) {
-        const t0 = performance.now();
-        parse(body);
-        ms = Math.min(ms, performance.now() - t0);
-      }
-      return ms;
-    };
-    parse('[a](b) {-x-} <b>`c`'.repeat(500)); // warm the regex engine
-    for (const unit of ['{-', '[', '<', '{+', '`', '[a](', '<code class="idiff">']) {
+  // Growth, not a budget (see test-perf.ts), unit by unit.
+  const UNITS = ['{-', '[', '<', '{+', '`', '[a](', '<code class="idiff">'];
+  const unitCost = (unit: string) => (size: number) => { const body = unit.repeat(Math.ceil(size / unit.length)); return () => { parse(body); }; };
+
+  it('parses adversarial bodies in linear time', () => {
+    // Every span is bounded, so 4x the body costs about 4x the CPU time (3.3-4.2x measured idle,
+    // 2.1-4.2x loaded); quadratic parsing would cost 16x.
+    for (const unit of UNITS) {
+      const g = growth(unitCost(unit), 5_000);
+      expect(g.ratio, `${unit}: 5 kB ${g.small.toFixed(1)} ms, 20 kB ${g.large.toFixed(1)} ms`).toBeLessThan(8);
+    }
+  }, 60_000);
+
+  it('caps adversarial 200 kB bodies: no costlier than 20 kB, with bounded output', () => {
+    // The body is capped at 20 kB, so 10x past the cap costs about the same (1-2.4x measured,
+    // idle or loaded); uncapped, 10x.
+    for (const unit of UNITS) {
+      const g = growth(unitCost(unit), 20_000, { factor: 10 });
+      expect(g.ratio, `${unit}: 20 kB ${g.small.toFixed(1)} ms, 200 kB ${g.large.toFixed(1)} ms`).toBeLessThan(5);
       const body = unit.repeat(Math.ceil(200_000 / unit.length));
-      expect(best(body), unit).toBeLessThan(250);
       expect(JSON.stringify(parse(body).parts).length, unit).toBeLessThan(100_000);
     }
-  });
+  }, 60_000);
 
   it('caps a long commit list at 50 and counts the rest', () => {
     const lis = Array.from({ length: 80 }, (_, i) => `<li>${String(i).padStart(8, 'a')} - c${i}</li>`).join('');

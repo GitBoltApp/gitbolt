@@ -277,6 +277,7 @@ pub mod json {
             merge_status: merge_status(v),
             squash: v["squash"].as_bool(),
             delete_source_branch: v["force_remove_source_branch"].as_bool(),
+            body_html: None,
         })
     }
 
@@ -294,6 +295,7 @@ pub mod json {
             created_at: v["created_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             system: v["system"].as_bool().unwrap_or(false),
             position: position(&v["position"]),
+            body_html: None,
         })
     }
 
@@ -664,6 +666,18 @@ impl ForgeProvider for GitLabProvider {
         let url = avatar_fetch_url(url, &[&format!("{}/uploads", self.web)])?;
         Some(Box::pin(async move { image_at(&self.http, self.avatars.as_deref(), &url, &self.web).await }))
     }
+
+    // --- 5A T2: Markdown images ---
+    /// The account's own host: an upload through the API, anything else as it is; the token goes
+    /// with both (the web host is the API host), never elsewhere.
+    fn image<'a>(&'a self, project: &'a ForgeProject, url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        let route = crate::images::gitlab_route(url, &self.web, project, |p| self.http.url(p))?;
+        Some(Box::pin(async move {
+            let allowed = |next: &str| under(next, &self.web);
+            crate::images::fetch(&self.http, self.avatars.as_deref(), &route, &self.web, &allowed).await
+        }))
+    }
+    // --- end 5A T2 ---
 
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
         Box::pin(async move {

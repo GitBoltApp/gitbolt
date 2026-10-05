@@ -6,18 +6,22 @@ use std::sync::Arc;
 
 pub type UrlOpener = Arc<dyn Fn(&str) -> Result<(), GbError> + Send + Sync>;
 
-/// Only plain `http(s)` links may leave the app:
+/// Only plain `http(s)` links and `mailto:` addresses may leave the app:
 /// - no `file:`, `javascript:` or custom schemes (the scheme match ignores case)
 /// - a non-empty host, an optional numeric port, and no userinfo (`https://github.com@evil.example/`
 ///   is a phishing shape)
+/// - `mailto:` with one plausible address (`local@domain.tld`), then an optional `?subject=…`
 /// - no whitespace, control characters, or invisible format characters such as bidi overrides
 pub fn validate_web_url(url: &str) -> Result<(), GbError> {
     let invalid = || GbError::new(GbErrorKind::InvalidInput, format!("not a web link: {url:?}"));
-    let lower = url.to_ascii_lowercase();
-    let rest = ["https://", "http://"].iter().find(|s| lower.starts_with(**s)).map(|s| &url[s.len()..]).ok_or_else(invalid)?;
     if url.chars().any(|c| c.is_whitespace() || c.is_control() || is_format_char(c)) {
         return Err(invalid());
     }
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("mailto:") {
+        return if plausible_mail_address(&url["mailto:".len()..]) { Ok(()) } else { Err(invalid()) };
+    }
+    let rest = ["https://", "http://"].iter().find(|s| lower.starts_with(**s)).map(|s| &url[s.len()..]).ok_or_else(invalid)?;
     let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
     if authority.contains('@') {
         return Err(invalid());
@@ -37,6 +41,20 @@ pub fn validate_web_url(url: &str) -> Result<(), GbError> {
         return Err(invalid());
     }
     Ok(())
+}
+
+/// One `local@domain.tld` address, then an optional `?query` (a subject, a body): the local part in
+/// RFC 5322's atom characters (percent-escapes included), the domain in dot-separated letter,
+/// digit and hyphen labels with at least one dot. Never a list, never a leading `-` or `/`.
+fn plausible_mail_address(rest: &str) -> bool {
+    let address = rest.split_once('?').map_or(rest, |(a, _)| a);
+    let Some((local, domain)) = address.split_once('@') else { return false };
+    let local_ok = !local.is_empty()
+        && !local.starts_with(['-', '.', '/'])
+        && !local.ends_with('.')
+        && local.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+/=^_`{|}~.-".contains(&b));
+    let label_ok = |l: &str| !l.is_empty() && !l.starts_with('-') && !l.ends_with('-') && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    local_ok && domain.contains('.') && domain.split('.').all(label_ok)
 }
 
 /// Unicode general category Cf (format) characters that can hide or reorder text: soft hyphen,
@@ -65,6 +83,45 @@ mod tests {
             "https://gitlab.example.com/group/project/-/commit/abc?ref=a@b",
         ] {
             assert!(validate_web_url(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn accepts_a_mailto_with_one_plausible_address() {
+        for ok in [
+            "mailto:ada@example.com",
+            "MAILTO:Ada.Lovelace+git@mail.example.co.uk",
+            "mailto:a_b@x-y.example?subject=Hello%20there",
+            "mailto:o%27neil@example.com",
+        ] {
+            assert!(validate_web_url(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn rejects_a_mailto_without_a_plausible_address() {
+        for bad in [
+            "mailto:",
+            "mailto:ada",
+            "mailto:ada@localhost",
+            "mailto:@example.com",
+            "mailto:ada@",
+            "mailto:ada@@example.com",
+            "mailto:-x@example.com",
+            "mailto:.ada@example.com",
+            "mailto:ada@example..com",
+            "mailto:ada@-example.com",
+            "mailto:a@example.com,b@example.com",
+            "mailto:ada@exa_mple.com",
+            "mailto:ada <ada@example.com>",
+            "mailto:ada@example.com\n",
+            "mailto:ada@example.com\u{202E}",
+            "mailto:\u{200B}ada@example.com",
+            "mailto:?to=ada@example.com",
+            "mailto://ada@example.com",
+        ] {
+            let err = validate_web_url(bad).unwrap_err();
+            assert_eq!(err.kind, GbErrorKind::InvalidInput, "{bad:?}");
         }
     }
 

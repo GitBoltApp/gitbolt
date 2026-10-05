@@ -85,3 +85,10 @@
    renders after the editor, which must not remount): in normal flow, so the editor shrinks to fit
    under it and none of its lines are covered (2B final I4). */
 .hunk-refused { order: -1; }
+
+/* Spec #5 §3.3: File View's text body (the editor's box fills it), hidden under the rendered view. */
+.file-source { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.file-source[hidden], .md-rendered[hidden] { display: none; }
+/* The rendered Markdown: read-only, scrolling on its own, at a reading width (about 880 px). */
+.md-rendered { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; padding: 16px 24px; background: var(--app-bg0); outline: none; }
+.md-rendered > * { max-width: 880px; margin-inline: auto; }

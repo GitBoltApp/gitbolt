@@ -6,7 +6,7 @@ use crate::endpoints::{default_endpoints, HostEndpoints};
 use crate::github::GitHubProvider;
 use crate::gitlab::GitLabProvider;
 use gitbolt_core::error::{GbError, GbErrorKind};
-use gitbolt_core::forge::{ForgeConnector, ForgeKind, ForgeProvider};
+use gitbolt_core::forge::{ForgeConnector, ForgeFuture, ForgeImage, ForgeKind, ForgeProvider};
 use gitbolt_core::redact::Secret;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -24,12 +24,24 @@ pub struct ForgeConfig {
 pub struct Forge {
     cfg: ForgeConfig,
     caches: Mutex<HashMap<String, Arc<DiskAvatarCache>>>,
+    // --- 5A T2 ---
+    /// Host → GitHub's Markdown image bases, replacing the defaults (`with_image_bases`).
+    image_bases: HashMap<String, Vec<String>>,
+    // --- end 5A T2 ---
 }
 
 impl Forge {
     pub fn new(cfg: ForgeConfig) -> Self {
-        Self { cfg, caches: Mutex::default() }
+        Self { cfg, caches: Mutex::default(), image_bases: HashMap::new() }
     }
+
+    // --- 5A T2 ---
+    /// GitHub's Markdown image bases for `host`, replacing the defaults (the harness: its fake's).
+    pub fn with_image_bases(mut self, host: &str, bases: Vec<String>) -> Self {
+        self.image_bases.insert(host.to_string(), bases);
+        self
+    }
+    // --- end 5A T2 ---
 
     /// One cache per host, shared by every provider for it (a re-added account keeps it).
     fn cache(&self, host: &str) -> Option<Arc<DiskAvatarCache>> {
@@ -49,9 +61,22 @@ impl ForgeConnector for Forge {
         let cache = self.cache(host);
         Ok(match kind {
             ForgeKind::GitLab => Arc::new(GitLabProvider::new(host, &endpoints, token, cache)),
-            ForgeKind::GitHub => Arc::new(GitHubProvider::new(host, &endpoints, token, cache)),
+            ForgeKind::GitHub => {
+                let p = GitHubProvider::new(host, &endpoints, token, cache);
+                Arc::new(match self.image_bases.get(host) {
+                    Some(b) => p.with_image_bases(b.clone()),
+                    None => p,
+                })
+            }
         })
     }
+
+    // --- 5A T2 ---
+    fn public_image<'a>(&'a self, url: &'a str) -> ForgeFuture<'a, ForgeImage> {
+        // The harness's fake forge is plain http; the app's never.
+        Box::pin(crate::images::fetch_public(url, self.cfg.only_overrides))
+    }
+    // --- end 5A T2 ---
 }
 
 #[cfg(test)]
@@ -70,6 +95,20 @@ mod tests {
         let app = Forge::new(ForgeConfig { overrides: HashMap::new(), only_overrides: false, avatar_dir: None });
         assert_eq!(app.connect(ForgeKind::GitHub, "github.com", Secret::new("x")).unwrap().kind(), ForgeKind::GitHub);
     }
+
+    // --- 5A T2 ---
+    #[test]
+    fn image_bases_replace_githubs_defaults_for_that_host() {
+        use gitbolt_core::forge::ForgeProject;
+        let mut overrides = HashMap::new();
+        overrides.insert("github.com".to_string(), HostEndpoints { api: "http://127.0.0.1:9/github".into(), web: "http://127.0.0.1:9/github-web".into(), avatars: Some("http://127.0.0.1:9/github-avatars".into()) });
+        let f = Forge::new(ForgeConfig { overrides, only_overrides: true, avatar_dir: None }).with_image_bases("github.com", vec!["http://127.0.0.1:9/github-images".into()]);
+        let p = f.connect(ForgeKind::GitHub, "github.com", Secret::new("ghp_x")).unwrap();
+        let project = ForgeProject { kind: ForgeKind::GitHub, id: 1, host: "github.com".into(), path: "o/r".into(), name: "r".into(), owner: "o".into(), web_url: "http://127.0.0.1:9/github-web/o/r".into(), default_branch: None, clone_https: String::new(), clone_ssh: String::new(), fork_of: None, updated_at: None, archived: false, owner_avatar_url: None };
+        assert!(p.image(&project, "http://127.0.0.1:9/github-images/1/a.png?jwt=x").is_some());
+        assert!(p.image(&project, "https://private-user-images.githubusercontent.com/1/a.png").is_none(), "the real host isn't reachable from the harness");
+    }
+    // --- end 5A T2 ---
 
     /// One token in memory.
     struct OneToken;

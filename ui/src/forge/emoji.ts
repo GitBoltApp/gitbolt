@@ -7,7 +7,7 @@ import { createElement, Fragment, useEffect, useSyncExternalStore, type ReactEle
  * the result is only ever React text.
  */
 const SHORTCODE = /:([a-z0-9_+-]+):/gi;
-const HAS_SHORTCODE = /:[a-z0-9_+-]+:/i;
+export const HAS_SHORTCODE = /:[a-z0-9_+-]+:/i;
 
 let names: Readonly<Record<string, string>> | null = null;
 let loading: Promise<void> | null = null;
@@ -29,6 +29,11 @@ export function loadEmoji(): Promise<void> {
   );
   return loading;
 }
+
+// --- 5A T4 ---
+/** Whether the shortcode map has loaded (Markdown parses with it, and keys its cache on it). */
+export const emojiReady = (): boolean => names !== null;
+// --- end 5A T4 ---
 
 /** A lone text-presentation emoji (⚙ U+2699) gets U+FE0F, or it draws monochrome. */
 const colourful = (e: string): string => (/^\p{Emoji}$/u.test(e) && !/^\p{Emoji_Presentation}$/u.test(e) && !/^[#*0-9]$/.test(e) ? `${e}️` : e);

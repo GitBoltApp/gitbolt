@@ -9,8 +9,8 @@ import { contentKey } from '../repo/services';
 import { contentsRequest, fileViewTarget, openWorktree, targetFor, worktreeViewTarget, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
 import { closeFlyout, flyoutOf } from '../ui/flyout/flyout';
 import { useToast } from '../ui/toast';
-import { dropHistory, placeKey, recordPlace, registerPlaceKind, type FileCommit, type Place, type PlaceView } from './history';
-import { scrollOf, setPendingScroll } from './scroll';
+import { dropHistory, placeKey, recordPlace, registerPlaceKind, type BlockPos, type FileCommit, type Place, type PlaceView } from './history';
+import { scrollBlockOf, scrollOf, setPendingScroll } from './scroll';
 
 type FilePlace = Extract<Place, { kind: 'file' }>;
 const toast = (m: string) => useToast.getState().show(m);
@@ -89,8 +89,13 @@ export interface OpenFileOptions {
   anchor?: string | null;
   /** Where its view scrolls once shown (a restore). */
   scrollTop?: number;
+  /** A long rendered document's first visible block then (a restore; `scrollTop` is its fallback). */
+  block?: BlockPos;
   /** Close the MR/PR flyout, which would cover the file (a restore). */
   closeMrView?: boolean;
+  /** Runs first once leaving the open file is settled, never when the leave prompt is cancelled:
+   * Back/Forward move the history's cursor there. */
+  onArrive?: () => void;
 }
 
 /**
@@ -119,9 +124,10 @@ export async function openFileAt(tabId: string, path: string, commit: FileCommit
   }
   const place: FilePlace = { kind: 'file', path, commit, view: viewOf(path), scrollTop: 0 };
   v.store.getState().leaveThen(() => {
+    opts.onArrive?.();
     if (opts.record) recordPlace(tabId, place);
     if (opts.closeMrView) closeMrView(tabId);
-    if (opts.anchor || opts.scrollTop) setPendingScroll(tabId, 'file', { key: placeKey(place), view: place.view, top: opts.scrollTop ?? 0, anchor: opts.anchor ?? null });
+    if (opts.anchor || opts.scrollTop || opts.block) setPendingScroll(tabId, 'file', { key: placeKey(place), view: place.view, top: opts.scrollTop ?? 0, anchor: opts.anchor ?? null, block: opts.block ?? null });
     const st = v.store.getState();
     if (!shows(st, commit)) {
       if (worktree !== null) {
@@ -139,13 +145,19 @@ export async function openFileAt(tabId: string, path: string, commit: FileCommit
 
 const offFile = registerPlaceKind('file', {
   capture: (tabId, p) => {
-    const top = scrollOf(tabId, 'file', placeKey(p));
-    return { ...p, view: viewOf(p.path), scrollTop: top ?? p.scrollTop };
+    const key = placeKey(p);
+    const top = scrollOf(tabId, 'file', key);
+    // A fresh reading brings its block (none for a short document); none keeps the recorded one.
+    const block = top === null ? p.block : scrollBlockOf(tabId, 'file', key) ?? undefined;
+    const { block: _old, ...rest } = p;
+    return { ...rest, view: viewOf(p.path), scrollTop: top ?? p.scrollTop, ...(block ? { block } : {}) };
   },
-  async restore(tabId, p) {
+  // The cursor moves once the open file has been left (`leaveThen`): a cancelled prompt moves nothing.
+  arrivesItself: true,
+  async restore(tabId, p, arrive) {
     const prefs = useDiffPrefs.getState();
     if (isMarkdownPath(p.path) && prefs.prefs.markdownView !== p.view) prefs.set({ markdownView: p.view });
-    return openFileAt(tabId, p.path, p.commit, { scrollTop: p.scrollTop, closeMrView: true });
+    return openFileAt(tabId, p.path, p.commit, { scrollTop: p.scrollTop, block: p.block, closeMrView: true, onArrive: arrive });
   },
 });
 

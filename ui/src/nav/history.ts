@@ -9,9 +9,13 @@ import { create } from 'zustand';
  */
 export type FileCommit = string | 'worktree';
 export type PlaceView = 'rendered' | 'source';
+/** A long rendered Markdown document's reading position: its `block`-th top-level block (across
+ * its chunks), scrolled `offset` px past that block's top. */
+export interface BlockPos { block: number; offset: number }
 export type Place =
   | { kind: 'mr'; number: number; scrollTop: number }
-  | { kind: 'file'; path: string; commit: FileCommit; view: PlaceView; scrollTop: number }
+  /** `block`: where a long rendered document was read (`scrollTop` is its fallback). */
+  | { kind: 'file'; path: string; commit: FileCommit; view: PlaceView; scrollTop: number; block?: BlockPos }
   | { kind: 'commit'; sha: string };
 export type PlaceKindName = Place['kind'];
 type PlaceOf<K extends PlaceKindName> = Extract<Place, { kind: K }>;
@@ -87,10 +91,14 @@ export function dropHistory(tabId: string): void {
  * or `null` to keep it as recorded. `restore`: shows it again; `false` when it's gone (the kind
  * has already said why, in a toast). A restore may open its place through the usual paths
  * (`openMrView`, `openFile`): the arrival they record is the current place, so it adds nothing.
+ * `arrivesItself`: the history's cursor moves onto the place only when `restore` calls `arrive`
+ * (File View: once leaving the open file is settled, so a cancelled leave prompt moves nothing);
+ * otherwise it moves before `restore` runs.
  */
 export interface PlaceKind<K extends PlaceKindName> {
   capture?(tabId: string, place: PlaceOf<K>): PlaceOf<K> | null;
-  restore(tabId: string, place: PlaceOf<K>): Promise<boolean>;
+  restore(tabId: string, place: PlaceOf<K>, arrive: () => void): Promise<boolean>;
+  arrivesItself?: boolean;
 }
 const kinds = new Map<PlaceKindName, PlaceKind<PlaceKindName>>();
 
@@ -131,11 +139,13 @@ async function go(tabId: string, dir: -1 | 1): Promise<void> {
   let h = captured(tabId, historyOf(tabId));
   for (;;) {
     const next = step(h, dir);
-    put(tabId, next ?? h);
-    if (!next) return;
-    const place = next.places[next.cursor];
-    const kind = kinds.get(place.kind);
-    const ok = kind ? await kind.restore(tabId, place as PlaceOf<PlaceKindName>).catch(() => false) : false;
+    const place = next?.places[next.cursor];
+    const kind = place ? kinds.get(place.kind) : undefined;
+    put(tabId, next && !kind?.arrivesItself ? next : h);
+    if (!next || !place) return;
+    // A step overtaken meanwhile (a newer step or arrival) doesn't move the cursor any more.
+    const arrive = () => { if (seqs.get(tabId) === mine) put(tabId, next); };
+    const ok = kind ? await kind.restore(tabId, place as PlaceOf<PlaceKindName>, arrive).catch(() => false) : false;
     if (seqs.get(tabId) !== mine) return;
     if (ok) return;
     h = dropAt(historyOf(tabId), next.cursor, dir);

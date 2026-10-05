@@ -6,6 +6,7 @@
 
 use crate::avatar::AvatarPayload;
 use crate::error::{GbError, GbErrorKind};
+use crate::forge::image::ForgeImage;
 use crate::forge::types::*;
 use crate::redact::Secret;
 use std::future::Future;
@@ -184,6 +185,14 @@ pub trait ForgeProvider: Send + Sync {
     fn avatar_at<'a>(&'a self, _url: &'a str) -> Option<ForgeFuture<'a, Option<AvatarPayload>>> {
         None
     }
+    // --- 5A T1: Markdown images ---
+    /// An image a Markdown body of `project` links (spec #5 §4.2), when `url` is on one of this
+    /// forge's own hosts; `None`, and no request, for any other address (the UI offers to load it
+    /// on a click). The token goes only where `HttpClient::get_image_within` sends it.
+    fn image<'a>(&'a self, _project: &'a ForgeProject, _url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        None
+    }
+    // --- end 5A T1 ---
 
     // --- 4B: reads ---
     fn open_mrs<'a>(&'a self, _project: &'a ForgeProject, _filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
@@ -263,6 +272,13 @@ pub trait ForgeProvider: Send + Sync {
 pub trait ForgeConnector: Send + Sync {
     /// `Err(InvalidInput)` for a host this build won't talk to (the harness: any real forge).
     fn connect(&self, kind: ForgeKind, host: &str, token: Secret) -> Result<Arc<dyn ForgeProvider>, GbError>;
+    // --- 5A T1 ---
+    /// An image the user chose to load ("Load image from <host>"): no token, https only, the
+    /// image size cap. Needs no account.
+    fn public_image<'a>(&'a self, _url: &'a str) -> ForgeFuture<'a, ForgeImage> {
+        unsupported("Loading an image")
+    }
+    // --- end 5A T1 ---
 }
 
 /// Where tokens are kept (spec #4 §2). Every method blocks (Secret Service over D-Bus, file I/O):

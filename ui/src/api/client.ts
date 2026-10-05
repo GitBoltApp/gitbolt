@@ -132,6 +132,9 @@ import type { StackSync } from './gen/StackSync';
 import type { StackView } from './gen/StackView';
 // --- end 4D T3 ---
 // --- end 4B T1 ---
+// --- 5A T1 ---
+import type { ForgeImage } from './gen/ForgeImage';
+// --- end 5A T1 ---
 // --- end 2D T20 ---
 
 const handlers = new Set<EventHandler>();
@@ -194,6 +197,10 @@ export const api = {
   avatar: (email: string, repo?: number) => t().call({ method: 'avatar', params: repo === undefined ? { email } : { email, repo } }) as Promise<AvatarPayload | null>,
   /** A forge user's or project owner's picture by the `avatarUrl` the forge gave; `null` when there's none or the address isn't an account's (see `ForgeHub::avatar_at`). */
   forgeAvatarImage: (url: string) => t().call({ method: 'forgeAvatarImage', params: { url } }) as Promise<AvatarPayload | null>,
+  // --- 5A T1 ---
+  /** An image in a rendered Markdown body (spec #5 §4.2): the forge's own hosts load (`found`); anything else answers `ask` until `userAllowed` (the user's click). */
+  forgeImage: (repo: number, url: string, userAllowed: boolean) => t().call({ method: 'forgeImage', params: { repo, url, userAllowed } }) as Promise<ForgeImage>,
+  // --- end 5A T1 ---
   openUrl: (url: string) => t().call({ method: 'openUrl', params: { url } }) as Promise<null>,
   /** The external editors and the file manager found on this machine (spec §14.5). */
   /** `repo`: the list as that repository sees it (its Custom editor, if its setting is one). */

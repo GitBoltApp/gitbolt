@@ -1,6 +1,6 @@
 import type { MenuRow } from './types';
 
-export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection' | 'chip' | 'mr';
+export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection' | 'chip' | 'mr' | 'link';
 
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
@@ -29,6 +29,9 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   // A sidebar MR/PR row: Open, Check out (here or in a new worktree), Show in graph, the copies
   // and the link, then the author's draft ⇄ ready.
   mr: ['open', 'checkout', 'view', 'copy', 'forge'],
+  // --- 5A T6: a link in rendered Markdown (spec #5 §4.1): Open in GitBolt / in browser, then the copies ---
+  link: ['open', 'copy'],
+  // --- end 5A T6 ---
 };
 
 export interface MenuContribution<T, E> {

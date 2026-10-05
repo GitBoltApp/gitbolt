@@ -32,4 +32,18 @@ describe('Shiki highlighter', () => {
     expect(theme.colors).toMatchObject(EDITOR_COLORS);
     expect(theme.colors['editor.background']).toBeDefined();
   });
+
+  it('tokenizes a Markdown code block in the current editor theme, loading each grammar once; an unknown language is plain', async () => {
+    vi.resetModules();
+    const codeToTokens = vi.fn(() => ({ tokens: [[{ content: 'const', color: '#569cd6', fontStyle: 0 }, { content: ' a' }]], fg: '#d4d4d4', bg: '#1e1e1e' }));
+    const h = { loadLanguage: vi.fn(async () => {}), getLoadedLanguages: () => [], codeToTokens };
+    createHighlighterCore.mockReset().mockResolvedValue(h);
+    const { ensureGrammar, tokensFor } = await import('./shiki');
+    expect(await ensureGrammar('TS')).toBe('ts');
+    expect(tokensFor('const a', 'ts')).toEqual({ lines: [[{ content: 'const', color: '#569cd6', fontStyle: 0 }, { content: ' a', color: undefined, fontStyle: undefined }]], fg: '#d4d4d4', bg: '#1e1e1e' });
+    await ensureGrammar('ts');
+    expect(h.loadLanguage).toHaveBeenCalledTimes(1);
+    expect(codeToTokens).toHaveBeenLastCalledWith('const a', { lang: 'ts', theme: expect.any(String) });
+    expect(await ensureGrammar('not-a-language')).toBeNull();
+  });
 });

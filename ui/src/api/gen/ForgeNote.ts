@@ -6,4 +6,8 @@ export type ForgeNote = { id: string, author: ForgeUser, body: string, createdAt
 /**
  * A forge-generated note ("added 2 commits").
  */
-system: boolean, position: DiffPosition | null, };
+system: boolean, position: DiffPosition | null, 
+/**
+ * GitHub's rendered body (the `full` media type): its signed attachment URLs. `None` for GitLab.
+ */
+bodyHtml?: string, };

@@ -39,3 +39,17 @@ describe('diff.css hunk refusal note (2B final I4)', () => {
     expect(rule('.text-diff')).toMatch(/flex:\s*1;\s*min-height:\s*0/);
   });
 });
+
+describe('diff.css: File View Markdown (spec #5 §3.3)', () => {
+  it('the rendered pane scrolls on its own, reserves its scrollbar (no shift), and uses theme tokens only', () => {
+    const pane = rule('.md-rendered');
+    expect(pane).toMatch(/overflow:\s*auto/);
+    expect(pane).toMatch(/scrollbar-gutter:\s*stable/);
+    expect(pane).toMatch(/background:\s*var\(--app-bg0\)/);
+    expect(pane).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(/i);
+  });
+
+  it('hiding a body really hides it (its own display would beat [hidden])', () => {
+    expect(css).toMatch(/\.file-source\[hidden\], \.md-rendered\[hidden\] \{ display: none; \}/);
+  });
+});

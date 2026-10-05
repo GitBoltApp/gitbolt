@@ -112,6 +112,12 @@ pub enum Request {
     /// fetched only from an account's own host or its forge's avatar host (`ForgeHub::avatar_at`),
     /// disk-cached like the others. Off with the forge-avatars setting.
     ForgeAvatarImage { url: String },
+    // --- 5A T1 ---
+    /// An image a rendered Markdown body links (spec #5 §4.2): `ForgeImage`. Without
+    /// `userAllowed`, only from the target project's forge hosts (else `ask`, no request); with it
+    /// (the user clicked "Load image from <host>"), from anywhere over https, never with a token.
+    ForgeImage { repo: u32, url: String, user_allowed: bool },
+    // --- end 5A T1 ---
     /// Opens an `http(s)` link in the default browser (spec §14.4); returns `null`.
     OpenUrl { url: String },
     /// The detected external editors and the file manager, for "Open in…" (spec §14.5, H9).
@@ -942,6 +948,9 @@ impl Request {
             | Request::ForgeProjectByPath { .. } | Request::ForgeReply { .. } | Request::ForgeApprove { .. } | Request::ForgeRequestChanges { .. }
             | Request::ForgeMerge { .. } | Request::ForgeEditMr { .. } | Request::ForgeSetDraft { .. } | Request::MergeBase { .. } => false,
             // --- end 4B T1 ---
+            // --- 5A T1 ---
+            Request::ForgeImage { .. } => false,
+            // --- end 5A T1 ---
               // --- 4C T5: forge reads and forge writes; none touches the repository ---
               Request::ForgeCreateContext { .. } | Request::ForgeSearchUsers { .. } | Request::ForgeLabels { .. } | Request::ForgeCreateMr { .. } | Request::ForgeCompleteCreate { .. } => false,
               // --- end 4C T5 ---
@@ -2036,6 +2045,12 @@ impl Api {
                     _ => to_json(Option::<AvatarPayload>::None),
                 }
             }
+            // --- 5A T1 ---
+            Request::ForgeImage { repo, url, user_allowed } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.image(&self.store, &list, &url, user_allowed).await?)
+            }
+            // --- end 5A T1 ---
             Request::ListOpeners => self.list_openers(None).await,
             Request::ListOpenersFor { repo } => {
                 let workdir = self.handle(repo)?.workdir.display().to_string();
@@ -4041,6 +4056,9 @@ mod tests {
             json!({"method": "forgeSetDraft", "params": {"repo": id, "number": 1, "draft": true}}),
             json!({"method": "mergeBase", "params": {"repo": id, "a": r.git(&["rev-parse", "HEAD"]), "b": r.git(&["rev-parse", "HEAD~1"])}}),
             // --- end 4B T1 ---
+            // --- 5A T1 ---
+            json!({"method": "forgeImage", "params": {"repo": id, "url": "https://github.com/user-attachments/assets/1b2c3d4e-0000-4000-8000-00000000abcd", "userAllowed": false}}),
+            // --- end 5A T1 ---
             // --- 4C T5 ---
             json!({"method": "forgeCreateContext", "params": {"repo": id, "remote": "origin", "sourceRemote": "origin", "branch": "main", "target": "main"}}),
             json!({"method": "forgeSearchUsers", "params": {"repo": id, "remote": "origin", "query": ""}}),
@@ -4303,7 +4321,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {
@@ -4436,7 +4454,7 @@ mod tests {
         p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
         // --- 4D T4: the merge guard reads the MR and the project's default ---
         p.settings = Some(crate::forge::ForgeProjectSettings { merge_methods: vec![], squash: crate::forge::SquashOption::DefaultOff, delete_source_branch: false });
-        p.details.lock().unwrap().insert(12, crate::forge::ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: String::new(), reviewers: vec![], assignees: vec![], merge_status: crate::forge::MergeStatus::Mergeable, squash: None, delete_source_branch: None });
+        p.details.lock().unwrap().insert(12, crate::forge::ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: String::new(), reviewers: vec![], assignees: vec![], merge_status: crate::forge::MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None });
         // --- end 4D T4 ---
         let conn = Arc::new(FakeConnector::default());
         let fake = conn.add(TOKEN, p);

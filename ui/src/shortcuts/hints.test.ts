@@ -8,6 +8,7 @@ const HANDLER = /registerKeys\(|useKeys\(|onKeyDown[=:]|addEventListener\('keydo
 /** Files with a key handler that are not user shortcuts (the router itself, drag cancel, text
  * inputs' own Enter/Esc, resize handles, tooltips, the arm layer). Add to it with a reason. */
 const EXEMPT: Record<string, string> = {
+  'markdown/MdLink.tsx': 'a link’s Enter, as a native link’s',
   'ui/keyRouter.ts': 'the dispatcher',
   'ui/arm/store.ts': 'Esc disarms an armed control (confirm model)',
   'ui/arm/ArmLayer.tsx': 'Esc / click-out disarm',

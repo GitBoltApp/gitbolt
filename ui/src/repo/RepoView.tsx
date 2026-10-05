@@ -15,6 +15,7 @@ import { graphLabelDoubleClick, graphRowDoubleClick } from '../graph/rowActions'
 import { useRowEditor } from '../graph/rowEditor';
 import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
 import { useRepoContext } from '../app/repoContext';
+import { preloadMarkdownWhenIdle } from '../markdown/lazy';
 import { CenterViewHost, centerViewOnTop, useCenterView, useCenterViewHasEditor } from './centerView';
 import { useAppEscape } from './escape';
 import { useFocusZone } from './focus';
@@ -68,6 +69,9 @@ export function RepoView({ repo, repoPath, graph, services, store: given, graphO
   useEffect(() => {
     store.getState().setGraph(graph);
   }, [store, graph]);
+  // Spec #5 §3.1: the Markdown renderer's chunk loads when idle after the first tab shows, so the
+  // first MR/PR view or .md file renders at once (it stays out of the startup bundle).
+  useEffect(() => preloadMarkdownWhenIdle(), []);
   return (
     <RepoViewContext value={store}>
       <RepoLayout graphOverlay={graphOverlay} />

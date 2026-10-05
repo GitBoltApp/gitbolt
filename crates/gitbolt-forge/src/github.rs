@@ -17,6 +17,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub const GITHUB_HEADERS: [(&str, &str); 2] = [("Accept", "application/vnd.github+json"), ("X-GitHub-Api-Version", "2022-11-28")];
+// --- 5A T2 ---
+/// GitHub's `full` media type: bodies and comments carry `body_html` (with signed image URLs).
+pub const GITHUB_FULL: &str = "application/vnd.github.full+json";
+// --- end 5A T2 ---
 pub const FORKS_PER_PAGE: u32 = 100;
 pub const FORK_PAGES: usize = 3;
 // --- GitHub commit-author avatars ---
@@ -65,14 +69,28 @@ pub struct GitHubProvider {
     /// One commit-author lookup at a time.
     author_turn: tokio::sync::Mutex<()>,
     // --- end GitHub commit-author avatars ---
+    // --- 5A T2 ---
+    /// The bases Markdown images load from without asking (`images::github_route`).
+    image_bases: Vec<String>,
+    // --- end 5A T2 ---
   }
 
 impl GitHubProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, cache: Option<Arc<DiskAvatarCache>>) -> Self {
         let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: GITHUB_HEADERS.to_vec(), timeout: Duration::from_secs(20) });
         let avatars_base = endpoints.avatars.clone().unwrap_or_else(|| "https://avatars.githubusercontent.com".into()).trim_end_matches('/').to_string();
-        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()) }
+        let image_bases = crate::images::default_github_image_bases(&endpoints.web, &avatars_base);
+        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), image_bases }
     }
+
+    // --- 5A T2 ---
+    /// The bases Markdown images load from without asking (`images::github_route`); the harness
+    /// points them at its fake.
+    pub fn with_image_bases(mut self, bases: Vec<String>) -> Self {
+        self.image_bases = bases.into_iter().map(|b| b.trim_end_matches('/').to_string()).collect();
+        self
+    }
+    // --- end 5A T2 ---
 
     pub fn http(&self) -> &HttpClient {
         &self.http
@@ -109,7 +127,7 @@ pub mod json {
     use gitbolt_core::forge::*;
     use serde_json::Value;
 
-    fn text(v: &Value) -> Option<String> {
+    pub(crate) fn text(v: &Value) -> Option<String> {
         v.as_str().filter(|s| !s.is_empty()).map(str::to_string)
     }
 
@@ -335,6 +353,7 @@ pub mod json {
             created_at: v["created_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             system: false,
             position: None,
+            body_html: text(&v["body_html"]),
         })
     }
 
@@ -363,7 +382,7 @@ pub mod json {
             }
             let (Some(id), Some(author)) = (r["id"].as_u64(), user(&r["user"])) else { continue };
             let created_at = r["submitted_at"].as_str().and_then(parse_rfc3339).unwrap_or(0);
-            out.push(one(format!("review-{id}"), ForgeNote { id: format!("review-{id}"), author, body: body.to_string(), created_at, system: false, position: None }));
+            out.push(one(format!("review-{id}"), ForgeNote { id: format!("review-{id}"), author, body: body.to_string(), created_at, system: false, position: None, body_html: text(&r["body_html"]) }));
         }
         let mut threads: Vec<(u64, ForgeDiscussion)> = Vec::new();
         for c in review_comments {
@@ -527,6 +546,17 @@ impl ForgeProvider for GitHubProvider {
         Some(Box::pin(async move { image_at(&self.http, self.cache.as_deref(), &url, &self.api_base).await }))
     }
 
+    // --- 5A T2: Markdown images ---
+    /// GitHub's own image hosts (`image_bases`); never the token (it goes only to the API).
+    fn image<'a>(&'a self, _project: &'a ForgeProject, url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        let route = crate::images::github_route(url, &self.image_bases)?;
+        Some(Box::pin(async move {
+            let allowed = |next: &str| self.image_bases.iter().any(|b| crate::http::under(next, b));
+            crate::images::fetch(&self.http, self.cache.as_deref(), &route, &self.api_base, &allowed).await
+        }))
+    }
+    // --- end 5A T2 ---
+
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
         Box::pin(async move {
             let email = email.trim();
@@ -650,7 +680,7 @@ impl ForgeProvider for GitHubProvider {
     fn mr_detail<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, Fresh<ForgeMrDetail>> {
         Box::pin(async move {
             let repo = Self::repo_url(&project.path)?;
-            let r = self.http.get(&format!("{repo}/pulls/{number}")).await?;
+            let r = self.http.get_as(&format!("{repo}/pulls/{number}"), GITHUB_FULL).await?;
             let v: Value = r.json(&self.host)?;
             let (reviews, reviews_same) = self.pages_fresh(&format!("{repo}/pulls/{number}/reviews?per_page=100"), COMMENT_PAGES).await?;
             let mut mr = json::pr(&v).ok_or_else(|| unreadable(&self.host, "pull request"))?;
@@ -668,6 +698,7 @@ impl ForgeProvider for GitHubProvider {
                 squash: None,
                 delete_source_branch: None,
                 mr,
+                body_html: json::text(&v["body_html"]),
             };
             // Not modified only when the PR, its reviews and its checks all were (a 304 each).
             let mut fresh = Self::fresh(detail, &r);
@@ -679,9 +710,9 @@ impl ForgeProvider for GitHubProvider {
     fn discussions<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, Fresh<Vec<ForgeDiscussion>>> {
         Box::pin(async move {
             let repo = Self::repo_url(&project.path)?;
-            let comments = self.http.get_pages(&format!("{repo}/issues/{number}/comments?per_page=100"), COMMENT_PAGES).await?;
-            let review_comments = self.http.get_pages(&format!("{repo}/pulls/{number}/comments?per_page=100"), COMMENT_PAGES).await?;
-            let reviews = self.http.get_pages(&format!("{repo}/pulls/{number}/reviews?per_page=100"), COMMENT_PAGES).await?;
+            let comments = self.http.get_pages_as(&format!("{repo}/issues/{number}/comments?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
+            let review_comments = self.http.get_pages_as(&format!("{repo}/pulls/{number}/comments?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
+            let reviews = self.http.get_pages_as(&format!("{repo}/pulls/{number}/reviews?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
             Ok(Fresh::new(json::discussions(&comments, &review_comments, &reviews), unix_now()))
         })
     }
@@ -1098,6 +1129,18 @@ mod tests {
     fn user_json(id: u64, login: &str) -> Value {
         json!({"id": id, "login": login})
     }
+
+    // --- 5A T2 ---
+    #[test]
+    fn notes_and_review_bodies_keep_githubs_body_html() {
+        let html = "<p><img src=\"https://private-user-images.githubusercontent.com/1/2-u.png?jwt=a\"></p>";
+        let c = json!({"id": 41, "user": user_json(2, "monalisa"), "body": "![x](https://github.com/user-attachments/assets/u)", "body_html": html, "created_at": "2026-10-03T07:00:00Z"});
+        assert_eq!(json::comment_note(&c).unwrap().body_html.as_deref(), Some(html));
+        let r = json!({"id": 31, "user": user_json(3, "hubot"), "state": "COMMENTED", "body": "b", "body_html": "<p>b</p>", "submitted_at": "2026-10-03T08:00:00Z"});
+        assert_eq!(json::discussions(&[], &[], &[r])[0].notes[0].body_html.as_deref(), Some("<p>b</p>"));
+        assert_eq!(json::comment_note(&json!({"id": 1, "user": user_json(2, "monalisa"), "body": "x"})).unwrap().body_html, None, "the plain media type has none");
+    }
+    // --- end 5A T2 ---
 
     #[test]
     fn normalizes_a_pull_request_and_its_states() {

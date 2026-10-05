@@ -211,7 +211,11 @@ impl Harness {
             (fake_forge::GITLAB_HOST.to_string(), HostEndpoints { api: forge.gitlab_api(), web: forge.gitlab_web(), avatars: None }),
             (fake_forge::GITHUB_HOST.to_string(), HostEndpoints { api: forge.github_api(), web: forge.github_web(), avatars: Some(forge.github_avatars()) }),
         ]);
-        let connector = Arc::new(Forge::new(ForgeConfig { overrides, only_overrides: true, avatar_dir: None }));
+        let connector = Arc::new(
+            Forge::new(ForgeConfig { overrides, only_overrides: true, avatar_dir: None })
+                // --- 5A T3: GitHub's Markdown image hosts are the fake's (no test reaches a real one) ---
+                .with_image_bases(fake_forge::GITHUB_HOST, vec![forge.github_web(), forge.github_images(), forge.github_avatars()]),
+        );
         // --- end 4A T10 ---
         let next_pick = picks.clone();
         let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)

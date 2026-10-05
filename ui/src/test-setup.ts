@@ -1,11 +1,20 @@
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, beforeAll } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
 // vite.config.ts doesn't set `test.globals`, so testing-library's own auto-cleanup (which
 // detects a global `afterEach`) never registers. Without this, each render() in a test file
 // piles onto the previous one's DOM, and later `getByRole` queries see duplicates.
 afterEach(() => cleanup());
+
+// Every test file starts with the lazy Markdown chunk loaded: its first import in a worker
+// (remark, rehype, Shiki, the forge stores) outlasted findBy*'s timeout in loaded full runs, and
+// `<Markdown>` then renders its body on the first paint. In beforeAll, not at the top level: the
+// test file's vi.mock calls are registered by then, so the chunk's modules see its mocks. A file
+// that mocks the chunk (or a module it needs) just skips the warm-up.
+beforeAll(async () => {
+  try { await (await import('./markdown/lazy')).preloadMarkdown(); } catch { /* not preloaded */ }
+}, 30_000);
 
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 Element.prototype.scrollTo ??= function scrollTo() {} as typeof Element.prototype.scrollTo;

@@ -36,6 +36,10 @@ pub const GITHUB_TOKEN: &str = "ghp_FAKE-e2e-octocat";
 pub const GITHUB_FINE_TOKEN: &str = "github_pat_FAKE-e2e-fine-grained";
 pub const GITHUB_READONLY_TOKEN: &str = "ghp_FAKE-e2e-readonly";
 pub const FAKE_PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake";
+// --- 5A T3 ---
+/// The secret of the default seed's GitLab upload, `group/project/<it>/shot.png`.
+pub const UPLOAD_SECRET: &str = "0123456789abcdef0123456789abcdef";
+// --- end 5A T3 ---
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -109,6 +113,10 @@ pub struct GitLabSeed {
     /// Merge requests created through the API, as GitLab answered them.
     pub created: Vec<Value>,
     // --- end 4C T2 ---
+    // --- 5A T3 ---
+    /// Project uploads, "<project path>/<secret>/<file>" (served as a PNG through the API).
+    pub uploads: Vec<String>,
+    // --- end 5A T3 ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -136,6 +144,10 @@ pub struct GitHubSeed {
     /// linked account). `/commits?author=` answers one commit for a listed email, none otherwise.
     pub commit_authors: BTreeMap<String, Option<FakeUser>>,
     // --- end GitHub commit-author avatars ---
+    // --- 5A T3 ---
+    /// The one valid signature of the fake's signed image URLs (any other is expired: 403).
+    pub image_jwt: String,
+    // --- end 5A T3 ---
   }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -191,6 +203,9 @@ pub struct FakeRequest<'a> {
     pub token: Option<FakeToken>,
     pub body: &'a [u8],
     pub base: &'a str,
+    // --- 5A T3 ---
+    pub accept: Option<String>,
+    // --- end 5A T3 ---
 }
 
 pub struct Reply {
@@ -327,6 +342,9 @@ pub fn default_seed(base: &str) -> ForgeSeed {
             files: BTreeMap::new(),
             created: Vec::new(),
             // --- end 4C T2 ---
+            // --- 5A T3 ---
+            uploads: vec![format!("group/project/{UPLOAD_SECRET}/shot.png")],
+            // --- end 5A T3 ---
         },
         github: GitHubSeed {
             tokens: vec![
@@ -348,6 +366,9 @@ pub fn default_seed(base: &str) -> ForgeSeed {
             // --- GitHub commit-author avatars ---
             commit_authors: github::seed_commit_authors(base),
             // --- end GitHub commit-author avatars ---
+            // --- 5A T3 ---
+            image_jwt: "jwt-1".into(),
+            // --- end 5A T3 ---
           },
     }
 }
@@ -395,6 +416,12 @@ impl FakeForge {
     pub fn github_avatars(&self) -> String {
         format!("{}/github-avatars", self.base)
     }
+    // --- 5A T3 ---
+    /// GitHub's signed `private-user-images` stand-in.
+    pub fn github_images(&self) -> String {
+        format!("{}/github-images", self.base)
+    }
+    // --- end 5A T3 ---
 
     fn lock(&self) -> std::sync::MutexGuard<'_, ForgeState> {
         self.state.lock().expect("fake forge poisoned")
@@ -433,6 +460,9 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         ("gitlab", r)
     } else if let Some(r) = path.strip_prefix("/github-avatars") {
         ("github-avatars", r)
+    } else if let Some(r) = path.strip_prefix("/github-images") {
+        // --- 5A T3 ---
+        ("github-images", r)
     } else if let Some(r) = path.strip_prefix("/github") {
         ("github", r)
     } else {
@@ -454,10 +484,12 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         }
         return reply.into_response();
     }
-    let req = FakeRequest { method: method.as_str(), path: rest, segments: rest.split('/').filter(|p| !p.is_empty()).map(decode).collect(), query: parse_query(&query), token, body: &body, base: &s.base };
+    let req = FakeRequest { method: method.as_str(), path: rest, segments: rest.split('/').filter(|p| !p.is_empty()).map(decode).collect(), query: parse_query(&query), token, body: &body, base: &s.base, accept: header("accept") };
     let reply = match forge {
         "gitlab" => gitlab::route(&mut st, &req),
         "github" => github::route(&mut st, &req),
+        // --- 5A T3 ---
+        "github-images" => github_pulls::image(&st, &req),
         _ => github::avatar(&req),
     };
     drop(st);

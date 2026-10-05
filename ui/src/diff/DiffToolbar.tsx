@@ -24,8 +24,10 @@ export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().th
  * SVG's Source, which is a text diff.
  * `binary`: a hex view (lane K) is shown: always side by side, so the view mode doesn't apply
  * (the Inline button says why), and neither do whitespace or wrapping.
+ * `markdown`: File View's `Source | Rendered` toggle for a Markdown file (spec #5 §3.3), first in
+ * the right group (it grows leftward, so nothing after it moves).
  */
-export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, leading, staging, history }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode }) {
+export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, leading, staging, history, markdown }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode; markdown?: ReactNode }) {
   const prefs = useDiffPrefs((s) => s.prefs);
   const setPrefs = useDiffPrefs((s) => s.set);
   const setView = useRepoView((s) => s.setView);
@@ -40,6 +42,7 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary
         <button type="button" aria-pressed={inDiff} disabled={!canDiff} onClick={() => setView('diff')}>Diff View</button>
       </div>
       <div className="diff-toolbar-end">
+        {markdown}
         {staging}
         {history}
         {textTools && (

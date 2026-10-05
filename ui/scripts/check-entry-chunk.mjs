@@ -18,6 +18,9 @@ const MARKERS = [
   'createDiffEditor', // monaco-editor/editor/editor.api (a namespace property key)
   'ShikiError', // shiki/core
   'AGFzbQ', // shiki/wasm: the Oniguruma WASM inlined as base64 ("\0asm" magic)
+  'tableDelimiter', // micromark's GFM table tokens (remark-gfm): the Markdown renderer stays lazy (spec #5 §3.1)
+  'dataFootnoteBackref', // hast-util-sanitize's default schema (rehype-sanitize), minified
+  'No diagram type detected matching given configuration', // mermaid's core (detectType's error): Mermaid loads on the first diagram (spec #5 §3.1)
 ];
 
 const html = readFileSync(join(dist, 'index.html'), 'utf8');
@@ -37,8 +40,8 @@ for (const file of eager) {
   const found = MARKERS.filter((m) => code.includes(m));
   if (found.length) {
     failed = true;
-    console.error(`check-entry-chunk: ${file} is loaded at startup but contains ${found.join(', ')}; Monaco and Shiki must stay in the lazy diff chunk (spec §10.3).`);
+    console.error(`check-entry-chunk: ${file} is loaded at startup but contains ${found.join(', ')}; Monaco, Shiki, the Markdown renderer and Mermaid must stay in lazy chunks (spec §10.3, spec #5 §3.1).`);
   }
 }
 if (failed) process.exit(1);
-console.log(`check-entry-chunk: OK (${eager.join(', ')} free of Monaco and Shiki)`);
+console.log(`check-entry-chunk: OK (${eager.join(', ')} free of Monaco, Shiki, the Markdown renderer and Mermaid)`);

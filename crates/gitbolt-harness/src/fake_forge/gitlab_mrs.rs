@@ -386,6 +386,11 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         ("GET", ["repository", "tree"]) => super::create::gitlab_tree(st, r, id),
         ("GET", ["repository", "files", file, "raw"]) => super::create::gitlab_raw(st, id, file),
         // --- end 4C T2 ---
+        // --- 5A T3: project uploads through the API ---
+        ("GET", ["uploads", secret, file]) => {
+            if st.seed.gitlab.uploads.iter().any(|u| *u == format!("{project}/{secret}/{file}")) { Reply::png() } else { Reply::status(404, json!({ "message": "404 Not Found" })) }
+        }
+        // --- end 5A T3 ---
         _ => return None,
     };
     Some(reply)

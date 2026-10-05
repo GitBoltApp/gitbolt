@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 
 // Parallel `just e2e` runs (one per git worktree) each need their own dev-server port. Unset,
 // this stays 1420 exactly as before -- `just dev` and the packaged app both depend on that
@@ -14,6 +15,15 @@ export default defineConfig({
   clearScreen: false,
   server: { port, strictPort: true },
   build: { target: 'es2023' },
+  resolve: {
+    alias: [
+      // micromark's entity decoder: its `browser` build decodes through `document`, which the
+      // Markdown parse worker (markdown/parse.worker.ts) doesn't have, so the worker died on
+      // load and every large body was parsed on the main thread. The plain build (a lookup table)
+      // works in both.
+      { find: /^decode-named-character-reference$/, replacement: fileURLToPath(new URL('./node_modules/decode-named-character-reference/index.js', import.meta.url)) },
+    ],
+  },
   // Monaco and Shiki are only reached through a dynamic import (diff/monaco/load.ts). Pre-bundle
   // them at dev-server start, so the first diff doesn't trigger a re-optimize and page reload in
   // the middle of a Playwright test.
@@ -27,6 +37,16 @@ export default defineConfig({
       'shiki/themes',
       'shiki/wasm',
       '@shikijs/monaco',
+      // Markdown (5A): reached through the lazy renderer chunk
+      'unified',
+      'remark-parse',
+      'remark-gfm',
+      'remark-rehype',
+      'rehype-raw',
+      'rehype-sanitize',
+      'hast-util-to-jsx-runtime',
+      'github-slugger',
+      'mermaid',
     ],
   },
   test: {
