@@ -51,13 +51,18 @@ export interface TabForge {
   updatedAt: number | null;
   /** The last poll's failure. The data above stays (spec #4 §6). */
   error: string | null;
+  /** ms epoch: the account's rate limit is spent until then (the stale note says so). */
+  limitedUntil: number | null;
+  /** ms epoch: what's shown came from the last session's cache, read then (the stale note says
+   * "Updated 2 hours ago" until the first poll answers). */
+  cachedAt: number | null;
   /** Failed polls in a row (the backoff). */
   failures: number;
 }
 
 export const EMPTY_FORGE: TabForge = {
   kind: null, remote: null, project: null, mapped: [], target: null, targetChosen: false, remoteErrors: {}, ownerAvatars: {}, me: null, byRef: {}, history: {}, upstreams: {}, filter: 'all', list: null,
-  details: {}, detailErrors: {}, discussions: {}, openMr: null, updatedAt: null, error: null, failures: 0,
+  details: {}, detailErrors: {}, discussions: {}, openMr: null, updatedAt: null, error: null, limitedUntil: null, cachedAt: null, failures: 0,
 };
 
 export const useForge = create<{ byTab: Record<string, TabForge> }>(() => ({ byTab: {} }));

@@ -318,6 +318,9 @@ impl ForgeHub {
         let c = self.stack_ctx(store, remotes).await?;
         let r = c.provider.retarget(&c.project, number, target).await;
         self.record(&c.key, &r);
+        if r.is_ok() {
+            self.cache.forget_lists(&crate::forge::cache::cache_key(&c.key, &c.project.path));
+        }
         r
     }
 }

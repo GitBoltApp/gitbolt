@@ -2,6 +2,7 @@ import { api, errorMessage } from '../api/client';
 import type { ForgeMrDetail } from '../api/gen/ForgeMrDetail';
 import type { ForgePipeline } from '../api/gen/ForgePipeline';
 import type { GbError } from '../api/gen/GbError';
+import type { RateLimitState } from '../api/gen/RateLimitState';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { clampFetchInterval } from '../settings/schema';
@@ -24,11 +25,41 @@ const fetchIntervalMs = () => clampFetchInterval(useAppState.getState().settings
 
 const touch = (tabId: string, number: number) => forgeScratch.freshAt.set(`${tabId}:${number}`, Date.now());
 
-/** A visible MR/PR's pipeline runs (spec #4 §3.4's ~20 s poll): the open MR/PR's, and the list's
- * while the sidebar's MR/PR section is expanded (`listShown`). A pending one doesn't count. */
+/** The visible MRs/PRs whose pipeline runs (spec #4 §3.4's fast poll): the open MR/PR's, and the
+ * list's while the sidebar's MR/PR section is expanded (`listShown`), as `<number>:<head>`. A
+ * pending one doesn't count. */
+export function runningShown(f: TabForge, listShown: boolean): string[] {
+  const out = new Set<string>();
+  const open = f.openMr === null ? null : f.details[f.openMr]?.value.mr ?? knownMr(f, f.openMr);
+  if (open && isRunning(open.pipeline)) out.add(`${open.number}:${open.headSha ?? ''}`);
+  if (listShown) for (const m of f.list?.mrs ?? []) if (isRunning(m.pipeline)) out.add(`${m.number}:${m.headSha ?? ''}`);
+  return [...out].sort();
+}
+
+/** A visible MR/PR's pipeline runs (`runningShown`). */
 export function fastPollWanted(f: TabForge, listShown: boolean): boolean {
-  if (f.openMr !== null && isRunning((f.details[f.openMr]?.value.mr ?? knownMr(f, f.openMr))?.pipeline)) return true;
-  return listShown && (f.list?.mrs ?? []).some((m) => isRunning(m.pipeline));
+  return runningShown(f, listShown).length > 0;
+}
+
+/** Requests one poll costs, about (the badges' and the list's, the open MR/PR's): what a low
+ * rate-limit budget is spread over. */
+export const POLL_COST = 3;
+/** Under this share of its budget left, the poll slows so the rest lasts until the reset. */
+export const LOW_BUDGET = 0.1;
+
+/** What the account's rate limit asks of the next poll (ms epoch `now`): `floorMs`, the least
+ * wait; `limitedUntil`, set when nothing may be asked before then (the budget is spent). Under
+ * LOW_BUDGET of the budget, the polls left (`remaining / POLL_COST`) are spread until the reset. */
+export function ratePacing(rl: RateLimitState | null | undefined, now: number): { floorMs: number; limitedUntil: number | null } {
+  if (!rl) return { floorMs: 0, limitedUntil: null };
+  const until = rl.limitedUntil !== null ? rl.limitedUntil * 1000 : null;
+  if (until !== null && until > now) return { floorMs: until - now, limitedUntil: until };
+  const { remaining, limit, resetAt } = rl;
+  if (remaining === null || !limit || resetAt === null || remaining >= limit * LOW_BUDGET) return { floorMs: 0, limitedUntil: null };
+  const left = resetAt * 1000 - now;
+  if (left <= 0) return { floorMs: 0, limitedUntil: null };
+  if (remaining === 0) return { floorMs: left, limitedUntil: resetAt * 1000 };
+  return { floorMs: Math.ceil((left * POLL_COST) / remaining), limitedUntil: null };
 }
 
 /** The tab's MR/PR section is expanded (the repository's collapsed panels). */
@@ -38,7 +69,10 @@ function mrSectionShown(tabId: string): boolean {
   return !(collapsed ?? []).includes(sectionKey('mrs'));
 }
 
-const outcome = (tabId: string, serverIntervalMs: number | null): PollOutcome => ({ runningPipeline: fastPollWanted(forgeOf(tabId), mrSectionShown(tabId)), serverIntervalMs });
+function outcome(tabId: string, serverIntervalMs: number | null): PollOutcome {
+  const running = runningShown(forgeOf(tabId), mrSectionShown(tabId));
+  return running.length > 0 ? { runningPipeline: true, serverIntervalMs, pipelineKey: running.join(' ') } : { runningPipeline: false, serverIntervalMs };
+}
 
 /** Stores a detail; one equal to the stored one leaves the store as it was. (Not by
  * `notModified`: a composite's other parts may change while its first request answers 304.) */
@@ -69,8 +103,10 @@ const polling = new Map<string, Promise<PollOutcome>>();
  * - except `fast`: the repo's target project (asked of the forges again on `activate`), the
  *   badges (`forgeBranchMrs` with the local branches' upstreams);
  * - always: the sidebar section's list, and the MR/PR open in the flyout.
- * A failure keeps what's shown, says so (`error`), and waits: the failure backoff, or until a
- * rate limit's reset, as the outcome's floor.
+ * Each part fails alone: badges that couldn't refresh keep theirs and say so, and the list is
+ * still asked. A failure keeps what's shown, says so (`error`), and waits: the failure backoff,
+ * or until a rate limit's reset, as the outcome's floor. A low rate-limit budget slows the next
+ * poll (`ratePacing`), and a spent one waits for its reset ("Rate limited until …").
  * One poll per tab at a time: a call while one runs joins it (a new poller after a quick tab
  * switch), except a `write`, which runs after it. An `activate` within ACTIVATE_GAP_MS of the
  * last full one asks nothing (unless the last poll failed). An answer to a request that started
@@ -101,6 +137,8 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
     if (s !== null && s > serverSecs) serverSecs = s;
   };
   const gone = () => repoOf(tabId) === undefined; // the tab closed while a request ran
+  // A tab with nothing yet shows what the last session left at once (no request), marked stale.
+  if (forgeOf(tabId).updatedAt === null && forgeOf(tabId).list === null) await showCached(tabId, repo);
   try {
     if (reason !== 'fast' || forgeOf(tabId).kind === null) {
       const projects = await api.forgeRepoProjects(repo, reason === 'activate' || forgeScratch.recheck.delete(tabId));
@@ -123,17 +161,24 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
       const me = forgeOf(tabId).me ?? (await api.forgeAccounts()).find((a) => a.account.host === host)?.account.user.username ?? null;
       patchForge(tabId, (f) => ({ kind: target.account, remote: target.remote, project: target.project, mapped: keepSame(f.mapped, mappedRemotes(projects, host)), me }));
     }
+    // The badges failing (one slow request) costs only the badges: the list is still asked.
+    let partial: unknown = null;
     if (reason !== 'fast') {
       const { refs, upstreams } = upstreamRefsOf(useRuntime.getState().tabs[tabId]?.sidebar ?? null, forgeOf(tabId));
-      const badges = await api.forgeBranchMrs(repo, refs);
-      if (gone()) return IDLE;
-      note(badges.pollIntervalSecs);
-      if (current()) {
-        patchForge(tabId, (f) => ({
-          byRef: keepSame(f.byRef, Object.fromEntries(badges.mrs.map((b) => [b.remoteRef, b.mr]))),
-          history: keepSame(f.history, Object.fromEntries(badges.history.map((b) => [b.remoteRef, b.mr]))),
-          upstreams: keepSame(f.upstreams, upstreams),
-        }));
+      try {
+        const badges = await api.forgeBranchMrs(repo, refs);
+        if (gone()) return IDLE;
+        note(badges.pollIntervalSecs);
+        if (current()) {
+          patchForge(tabId, (f) => ({
+            byRef: keepSame(f.byRef, Object.fromEntries(badges.mrs.map((b) => [b.remoteRef, b.mr]))),
+            history: keepSame(f.history, Object.fromEntries(badges.history.map((b) => [b.remoteRef, b.mr]))),
+            upstreams: keepSame(f.upstreams, upstreams),
+          }));
+        }
+      } catch (e) {
+        if (gone()) return IDLE;
+        partial = e;
       }
     }
     const filter = forgeOf(tabId).filter;
@@ -141,20 +186,54 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
     if (gone()) return IDLE;
     note(list.pollIntervalSecs);
     // A filter chosen meanwhile has its own list coming (`refreshMrList`).
-    if (current() && forgeOf(tabId).filter === filter) patchForge(tabId, (f) => ({ list: f.list && sameJson({ ...f.list, fetchedAt: 0 }, { ...list, fetchedAt: 0 }) ? f.list : list }));
+    if (current() && forgeOf(tabId).filter === filter) patchForge(tabId, (f) => ({ list: f.list && sameJson({ ...f.list, fetchedAt: 0, rateLimit: undefined }, { ...list, fetchedAt: 0, rateLimit: undefined }) ? f.list : list }));
     const open = forgeOf(tabId).openMr;
     // The open MR's own failure is in `detailErrors`; it doesn't fail the badges and the list.
     if (open !== null) await refreshMr(tabId, open).catch(() => {});
     if (gone()) return IDLE;
-    patchForge(tabId, { updatedAt: Date.now(), error: null, failures: 0 });
-    return outcome(tabId, serverSecs > 0 ? serverSecs * 1000 : null);
+    const pace = ratePacing(list.rateLimit, Date.now());
+    if (partial !== null) {
+      // The list is fresh; the badges say why they aren't. No backoff: the next poll asks them.
+      patchForge(tabId, { updatedAt: Date.now(), error: errorMessage(partial), limitedUntil: pace.limitedUntil, cachedAt: null });
+      return { ...outcome(tabId, Math.max(serverSecs * 1000, pace.floorMs) || null), failed: true };
+    }
+    patchForge(tabId, { updatedAt: Date.now(), error: null, failures: 0, limitedUntil: pace.limitedUntil, cachedAt: null });
+    return outcome(tabId, Math.max(serverSecs * 1000, pace.floorMs) || null);
   } catch (e) {
     const failures = forgeOf(tabId).failures + 1;
-    patchForge(tabId, { error: errorMessage(e), failures });
     const d = (e as Partial<GbError> | null)?.detail;
-    const limited = d?.kind === 'rateLimited' ? d.until * 1000 - Date.now() : 0;
-    return { runningPipeline: false, serverIntervalMs: Math.max(limited, backoffMs(fetchIntervalMs(), failures)) };
+    const until = d?.kind === 'rateLimited' ? d.until * 1000 : null;
+    patchForge(tabId, { error: errorMessage(e), failures, limitedUntil: until !== null && until > Date.now() ? until : forgeOf(tabId).limitedUntil });
+    const limited = until !== null ? until - Date.now() : 0;
+    return { runningPipeline: false, serverIntervalMs: Math.max(limited, backoffMs(fetchIntervalMs(), failures)), failed: true };
   }
+}
+
+/** The last session's list and badges for a tab that has nothing yet (`forgeCachedMrs`: no
+ * request), shown as they were read ("Updated 2 hours ago") until the poll answers. Best effort. */
+async function showCached(tabId: string, repo: number): Promise<void> {
+  const f = forgeOf(tabId);
+  const { refs, upstreams } = upstreamRefsOf(useRuntime.getState().tabs[tabId]?.sidebar ?? null, f);
+  let cached: Awaited<ReturnType<typeof api.forgeCachedMrs>> = null;
+  try {
+    cached = await api.forgeCachedMrs(repo, refs, f.filter);
+  } catch {
+    return;
+  }
+  if (!cached || repoOf(tabId) === undefined) return;
+  patchForge(tabId, (now) => {
+    // A poll answered meanwhile: what it said is newer.
+    if (now.updatedAt !== null) return {};
+    const at = cached.savedAt * 1000;
+    return {
+      kind: cached.kind, remote: cached.remote, project: cached.project,
+      list: now.filter === f.filter ? cached.list : now.list,
+      byRef: cached.badges ? Object.fromEntries(cached.badges.mrs.map((b) => [b.remoteRef, b.mr])) : now.byRef,
+      history: cached.badges ? Object.fromEntries(cached.badges.history.map((b) => [b.remoteRef, b.mr])) : now.history,
+      upstreams: cached.badges ? upstreams : now.upstreams,
+      updatedAt: at, cachedAt: at,
+    };
+  });
 }
 
 /** An MR/PR's detail and discussion, now (the view opening, a poll). A failure is recorded for

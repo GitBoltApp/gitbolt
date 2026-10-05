@@ -28,11 +28,19 @@ pub struct Forge {
     /// Host → GitHub's Markdown image bases, replacing the defaults (`with_image_bases`).
     image_bases: HashMap<String, Vec<String>>,
     // --- end 5A T2 ---
+    /// The harness's fake forge's change count (`HttpClient::with_change_counter`).
+    changes: Option<crate::http::ChangeCounter>,
 }
 
 impl Forge {
     pub fn new(cfg: ForgeConfig) -> Self {
-        Self { cfg, caches: Mutex::default(), image_bases: HashMap::new() }
+        Self { cfg, caches: Mutex::default(), image_bases: HashMap::new(), changes: None }
+    }
+
+    /// Every provider's fresh answers end when `changes` grows (the harness reseeded its fake).
+    pub fn with_change_counter(mut self, changes: crate::http::ChangeCounter) -> Self {
+        self.changes = Some(changes);
+        self
     }
 
     // --- 5A T2 ---
@@ -60,9 +68,19 @@ impl ForgeConnector for Forge {
         };
         let cache = self.cache(host);
         Ok(match kind {
-            ForgeKind::GitLab => Arc::new(GitLabProvider::new(host, &endpoints, token, cache)),
+            ForgeKind::GitLab => {
+                let p = GitLabProvider::new(host, &endpoints, token, cache);
+                Arc::new(match &self.changes {
+                    Some(c) => p.with_change_counter(c.clone()),
+                    None => p,
+                })
+            }
             ForgeKind::GitHub => {
                 let p = GitHubProvider::new(host, &endpoints, token, cache);
+                let p = match &self.changes {
+                    Some(c) => p.with_change_counter(c.clone()),
+                    None => p,
+                };
                 Arc::new(match self.image_bases.get(host) {
                     Some(b) => p.with_image_bases(b.clone()),
                     None => p,

@@ -84,6 +84,17 @@ test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
     expect(t.height).toBeGreaterThan(t.line * 1.5);
   });
 
+  test('the merge box keeps its height when the body overflows (a long description and activity)', async ({ page, request }) => {
+    const long = Array.from({ length: 200 }, (_, i) => `Line ${i + 1} of a long description.`).join('\n\n');
+    const badge = await openWithDescription(page, request, long);
+    await pointAt(page, badge, true);
+    const view = page.getByRole('dialog', { name: 'Merge request !12' });
+    await expect(view.getByText('Line 200 of a long description.')).toBeAttached();
+    const box = await view.locator('.mr-merge').boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThan(40);
+    await expect(view.locator('.mr-merge').getByRole('button', { name: 'Merge' })).toBeVisible();
+  });
+
   test('a 900 KB description renders progressively with no long task over 200 ms @budget', async ({ page, request }) => {
     const badge = await openWithDescription(page, request, bigMarkdown(900_000));
     await watchLongTasks(page);

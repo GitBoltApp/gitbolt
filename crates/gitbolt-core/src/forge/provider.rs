@@ -194,6 +194,18 @@ pub trait ForgeProvider: Send + Sync {
     }
     // --- end 5A T1 ---
 
+    // --- the cross-session cache (`forge::cache`) ---
+    /// `project`'s list answers this provider keeps (their ETags and bodies), for the cache.
+    fn export_responses(&self, _project: &ForgeProject) -> Vec<StoredResponse> {
+        Vec::new()
+    }
+    /// Answers a previous run kept: the next request of each is conditional (`If-None-Match`).
+    fn import_responses(&self, _entries: Vec<StoredResponse>) {}
+    /// The client's counts since the last call (and starts them again).
+    fn take_request_stats(&self) -> RequestStats {
+        RequestStats::default()
+    }
+
     // --- 4B: reads ---
     fn open_mrs<'a>(&'a self, _project: &'a ForgeProject, _filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
         unsupported("Listing merge requests")

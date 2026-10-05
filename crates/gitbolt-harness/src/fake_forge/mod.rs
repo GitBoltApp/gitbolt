@@ -182,6 +182,9 @@ pub struct RecordedRequest {
     pub authorized: bool,
     pub if_none_match: Option<String>,
     pub user_agent: Option<String>,
+    /// The status answered (a 304: the ETag matched).
+    #[serde(default)]
+    pub status: u16,
 }
 
 pub struct ForgeState {
@@ -190,6 +193,23 @@ pub struct ForgeState {
     pub requests: Vec<RecordedRequest>,
     /// Requests served since the last reset (the rate-limit headers count down from it).
     pub served: u64,
+    /// Each request waits this long before it's answered (a slow forge: the in-flight peak shows).
+    pub delay_ms: u64,
+    /// Requests being answered now, and the most there were at once since the last reset.
+    pub in_flight: usize,
+    pub peak_in_flight: usize,
+    /// GitLab answers without ETags (never a 304), as some versions and proxies do.
+    pub gitlab_etags_off: bool,
+    /// The rate-limit headers' remaining count and reset (unix seconds), instead of the defaults.
+    pub rate: Option<(u64, i64)>,
+}
+
+impl ForgeState {
+    /// `(remaining, reset)` for the rate-limit headers, out of `limit`.
+    pub fn rate_headers(&self, limit: u64) -> (String, String) {
+        let (remaining, reset) = self.rate.unwrap_or((limit.saturating_sub(self.served), 4_102_444_800));
+        (remaining.to_string(), reset.to_string())
+    }
 }
 
 /// One request as the routes see it. `segments` are percent-decoded, so GitLab's
@@ -382,20 +402,22 @@ struct Shared {
 pub struct FakeForge {
     base: String,
     state: Arc<Mutex<ForgeState>>,
+    /// Grows with every seed, script and reset: providers' fresh answers end with it.
+    changes: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl FakeForge {
     pub async fn start() -> Arc<Self> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind the fake forge");
         let base = format!("http://{}", listener.local_addr().expect("the fake forge's address"));
-        let state = Arc::new(Mutex::new(ForgeState { seed: default_seed(&base), scripts: Vec::new(), requests: Vec::new(), served: 0 }));
+        let state = Arc::new(Mutex::new(ForgeState { seed: default_seed(&base), scripts: Vec::new(), requests: Vec::new(), served: 0, delay_ms: 0, in_flight: 0, peak_in_flight: 0, gitlab_etags_off: false, rate: None }));
         let app = Router::new().fallback(handle).with_state(Shared { state: state.clone(), base: base.clone() });
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, app).await {
                 tracing::error!("fake forge stopped: {e}");
             }
         });
-        Arc::new(Self { base, state })
+        Arc::new(Self { base, state, changes: Arc::default() })
     }
 
     pub fn base_url(&self) -> &str {
@@ -429,6 +451,23 @@ impl FakeForge {
 
     pub fn seed(&self, seed: ForgeSeed) {
         self.lock().seed = seed;
+        self.changed();
+    }
+
+    /// Time passes (a test's polls are a minute apart): answers kept fresh for `FRESH_SECS`
+    /// aren't any more, as after a real wait.
+    pub fn advance(&self) {
+        self.changed();
+    }
+
+    fn changed(&self) {
+        self.changes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// For `Forge::with_change_counter`: grows whenever a test changes the fake.
+    pub fn change_counter(&self) -> Arc<dyn Fn() -> u64 + Send + Sync> {
+        let c = self.changes.clone();
+        Arc::new(move || c.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     pub fn current_seed(&self) -> ForgeSeed {
@@ -442,14 +481,68 @@ impl FakeForge {
         st.scripts.clear();
         st.requests.clear();
         st.served = 0;
+        st.delay_ms = 0;
+        st.peak_in_flight = st.in_flight;
+        st.gitlab_etags_off = false;
+        st.rate = None;
+        drop(st);
+        self.changed();
     }
 
     pub fn script(&self, s: Scripted) {
         self.lock().scripts.push(s);
+        self.changed();
     }
 
     pub fn requests(&self) -> Vec<RecordedRequest> {
         self.lock().requests.clone()
+    }
+
+    /// Empties the request log (and the in-flight peak), keeping the seed and scripts.
+    pub fn clear_requests(&self) {
+        let mut st = self.lock();
+        st.requests.clear();
+        st.peak_in_flight = st.in_flight;
+    }
+
+    /// Every answer's rate-limit headers say `remaining` until `reset` (unix seconds).
+    pub fn set_rate(&self, remaining: u64, reset: i64) {
+        self.lock().rate = Some((remaining, reset));
+    }
+
+    /// GitLab's answers come without ETags (`false`) or with them.
+    pub fn set_gitlab_etags(&self, on: bool) {
+        self.lock().gitlab_etags_off = !on;
+    }
+
+    /// Every request waits `ms` before it's answered.
+    pub fn set_delay_ms(&self, ms: u64) {
+        self.lock().delay_ms = ms;
+    }
+
+    /// The most requests answered at once since the last reset or `clear_requests`.
+    pub fn peak_in_flight(&self) -> usize {
+        self.lock().peak_in_flight
+    }
+}
+
+/// Counts a request in flight until dropped.
+struct InFlight(Arc<Mutex<ForgeState>>);
+
+impl InFlight {
+    fn start(state: &Arc<Mutex<ForgeState>>) -> (Self, u64) {
+        let mut st = state.lock().expect("fake forge poisoned");
+        st.in_flight += 1;
+        st.peak_in_flight = st.peak_in_flight.max(st.in_flight);
+        (Self(state.clone()), st.delay_ms)
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        if let Ok(mut st) = self.0.lock() {
+            st.in_flight = st.in_flight.saturating_sub(1);
+        }
     }
 }
 
@@ -469,11 +562,16 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         return StatusCode::NOT_FOUND.into_response();
     };
     let header = |n: &str| headers.get(n).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let (_in_flight, delay) = InFlight::start(&s.state);
+    if delay > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+    }
     let bearer = header("authorization").and_then(|a| a.strip_prefix("Bearer ").map(str::to_string));
     let mut st = s.state.lock().expect("fake forge poisoned");
     let tokens = if forge == "gitlab" { &st.seed.gitlab.tokens } else { &st.seed.github.tokens };
     let token = bearer.as_deref().and_then(|b| tokens.iter().find(|t| t.token == b)).cloned();
-    st.requests.push(RecordedRequest { forge: forge.into(), method: method.to_string(), path: rest.to_string(), query: redact_query(&query), authorized: token.is_some(), if_none_match: header("if-none-match"), user_agent: header("user-agent") });
+    st.requests.push(RecordedRequest { forge: forge.into(), method: method.to_string(), path: rest.to_string(), query: redact_query(&query), authorized: token.is_some(), if_none_match: header("if-none-match"), user_agent: header("user-agent"), status: 0 });
+    let logged = st.requests.len() - 1;
     st.served += 1;
     if let Some(i) = st.scripts.iter().position(|x| x.forge == forge && x.method.eq_ignore_ascii_case(method.as_str()) && x.path == rest && x.times > 0) {
         let x = &mut st.scripts[i];
@@ -482,6 +580,7 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         for (k, v) in &x.headers {
             reply = reply.header(k, v);
         }
+        st.requests[logged].status = reply.status;
         return reply.into_response();
     }
     let req = FakeRequest { method: method.as_str(), path: rest, segments: rest.split('/').filter(|p| !p.is_empty()).map(decode).collect(), query: parse_query(&query), token, body: &body, base: &s.base, accept: header("accept") };
@@ -492,6 +591,8 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         "github-images" => github_pulls::image(&st, &req),
         _ => github::avatar(&req),
     };
+    let reply = if forge == "gitlab" && st.gitlab_etags_off { reply } else { reply.with_etag(header("if-none-match").as_deref()) };
+    st.requests[logged].status = reply.status;
     drop(st);
-    reply.with_etag(header("if-none-match").as_deref()).into_response()
+    reply.into_response()
 }

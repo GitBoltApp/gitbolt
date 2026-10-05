@@ -21,6 +21,7 @@ export function useForgePolling(tabId: string, repoId: number | undefined): void
     const p = createForgePoller(intervalMs, {
       now: Date.now,
       isMinimized: () => platform.isMinimized().catch(() => false),
+      isFocused: () => platform.isFocused().catch(() => true),
       poll: (reason) => pollForge(tabId, reason),
     });
     pollers.set(tabId, p);

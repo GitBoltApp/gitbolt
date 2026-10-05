@@ -44,6 +44,8 @@ pub(crate) struct FakeProvider {
     /// `open_mrs` and `mr_for_branch` fail with this kind.
     pub mr_error: Mutex<Option<GbErrorKind>>,
     // --- end 4B T1 ---
+    /// `mr_for_branch` of these branches fails with its kind (one slow branch).
+    pub lookup_errors: Mutex<HashMap<String, GbErrorKind>>,
       // --- 4C T5 ---
       pub people: Vec<ForgeUser>,
       pub label_list: Vec<ForgeLabel>,
@@ -67,6 +69,7 @@ impl FakeProvider {
             // --- 4B T1 ---
             mrs: Mutex::default(), details: Mutex::default(), threads: Mutex::default(), mr_error: Mutex::new(None),
             // --- end 4B T1 ---
+            lookup_errors: Mutex::default(),
               // --- 4C T5 ---
               people: Vec::new(), label_list: Vec::new(), templates: Some(Vec::new()), fail_parts: Mutex::default(), created: Mutex::default(),
               // --- end 4C T5 ---
@@ -166,6 +169,9 @@ impl ForgeProvider for FakeProvider {
         Box::pin(async move {
             self.check()?;
             self.mr_failure()?;
+            if let Some(kind) = self.lookup_errors.lock().unwrap().get(&source.branch) {
+                return Err(GbError::new(*kind, "fake failure"));
+            }
             let found = self.mrs.lock().unwrap().iter().filter(|m| m.source_project == source.project && m.source_branch == source.branch).max_by_key(|m| m.updated_at).cloned();
             Ok(Fresh::new(found, 9))
         })

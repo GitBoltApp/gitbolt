@@ -354,10 +354,34 @@ fn next_id(p: &FakePull) -> u64 {
 }
 
 /// GitHub's two draft mutations, by the PR's `node_id`.
+/// The open PRs' head checks, as GitHub's `statusCheckRollup` query answers them (`ROLLUP_QUERY`).
+fn rollups(st: &ForgeState, vars: &Value) -> Reply {
+    let repo = format!("{}/{}", vars["owner"].as_str().unwrap_or_default(), vars["name"].as_str().unwrap_or_default());
+    if !st.seed.github.repos.iter().any(|p| p.path == repo) {
+        return Reply::json(json!({ "data": { "repository": null }, "errors": [{ "type": "NOT_FOUND", "message": format!("Could not resolve to a Repository with the name '{repo}'.") }] }));
+    }
+    let mut open: Vec<&FakePull> = st.seed.github.pulls.iter().filter(|p| p.repo == repo && p.state == "open").collect();
+    open.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let nodes: Vec<Value> = open
+        .iter()
+        .take(100)
+        .map(|p| {
+            let mut contexts: Vec<Value> = p.checks.iter().map(|c| json!({ "__typename": "CheckRun", "status": c.status.to_ascii_uppercase(), "conclusion": c.conclusion.as_ref().map(|x| x.to_ascii_uppercase()) })).collect();
+            contexts.extend(p.statuses.iter().map(|x| json!({ "__typename": "StatusContext", "state": x.state.to_ascii_uppercase() })));
+            let rollup = if contexts.is_empty() { Value::Null } else { json!({ "contexts": { "nodes": contexts } }) };
+            json!({ "number": p.number, "commits": { "nodes": [{ "commit": { "oid": p.head_sha, "statusCheckRollup": rollup } }] } })
+        })
+        .collect();
+    Reply::json(json!({ "data": { "repository": { "pullRequests": { "nodes": nodes } } } }))
+}
+
 fn graphql(st: &mut ForgeState, r: &FakeRequest) -> Reply {
     let b = body_of(r);
     let query = b["query"].as_str().unwrap_or_default();
     let id = b["variables"]["id"].as_str().unwrap_or_default().to_string();
+    if query.contains("statusCheckRollup") {
+        return rollups(st, &b["variables"]);
+    }
     let (field, draft) = if query.contains("convertPullRequestToDraft") {
         ("convertPullRequestToDraft", true)
     } else if query.contains("markPullRequestReadyForReview") {

@@ -8,12 +8,14 @@ const api = vi.hoisted(() => ({
   forgeMrList: vi.fn(),
   forgeMrDetail: vi.fn(),
   forgeMrDiscussions: vi.fn(),
+  forgeCachedMrs: vi.fn(),
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)) }));
 const flyout = vi.hoisted(() => ({ openFlyout: vi.fn() }));
 vi.mock('../ui/flyout/flyout', () => flyout);
 
-const { ACTIVATE_GAP_MS, fastPollWanted, loadMrDetail, openMrView, pollForge, refreshMr } = await import('./poll');
+const { ACTIVATE_GAP_MS, fastPollWanted, loadMrDetail, openMrView, POLL_COST, pollForge, ratePacing, refreshMr } = await import('./poll');
+const { staleText } = await import('./ForgeStale');
 const { dropForge, EMPTY_FORGE, forgeScratch, forgeOf, noteForgeWritten, patchForge, useForge } = await import('./mrStore');
 const { backoffMs } = await import('./poller');
 const { useRuntime } = await import('../app/runtime');
@@ -39,6 +41,7 @@ beforeEach(() => {
   api.forgeMrList.mockResolvedValue({ kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(12), running], fetchedAt: 1, pollIntervalSecs: null });
   api.forgeMrDetail.mockResolvedValue(fresh(detailOf(mrOf(12))));
   api.forgeMrDiscussions.mockResolvedValue(fresh([]));
+  api.forgeCachedMrs.mockResolvedValue(null);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -56,7 +59,7 @@ describe('pollForge (spec #4 §3.4)', () => {
     expect(f.list?.mrs.map((m) => m.number)).toEqual([12, 5]);
     expect([f.details[12]?.value.mr.number, f.discussions[12], f.error, f.failures]).toEqual([12, [], null, 0]);
     expect(f.updatedAt).not.toBeNull();
-    expect(out).toEqual({ runningPipeline: true, serverIntervalMs: 30_000 });
+    expect(out).toEqual({ runningPipeline: true, serverIntervalMs: 30_000, pipelineKey: `5:${'5'.padStart(40, '0')}` });
   });
 
   it('after an account change the next poll asks the forges again, once', async () => {
@@ -106,13 +109,76 @@ describe('pollForge (spec #4 §3.4)', () => {
     expect(forgeOf('t').error).toBe("Couldn't reach gitlab.example.com: timed out");
     expect(forgeOf('t').list?.mrs).toHaveLength(2);
     expect(forgeOf('t').byRef['refs/remotes/origin/dev']?.number).toBe(12);
-    expect(out).toEqual({ runningPipeline: false, serverIntervalMs: backoffMs(clampFetchInterval(300) * 1000, 1) });
+    expect(out).toEqual({ runningPipeline: false, serverIntervalMs: backoffMs(clampFetchInterval(300) * 1000, 1), failed: true });
     vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
     api.forgeMrList.mockRejectedValueOnce({ kind: 'RateLimited', message: 'limited', detail: { kind: 'rateLimited', until: 1_003_600 } });
     expect((await pollForge('t', 'timer')).serverIntervalMs).toBe(3_600_000);
     expect(forgeOf('t').failures).toBe(2);
+    expect(forgeOf('t').limitedUntil).toBe(1_003_600_000);
+    expect(staleText(forgeOf('t'), 1_000_000_000)).toMatch(/^Rate limited until \d{1,2}:\d{2}/);
     await pollForge('t', 'timer');
-    expect([forgeOf('t').error, forgeOf('t').failures]).toEqual([null, 0]);
+    expect([forgeOf('t').error, forgeOf('t').failures, forgeOf('t').limitedUntil]).toEqual([null, 0, null]);
+  });
+
+  it('badges that fail cost only the badges: the list is still asked, and the poll says why', async () => {
+    await pollForge('t', 'timer');
+    api.forgeBranchMrs.mockRejectedValueOnce({ kind: 'Network', message: "Couldn't reach gitlab.example.com: timed out" });
+    api.forgeMrList.mockResolvedValueOnce({ kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(12)], fetchedAt: 2, pollIntervalSecs: null });
+    const out = await pollForge('t', 'timer');
+    expect(api.forgeMrList).toHaveBeenCalledTimes(2);
+    expect(forgeOf('t').list?.mrs.map((m) => m.number)).toEqual([12]);
+    expect(forgeOf('t').byRef['refs/remotes/origin/dev']?.number).toBe(12);
+    expect([forgeOf('t').error, forgeOf('t').failures]).toEqual(["Couldn't reach gitlab.example.com: timed out", 0]);
+    expect(out.failed).toBe(true);
+  });
+
+  it('a low rate-limit budget slows the next poll; a spent one waits for its reset and says so', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+    const listWith = (remaining: number) => ({ kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(12)], fetchedAt: 1, pollIntervalSecs: null, rateLimit: { limitedUntil: null, remaining, resetAt: 1_000_600, limit: 2000 } });
+    api.forgeMrList.mockResolvedValueOnce(listWith(1500));
+    expect((await pollForge('t', 'timer')).serverIntervalMs).toBe(30_000);
+    // 50 left of 2000 (under 10%), 10 minutes to the reset: 16 polls left, one every 36 s at least.
+    api.forgeMrList.mockResolvedValueOnce(listWith(50));
+    expect((await pollForge('t', 'timer')).serverIntervalMs).toBe(Math.ceil((600_000 * POLL_COST) / 50));
+    api.forgeMrList.mockResolvedValueOnce(listWith(0));
+    expect((await pollForge('t', 'timer')).serverIntervalMs).toBe(600_000);
+    expect(forgeOf('t').limitedUntil).toBe(1_000_600_000);
+    expect(staleText(forgeOf('t'), 1_000_000_000)).toMatch(/^Rate limited until \d{1,2}:\d{2}[^.]*\. Last updated/);
+  });
+});
+
+describe("the last session's cache", () => {
+  it("a tab with nothing yet shows the cached list and badges at once, marked stale, until the poll answers", async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+    const cachedList = { kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(7)], fetchedAt: 992_800, pollIntervalSecs: null };
+    api.forgeCachedMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', project, list: cachedList, badges: { kind: 'gitlab', remote: 'origin', mrs: [{ remoteRef: 'refs/remotes/origin/dev', mr: mrOf(7) }], history: [], fetchedAt: 992_800, pollIntervalSecs: null }, savedAt: 992_800 });
+    let seen: ReturnType<typeof forgeOf> | null = null;
+    api.forgeRepoProjects.mockImplementationOnce(async () => {
+      seen = forgeOf('t');
+      return { remotes: [target], target: 'origin' };
+    });
+    await pollForge('t', 'activate');
+    expect(api.forgeCachedMrs).toHaveBeenCalledWith(4, ['refs/remotes/origin/old', 'refs/remotes/origin/dev'], 'all');
+    // Before the first request: the cache's, two hours old.
+    expect([seen!.list?.mrs[0]?.number, seen!.byRef['refs/remotes/origin/dev']?.number, seen!.cachedAt]).toEqual([7, 7, 992_800_000]);
+    expect(staleText(seen!, 1_000_000_000)).toBe('Updated 2 hours ago');
+    // The poll answered: fresh, no note.
+    expect([forgeOf('t').list?.mrs.map((m) => m.number), forgeOf('t').cachedAt, staleText(forgeOf('t'))]).toEqual([[12, 5], null, null]);
+    // Only a tab with nothing yet asks the cache.
+    await pollForge('t', 'timer');
+    expect(api.forgeCachedMrs).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ratePacing', () => {
+  const rl = (remaining: number | null, limitedUntil: number | null = null) => ({ limitedUntil, remaining, resetAt: 2_000, limit: 1000 });
+  it('asks nothing of a healthy budget, spreads a low one until the reset, and waits out a spent one', () => {
+    expect(ratePacing(undefined, 1_000_000)).toEqual({ floorMs: 0, limitedUntil: null });
+    expect(ratePacing(rl(500), 1_000_000)).toEqual({ floorMs: 0, limitedUntil: null });
+    expect(ratePacing(rl(30), 1_000_000)).toEqual({ floorMs: Math.ceil((1_000_000 * POLL_COST) / 30), limitedUntil: null });
+    expect(ratePacing(rl(0), 1_000_000)).toEqual({ floorMs: 1_000_000, limitedUntil: 2_000_000 });
+    expect(ratePacing(rl(900, 1_500), 1_000_000)).toEqual({ floorMs: 500_000, limitedUntil: 1_500_000 });
+    expect(ratePacing(rl(0), 2_000_001), 'past the reset').toEqual({ floorMs: 0, limitedUntil: null });
   });
 });
 

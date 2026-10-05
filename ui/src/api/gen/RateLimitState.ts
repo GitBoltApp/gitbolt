@@ -7,4 +7,8 @@ export type RateLimitState = {
 /**
  * Set while limited: no request until then.
  */
-limitedUntil: number | null, remaining: number | null, resetAt: number | null, };
+limitedUntil: number | null, remaining: number | null, resetAt: number | null, 
+/**
+ * The budget `remaining` counts down from (`X-RateLimit-Limit`, `RateLimit-Limit`).
+ */
+limit: number | null, };

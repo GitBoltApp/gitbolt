@@ -8,7 +8,7 @@ use gitbolt_forge::gitlab::GitLabProvider;
 use gitbolt_harness::fake_forge::*;
 
 fn provider(f: &FakeForge, token: &str) -> GitLabProvider {
-    GitLabProvider::new(GITLAB_HOST, &HostEndpoints { api: f.gitlab_api(), web: f.gitlab_web(), avatars: None }, Secret::new(token), None)
+    GitLabProvider::new(GITLAB_HOST, &HostEndpoints { api: f.gitlab_api(), web: f.gitlab_web(), avatars: None }, Secret::new(token), None).with_change_counter(f.change_counter())
 }
 
 async fn group(p: &GitLabProvider) -> ForgeProject {
@@ -35,6 +35,33 @@ async fn lists_open_mrs_with_their_pipelines_and_draft_titles_stripped() {
     let asked = f.requests().into_iter().find(|r| r.path.ends_with("/merge_requests")).unwrap();
     assert_eq!(asked.query, "state=opened&order_by=updated_at&sort=desc&per_page=100&with_labels_details=true", "label colours, in the same request");
     assert_eq!(f.requests().iter().filter(|r| r.path.ends_with("/pipelines")).count(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pipelines_are_asked_again_only_while_one_runs_or_a_head_is_new() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let pipelines = |f: &FakeForge| f.requests().iter().filter(|r| r.path.ends_with("/pipelines")).count();
+    p.open_mrs(&g, MrFilter::All).await.unwrap();
+    // Polls are a minute apart: nothing answered within `FRESH_SECS` answers again.
+    p.http().expire_fresh();
+    p.open_mrs(&g, MrFilter::All).await.unwrap();
+    assert_eq!(pipelines(&f), 2, "!5's pipeline runs: asked each poll");
+    let mut seed = f.current_seed();
+    seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 5).unwrap().pipeline = Some("success".into());
+    f.seed(seed);
+    let list = p.open_mrs(&g, MrFilter::All).await.unwrap().value;
+    assert_eq!(list[1].pipeline.as_ref().map(|p| p.status), Some(PipelineStatus::Success));
+    p.open_mrs(&g, MrFilter::All).await.unwrap();
+    p.open_mrs(&g, MrFilter::Mine).await.unwrap();
+    assert_eq!(pipelines(&f), 3, "all finished: kept");
+    // A new head (a push) asks again.
+    let mut seed = f.current_seed();
+    seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap().head_sha = format!("{:0>40}", 1212);
+    f.seed(seed);
+    p.open_mrs(&g, MrFilter::All).await.unwrap();
+    assert_eq!(pipelines(&f), 4);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -290,11 +317,44 @@ async fn label_colours_come_with_the_list_and_for_a_detail_from_the_projects_lab
     let detail = p.mr_detail(&g, 12).await.unwrap().value;
     assert_eq!((detail.mr.labels.clone(), detail.mr.label_colors), (vec!["bug".to_string(), "nope".to_string()], bug()));
     assert_eq!(labels_asked(&f), 1);
-    // `nope` isn't a project label (it may be new): asked again (ETag-revalidated); `bug` stays.
+    // `nope` isn't a project label (it may be new): asked again (ETag-revalidated, past the
+    // `FRESH_SECS` that answer from what's kept); `bug` stays.
+    p.http().expire_fresh();
     assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.mr.label_colors, bug());
     assert_eq!(labels_asked(&f), 2);
     // Every label known: kept for the session, no request.
     p.edit(&g, 12, &MrEdit { title: None, description: None, labels: Some(vec!["bug".into()]) }).await.unwrap();
     assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.mr.label_colors, bug());
     assert_eq!(labels_asked(&f), 2, "kept for the session");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn without_etags_a_poll_asks_only_whether_any_mr_changed() {
+    let f = FakeForge::start().await;
+    f.set_gitlab_etags(false);
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let lists = |f: &FakeForge| f.requests().into_iter().filter(|r| r.path.ends_with("/merge_requests")).map(|r| r.query).collect::<Vec<_>>();
+    assert_eq!(numbers(&p.open_mrs_light(&g, MrFilter::All).await.unwrap().value), [12, 5, 14]);
+    f.clear_requests();
+    f.advance();
+    let again = p.open_mrs_light(&g, MrFilter::All).await.unwrap();
+    assert_eq!((numbers(&again.value), again.not_modified), (vec![12, 5, 14], true));
+    let asked = lists(&f);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(asked[0].contains("state=all") && asked[0].contains("per_page=1") && asked[0].contains("updated_after=2026-10-04T10%3A00%3A01Z"), "{asked:?}");
+    // !5 is merged: the probe finds it, and the list is read again.
+    let mut seed = f.current_seed();
+    let m = seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 5).unwrap();
+    m.state = "merged".into();
+    m.updated_at = "2026-10-05T08:00:00Z".into();
+    f.seed(seed);
+    f.clear_requests();
+    assert_eq!(numbers(&p.open_mrs_light(&g, MrFilter::All).await.unwrap().value), [12, 14]);
+    assert_eq!(lists(&f).len(), 2, "the probe, then the list");
+    // And the mark moved past it: the next poll's probe finds nothing.
+    f.clear_requests();
+    f.advance();
+    assert_eq!(numbers(&p.open_mrs_light(&g, MrFilter::All).await.unwrap().value), [12, 14]);
+    assert_eq!(lists(&f).len(), 1);
 }

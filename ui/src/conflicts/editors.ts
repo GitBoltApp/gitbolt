@@ -5,7 +5,7 @@ import type { ConflictFilePayload } from '../api/gen/ConflictFilePayload';
 import type { Pane } from '../api/gen/Pane';
 import { useAppState } from '../app/state';
 import { useEditorSettings } from '../diff/editorSettings';
-import { clampEditorFont, EDITOR_SCROLLBAR } from '../diff/options';
+import { clampEditorFont, EDITOR_SCROLLBAR, UNICODE_HIGHLIGHT } from '../diff/options';
 import { loadMonacoHost } from '../diff/monaco/load';
 import { overflowLayer } from '../diff/monaco/overflow';
 import { monaco } from '../diff/monaco/setup';
@@ -81,6 +81,7 @@ export function mergeEditorOptions(readOnly: boolean, stickyScroll: boolean, fon
     scrollbar: { ...EDITOR_SCROLLBAR },
     fixedOverflowWidgets: true,
     minimap: { enabled: true },
+    unicodeHighlight: { ...UNICODE_HIGHLIGHT },
     renderOverviewRuler: true,
     stickyScroll: { enabled: stickyScroll },
     folding: false,

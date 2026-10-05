@@ -31,7 +31,9 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
     if r.token.is_some()
         && let Some(reply) = super::github_pulls::route(st, r)
     {
-        return reply.header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", "4999").header("x-ratelimit-reset", "4102444800");
+        let (remaining, reset) = st.rate_headers(5000);
+        let resource = if r.path == "/graphql" { "graphql" } else { "core" };
+        return reply.header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", &remaining).header("x-ratelimit-reset", &reset).header("x-ratelimit-resource", resource);
     }
     // --- end 4B T4 ---
     let segs: Vec<&str> = r.segments.iter().map(String::as_str).collect();
@@ -65,7 +67,8 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
         // --- end GitHub commit-author avatars ---
         _ => Reply::status(404, json!({ "message": "Not Found" })),
     };
-    reply.header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", &5000u64.saturating_sub(st.served).to_string()).header("x-ratelimit-used", &st.served.min(5000).to_string()).header("x-ratelimit-reset", "4102444800")
+    let (remaining, reset) = st.rate_headers(5000);
+    reply.header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", &remaining).header("x-ratelimit-used", &st.served.min(5000).to_string()).header("x-ratelimit-reset", &reset).header("x-ratelimit-resource", "core")
 }
 
 /// `<base>/github-avatars/u/<id>`, or `/<login>`: any id or login has a picture.

@@ -163,6 +163,33 @@ pub struct RateLimitState {
     pub remaining: Option<u32>,
     #[ts(type = "number | null")]
     pub reset_at: Option<i64>,
+    /// The budget `remaining` counts down from (`X-RateLimit-Limit`, `RateLimit-Limit`).
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// What an account's client did since it was last asked (the poll's debug line).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RequestStats {
+    /// Requests sent to the forge.
+    pub sent: u64,
+    /// Of those, answered 304 (an ETag matched).
+    pub not_modified: u64,
+    /// GETs answered from what was kept a moment ago, without a request (`FRESH_SECS`).
+    pub fresh: u64,
+}
+
+/// One forge answer as the cross-session cache keeps it (`forge::cache`): the request's cache
+/// key (its URL, and its `Accept` when it has its own), its ETag and its JSON body. Never a
+/// token: those only travel in headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredResponse {
+    pub key: String,
+    pub etag: String,
+    pub body: String,
+    pub next_page: Option<String>,
+    pub poll_interval_secs: Option<u32>,
 }
 
 /// A value with what its request said about freshness (spec #4 §3.4): a 304 (`not_modified`), the

@@ -13,6 +13,7 @@ pub mod http;
 pub mod images;
 // --- end 5A T2 ---
 pub mod time;
+pub mod pipelines;
 #[cfg(test)]
 pub(crate) mod test_server;
 /// The contract these implement (core's, re-exported for callers of this crate).

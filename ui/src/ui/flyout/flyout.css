@@ -10,6 +10,9 @@
 .flyout-head.wrap .flyout-title { align-items: flex-start; white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.35; padding-top: 2px; }
 .flyout-head.wrap .flyout-title > svg { flex: none; margin-top: 2px; }
 .flyout-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+/* The body scrolls; its sections never shrink to fit it. A section that clips its own content (the
+   merge box, the cards) would otherwise collapse to nothing once the rest overflows. */
+.flyout-body > * { flex-shrink: 0; }
 .flyout-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--section-border); }
 .flyout-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; }
 .flyout-resize:focus-visible { outline: 2px solid var(--focus-outline); }

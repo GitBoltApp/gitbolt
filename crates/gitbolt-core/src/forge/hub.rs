@@ -45,6 +45,11 @@ pub struct ForgeHub {
     /// A move to the keyring failed this run: no other account tries until the next (one
     /// unlock prompt, one warning). Cleared on `reset`.
     keyring_away: AtomicBool,
+    /// Per project: the badges' lookups and what the last poll saw, kept across restarts once
+    /// `set_cache_dir` names where (`forge::cache`).
+    pub(crate) cache: crate::forge::cache::ForgeCache,
+    /// The projects whose kept answers went to their provider this run (`restore_responses`).
+    pub(crate) restored: Mutex<std::collections::HashSet<crate::forge::cache::CacheKey>>,
 }
 
 impl ForgeHub {
@@ -56,15 +61,17 @@ impl ForgeHub {
             status: Mutex::default(),
             locks: Mutex::default(),
             failed: Mutex::default(),
-            clock,
+            clock: clock.clone(),
             // --- 4A T6 ---
             projects: Mutex::default(),
             // --- end 4A T6 ---
             keyring_away: AtomicBool::new(false),
+            cache: crate::forge::cache::ForgeCache::new(clock.clone()),
+            restored: Mutex::default(),
         }
     }
 
-    fn now(&self) -> i64 {
+    pub(crate) fn now(&self) -> i64 {
         (self.clock)() / 1000
     }
 
@@ -286,6 +293,13 @@ impl ForgeHub {
         // --- 4A T6 ---
         self.projects.lock().expect("projects poisoned").clear();
         // --- end 4A T6 ---
+        self.cache.clear();
+        self.restored.lock().expect("restored poisoned").clear();
+    }
+
+    /// Keeps the MR/PR cache in `dir` (`<data dir>/forge-cache`) across restarts.
+    pub fn set_cache_dir(&self, dir: std::path::PathBuf) {
+        self.cache.set_dir(dir);
     }
 
     fn drop_host(&self, key: &AccountKey) {
@@ -295,6 +309,8 @@ impl ForgeHub {
         // --- 4A T6 ---
         self.projects.lock().expect("projects poisoned").retain(|(p, h, _), _| !(p == &key.profile && h == &key.host));
         // --- end 4A T6 ---
+        self.cache.drop_account(key);
+        self.restored.lock().expect("restored poisoned").retain(|(p, h, _)| !(p == &key.profile && h == &key.host));
     }
 }
 
@@ -406,7 +422,11 @@ impl ForgeHub {
         let result = provider.project(path).await;
         self.record(&key, &result);
         let project = result?.value;
-        self.projects.lock().expect("projects poisoned").insert(cache_key, project.clone());
+        self.projects.lock().expect("projects poisoned").insert(cache_key.clone(), project.clone());
+        // Kept across restarts: the next launch picks the target (a fork's parent) without asking.
+        if self.cache.with(&cache_key, |c| (c.project.as_ref() != Some(&project)).then(|| c.project = Some(project.clone())).is_some()) {
+            self.cache.save(&cache_key);
+        }
         Ok(Some((provider, project)))
     }
 
@@ -648,6 +668,9 @@ impl ForgeHub {
         let (key, provider, project) = self.project_for_remote(store, remotes, remote).await?;
         let result = provider.create_mr(&project, req).await;
         self.record(&key, &result);
+        if result.is_ok() {
+            self.cache.forget_lists(&crate::forge::cache::cache_key(&key, &project.path));
+        }
         result
     }
 

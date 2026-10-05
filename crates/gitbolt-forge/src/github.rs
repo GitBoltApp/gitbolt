@@ -14,7 +14,6 @@ use gitbolt_core::redact::Secret;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 pub const GITHUB_HEADERS: [(&str, &str); 2] = [("Accept", "application/vnd.github+json"), ("X-GitHub-Api-Version", "2022-11-28")];
 // --- 5A T2 ---
@@ -63,6 +62,8 @@ pub struct GitHubProvider {
       /// The token's user, once asked (Mine, Review requested).
       me: Mutex<Option<ForgeUser>>,
       // --- end 4B T4 ---
+    /// The list's checks by head commit (`pipelines`): asked only for new or running heads.
+    checks: crate::pipelines::PipelineCache,
     // --- GitHub commit-author avatars ---
     /// Lowercase emails whose commit author was asked this session, answered or not.
     authors_asked: Mutex<HashSet<String>>,
@@ -77,10 +78,10 @@ pub struct GitHubProvider {
 
 impl GitHubProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, cache: Option<Arc<DiskAvatarCache>>) -> Self {
-        let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: GITHUB_HEADERS.to_vec(), timeout: Duration::from_secs(20) });
+        let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: GITHUB_HEADERS.to_vec(), timeout: crate::http::REQUEST_TIMEOUT });
         let avatars_base = endpoints.avatars.clone().unwrap_or_else(|| "https://avatars.githubusercontent.com".into()).trim_end_matches('/').to_string();
         let image_bases = crate::images::default_github_image_bases(&endpoints.web, &avatars_base);
-        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), image_bases }
+        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), checks: Default::default(), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), image_bases }
     }
 
     // --- 5A T2 ---
@@ -94,6 +95,12 @@ impl GitHubProvider {
 
     pub fn http(&self) -> &HttpClient {
         &self.http
+    }
+
+    /// See `HttpClient::with_change_counter`.
+    pub fn with_change_counter(mut self, changes: crate::http::ChangeCounter) -> Self {
+        self.http = self.http.with_change_counter(changes);
+        self
     }
 
     /// An email → avatar URL seen in API data (a commit's author, the account's user).
@@ -249,6 +256,27 @@ pub mod json {
             PipelineStatus::Success => 1,
             PipelineStatus::Skipped => 0,
         }
+    }
+
+    /// GraphQL's `statusCheckRollup.contexts` (check runs and statuses) as one pipeline, the
+    /// worst of them, as `checks` reads REST's. `None`: it has neither.
+    pub fn rollup(contexts: &Value, web_url: &str) -> Option<ForgePipeline> {
+        let mut all: Vec<PipelineStatus> = Vec::new();
+        for c in contexts.as_array().into_iter().flatten() {
+            all.push(match (c["__typename"].as_str(), c["status"].as_str(), c["conclusion"].as_str(), c["state"].as_str()) {
+                (Some("StatusContext"), _, _, Some("SUCCESS")) => PipelineStatus::Success,
+                (Some("StatusContext"), _, _, Some("PENDING" | "EXPECTED")) => PipelineStatus::Pending,
+                (Some("StatusContext"), _, _, _) => PipelineStatus::Failed,
+                (_, Some("IN_PROGRESS"), _, _) => PipelineStatus::Running,
+                (_, Some("COMPLETED"), Some("SUCCESS" | "NEUTRAL"), _) => PipelineStatus::Success,
+                (_, Some("COMPLETED"), Some("SKIPPED"), _) => PipelineStatus::Skipped,
+                (_, Some("COMPLETED"), Some("CANCELLED"), _) => PipelineStatus::Canceled,
+                (_, Some("COMPLETED"), Some("ACTION_REQUIRED"), _) => PipelineStatus::Manual,
+                (_, Some("COMPLETED"), _, _) => PipelineStatus::Failed,
+                _ => PipelineStatus::Pending,
+            });
+        }
+        all.into_iter().max_by_key(|s| rank(*s)).map(|status| ForgePipeline { status, web_url: Some(web_url.to_string()) })
     }
 
     /// A commit's check runs (`/check-runs`) and statuses (`/status`) as one pipeline: the
@@ -475,6 +503,21 @@ impl ForgeProvider for GitHubProvider {
 
     fn host(&self) -> &str {
         &self.host
+    }
+
+    fn export_responses(&self, project: &ForgeProject) -> Vec<StoredResponse> {
+        // The repository's PR lists and the repository itself.
+        let Ok(repo) = Self::repo_url(&project.path) else { return Vec::new() };
+        let base = self.http.url(&repo);
+        self.http.export(|k| k.starts_with(&format!("{base}/pulls?")) || k == base)
+    }
+
+    fn import_responses(&self, entries: Vec<StoredResponse>) {
+        self.http.import(entries);
+    }
+
+    fn take_request_stats(&self) -> RequestStats {
+        self.http.take_stats()
     }
 
     fn rate_limit(&self) -> RateLimitState {
@@ -892,8 +935,12 @@ impl ForgeProvider for GitHubProvider {
 
 // --- 4B T4: pull requests (reads) ---
 pub const PR_PER_PAGE: u32 = 100;
-/// Open PRs whose checks are read per list (two requests each; GitHub's 304s are free).
+/// The badges' open list reads at most this many pages.
+pub const OPEN_PAGES: usize = 5;
+/// Without GraphQL, the open PRs whose checks are read per list (two requests each).
 pub const PIPELINE_LOOKUPS: usize = 20;
+/// The open PRs' head checks (`refresh_checks`): one query for up to 100 PRs.
+pub const ROLLUP_QUERY: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } } } } } }";
 pub const COMMENT_PAGES: usize = 5;
 
 impl GitHubProvider {
@@ -913,7 +960,17 @@ impl GitHubProvider {
     async fn list_open(&self, project: &ForgeProject, filter: MrFilter, with_checks: bool) -> Result<Fresh<Vec<ForgeMr>>, GbError> {
         let repo = Self::repo_url(&project.path)?;
         let r = self.http.get(&format!("{repo}/pulls?state=open&sort=updated&direction=desc&per_page={PR_PER_PAGE}")).await?;
-        let list: Vec<Value> = r.json(&self.host)?;
+        let mut list: Vec<Value> = r.json(&self.host)?;
+        // The badges (no checks) read every page, so a PR past the first hundred still badges.
+        if !with_checks {
+            let mut next = r.next_page.clone();
+            for _ in 1..OPEN_PAGES {
+                let Some(p) = next.take() else { break };
+                let more = self.http.get(&p).await?;
+                list.extend(more.json::<Vec<Value>>(&self.host)?);
+                next = more.next_page.clone();
+            }
+        }
         let me = match filter {
             MrFilter::All => None,
             _ => Some(self.me().await?.username),
@@ -925,10 +982,9 @@ impl GitHubProvider {
         };
         let mut mrs: Vec<ForgeMr> = list.iter().filter(|v| keep(v)).filter_map(json::pr).collect();
         if with_checks {
-            for m in mrs.iter_mut().take(PIPELINE_LOOKUPS) {
-                if let Some(sha) = m.head_sha.clone() {
-                    m.pipeline = self.checks_soft(project, &sha).await?.0;
-                }
+            self.refresh_checks(project, &mrs).await;
+            for m in &mut mrs {
+                m.pipeline = m.head_sha.as_deref().and_then(|sha| self.checks.get(sha));
             }
         }
         Ok(Self::fresh(mrs, &r))
@@ -946,6 +1002,58 @@ impl GitHubProvider {
             next = r.next_page;
         }
         Ok((out, same))
+    }
+
+    /// The listed PRs' checks, kept by head (`PipelineCache`): asked only when a head is new,
+    /// still running, or kept too long. One GraphQL query answers every open PR's; without it
+    /// (an error that isn't a limit), REST's two requests per head, for the first PIPELINE_LOOKUPS.
+    /// Best effort: a failure keeps what's kept (only those pipelines wait), never the list.
+    async fn refresh_checks(&self, project: &ForgeProject, mrs: &[ForgeMr]) {
+        let now = unix_now();
+        let shas: Vec<&str> = mrs.iter().filter_map(|m| m.head_sha.as_deref()).collect();
+        if shas.is_empty() || !self.checks.needs(shas.iter().copied(), now) {
+            return;
+        }
+        match self.rollups(project).await {
+            Ok(found) => {
+                for sha in &shas {
+                    self.checks.put(sha, found.get(&sha.to_ascii_lowercase()).cloned().flatten(), now);
+                }
+            }
+            Err(e) if matches!(e.kind, GbErrorKind::RateLimited | GbErrorKind::AuthFailed | GbErrorKind::Network) && !is_forbidden(&e) => {
+                tracing::debug!("checks from {}: {}", self.host, e.message);
+            }
+            Err(e) => {
+                tracing::debug!("checks from {} by GraphQL: {}; asking REST", self.host, e.message);
+                for sha in shas.into_iter().filter(|s| self.checks.needs([*s], now)).take(PIPELINE_LOOKUPS) {
+                    match self.checks_soft(project, sha).await {
+                        Ok((p, _)) => self.checks.put(sha, p, now),
+                        Err(e) if e.kind == GbErrorKind::RateLimited => break,
+                        Err(e) => tracing::debug!("checks of {sha}: {}", e.message),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every open PR's checks in one GraphQL query: head commit → its pipeline (`None`: none).
+    async fn rollups(&self, project: &ForgeProject) -> Result<HashMap<String, Option<ForgePipeline>>, GbError> {
+        let (owner, name) = project.path.split_once('/').ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("{} isn't an owner/repository path", project.path)))?;
+        let r = self.http.send_json(Method::Post, "/graphql", &json!({ "query": ROLLUP_QUERY, "variables": { "owner": owner, "name": name } })).await?;
+        let v: Value = r.json(&self.host)?;
+        let Some(nodes) = v["data"]["repository"]["pullRequests"]["nodes"].as_array() else {
+            let said = v["errors"][0]["message"].as_str().unwrap_or("no data");
+            return Err(GbError::other(format!("{}: {said}", self.host)));
+        };
+        let mut out = HashMap::new();
+        for pr in nodes {
+            for c in pr["commits"]["nodes"].as_array().into_iter().flatten() {
+                let Some(sha) = c["commit"]["oid"].as_str() else { continue };
+                let web = format!("{}/commit/{sha}", project.web_url);
+                out.insert(sha.to_ascii_lowercase(), json::rollup(&c["commit"]["statusCheckRollup"]["contexts"]["nodes"], &web));
+            }
+        }
+        Ok(out)
     }
 
     /// `checks`, but a token that can't read them (a 403 without a rate limit, or a 404) just has

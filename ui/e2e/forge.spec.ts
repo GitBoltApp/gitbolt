@@ -82,7 +82,8 @@ test.describe('forge accounts and remotes (spec #4 §7, 4A)', () => {
     await expect(flyout).toBeHidden();
     await page.getByRole('button', { name: 'Retry' }).click();
     await expect(page.getByText('Added reviewers to #1')).toBeVisible();
-    const posts = (await forgeRequests(request)).filter((r) => r.forge === 'github' && r.method === 'POST').map((r) => r.path);
+    // GraphQL's POSTs are the list's checks (a read), not the create's writes.
+    const posts = (await forgeRequests(request)).filter((r) => r.forge === 'github' && r.method === 'POST' && r.path !== '/graphql').map((r) => r.path);
     expect(posts).toEqual([
       '/repos/octo-org/widget/pulls',
       '/repos/octo-org/widget/pulls/1/requested_reviewers',

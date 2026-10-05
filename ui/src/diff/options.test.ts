@@ -5,9 +5,12 @@ describe('Monaco options', () => {
   it('keeps every diff feature on but sticky scroll, which is off by default (H7)', () => {
     const o = diffEditorOptions({ mode: 'split', ignoreWhitespace: false, wordWrap: false }, true);
     expect(o.minimap).toEqual({ enabled: true });
-    expect([o.renderOverviewRuler, o.renderIndicators, o.renderGutterMenu, o.enableSplitViewResizing, o.useInlineViewWhenSpaceIsLimited, o.diffCodeLens, o.folding]).toEqual([true, true, true, true, true, true, true]);
+    expect([o.renderOverviewRuler, o.renderIndicators, o.enableSplitViewResizing, o.useInlineViewWhenSpaceIsLimited, o.diffCodeLens, o.folding]).toEqual([true, true, true, true, true, true]);
     // Monaco's revert arrow is off: it discarded working-copy lines with no tooltip.
     expect(o.renderMarginRevertIcon).toBe(false);
+    expect(o.renderGutterMenu).toBe(false);
+    // No ambiguous-unicode banner popping in and out on a changing file; invisible characters stay marked.
+    expect(o.unicodeHighlight).toEqual({ ambiguousCharacters: false, invisibleCharacters: true, nonBasicASCII: false });
     expect(o.experimental).toEqual({ showMoves: true, showEmptyDecorations: true });
     expect(o.stickyScroll).toEqual({ enabled: false });
     expect(o.renderSideBySideInlineBreakpoint).toBe(INLINE_BREAKPOINT_PX);

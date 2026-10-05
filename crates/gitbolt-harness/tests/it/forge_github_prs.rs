@@ -18,6 +18,7 @@ fn provider(f: &FakeForge, token: &str) -> GitHubProvider {
         Secret::new(token),
         None,
     )
+    .with_change_counter(f.change_counter())
 }
 
 async fn widget(p: &GitHubProvider) -> ForgeProject {
@@ -56,20 +57,21 @@ async fn lists_open_prs_with_their_checks() {
         (None, "octocat/widget")
     );
     assert_eq!(list[0].review.decision, ReviewDecision::ReviewRequired);
-    assert_eq!(
-        f.requests()
-            .iter()
-            .filter(|r| r.path.ends_with("/check-runs"))
-            .count(),
-        3
-    );
-    assert_eq!(
-        f.requests()
-            .iter()
-            .filter(|r| r.path.ends_with("/status"))
-            .count(),
-        3
-    );
+    // Every PR's checks in one GraphQL query, none per PR.
+    let count = |f: &FakeForge, end: &str| f.requests().iter().filter(|r| r.path.ends_with(end)).count();
+    assert_eq!((count(&f, "/graphql"), count(&f, "/check-runs"), count(&f, "/status")), (1, 0, 0));
+    // A poll that changes nothing asks again only for the running one's head (#6).
+    p.open_mrs(&w, MrFilter::All).await.unwrap();
+    assert_eq!(count(&f, "/graphql"), 2);
+    let mut seed = f.current_seed();
+    let six = seed.github.pulls.iter_mut().find(|x| x.number == 6).unwrap();
+    six.checks[0] = gitbolt_harness::fake_forge::github_pulls::FakeCheck { name: "build".into(), status: "completed".into(), conclusion: Some("success".into()) };
+    six.statuses.clear();
+    f.seed(seed);
+    let list = p.open_mrs(&w, MrFilter::All).await.unwrap().value;
+    assert_eq!(list[1].pipeline.as_ref().map(|p| p.status), Some(PipelineStatus::Success));
+    p.open_mrs(&w, MrFilter::Mine).await.unwrap();
+    assert_eq!(count(&f, "/graphql"), 3, "all settled: the next lists ask no checks");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -217,6 +219,16 @@ async fn a_forbidden_checks_lookup_leaves_that_pr_without_a_pipeline() {
         headers: vec![],
         body: serde_json::json!({"message": "Resource not accessible by personal access token"}),
         times: 5,
+    });
+    // GraphQL refused too: the list falls back to REST's lookups per head.
+    f.script(Scripted {
+        forge: "github".into(),
+        method: "POST".into(),
+        path: "/graphql".into(),
+        status: 403,
+        headers: vec![],
+        body: serde_json::json!({"message": "Resource not accessible by personal access token"}),
+        times: 1,
     });
     let list = p.open_mrs(&w, MrFilter::All).await.unwrap().value;
     assert_eq!(numbers(&list), [3, 6, 7]);

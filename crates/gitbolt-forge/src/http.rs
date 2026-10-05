@@ -3,8 +3,14 @@
 //! - an ETag cache keyed by URL (`If-None-Match`; a 304 answers from it);
 //! - the forges' `Poll-Interval` / `X-Poll-Interval` hints;
 //! - rate limits (GitHub `x-ratelimit-*`, GitLab `RateLimit-*`, 429 and `Retry-After`): once
-//!   limited, every request fails fast with `RateLimited` until the time the forge gave;
-//! - timeouts (10 s to connect, 20 s in all) and `User-Agent: GitBolt/<version>`;
+//!   limited, every request fails fast with `RateLimited` until the time the forge gave; a
+//!   budget spent to 0 (a 200 whose `remaining` is 0) waits for its reset the same way. Only
+//!   GitHub's `core` budget is kept (its GraphQL and search budgets are their own);
+//! - timeouts (5 s to resolve, 10 s to connect, 30 s for the answer to start, `ClientConfig.timeout`
+//!   in all) and `User-Agent: GitBolt/<version>`; a timeout fails that request only (a request
+//!   waiting for one of the `PARALLEL` permits isn't timed);
+//! - a GET answered (or revalidated) less than `FRESH_SECS` ago answers from the cache without a
+//!   request (a poll's badges and list read the same list once); any write ends that at once;
 //! - an unreachable API (no connection could be made: DNS, refused, connect timeout, TLS
 //!   handshake): its requests fail fast with the same `Network` error for
 //!   `NETWORK_COOLDOWN_SECS`, until one gets an answer. A slow API (a read timeout, an answer
@@ -27,8 +33,14 @@ pub const ETAG_ENTRIES: usize = 256;
 pub const MAX_BODY: u64 = 8 * 1024 * 1024;
 pub const MAX_CACHED_BODY: usize = 1024 * 1024;
 pub const MAX_IMAGE: u64 = 1024 * 1024;
-/// Requests in flight per account.
+/// Requests in flight per account (per host and profile).
 pub const PARALLEL: usize = 4;
+/// The answer must start within this long (the whole request has `ClientConfig.timeout`).
+pub const RESPONSE_START: Duration = Duration::from_secs(30);
+/// A whole API request at most (a big list from a slow self-hosted forge).
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
+/// A GET answered this recently answers again from the cache, without a request.
+pub const FRESH_SECS: u64 = 5;
 /// A rate limit that gives no time waits this long.
 pub const DEFAULT_LIMIT_WAIT_SECS: i64 = 60;
 /// No limit makes GitBolt wait longer than this, whatever the forge says.
@@ -40,6 +52,8 @@ pub const ETAG_BYTES: usize = 32 * 1024 * 1024;
 pub const NETWORK_COOLDOWN_SECS: i64 = 60;
 
 pub type SecsClock = Arc<dyn Fn() -> i64 + Send + Sync>;
+/// A count that grows whenever the forge's data changed behind GitBolt's back (the harness).
+pub type ChangeCounter = Arc<dyn Fn() -> u64 + Send + Sync>;
 #[cfg(test)]
 type LinkRewrite = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
@@ -85,6 +99,8 @@ pub struct HttpResponse {
     pub next_page: Option<String>,
     /// GitHub classic tokens' `X-OAuth-Scopes`.
     pub oauth_scopes: Option<String>,
+    /// The answer came with an ETag (its next GET is conditional).
+    pub etag: bool,
 }
 
 impl HttpResponse {
@@ -99,6 +115,9 @@ pub struct RateHeaders {
     pub remaining: Option<u32>,
     pub reset_at: Option<i64>,
     pub retry_after_secs: Option<i64>,
+    pub limit: Option<u32>,
+    /// GitHub's `x-ratelimit-resource` (`core`, `graphql`, `search`…).
+    pub resource: Option<String>,
 }
 
 /// `get` reads one lowercase header name.
@@ -108,7 +127,15 @@ pub fn rate_headers(get: impl Fn(&str) -> Option<String>, now: i64) -> RateHeade
         remaining: num(["x-ratelimit-remaining", "ratelimit-remaining"]).map(|n| n.max(0) as u32),
         reset_at: num(["x-ratelimit-reset", "ratelimit-reset"]),
         retry_after_secs: get("retry-after").and_then(|v| retry_after_secs(&v, now)),
+        limit: num(["x-ratelimit-limit", "ratelimit-limit"]).map(|n| n.max(0) as u32),
+        resource: get("x-ratelimit-resource").map(|r| r.trim().to_ascii_lowercase()),
     }
+}
+
+/// A 2xx that spent the last of the budget: nothing more until its reset (GitHub answers the next
+/// one 403, GitLab 429). `None` when some is left or the reset is past.
+pub fn spent_until(h: &RateHeaders, now: i64) -> Option<i64> {
+    (h.remaining == Some(0)).then_some(h.reset_at?).filter(|r| *r > now).map(|r| r.min(now.saturating_add(MAX_LIMIT_WAIT_SECS)))
 }
 
 /// Until when a response means "rate limited": a 429 always; a 403 only with the limit spent
@@ -211,6 +238,10 @@ struct Cached {
     poll_interval_secs: Option<u32>,
     next_page: Option<String>,
     oauth_scopes: Option<String>,
+    /// When the forge last answered it (a 200 or a 304), in ms since the client's `epoch`, and
+    /// the write generation then: fresh while both are recent (`FRESH_SECS`, no write since).
+    validated_ms: std::sync::atomic::AtomicU64,
+    generation: std::sync::atomic::AtomicU64,
 }
 
 /// The newest `ETAG_ENTRIES` bodies by URL; the oldest is dropped first.
@@ -255,6 +286,17 @@ struct Inner {
     down: Mutex<Option<(i64, String)>>,
     permits: Arc<tokio::sync::Semaphore>,
     clock: SecsClock,
+    /// `FRESH_SECS`; zero: every GET asks.
+    fresh: Duration,
+    epoch: std::time::Instant,
+    /// Bumped by every write (and `expire_fresh`): nothing cached before it is fresh.
+    generation: std::sync::atomic::AtomicU64,
+    /// Changes outside GitBolt's writes (the harness's fake forge reseeded): added to `generation`.
+    changes: Option<ChangeCounter>,
+    /// Requests sent, 304s, and GETs answered from memory, since `take_stats`.
+    sent: std::sync::atomic::AtomicU64,
+    not_modified: std::sync::atomic::AtomicU64,
+    fresh_hits: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     link_rewrite: Option<LinkRewrite>,
 }
@@ -287,6 +329,8 @@ impl HttpClient {
             .timeout_global(Some(cfg.timeout))
             .timeout_connect(Some(Duration::from_secs(10)))
             .timeout_resolve(Some(Duration::from_secs(5)))
+            // A slow self-hosted forge may take a while on a big list, but must start answering.
+            .timeout_recv_response(Some(RESPONSE_START.min(cfg.timeout)))
             .http_status_as_error(false)
             .max_redirects(0)
             .max_redirects_will_error(false)
@@ -302,6 +346,13 @@ impl HttpClient {
                 down: Mutex::default(),
                 permits: Arc::new(tokio::sync::Semaphore::new(PARALLEL)),
                 clock,
+                fresh: Duration::from_secs(FRESH_SECS),
+                epoch: std::time::Instant::now(),
+                generation: Default::default(),
+                changes: None,
+                sent: Default::default(),
+                not_modified: Default::default(),
+                fresh_hits: Default::default(),
                 #[cfg(test)]
                 link_rewrite: None,
             }),
@@ -314,8 +365,90 @@ impl HttpClient {
         Self { inner: Arc::new(Inner { link_rewrite: Some(Arc::new(f)), ..inner }) }
     }
 
+    /// `FRESH_SECS` replaced (zero: every GET asks the forge).
+    pub fn with_fresh_window(self, fresh: Duration) -> Self {
+        let inner = Arc::try_unwrap(self.inner).ok().expect("a fresh client");
+        Self { inner: Arc::new(Inner { fresh, ..inner }) }
+    }
+
+    /// Fresh answers also end when `changes` grows (the harness: its fake forge was reseeded).
+    pub fn with_change_counter(self, changes: ChangeCounter) -> Self {
+        let inner = Arc::try_unwrap(self.inner).ok().expect("a fresh client");
+        Self { inner: Arc::new(Inner { changes: Some(changes), ..inner }) }
+    }
+
+    fn generation(&self) -> u64 {
+        self.inner.generation.load(std::sync::atomic::Ordering::SeqCst).wrapping_add(self.inner.changes.as_ref().map_or(0, |c| c()))
+    }
+
+    /// Nothing cached is fresh any more: the next GET of each asks the forge (a write, or a
+    /// test that changed the fake forge).
+    pub fn expire_fresh(&self) {
+        self.inner.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// A moment, to ask later whether it's still fresh (`still_fresh`): for answers kept outside
+    /// the ETag cache (GitLab's probe without ETags).
+    pub fn fresh_mark(&self) -> (u64, u64) {
+        (self.generation(), self.now_ms())
+    }
+
+    /// Less than `FRESH_SECS` since `mark`, and no write (or outside change) since.
+    pub fn still_fresh(&self, mark: (u64, u64)) -> bool {
+        !self.inner.fresh.is_zero() && mark.0 == self.generation() && self.now_ms().saturating_sub(mark.1) < self.inner.fresh.as_millis() as u64
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.inner.epoch.elapsed().as_millis() as u64
+    }
+
+    fn validated(&self, c: &Cached) {
+        use std::sync::atomic::Ordering::SeqCst;
+        c.validated_ms.store(self.now_ms(), SeqCst);
+        c.generation.store(self.generation(), SeqCst);
+    }
+
+    fn is_fresh(&self, c: &Cached) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        !self.inner.fresh.is_zero() && c.generation.load(SeqCst) == self.generation() && self.now_ms().saturating_sub(c.validated_ms.load(SeqCst)) < self.inner.fresh.as_millis() as u64
+    }
+
     pub fn host(&self) -> &str {
         &self.inner.cfg.host
+    }
+
+    /// What this client did since the last call: requests sent, 304s, GETs answered from memory.
+    pub fn take_stats(&self) -> gitbolt_core::forge::RequestStats {
+        use std::sync::atomic::Ordering::SeqCst;
+        gitbolt_core::forge::RequestStats { sent: self.inner.sent.swap(0, SeqCst), not_modified: self.inner.not_modified.swap(0, SeqCst), fresh: self.inner.fresh_hits.swap(0, SeqCst) }
+    }
+
+    /// The kept answers whose cache key `wanted` takes (the cross-session cache's), JSON only.
+    pub fn export(&self, wanted: impl Fn(&str) -> bool) -> Vec<gitbolt_core::forge::StoredResponse> {
+        let etags = self.inner.etags.lock().expect("etags poisoned");
+        etags
+            .order
+            .iter()
+            .filter(|k| wanted(k))
+            .filter_map(|k| {
+                let c = etags.map.get(k)?;
+                Some(gitbolt_core::forge::StoredResponse { key: k.clone(), etag: c.etag.clone(), body: String::from_utf8(c.body.to_vec()).ok()?, next_page: c.next_page.clone(), poll_interval_secs: c.poll_interval_secs })
+            })
+            .collect()
+    }
+
+    /// Answers a previous run kept, under the API base: each one's next GET is conditional. None
+    /// is fresh (`FRESH_SECS`): it's revalidated before it answers.
+    pub fn import(&self, entries: Vec<gitbolt_core::forge::StoredResponse>) {
+        let mut etags = self.inner.etags.lock().expect("etags poisoned");
+        for e in entries {
+            let url = e.key.split('\n').next().unwrap_or_default();
+            if !under(url, &self.inner.cfg.api_base) || e.body.len() > MAX_CACHED_BODY || etags.map.contains_key(&e.key) {
+                continue;
+            }
+            let c = Cached { etag: e.etag, body: Arc::new(e.body.into_bytes()), poll_interval_secs: e.poll_interval_secs, next_page: e.next_page.filter(|n| under(n, &self.inner.cfg.api_base)), oauth_scopes: None, validated_ms: Default::default(), generation: std::sync::atomic::AtomicU64::new(u64::MAX) };
+            etags.put(e.key, c);
+        }
     }
 
     /// `path` (starting with `/`) under the API base, or a full URL (a next page). Anything else
@@ -452,11 +585,27 @@ impl HttpClient {
             None => url.clone(),
         };
         let snapshot = if method == Method::Get { self.inner.etags.lock().expect("etags poisoned").map.get(&key).cloned() } else { None };
+        if let Some(c) = snapshot.as_ref().filter(|c| self.is_fresh(c)) {
+            self.inner.fresh_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return Ok(HttpResponse { status: 200, body: c.body.clone(), not_modified: true, poll_interval_secs: c.poll_interval_secs, next_page: c.next_page.clone(), oauth_scopes: c.oauth_scopes.clone(), etag: true });
+        }
+        if method != Method::Get {
+            self.expire_fresh();
+        }
         let etag = snapshot.as_ref().map(|c| c.etag.clone());
         let mut raw = self.send(method, &url, body.clone(), etag, accept).await?;
+        self.inner.sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // A 304 with no copy to answer from (nothing was cached): ask again, unconditionally, once.
         if raw.status == 304 && snapshot.is_none() {
             raw = self.send(method, &url, body, None, accept).await?;
+            self.inner.sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        if raw.status == 304 {
+            self.inner.not_modified.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        if method != Method::Get {
+            // Reads that started before the write's answer cache nothing fresh.
+            self.expire_fresh();
         }
         self.finish(method, key, raw, snapshot)
     }
@@ -530,8 +679,14 @@ impl HttpClient {
         let now = (self.inner.clock)();
         let rh = rate_headers(|n| raw.headers.get(n).cloned(), now);
         let mut r = self.inner.rate.lock().expect("rate state poisoned");
-        r.remaining = rh.remaining.or(r.remaining);
-        r.reset_at = rh.reset_at.or(r.reset_at);
+        // GitHub's GraphQL (and search) budgets are their own: the poll paces on `core`'s.
+        let core = rh.resource.as_deref().is_none_or(|x| x == "core");
+        if core {
+            r.remaining = rh.remaining.or(r.remaining);
+            r.reset_at = rh.reset_at.or(r.reset_at);
+            r.limit = rh.limit.or(r.limit);
+        }
+        let spent = if core && (200..400).contains(&raw.status) { spent_until(&rh, now) } else { None };
         match limited_until(raw.status, &rh, now) {
             Some(until) => {
                 r.limited_until = Some(until);
@@ -539,8 +694,8 @@ impl HttpClient {
             }
             None => {
                 // A request that started before a 429 may still come back 200: only a limit
-                // that's over is cleared.
-                r.limited_until = r.limited_until.filter(|u| *u > now);
+                // that's over is cleared. This answer is good; the next waits for the reset.
+                r.limited_until = r.limited_until.filter(|u| *u > now).max(spent);
                 Ok(rh)
             }
         }
@@ -566,20 +721,25 @@ impl HttpClient {
                     etags.order.push_back(u);
                 }
             }
-            return Ok(HttpResponse { status: 200, body: c.body.clone(), not_modified: true, poll_interval_secs: poll_interval_secs.or(c.poll_interval_secs), next_page: c.next_page.clone(), oauth_scopes: oauth_scopes.or_else(|| c.oauth_scopes.clone()) });
+            self.validated(&c);
+            return Ok(HttpResponse { status: 200, body: c.body.clone(), not_modified: true, poll_interval_secs: poll_interval_secs.or(c.poll_interval_secs), next_page: c.next_page.clone(), oauth_scopes: oauth_scopes.or_else(|| c.oauth_scopes.clone()), etag: true });
         }
         if !(200..300).contains(&raw.status) {
             return Err(status_error(host, raw.status, &raw.body));
         }
         let body = Arc::new(raw.body);
+        let etag = get("etag");
+        let has_etag = etag.is_some();
         if method == Method::Get
             && body.len() <= MAX_CACHED_BODY
-            && let Some(etag) = get("etag")
+            && let Some(etag) = etag
         {
-            self.inner.etags.lock().expect("etags poisoned").put(key, Cached { etag, body: body.clone(), poll_interval_secs, next_page: next_page.clone(), oauth_scopes: oauth_scopes.clone() });
+            let c = Cached { etag, body: body.clone(), poll_interval_secs, next_page: next_page.clone(), oauth_scopes: oauth_scopes.clone(), validated_ms: Default::default(), generation: Default::default() };
+            self.validated(&c);
+            self.inner.etags.lock().expect("etags poisoned").put(key, c);
         }
         tracing::debug!(target: "gitbolt_forge::http", host, method = method.as_str(), status = raw.status, "forge request");
-        Ok(HttpResponse { status: raw.status, body, not_modified: false, poll_interval_secs, next_page, oauth_scopes })
+        Ok(HttpResponse { status: raw.status, body, not_modified: false, poll_interval_secs, next_page, oauth_scopes, etag: has_etag })
     }
 }
 
@@ -672,6 +832,7 @@ mod tests {
             ClientConfig { host: "gitlab.example.com".into(), api_base: format!("{base}/api/v4"), token: Some(Secret::new(TOKEN)), headers: vec![("Accept", "application/json")], timeout: Duration::from_secs(5) },
             Arc::new(|| NOW),
         )
+        .with_fresh_window(Duration::ZERO)
     }
 
     #[tokio::test]
@@ -685,6 +846,44 @@ mod tests {
         assert!(head.contains(&format!("authorization: bearer {}", TOKEN.to_ascii_lowercase())), "{head}");
         assert!(head.contains(&format!("user-agent: {}", crate::gravatar::USER_AGENT.to_ascii_lowercase())), "{head}");
         assert!(!format!("{e:?}").contains(TOKEN));
+    }
+
+    #[tokio::test]
+    async fn a_get_answered_moments_ago_answers_again_without_a_request_until_a_write() {
+        let s = TestServer::start(|_, _| Canned::json(200, r#"{"a":1}"#).header("ETag", "\"v1\""));
+        let c = client(&s.base).with_fresh_window(Duration::from_secs(60));
+        assert!(!c.get("/projects/1/merge_requests").await.unwrap().not_modified);
+        let again = c.get("/projects/1/merge_requests").await.unwrap();
+        assert!(again.not_modified && again.etag);
+        assert_eq!(s.hits(), 1, "the poll's second read of the list costs nothing");
+        c.send_json(Method::Post, "/projects/1/merge_requests/1/notes", &serde_json::json!({"body": "x"})).await.unwrap();
+        c.get("/projects/1/merge_requests").await.unwrap();
+        assert_eq!(s.hits(), 3, "a write ends it: the read after asks");
+        c.expire_fresh();
+        c.get("/projects/1/merge_requests").await.unwrap();
+        assert_eq!(s.hits(), 4);
+        let st = c.take_stats();
+        assert_eq!((st.sent, st.not_modified, st.fresh), (4, 0, 1), "the poll's debug line counts");
+        assert_eq!(c.take_stats(), Default::default(), "and starts again");
+    }
+
+    #[tokio::test]
+    async fn the_core_budget_is_kept_and_a_spent_one_waits_for_its_reset() {
+        let s = TestServer::start(|n, _| match n {
+            0 => Canned::json(200, "[]").header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", "100").header("x-ratelimit-reset", &(NOW + 900).to_string()).header("x-ratelimit-resource", "core"),
+            1 => Canned::json(200, "{}").header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", "3").header("x-ratelimit-resource", "graphql"),
+            _ => Canned::json(200, "[]").header("x-ratelimit-remaining", "0").header("x-ratelimit-reset", &(NOW + 600).to_string()),
+        });
+        let c = client(&s.base);
+        c.get("/a").await.unwrap();
+        c.send_json(Method::Post, "/graphql", &serde_json::json!({})).await.unwrap();
+        let r = c.rate_limit();
+        assert_eq!((r.remaining, r.limit, r.reset_at, r.limited_until), (Some(100), Some(5000), Some(NOW + 900), None), "GraphQL's budget is its own");
+        assert!(c.get("/b").await.is_ok(), "the answer that spent the last request is good");
+        assert_eq!(c.rate_limit().limited_until, Some(NOW + 600));
+        let e = c.get("/c").await.unwrap_err();
+        assert_eq!(e.kind, GbErrorKind::RateLimited);
+        assert_eq!(s.hits(), 3, "no request until the reset");
     }
 
     #[tokio::test]
@@ -733,14 +932,18 @@ mod tests {
 
     #[test]
     fn github_primary_and_secondary_limits_are_403s_that_say_so() {
-        let spent = RateHeaders { remaining: Some(0), reset_at: Some(NOW + 600), retry_after_secs: None };
+        let spent = RateHeaders { remaining: Some(0), reset_at: Some(NOW + 600), ..Default::default() };
         assert_eq!(limited_until(403, &spent, NOW), Some(NOW + 600));
-        let secondary = RateHeaders { remaining: Some(4000), reset_at: None, retry_after_secs: Some(60) };
+        let secondary = RateHeaders { remaining: Some(4000), retry_after_secs: Some(60), ..Default::default() };
         assert_eq!(limited_until(403, &secondary, NOW), Some(NOW + 60));
         assert_eq!(limited_until(403, &RateHeaders { remaining: Some(10), ..Default::default() }, NOW), None, "a plain 403 is a permission problem");
         assert_eq!(limited_until(429, &RateHeaders::default(), NOW), Some(NOW + DEFAULT_LIMIT_WAIT_SECS));
         let h = rate_headers(|n| match n { "ratelimit-remaining" => Some("7".into()), "ratelimit-reset" => Some((NOW + 30).to_string()), _ => None }, NOW);
-        assert_eq!(h, RateHeaders { remaining: Some(7), reset_at: Some(NOW + 30), retry_after_secs: None });
+        assert_eq!(h, RateHeaders { remaining: Some(7), reset_at: Some(NOW + 30), ..Default::default() });
+        assert_eq!(spent_until(&h, NOW), None);
+        let gone = RateHeaders { remaining: Some(0), reset_at: Some(NOW + 30), ..Default::default() };
+        assert_eq!(spent_until(&gone, NOW), Some(NOW + 30));
+        assert_eq!(spent_until(&RateHeaders { reset_at: Some(NOW - 1), ..gone }, NOW), None);
     }
 
     #[tokio::test]
@@ -925,7 +1128,7 @@ mod tests {
 
     #[test]
     fn the_etag_cache_is_lru_and_byte_bounded() {
-        let mk = |n: usize| Cached { etag: "e".into(), body: Arc::new(vec![0; n]), poll_interval_secs: None, next_page: None, oauth_scopes: None };
+        let mk = |n: usize| Cached { etag: "e".into(), body: Arc::new(vec![0; n]), poll_interval_secs: None, next_page: None, oauth_scopes: None, validated_ms: Default::default(), generation: Default::default() };
         let mut c = EtagCache::default();
         c.put("a".into(), mk(1));
         c.put("b".into(), mk(1));

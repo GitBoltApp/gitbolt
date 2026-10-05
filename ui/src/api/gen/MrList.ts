@@ -3,6 +3,7 @@ import type { ForgeKind } from "./ForgeKind";
 import type { ForgeMr } from "./ForgeMr";
 import type { ForgeProject } from "./ForgeProject";
 import type { MrFilter } from "./MrFilter";
+import type { RateLimitState } from "./RateLimitState";
 
 /**
  * The sidebar section's list.
@@ -11,4 +12,8 @@ export type MrList = { kind: ForgeKind,
 /**
  * The remote whose project the list is of.
  */
-remote: string, project: ForgeProject, filter: MrFilter, mrs: Array<ForgeMr>, fetchedAt: number, pollIntervalSecs: number | null, };
+remote: string, project: ForgeProject, filter: MrFilter, mrs: Array<ForgeMr>, fetchedAt: number, pollIntervalSecs: number | null, 
+/**
+ * The account's rate limit after this list (the poller paces on it).
+ */
+rateLimit?: RateLimitState, };

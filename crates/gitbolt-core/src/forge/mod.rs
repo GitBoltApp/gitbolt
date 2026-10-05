@@ -19,6 +19,7 @@ pub mod create;
 // --- end 4C T1 ---
 // --- 4B T1 ---
 pub mod mrs;
+pub mod cache;
 // --- end 4B T1 ---
 // --- 5A T1 ---
 pub mod image;

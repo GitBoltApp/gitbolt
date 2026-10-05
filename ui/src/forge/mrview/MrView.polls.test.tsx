@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}), loadMrDetail: vi.fn(async () => {}), openMrView: vi.fn() }));
@@ -40,6 +40,8 @@ beforeEach(() => {
   useRuntime.setState({ tabs: { t: { repo: { id: 4 } } as never } });
   patchForge('t', { kind: 'gitlab', remote: 'origin', details: { 12: { value: detail, at: 1 } }, discussions: { 12: threads } });
 });
+// A test that timed out mid-way never reaches its `finally`: the next one starts on real timers.
+afterEach(() => vi.useRealTimers());
 
 describe('the MR/PR view under polls (more bodies than the parse cache holds)', () => {
   it('a poll tick that changes nothing in the MR re-parses and re-renders no body', async () => {
@@ -64,7 +66,10 @@ describe('the MR/PR view under polls (more bodies than the parse cache holds)', 
       expect(vi.mocked(parseMarkdown).mock.calls.length).toBe(parses);
       expect(vi.mocked(renderTree).mock.calls.length).toBe(renders);
     } finally { vi.useRealTimers(); }
-  });
+    // 150 Markdown bodies rendered step by step: a few seconds alone, many more on a loaded
+    // machine (the full suite's parallel workers). It waits on no clock, so a longer budget
+    // can't hide a hang: the idle-steps bound above fails first.
+  }, 90_000);
 
   it('renders the first bodies in the first paint and the rest when idle', () => {
     const { container } = render(<MrView tabId="t" props={{ number: 12 }} close={() => {}} />);

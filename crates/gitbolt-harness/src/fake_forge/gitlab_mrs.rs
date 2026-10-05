@@ -211,6 +211,8 @@ fn query_matches(st: &ForgeState, m: &FakeMergeRequest, r: &FakeRequest) -> bool
     // --- 4D T11: target_branch ---
     let branch_ok = branch_ok && q.get("target_branch").is_none_or(|b| *b == m.target_branch);
     // --- end 4D T11 ---
+    // `updated_after` includes its own time (RFC 3339 in UTC compares as text).
+    let branch_ok = branch_ok && q.get("updated_after").is_none_or(|t| m.updated_at.as_str() >= t.as_str());
     let reviewer_ok = q.get("reviewer_id").is_none_or(|id| m.reviewers.iter().any(|u| person(st, u).id.to_string() == *id));
     state_ok && branch_ok && scope_ok && reviewer_ok
 }

@@ -33,6 +33,18 @@ test.describe('WIP staging (spec #2 §7.1, §7.2)', () => {
     await expect(section(page, 'staged').locator('.file-row[data-path="src"]')).toBeVisible();
   });
 
+  test('an unstaged diff has no unlabeled revert arrow in its gutter', async ({ page }) => {
+    await openWip(page);
+    await fileRow(page, 'unstaged', 'new.txt').click();
+    await expect(page.getByTestId('diff-path')).toContainText('new.txt');
+    const editor = page.locator('.monaco-diff-editor').first();
+    await expect(editor.locator('.view-lines').first()).toBeVisible();
+    const box = await editor.boundingBox();
+    // Sweep the pointer across the editor: Monaco's gutter menu and revert icon show on hover.
+    for (let x = 0.1; x < 1; x += 0.1) await page.mouse.move(box!.x + box!.width * x, box!.y + 20);
+    await expect(editor.locator('.gutter .codicon, .codicon-arrow-right, .codicon-arrow-left, .codicon-discard')).toHaveCount(0);
+  });
+
   test('the open diff moves on to the next unstaged file after a whole-file stage', async ({ page }) => {
     await openWip(page);
     await fileRow(page, 'unstaged', 'space name.txt').click();

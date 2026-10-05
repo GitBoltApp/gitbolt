@@ -163,6 +163,19 @@ fn harness_exe() -> PathBuf {
     me.ancestors().skip(1).take(2).map(|d| d.join("gitbolt-harness")).find(|p| p.is_file()).unwrap_or(me)
 }
 
+/// The real providers, pointed at the fake forge; no other host is reachable.
+fn fake_connector(forge: &fake_forge::FakeForge) -> Forge {
+    let overrides = std::collections::HashMap::from([
+        (fake_forge::GITLAB_HOST.to_string(), HostEndpoints { api: forge.gitlab_api(), web: forge.gitlab_web(), avatars: None }),
+        (fake_forge::GITHUB_HOST.to_string(), HostEndpoints { api: forge.github_api(), web: forge.github_web(), avatars: Some(forge.github_avatars()) }),
+    ]);
+    Forge::new(ForgeConfig { overrides, only_overrides: true, avatar_dir: None })
+        // --- 5A T3: GitHub's Markdown image hosts are the fake's (no test reaches a real one) ---
+        .with_image_bases(fake_forge::GITHUB_HOST, vec![forge.github_web(), forge.github_images(), forge.github_avatars()])
+        // A test that reseeds the fake sees it at once (no `FRESH_SECS` answer from before).
+        .with_change_counter(forge.change_counter())
+}
+
 /// Tests opt into background fetch explicitly: a fresh (or reset) harness never fetches on its
 /// own, so it never touches a repo's refs behind a test's back.
 fn harness_defaults(store: &Arc<SettingsStore>) {
@@ -207,15 +220,7 @@ impl Harness {
         // --- 4A T10: the real providers, pointed at the fake forge; no other host is reachable ---
         let tokens_path = runtime_tmp.path().join("forge-tokens");
         let tokens = Arc::new(FileTokenStore::new(tokens_path.clone()));
-        let overrides = std::collections::HashMap::from([
-            (fake_forge::GITLAB_HOST.to_string(), HostEndpoints { api: forge.gitlab_api(), web: forge.gitlab_web(), avatars: None }),
-            (fake_forge::GITHUB_HOST.to_string(), HostEndpoints { api: forge.github_api(), web: forge.github_web(), avatars: Some(forge.github_avatars()) }),
-        ]);
-        let connector = Arc::new(
-            Forge::new(ForgeConfig { overrides, only_overrides: true, avatar_dir: None })
-                // --- 5A T3: GitHub's Markdown image hosts are the fake's (no test reaches a real one) ---
-                .with_image_bases(fake_forge::GITHUB_HOST, vec![forge.github_web(), forge.github_images(), forge.github_avatars()]),
-        );
+        let connector = Arc::new(fake_connector(&forge));
         // --- end 4A T10 ---
         let next_pick = picks.clone();
         let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
@@ -244,6 +249,11 @@ impl Harness {
         &self.tokens_path
     }
 
+    /// The app's data dir (journals, the MR/PR cache): the harness's own temp dir.
+    pub fn data_dir(&self) -> std::path::PathBuf {
+        self._runtime_tmp.path().join("data")
+    }
+
     /// The harness's home (`suggestReposFolder` looks for `repos` in it).
     pub fn home(&self) -> &std::path::Path {
         &self.home
@@ -251,6 +261,16 @@ impl Harness {
 
     pub async fn for_tests() -> Self {
         Self::new(HarnessOptions::default()).await
+    }
+
+    /// The app launched again: a new `Api` (a new forge hub, nothing in memory) on this harness's
+    /// settings, tokens, data dir and fake forge (the MR/PR cache across restarts).
+    pub fn relaunch(&self) -> Api {
+        Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
+            .with_data_dir(self._runtime_tmp.path().join("data"))
+            .with_forge(Arc::new(fake_connector(&self.forge)), self.tokens.clone())
+            .with_home(Some(self.home.clone()))
+            .with_store(self.store.clone())
     }
 
     /// `POST /test/reset`: the state a fresh app launch would see (default settings, with

@@ -91,7 +91,8 @@ async fn a_full_github_poll_reads_each_prs_checks_once() {
     assert_eq!(checks(&h), before, "the badges read no checks");
     let list = call(&h.api, json!({"method": "forgeMrList", "params": {"repo": id, "filter": "all"}})).await.unwrap();
     assert_eq!(list["mrs"].as_array().unwrap().len(), 3);
-    assert_eq!(checks(&h) - before, 3, "once per open PR, not twice");
+    assert_eq!(checks(&h) - before, 0, "no request per PR: one GraphQL query for them all");
+    assert_eq!(h.forge.requests().iter().filter(|q| q.path == "/graphql").count(), 1);
 }
 // --- end 4B final fix ---
 

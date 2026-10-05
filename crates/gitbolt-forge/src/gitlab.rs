@@ -4,7 +4,7 @@
 use crate::avatar_cache::{image_at, payload_of, DiskAvatarCache, Lookup};
 use crate::endpoints::HostEndpoints;
 use crate::http::{encode_component, under, ClientConfig, HttpClient, HttpResponse, Method};
-use crate::time::unix_now;
+use crate::time::{parse_rfc3339, unix_now};
 use gitbolt_core::avatar::AvatarPayload;
 use gitbolt_core::error::{GbError, GbErrorKind};
 use gitbolt_core::forge::*;
@@ -12,7 +12,6 @@ use gitbolt_core::redact::Secret;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 pub const FORKS_PER_PAGE: u32 = 100;
 pub const FORK_PAGES: usize = 3;
@@ -21,6 +20,10 @@ pub const FORK_PAGES: usize = 3;
 pub const USERS_PER_PAGE: u32 = 20;
 pub const LABELS_PER_PAGE: u32 = 50;
 // --- end 4C T3 ---
+
+/// A list GitLab answered without an ETag: its body, the project's mark then, and whether
+/// every page was read.
+type KeptList = (Vec<Value>, i64, bool);
 
 pub struct GitLabProvider {
     host: String,
@@ -35,17 +38,36 @@ pub struct GitLabProvider {
     /// Project id → label name → `#rrggbb`, from `/projects/:id/labels` (`fill_label_colors`).
     label_colors: Mutex<HashMap<u64, HashMap<String, String>>>,
     // --- end 4B T2 ---
+    /// The list's pipelines by head commit (`pipelines`): asked only for new or running heads.
+    pipelines: crate::pipelines::PipelineCache,
+    /// A GitLab that answers lists without an ETag (no 304s): each list's last body by path,
+    /// with the project's newest `updated_at` known when it was read; per project, that newest
+    /// `updated_at`. A poll first asks whether any MR changed since the body's (`changed_since`:
+    /// one small request) and answers from the body when none did.
+    /// Path → (body, mark, every page read): the list's first page answers from any body, the
+    /// badges' every-page list only from one that had them all.
+    unconditional: Mutex<HashMap<String, KeptList>>,
+    /// (project, mark) → when a probe said nothing changed since: the poll's other list asks no
+    /// second probe (`HttpClient::still_fresh`).
+    unchanged: Mutex<HashMap<(u64, i64), (u64, u64)>>,
+    marks: Mutex<HashMap<u64, i64>>,
 }
 
 impl GitLabProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, avatars: Option<Arc<DiskAvatarCache>>) -> Self {
-        let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: Vec::new(), timeout: Duration::from_secs(20) });
-        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, avatars, me: Mutex::new(None), paths: Mutex::default(), label_colors: Mutex::default() } // 4B T2: me, paths
+        let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: Vec::new(), timeout: crate::http::REQUEST_TIMEOUT });
+        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, avatars, me: Mutex::new(None), paths: Mutex::default(), label_colors: Mutex::default(), pipelines: Default::default(), unconditional: Mutex::default(), unchanged: Mutex::default(), marks: Mutex::default() } // 4B T2: me, paths
     }
 
     /// The account's client, for 4B–4D's requests.
     pub fn http(&self) -> &HttpClient {
         &self.http
+    }
+
+    /// See `HttpClient::with_change_counter`.
+    pub fn with_change_counter(mut self, changes: crate::http::ChangeCounter) -> Self {
+        self.http = self.http.with_change_counter(changes);
+        self
     }
 
     /// `/projects/<id or url-encoded path>`.
@@ -442,6 +464,8 @@ pub mod json {
 
 // --- 4B T2: merge requests (reads) ---
 pub const MR_PER_PAGE: u32 = 100;
+/// The badges' open list reads at most this many pages.
+pub const OPEN_PAGES: usize = 5;
 pub const DISCUSSION_PAGES: usize = 5;
 pub const DIFF_PAGES: usize = 3;
 
@@ -486,15 +510,35 @@ impl GitLabProvider {
         }
     }
 
-    /// The project's recent pipelines by commit: best effort (a project without CI has none).
-    async fn pipelines(&self, project: &ForgeProject) -> HashMap<String, ForgePipeline> {
+    /// The project's recent pipelines by commit; `None` when they couldn't be read (a project
+    /// without CI answers an empty list).
+    async fn fetch_pipelines(&self, project: &ForgeProject) -> Option<HashMap<String, ForgePipeline>> {
         match self.http.get(&format!("/projects/{}/pipelines?per_page=100&order_by=updated_at&sort=desc", project.id)).await {
-            Ok(r) => r.json::<Value>(&self.host).map(|v| json::pipelines_by_sha(&v)).unwrap_or_default(),
-            Err(_) => HashMap::new(),
+            Ok(r) => r.json::<Value>(&self.host).ok().map(|v| json::pipelines_by_sha(&v)),
+            Err(e) => {
+                tracing::debug!("pipelines from {}: {}", self.host, e.message);
+                None
+            }
         }
     }
 
-    /// The open MRs for `filter`, newest activity first; `with_pipelines`: with the project's recent
+    /// The listed MRs' heads' pipelines, kept by commit (`PipelineCache`): the project's recent
+    /// pipelines are asked only when a head is new, still running, or kept too long. Best
+    /// effort: a failure keeps what's kept.
+    async fn refresh_pipelines(&self, project: &ForgeProject, list: &[Value]) {
+        let now = unix_now();
+        let shas: Vec<&str> = list.iter().filter_map(|v| v["sha"].as_str()).collect();
+        if shas.is_empty() || !self.pipelines.needs(shas.iter().copied(), now) {
+            return;
+        }
+        if let Some(found) = self.fetch_pipelines(project).await {
+            for sha in shas {
+                self.pipelines.put(sha, found.get(sha).cloned(), now);
+            }
+        }
+    }
+
+    /// The open MRs for `filter`, newest activity first; `with_pipelines`: with their heads'
     /// pipelines (the list), else without (the badges).
     async fn list_open(&self, project: &ForgeProject, filter: MrFilter, with_pipelines: bool) -> Result<Fresh<Vec<ForgeMr>>, GbError> {
         let mut path = format!("/projects/{}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page={MR_PER_PAGE}&with_labels_details=true", project.id);
@@ -503,10 +547,85 @@ impl GitLabProvider {
             MrFilter::Mine => path.push_str("&scope=created_by_me"),
             MrFilter::ReviewRequested => path.push_str(&format!("&reviewer_id={}", self.me().await?.id)),
         }
-        let r = self.http.get(&path).await?;
-        let list: Vec<Value> = r.json(&self.host)?;
-        let pipelines = if list.is_empty() || !with_pipelines { HashMap::new() } else { self.pipelines(project).await };
-        Ok(Self::fresh(self.mrs_of(project, &list, &pipelines).await, &r))
+        // The badges (no pipelines) read every page, so an MR past the first hundred still badges.
+        let (list, fresh) = self.open_list(project, &path, if with_pipelines { 1 } else { OPEN_PAGES }).await?;
+        let mut pipelines = HashMap::new();
+        if with_pipelines {
+            self.refresh_pipelines(project, &list).await;
+            for sha in list.iter().filter_map(|v| v["sha"].as_str()) {
+                if let Some(p) = self.pipelines.get(sha) {
+                    pipelines.insert(sha.to_string(), p);
+                }
+            }
+        }
+        let mrs = self.mrs_of(project, &list, &pipelines).await;
+        Ok(fresh.map(|()| mrs))
+    }
+
+    /// The MRs at `path`, following up to `pages` pages. Conditional when GitLab sends ETags;
+    /// when it doesn't, the kept body answers unless `changed_since` says an MR changed.
+    async fn open_list(&self, project: &ForgeProject, path: &str, pages: usize) -> Result<(Vec<Value>, Fresh<()>), GbError> {
+        let kept = self.unconditional.lock().expect("lists poisoned").get(path).cloned().filter(|(_, _, all)| *all || pages == 1);
+        if let Some((mut body, mark, _)) = kept
+            && !self.changed_since(project, mark).await?
+        {
+            body.truncate(pages.saturating_mul(MR_PER_PAGE as usize));
+            return Ok((body, Fresh { value: (), not_modified: true, poll_interval_secs: None, fetched_at: unix_now() }));
+        }
+        let r = self.http.get(path).await?;
+        let mut list: Vec<Value> = r.json(&self.host)?;
+        let mut next = r.next_page.clone();
+        for _ in 1..pages {
+            let Some(p) = next.take() else { break };
+            let more = self.http.get(&p).await?;
+            list.extend(more.json::<Vec<Value>>(&self.host)?);
+            next = more.next_page.clone();
+        }
+        let all = next.is_none();
+        self.note_mark(project.id, &list);
+        let mark = self.marks.lock().expect("marks poisoned").get(&project.id).copied();
+        let mut lists = self.unconditional.lock().expect("lists poisoned");
+        match mark.filter(|_| !r.etag) {
+            Some(m) => {
+                lists.insert(path.to_string(), (list.clone(), m, all));
+                // Just read: as good as a probe that found nothing since (the poll's other list).
+                self.unchanged.lock().expect("probes poisoned").insert((project.id, m), self.http.fresh_mark());
+            }
+            None => {
+                lists.remove(path);
+            }
+        }
+        Ok((list, Self::fresh((), &r)))
+    }
+
+    /// Keeps the newest `updated_at` among `list` as the project's mark.
+    fn note_mark(&self, project: u64, list: &[Value]) {
+        let newest = list.iter().filter_map(|v| v["updated_at"].as_str().and_then(parse_rfc3339)).max();
+        if let Some(n) = newest {
+            let mut marks = self.marks.lock().expect("marks poisoned");
+            let m = marks.entry(project).or_insert(n);
+            *m = (*m).max(n);
+        }
+    }
+
+    /// Whether any of the project's MRs (any state, any filter) changed after `mark`: one MR at
+    /// most, so the answer is small. A merged, closed, edited or new MR moves its `updated_at`.
+    async fn changed_since(&self, project: &ForgeProject, mark: i64) -> Result<bool, GbError> {
+        let seen = self.unchanged.lock().expect("probes poisoned").get(&(project.id, mark)).copied();
+        if seen.is_some_and(|m| self.http.still_fresh(m)) {
+            return Ok(false);
+        }
+        // `updated_after` includes its own second.
+        let after = crate::time::format_rfc3339(mark + 1);
+        let r = self.http.get(&format!("/projects/{}/merge_requests?state=all&order_by=updated_at&sort=desc&per_page=1&updated_after={}", project.id, encode_component(&after))).await?;
+        let found: Vec<Value> = r.json(&self.host)?;
+        self.note_mark(project.id, &found);
+        let mut unchanged = self.unchanged.lock().expect("probes poisoned");
+        unchanged.retain(|(p, _), m| *p != project.id || self.http.still_fresh(*m));
+        if found.is_empty() {
+            unchanged.insert((project.id, mark), self.http.fresh_mark());
+        }
+        Ok(!found.is_empty())
     }
 
     async fn mrs_of(&self, project: &ForgeProject, list: &[Value], pipelines: &HashMap<String, ForgePipeline>) -> Vec<ForgeMr> {
@@ -593,6 +712,21 @@ impl ForgeProvider for GitLabProvider {
 
     fn host(&self) -> &str {
         &self.host
+    }
+
+    fn export_responses(&self, project: &ForgeProject) -> Vec<StoredResponse> {
+        // The project's lists (MRs, pipelines) and the project itself, by id or path.
+        let base = self.http.url(&format!("/projects/{}", project.id));
+        let by_path = self.http.url(&Self::project_url(&project.path));
+        self.http.export(|k| k.starts_with(&format!("{base}/merge_requests?")) || k.starts_with(&format!("{base}/pipelines?")) || k == base || k == by_path)
+    }
+
+    fn import_responses(&self, entries: Vec<StoredResponse>) {
+        self.http.import(entries);
+    }
+
+    fn take_request_stats(&self) -> RequestStats {
+        self.http.take_stats()
     }
 
     fn rate_limit(&self) -> RateLimitState {

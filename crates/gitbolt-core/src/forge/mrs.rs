@@ -3,7 +3,8 @@
 //! records what the answer says about the account (Settings › Accounts shows it):
 //! - `branch_mrs`, the badges: one list of open MRs/PRs, mapped to the remote-tracking refs of the
 //!   remotes their source projects are on, then a lookup in any state for each asked ref the list
-//!   didn't cover (newest first, at most `BRANCH_LOOKUPS`). The target project's default branch
+//!   didn't cover (newest first, at most `BRANCH_LOOKUPS`), kept until the ref moves or the
+//!   answer ages out (`forge::cache`); a ref that leaves the open list is asked at once. The target project's default branch
 //!   and the stack base are never looked up in any state, and a merged or closed MR/PR badges a ref
 //!   only while that ref's tip is still its head (`BadgeRefs`); the others go to `history`;
 //! - `mr_list`, the sidebar section (Mine / Review requested / All);
@@ -12,6 +13,7 @@
 //!   the forge is asked.
 
 use crate::error::{GbError, GbErrorKind};
+use crate::forge::cache::{cache_key, RefLookup, StoredList};
 use crate::forge::hub::ForgeHub;
 use crate::forge::*;
 use crate::payload::RemotePayload;
@@ -21,7 +23,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use ts_rs::TS;
 
-/// Refs the open list didn't cover, looked up one by one per poll, at most this many.
+/// Refs the open list didn't cover, looked up one by one, at most this many per poll; their
+/// answers are kept (`forge::cache`), so a steady poll asks none.
 pub const BRANCH_LOOKUPS: usize = 25;
 
 pub const NO_TARGET: &str = "This repository has no remote on a forge account: add one in Settings › Accounts";
@@ -48,6 +51,10 @@ pub struct MrList {
     #[ts(type = "number")]
     pub fetched_at: i64,
     pub poll_interval_secs: Option<u32>,
+    /// The account's rate limit after this list (the poller paces on it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rate_limit: Option<RateLimitState>,
 }
 
 /// One badge: an MR/PR and the remote-tracking ref of its source branch.
@@ -75,6 +82,15 @@ pub struct BranchMrs {
     #[ts(type = "number")]
     pub fetched_at: i64,
     pub poll_interval_secs: Option<u32>,
+}
+
+/// A filter's name in the cache's lists.
+pub fn filter_name(f: MrFilter) -> &'static str {
+    match f {
+        MrFilter::All => "all",
+        MrFilter::Mine => "mine",
+        MrFilter::ReviewRequested => "reviewRequested",
+    }
 }
 
 /// `refs/remotes/<remote>/<branch>` → (remote, branch), with the longest remote name that fits
@@ -144,6 +160,73 @@ pub fn badge_refs(repo: &gix::Repository, asked: &[String]) -> Result<BadgeRefs,
     Ok(BadgeRefs { tips, stack_base })
 }
 
+/// The badges' placement, without a request: which refs the open list covers, which it doesn't
+/// (`wanted`: their lookups in any state answer for them), and where each MR/PR goes.
+struct BadgePlan {
+    /// The open list's refs.
+    covered: HashSet<String>,
+    /// (ref, remote, branch) for each asked ref the open list doesn't cover, but the trunks.
+    wanted: Vec<(String, String, String)>,
+    on_host: Vec<(String, String)>,
+}
+
+impl BadgePlan {
+    /// `on_host`: the remotes on the target's host whose project is known, (remote, project path).
+    fn new(target: &ForgeProject, open: &[ForgeMr], on_host: &[(String, String)], refs: &[String], repo: &BadgeRefs) -> Self {
+        // Never looked up in any state: the target project's default branch (on each remote of
+        // that project) and the stack base. An open MR/PR from one still badges it (the open list:
+        // a contributor's PR from their fork's `main`, which is their stack base).
+        let mut trunks: HashSet<String> = repo.stack_base.iter().cloned().collect();
+        if let Some(d) = &target.default_branch {
+            trunks.extend(on_host.iter().filter(|(_, path)| *path == target.path).map(|(r, _)| format!("refs/remotes/{r}/{d}")));
+        }
+        let covered: HashSet<String> = open.iter().flat_map(|mr| on_host.iter().filter(|(_, path)| *path == mr.source_project).map(|(remote, _)| format!("refs/remotes/{remote}/{}", mr.source_branch))).collect();
+        let names: Vec<&str> = on_host.iter().map(|(r, _)| r.as_str()).collect();
+        let wanted = refs
+            .iter()
+            .filter(|r| !covered.contains(*r) && !trunks.contains(*r))
+            .filter_map(|r| split_remote_ref(r, &names).map(|(remote, branch)| (r.clone(), remote.to_string(), branch.to_string())))
+            .collect();
+        Self { covered, wanted, on_host: on_host.to_vec() }
+    }
+
+    /// The badges and the history: the open list's, then the wanted refs' lookups.
+    fn place(&self, open: &[ForgeMr], known: &std::collections::BTreeMap<String, RefLookup>, repo: &BadgeRefs) -> (Vec<RefMr>, Vec<RefMr>) {
+        let (mut out, mut history) = (Vec::new(), Vec::new());
+        let mut put = |remote_ref: String, mr: ForgeMr| {
+            let to = if repo.badges(&remote_ref, &mr) { &mut out } else { &mut history };
+            to.push(RefMr { remote_ref, mr });
+        };
+        for mr in open {
+            for (remote, _) in self.on_host.iter().filter(|(_, path)| *path == mr.source_project) {
+                put(format!("refs/remotes/{remote}/{}", mr.source_branch), mr.clone());
+            }
+        }
+        for (full, _, _) in &self.wanted {
+            if let Some(mr) = known.get(full).and_then(|l| l.mr.clone()) {
+                put(full.clone(), mr);
+            }
+        }
+        (out, history)
+    }
+}
+
+/// What the last session saw (`ForgeHub::cached_mrs`): shown at once on launch, marked stale,
+/// until the first poll revalidates it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CachedMrs {
+    pub kind: ForgeKind,
+    pub remote: String,
+    pub project: ForgeProject,
+    pub list: Option<MrList>,
+    pub badges: Option<BranchMrs>,
+    /// Unix seconds: when the oldest of them was read.
+    #[ts(type = "number")]
+    pub saved_at: i64,
+}
+
 fn refuse(message: &str) -> GbError {
     GbError::new(GbErrorKind::InvalidInput, message)
 }
@@ -155,15 +238,81 @@ impl ForgeHub {
         let rp = self.repo_projects(store, remotes, false).await;
         let remote = rp.target.clone().or_else(|| rp.remotes.iter().find(|r| r.account.is_some()).map(|r| r.remote.clone())).ok_or_else(|| refuse(NO_TARGET))?;
         let (key, provider, project) = self.project_for_remote(store, remotes, &remote).await?;
+        self.restore_responses(&key, &provider, &project);
         Ok(MrTarget { key, provider, project, remote })
+    }
+
+    /// The first use of a project this run: its provider gets the answers the last run kept, so
+    /// its first requests are conditional (`If-None-Match`).
+    fn restore_responses(&self, key: &AccountKey, provider: &Arc<dyn ForgeProvider>, project: &ForgeProject) {
+        let ck = cache_key(key, &project.path);
+        if self.restored.lock().expect("restored poisoned").insert(ck.clone()) {
+            let entries = self.cache.with(&ck, |c| c.responses.clone());
+            if !entries.is_empty() {
+                provider.import_responses(entries);
+            }
+        }
+    }
+
+    /// The list for `filter` and the badges as the last session (or poll) left them, for the
+    /// repository's target as it's chosen now: no request at all (projects, accounts and lists
+    /// from the cache; `None` without them). The badges are placed for the refs' tips now.
+    pub fn cached_mrs(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], refs: &[String], repo: &BadgeRefs, filter: MrFilter) -> Option<CachedMrs> {
+        let profile = store.active_profile();
+        let known = |r: &RemotePayload| -> Option<(AccountKey, ForgeProject)> {
+            let account = crate::forge::hub::account_for(&profile.forge_accounts, r.host.as_deref()?)?;
+            let key = Self::key(&profile.id, &account.host);
+            let project = self.cache.with(&cache_key(&key, r.path.as_deref()?), |c| c.project.clone())?;
+            Some((key, project))
+        };
+        let list: Vec<crate::forge::hub::RemoteProject> = remotes
+            .iter()
+            .map(|r| {
+                let account = r.host.as_deref().and_then(|h| crate::forge::hub::account_for(&profile.forge_accounts, h)).map(|a| a.kind);
+                crate::forge::hub::RemoteProject { remote: r.name.clone(), host: r.host.clone(), path: r.path.clone(), account, project: account.and_then(|_| known(r)).map(|(_, p)| p), error: None }
+            })
+            .collect();
+        let remote = crate::forge::hub::target_remote(&list, remotes.iter().find(|r| r.main).map(|r| r.name.as_str()))?;
+        let (key, project) = known(remotes.iter().find(|r| r.name == remote)?)?;
+        let on_host: Vec<(String, String)> = list.iter().filter_map(|r| r.project.as_ref().filter(|p| p.host == project.host).map(|p| (r.remote.clone(), p.path.clone()))).collect();
+        let ck = cache_key(&key, &project.path);
+        let (stored, open, lookups, saved_at) = self.cache.with(&ck, |c| (c.lists.get(filter_name(filter)).cloned(), c.open.clone(), c.lookups.clone(), c.saved_at));
+        if stored.is_none() && open.is_none() {
+            return None;
+        }
+        let list = stored.map(|l| MrList { kind: project.kind, remote: remote.clone(), project: project.clone(), filter, mrs: l.mrs, fetched_at: l.fetched_at, poll_interval_secs: None, rate_limit: None });
+        let badges = open.map(|o| {
+            let plan = BadgePlan::new(&project, &o.mrs, &on_host, refs, repo);
+            let (mrs, history) = plan.place(&o.mrs, &lookups, repo);
+            BranchMrs { kind: project.kind, remote: remote.clone(), mrs, history, fetched_at: o.fetched_at, poll_interval_secs: None }
+        });
+        let oldest = list.iter().map(|l| l.fetched_at).chain(badges.iter().map(|b| b.fetched_at)).min().unwrap_or(saved_at);
+        Some(CachedMrs { kind: project.kind, remote, project, list, badges, saved_at: oldest })
+    }
+
+    /// After a write to the target: what the cache keeps of its lists may predate it.
+    fn wrote(&self, t: &MrTarget) {
+        self.cache.forget_lists(&cache_key(&t.key, &t.project.path));
     }
 
     pub async fn mr_list(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], filter: MrFilter) -> Result<MrList, GbError> {
         let t = self.mr_target(store, remotes).await?;
         let r = t.provider.open_mrs(&t.project, filter).await;
         self.record(&t.key, &r);
+        // Each poll ends with its list: what it cost, since the last one (no token: URLs only).
+        let stats = t.provider.take_request_stats();
+        let rate = t.provider.rate_limit();
+        tracing::debug!(target: "gitbolt::forge::poll", host = %t.key.host, project = %t.project.path, requests = stats.sent, not_modified = stats.not_modified, from_memory = stats.fresh, rate_remaining = ?rate.remaining, rate_limit = ?rate.limit, ok = r.is_ok(), "forge poll");
         let f = r?;
-        Ok(MrList { kind: t.project.kind, remote: t.remote, project: t.project, filter, mrs: f.value, fetched_at: f.fetched_at, poll_interval_secs: f.poll_interval_secs })
+        let key = cache_key(&t.key, &t.project.path);
+        let responses = t.provider.export_responses(&t.project);
+        self.cache.with(&key, |c| {
+            c.lists.insert(filter_name(filter).to_string(), StoredList { mrs: f.value.clone(), fetched_at: f.fetched_at });
+            c.project = Some(t.project.clone());
+            c.responses = responses;
+        });
+        self.cache.save(&key);
+        Ok(MrList { kind: t.project.kind, remote: t.remote, project: t.project, filter, mrs: f.value, fetched_at: f.fetched_at, poll_interval_secs: f.poll_interval_secs, rate_limit: Some(t.provider.rate_limit()) })
     }
 
     /// The badges for `refs` (the local branches' upstreams, newest first) and for every open
@@ -181,51 +330,46 @@ impl ForgeHub {
         // The remotes on the target's host whose project is known: (remote, project path).
         let rp = self.repo_projects(store, remotes, false).await;
         let on_host: Vec<(String, String)> = rp.remotes.iter().filter_map(|r| r.project.as_ref().filter(|p| p.host == t.project.host).map(|p| (r.remote.clone(), p.path.clone()))).collect();
-        // Never looked up in any state: the target project's default branch (on each remote of
-        // that project) and the stack base. An open MR/PR from one still badges it (the open list:
-        // a contributor's PR from their fork's `main`, which is their stack base).
-        let mut trunks: HashSet<String> = repo.stack_base.iter().cloned().collect();
-        if let Some(d) = &t.project.default_branch {
-            trunks.extend(on_host.iter().filter(|(_, path)| *path == t.project.path).map(|(r, _)| format!("refs/remotes/{r}/{d}")));
-        }
-        let mut out: Vec<RefMr> = Vec::new();
-        let mut history: Vec<RefMr> = Vec::new();
-        let mut place = |remote_ref: String, mr: ForgeMr| {
-            let to = if repo.badges(&remote_ref, &mr) { &mut out } else { &mut history };
-            to.push(RefMr { remote_ref, mr });
-        };
-        let mut covered: HashSet<String> = HashSet::new();
-        for mr in &open.value {
-            for (remote, _) in on_host.iter().filter(|(_, path)| *path == mr.source_project) {
-                let remote_ref = format!("refs/remotes/{remote}/{}", mr.source_branch);
-                covered.insert(remote_ref.clone());
-                place(remote_ref, mr.clone());
-            }
-        }
-        let names: Vec<&str> = on_host.iter().map(|(r, _)| r.as_str()).collect();
-        let wanted: Vec<(String, String, String)> = refs
-            .iter()
-            .filter(|r| !covered.contains(*r) && !trunks.contains(*r))
-            .filter_map(|r| split_remote_ref(r, &names).map(|(remote, branch)| (r.clone(), remote.to_string(), branch.to_string())))
-            .take(BRANCH_LOOKUPS)
-            .collect();
-        for (full, remote, branch) in wanted {
-            let Some((_, path)) = on_host.iter().find(|(r, _)| *r == remote) else { continue };
-            let source = SourceRef { project: path.clone(), branch };
+        let plan = BadgePlan::new(&t.project, &open.value, &on_host, refs, repo);
+        // Asked: a ref the last open list badged and this one doesn't (just merged or closed),
+        // then one never asked, moved since, or whose answer is too old (`RefLookup::fresh`).
+        // Everything else answers from the cache: no request per branch per poll.
+        let key = cache_key(&t.key, &t.project.path);
+        let (was_open, mut known) = self.cache.with(&key, |c| (std::mem::take(&mut c.open_refs), std::mem::take(&mut c.lookups)));
+        let now = self.now();
+        let tips_of = |r: &str| repo.tips.get(r).cloned().unwrap_or_default();
+        let mut ask: Vec<&(String, String, String)> = plan.wanted.iter().filter(|(full, _, _)| was_open.contains(full) || !known.get(full).is_some_and(|l| l.fresh(&tips_of(full), now))).collect();
+        ask.sort_by_key(|(full, _, _)| !was_open.contains(full));
+        ask.truncate(BRANCH_LOOKUPS);
+        for (full, remote, branch) in ask {
+            let Some((_, path)) = on_host.iter().find(|(r, _)| r == remote) else { continue };
+            let source = SourceRef { project: path.clone(), branch: branch.clone() };
             let found = t.provider.mr_for_branch(&t.project, &source).await;
             self.record(&t.key, &found);
             match found {
                 Ok(f) => {
-                    if let Some(mr) = f.value {
-                        place(full, mr);
-                    }
+                    known.insert(full.clone(), RefLookup { tips: tips_of(full), mr: f.value, at: now });
                 }
-                // The account's trouble ends the poll; a branch the forge can't look up is skipped.
-                Err(e) if matches!(e.kind, GbErrorKind::AuthFailed | GbErrorKind::Network | GbErrorKind::RateLimited) => return Err(e),
-                Err(_) => {}
+                // A limit or a refused token ends the lookups (the list says so); the rest keep
+                // what they had. One that timed out or failed is skipped: only that branch waits.
+                Err(e) if matches!(e.kind, GbErrorKind::AuthFailed | GbErrorKind::RateLimited) => break,
+                Err(e) => tracing::debug!("forge badges: {full}: {}", e.message),
             }
         }
-        Ok(BranchMrs { kind: t.project.kind, remote: t.remote, mrs: out, history, fetched_at: open.fetched_at, poll_interval_secs: open.poll_interval_secs })
+        // Only the refs asked about now are kept (a deleted branch's lookup goes with it).
+        let asked: HashSet<&String> = plan.wanted.iter().map(|(f, _, _)| f).collect();
+        known.retain(|r, _| asked.contains(r));
+        let (mrs, history) = plan.place(&open.value, &known, repo);
+        let responses = t.provider.export_responses(&t.project);
+        self.cache.with(&key, |c| {
+            c.open_refs = plan.covered.into_iter().collect();
+            c.lookups = known;
+            c.open = Some(StoredList { mrs: open.value.clone(), fetched_at: open.fetched_at });
+            c.project = Some(t.project.clone());
+            c.responses = responses;
+        });
+        self.cache.save(&key);
+        Ok(BranchMrs { kind: t.project.kind, remote: t.remote, mrs, history, fetched_at: open.fetched_at, poll_interval_secs: open.poll_interval_secs })
     }
 
     pub async fn mr_detail(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64) -> Result<Fresh<ForgeMrDetail>, GbError> {
@@ -257,6 +401,9 @@ impl ForgeHub {
         let t = self.mr_target(store, remotes).await?;
         let r = t.provider.reply(&t.project, number, &note).await;
         self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
         r
     }
 
@@ -264,6 +411,9 @@ impl ForgeHub {
         let t = self.mr_target(store, remotes).await?;
         let r = t.provider.approve(&t.project, number).await;
         self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
         r
     }
 
@@ -274,6 +424,9 @@ impl ForgeHub {
         let t = self.mr_target(store, remotes).await?;
         let r = t.provider.request_changes(&t.project, number, &body).await;
         self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
         r
     }
 
@@ -281,6 +434,9 @@ impl ForgeHub {
         let t = self.mr_target(store, remotes).await?;
         let r = t.provider.merge(&t.project, number, &opts).await;
         self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
         r
     }
 
@@ -291,6 +447,9 @@ impl ForgeHub {
         let t = self.mr_target(store, remotes).await?;
         let r = t.provider.edit(&t.project, number, &edit).await;
         self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
         r
     }
 
@@ -298,6 +457,9 @@ impl ForgeHub {
         let t = self.mr_target(store, remotes).await?;
         let r = t.provider.set_draft(&t.project, number, draft).await;
         self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
         r
     }
 }
@@ -506,6 +668,47 @@ mod tests {
         let refs: Vec<String> = (0..40).map(|i| format!("refs/remotes/origin/b{i}")).collect();
         hub.branch_mrs(&store, &remotes, &refs, &BadgeRefs::default()).await.unwrap();
         assert_eq!(p.calls().iter().filter(|c| c.starts_with("mr_for_branch")).count(), BRANCH_LOOKUPS);
+    }
+
+    #[tokio::test]
+    async fn a_steady_poll_asks_no_branch_and_a_ref_that_leaves_the_open_list_is_asked_at_once() {
+        let (p, hub, store, remotes) = setup().await;
+        p.mrs.lock().unwrap().extend([mr(12, "group/project", "dev", MrState::Open), mr(9, "group/project", "old", MrState::Merged)]);
+        let refs = ["refs/remotes/origin/dev", "refs/remotes/origin/old", "refs/remotes/origin/none"].map(String::from);
+        let at = tips(&[("refs/remotes/origin/old", 9), ("refs/remotes/origin/dev", 12)]);
+        hub.branch_mrs(&store, &remotes, &refs, &at).await.unwrap();
+        assert_eq!(lookups(&p), ["mr_for_branch group/project old", "mr_for_branch group/project none"]);
+        p.calls.lock().unwrap().clear();
+        let b = hub.branch_mrs(&store, &remotes, &refs, &at).await.unwrap();
+        assert!(lookups(&p).is_empty(), "nothing changed: the answers are kept");
+        assert_eq!(got(&b.mrs), [("refs/remotes/origin/dev", 12), ("refs/remotes/origin/old", 9)], "and still badge");
+        // dev's MR is merged: it leaves the open list, and dev is asked about at once.
+        p.mrs.lock().unwrap()[0].state = MrState::Merged;
+        let b = hub.branch_mrs(&store, &remotes, &refs, &at).await.unwrap();
+        assert_eq!(lookups(&p), ["mr_for_branch group/project dev"]);
+        assert_eq!(got(&b.mrs), [("refs/remotes/origin/dev", 12), ("refs/remotes/origin/old", 9)]);
+        assert_eq!(b.mrs[0].mr.state, MrState::Merged);
+        // A ref that moved is asked again.
+        p.calls.lock().unwrap().clear();
+        hub.branch_mrs(&store, &remotes, &refs, &tips(&[("refs/remotes/origin/old", 10), ("refs/remotes/origin/dev", 12)])).await.unwrap();
+        assert_eq!(lookups(&p), ["mr_for_branch group/project old"]);
+    }
+
+    #[tokio::test]
+    async fn a_lookup_that_times_out_skips_only_its_branch() {
+        let (p, hub, store, remotes) = setup().await;
+        p.mrs.lock().unwrap().extend([mr(9, "group/project", "old", MrState::Merged), mr(8, "group/project", "slow", MrState::Merged)]);
+        p.lookup_errors.lock().unwrap().insert("slow".into(), GbErrorKind::Network);
+        let refs = ["refs/remotes/origin/slow", "refs/remotes/origin/old"].map(String::from);
+        let at = tips(&[("refs/remotes/origin/old", 9), ("refs/remotes/origin/slow", 8)]);
+        let b = hub.branch_mrs(&store, &remotes, &refs, &at).await.unwrap();
+        assert_eq!(got(&b.mrs), [("refs/remotes/origin/old", 9)]);
+        // Next poll asks only the one that failed.
+        p.lookup_errors.lock().unwrap().clear();
+        p.calls.lock().unwrap().clear();
+        let b = hub.branch_mrs(&store, &remotes, &refs, &at).await.unwrap();
+        assert_eq!(lookups(&p), ["mr_for_branch group/project slow"]);
+        assert_eq!(got(&b.mrs), [("refs/remotes/origin/slow", 8), ("refs/remotes/origin/old", 9)]);
     }
 
     #[tokio::test]

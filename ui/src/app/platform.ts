@@ -4,6 +4,8 @@ import { inTauri } from '../api/transport';
  * page in the harness browser. */
 export interface Platform {
   isMinimized(): Promise<boolean>;
+  /** The window has the focus now (the forge poller polls only then). */
+  isFocused(): Promise<boolean>;
   onFocusChanged(cb: (focused: boolean) => void): () => void;
 }
 
@@ -14,6 +16,7 @@ declare global {
 
 const tauriPlatform: Platform = {
   isMinimized: async () => (await import('@tauri-apps/api/window')).getCurrentWindow().isMinimized(),
+  isFocused: async () => (await import('@tauri-apps/api/window')).getCurrentWindow().isFocused(),
   onFocusChanged(cb) {
     let off: (() => void) | undefined;
     let dead = false;
@@ -27,6 +30,8 @@ const tauriPlatform: Platform = {
 
 const browserPlatform: Platform = {
   isMinimized: async () => ((import.meta.env.DEV || import.meta.env.MODE === 'e2e') && window.__gbTestMinimized === true) || document.visibilityState === 'hidden',
+  // A headless browser (e2e) may never give the page the focus: it counts as focused there.
+  isFocused: async () => import.meta.env.MODE === 'e2e' || document.hasFocus(),
   onFocusChanged(cb) {
     const on = () => cb(true);
     const offFocus = () => cb(false);

@@ -109,6 +109,7 @@ import type { RepoProjects } from './gen/RepoProjects';
 // --- end 4A T12 ---
 // --- 4B T1 ---
 import type { BranchMrs } from './gen/BranchMrs';
+import type { CachedMrs } from './gen/CachedMrs';
 import type { ForgeDiscussion } from './gen/ForgeDiscussion';
 import type { ForgeMr } from './gen/ForgeMr';
 import type { ForgeMrDetail } from './gen/ForgeMrDetail';
@@ -464,6 +465,8 @@ export const api = {
   forgeMrList: (repo: number, filter: MrFilter) => call<MrList>({ method: 'forgeMrList', params: { repo, filter } }),
   /** The badges: `refs` are the local branches' upstreams, newest tip first. */
   forgeBranchMrs: (repo: number, refs: string[]) => call<BranchMrs>({ method: 'forgeBranchMrs', params: { repo, refs } }),
+  /** The list and badges the last session left, without a request (null: none kept). */
+  forgeCachedMrs: (repo: number, refs: string[], filter: MrFilter) => call<CachedMrs | null>({ method: 'forgeCachedMrs', params: { repo, refs, filter } }),
   forgeMrDetail: (repo: number, number: number) => call<Fresh<ForgeMrDetail>>({ method: 'forgeMrDetail', params: { repo, number } }),
   forgeMrDiscussions: (repo: number, number: number) => call<Fresh<ForgeDiscussion[]>>({ method: 'forgeMrDiscussions', params: { repo, number } }),
   forgeProjectByPath: (repo: number, path: string) => call<ForgeProject>({ method: 'forgeProjectByPath', params: { repo, path } }),

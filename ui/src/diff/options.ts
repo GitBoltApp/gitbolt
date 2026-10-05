@@ -13,12 +13,18 @@ export const EDITOR_FONT_MAX = 32;
 export const clampEditorFont = (px: number): number => (Number.isFinite(px) ? Math.min(EDITOR_FONT_MAX, Math.max(EDITOR_FONT_MIN, Math.round(px))) : EDITOR_FONT_SIZE);
 /** The app's slim scrollbars (tokens.css; F31), in Monaco's own: 10 px, no shadow. Monaco draws
  * no arrow buttons unless asked, and its colours come from the theme (monaco/theme.ts). */
+/** Unicode highlighting: invisible characters stay marked (a hidden bidi or zero-width character is
+ * worth seeing in a diff), but "ambiguous" ones (box drawing, curly quotes, non-Latin letters) don't.
+ * Their banner ("This document contains many ambiguous unicode characters") popped in and out
+ * on every reload of a changing file, such as a growing log. */
+export const UNICODE_HIGHLIGHT = { ambiguousCharacters: false, invisibleCharacters: true, nonBasicASCII: false } as const;
+
 export const EDITOR_SCROLLBAR = { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false } as const;
 
 /**
  * Monaco DiffEditor options. Every diff feature stays on (the user's decision): minimap, overview
- * ruler, +/- indicators, moved-code detection, split resizing, gutter menu, code lens, folding.
- * Except the margin's revert arrow (the user's call: it discarded working-copy lines with no
+ * ruler, +/- indicators, moved-code detection, split resizing, code lens, folding.
+ * Except the margin's revert arrow and the gutter menu that draws it in newer Monaco (the user's call: it discarded working-copy lines with no
  * tooltip; the hunk/line actions and Discard say what they do, and undo), and sticky scroll, which is the user's setting, off by default (H7,
  * editorSettings.ts). The only fixed settings are the spec'd read-only and
  * no-language-service ones. It returns plain data (no Monaco import), so it's unit-testable.
@@ -33,10 +39,13 @@ export function diffEditorOptions(p: EditorDiffPrefs, contextMenu: boolean, stic
     scrollbar: { ...EDITOR_SCROLLBAR },
     fixedOverflowWidgets: true,
     minimap: { enabled: true },
+    unicodeHighlight: { ...UNICODE_HIGHLIGHT },
     renderOverviewRuler: true,
     renderIndicators: true,
     renderMarginRevertIcon: false,
-    renderGutterMenu: true,
+    // Monaco 0.4x+ draws its revert arrow as the gutter menu (renderMarginRevertIcon alone is the old
+    // icon): both off, so no unlabeled arrow can discard working-copy lines.
+    renderGutterMenu: false,
     diffCodeLens: true,
     enableSplitViewResizing: true,
     useInlineViewWhenSpaceIsLimited: true,
@@ -64,6 +73,7 @@ export function fileViewOptions(wordWrap: boolean, contextMenu: boolean, stickyS
     scrollbar: { ...EDITOR_SCROLLBAR },
     fixedOverflowWidgets: true,
     minimap: { enabled: true },
+    unicodeHighlight: { ...UNICODE_HIGHLIGHT },
     stickyScroll: { enabled: stickyScroll },
     folding: true,
     wordWrap: wordWrap ? ('on' as const) : ('off' as const),

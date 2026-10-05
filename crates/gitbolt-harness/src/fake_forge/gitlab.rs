@@ -38,7 +38,8 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
     if r.token.is_some()
         && let Some(reply) = super::gitlab_mrs::route(st, r)
     {
-        return reply.header("RateLimit-Limit", "2000").header("RateLimit-Remaining", "1999");
+        let (remaining, reset) = st.rate_headers(2000);
+        return reply.header("RateLimit-Limit", "2000").header("RateLimit-Remaining", &remaining).header("RateLimit-Reset", &reset);
     }
     // --- end 4B T2 ---
     let segs: Vec<&str> = r.segments.iter().map(String::as_str).collect();
@@ -72,5 +73,6 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
         // --- 4B: merge request routes go here ---
         _ => Reply::status(404, json!({ "message": "404 Not Found" })),
     };
-    reply.header("RateLimit-Limit", "2000").header("RateLimit-Remaining", &2000u64.saturating_sub(st.served).to_string()).header("RateLimit-Reset", "4102444800")
+    let (remaining, reset) = st.rate_headers(2000);
+    reply.header("RateLimit-Limit", "2000").header("RateLimit-Remaining", &remaining).header("RateLimit-Reset", &reset)
 }

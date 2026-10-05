@@ -835,6 +835,8 @@ pub enum Request {
     ForgeMrList { repo: u32, filter: crate::forge::MrFilter },
     /// The badges: `refs` are the local branches' upstreams, newest first: `BranchMrs`.
     ForgeBranchMrs { repo: u32, refs: Vec<String> },
+    /// The list and badges the last session left (`ForgeHub::cached_mrs`): no request.
+    ForgeCachedMrs { repo: u32, refs: Vec<String>, filter: crate::forge::MrFilter },
     /// One MR/PR's detail (hover card, MR/PR view): `Fresh<ForgeMrDetail>`.
     ForgeMrDetail {
         repo: u32,
@@ -944,7 +946,7 @@ impl Request {
             Request::ForgeRepoProjects { .. } | Request::ForgeProjectSettings { .. } | Request::ForgeForks { .. } => false,
             // --- end 4A T6 ---
             // --- 4B T1: forge calls and a read, never a repository write ---
-            Request::ForgeMrList { .. } | Request::ForgeBranchMrs { .. } | Request::ForgeMrDetail { .. } | Request::ForgeMrDiscussions { .. }
+            Request::ForgeMrList { .. } | Request::ForgeBranchMrs { .. } | Request::ForgeCachedMrs { .. } | Request::ForgeMrDetail { .. } | Request::ForgeMrDiscussions { .. }
             | Request::ForgeProjectByPath { .. } | Request::ForgeReply { .. } | Request::ForgeApprove { .. } | Request::ForgeRequestChanges { .. }
             | Request::ForgeMerge { .. } | Request::ForgeEditMr { .. } | Request::ForgeSetDraft { .. } | Request::MergeBase { .. } => false,
             // --- end 4B T1 ---
@@ -1389,6 +1391,9 @@ impl Api {
     }
 
     pub fn with_data_dir(mut self, dir: PathBuf) -> Self {
+        if let Some(hub) = &self.forge {
+            hub.set_cache_dir(dir.join("forge-cache"));
+        }
         self.data_dir = dir;
         self.data_tmp = None;
         self
@@ -1757,7 +1762,10 @@ impl Api {
     /// The forge connector and token store (gitbolt-forge's `Forge` and `SystemTokenStore` in
     /// the app; the fake forge's and a temp file in the harness).
     pub fn with_forge(mut self, connector: Arc<dyn crate::forge::ForgeConnector>, tokens: Arc<dyn crate::forge::TokenStore>) -> Self {
-        self.forge = Some(Arc::new(crate::forge::hub::ForgeHub::new(connector, tokens, self.clock.clone())));
+        let hub = crate::forge::hub::ForgeHub::new(connector, tokens, self.clock.clone());
+        // The MR/PR cache across restarts (spec #4 §3.4), in the data dir: `with_data_dir` moves it.
+        hub.set_cache_dir(self.data_dir.join("forge-cache"));
+        self.forge = Some(Arc::new(hub));
         self
     }
 
@@ -2220,6 +2228,14 @@ impl Api {
                     Default::default()
                 });
                 to_json(self.forge_hub()?.branch_mrs(&self.store, &list, &refs, &tips).await?)
+            }
+            Request::ForgeCachedMrs { repo, refs, filter } => {
+                let Some(hub) = self.forge.clone() else { return to_json(None::<crate::forge::mrs::CachedMrs>) };
+                let h = self.handle(repo)?;
+                let list = self.forge_remotes_of(&h);
+                let (repo_h, asked) = (h.clone(), refs.clone());
+                let tips = blocking(move || crate::forge::mrs::badge_refs(&repo_h.repo.to_thread_local(), &asked)).await.unwrap_or_default();
+                to_json(hub.cached_mrs(&self.store, &list, &refs, &tips, filter))
             }
             Request::ForgeMrDetail { repo, number } => {
                 let list = self.forge_remotes_of(&*self.handle(repo)?);
@@ -4045,6 +4061,7 @@ mod tests {
             // --- 4B T1 ---
             json!({"method": "forgeMrList", "params": {"repo": id, "filter": "all"}}),
             json!({"method": "forgeBranchMrs", "params": {"repo": id, "refs": ["refs/remotes/origin/main"]}}),
+            json!({"method": "forgeCachedMrs", "params": {"repo": id, "refs": ["refs/remotes/origin/main"], "filter": "all"}}),
             json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 1}}),
             json!({"method": "forgeMrDiscussions", "params": {"repo": id, "number": 1}}),
             json!({"method": "forgeProjectByPath", "params": {"repo": id, "path": "group/project"}}),
