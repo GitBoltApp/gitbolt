@@ -4,8 +4,10 @@ import { displayTargets, type FileListMode, type FileSort } from './fileTree';
 
 /** What persists (feedback H31): Path/Tree and the sort. "View all files" is per-commit and
  * never stored. */
-export interface StoredFileListPrefs { mode: FileListMode; sort: FileSort }
-export const DEFAULT_FILE_LIST_PREFS: StoredFileListPrefs = { mode: 'path', sort: 'path' };
+/** `advanceAfterStage`: after a whole-file stage, unstage or discard of the open file, the diff
+ * moves to the next file in the section it left. */
+export interface StoredFileListPrefs { mode: FileListMode; sort: FileSort; advanceAfterStage: boolean }
+export const DEFAULT_FILE_LIST_PREFS: StoredFileListPrefs = { mode: 'path', sort: 'path', advanceAfterStage: true };
 
 /** The one localStorage key for the file list's prefs. Bump the version if the shape changes. */
 export const FILE_LIST_PREFS_STORAGE_KEY = 'gitbolt.fileList.v1';
@@ -21,6 +23,7 @@ export function parseFileListPrefs(raw: unknown): StoredFileListPrefs | null {
   return {
     mode: MODES.includes(r.mode as FileListMode) ? (r.mode as FileListMode) : DEFAULT_FILE_LIST_PREFS.mode,
     sort: SORTS.includes(r.sort as FileSort) ? (r.sort as FileSort) : DEFAULT_FILE_LIST_PREFS.sort,
+    advanceAfterStage: typeof r.advanceAfterStage === 'boolean' ? r.advanceAfterStage : DEFAULT_FILE_LIST_PREFS.advanceAfterStage,
   };
 }
 
@@ -48,7 +51,7 @@ export const fileListPrefsPersistence = {
 };
 
 /** `wipAllFiles`: the WIP row's own View all files (UX G.2), apart from the commits' one. */
-interface FileListPrefs extends StoredFileListPrefs { allFiles: boolean; wipAllFiles: boolean; set(patch: Partial<Pick<FileListPrefs, 'mode' | 'sort' | 'allFiles' | 'wipAllFiles'>>): void }
+interface FileListPrefs extends StoredFileListPrefs { allFiles: boolean; wipAllFiles: boolean; set(patch: Partial<Pick<FileListPrefs, 'mode' | 'sort' | 'advanceAfterStage' | 'allFiles' | 'wipAllFiles'>>): void }
 
 /** Path/Tree and sort are app-wide and remembered across restarts (H31); View all files carries
  * over from commit to commit for the session only. */
@@ -59,8 +62,8 @@ export const useFileListPrefs = create<FileListPrefs>((set, get) => ({
   set: (patch) => {
     const before = get();
     set(patch);
-    const { mode, sort } = get();
-    if (mode !== before.mode || sort !== before.sort) fileListPrefsPersistence.save({ mode, sort });
+    const { mode, sort, advanceAfterStage } = get();
+    if (mode !== before.mode || sort !== before.sort || advanceAfterStage !== before.advanceAfterStage) fileListPrefsPersistence.save({ mode, sort, advanceAfterStage });
   },
 }));
 

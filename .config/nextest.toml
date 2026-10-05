@@ -1,0 +1,9 @@
+# cargo-nextest (docs/dev-setup.md, "Build and test speed"): each test in its own process, all of
+# the workspace's test binaries at once. `cargo test` still works the same.
+
+[profile.default]
+# Report a test as slow after 60 s, and kill it after 3 periods (a hang shouldn't hold the lock).
+slow-timeout = { period = "60s", terminate-after = 3 }
+# Print the failures again at the end, where they're easy to find.
+final-status-level = "fail"
+failure-output = "final"

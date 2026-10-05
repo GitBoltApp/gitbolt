@@ -26,7 +26,7 @@ beforeEach(() => {
 describe('writeAndFollow (spec #2 §7.1)', () => {
   it('follows after a write whose answer carries the fresh lists', async () => {
     expect(await writeAndFollow(ctx, async () => ({ wip: { worktree: '/r' } }) as never)).toBe(true);
-    expect(follow).toHaveBeenCalledWith('t', '/r');
+    expect(follow).toHaveBeenCalledWith('t', '/r', null);
   });
 
   it('does not follow after a failed write', async () => {

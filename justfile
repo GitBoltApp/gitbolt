@@ -7,11 +7,21 @@ test: test-rust test-ui test-scripts
 test-scripts:
     scripts/test-fix-deb.sh
 
+# cargo-nextest when it's installed (each test its own process, every test binary at once: about
+# half the wall time of `cargo test` here); otherwise plain `cargo test`. No doctests to miss.
 test-rust:
-    cargo test --workspace
+    if cargo nextest --version >/dev/null 2>&1; then cargo nextest run --workspace; else cargo test --workspace; fi
 
 test-ui:
     cd ui && npx vitest run --passWithNoTests
+
+# Only the vitest files that import something changed since `since` (default: where this branch
+# left main), plus uncommitted changes: a quick check while working. `just test-ui` stays the gate.
+test-ui-changed since="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    since="{{since}}"; [ -n "$since" ] || since="$(git merge-base HEAD main)"
+    cd ui && npx vitest run --passWithNoTests --changed "$since"
 
 gen-types:
     cargo test -p gitbolt-core export_bindings
@@ -68,17 +78,19 @@ dev repo="": check-tauri-cli
 # `just run-app`), or a root-owned setuid chrome-sandbox next to the binary after every build.
 # See docs/dev-setup.md and docs/decisions/cef-over-webkitgtk.md.
 build-app: check-tauri-cli
-    cd crates/gitbolt-app && CARGO_BUILD_JOBS=4 cargo tauri build --no-bundle
+    cd crates/gitbolt-app && env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS=4 cargo tauri build --no-bundle
 
 # The .deb (AppImage and .rpm are deferred) with the GTK 4 dependency fix (spec §18): the .deb's
 # control member is rewritten by scripts/fix-deb.sh and checked by scripts/check-deb.sh.
+# `env -u CARGO_INCREMENTAL` (here and in build-app): a CARGO_INCREMENTAL=0 from the caller would
+# override the release profile's `incremental = true` (Cargo.toml), and sccache refuses a 1.
 package: check-tauri-cli
     # Old packages first: the globs below must match only the .deb this build makes.
     rm -f target/release/bundle/deb/GitBolt_*_amd64.deb
     # Each build gets its own, increasing version (0.1.0+<UTC time>.<sha>), so `apt install` of a
     # newer build replaces the installed one instead of skipping it as "already the newest".
     cd crates/gitbolt-app && v="$(jq -r .version tauri.conf.json)+$(date -u +%Y%m%d%H%M).$(git rev-parse --short HEAD)" && \
-      CARGO_BUILD_JOBS=4 cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
+      env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS=4 cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
     scripts/fix-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/check-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
 

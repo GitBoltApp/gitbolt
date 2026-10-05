@@ -1,4 +1,6 @@
 import { ArrowRightLeft, FolderPlus, FolderX, SquarePlus } from 'lucide-react';
+import { useAppState } from '../app/state';
+import { tabWorktree } from '../app/tabs';
 import { registerMenu, type MenuContribution } from '../menu/registry';
 import type { CommitTarget, MenuEnv, SidebarTarget, WipTarget } from '../menu/menuEnv';
 import type { MenuRow } from '../menu/types';
@@ -13,22 +15,29 @@ const switchRows = (id: string, label: string, path: string, env: MenuEnv): Menu
   id, label, icon: ArrowRightLeft, tooltip: `Make ${env.worktreeShown(path)} this tab's worktree (its WIP, commit box and Undo)`,
   run: () => env.write && setActiveWorktree(env.write.tabId, path),
 })]);
-const openTabRow = (id: string, path: string, env: MenuEnv): MenuRow => row({
-  id, label: 'Open in a new tab', icon: SquarePlus, tooltip: `Open ${env.worktreeShown(path)} in its own tab (the same repository, already loaded)`,
-  run: () => { if (env.write) void openWorktreeTab(env.write.tabId, path); },
-});
+/** Open in a new tab: none for this tab's own worktree (it would only focus this tab); "Go to its
+ * tab" when another tab already shows it (that's what opening it does). */
+const openTabRows = (id: string, path: string, env: MenuEnv): MenuRow[] => {
+  if (path === env.activeWorktree) return [];
+  const other = useAppState.getState().profile.tabs.find((t) => t.id !== env.write?.tabId && t.kind === 'repo' && tabWorktree(t) === path);
+  return [row({
+    id, label: other ? 'Go to its tab' : 'Open in a new tab', icon: SquarePlus,
+    tooltip: other ? `Switch to the tab already showing ${env.worktreeShown(path)}` : `Open ${env.worktreeShown(path)} in its own tab (the same repository, already loaded)`,
+    run: () => { if (env.write) void openWorktreeTab(env.write.tabId, path); },
+  })];
+};
 
 /** The sidebar worktree row (spec #2 §11.2, §14): Switch to, Open in a new tab. Remove is below. */
 const sidebarRows: MenuContribution<SidebarTarget, MenuEnv> = {
   id: 'sidebar.worktree', kind: 'sidebar', group: 'worktree', order: 0,
   when: (t) => t.what === 'worktree',
-  rows: (t, env) => (t.what === 'worktree' ? [...switchRows('sidebar.worktree.switch', 'Switch to', t.path, env), openTabRow('sidebar.worktree.openTab', t.path, env)] : []),
+  rows: (t, env) => (t.what === 'worktree' ? [...switchRows('sidebar.worktree.switch', 'Switch to', t.path, env), ...openTabRows('sidebar.worktree.openTab', t.path, env)] : []),
 };
 
-/** A WIP row (§14): Switch to this worktree (not on the active one's), Open in a new tab. */
+/** A WIP row (§14): Switch to this worktree and Open in a new tab, neither on the active one's. */
 const wipRows: MenuContribution<WipTarget, MenuEnv> = {
   id: 'wip.worktree', kind: 'wip', group: 'worktree', order: 0,
-  rows: (t, env) => [...(t.active ? [] : switchRows('wip.switch', 'Switch to this worktree', t.worktree, env)), openTabRow('wip.openTab', t.worktree, env)],
+  rows: (t, env) => [...(t.active ? [] : switchRows('wip.switch', 'Switch to this worktree', t.worktree, env)), ...openTabRows('wip.openTab', t.worktree, env)],
 };
 
 export const offWorktreeMenus: Array<() => void> = [registerMenu(sidebarRows), registerMenu(wipRows)];

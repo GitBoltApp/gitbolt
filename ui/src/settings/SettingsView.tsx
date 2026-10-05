@@ -7,6 +7,7 @@ import { useModalKeys } from '../app/modalKeys';
 import { useRuntime } from '../app/runtime';
 import { EMPTY_REPO_SETTINGS, flushSaves, useAppState } from '../app/state';
 import { resetAvatars } from '../avatars/avatarStore';
+import { useFileListPrefs } from '../files/fileListPrefs';
 import { DEFAULT_EDITOR_SETTINGS, useEditorSettings } from '../diff/editorSettings';
 import { clampEditorFont, EDITOR_FONT_MAX, EDITOR_FONT_MIN } from '../diff/options';
 import { HoverTooltip } from '../ui/HoverTooltip';
@@ -127,6 +128,7 @@ function SettingsDialog() {
   const updateProfile = useAppState((s) => s.updateProfile);
   const updateRepo = useAppState((s) => s.updateRepo);
   const density = useDensity((s) => s.density);
+  const advanceAfterStage = useFileListPrefs((s) => s.advanceAfterStage);
   const stickyScroll = useEditorSettings((s) => s.settings.stickyScroll);
   const rootRef = useModalKeys<HTMLDivElement>(true, close);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -229,6 +231,7 @@ function SettingsDialog() {
                       ))}
                     </div>
                   </Row>
+                  <Row id="advanceAfterStage"><input id="input-advanceAfterStage" type="checkbox" checked={advanceAfterStage} onChange={(e) => useFileListPrefs.getState().set({ advanceAfterStage: e.target.checked })} /></Row>
                   <Row id="gravatar"><input id="input-gravatar" type="checkbox" checked={settings.gravatar} onChange={(e) => changeGravatar(e.target.checked)} /></Row>
                   {/* --- 4A T11 --- */}
                   <Row id="forgeAvatars"><input id="input-forgeAvatars" type="checkbox" checked={settings.forgeAvatars} onChange={(e) => changeForgeAvatars(e.target.checked)} /></Row>

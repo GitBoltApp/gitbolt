@@ -142,6 +142,35 @@ unset to keep the defaults (7433 / 1420). Pick bases far enough apart that `N` a
 overlap another worktree's pair -- e.g. 7500, 7600, 7700. This only affects `just e2e`; `just dev`
 and the packaged app are unaffected and always use 1420.
 
+## Build and test speed
+
+- **Debug info.** Dev and test builds keep line tables only for our crates (backtraces and panic
+  locations still give file:line) and none for dependencies (`[profile.dev]` in `Cargo.toml`):
+  a worktree's `target/` is about a third the size, and links are cheaper. Run a debugger on a
+  build with `CARGO_PROFILE_DEV_DEBUG=true` if you need full debug info.
+- **Leave `CARGO_INCREMENTAL` unset.** Incremental builds are the default for dev builds; with them
+  a one-line change in core rebuilds the test binaries in about a third of the time a
+  `CARGO_INCREMENTAL=0` build takes, and clippy reruns in seconds. Never set it to `1`: sccache
+  (below) refuses to run at all when it's `1`. Unset, incremental crates simply bypass sccache.
+- **Release builds are incremental too** (`[profile.release] incremental = true`; still
+  opt-level 3), so `just package` after a small change rebuilds in under a minute instead of
+  re-optimising all of core. `just package` and `just build-app` unset `CARGO_INCREMENTAL` for
+  their build so a caller's `=0` can't undo that.
+- **One harness test binary.** The harness's integration tests are modules of `tests/it/`:
+  `cargo test -p gitbolt-harness --test it forge_stacks::` runs one old file's tests.
+- **cargo-nextest** (`cargo install --locked cargo-nextest`, or the prebuilt binary from
+  nexte.st into `~/.cargo/bin`) runs the workspace's tests in under half the time of
+  `cargo test` here: every test is its own process, and all the test binaries run at once instead
+  of one after the other. `just test-rust` uses it when it's installed; its settings are in
+  `.config/nextest.toml`. There are no doctests, so nothing is skipped.
+- **Vitest** keeps its default pool (forks) and worker count. `just test-ui-changed` runs only
+  the files related to what this branch changed; `just test-ui` stays the full gate.
+- **sccache and mold** are set up machine-wide on the dev machine (`~/.cargo/config.toml`), not
+  by this repo. sccache caches dependency builds across worktrees, though about a third of them
+  still miss in a new worktree (their cache key includes the worktree's own paths), and it never
+  caches our own incremental crates, build scripts, proc macros or test binaries. mold links a
+  test binary in about 0.3 s, where GNU ld took about 10 s.
+
 ## Plan 1C runtime notes
 
 - **Open Repository screen** (Ctrl+O, or the automatic tab of an empty profile): Recent (pinned

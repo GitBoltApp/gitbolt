@@ -17,8 +17,9 @@ export const EDITOR_SCROLLBAR = { verticalScrollbarSize: 10, horizontalScrollbar
 
 /**
  * Monaco DiffEditor options. Every diff feature stays on (the user's decision): minimap, overview
- * ruler, +/- indicators, moved-code detection, split resizing, gutter menu, revert icons, code
- * lens, folding. Except sticky scroll, which is the user's setting, off by default (H7,
+ * ruler, +/- indicators, moved-code detection, split resizing, gutter menu, code lens, folding.
+ * Except the margin's revert arrow (the user's call: it discarded working-copy lines with no
+ * tooltip; the hunk/line actions and Discard say what they do, and undo), and sticky scroll, which is the user's setting, off by default (H7,
  * editorSettings.ts). The only fixed settings are the spec'd read-only and
  * no-language-service ones. It returns plain data (no Monaco import), so it's unit-testable.
  */
@@ -34,7 +35,7 @@ export function diffEditorOptions(p: DiffPrefs, contextMenu: boolean, stickyScro
     minimap: { enabled: true },
     renderOverviewRuler: true,
     renderIndicators: true,
-    renderMarginRevertIcon: true,
+    renderMarginRevertIcon: false,
     renderGutterMenu: true,
     diffCodeLens: true,
     enableSplitViewResizing: true,

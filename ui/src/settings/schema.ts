@@ -18,6 +18,7 @@ export const SETTINGS: readonly SettingDef[] = [
   { id: 'commitLimit', label: 'Commits loaded in the graph', section: 'General', keywords: 'window history limit', help: 'How many commits the graph loads, newest first. More is slower on a big history.' },
   { id: 'density', label: 'Density', section: 'General', keywords: 'compact standard comfortable row height spacing padding', help: 'Row height and padding of the graph and the file list.' },
   { id: 'gravatar', label: 'Load avatars from Gravatar', section: 'General', keywords: 'avatar privacy images', help: 'Looks authors up on Gravatar by a hash of their email (never the email itself). Off shows initials and makes no request.' },
+  { id: 'advanceAfterStage', label: 'After staging a file, show the next one', section: 'General', keywords: 'stage unstage discard next file advance move diff', help: 'Staging, unstaging or discarding the file open in the diff opens the next file in its list instead. Off keeps showing it.' },
   // --- 4A T11 ---
   { id: 'forgeAvatars', label: 'Load avatars from your forge accounts', section: 'General', keywords: 'avatar gitlab github forge privacy images', help: 'Looks authors up on the forges you have accounts on (GitLab by email; GitHub from its own data), before Gravatar. Off makes no request to them.' },
   // --- end 4A T11 ---

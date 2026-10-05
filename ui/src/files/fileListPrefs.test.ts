@@ -20,7 +20,7 @@ describe('file list prefs (feedback H31)', () => {
     expect(first.useFileListPrefs.getState()).toMatchObject({ mode: 'path', sort: 'path', allFiles: false });
     first.useFileListPrefs.getState().set({ mode: 'tree' });
     first.useFileListPrefs.getState().set({ sort: 'status', allFiles: true });
-    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ mode: 'tree', sort: 'status' });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ mode: 'tree', sort: 'status', advanceAfterStage: true });
     expect(Object.keys(localStorage)).toEqual([KEY]);
 
     const second = await fresh();
@@ -36,7 +36,7 @@ describe('file list prefs (feedback H31)', () => {
     localStorage.setItem(KEY, JSON.stringify({ mode: 'tree', sort: 'size', allFiles: true }));
     const { useFileListPrefs, parseFileListPrefs } = await fresh();
     expect(useFileListPrefs.getState()).toMatchObject({ mode: 'tree', sort: 'path', allFiles: false });
-    expect(parseFileListPrefs({ mode: 'list', sort: 'status' })).toEqual({ mode: 'path', sort: 'status' });
+    expect(parseFileListPrefs({ mode: 'list', sort: 'status' })).toEqual({ mode: 'path', sort: 'status', advanceAfterStage: true });
   });
 
   it('keeps working in memory when storage reads and writes throw', async () => {

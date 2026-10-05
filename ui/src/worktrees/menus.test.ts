@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { useAppState } from '../app/state';
 import { buildMenu } from '../menu/registry';
 import type { MenuEnv, SidebarTarget, WipTarget } from '../menu/menuEnv';
 
@@ -23,7 +24,17 @@ describe('worktree rows (spec #2 §14)', () => {
   it('a WIP row offers Switch to this worktree unless it is the active one', () => {
     const other: WipTarget = { worktree: '/r-x', name: 'r-x', active: false };
     expect(ids(buildMenu('wip', other, env('/r')))).toEqual(['wip.switch', 'wip.openTab']);
-    expect(ids(buildMenu('wip', { ...other, active: true }, env('/r-x')))).toEqual(['wip.openTab']);
+    // This tab's own worktree: nothing to switch to, and a new tab would only focus this one.
+    expect(ids(buildMenu('wip', { ...other, active: true }, env('/r-x')))).toEqual([]);
+  });
+
+  it('Open in a new tab says Go to its tab when another tab already shows that worktree', () => {
+    const other: WipTarget = { worktree: '/r-x', name: 'r-x', active: false };
+    const label = () => { const r = buildMenu('wip', other, env('/r')).find((x) => x.kind === 'action' && x.id === 'wip.openTab'); return r?.kind === 'action' ? r.label : null; };
+    useAppState.setState((s) => ({ profile: { ...s.profile, tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null, worktree: null }] } }));
+    expect(label()).toBe('Open in a new tab');
+    useAppState.setState((s) => ({ profile: { ...s.profile, tabs: [...s.profile.tabs, { id: 'u', kind: 'repo', path: '/r', alias: null, worktree: '/r-x' }] } }));
+    expect(label()).toBe('Go to its tab');
   });
 
   it('Remove is not offered on the main worktree, and greyed for a locked one', () => {

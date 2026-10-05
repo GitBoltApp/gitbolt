@@ -8,7 +8,7 @@ vi.mock('../api/client', () => ({ api: { commit: h.commit, stage: h.stage, commi
 // As the real one: sends, and answers the outcome (applying the lists is the test's).
 vi.mock('../write/client', () => ({ runWrite: async (_c: unknown, send: () => Promise<{ outcome?: unknown }>) => (await send()).outcome ?? null }));
 vi.mock('../app/repoContext', () => ({ useRepoContext: () => ({ tabId: 't' }) }));
-vi.mock('../stage/follow', () => ({ followOpenFile: vi.fn() }));
+vi.mock('../stage/follow', () => ({ followOpenFile: vi.fn(), advanceFrom: () => null }));
 vi.mock('../repo/store', async () => {
   const { create } = await import('zustand');
   const files = (paths: string[]) => ({ status: 'ready', data: { files: paths.map((path) => ({ path, status: 'A' })) } });

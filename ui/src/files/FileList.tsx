@@ -282,6 +282,11 @@ export function FileList({ list, spec, label, allFilesCommit: commitOf = null, a
   const counts = countByStatus(list.files);
   const items = v.getVirtualItems();
   const activeIndex = rows.findIndex((r) => r.id === activeId);
+  // A file opened from outside the list (the next one after a stage, UX): scrolled into view, a
+  // no-op when it already is (a click or ↑/↓ moved it there).
+  useLayoutEffect(() => {
+    if (activeIndex >= 0 && own) v.scrollToIndex(activeIndex, { align: 'auto' });
+  }, [activeIndex, own, v]);
   const rowId = (index: number) => `${baseId}-row-${index}`;
 
   // `among`: the rows `index` is in (the next render's, after ↑/↓ expanded a directory).

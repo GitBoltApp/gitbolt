@@ -83,14 +83,14 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
   });
 
   test('the WIP row gets its own menu, not the commit menu', async ({ page }) => {
-    // Two worktrees are dirty (the main one and wt-hotfix, fixtures.rs): either WIP row will do.
-    // Spec #2 §14: a WIP row's menu is Switch to this worktree (not on the active one's), Open in a
-    // new tab (2C), then Stash; none of the commit menu's rows.
+    // Two worktrees are dirty (the main one and wt-hotfix, fixtures.rs); the first WIP row is the
+    // active one's. Spec #2 §14: a WIP row's menu is Switch to this worktree and Open in a new tab
+    // (2C), neither on the active one's, then Stash; none of the commit menu's rows.
     await page.getByRole('row').filter({ hasText: '// WIP' }).first().locator('[data-col="message"]').click({ button: 'right' });
     const menu = page.getByTestId('context-menu');
     await expect(menu).toBeVisible();
     const labels = await rowLabels(menu);
-    expect(labels).toContain('Open in a new tab');
+    expect(labels).not.toContain('Open in a new tab');
     expect(labels).toContain('Stash changes');
     expect(labels).not.toContain('Copy SHA');
     expect(labels).not.toContain('Checkout');

@@ -33,7 +33,19 @@ test.describe('WIP staging (spec #2 §7.1, §7.2)', () => {
     await expect(section(page, 'staged').locator('.file-row[data-path="src"]')).toBeVisible();
   });
 
-  test('the open diff follows a fully staged file to Staged', async ({ page }) => {
+  test('the open diff moves on to the next unstaged file after a whole-file stage', async ({ page }) => {
+    await openWip(page);
+    await fileRow(page, 'unstaged', 'space name.txt').click();
+    await expect(page.getByTestId('diff-path')).toContainText('space name.txt');
+    await fileRow(page, 'unstaged', 'space name.txt').hover();
+    await page.getByRole('button', { name: 'Stage space name.txt' }).click();
+    await expect(fileRow(page, 'staged', 'space name.txt')).toBeVisible();
+    await expect(page.getByTestId('diff-path')).not.toContainText('space name.txt');
+    await expect(section(page, 'unstaged').locator('.file-row[aria-selected="true"]')).toHaveCount(1);
+  });
+
+  test('with "After staging a file, show the next one" off, the diff follows the file to Staged', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('gitbolt.fileList.v1', JSON.stringify({ mode: 'path', sort: 'path', advanceAfterStage: false })));
     await openWip(page);
     await fileRow(page, 'unstaged', 'space name.txt').click();
     await expect(page.getByTestId('diff-path')).toContainText('space name.txt');

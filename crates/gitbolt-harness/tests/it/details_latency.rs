@@ -4,7 +4,7 @@
 //! after `GITBOLT_LATENCY_NET_MS` (default 150 ms), like a real avatar host. No real host is ever
 //! contacted, and gpg runs in an empty temporary home (never the user's keyring).
 //!
-//! `GITBOLT_LATENCY_REPO=/path/to/clone cargo test -p gitbolt-harness --test details_latency -- --ignored --nocapture`
+//! `GITBOLT_LATENCY_REPO=/path/to/clone cargo test -p gitbolt-harness --test it details_latency:: -- --ignored --nocapture`
 
 use gitbolt_core::api::{Api, Request};
 use gitbolt_core::avatar::AvatarProvider;

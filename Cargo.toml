@@ -60,3 +60,18 @@ notify = "8.2.0"
 [patch.crates-io]
 # CEF issue #3002 idle-busy-loop workaround; see vendor/tauri-runtime-cef/GITBOLT-PATCH.md.
 tauri-runtime-cef = { path = "vendor/tauri-runtime-cef" }
+
+# Build speed (docs/dev-setup.md, "Build and test speed"). Dev and test builds keep file:line
+# for our own crates (panic locations and backtraces still point at the line) and drop full debug
+# info: smaller objects, faster links, a smaller target/. Dependencies keep only their symbols.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# Release builds (`just package`, `just build-app`) are only ever built on the dev machine. Our own
+# crates build incrementally, so a one-line change in core re-optimises only what it touched; the
+# dependencies stay non-incremental (and cached by sccache). Still opt-level 3, no LTO.
+[profile.release]
+incremental = true

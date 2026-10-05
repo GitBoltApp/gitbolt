@@ -36,5 +36,10 @@ export default defineConfig({
     // The dev machine is power-capped and often runs several builds at once: a loaded run took
     // 5-9 s for tests that finish in under 1 s idle. 15 s keeps real hangs failing.
     testTimeout: 15_000,
+    // Child processes, one per worker (vitest's default, written out). `threads` was no faster
+    // here, and under the lanes' `ulimit -v` cap its workers, which share one address space, ran
+    // out of virtual memory (V8 code ranges, Shiki's Wasm). The default worker count (cores - 1)
+    // was as fast as 8 workers; 4 took about half as long again.
+    pool: 'forks',
   },
 });
