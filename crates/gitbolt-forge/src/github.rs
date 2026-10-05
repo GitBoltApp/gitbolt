@@ -3,7 +3,7 @@
 //! learned from API data (`learn_avatar`). Never a user search by email (30 a minute, public
 //! emails only). 4B–4D add the pull request methods, in their marked blocks.
 
-use crate::avatar_cache::{payload_of, DiskAvatarCache, Lookup};
+use crate::avatar_cache::{image_at, payload_of, DiskAvatarCache, Lookup};
 use crate::endpoints::HostEndpoints;
 use crate::http::{encode_component, ClientConfig, HttpClient, HttpResponse, Method};
 use crate::time::unix_now;
@@ -107,6 +107,7 @@ pub mod json {
             fork_of: text(&v["parent"]["full_name"]),
             updated_at: v["pushed_at"].as_str().or(v["updated_at"].as_str()).and_then(parse_rfc3339),
             archived: v["archived"].as_bool().unwrap_or(false),
+            owner_avatar_url: (v["owner"]["type"].as_str() == Some("User")).then(|| text(&v["owner"]["avatar_url"])).flatten(),
             path,
         })
     }
@@ -187,7 +188,8 @@ pub mod json {
                 reviews: requested.into_iter().map(|u| ForgeReview { user: u, state: ReviewState::Pending, submitted_at: None }).collect(),
             },
             conflicts: v["mergeable"].as_bool().map(|m| !m),
-            labels: v["labels"].as_array().into_iter().flatten().filter_map(|l| l["name"].as_str().map(str::to_string)).collect(),
+            labels: labels_of(&v["labels"]).0,
+            label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["body"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
@@ -394,7 +396,8 @@ pub mod json {
             pipeline: None,
             review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
             conflicts: v["mergeable"].as_bool().map(|m| !m),
-            labels: v["labels"].as_array().map(|a| a.iter().filter_map(|l| l["name"].as_str().map(str::to_string)).collect()).unwrap_or_default(),
+            labels: labels_of(&v["labels"]).0,
+            label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["body"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
@@ -479,6 +482,23 @@ impl ForgeProvider for GitHubProvider {
             let path = format!("{}/forks?per_page={FORKS_PER_PAGE}&sort=newest", Self::repo_url(&project.path)?);
             Ok(self.http.get_pages(&path, FORK_PAGES).await?.iter().filter_map(|v| json::project(&self.host, v)).collect())
         })
+    }
+
+    // --- forks paging ---
+    fn forks_page<'a>(&'a self, project: &'a ForgeProject, page: u32, per_page: u32) -> ForgeFuture<'a, ForkPage> {
+        Box::pin(async move {
+            let path = format!("{}/forks?sort=newest&per_page={per_page}&page={page}", Self::repo_url(&project.path)?);
+            let r = self.http.get(&path).await?;
+            let items: Vec<Value> = r.json(&self.host)?;
+            Ok(ForkPage { forks: items.iter().filter_map(|v| json::project(&self.host, v)).collect(), next: r.next_page.is_some().then(|| page + 1) })
+        })
+    }
+    // --- end forks paging ---
+    /// Only GitHub's avatar host (or Gravatar's), checked by `avatar_fetch_url`, never with the
+    /// token: `own_origin` is the API's.
+    fn avatar_at<'a>(&'a self, url: &'a str) -> Option<ForgeFuture<'a, Option<AvatarPayload>>> {
+        let url = avatar_fetch_url(url, &[&self.avatars_base])?;
+        Some(Box::pin(async move { image_at(&self.http, self.cache.as_deref(), &url, &self.api_base).await }))
     }
 
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
@@ -947,11 +967,14 @@ mod tests {
         let u = json::user(&json!({"id": 583231, "login": "octocat", "name": null, "avatar_url": "https://a/u/583231", "html_url": "https://github.com/octocat", "email": null})).unwrap();
         assert_eq!((u.name.as_str(), u.email), ("octocat", None));
         let r = json::project("github.com", &json!({
-            "id": 502, "name": "widget", "full_name": "octocat/widget", "owner": {"login": "octocat"}, "html_url": "https://github.com/octocat/widget",
+            "id": 502, "name": "widget", "full_name": "octocat/widget", "owner": {"login": "octocat", "type": "User", "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4"}, "html_url": "https://github.com/octocat/widget",
             "default_branch": "main", "clone_url": "https://github.com/octocat/widget.git", "ssh_url": "git@github.com:octocat/widget.git",
             "parent": {"full_name": "octo-org/widget"}, "pushed_at": "2026-10-04T12:00:00Z", "updated_at": "2020-01-01T00:00:00Z", "archived": false
         })).unwrap();
         assert_eq!((r.kind, r.owner.as_str(), r.fork_of.as_deref(), r.updated_at), (ForgeKind::GitHub, "octocat", Some("octo-org/widget"), Some(1_791_115_200)));
+        assert_eq!(r.owner_avatar_url.as_deref(), Some("https://avatars.githubusercontent.com/u/583231?v=4"), "a user's");
+        let org = json::project("github.com", &json!({"id": 1, "full_name": "octo-org/widget", "owner": {"login": "octo-org", "type": "Organization", "avatar_url": "https://avatars.githubusercontent.com/u/9?v=4"}})).unwrap();
+        assert_eq!(org.owner_avatar_url, None, "an organization's isn't kept");
     }
 
     #[test]
@@ -966,6 +989,8 @@ mod tests {
     #[test]
     fn classic_scopes_say_whether_it_writes_and_fine_grained_tokens_cant_say() {
         assert_eq!(json::token_write(Some("repo, read:user")), WriteAccess::Yes);
+        assert_eq!(json::token_write(Some("repo, read:org")), WriteAccess::Yes);
+        assert_eq!(json::token_write(Some("read:org")), WriteAccess::No { missing: "repo".into() });
         assert_eq!(json::token_write(Some("public_repo")), WriteAccess::Yes);
         assert_eq!(json::token_write(Some("read:user")), WriteAccess::No { missing: "repo".into() });
         assert_eq!(json::token_write(None), WriteAccess::Unknown);

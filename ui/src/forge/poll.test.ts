@@ -35,7 +35,7 @@ beforeEach(() => {
   useRuntime.setState({ tabs: { t: { status: 'ready', repo: { id: 4 }, sidebar: { locals: [branch('dev', 'refs/remotes/origin/dev', 5), branch('old', 'refs/remotes/origin/old', 9), branch('loose', null, 1)] } } as never } });
   api.forgeRepoProjects.mockResolvedValue({ remotes: [target], target: 'origin' });
   api.forgeAccounts.mockResolvedValue([{ account: { host: 'gitlab.example.com', user: { username: 'ada' } }, status: { kind: 'ok' } }]);
-  api.forgeBranchMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', mrs: [{ remoteRef: 'refs/remotes/origin/dev', mr: mrOf(12) }], fetchedAt: 1, pollIntervalSecs: 30 });
+  api.forgeBranchMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', mrs: [{ remoteRef: 'refs/remotes/origin/dev', mr: mrOf(12) }], history: [], fetchedAt: 1, pollIntervalSecs: 30 });
   api.forgeMrList.mockResolvedValue({ kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(12), running], fetchedAt: 1, pollIntervalSecs: null });
   api.forgeMrDetail.mockResolvedValue(fresh(detailOf(mrOf(12))));
   api.forgeMrDiscussions.mockResolvedValue(fresh([]));
@@ -51,6 +51,7 @@ describe('pollForge (spec #4 §3.4)', () => {
     const f = forgeOf('t');
     expect([f.kind, f.remote, f.me]).toEqual(['gitlab', 'origin', 'ada']);
     expect(f.byRef['refs/remotes/origin/dev']?.number).toBe(12);
+    expect(f.history).toEqual({});
     expect(f.upstreams['refs/heads/dev']).toBe('refs/remotes/origin/dev');
     expect(f.list?.mrs.map((m) => m.number)).toEqual([12, 5]);
     expect([f.details[12]?.value.mr.number, f.discussions[12], f.error, f.failures]).toEqual([12, [], null, 0]);
@@ -75,6 +76,19 @@ describe('pollForge (spec #4 §3.4)', () => {
     expect(api.forgeBranchMrs).not.toHaveBeenCalled();
     expect(api.forgeAccounts).not.toHaveBeenCalled();
     expect(api.forgeMrList).toHaveBeenCalledWith(4, 'all');
+  });
+
+  it("a target whose project can't be loaded keeps the section and says why, and doesn't fall back to another remote", async () => {
+    const lost = { ...target, remote: 'origin', path: 'upstream/widget', project: null, error: 'Not found on gitlab.example.com' };
+    api.forgeRepoProjects.mockResolvedValue({ remotes: [lost, { ...target, remote: 'fork' }], target: 'origin', targetChosen: true });
+    const out = await pollForge('t', 'timer');
+    const f = forgeOf('t');
+    expect([f.kind, f.remote, f.project, f.list, f.target, f.targetChosen]).toEqual(['gitlab', 'origin', null, null, 'origin', true]);
+    expect(f.error).toBe('upstream/widget: Not found on gitlab.example.com');
+    expect(f.remoteErrors).toEqual({ origin: 'Not found on gitlab.example.com' });
+    expect(f.failures).toBe(1);
+    expect(api.forgeMrList).not.toHaveBeenCalled();
+    expect(out.serverIntervalMs).toBeGreaterThan(0);
   });
 
   it('a repository without a forge target has no MR/PR UI', async () => {
@@ -103,11 +117,28 @@ describe('pollForge (spec #4 §3.4)', () => {
 });
 
 describe('a poll that finds nothing new', () => {
+  it("keeps the owner pictures of user-owned projects other than the target's (a user's fork)", async () => {
+    const pic = (owner: string) => `https://gitlab.example.com/uploads/${owner}.png`;
+    const alice = { ...target, remote: 'alice', path: 'alice/project', project: { ...projectOf('alice/project'), forkOf: 'group/project', ownerAvatarUrl: pic('alice') } };
+    const team = { ...target, remote: 'team', path: 'team/project', project: { ...projectOf('team/project'), ownerAvatarUrl: null } };
+    const own = { ...target, project: { ...project, ownerAvatarUrl: pic('group') } };
+    api.forgeRepoProjects.mockResolvedValue({ remotes: [own, alice, team], target: 'origin' });
+    await pollForge('t', 'timer');
+    expect(forgeOf('t').ownerAvatars).toEqual({ alice: pic('alice') });
+  });
+
+  it("keeps a moved-on merged MR out of the badges, in the stacks' history", async () => {
+    const merged = mrOf(9, { state: 'merged' });
+    api.forgeBranchMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', mrs: [], history: [{ remoteRef: 'refs/remotes/origin/old', mr: merged }], fetchedAt: 1, pollIntervalSecs: 30 });
+    await pollForge('t', 'timer');
+    expect([forgeOf('t').byRef, forgeOf('t').history['refs/remotes/origin/old']?.number]).toEqual([{}, 9]);
+  });
+
   it('keeps the identities of byRef, list and details', async () => {
     patchForge('t', { openMr: 12 });
     await pollForge('t', 'timer');
     const a = forgeOf('t');
-    api.forgeBranchMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', mrs: [{ remoteRef: 'refs/remotes/origin/dev', mr: mrOf(12) }], fetchedAt: 2, pollIntervalSecs: 30 });
+    api.forgeBranchMrs.mockResolvedValue({ kind: 'gitlab', remote: 'origin', mrs: [{ remoteRef: 'refs/remotes/origin/dev', mr: mrOf(12) }], history: [], fetchedAt: 2, pollIntervalSecs: 30 });
     api.forgeMrList.mockResolvedValue({ kind: 'gitlab', remote: 'origin', project, filter: 'all', mrs: [mrOf(12), running], fetchedAt: 2, pollIntervalSecs: null });
     api.forgeMrDetail.mockResolvedValue(fresh(detailOf(mrOf(12))));
     await pollForge('t', 'timer');

@@ -7,6 +7,7 @@ import { refTokenFromLabel } from '../details/messageLinks';
 import { branchUrl, commitUrl, fileUrl, repoUrl, type ProjectRemote } from '../forge/urls';
 import { defaultOpener, openerRowId, openInSubmenuRows } from '../openIn/openerRows';
 import { shortSha } from '../format/sha';
+import { removeRemote } from '../remotes/remove';
 import { ICONS } from './icons';
 import type { CommitTarget, FileTarget, FolderTarget, MenuEnv, MonacoTarget, SidebarTarget, TagTarget } from './menuEnv';
 import { registerMenu, tmpl } from './registry';
@@ -356,6 +357,33 @@ registerMenu<SidebarTarget, MenuEnv>({
     const name = forgeName(f);
     return [row({ id: 'sidebar.forgeLink', label: 'Forge link', icon: ICONS.forge, tooltip: `Copy the link to the project on ${name}`, run: () => env.act.copy(url), variants: [{ id: 'open', icon: ICONS.browser, tooltip: `Open the project on ${name} in the browser`, run: () => env.act.openUrl(url) }] })];
   },
+});
+
+/** A forge remote's "Use as the main remote": the target of the repo's MRs/PRs; again: Automatic. */
+registerMenu<SidebarTarget, MenuEnv>({
+  id: 'sidebar.mainRemote', kind: 'sidebar', group: 'forge', order: 1,
+  when: (t) => t.what === 'remote',
+  rows: (t, env) => {
+    const f = t.what === 'remote' ? env.forge(t.name) : null;
+    if (t.what !== 'remote' || !f || !env.mainRemote) return [];
+    const m = env.mainRemote;
+    const noun = f.hostKind === 'github' ? 'pull requests' : 'merge requests';
+    const on = m.chosen === t.name;
+    return [row({
+      id: 'sidebar.mainRemote', label: 'Use as the main remote', icon: on ? ICONS.check : ICONS.mainRemote,
+      tooltip: on ? 'The main remote: click to go back to Automatic' : `Make this the remote whose project is used for ${noun}`,
+      run: () => m.toggle(t.name),
+    })];
+  },
+});
+
+/** Remove remote…: last in a remote's menu; arms in place (danger), then the journaled write. */
+registerMenu<SidebarTarget, MenuEnv>({
+  id: 'sidebar.removeRemote', kind: 'sidebar', group: 'manage', order: 0,
+  when: (t, env) => t.what === 'remote' && !!env.write,
+  rows: (t, env) => (t.what === 'remote' && env.write
+    ? [row({ id: 'sidebar.removeRemote', label: 'Remove remote…', icon: Trash2, tooltip: `Remove ${t.name} with its remote branches; branches tracking it lose their upstream (you can undo this)`, run: () => { void removeRemote(env.write!, t.name); } })]
+    : []),
 });
 
 registerMenu<SidebarTarget, MenuEnv>({

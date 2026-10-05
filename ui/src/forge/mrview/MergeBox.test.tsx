@@ -129,9 +129,9 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
     api.forgeProjectSettings.mockReturnValue(new Promise((r) => (done = r)));
     const { container } = show('gitlab');
     const rows = () => [...container.querySelectorAll('.mr-merge-row, .mr-merge-reason')].map((e) => (e as HTMLElement).style.visibility || 'visible');
-    expect(rows()).toEqual(['hidden', 'hidden', 'hidden', 'visible']);
+    expect(rows()).toEqual(['visible', 'hidden', 'hidden', 'hidden']);
     await act(async () => done(settings()));
-    expect(rows()).toEqual(['visible', 'visible', 'visible', 'hidden']);
+    expect(rows()).toEqual(['visible', 'visible', 'visible', 'visible']);
   });
 
   it('GitHub: one allowed method is shown as a line, like GitLab', async () => {
@@ -141,6 +141,33 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
     expect(screen.queryByRole('button', { name: 'Merge method' })).toBeNull();
   });
   // --- end 4B final fix ---
+
+  it('the status row: titles and tones for ready, blocked, scheduled, conflicts and checking', async () => {
+    const title = () => document.querySelector('.mr-merge-top b')?.textContent;
+    const tone = () => document.querySelector('.mr-merge-dot')?.className;
+    const ready = show('gitlab', detailOf({ ...mr, pipeline: { status: 'success', webUrl: null } }, { mergeStatus: { kind: 'mergeable' } }));
+    expect(await screen.findByText('Merge method: Merge commit')).toBeTruthy();
+    expect(title()).toBe('Ready to merge');
+    expect(tone()).toContain('ready');
+    expect(screen.getByRole('note')).toHaveTextContent('Pipeline passed');
+    expect(screen.getByRole('button', { name: 'Merge' })).toHaveClass('merge');
+    ready.unmount();
+    const blocked = show('gitlab', detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'It needs approval first' } }));
+    await screen.findByText('It needs approval first');
+    expect(title()).toBe('Merge is blocked');
+    expect(tone()).toContain('wait');
+    blocked.unmount();
+    const sched = show('gitlab', detailOf(mr, { mergeStatus: { kind: 'blocked', reason: "It can't merge before its scheduled time" } }));
+    await screen.findByText("It can't merge before its scheduled time");
+    expect(title()).toBe('Merge is scheduled');
+    sched.unmount();
+    const bad = show('gitlab', detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'It has conflicts: rebase first' } }));
+    await screen.findByText('It has conflicts: rebase first');
+    expect(tone()).toContain('bad');
+    bad.unmount();
+    show('github', detailOf(mr, { mergeStatus: { kind: 'checking' } }));
+    expect(title()).toBe('Checking…');
+  });
 
   it('shows a draft, conflict or pipeline reason as the disabled reason', async () => {
     show('gitlab', detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'The pipeline failed' } }));

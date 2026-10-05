@@ -17,7 +17,8 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   // The sidebar's own items (remote, worktree, stash): 2C's worktree and stash rows first (spec
   // #2 §10, §11), then the read-only rows and "Show in graph" (plan 1C Task 15b). A remote's
   // "Push all tags" (3B) comes first.
-  sidebar: ['sync', 'worktree', 'stash', 'copy', 'forge', 'open', 'view'],
+  // A remote's "Remove remote…" ends its menu ('manage').
+  sidebar: ['sync', 'worktree', 'stash', 'copy', 'forge', 'open', 'view', 'manage'],
   // A WIP row (spec #2 §14): Switch to this worktree, Open in a new tab, then Stash.
   wip: ['worktree', 'stash'],
   // Two or more selected commits (spec #3 §4.3): 3C's Squash, 3B's Cherry-pick and Revert,

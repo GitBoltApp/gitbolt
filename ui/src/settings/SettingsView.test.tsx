@@ -321,8 +321,30 @@ describe('SettingsView', () => {
   it('Accounts is a section of its own, titled with the profile, and deep links reach it', async () => {
     show('forgeAccounts');
     expect(screen.getByRole('region', { name: 'Accounts' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Accounts (Work)' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Forge accounts · Work profile' })).toBeTruthy();
     await waitFor(() => expect(api.forgeAccounts).toHaveBeenCalled());
+  });
+
+  it('Esc through the key router: host list, then the add panel, then Settings', async () => {
+    useRuntime.setState({ tabs: { t1: { ...useRuntime.getState().tabs.t1, info: { remotes: [
+      { name: 'origin', url: 'u', host: 'gitlab.example.com', path: 'g/p', hostKind: 'gitlab' },
+      { name: 'upstream', url: 'u2', host: 'github.com', path: 'o/p', hostKind: 'github' },
+    ] } as never } } as never });
+    show('forgeAccounts');
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add account' }));
+    const host = await screen.findByLabelText('Host');
+    act(() => host.focus());
+    await screen.findByRole('listbox');
+    const esc = () => fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    esc();
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+    expect(screen.getByRole('form', { name: 'Add a forge account' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeTruthy();
+    esc();
+    await waitFor(() => expect(screen.queryByRole('form')).toBeNull());
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeTruthy();
+    esc();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull());
   });
 
   it('the forge avatars switch saves and asks for every avatar again', async () => {

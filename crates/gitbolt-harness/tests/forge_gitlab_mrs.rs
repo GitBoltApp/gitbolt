@@ -33,7 +33,7 @@ async fn lists_open_mrs_with_their_pipelines_and_draft_titles_stripped() {
     assert_eq!(draft.pipeline.as_ref().map(|p| p.status), Some(PipelineStatus::Running));
     assert_eq!((fork.source_project.as_str(), fork.target_project.as_str()), ("alice/project", "group/project"));
     let asked = f.requests().into_iter().find(|r| r.path.ends_with("/merge_requests")).unwrap();
-    assert_eq!(asked.query, "state=opened&order_by=updated_at&sort=desc&per_page=100");
+    assert_eq!(asked.query, "state=opened&order_by=updated_at&sort=desc&per_page=100&with_labels_details=true", "label colours, in the same request");
     assert_eq!(f.requests().iter().filter(|r| r.path.ends_with("/pipelines")).count(), 1);
 }
 
@@ -274,3 +274,27 @@ async fn the_light_list_reads_no_pipelines() {
     assert!(!f.requests().iter().any(|r| r.path.ends_with("/pipelines")));
 }
 // --- end 4B final fix ---
+
+#[tokio::test(flavor = "multi_thread")]
+async fn label_colours_come_with_the_list_and_for_a_detail_from_the_projects_labels_once() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    p.edit(&g, 12, &MrEdit { title: None, description: None, labels: Some(vec!["bug".into(), "nope".into()]) }).await.unwrap();
+    let listed = p.open_mrs_light(&g, MrFilter::All).await.unwrap().value;
+    let bug = || [("bug".to_string(), "#d9534f".to_string())].into_iter().collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(listed.iter().find(|m| m.number == 12).unwrap().label_colors, bug(), "the list's label details");
+    let labels_asked = |f: &FakeForge| f.requests().iter().filter(|r| r.path.ends_with("/labels")).count();
+    assert_eq!(labels_asked(&f), 0);
+    // A single MR's GET has names only: the detail's chips still get their colours.
+    let detail = p.mr_detail(&g, 12).await.unwrap().value;
+    assert_eq!((detail.mr.labels.clone(), detail.mr.label_colors), (vec!["bug".to_string(), "nope".to_string()], bug()));
+    assert_eq!(labels_asked(&f), 1);
+    // `nope` isn't a project label (it may be new): asked again (ETag-revalidated); `bug` stays.
+    assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.mr.label_colors, bug());
+    assert_eq!(labels_asked(&f), 2);
+    // Every label known: kept for the session, no request.
+    p.edit(&g, 12, &MrEdit { title: None, description: None, labels: Some(vec!["bug".into()]) }).await.unwrap();
+    assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.mr.label_colors, bug());
+    assert_eq!(labels_asked(&f), 2, "kept for the session");
+}

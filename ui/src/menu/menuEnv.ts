@@ -8,7 +8,8 @@ import type { RemoteRefLabel } from '../api/gen/RemoteRefLabel';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
-import { useAppState } from '../app/state';
+import { flushSaves, useAppState } from '../app/state';
+import { notifyForgeAccountsChanged } from '../forge/accountsBus';
 import { tabIdOf } from '../app/tabStores';
 import type { WriteCtx } from '../write/client';
 import { withActiveSidebar } from '../worktrees/active';
@@ -88,6 +89,9 @@ export interface MenuEnv {
   /** The forge for `remote` (the project remote when omitted), or null: none known, or a
    * generic host. */
   forge(remote?: string): ProjectRemote | null;
+  /** The repo's main remote (the forge target): the user's choice, `null` for Automatic, and the
+   * setter (a remote again turns it back to Automatic). Omitted: no such row. */
+  mainRemote?: { chosen: string | null; toggle(remote: string): void };
   openers: { list: OpenerPayload[] | null; error: string | null; last: string | null };
   act: MenuActions;
   /** HEAD's branch (short name) and commit, for the commit menu's "Compare with HEAD" label and
@@ -298,6 +302,14 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
     forge: (remote) => {
       const r = projectRemote(remote === undefined ? remotes : remotes.filter((x) => x.name === remote), useAppState.getState().profile.hostOverrides);
       return r && r.hostKind !== 'generic' ? r : null;
+    },
+    mainRemote: {
+      chosen: useAppState.getState().profile.repos[s.repoPath]?.forgeTargetRemote ?? null,
+      toggle: (remote) => {
+        const chosen = useAppState.getState().profile.repos[s.repoPath]?.forgeTargetRemote ?? null;
+        useAppState.getState().updateRepo(s.repoPath, (r) => ({ ...r, forgeTargetRemote: chosen === remote ? null : remote }));
+        void flushSaves().then(notifyForgeAccountsChanged);
+      },
     },
     openers: openersSnapshot(),
     headBranch: head.branch?.replace(/^refs\/heads\//, '') ?? null,

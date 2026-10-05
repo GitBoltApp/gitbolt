@@ -537,7 +537,7 @@ mod tests {
         let hub = ForgeHub::new(Arc::new(Solo(fake.clone())), MemTokens::new(TokenStorage::Keyring), Arc::new(|| 1_791_115_200_000));
         let store = SettingsStore::in_memory();
         hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new("glpat-FAKE-test-token")).await.unwrap();
-        let remotes = vec![RemotePayload { name: "origin".into(), host: Some(HOST.into()), path: Some("group/project".into()), host_kind: HostKind::GitLab }];
+        let remotes = vec![RemotePayload { name: "origin".into(), host: Some(HOST.into()), path: Some("group/project".into()), host_kind: HostKind::GitLab, main: false }];
         (fake, hub, store, remotes)
     }
 

@@ -40,7 +40,9 @@ export function branchMr(tabId: string, branch: string): ForgeMr | null {
  */
 export function branchMrs(tabId: string): (branch: string) => ForgeMr | null {
   const sb = useRuntime.getState().tabs[tabId]?.sidebar;
-  const f = forgeOf(tabId);
+  const tab = forgeOf(tabId);
+  // The badges, then the merged or closed MRs/PRs that badge nothing (a merged bottom whose branch is gone).
+  const f = { ...tab, byRef: { ...tab.history, ...tab.byRef } };
   const locals = new Map((sb?.locals ?? []).map((l) => [l.name, l.fullName]));
   const remotes = new Map<string, { fullName: string }[]>();
   for (const g of sb?.remotes ?? []) for (const b of g.branches) remotes.set(b.name, [...(remotes.get(b.name) ?? []), b]);

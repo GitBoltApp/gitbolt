@@ -17,4 +17,10 @@ defaultBranch: string | null, cloneHttps: string, cloneSsh: string,
 /**
  * The parent's `path` when this is a fork.
  */
-forkOf: string | null, updatedAt: number | null, archived: boolean, };
+forkOf: string | null, updatedAt: number | null, archived: boolean, 
+/**
+ * The owner's picture when the owner is a user, not an organization or group (GitHub's
+ * `owner.avatar_url` with `owner.type` User, GitLab's `namespace.avatar_url` with
+ * `namespace.kind` user): a user's fork's remote shows it.
+ */
+ownerAvatarUrl: string | null, };

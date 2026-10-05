@@ -1163,9 +1163,13 @@ mod tests {
         r.commit("c");
         let lock = r.path().join(".git/index.lock");
         std::fs::write(&lock, "").unwrap();
+        // A pinned mtime (a fixed past instant, whole milliseconds) rather than whatever the clock
+        // gave the file: the expectation no longer depends on timing or filesystem timestamp granularity.
+        let pinned = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_700_000_000_123);
+        std::fs::File::options().write(true).open(&lock).unwrap().set_modified(pinned).unwrap();
         let err = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["update-index", "--refresh"])).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::IndexLocked);
-        let mtime = std::fs::metadata(&lock).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let mtime = 1_700_000_000_123_i64;
         match err.detail {
             Some(crate::error::ErrorDetail::IndexLock { path, mtime_ms, ino, dev }) => {
                 use std::os::unix::fs::MetadataExt;

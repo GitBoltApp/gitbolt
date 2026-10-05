@@ -84,6 +84,20 @@ pub struct ForgeProject {
     #[ts(type = "number | null")]
     pub updated_at: Option<i64>,
     pub archived: bool,
+    /// The owner's picture when the owner is a user, not an organization or group (GitHub's
+    /// `owner.avatar_url` with `owner.type` User, GitLab's `namespace.avatar_url` with
+    /// `namespace.kind` user): a user's fork's remote shows it.
+    #[serde(default)]
+    pub owner_avatar_url: Option<String>,
+}
+
+/// One page of a project's forks; `next` is the following page, `None` on the last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ForkPage {
+    pub forks: Vec<ForgeProject>,
+    pub next: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -273,12 +287,47 @@ pub struct ForgeMr {
     /// `None`: the forge hasn't computed it yet (GitHub's `mergeable: null`).
     pub conflicts: Option<bool>,
     pub labels: Vec<String>,
+    /// A label's colour by name, `#rrggbb` (`label_color`): the ones the forge said (GitHub's
+    /// `labels[].color`, GitLab's with `with_labels_details`). A label without one is a plain chip.
+    #[serde(default)]
+    #[ts(type = "Record<string, string>")]
+    pub label_colors: std::collections::BTreeMap<String, String>,
     #[ts(type = "number")]
     pub updated_at: i64,
     /// 4D: its description/body carries GitBolt's Stack table (`stack::MARK_START`): the stack
     /// evidence the after-merge retarget needs (a forge write before any confirm).
     #[serde(default)]
     pub stacked: bool,
+}
+
+/// A forge's label colour as `#rrggbb` (lowercase): GitHub's `ededed`, GitLab's `#428BCA` or
+/// `#fff`. Anything else is no colour (it goes into a CSS custom property).
+pub fn label_color(raw: &str) -> Option<String> {
+    let hex = raw.trim().trim_start_matches('#');
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let full = match hex.len() {
+        6 => hex.to_string(),
+        3 => hex.chars().flat_map(|c| [c, c]).collect(),
+        _ => return None,
+    };
+    Some(format!("#{}", full.to_ascii_lowercase()))
+}
+
+/// The label names and colours of a forge's `labels` array: names (GitLab's plain list) or
+/// objects with `name` and `color` (GitHub's; GitLab's with `with_labels_details=true`).
+pub fn labels_of(v: &serde_json::Value) -> (Vec<String>, std::collections::BTreeMap<String, String>) {
+    let mut names = Vec::new();
+    let mut colors = std::collections::BTreeMap::new();
+    for l in v.as_array().into_iter().flatten() {
+        let Some(name) = l.as_str().or(l["name"].as_str()) else { continue };
+        if let Some(c) = l["color"].as_str().and_then(label_color) {
+            colors.insert(name.to_string(), c);
+        }
+        names.push(name.to_string());
+    }
+    (names, colors)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -451,4 +500,32 @@ pub struct MrTemplate {
     pub name: String,
     pub path: String,
     pub body: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn label_colours_normalize_and_anything_else_is_none() {
+        assert_eq!(label_color("ededed").as_deref(), Some("#ededed"), "GitHub's");
+        assert_eq!(label_color("#428BCA").as_deref(), Some("#428bca"), "GitLab's");
+        assert_eq!(label_color("#FfF").as_deref(), Some("#ffffff"));
+        for bad in ["", "#12345", "red", "fff;background:url(x)", "#gggggg"] {
+            assert_eq!(label_color(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn labels_come_as_names_or_objects_with_colours() {
+        let (names, colors) = labels_of(&json!(["a", "b"]));
+        assert_eq!((names, colors.len()), (vec!["a".to_string(), "b".to_string()], 0), "GitLab without details");
+        let (names, colors) = labels_of(&json!([{"name": "feature :gear:", "color": "a2eeef"}, {"name": "docs", "color": "#0075CA"}, {"name": "x", "color": null}]));
+        assert_eq!(names, ["feature :gear:", "docs", "x"]);
+        assert_eq!(colors.into_iter().collect::<Vec<_>>(), [("docs".to_string(), "#0075ca".to_string()), ("feature :gear:".to_string(), "#a2eeef".to_string())]);
+        // An MR from an older GitBolt's cache (no `labelColors`) still loads.
+        let old = r#"{"number":1,"title":"t","state":"open","author":{"id":1,"username":"a","name":"A"},"sourceProject":"p","sourceBranch":"b","targetProject":"p","targetBranch":"main","headSha":null,"webUrl":"","pipeline":null,"review":{"decision":"none","approvals":0,"approvalsRequired":null,"reviews":[]},"conflicts":null,"labels":["a"],"updatedAt":0}"#;
+        assert!(serde_json::from_str::<ForgeMr>(old).unwrap().label_colors.is_empty());
+    }
 }

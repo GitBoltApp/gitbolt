@@ -4,6 +4,7 @@ import { FlyoutFrame } from '../../ui/flyout/FlyoutFrame';
 import type { FlyoutProps } from '../../ui/flyout/flyout';
 import { HoverTooltip } from '../../ui/HoverTooltip';
 import { ForgeStaleNote } from '../ForgeStale';
+import { EmojiText } from '../emoji';
 import { mrName, mrRef } from '../labels';
 import { MrStateIcon } from '../MrIcons';
 import { knownMr, patchForge, useTabForge, type MrViewArgs } from '../mrStore';
@@ -43,7 +44,7 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
     <FlyoutFrame
       label={label}
       onClose={close}
-      title={<>{mr && <MrStateIcon state={mr.state} size={14} />}<span>{ref} {mr?.title ?? ''}</span></>}
+      title={<>{mr && <MrStateIcon state={mr.state} size={14} />}<span>{ref} <EmojiText text={mr?.title ?? ''} /></span></>}
       headerActions={mr && (
         <HoverTooltip content="Open in browser">
           <button type="button" className="icon-button" aria-label="Open in browser" onClick={() => openInBrowser(mr.webUrl)}><ExternalLink size={14} aria-hidden /></button>
@@ -59,10 +60,9 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
       {mr && <StackPanel tabId={tabId} mr={mr} />}
       {/* --- end 4D --- */}
       {/* --- 4B T13: actions --- */}
-      {mr && <MrActions tabId={tabId} kind={kind} mr={mr} detail={detail} />}
+      {mr && <MrActions tabId={tabId} kind={kind} mr={mr} detail={detail}><CheckoutButton tabId={tabId} mr={mr} /></MrActions>}
       {/* --- end 4B T13 --- */}
       {/* --- 4B T14: merge and check out --- */}
-      {mr && <div className="mr-actions"><CheckoutButton tabId={tabId} mr={mr} /></div>}
       {mr && <MergeBox key={mr.number} tabId={tabId} kind={kind} mr={mr} detail={detail} />}
       {/* --- end 4B T14 --- */}
       {mr && (
@@ -70,9 +70,9 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
           {detail ? (detail.description.trim() ? detail.description : <span className="mr-dim">No description</span>) : <span className="mr-dim">Loading…</span>}
         </section>
       )}
-      {mr && <Thread tabId={tabId} kind={kind} mr={mr} discussions={f.discussions[number] ?? null} />}
+      {mr && <Thread tabId={tabId} kind={kind} mr={mr} discussions={f.discussions[number] ?? null} reviews={detail?.mr.review.reviews} />}
       {/* --- 4B T13: new comment --- */}
-      {mr && <ReplyBox tabId={tabId} number={number} discussion={null} />}
+      {mr && <div className="mr-new-comment"><ReplyBox tabId={tabId} number={number} discussion={null} /></div>}
       {/* --- end 4B T13 --- */}
     </FlyoutFrame>
   );

@@ -38,6 +38,21 @@ async fn maps_a_fork_to_its_parent_lists_forks_and_reads_settings() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_linked_avatar_comes_only_from_githubs_avatar_host_without_the_token() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITHUB_TOKEN);
+    let octocat = format!("{}/u/583231?v=4", f.github_avatars());
+    assert_eq!(p.avatar_at(&octocat).unwrap().await.unwrap().unwrap().mime, "image/png");
+    let hits: Vec<_> = f.requests().into_iter().filter(|r| r.forge == "github-avatars").collect();
+    assert_eq!(hits.len(), 1);
+    assert!(!hits[0].authorized, "an avatar CDN never gets the token");
+    for elsewhere in [format!("{}/user", f.github_api()), format!("{}/octocat.png", f.github_web()), "https://evil.example.com/u/1".to_string()] {
+        assert!(p.avatar_at(&elsewhere).is_none(), "{elsewhere}");
+    }
+    assert_eq!(f.requests().len(), 1, "nothing else was asked");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn avatars_from_noreply_ids_and_learned_emails_only() {
     let f = FakeForge::start().await;
     let p = provider(&f, GITHUB_TOKEN);

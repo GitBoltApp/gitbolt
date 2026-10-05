@@ -22,7 +22,7 @@ const { useRuntime } = await import('../app/runtime');
 
 const fork: ForgeProject = {
   kind: 'gitlab', id: 77, host: 'gitlab.example.com', path: 'alice/project', name: 'project', owner: 'alice', webUrl: 'w',
-  defaultBranch: 'main', cloneHttps: 'https://gitlab.example.com/alice/project.git', cloneSsh: 'git@gitlab.example.com:alice/project.git', forkOf: 'group/project', updatedAt: 1, archived: false,
+  defaultBranch: 'main', cloneHttps: 'https://gitlab.example.com/alice/project.git', cloneSsh: 'git@gitlab.example.com:alice/project.git', forkOf: 'group/project', updatedAt: 1, archived: false, ownerAvatarUrl: null,
 };
 const setRemotes = (remotes: Array<{ name: string; url: string; host: string | null; path: string | null }>) =>
   useRuntime.setState({ tabs: { t1: { status: 'ready', repo: { id: 7 }, info: { remotes: remotes.map((r) => ({ ...r, hostKind: 'gitlab' })) } } } as never });

@@ -1,3 +1,4 @@
+import { CornerDownLeft } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../../api/client';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
@@ -62,8 +63,8 @@ export function ThreadReply({ tabId, kind, number, d }: { tabId: string; kind: F
   const hasDraft = useReplyDrafts((s) => (s.text[draftKey(tabId, number, d.id)] ?? '') !== '');
   const [open, setOpen] = useState(false);
   if (kind === 'github' && !d.id.startsWith('thread-')) return null;
-  if (!open && !hasDraft) return <button type="button" className="mr-link" onClick={() => setOpen(true)}>Reply</button>;
-  return <ReplyBox tabId={tabId} number={number} discussion={d.id} onDone={() => { clearDraft(draftKey(tabId, number, d.id)); setOpen(false); }} />;
+  if (!open && !hasDraft) return <div className="mr-thread-foot"><button type="button" className="mr-button" onClick={() => setOpen(true)}><CornerDownLeft size={12} aria-hidden /> Reply</button></div>;
+  return <div className="mr-thread-foot"><ReplyBox tabId={tabId} number={number} discussion={d.id} onDone={() => { clearDraft(draftKey(tabId, number, d.id)); setOpen(false); }} /></div>;
 }
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.

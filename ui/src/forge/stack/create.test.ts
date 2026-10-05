@@ -12,9 +12,9 @@ vi.mock('./deps', () => ({ createMr: (...a: unknown[]) => createMr(...a), noteFo
 const mr = (number: number, source: string, target: string, state: ForgeMr['state'] = 'open'): ForgeMr => ({
   number, title: `MR ${number}`, state, author: { id: 1, username: 'ada', name: 'Ada', avatarUrl: null, webUrl: '', email: null },
   sourceProject: 'group/project', sourceBranch: source, targetProject: 'group/project', targetBranch: target, headSha: null,
-  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], updatedAt: number, stacked: false,
+  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: number, stacked: false,
 });
-const project = { kind: 'gitlab' as const, id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: '', defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false };
+const project = { kind: 'gitlab' as const, id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: '', defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false, ownerAvatarUrl: null };
 const target = { remote: 'origin', kind: 'gitlab' as const, project };
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 const view = (members: StackView['members'], mode: StackView['mode'] = 'managed'): StackView => ({ remote: 'origin', project: 'group/project', kind: 'gitlab', mode, members });

@@ -20,6 +20,11 @@ export function pushModal(token: object): () => void {
     if (i >= 0) stack.splice(i, 1);
   };
 }
+/**
+ * Esc owners inside a dialog (an inline panel that closes on Esc before the dialog does): each
+ * returns true when it took the Esc, and the dialog then stays open.
+ */
+export const escOwners = new Set<(e: KeyboardEvent) => boolean>();
 export const isTopModal = (token: object): boolean => stack[stack.length - 1] === token;
 
 /**
@@ -53,6 +58,10 @@ export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => 
       if (useMenu.getState().rows) return;
       // Esc disarms an armed control inside the dialog (spec §ui confirms); the dialog stays.
       if (escapeDisarms(e)) return 'handled';
+      if (e.key === 'Escape' && [...escOwners].some((own) => own(e))) {
+        e.preventDefault();
+        return 'handled';
+      }
       if (isDismissKey(e)) {
         close();
         e.preventDefault();

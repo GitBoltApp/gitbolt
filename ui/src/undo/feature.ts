@@ -7,6 +7,7 @@ import type { MovedRef } from '../api/gen/MovedRef';
 import { activeRuntime, activeTab, registerActions, type Action } from '../app/actions';
 import type { RepoCtx } from '../app/repoContext';
 import { compactRelativeTime } from '../format/relative';
+import { notifyForgeAccountsChanged } from '../forge/accountsBus';
 import type { MenuRow } from '../menu/types';
 import { useQueuedKind } from '../queue/store';
 import { registerToolbarButton, type ButtonView } from '../toolbar/registry';
@@ -71,8 +72,15 @@ async function undoEntry(ctx: WriteCtx, top: JournalTop, confirm?: Record<string
   // --- 2C T10: the entry's own note (spec #2 §9.2) ---
   const note = out.note ? ` (${out.note})` : '';
   // --- end 2C T10 ---
+  afterRemotesChanged(out.label);
   const stays = top.kind === 'pull' ? ' (the fetched remote branches stay)' : '';
   useToast.getState().show(`Undid ${out.label}${note || stays}`, { action: { label: 'Redo', run: () => { void redo(ctx); } } });
+}
+
+/** A remote came back or went again (undo/redo of "remove remote …"): the forge's mapping and
+ * main remote are read again at once, not at the next poll. */
+function afterRemotesChanged(label: string): void {
+  if (label.startsWith('remove remote ')) notifyForgeAccountsChanged();
 }
 
 /** Worktrees with an undo or redo sent and not answered: a second press (a held Ctrl+Z, a
@@ -105,7 +113,10 @@ export async function redo(ctx: WriteCtx): Promise<void> {
     // --- 2C T7: withoutIndex (a stash's undo/redo) ---
     const out = await runWrite(ctx, (_, asked) => api.redo(ctx.repoId, ctx.worktree, Number(top.entry), asked.autostash, asked.withoutIndex));
     // --- end 2C T7 ---
-    if (out?.status === 'done') useToast.getState().show(`Redid ${out.label}`);
+    if (out?.status === 'done') {
+      afterRemotesChanged(out.label);
+      useToast.getState().show(`Redid ${out.label}`);
+    }
   });
 }
 

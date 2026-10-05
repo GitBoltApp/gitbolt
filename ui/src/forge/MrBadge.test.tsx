@@ -23,23 +23,23 @@ beforeEach(() => {
 });
 
 describe('the MR/PR badge on a branch chip (spec #4 §2 "Badge", §5)', () => {
-  it("takes the place of the remote's icon it was found through: the chip keeps as many icons", () => {
+  it("is its own icon after the local and remote ones, which stay (where the branch is still reads)", () => {
     const { container } = show(dev);
     expect(icons(container)).toBe(2);
     expect(screen.queryByRole('button', { name: /Merge request/ })).toBeNull();
     act(() => patchForge('t', { kind: 'gitlab', byRef: { 'refs/remotes/origin/dev': mrOf(12) } }));
     expect(screen.getByRole('button', { name: 'Merge request !12: open' })).toBeTruthy();
-    expect(icons(container)).toBe(2);
+    expect(icons(container)).toBe(3);
     expect(container.querySelector('[aria-label="local"]')).toBeTruthy();
   });
 
-  it("a local branch whose upstream has the MR shows it in place of the local icon", () => {
+  it("a local branch whose upstream has the MR keeps its local icon, the badge beside it", () => {
     const local: RefLabel = { ...dev, remotes: [] };
     patchForge('t', { kind: 'gitlab', byRef: { 'refs/remotes/origin/dev': mrOf(9, { state: 'merged' }) }, upstreams: { 'refs/heads/dev': 'refs/remotes/origin/dev' } });
     const { container } = show(local);
     expect(screen.getByRole('button', { name: 'Merge request !9: merged' })).toBeTruthy();
-    expect(icons(container)).toBe(1);
-    expect(container.querySelector('[aria-label="local"]')).toBeNull();
+    expect(icons(container)).toBe(2);
+    expect(container.querySelector('[aria-label="local"]')).toBeTruthy();
   });
 
   it('a click opens the MR/PR view and neither selects the row nor checks out', () => {

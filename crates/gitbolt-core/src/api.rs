@@ -32,6 +32,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, OnceCell};
 use ts_rs::TS;
 
+fn default_fork_page() -> u32 {
+    1
+}
+fn default_fork_per_page() -> u32 {
+    10
+}
+
 #[derive(Debug, Deserialize, TS)]
 #[serde(tag = "method", content = "params", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[ts(export)]
@@ -94,6 +101,10 @@ pub enum Request {
     Signature { repo: u32, id: String },
     /// A cached avatar for an email, or `null` (the UI shows initials; spec §14.3).
     Avatar { email: String },
+    /// A forge user's or project owner's picture by the `avatarUrl` the forge gave, or `null`:
+    /// fetched only from an account's own host or its forge's avatar host (`ForgeHub::avatar_at`),
+    /// disk-cached like the others. Off with the forge-avatars setting.
+    ForgeAvatarImage { url: String },
     /// Opens an `http(s)` link in the default browser (spec §14.4); returns `null`.
     OpenUrl { url: String },
     /// The detected external editors and the file manager, for "Open in…" (spec §14.5, H9).
@@ -157,6 +168,9 @@ pub enum Request {
     /// `git remote add <name> <url>` (spec #4 §4 4A): `WriteResult<null>`. Not journaled.
     AddRemote { repo: u32, worktree: String, name: String, url: String },
     // --- end 4A T7 ---
+    /// `git remote remove <name>` (the Remote panel's right-click): `WriteResult<null>`. Journaled:
+    /// Undo puts its config, its remote-tracking refs and the upstreams it took back.
+    RemoveRemote { repo: u32, worktree: String, name: String },
     /// Clones `url` into the absolute `dest` (spec §13) and opens it: `RepoSummary`.
     Clone { url: String, dest: String },
     /// Every remote with its redacted URL, and the main worktree of a linked one: `RepoInfoPayload`.
@@ -784,7 +798,7 @@ pub enum Request {
     /// Removes the account and deletes its token: `null`.
     RemoveForgeAccount { host: String },
     /// The forge's prefilled "new token" page for `host`: a URL for `openUrl`.
-    ForgeTokenPage { host: String, kind: crate::forge::ForgeKind },
+    ForgeTokenPage { host: String, kind: crate::forge::ForgeKind, #[serde(default)] classic: bool },
     // --- end 4A T5 ---
     // --- 4A T6 ---
     /// Every remote with its forge project, and the remote MRs/PRs target (spec #4 §3.3):
@@ -793,8 +807,15 @@ pub enum Request {
     /// The project settings of `remote`'s project (squash, merge methods, delete source branch):
     /// `ForgeProjectSettings`.
     ForgeProjectSettings { repo: u32, remote: String },
-    /// `remote`'s project's forks, newest first: `ForgeProject[]`.
-    ForgeForks { repo: u32, remote: String },
+    /// One page of `remote`'s project's forks, newest first: `ForkPage`.
+    ForgeForks {
+        repo: u32,
+        remote: String,
+        #[serde(default = "default_fork_page")]
+        page: u32,
+        #[serde(default = "default_fork_per_page")]
+        per_page: u32,
+    },
     // --- end 4A T6 ---
     // --- 4B T1 ---
     /// The repository's open MRs/PRs for the sidebar section (spec #4 §4 "4B"): `MrList`.
@@ -922,7 +943,7 @@ impl Request {
             // --- end 4D T3 ---
             // Remote-tracking refs and objects.
             // --- 4A T7 ---
-            Request::AddRemote { .. } => true,
+            Request::AddRemote { .. } | Request::RemoveRemote { .. } => true,
             // --- end 4A T7 ---
             Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
             Request::WriteWorktreeFile { .. } | Request::CreateWorktreeFile { .. } => true,
@@ -1036,6 +1057,7 @@ impl Request {
             | Request::WorktreeFiles { .. }
             | Request::Signature { .. }
             | Request::Avatar { .. }
+            | Request::ForgeAvatarImage { .. }
             | Request::OpenUrl { .. }
             | Request::ListOpeners
             | Request::ListOpenersFor { .. }
@@ -1995,6 +2017,13 @@ impl Api {
                     None => to_json(Option::<AvatarPayload>::None),
                 }
             }
+            Request::ForgeAvatarImage { url } => {
+                let settings = self.store.state().settings;
+                match &self.forge {
+                    Some(hub) if settings.forge_avatars => to_json(hub.avatar_at(&self.store, &url, settings.gravatar).await),
+                    _ => to_json(Option::<AvatarPayload>::None),
+                }
+            }
             Request::ListOpeners => self.list_openers(None).await,
             Request::ListOpenersFor { repo } => {
                 let workdir = self.handle(repo)?.workdir.display().to_string();
@@ -2107,6 +2136,16 @@ impl Api {
                 to_json(done)
             }
             // --- end 4A T7 ---
+            Request::RemoveRemote { repo, worktree, name } => {
+                let done = crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::remotes::RemoveRemote { name }).await;
+                // The handle's config snapshot still lists it, even after a removal that failed
+                // half-way. A failed reopen doesn't make the removal a failure: the handle is
+                // only stale until the next one.
+                if let Err(e) = self.reopen_repo(repo) {
+                    tracing::warn!(target: "gitbolt_core::write", "reopening the repository after removing a remote: {e}");
+                }
+                to_json(done?)
+            }
             // --- 4A T5 ---
             Request::ForgeAccounts => to_json(self.forge.as_ref().map(|f| f.accounts(&self.store)).unwrap_or_default()),
             Request::AddForgeAccount { host, kind, token } => to_json(self.forge_hub()?.add_account(&self.store, &host, kind, token).await?),
@@ -2114,67 +2153,75 @@ impl Api {
                 self.forge_hub()?.remove_account(&self.store, &host).await?;
                 to_json(())
             }
-            Request::ForgeTokenPage { host, kind } => {
+            Request::ForgeTokenPage { host, kind, classic } => {
                 let host = crate::forge::accounts::normalize_host(&host)?;
                 crate::forge::accounts::check_kind_host(kind, &host)?;
-                to_json(crate::forge::accounts::token_page_url(kind, &host))
+                to_json(crate::forge::accounts::token_page_url_for(kind, &host, classic))
             }
             // --- end 4A T5 ---
             // --- 4A T6 ---
             Request::ForgeRepoProjects { repo, refresh } => {
                 let h = self.handle(repo)?;
-                let list = crate::details::forge_remotes(&h.repo.to_thread_local());
+                let list = self.forge_remotes_of(&h);
                 match &self.forge {
                     Some(hub) => to_json(hub.repo_projects(&self.store, &list, refresh).await),
                     None => to_json(crate::forge::hub::RepoProjects::without_accounts(&list)),
                 }
             }
             Request::ForgeProjectSettings { repo, remote } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.project_settings(&self.store, &list, &remote).await?)
             }
-            Request::ForgeForks { repo, remote } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
-                to_json(self.forge_hub()?.forks(&self.store, &list, &remote).await?)
+            Request::ForgeForks { repo, remote, page, per_page } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.forks_page(&self.store, &list, &remote, page, per_page).await?)
             }
             // --- end 4A T6 ---
             // --- 4B T1 ---
             Request::ForgeMrList { repo, filter } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.mr_list(&self.store, &list, filter).await?)
             }
             Request::ForgeBranchMrs { repo, refs } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
-                to_json(self.forge_hub()?.branch_mrs(&self.store, &list, &refs).await?)
+                let h = self.handle(repo)?;
+                let list = self.forge_remotes_of(&h);
+                // Off the async workers (it reads every ref); a failure costs only the tips (no
+                // merged/closed badge this poll) and the stack-base skip, never the poll.
+                let (repo_h, asked) = (h.clone(), refs.clone());
+                let tips = blocking(move || crate::forge::mrs::badge_refs(&repo_h.repo.to_thread_local(), &asked)).await.unwrap_or_else(|e| {
+                    tracing::warn!("forge badges: couldn't read the refs' tips: {}", e.message);
+                    Default::default()
+                });
+                to_json(self.forge_hub()?.branch_mrs(&self.store, &list, &refs, &tips).await?)
             }
             Request::ForgeMrDetail { repo, number } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.mr_detail(&self.store, &list, number).await?)
             }
             Request::ForgeMrDiscussions { repo, number } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.mr_discussions(&self.store, &list, number).await?)
             }
             Request::ForgeProjectByPath { repo, path } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.project_by_path(&self.store, &list, &path).await?)
             }
             Request::ForgeReply { repo, number, discussion, body } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.reply(&self.store, &list, number, crate::forge::NewNote { discussion, body }).await?)
             }
             Request::ForgeApprove { repo, number } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 self.forge_hub()?.approve(&self.store, &list, number).await?;
                 to_json(())
             }
             Request::ForgeRequestChanges { repo, number, body } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 self.forge_hub()?.request_changes(&self.store, &list, number, body).await?;
                 to_json(())
             }
             Request::ForgeMerge { repo, number, options } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 // --- 4D T4: dependents first, so deleting the branch can't close them (Ruling 12) ---
                 let hub = self.forge_hub()?;
                 let guard = hub.before_merge(&self.store, &list, number, options.delete_source_branch).await?;
@@ -2189,11 +2236,11 @@ impl Api {
                 to_json(merged?)
             }
             Request::ForgeEditMr { repo, number, edit } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.edit_mr(&self.store, &list, number, edit).await?)
             }
             Request::ForgeSetDraft { repo, number, draft } => {
-                let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
                 to_json(self.forge_hub()?.set_draft(&self.store, &list, number, draft).await?)
             }
             Request::MergeBase { repo, a, b } => to_json(merge_base(&self.handle(repo)?.repo.to_thread_local(), &a, &b)?),
@@ -2202,28 +2249,28 @@ impl Api {
               Request::ForgeCreateContext { repo, remote, source_remote, branch, target } => {
                   let hub = self.forge_hub()?;
                   let h = self.handle(repo)?;
-                  let list = crate::details::forge_remotes(&h.repo.to_thread_local());
+                  let list = self.forge_remotes_of(&h);
                   let ask = crate::forge::hub::CreateAsk { remote: &remote, source_remote: &source_remote, branch: &branch, target: &target };
                   to_json(hub.create_context(&self.store, &self.cli, &h.workdir, &list, ask).await?)
               }
               Request::ForgeSearchUsers { repo, remote, query } => {
                   let hub = self.forge_hub()?;
-                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  let list = self.forge_remotes_of(&*self.handle(repo)?);
                   to_json(hub.search_users(&self.store, &list, &remote, &query).await?)
               }
               Request::ForgeLabels { repo, remote, query } => {
                   let hub = self.forge_hub()?;
-                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  let list = self.forge_remotes_of(&*self.handle(repo)?);
                   to_json(hub.labels(&self.store, &list, &remote, &query).await?)
               }
               Request::ForgeCreateMr { repo, remote, req } => {
                   let hub = self.forge_hub()?;
-                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  let list = self.forge_remotes_of(&*self.handle(repo)?);
                   to_json(hub.create_mr(&self.store, &list, &remote, &req).await?)
               }
               Request::ForgeCompleteCreate { repo, remote, number, req, parts } => {
                   let hub = self.forge_hub()?;
-                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  let list = self.forge_remotes_of(&*self.handle(repo)?);
                   to_json(hub.complete_create(&self.store, &list, &remote, number, &req, &parts).await?)
               }
               // --- end 4C T5 ---
@@ -2239,12 +2286,12 @@ impl Api {
               }
               Request::ForgeSyncStack { repo, branches, base } => {
                   let hub = self.forge_hub()?;
-                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  let list = self.forge_remotes_of(&*self.handle(repo)?);
                   to_json(hub.sync_stack(&self.store, &list, &branches, &base).await?)
               }
               Request::ForgeRetarget { repo, number, target } => {
                   let hub = self.forge_hub()?;
-                  let list = crate::details::forge_remotes(&self.handle(repo)?.repo.to_thread_local());
+                  let list = self.forge_remotes_of(&*self.handle(repo)?);
                   to_json(hub.retarget_mr(&self.store, &list, number, &target).await?)
               }
               // --- end 4D T3 ---
@@ -2548,6 +2595,18 @@ impl Api {
             crate::open_copy::write_copy(&cache, &oid.to_hex_with_len(12).to_string(), &path, &bytes)
         })
         .await
+    }
+
+    /// The repo's remotes for the forge, the chosen main remote (when it still exists) flagged.
+    pub(crate) fn forge_remotes_of(&self, h: &RepoHandle) -> Vec<crate::payload::RemotePayload> {
+        let mut list = crate::details::forge_remotes(&h.repo.to_thread_local());
+        let chosen = self.store.active_profile().repos.get(h.workdir.to_string_lossy().as_ref()).and_then(|r| r.forge_target_remote.clone());
+        if let Some(c) = chosen {
+            for r in &mut list {
+                r.main = r.name == c;
+            }
+        }
+        list
     }
 
     pub(crate) fn handle(&self, id: u32) -> Result<Arc<RepoHandle>, GbError> {
@@ -3957,6 +4016,7 @@ mod tests {
             json!({"method": "worktreeFiles", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "signature", "params": {"repo": id, "id": head}}),
             json!({"method": "avatar", "params": {"email": "ada@example.com"}}),
+            json!({"method": "forgeAvatarImage", "params": {"url": "https://avatars.githubusercontent.com/u/1?v=4"}}),
             json!({"method": "openUrl", "params": {"url": "https://example.com"}}),
             json!({"method": "listOpeners"}),
             json!({"method": "listOpenersFor", "params": {"repo": id}}),
@@ -4026,7 +4086,7 @@ mod tests {
     /// The methods that write (`is_write`), which the never-write test leaves out.
     const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "undoEntry","applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "createWorktreeFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
         // 4A T7
-        "addRemote",
+        "addRemote", "removeRemote",
         // --- 2C T5: checkout ---
         "checkout",
         // --- end 2C T5 ---
@@ -4076,6 +4136,7 @@ mod tests {
             json!({"method": "fetch", "params": {"repo": id, "background": false}}),
             // --- 4A T7 ---
             json!({"method": "addRemote", "params": {"repo": id, "worktree": wt, "name": "x", "url": "/nonexistent/x.git"}}),
+            json!({"method": "removeRemote", "params": {"repo": id, "worktree": wt, "name": "nonexistent-remote"}}),
             // --- end 4A T7 ---
             json!({"method": "clone", "params": {"url": "https://example.com/x.git", "dest": "/nonexistent/x"}}),
             json!({"method": "testWrite", "params": {"repo": id, "worktree": wt, "intent": {"op": "barrier", "label": "x"}}}),
@@ -4288,7 +4349,7 @@ mod tests {
         let api = api();
         let id = open(&api, &r).await as u32;
         let rp = api.dispatch(req(serde_json::json!({"method": "forgeRepoProjects", "params": {"repo": id, "refresh": false}}))).await.unwrap();
-        assert_eq!(rp, serde_json::json!({"remotes": [{"remote": "origin", "host": "gitlab.example.com", "path": "group/project", "account": null, "project": null, "error": null}], "target": null}));
+        assert_eq!(rp, serde_json::json!({"remotes": [{"remote": "origin", "host": "gitlab.example.com", "path": "group/project", "account": null, "project": null, "error": null}], "target": null, "targetChosen": false}));
     }
     // --- end 4A T6 ---
     // --- 4B T1 ---

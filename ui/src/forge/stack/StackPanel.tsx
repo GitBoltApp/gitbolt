@@ -5,6 +5,7 @@ import { useRuntime } from '../../app/runtime';
 import { writeCtx } from '../../write/ctx';
 import { mainWorktreeOf } from '../../worktrees/active';
 import { worktreeDisplay } from '../../worktrees/paths';
+import { EmojiText } from '../emoji';
 import { mrRef } from '../labels';
 import { afterMerge, MR_STATE_WORDS } from './chain';
 import { openMrView } from './deps';
@@ -44,9 +45,9 @@ export function StackPanel({ tabId, mr }: { tabId: string; mr: ForgeMr }) {
         {chain.mrs.map((m, i) => (
           <li key={m.number} aria-current={i === chain.index ? 'true' : undefined}>
             {i === chain.index ? (
-              <span className="mr-stack-this">{mrRef(kind, m.number)} {m.title}</span>
+              <span className="mr-stack-this">{mrRef(kind, m.number)} <EmojiText text={m.title} /></span>
             ) : (
-              <button type="button" className="mr-stack-link" onClick={() => openMrView(tabId, m.number)}>{mrRef(kind, m.number)} {m.title}</button>
+              <button type="button" className="mr-stack-link" onClick={() => openMrView(tabId, m.number)}>{mrRef(kind, m.number)} <EmojiText text={m.title} /></button>
             )}
             <span className="mr-stack-state">{MR_STATE_WORDS[m.state]}</span>
           </li>

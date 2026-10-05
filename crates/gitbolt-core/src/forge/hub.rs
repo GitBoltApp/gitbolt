@@ -107,6 +107,8 @@ impl ForgeHub {
         let provider = self.connector.connect(kind, &host, token.clone())?;
         let check = provider.check_token().await.map_err(|e| match e.kind {
             // A 403: the token is good, its scope isn't.
+            // An organization's own policy (e.g. a fine-grained token lifetime cap) says why: keep its words.
+            GbErrorKind::AuthFailed if is_forbidden(&e) && e.message.contains("forbids access via a fine-grained") => e,
             GbErrorKind::AuthFailed if is_forbidden(&e) => GbError::new(GbErrorKind::AuthFailed, format!("{host} accepted the token but it can't read your user: give it the api scope (GitLab) or read access (GitHub)")),
             GbErrorKind::AuthFailed => GbError::new(GbErrorKind::AuthFailed, format!("{host} rejected this token: check that you copied all of it")),
             _ => e,
@@ -302,7 +304,7 @@ pub(crate) fn no_account(host: &str) -> GbError {
 
 // --- 4A T6: remotes → projects (spec #4 §3.3), forks, settings, avatars ---
 use crate::avatar::AvatarPayload;
-use crate::forge::{ForgeProject, ForgeProjectSettings};
+use crate::forge::{ForgeProject, ForgeProjectSettings, ForkPage};
 use crate::payload::RemotePayload;
 use serde::Serialize;
 use ts_rs::TS;
@@ -329,27 +331,46 @@ pub struct RepoProjects {
     pub remotes: Vec<RemoteProject>,
     /// The remote whose project the repo's MRs/PRs target (`target_remote`).
     pub target: Option<String>,
+    /// The target is the user's choice (`RepoSettings::forge_target_remote`), not the automatic pick.
+    pub target_chosen: bool,
 }
 
 impl RepoProjects {
     /// Every remote, none mapped (a build without forges).
     pub fn without_accounts(remotes: &[RemotePayload]) -> Self {
-        Self { remotes: remotes.iter().map(|r| RemoteProject { remote: r.name.clone(), host: r.host.clone(), path: r.path.clone(), account: None, project: None, error: None }).collect(), target: None }
+        Self { remotes: remotes.iter().map(|r| RemoteProject { remote: r.name.clone(), host: r.host.clone(), path: r.path.clone(), account: None, project: None, error: None }).collect(), target: None, target_chosen: false }
     }
 }
 
-/// Spec #4 §3.3: origin's project, unless it's a fork of another remote's project (origin is
-/// the user's fork, `upstream` the project): then that remote's. Without origin, the first mapped.
-pub fn target_remote(list: &[RemoteProject]) -> Option<String> {
-    let mapped: Vec<&RemoteProject> = list.iter().filter(|r| r.project.is_some()).collect();
-    let first = mapped.iter().find(|r| r.remote == "origin").or(mapped.first())?;
-    let project = first.project.as_ref()?;
-    if let Some(parent) = &project.fork_of
-        && let Some(up) = mapped.iter().find(|r| r.project.as_ref().is_some_and(|p| &p.path == parent && p.host == project.host))
-    {
-        return Some(up.remote.clone());
+/// Spec #4 §3.3: the repo's target remote. The user's choice (`preferred`, when that remote
+/// exists) first. Else `origin` when mapped (unless it's a fork of another remote's project:
+/// then that remote); else the remote hosting the parent of a mapped fork (the fork layout: a
+/// contributor's fork is mapped, `origin` isn't); else `origin` when it's on a forge host with an
+/// account (its lookup failed: say so rather than pick another); else the first mapped one.
+pub fn target_remote(list: &[RemoteProject], preferred: Option<&str>) -> Option<String> {
+    if let Some(p) = preferred.and_then(|p| list.iter().find(|r| r.remote == p)) {
+        return Some(p.remote.clone());
     }
-    Some(first.remote.clone())
+    let mapped: Vec<&RemoteProject> = list.iter().filter(|r| r.project.is_some()).collect();
+    if let Some(first) = mapped.iter().find(|r| r.remote == "origin") {
+        let project = first.project.as_ref()?;
+        if let Some(parent) = &project.fork_of
+            && let Some(up) = mapped.iter().find(|r| r.project.as_ref().is_some_and(|p| &p.path == parent && p.host == project.host))
+        {
+            return Some(up.remote.clone());
+        }
+        return Some(first.remote.clone());
+    }
+    for m in &mapped {
+        let Some(parent) = m.project.as_ref().and_then(|p| p.fork_of.as_ref()) else { continue };
+        if let Some(up) = list.iter().find(|r| r.path.as_ref() == Some(parent) && r.host == m.host && r.remote != m.remote) {
+            return Some(up.remote.clone());
+        }
+    }
+    if let Some(o) = list.iter().find(|r| r.remote == "origin" && r.account.is_some() && r.host.is_some() && r.path.is_some()) {
+        return Some(o.remote.clone());
+    }
+    mapped.first().map(|r| r.remote.clone())
 }
 
 /// The profile's account for a remote's host (spec #4 §3.3). The host itself first: an https
@@ -401,14 +422,17 @@ impl ForgeHub {
                 if rp.account.is_some() {
                     match self.project_on(store, host, path, refresh).await {
                         Ok(found) => rp.project = found.map(|(_, p)| p),
-                        Err(e) => rp.error = Some(e.message),
+                        Err(e) => {
+                            tracing::warn!(host = %host, path = %path, kind = ?e.kind, "forge project lookup for remote {} failed: {}", r.name, e.message);
+                            rp.error = Some(e.message);
+                        }
                     }
                 }
             }
             out.push(rp);
         }
-        let target = target_remote(&out);
-        RepoProjects { remotes: out, target }
+        let target = target_remote(&out, remotes.iter().find(|r| r.main).map(|r| r.name.as_str()));
+        RepoProjects { remotes: out, target, target_chosen: remotes.iter().any(|r| r.main) }
     }
 
     /// `remote`'s project and the provider to ask about it (4B's door to MRs).
@@ -434,6 +458,18 @@ impl ForgeHub {
         }
         forks.sort_by_key(|f| std::cmp::Reverse(f.updated_at));
         Ok(forks)
+    }
+
+    /// One page of `remote`'s forks (see `forks`).
+    pub async fn forks_page(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], remote: &str, page: u32, per_page: u32) -> Result<ForkPage, GbError> {
+        let (key, provider, project) = self.project_for_remote(store, remotes, remote).await?;
+        let result = provider.forks_page(&project, page.max(1), per_page.clamp(1, 100)).await;
+        self.record(&key, &result);
+        let mut out = result?;
+        for f in &mut out.forks {
+            f.fork_of.get_or_insert_with(|| project.path.clone());
+        }
+        Ok(out)
     }
 
     pub async fn project_settings(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], remote: &str) -> Result<ForgeProjectSettings, GbError> {
@@ -463,6 +499,36 @@ impl ForgeHub {
                     }
                 }
             }
+        }
+        None
+    }
+
+    /// The picture a forge linked to (`ForgeUser.avatar_url`, a project owner's): fetched by the
+    /// first of the active profile's accounts that serves `url` (`ForgeProvider::avatar_at`: its
+    /// own host's uploads or its forge's avatar host, so never an arbitrary address), Gravatar's
+    /// only when `gravatar` (the user's setting). An address whose shape could resolve elsewhere on
+    /// the host (`avatar_url_is_clean`: dot segments, encodings, userinfo…) never reaches an account.
+    /// Failures are quiet: the UI keeps the initials.
+    pub async fn avatar_at(&self, store: &Arc<SettingsStore>, url: &str, gravatar: bool) -> Option<AvatarPayload> {
+        let url = url.trim();
+        // The providers check again, with their own bases (`avatar_fetch_url`).
+        if !crate::forge::avatar_url_is_clean(url) {
+            return None;
+        }
+        if !gravatar && crate::forge::is_gravatar_url(url) {
+            return None;
+        }
+        let profile = store.active_profile();
+        for host in profile.forge_accounts.iter().map(|a| a.host.clone()) {
+            let Ok(Some((_, provider))) = self.provider_for_host(store, &host).await else { continue };
+            let Some(fetch) = provider.avatar_at(url) else { continue };
+            return match fetch.await {
+                Ok(found) => found,
+                Err(e) => {
+                    tracing::debug!("forge avatar from {host}: {}", e.message);
+                    None
+                }
+            };
         }
         None
     }
@@ -711,7 +777,7 @@ mod tests {
     use crate::remotes::HostKind;
 
     fn remote(name: &str, host: Option<&str>, path: Option<&str>) -> RemotePayload {
-        RemotePayload { name: name.into(), host: host.map(str::to_string), path: path.map(str::to_string), host_kind: HostKind::GitLab }
+        RemotePayload { name: name.into(), host: host.map(str::to_string), path: path.map(str::to_string), host_kind: HostKind::GitLab, main: false }
     }
 
     async fn mapped() -> (Arc<FakeConnector>, ForgeHub, Arc<SettingsStore>) {
@@ -745,10 +811,60 @@ mod tests {
     #[test]
     fn the_target_is_origin_unless_it_forks_another_remotes_project() {
         let rp = |remote: &str, p: Option<ForgeProject>| RemoteProject { remote: remote.into(), host: Some(HOST.into()), path: p.as_ref().map(|p| p.path.clone()), account: Some(ForgeKind::GitLab), project: p, error: None };
-        assert_eq!(target_remote(&[rp("origin", Some(project(HOST, "group/project", None, 1))), rp("fork", Some(project(HOST, "me/project", Some("group/project"), 1)))]).as_deref(), Some("origin"));
-        assert_eq!(target_remote(&[rp("origin", Some(project(HOST, "me/project", Some("group/project"), 1)))]).as_deref(), Some("origin"), "the parent isn't a remote here");
-        assert_eq!(target_remote(&[rp("origin", None), rp("work", Some(project(HOST, "group/project", None, 1)))]).as_deref(), Some("work"));
-        assert_eq!(target_remote(&[rp("origin", None)]), None);
+        assert_eq!(target_remote(&[rp("origin", Some(project(HOST, "group/project", None, 1))), rp("fork", Some(project(HOST, "me/project", Some("group/project"), 1)))], None).as_deref(), Some("origin"));
+        assert_eq!(target_remote(&[rp("origin", Some(project(HOST, "me/project", Some("group/project"), 1)))], None).as_deref(), Some("origin"), "the parent isn't a remote here");
+        assert_eq!(target_remote(&[rp("origin", None), rp("work", Some(project(HOST, "group/project", None, 1)))], None).as_deref(), Some("work"));
+        assert_eq!(target_remote(&[rp("origin", None)], None), None);
+    }
+
+    fn rpath(remote: &str, path: &str, p: Option<ForgeProject>) -> RemoteProject {
+        RemoteProject { remote: remote.into(), host: Some(HOST.into()), path: Some(path.into()), account: Some(ForgeKind::GitLab), project: p, error: None }
+    }
+
+    #[test]
+    fn the_target_follows_the_choice_then_a_forks_parent_then_a_failed_origin() {
+        // The fork layout: origin's lookup failed; a contributor's fork (mapped) names origin's path as its parent.
+        let forks = [
+            rpath("alice", "alice/widget", Some(project(HOST, "alice/widget", Some("upstream/widget"), 1))),
+            rpath("me", "me/widget", None),
+            rpath("origin", "upstream/widget", None),
+            rpath("bob", "bob/widget", None),
+        ];
+        assert_eq!(target_remote(&forks, None).as_deref(), Some("origin"), "a mapped fork's parent is the remote with that path");
+        assert_eq!(target_remote(&forks, Some("bob")).as_deref(), Some("bob"), "the choice wins, mapped or not");
+        assert_eq!(target_remote(&forks, Some("gone")).as_deref(), Some("origin"), "a choice that no longer exists is ignored");
+        // Rule 3: nothing hints at origin, but it's on a forge host with an account.
+        let failed = [rpath("alice", "alice/p", Some(project(HOST, "alice/p", None, 1))), rpath("origin", "g/p", None)];
+        assert_eq!(target_remote(&failed, None).as_deref(), Some("origin"));
+        // Rule 4: no origin: the first mapped.
+        let none = [rpath("bob", "bob/p", Some(project(HOST, "bob/p", None, 1))), rpath("alice", "alice/p", Some(project(HOST, "alice/p", None, 1)))];
+        assert_eq!(target_remote(&none, None).as_deref(), Some("bob"));
+        // Origin mapped still wins over the fork rule.
+        let mapped_origin = [rpath("origin", "g/p", Some(project(HOST, "g/p", None, 1))), rpath("f", "f/p", Some(project(HOST, "f/p", Some("g/p"), 1)))];
+        assert_eq!(target_remote(&mapped_origin, None).as_deref(), Some("origin"));
+        // A fork's parent path on another host isn't the same project.
+        let other_host = RemoteProject { host: Some("elsewhere.example".into()), ..rpath("origin", "upstream/widget", None) };
+        let fork = rpath("alice", "alice/widget", Some(project(HOST, "alice/widget", Some("upstream/widget"), 1)));
+        assert_eq!(target_remote(&[fork.clone(), RemoteProject { account: None, ..other_host }], None).as_deref(), Some("alice"), "no match: the first mapped");
+        // A remote with no host or path is skipped (rule 3 needs both).
+        let bare = RemoteProject { remote: "origin".into(), host: None, path: None, account: Some(ForgeKind::GitLab), project: None, error: None };
+        assert_eq!(target_remote(&[bare, fork], None).as_deref(), Some("alice"));
+    }
+
+    #[tokio::test]
+    async fn the_main_remote_flag_drives_the_target_and_a_failed_lookup_is_kept_with_its_reason() {
+        let (_, hub, store) = mapped().await;
+        let mut remotes = [remote("origin", Some(HOST), Some("ada/project")), remote("upstream", Some(HOST), Some("group/project")), remote("lost", Some(HOST), Some("nobody/nothing"))];
+        remotes[2].main = true;
+        let rp = hub.repo_projects(&store, &remotes, false).await;
+        assert_eq!(rp.target.as_deref(), Some("lost"), "chosen though its lookup failed");
+        assert!(rp.remotes[2].project.is_none() && rp.remotes[2].error.is_some());
+        assert!(rp.target_chosen);
+        remotes[2].main = false;
+        remotes[1].main = true;
+        assert_eq!(hub.repo_projects(&store, &remotes, false).await.target.as_deref(), Some("upstream"));
+        remotes[1].main = false;
+        assert!(!hub.repo_projects(&store, &remotes, false).await.target_chosen);
     }
 
     #[tokio::test]
@@ -765,6 +881,52 @@ mod tests {
         hub.repo_projects(&store, &remotes, true).await;
         assert_eq!(asked("group/project"), 2, "a refresh asks again");
         assert_eq!(hub.accounts(&store)[0].status, AccountStatus::Ok, "a missing project says nothing about the account");
+    }
+
+    #[tokio::test]
+    async fn a_linked_avatar_comes_only_from_an_account_that_serves_its_address() {
+        let png = Avatar { mime: "image/png".into(), base64: "Rk9SR0U=".into() };
+        let upload = format!("https://{HOST}/uploads/-/system/user/avatar/7/a.png");
+        let gravatar = "https://secure.gravatar.com/avatar/abc?s=80&d=identicon";
+        let mut p = FakeProvider::new(ForgeKind::GitLab, HOST);
+        p.avatars.insert(upload.clone(), png.clone());
+        // Fetched as `avatar_fetch_url` cleans it: its fallback address dropped.
+        p.avatars.insert("https://secure.gravatar.com/avatar/abc?s=80&d=404".into(), png.clone());
+        let conn = FakeConnector::with(TOKEN, p);
+        let h = hub(conn.clone(), MemTokens::new(TokenStorage::Keyring));
+        let store = SettingsStore::in_memory();
+        h.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
+        assert_eq!(h.avatar_at(&store, &upload, true).await, Some(png.clone()));
+        assert_eq!(h.avatar_at(&store, gravatar, true).await, Some(png));
+        assert_eq!(h.avatar_at(&store, gravatar, false).await, None, "the Gravatar setting is off");
+        let p = conn.by_token.lock().unwrap()[TOKEN].clone();
+        let asked = || p.calls().iter().filter(|c| c.starts_with("avatar_at")).count();
+        assert_eq!(asked(), 2);
+        for refused in [
+            "https://evil.example.com/a.png".to_string(),
+            format!("http://{HOST}/uploads/a.png"),
+            format!("https://{HOST}/api/v4/user"),
+            format!("https://{HOST}/uploads/../api/v4/user"),
+            format!("https://{HOST}/uploads/%2e%2e/api/v4/user"),
+            format!("https://{HOST}/uploads/..?x"),
+            format!("https://{HOST}/uploads/..#x"),
+            format!("https://{HOST}/uploads/..%2f..%2fapi/v4/user"),
+            format!("https://{HOST}/uploads/..%5capi"),
+            format!("https://x@{HOST}/uploads/a.png"),
+            "file:///etc/passwd".to_string(),
+        ] {
+            assert_eq!(h.avatar_at(&store, &refused, true).await, None, "{refused}");
+        }
+        assert_eq!(asked(), 2, "no account was asked for a refused address");
+    }
+
+    #[test]
+    fn gravatar_addresses_are_https_on_gravatars_own_hosts() {
+        assert!(crate::forge::is_gravatar_url("https://secure.gravatar.com/avatar/abc"));
+        assert!(crate::forge::is_gravatar_url("https://www.gravatar.com/avatar/abc?s=80"));
+        for not in ["http://secure.gravatar.com/avatar/abc", "https://secure.gravatar.com.evil.example/avatar/abc", "https://secure.gravatar.com/avatar/", "https://evil.example/https://secure.gravatar.com/avatar/x"] {
+            assert!(!crate::forge::is_gravatar_url(not), "{not}");
+        }
     }
 
     #[tokio::test]
@@ -978,6 +1140,16 @@ mod tests {
             assert_eq!(accounts.len(), 2, "the add landed");
             assert_eq!(accounts[0].version.as_deref(), Some("18.9.1-ee"), "the refresh landed");
         }
+    }
+
+    #[tokio::test]
+    async fn an_org_policy_403_keeps_the_forges_words() {
+        let said = "The 'acme' organization forbids access via a fine-grained personal access tokens if the token's lifetime is greater than 90 days";
+        let check = Some(GbError::new(GbErrorKind::AuthFailed, format!("{HOST}{}{said}", crate::forge::FORBIDDEN_MARK)));
+        let p = Arc::new(Hooked { inner: FakeProvider::new(ForgeKind::GitLab, HOST), on_version: Box::new(|| {}), check });
+        let hub = ForgeHub::new(Arc::new(One(p)), MemTokens::new(TokenStorage::Keyring), Arc::new(|| NOW_MS));
+        let e = hub.add_account(&SettingsStore::in_memory(), HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap_err();
+        assert!(e.message.contains("forbids access via a fine-grained personal access token"), "{}", e.message);
     }
 
     #[tokio::test]

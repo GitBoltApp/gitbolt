@@ -6,7 +6,7 @@ import type { HostKind } from '../api/gen/HostKind';
 import { useModalKeys } from '../app/modalKeys';
 import { useRuntime } from '../app/runtime';
 import { EMPTY_REPO_SETTINGS, flushSaves, useAppState } from '../app/state';
-import { avatars } from '../avatars/avatarStore';
+import { resetAvatars } from '../avatars/avatarStore';
 import { DEFAULT_EDITOR_SETTINGS, useEditorSettings } from '../diff/editorSettings';
 import { clampEditorFont, EDITOR_FONT_MAX, EDITOR_FONT_MIN } from '../diff/options';
 import { HoverTooltip } from '../ui/HoverTooltip';
@@ -164,12 +164,12 @@ function SettingsDialog() {
   const changeGravatar = (on: boolean) => {
     setSettings({ gravatar: on });
     // The backend learns the setting with the save; what it answers changes after that.
-    void flushSaves().then(() => avatars.reset());
+    void flushSaves().then(() => resetAvatars());
   };
   // --- 4A T11 ---
   const changeForgeAvatars = (on: boolean) => {
     setSettings({ forgeAvatars: on });
-    void flushSaves().then(() => avatars.reset());
+    void flushSaves().then(() => resetAvatars());
   };
   // --- end 4A T11 ---
   const resetAll = async () => {
@@ -208,7 +208,7 @@ function SettingsDialog() {
           <div ref={bodyRef} className="settings-body">
             {[section].map((s) => (
               <section key={s} className="settings-section" aria-label={s} data-section={s}>
-                <h3>{s}{s === 'Profile' || s === 'Accounts' ? ` (${profile.name})` : s === 'Repository' ? ` (${rt?.repo?.name})` : ''}</h3>
+                <h3>{s === 'Accounts' ? `Forge accounts · ${profile.name} profile` : s}{s === 'Profile' ? ` (${profile.name})` : s === 'Repository' ? ` (${rt?.repo?.name})` : ''}</h3>
                 {s === 'General' && <>
                   <Row id="reposFolder">
                     <TextField id="reposFolder" value={profile.reposFolder ?? ''} placeholder="/home/you/repos" onCommit={(v) => updateProfile((p) => ({ ...p, reposFolder: v || null }))} />
@@ -262,7 +262,7 @@ function SettingsDialog() {
                 )}
               </section>
             ))}
-            <p className="dim settings-note">The pinned trunk is set with the pin button in the graph&apos;s header. Zoom is in the status bar.</p>
+            {section === 'General' && <p className="dim settings-note">The pinned trunk is set with the pin button in the graph&apos;s header. Zoom is in the status bar.</p>}
             <div className="settings-foot">
               <button type="button" className="danger" onClick={() => void resetAll()}>Reset settings to defaults…</button>
             </div>

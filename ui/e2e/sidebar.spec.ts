@@ -259,7 +259,7 @@ test.describe('sidebar item menus', () => {
     await page.keyboard.press('Escape');
     await panel(page, 'Remote').getByRole('treeitem').first().click({ button: 'right' });
     // Spec #3 §3.9: a remote's menu gains Push all tags, first.
-    expect(await labels(page)).toEqual(['Push all tags to origin', 'Copy remote name', 'Copy URL']);
+    expect(await labels(page)).toEqual(['Push all tags to origin', 'Copy remote name', 'Copy URL', 'Remove remote…']);
     await action(page, 'Copy remote name').click();
     await copied(page, 'origin');
   });

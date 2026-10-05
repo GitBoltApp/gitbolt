@@ -17,13 +17,13 @@ vi.mock('../../stacks/push', () => ({ pushStack: (...a: unknown[]) => pushStack(
 const mr = (number: number, source: string, target: string, state: ForgeMr['state'] = 'open'): ForgeMr => ({
   number, title: `MR ${number}`, state, author: { id: 1, username: 'ada', name: 'Ada', avatarUrl: null, webUrl: '', email: null },
   sourceProject: 'group/project', sourceBranch: source, targetProject: 'group/project', targetBranch: target, headSha: `head${number}`,
-  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], updatedAt: number, stacked: true,
+  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: number, stacked: true,
 });
 const lb = (name: string, over: Partial<LocalBranch> = {}): LocalBranch => ({
   name, fullName: `refs/heads/${name}`, target: `${name}-tip`, upstream: `refs/remotes/origin/${name}`, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '',
   isHead: false, worktree: null, checkedOut: null, pushTarget: `origin/${name}`, pushBehind: 0, rewritten: null, ...over,
 });
-const project = { kind: 'gitlab' as const, id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: '', defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false };
+const project = { kind: 'gitlab' as const, id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: '', defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false, ownerAvatarUrl: null };
 const target = { remote: 'origin', kind: 'gitlab' as const, project };
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 const merged = mr(1, 'feature/a', 'main', 'merged');

@@ -263,7 +263,8 @@ fn eligible(e: &JournalEntry) -> Result<(), String> {
     }
     match e.undo {
         UndoKind::Restore if e.before.is_some() && e.after.is_some() && e.refs.is_empty() && e.config.is_empty() && e.head_before == e.head_after => Ok(()),
-        UndoKind::MoveRefs if e.before.is_none() && e.after.is_none() && (!e.refs.is_empty() || !e.config.is_empty()) => Ok(()),
+        // A removed remote's symbolic refs aren't replayed out of order: in order only.
+        UndoKind::MoveRefs if e.before.is_none() && e.after.is_none() && e.removed_remote.is_none() && (!e.refs.is_empty() || !e.config.is_empty()) => Ok(()),
         _ => in_order(),
     }
 }

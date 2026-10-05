@@ -250,7 +250,18 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         ("GET", ["merge_requests"]) => {
             let mut mrs: Vec<&FakeMergeRequest> = st.seed.gitlab.merge_requests.iter().filter(|m| m.project == project && query_matches(st, m, r)).collect();
             mrs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-            Reply::page(mrs.iter().map(|m| mr_json(st, m, &base, false)).collect(), r, &here)
+            // As GitLab: the lists (not a single MR's GET) take `with_labels_details`, then each
+            // label is an object with its colour.
+            let details = r.query.get("with_labels_details").is_some_and(|v| v == "true");
+            let one = |m: &FakeMergeRequest| {
+                let mut v = mr_json(st, m, &base, false);
+                if details {
+                    let color = |l: &String| st.seed.gitlab.labels.iter().find(|x| x.name == *l).map(|x| x.color.clone());
+                    v["labels"] = Value::Array(m.labels.iter().map(|l| json!({ "name": l, "color": color(l) })).collect());
+                }
+                v
+            };
+            Reply::page(mrs.iter().map(|m| one(m)).collect(), r, &here)
         }
         ("GET", ["pipelines"]) => {
             let mut mrs: Vec<&FakeMergeRequest> = st.seed.gitlab.merge_requests.iter().filter(|m| m.project == project && m.pipeline.is_some()).collect();

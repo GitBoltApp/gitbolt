@@ -46,9 +46,9 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
 
     await view.getByRole('textbox', { name: 'Write a comment' }).fill('Thanks, merging soon.');
     await view.getByRole('button', { name: 'Comment', exact: true }).click();
-    await expect(view.getByRole('region', { name: 'Discussion' })).toContainText('Thanks, merging soon.');
+    await expect(view.getByRole('region', { name: 'Activity' })).toContainText('Thanks, merging soon.');
     await view.getByRole('button', { name: 'Approve', exact: true }).click();
-    await expect(view.getByRole('button', { name: 'You approved it' })).toBeVisible();
+    await expect(view.getByRole('button', { name: 'Approved', exact: true })).toBeVisible();
     await expect(view.getByRole('button', { name: 'Merge', exact: true })).toBeEnabled();
 
     const log = (await forgeRequests(request)).slice(logBefore);

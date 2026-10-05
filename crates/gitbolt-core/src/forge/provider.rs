@@ -19,6 +19,94 @@ pub fn unsupported<'a, T: Send + 'a>(what: &'static str) -> ForgeFuture<'a, T> {
     Box::pin(async move { Err(GbError::new(GbErrorKind::InvalidInput, format!("{what} isn't supported by this forge yet"))) })
 }
 
+/// Gravatar's avatar addresses, https only: a forge (GitLab) links them for users without an upload.
+pub const GRAVATAR_AVATAR_BASES: [&str; 3] = ["https://secure.gravatar.com/avatar/", "https://www.gravatar.com/avatar/", "https://gravatar.com/avatar/"];
+
+/// `url` is a Gravatar picture (the user's Gravatar setting decides whether GitBolt fetches it).
+pub fn is_gravatar_url(url: &str) -> bool {
+    GRAVATAR_AVATAR_BASES.iter().any(|b| url.len() > b.len() && url.get(..b.len()).is_some_and(|p| p.eq_ignore_ascii_case(b)))
+}
+
+fn percent_decode(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let hex = std::str::from_utf8(b.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// `url` is `base` or below it (`base/…`, `base?…`), the scheme and host compared without case.
+fn under_base(url: &str, base: &str) -> bool {
+    let base = base.trim_end_matches('/');
+    url.get(..base.len()).is_some_and(|p| p.eq_ignore_ascii_case(base)) && matches!(url.as_bytes().get(base.len()), None | Some(b'/' | b'?'))
+}
+
+/// `url`'s scheme, authority, path and query, when its shape is one an avatar address may have:
+/// no userinfo or `@` anywhere, no fragment, backslash, whitespace or control character, no
+/// encoded `/` or `\` in the path, and a path that, percent-decoded once, has no `.` or `..`
+/// segment and no `%` left (a double encoding). Anything else could resolve somewhere else on the
+/// host than the prefix it seems to be under.
+fn avatar_url_parts(url: &str) -> Option<(&str, &str, &str, Option<&str>)> {
+    if url.is_empty() || url.contains(['@', '\\', '#']) || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
+    let (scheme, rest) = url.split_once("://")?;
+    let end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let (authority, after) = rest.split_at(end);
+    let (path, query) = match after.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (after, None),
+    };
+    let lower = path.to_ascii_lowercase();
+    if authority.is_empty() || lower.contains("%2f") || lower.contains("%5c") {
+        return None;
+    }
+    let decoded = percent_decode(path)?;
+    if decoded.contains(['%', '\\']) || decoded.split('/').any(|s| s == "." || s == "..") {
+        return None;
+    }
+    Some((scheme, authority, path, query))
+}
+
+/// `url` has a shape an avatar address may have (`avatar_fetch_url`'s checks without the allowlist).
+pub fn avatar_url_is_clean(url: &str) -> bool {
+    avatar_url_parts(url.trim()).is_some()
+}
+
+/// The address to fetch for a forge's `avatar_url`, or `None`: never an open fetcher. Only under
+/// one of `bases` (the account's own: GitLab's `<web>/uploads`, GitHub's avatar host) or on
+/// Gravatar's https hosts (the caller checks the Gravatar setting), with a clean shape
+/// (`avatar_url_parts`), and https, unless its base itself is plain http (the harness's fake
+/// forge). Gravatar's `d=` (a fallback address Gravatar would redirect to) becomes `d=404`.
+pub fn avatar_fetch_url(url: &str, bases: &[&str]) -> Option<String> {
+    let url = url.trim();
+    let (scheme, authority, path, query) = avatar_url_parts(url)?;
+    let own = bases.iter().find(|b| under_base(url, b));
+    let gravatar = is_gravatar_url(url);
+    if own.is_none() && !gravatar {
+        return None;
+    }
+    let https = scheme.eq_ignore_ascii_case("https");
+    if !https && !own.is_some_and(|b| b.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("http://"))) {
+        return None;
+    }
+    if gravatar {
+        let kept = query.unwrap_or("").split('&').filter(|kv| !kv.is_empty() && !matches!(kv.split('=').next(), Some("d" | "default")));
+        let q: Vec<&str> = kept.chain(["d=404"]).collect();
+        return Some(format!("{scheme}://{authority}{path}?{}", q.join("&")));
+    }
+    Some(url.to_string())
+}
+
 /// Set on a 403's message (an `AuthFailed` like a 401's): see [`is_forbidden`].
 pub const FORBIDDEN_MARK: &str = " refused: ";
 
@@ -65,8 +153,28 @@ pub trait ForgeProvider: Send + Sync {
     /// The project's forks, newest activity first.
     fn forks<'a>(&'a self, project: &'a ForgeProject) -> ForgeFuture<'a, Vec<ForgeProject>>;
 
+    /// One page of the forks, newest first. The default slices `forks`; providers ask the forge for just the page.
+    fn forks_page<'a>(&'a self, project: &'a ForgeProject, page: u32, per_page: u32) -> ForgeFuture<'a, ForkPage> {
+        Box::pin(async move {
+            let all = self.forks(project).await?;
+            let per = per_page.max(1) as usize;
+            let start = (page.max(1) as usize - 1).saturating_mul(per);
+            let next = (start.saturating_add(per) < all.len()).then(|| page.max(1) + 1);
+            Ok(ForkPage { forks: all.into_iter().skip(start).take(per).collect(), next })
+        })
+    }
+
     // Avatars (4A). `Ok(None)`: the forge has none for this email (Gravatar is next).
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>>;
+    /// The picture at `url`, a forge user's or project owner's `avatar_url`, cached like the
+    /// others. `None` (and no request) unless `url` is one this account serves: under its own web
+    /// host (GitLab's uploads) or its forge's avatar host (GitHub's), or Gravatar's
+    /// (GitLab links it). Every implementation checks `url` with `avatar_fetch_url` (its shape and
+    /// its own bases). The token only goes where `HttpClient::get_image` sends it: the account's
+    /// own host, never an avatar CDN.
+    fn avatar_at<'a>(&'a self, _url: &'a str) -> Option<ForgeFuture<'a, Option<AvatarPayload>>> {
+        None
+    }
 
     // --- 4B: reads ---
     fn open_mrs<'a>(&'a self, _project: &'a ForgeProject, _filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
@@ -164,5 +272,59 @@ pub trait TokenStore: Send + Sync {
     /// leaves the file copy as it was.
     fn migrate_to_keyring(&self, _key: &AccountKey) -> Result<Option<TokenStorage>, GbError> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UPLOADS: &str = "https://gitlab.example.com/uploads";
+    const GH: &str = "https://avatars.githubusercontent.com";
+
+    #[test]
+    fn an_avatar_address_is_fetched_only_under_the_accounts_bases_or_gravatar() {
+        let ok = format!("{UPLOADS}/-/system/user/avatar/7/a%20b.png");
+        assert_eq!(avatar_fetch_url(&ok, &[UPLOADS]).as_deref(), Some(ok.as_str()));
+        assert!(avatar_fetch_url(&format!("{GH}/u/583231?v=4"), &[GH]).is_some());
+        assert!(avatar_fetch_url("HTTPS://Avatars.GitHubUserContent.com/u/1", &[GH]).is_some(), "scheme and host without case");
+        for no in [
+            "https://gitlab.example.com/api/v4/user".to_string(),
+            "https://evil.example.com/uploads/a.png".to_string(),
+            "https://gitlab.example.com/uploadsx/a.png".to_string(),
+            format!("{GH}.evil.example/u/1"),
+            "http://gitlab.example.com/uploads/a.png".to_string(),
+            "file:///etc/passwd".to_string(),
+            "https://gitlab.example.com".to_string(),
+        ] {
+            assert_eq!(avatar_fetch_url(&no, &[UPLOADS, GH]), None, "{no}");
+        }
+        assert!(avatar_fetch_url("http://127.0.0.1:9/gitlab/uploads/a.png", &["http://127.0.0.1:9/gitlab/uploads"]).is_some(), "plain http only under an http base (the harness)");
+    }
+
+    #[test]
+    fn tricks_around_dot_segments_encodings_and_userinfo_are_refused() {
+        for no in [
+            "/uploads/..?x", "/uploads/..#x", "/uploads/../api/v4/user", "/uploads/./a.png", "/uploads/..%2f..%2fapi/v4/user",
+            "/uploads/..%2F..%2Fapi", "/uploads/%2e%2e/api/v4/user", "/uploads/%2E%2E/api", "/uploads/%252e%252e/api", "/uploads/..%5capi",
+            "/uploads\\..\\api", "/uploads/a.png#frag", "/uploads/a%zz.png", "/uploads/a .png",
+        ] {
+            let url = format!("https://gitlab.example.com{no}");
+            assert_eq!(avatar_fetch_url(&url, &[UPLOADS]), None, "{url}");
+            assert!(!avatar_url_is_clean(&url), "{url}");
+        }
+        for no in ["https://x@gitlab.example.com/uploads/a.png", "https://gitlab.example.com/uploads/a@b.png"] {
+            assert_eq!(avatar_fetch_url(no, &[UPLOADS]), None, "{no}");
+        }
+    }
+
+    #[test]
+    fn gravatars_fallback_address_becomes_a_404() {
+        assert_eq!(
+            avatar_fetch_url("https://secure.gravatar.com/avatar/abc?s=80&d=https%3A%2F%2Fevil.example.com%2Fx&default=mm", &[]).as_deref(),
+            Some("https://secure.gravatar.com/avatar/abc?s=80&d=404")
+        );
+        assert_eq!(avatar_fetch_url("https://www.gravatar.com/avatar/abc", &[]).as_deref(), Some("https://www.gravatar.com/avatar/abc?d=404"));
+        assert_eq!(avatar_fetch_url("http://secure.gravatar.com/avatar/abc", &[]), None);
     }
 }

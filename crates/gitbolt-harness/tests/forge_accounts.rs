@@ -33,7 +33,7 @@ async fn an_account_added_through_the_api_maps_remotes_lists_forks_and_serves_av
     assert_eq!(projects["remotes"][0]["project"]["id"], 42);
     assert_eq!(projects["target"], "origin");
     let forks = call(&api, json!({"method": "forgeForks", "params": {"repo": id, "remote": "origin"}})).await.unwrap();
-    assert_eq!(forks.as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect::<Vec<_>>(), ["alice/project", "ada/project"]);
+    assert_eq!(forks["forks"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect::<Vec<_>>(), ["alice/project", "ada/project"]);
     let settings = call(&api, json!({"method": "forgeProjectSettings", "params": {"repo": id, "remote": "origin"}})).await.unwrap();
     assert_eq!(settings["squash"], "defaultOff");
     let avatar = call(&api, json!({"method": "avatar", "params": {"email": "ada@example.com"}})).await.unwrap();

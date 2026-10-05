@@ -12,6 +12,8 @@ import { TagTip } from '../tags/TagTip';
 // --- 4B T10 ---
 import { useRepoContext } from '../app/repoContext';
 import { MrBadge, useChipMr } from '../forge/MrBadge';
+import { mrForLabel, useForge } from '../forge/mrStore';
+import { useShallow } from 'zustand/react/shallow';
 // --- end 4B T10 ---
 
 
@@ -80,11 +82,10 @@ export const isDetachedHead = (l: RefLabel) => l.isHead && l.name === 'HEAD' && 
 export const SOURCE_OUTLINE = 14;
 
 function ChipContent({ label, full = false, compact = false }: { label: RefLabel; full?: boolean; compact?: boolean }) {
-  // --- 4B T10: the MR/PR badge takes the place of the icon of the ref it was found through, in
-  // the same box, so the chip never changes width (spec #4 §5; ruling 1) ---
+  // --- 4B T10: the MR/PR badge, its own icon after the local and remote ones (they keep saying
+  // where the branch is, and the PR icon sits beside them). chipFit counts it. ---
   const { tabId } = useRepoContext();
   const badge = useChipMr(tabId, label);
-  const badgeAt = (via: string, size: number) => (badge?.via === via ? <MrBadge tabId={tabId} kind={badge.kind} mr={badge.mr} size={size} /> : null);
   // --- end 4B T10 ---
   return (
     <>
@@ -96,9 +97,10 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
       {label.tag && (label.annotation ? <Tag size={12} fill="currentColor" className="ref-tag-annotated" aria-label="annotated tag" /> : <Tag size={12} aria-label="tag" />)}
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}
       {!(compact && !full) && <span className={full ? 'ref-name-full' : 'ref-name'}>{label.name}</span>}
-      {label.local && (badgeAt('local', SOURCE_OUTLINE) ?? <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>)}
-      {label.remotes.map((r) => <Fragment key={r.fullName}>{badgeAt(r.fullName, 12) ?? <SourceIcon tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} host={r.host} remote={r.remote} size={12} /></SourceIcon>}</Fragment>)}
+      {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>}
+      {label.remotes.map((r) => <Fragment key={r.fullName}><SourceIcon tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} host={r.host} remote={r.remote} size={12} tabId={tabId} /></SourceIcon></Fragment>)}
       {label.worktree && <SourceIcon tip={`Checked out in ${label.worktree}`}><TreePine size={SOURCE_OUTLINE} aria-label="checked out in another worktree" /></SourceIcon>}
+      {badge && <MrBadge tabId={tabId} kind={badge.kind} mr={badge.mr} size={SOURCE_OUTLINE} />}
     </>
   );
 }
@@ -283,6 +285,9 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
 }) {
   // The theme's lanes (overrides applied): a theme switch recolours the chips in place.
   const lanes = useTheme((s) => s.colors.graph);
+  // Which chips carry an MR/PR badge (chipFit counts its icon): one shallow selector per row.
+  const { tabId } = useRepoContext();
+  const badged = useForge(useShallow((s) => { const f = s.byTab[tabId]; return labels.map((l) => !!(f?.kind && mrForLabel(f, l))); }));
   if (labels.length === 0 && rebasing) return <span className="ref-labels ref-labels-head" style={{ ['--lane-color' as string]: lanes[color % lanes.length] }}><RebasingChip name={rebasing} /></span>;
   if (labels.length === 0) return membership ? <span className="ref-labels"><DimChip membership={membership} onBranchHover={onBranchHover} /></span> : null;
   const c = lanes[color % lanes.length];
@@ -298,7 +303,7 @@ export function RefLabels({ labels, color, membership = null, onBranchHover, com
   const room = width === undefined ? undefined : width - (rebasing ? rebasingWidth(rebasing, font) + CHIP_SPACING : 0);
   const shown = room === undefined || compact || labels.length === 1
     ? 1
-    : fitCount(labels.map((l) => chipWidth(l, font, iconOnly(l))), room);
+    : fitCount(labels.map((l, i) => chipWidth(l, font, iconOnly(l), badged[i])), room);
   const hidden = labels.length - shown;
   // The checked-out branch (HEAD's label always sorts first): its chip is always lit and its
   // connector is the graph line's width and colour (J21, graph.css; draw.ts `headRow`).

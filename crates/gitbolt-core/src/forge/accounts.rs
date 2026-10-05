@@ -83,9 +83,16 @@ pub fn check_kind_host(kind: ForgeKind, host: &str) -> Result<(), GbError> {
 
 /// The forge's "new token" page, prefilled with the write scope GitBolt needs (spec #4 §2).
 pub fn token_page_url(kind: ForgeKind, host: &str) -> String {
+    token_page_url_for(kind, host, false)
+}
+
+/// Like [`token_page_url`]; `classic` picks GitHub's classic-token page (no lifetime policy,
+/// unlike orgs that cap fine-grained tokens). GitLab has no such choice.
+pub fn token_page_url_for(kind: ForgeKind, host: &str, classic: bool) -> String {
     const DESCRIPTION: &str = "name=GitBolt&description=GitBolt%20desktop%20client";
     match kind {
         ForgeKind::GitLab => format!("https://{host}/-/user_settings/personal_access_tokens?{DESCRIPTION}&scopes=api"),
+        ForgeKind::GitHub if classic => "https://github.com/settings/tokens/new?description=GitBolt%20desktop%20client&scopes=repo,read:org".to_string(),
         ForgeKind::GitHub => format!("https://github.com/settings/personal-access-tokens/new?{DESCRIPTION}&pull_requests=write&issues=write&checks=read&statuses=read&metadata=read&profile=read"),
     }
 }
@@ -111,6 +118,8 @@ mod tests {
     #[test]
     fn create_token_pages_are_prefilled_with_write_scope() {
         assert_eq!(token_page_url(ForgeKind::GitLab, "gitlab.example.com"), "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=GitBolt&description=GitBolt%20desktop%20client&scopes=api");
+        assert_eq!(token_page_url_for(ForgeKind::GitHub, "github.com", true), "https://github.com/settings/tokens/new?description=GitBolt%20desktop%20client&scopes=repo,read:org");
+        assert_eq!(token_page_url_for(ForgeKind::GitLab, "gitlab.example.com", true), token_page_url(ForgeKind::GitLab, "gitlab.example.com"));
         assert_eq!(token_page_url(ForgeKind::GitHub, "github.com"), "https://github.com/settings/personal-access-tokens/new?name=GitBolt&description=GitBolt%20desktop%20client&pull_requests=write&issues=write&checks=read&statuses=read&metadata=read&profile=read");
     }
 

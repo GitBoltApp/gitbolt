@@ -43,3 +43,6 @@ export function branchesText(mr: ForgeMr): string {
   const fork = mr.sourceProject !== '' && mr.sourceProject !== mr.targetProject;
   return `${fork ? `${ownerOf(mr.sourceProject)}:` : ''}${mr.sourceBranch} → ${mr.targetBranch}`;
 }
+
+/** A pipeline's one-word state for the header's fact tile: "Passed", "Failed", "None". */
+export const pipelineWord = (p: ForgePipeline | null): string => (p ? PIPELINE_WORDS[p.status].replace(/^./, (c) => c.toUpperCase()) : 'None');

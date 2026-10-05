@@ -37,7 +37,7 @@ mod tests {
             kind: ForgeKind::GitLab, id: 42, host: "gitlab.example.com".into(), path: "group/project".into(), name: "project".into(),
             owner: "group".into(), web_url: "https://gitlab.example.com/group/project".into(), default_branch: Some("main".into()),
             clone_https: "https://gitlab.example.com/group/project.git".into(), clone_ssh: "git@gitlab.example.com:group/project.git".into(),
-            fork_of: None, updated_at: Some(1_791_115_200), archived: false,
+            fork_of: None, updated_at: Some(1_791_115_200), archived: false, owner_avatar_url: None,
         }
     }
 

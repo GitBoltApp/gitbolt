@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { api, errorMessage } from '../api/client';
 import type { ForgeProject } from '../api/gen/ForgeProject';
@@ -15,6 +15,8 @@ import { addForkRemote, addRemoteAndFetch } from './addRemote';
 import { remoteIsProject } from './match';
 import './remotes.css';
 
+const FORKS_PAGE = 10;
+
 const useDialog = create<{ tabId: string | null }>(() => ({ tabId: null }));
 /** Opens Add remote for a tab (the Remote panel's +, the palette). */
 export const openAddRemote = (tabId: string) => useDialog.setState({ tabId });
@@ -28,7 +30,7 @@ export function AddRemoteDialog() {
 type Forks =
   | { status: 'none' }
   | { status: 'loading'; of: ForgeProject }
-  | { status: 'ready'; of: ForgeProject; list: ForgeProject[] }
+  | { status: 'ready'; of: ForgeProject; remote: string; list: ForgeProject[]; next: number | null; more: 'idle' | 'loading' | { error: string } }
   | { status: 'error'; of: ForgeProject; message: string };
 
 function Form({ tabId }: { tabId: string }) {
@@ -40,6 +42,10 @@ function Form({ tabId }: { tabId: string }) {
   const [url, setUrl] = useState('');
   const [name, setName] = useState<string | null>(null); // null: follows the URL's owner
   const [forks, setForks] = useState<Forks>({ status: 'none' });
+  const inFlight = useRef(false);
+  const generation = useRef(0); // bumps on each (re)open load: older answers are dropped
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const sentinelRef = useRef<HTMLLIElement | null>(null);
   const ref = useModalKeys<HTMLDivElement>(true, closeAddRemote);
   const trimmed = url.trim();
   const parsed = parseRemoteUrl(trimmed);
@@ -52,6 +58,8 @@ function Form({ tabId }: { tabId: string }) {
   useEffect(() => {
     if (repoId === undefined) return;
     let live = true;
+    const gen = ++generation.current;
+    inFlight.current = false;
     void (async () => {
       const projects = await api.forgeRepoProjects(repoId).catch(() => null);
       const target = projects?.remotes.find((r) => r.remote === projects.target);
@@ -59,14 +67,45 @@ function Form({ tabId }: { tabId: string }) {
       const of = target.project;
       setForks({ status: 'loading', of });
       try {
-        const list = await api.forgeForks(repoId, target.remote);
-        if (live) setForks({ status: 'ready', of, list });
+        const page = await api.forgeForks(repoId, target.remote, 1, FORKS_PAGE);
+        if (live) setForks({ status: 'ready', of, remote: target.remote, list: page.forks, next: page.next, more: 'idle' });
       } catch (e) {
         if (live) setForks({ status: 'error', of, message: errorMessage(e) });
       }
     })();
-    return () => { live = false; };
+    return () => { live = false; generation.current = gen + 1; };
   }, [repoId]);
+
+  const next = forks.status === 'ready' && forks.more === 'idle' ? forks.next : null;
+  const loadMore = useCallback(async () => {
+    if (inFlight.current || repoId === undefined) return;
+    const cur = forks;
+    if (cur.status !== 'ready' || cur.next === null) return;
+    inFlight.current = true;
+    const gen = generation.current;
+    setForks({ ...cur, more: 'loading' });
+    try {
+      const page = await api.forgeForks(repoId, cur.remote, cur.next, FORKS_PAGE);
+      if (gen !== generation.current) return;
+      const seen = new Set(cur.list.map((f) => f.path));
+      setForks({ ...cur, list: [...cur.list, ...page.forks.filter((f) => !seen.has(f.path))], next: page.next, more: 'idle' });
+    } catch (e) {
+      if (gen === generation.current) setForks({ ...cur, more: { error: errorMessage(e) } });
+    } finally {
+      inFlight.current = false;
+    }
+  }, [forks, repoId]);
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+
+  // The sentinel at the end of the list loads the next page as it nears view.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || next === null || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) void loadMoreRef.current(); }, { root: listRef.current, rootMargin: '0px 0px 80px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [next, forks.status === 'ready' ? forks.list.length : 0]);
 
   const submit = () => {
     if (urlError || nameError) return;
@@ -110,7 +149,7 @@ function Form({ tabId }: { tabId: string }) {
             {forks.status === 'error' && <p role="alert" className="modal-error">{forks.message}</p>}
             {forks.status === 'ready' && forks.list.length === 0 && <p className="dim">No forks yet</p>}
             {forks.status === 'ready' && forks.list.length > 0 && (
-              <ul className="fork-list">
+              <ul className="fork-list" ref={listRef}>
                 {forks.list.map((f) => {
                   const as = addedAs(f);
                   return (
@@ -121,6 +160,15 @@ function Form({ tabId }: { tabId: string }) {
                     </li>
                   );
                 })}
+                {(forks.next !== null || forks.more !== 'idle') && (
+                  <li className="fork-more" ref={sentinelRef}>
+                    {forks.more === 'loading' && <span className="dim">Loading…</span>}
+                    {typeof forks.more === 'object' && (
+                      <span role="alert" className="modal-error">Couldn't load more forks: {forks.more.error} <button type="button" onClick={() => void loadMore()}>Retry</button></span>
+                    )}
+                    {forks.more === 'idle' && forks.next !== null && <button type="button" onClick={() => void loadMore()}>Load more forks</button>}
+                  </li>
+                )}
               </ul>
             )}
           </section>

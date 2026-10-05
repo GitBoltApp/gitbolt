@@ -19,14 +19,15 @@ test.describe('forge accounts and remotes (spec #4 §7, 4A)', () => {
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
     await page.keyboard.press('Control+,');
     await settings(page).getByRole('button', { name: 'Accounts', exact: true }).click();
+    await settings(page).getByRole('button', { name: '+ Add account' }).click();
     await expect(settings(page).getByLabel('Host')).toHaveValue('gitlab.example.com');
     await settings(page).getByLabel('Token').fill(E2E_GITLAB_TOKEN);
-    await settings(page).getByRole('button', { name: 'Add account' }).click();
+    await settings(page).getByRole('button', { name: 'Add account', exact: true }).click();
     const account = settings(page).getByRole('listitem', { name: 'gitlab.example.com account' });
     await expect(account).toContainText('Ada Lovelace');
     await expect(account).toContainText('File — not secure');
     await expect(account).toContainText('Stored in a file, not the system keyring');
-    await expect(settings(page).getByLabel('Token')).toHaveValue('');
+    await expect(settings(page).getByLabel('Token', { exact: true })).toHaveCount(0);
     expect(await page.content()).not.toContain(E2E_GITLAB_TOKEN);
     await page.keyboard.press('Escape');
     // Adding the account polls the open tab at once: its Merge requests section appears, with no fetch wait.

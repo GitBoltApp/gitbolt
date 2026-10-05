@@ -28,6 +28,8 @@ import { MrStateIcon, PipelineIcon } from '../forge/MrIcons';
 import { openMrView } from '../forge/poll';
 import { MrFilterButton } from '../forge/MrFilterButton';
 import { ForgeStaleIcon } from '../forge/ForgeStale';
+import { RemoteLookupWarning, RemoteMainChip } from './RemoteForgeMarks';
+import { useTabForgeField } from '../forge/mrStore';
 // --- end 4B T11 ---
 
 const toggle = (list: string[], key: string) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
@@ -71,6 +73,10 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
   const headerActions = useHeaderActions((s) => s.bySection[section.id] ?? NO_ACTIONS);
   const store = useRepoViewStore();
   const fetchErrors = useRuntime((s) => s.tabs[tabId]?.remoteFetchErrors);
+  const mainRemote = useTabForgeField(tabId, 'target');
+  const mainChosen = useTabForgeField(tabId, 'targetChosen');
+  const mainKind = useTabForgeField(tabId, 'kind');
+  const lookupErrors = useTabForgeField(tabId, 'remoteErrors');
   const [cursor, setCursor] = useState(0);
   const [hover, setHover] = useState<{ item: SideItem; top: number; left: number } | null>(null);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
@@ -202,9 +208,11 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
               if (row.type === 'folder') {
                 return (
                   <div key={row.key} role="treeitem" aria-level={row.depth} aria-expanded={!row.collapsed} data-active={active} data-context={row.key === contextKey || undefined} className="sb-row sb-folder" style={style} onClick={() => { setCursor(vi.index); activate(row); }} onContextMenu={(e) => onRowMenu(e, row)}>
-                    {row.remote ? <RemoteIcon kind={row.hostKind ?? 'generic'} host={row.host} remote={row.remote} size={13} /> : row.collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
+                    {row.remote ? <RemoteIcon kind={row.hostKind ?? 'generic'} host={row.host} remote={row.remote} size={13} tabId={tabId} /> : row.collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
                     <span className="sb-label">{row.name}</span>
                     {row.remote && fetchErrors?.[row.remote] && <RemoteFetchWarning remote={row.remote} {...fetchErrors[row.remote]!} />}
+                    {row.remote && section.kind === 'remote' && row.remote === mainRemote && <RemoteMainChip remote={row.remote} kind={mainKind} chosen={mainChosen} />}
+                    {row.remote && lookupErrors[row.remote] && <RemoteLookupWarning remote={row.remote} reason={lookupErrors[row.remote]!} />}
                   </div>
                 );
               }

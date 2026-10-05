@@ -1,21 +1,15 @@
 /* The MR/PR view (spec #4 §4 "4B"), its actions (4B T13) and merge box (4B T14). */
-.mr-header, .mr-description, .mr-thread-list, .mr-merge { display: flex; flex-direction: column; gap: 4px; }
+.mr-header, .mr-description, .mr-merge { display: flex; flex-direction: column; gap: 4px; }
 .mr-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-normal); }
-.mr-state { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
-.mr-branches { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
 .mr-labels { display: flex; gap: 4px; flex-wrap: wrap; }
-.mr-label { padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--control-bg); color: var(--text-normal); }
+/* A forge label's colour (`--chip-color`, from the forge) tints a token background and draws the border; the text stays a token, readable on either theme. */
+.mr-label { padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--control-bg); color: var(--text-normal); border: 1px solid transparent; }
+.mr-label[data-colored] { background: color-mix(in srgb, var(--chip-color) 22%, var(--control-bg)); border-color: var(--chip-color); }
 .mr-description { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; padding-top: 8px; border-top: 1px solid var(--section-border); }
 .mr-dim { color: var(--text-secondary); font-size: 11px; }
 .mr-wait { margin: 0; color: var(--text-secondary); }
-.mr-thread-list { gap: 8px; padding-top: 8px; border-top: 1px solid var(--section-border); }
-.mr-discussion { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--section-border); border-radius: 6px; }
-.mr-pos { display: flex; flex-direction: column; gap: 2px; }
 .mr-snippet { margin: 0; padding: 4px 6px; font: 11px/1.4 var(--font-mono); white-space: pre; overflow-x: auto; background: var(--app-bg0); border-radius: 4px; }
-.mr-note { display: flex; flex-direction: column; gap: 2px; }
-.mr-note-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .mr-note-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.mr-system { font-size: 11px; color: var(--text-secondary); }
 .mr-link { padding: 0; border: none; background: none; color: var(--link); font: inherit; cursor: pointer; text-align: left; }
 .mr-link:hover { text-decoration: underline; }
 .mr-actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -27,9 +21,7 @@
 .mr-reply textarea, .mr-edit textarea { min-height: 56px; resize: vertical; }
 .mr-edit label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--text-secondary); }
 .mr-form-row { display: flex; justify-content: flex-end; gap: 6px; }
-.mr-merge { padding: 8px; border: 1px solid var(--section-border); border-radius: 6px; gap: 6px; }
 .mr-check, .mr-field { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.mr-merge-reason { margin: 0; font-size: 11px; color: var(--orange); }
 /* Reserved rows (4B final fix): a GitHub method select and its plain line take the same height. */
 .mr-merge-row { min-height: 22px; }
 
@@ -46,3 +38,98 @@ button.mr-button:disabled { color: var(--text-disabled); cursor: default; }
 button.mr-button.primary { background: var(--blue); border-color: var(--blue); color: var(--text-on-accent); }
 button.mr-button:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
 /* --- end 4B T13 --- */
+
+/* --- MR view redesign: header, actions, merge box, activity timeline, thread cards --- */
+.mr-header { gap: 8px; }
+.mr-state { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 11px; font-weight: 600; background: var(--control-bg); color: var(--text-secondary); }
+.mr-state[data-state="open"] { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+.mr-state[data-state="merged"] { background: color-mix(in srgb, var(--purple) 15%, transparent); color: var(--purple); }
+.mr-state[data-state="closed"] { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
+.mr-state .mr-state-icon { color: inherit; }
+.mr-branches { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.mr-chip { padding: 1px 5px; border-radius: 4px; background: var(--control-bg); color: var(--text-normal); }
+.mr-dim-line { color: var(--text-secondary); }
+.mr-person { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; }
+.mr-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mr-fact { min-height: 46px; padding: 7px 9px; border: 1px solid var(--section-border); border-radius: 6px; background: var(--panel-bg1); min-width: 0; }
+.mr-fact-k { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.mr-fact-v { margin-top: 2px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-normal); overflow-wrap: anywhere; }
+.mr-fact-v.ok { color: var(--green); }
+.mr-fact-v.warn { color: var(--orange); }
+.mr-fact-v.bad { color: var(--red); }
+.mr-fact-v.dim { color: var(--text-secondary); }
+
+.mr-actions { align-items: center; }
+.mr-spacer { flex: 1; }
+button.mr-button { gap: 6px; }
+button.mr-button.icon { padding: 3px 7px; align-self: stretch; justify-content: center; } /* as tall as its text neighbours */
+button.mr-button.approve { background: color-mix(in srgb, var(--green) 16%, transparent); border-color: color-mix(in srgb, var(--green) 45%, transparent); color: var(--green); }
+button.mr-button.changes { background: color-mix(in srgb, var(--orange) 12%, transparent); border-color: color-mix(in srgb, var(--orange) 45%, transparent); color: var(--orange); }
+button.mr-button.approve:hover:not(:disabled) { background: color-mix(in srgb, var(--green) 26%, transparent); }
+button.mr-button.changes:hover:not(:disabled) { background: color-mix(in srgb, var(--orange) 22%, transparent); }
+button.mr-button.approve:disabled, button.mr-button.changes:disabled { opacity: 0.7; }
+button.mr-button.merge { background: var(--green); border-color: var(--green); color: var(--text-on-accent); font-weight: 600; }
+button.mr-button.merge:hover:not(:disabled) { background: var(--green); filter: brightness(1.1); }
+button.mr-button.merge:disabled { background: var(--control-bg); border-color: var(--section-border); color: var(--text-disabled); font-weight: 500; }
+
+.mr-merge { padding: 0; gap: 0; border: 1px solid var(--section-border); border-radius: 8px; overflow: hidden; }
+.mr-merge-top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel-bg1); }
+.mr-merge-ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mr-merge-ttl b { color: var(--text-selected); }
+.mr-merge-reason { margin: 0; font-size: 12px; min-height: 17px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.mr-merge-reason.wait { color: var(--orange); }
+.mr-merge-reason.bad { color: var(--red); }
+.mr-merge-reason.ready { color: var(--text-secondary); }
+.mr-merge-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.mr-merge-dot.ready { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.mr-merge-dot.wait { background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange); }
+.mr-merge-dot.bad { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+.mr-merge-opts { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding: 8px 12px; border-top: 1px solid var(--section-border); min-height: 38px; }
+.mr-merge-opts .mr-merge-method { margin-left: auto; }
+.mr-merge-opts .mr-merge-row { min-height: 22px; }
+
+.mr-activity { display: flex; flex-direction: column; gap: 10px; }
+.mr-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--section-border); }
+.mr-tab { padding: 6px 10px; border: none; border-bottom: 2px solid transparent; background: none; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.mr-tab:hover { color: var(--text-normal); }
+.mr-tab.on { color: var(--text-selected); border-bottom-color: var(--blue); }
+.mr-tab:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: -1px; }
+.mr-count { margin-left: 4px; padding: 0 6px; border-radius: 8px; background: var(--control-bg); font-size: 11px; }
+.mr-timeline { position: relative; padding-left: 26px; display: flex; flex-direction: column; gap: 10px; }
+.mr-timeline::before { content: ""; position: absolute; left: 10px; top: 6px; bottom: 6px; width: 2px; background: var(--section-border); }
+.mr-ev { position: relative; font-size: 12px; color: var(--text-secondary); min-width: 0; }
+.mr-node { position: absolute; left: -26px; top: 0; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--panel-bg0); border: 2px solid var(--panel-bg1); color: var(--text-secondary); }
+.mr-node.kind-commits { color: var(--blue); }
+.mr-node.kind-title { color: var(--orange); }
+.mr-node.kind-mention { color: var(--purple); }
+.mr-node.kind-approved, .mr-node.kind-reopened { color: var(--green); }
+.mr-node.kind-unapproved { color: var(--orange); }
+.mr-node.kind-merged { color: var(--purple); }
+.mr-node.kind-closed { color: var(--red); }
+.mr-node.kind-thread { color: var(--text-normal); }
+/* 12px text on a 16px line, 3px down: the first line's middle is the 22px node's middle (11px). */
+.mr-ev-line { padding-top: 3px; line-height: 16px; overflow-wrap: anywhere; }
+.mr-who { color: var(--text-normal); font-weight: 600; }
+.mr-when { color: var(--text-disabled); font-size: 12px; }
+.mr-commits { margin: 5px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.mr-commits li { display: flex; gap: 8px; align-items: baseline; color: var(--text-normal); }
+.mr-sha, .mr-code { font-family: var(--font-mono); font-size: 11px; padding: 0 5px; border-radius: 3px; }
+.mr-sha { color: var(--link); background: color-mix(in srgb, var(--link) 8%, transparent); flex: none; }
+.mr-code { color: var(--text-normal); background: var(--control-bg); }
+.mr-ev del { color: var(--red); text-decoration: line-through; opacity: 0.85; }
+.mr-ev ins { color: var(--green); text-decoration: none; }
+
+.mr-discussion { display: flex; flex-direction: column; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); color: var(--text-normal); }
+.mr-pos { display: flex; flex-direction: column; padding: 6px 12px 0; }
+.mr-where { font-family: var(--font-mono); font-size: 11px; }
+.mr-snippet { margin: 6px 0 0; padding: 5px 8px; font: 11px/1.5 var(--font-mono); white-space: pre; overflow-x: auto; background: var(--app-bg0); border-radius: 4px; color: var(--text-secondary); }
+.mr-note { display: grid; grid-template-columns: 28px 1fr; gap: 8px; padding: 10px 12px; min-width: 0; }
+.mr-note + .mr-note { border-top: 1px solid var(--section-border); }
+.mr-reply-note { padding-left: 36px; }
+.mr-note-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.mr-note-head b { color: var(--text-selected); }
+.mr-note-body { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.mr-resolved { font-size: 11px; color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); border-radius: 10px; padding: 0 7px; }
+.mr-thread-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--section-border); }
+.mr-thread-foot .mr-reply { align-self: stretch; }
+.mr-new-comment { padding: 10px 12px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); }

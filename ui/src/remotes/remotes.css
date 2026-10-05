@@ -3,6 +3,8 @@
 .add-remote-forks { border-top: 1px solid var(--section-border); padding-top: 10px; }
 .add-remote-forks h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--text-selected); }
 .fork-list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.fork-more { min-height: 28px; display: flex; align-items: center; justify-content: center; padding: 2px 6px; font-size: 12px; }
+.fork-more button { font: inherit; padding: 2px 10px; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; cursor: pointer; }
 .fork-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; }
 .fork-row:hover { background: var(--hover-row); }
 .fork-path { color: var(--text-selected); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

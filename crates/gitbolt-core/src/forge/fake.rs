@@ -18,7 +18,7 @@ pub(crate) fn project(host: &str, path: &str, fork_of: Option<&str>, updated_at:
     ForgeProject {
         kind: ForgeKind::GitLab, id: updated_at as u64, host: host.into(), path: path.into(), name: name.into(), owner: owner.into(),
         web_url: format!("https://{host}/{path}"), default_branch: Some("main".into()), clone_https: format!("https://{host}/{path}.git"),
-        clone_ssh: format!("git@{host}:{path}.git"), fork_of: fork_of.map(str::to_string), updated_at: Some(updated_at), archived: false,
+        clone_ssh: format!("git@{host}:{path}.git"), fork_of: fork_of.map(str::to_string), updated_at: Some(updated_at), archived: false, owner_avatar_url: None,
     }
 }
 
@@ -138,6 +138,12 @@ impl ForgeProvider for FakeProvider {
         self.call(format!("avatar {email}"));
         Box::pin(async move { Ok(self.avatars.get(email).cloned()) })
     }
+    /// Serves its own host's `/uploads/` and Gravatar's, from `avatars` keyed by the URL.
+    fn avatar_at<'a>(&'a self, url: &'a str) -> Option<ForgeFuture<'a, Option<AvatarPayload>>> {
+        let url = crate::forge::avatar_fetch_url(url, &[&format!("https://{}/uploads", self.host)])?;
+        self.call(format!("avatar_at {url}"));
+        Some(Box::pin(async move { Ok(self.avatars.get(&url).cloned()) }))
+    }
     // --- 4B T1 ---
     fn open_mrs<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
         self.call(format!("open_mrs {} {filter:?}", project.path));
@@ -205,7 +211,7 @@ impl ForgeProvider for FakeProvider {
                   source_project: req.source.project.clone(), source_branch: req.source.branch.clone(), target_project: project.path.clone(),
                   target_branch: req.target_branch.clone(), head_sha: None, web_url: format!("{}/-/merge_requests/{number}", project.web_url), pipeline: None,
                   review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
-                  conflicts: None, labels: req.labels.clone(), updated_at: 0, stacked: crate::forge::stack::carries_stack_table(&req.description),
+                  conflicts: None, labels: req.labels.clone(), label_colors: Default::default(), updated_at: 0, stacked: crate::forge::stack::carries_stack_table(&req.description),
               };
               Ok(CreateOutcome { mr, failed: self.fail_parts.lock().unwrap().clone() })
           })
@@ -250,7 +256,7 @@ pub(crate) fn mr(number: u64, source_project: &str, branch: &str, state: MrState
         source_project: source_project.into(), source_branch: branch.into(), target_project: "group/project".into(), target_branch: "main".into(),
         head_sha: Some(format!("{number:040}")), web_url: format!("https://gitlab.example.com/group/project/-/merge_requests/{number}"),
         pipeline: None, review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: vec![] },
-        conflicts: Some(false), labels: vec![], updated_at: number as i64, stacked: false,
+        conflicts: Some(false), labels: vec![], label_colors: Default::default(), updated_at: number as i64, stacked: false,
     }
 }
 // --- end 4B T1 ---
@@ -335,6 +341,7 @@ pub(crate) fn stack_mr(number: u64, source: &str, target: &str, state: MrState, 
         review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: vec![] },
         conflicts: Some(false),
         labels: vec![],
+        label_colors: Default::default(),
         updated_at: number as i64,
         stacked: false,
     }

@@ -61,6 +61,7 @@ function renderPanel(target: DiffTarget, load: (key: string) => Promise<DiffCont
 }
 const button = (name: string | RegExp) => screen.getByRole('button', { name });
 
+import { BUSY_DELAY_MS as BUSY_DELAY } from '../util/lateFlag';
 describe('DiffPanel', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -206,23 +207,32 @@ describe('DiffPanel', () => {
   });
 
   it('a thin progress line shows after ~150 ms while a diff computes or loads, and goes once it is on screen', async () => {
-    let release!: () => void;
-    host.showDiff.mockImplementationOnce(() => new Promise<void>((r) => { release = r; }));
-    const t0 = performance.now();
-    const { store } = renderPanel(targetFor(change('a.txt'), spec), (k) => (k.includes('slow.txt') ? new Promise<DiffContentsPayload>(() => {}) : text()));
-    await waitFor(() => expect(host.showDiff).toHaveBeenCalled());
-    // "Not yet" only holds while under ~150 ms have passed; on a loaded machine the check itself
-    // can run later than that, when the line has rightly appeared already.
-    if (performance.now() - t0 < 120) expect(screen.queryByRole('progressbar')).toBeNull();
-    expect(await screen.findByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
-    expect(performance.now() - t0).toBeGreaterThanOrEqual(140);
-    await act(async () => release());
-    expect(screen.queryByRole('progressbar')).toBeNull();
-    // A slow switch (contents still loading) shows it too, while the previous file stays.
-    const t1 = performance.now();
-    act(() => store.getState().openFile(targetFor(change('slow.txt'), spec)));
-    if (performance.now() - t1 < 120) expect(screen.queryByRole('progressbar')).toBeNull();
-    expect(await screen.findByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
+    // Fake timers (setTimeout only), so "~150 ms" is exact and no real clock or machine load matters.
+    // RTL's waitFor/findBy poll on setTimeout, so this test advances the fake clock by hand instead.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+      let release!: () => void;
+      host.showDiff.mockImplementationOnce(() => new Promise<void>((r) => { release = r; }));
+      const { store } = renderPanel(targetFor(change('a.txt'), spec), (k) => (k.includes('slow.txt') ? new Promise<DiffContentsPayload>(() => {}) : text()));
+      for (let i = 0; i < 50 && !host.showDiff.mock.calls.length; i++) await tick(0);
+      expect(host.showDiff).toHaveBeenCalled();
+      await tick(BUSY_DELAY - 10);
+      expect(screen.queryByRole('progressbar')).toBeNull();
+      await tick(10);
+      expect(screen.getByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
+      await act(async () => release());
+      await tick(0);
+      expect(screen.queryByRole('progressbar')).toBeNull();
+      // A slow switch (contents still loading) shows it too, while the previous file stays.
+      act(() => store.getState().openFile(targetFor(change('slow.txt'), spec)));
+      await tick(BUSY_DELAY - 10);
+      expect(screen.queryByRole('progressbar')).toBeNull();
+      await tick(10);
+      expect(screen.getByRole('progressbar', { name: 'Loading diff' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a failed showDiff releases the header, shows the error with Retry, and leaves no unhandled rejection', async () => {

@@ -104,8 +104,17 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
     if (reason !== 'fast' || forgeOf(tabId).kind === null) {
       const projects = await api.forgeRepoProjects(repo, reason === 'activate' || forgeScratch.recheck.delete(tabId));
       const target = projects.remotes.find((r) => r.remote === projects.target);
+      const remoteErrors = Object.fromEntries(projects.remotes.flatMap((r) => (r.error ? [[r.remote, r.error]] : [])));
+      // A user's fork (any user-owned project but the target's) shows its owner's picture on its remote icons.
+      const ownerAvatars = Object.fromEntries(projects.remotes.flatMap((r) => (r.remote !== projects.target && r.project?.ownerAvatarUrl ? [[r.remote, r.project.ownerAvatarUrl]] : [])));
+      patchForge(tabId, (f) => ({ target: projects.target, targetChosen: projects.targetChosen, remoteErrors: keepSame(f.remoteErrors, remoteErrors), ownerAvatars: keepSame(f.ownerAvatars, ownerAvatars) }));
+      if (target && !target.project && target.account && target.error) {
+        // The target (the user's choice, or origin) is on a forge but its project can't be loaded: say why, don't hide the section or show another remote.
+        patchForge(tabId, { kind: target.account, remote: target.remote, project: null, mapped: [], byRef: {}, history: {}, upstreams: {}, list: null, error: `${target.path ?? target.remote}: ${target.error}`, failures: forgeOf(tabId).failures + 1, updatedAt: Date.now() });
+        return { runningPipeline: false, serverIntervalMs: backoffMs(fetchIntervalMs(), forgeOf(tabId).failures) };
+      }
       if (!target?.project || !target.account) {
-        patchForge(tabId, { kind: null, remote: null, project: null, mapped: [], byRef: {}, upstreams: {}, list: null, error: null, failures: 0, updatedAt: Date.now() });
+        patchForge(tabId, { kind: null, remote: null, project: null, mapped: [], byRef: {}, history: {}, upstreams: {}, list: null, error: null, failures: 0, updatedAt: Date.now() });
         return IDLE;
       }
       if (gone()) return IDLE;
@@ -118,7 +127,13 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
       const badges = await api.forgeBranchMrs(repo, refs);
       if (gone()) return IDLE;
       note(badges.pollIntervalSecs);
-      if (current()) patchForge(tabId, (f) => ({ byRef: keepSame(f.byRef, Object.fromEntries(badges.mrs.map((b) => [b.remoteRef, b.mr]))), upstreams: keepSame(f.upstreams, upstreams) }));
+      if (current()) {
+        patchForge(tabId, (f) => ({
+          byRef: keepSame(f.byRef, Object.fromEntries(badges.mrs.map((b) => [b.remoteRef, b.mr]))),
+          history: keepSame(f.history, Object.fromEntries(badges.history.map((b) => [b.remoteRef, b.mr]))),
+          upstreams: keepSame(f.upstreams, upstreams),
+        }));
+      }
     }
     const filter = forgeOf(tabId).filter;
     const list = await api.forgeMrList(repo, filter);

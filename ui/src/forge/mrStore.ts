@@ -22,10 +22,20 @@ export interface TabForge {
   project: ForgeProject | null;
   /** The remotes with a project on the target's host (4C: the push toast's Create link). */
   mapped: string[];
+  /** The remote the repo's MRs/PRs target (the user's choice or the automatic pick), even when its project couldn't be loaded. */
+  target: string | null;
+  /** The target is the user's choice, not the automatic pick. */
+  targetChosen: boolean;
+  /** Why a remote's forge project couldn't be loaded (its row's hint), by remote name. */
+  remoteErrors: Record<string, string>;
+  /** Remote → its owner's picture (`ForgeProject.ownerAvatarUrl`), for a user-owned project that isn't the target (a user's fork): its remote icons show it (`RemoteIcon`). */
+  ownerAvatars: Record<string, string>;
   /** The account's username (Approve's "You approved it"). */
   me: string | null;
   /** Remote-tracking ref (`refs/remotes/origin/dev`) → its MR/PR: the badges. */
   byRef: Record<string, ForgeMr>;
+  /** Remote-tracking ref → a merged or closed MR/PR that badges nothing (its branch moved on, or its tip is unknown here): 4D's stack walk and after-merge flow read it (`branchMrs` in `stack/deps.ts`). */
+  history: Record<string, ForgeMr>;
   /** Local branch ref → its upstream ref, as the badges were read. */
   upstreams: Record<string, string>;
   /** The sidebar section's filter (T11 keeps it per repository). */
@@ -46,7 +56,7 @@ export interface TabForge {
 }
 
 export const EMPTY_FORGE: TabForge = {
-  kind: null, remote: null, project: null, mapped: [], me: null, byRef: {}, upstreams: {}, filter: 'all', list: null,
+  kind: null, remote: null, project: null, mapped: [], target: null, targetChosen: false, remoteErrors: {}, ownerAvatars: {}, me: null, byRef: {}, history: {}, upstreams: {}, filter: 'all', list: null,
   details: {}, detailErrors: {}, discussions: {}, openMr: null, updatedAt: null, error: null, failures: 0,
 };
 

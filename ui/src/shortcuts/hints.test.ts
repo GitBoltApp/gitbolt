@@ -18,6 +18,7 @@ const EXEMPT: Record<string, string> = {
   'ui/Select.tsx': 'dropdown arrows / Esc',
   'ui/RefPicker.tsx': 'picker arrows / Enter / Esc',
   'forge/create/SearchPicker.tsx': 'picker arrows / Enter / Backspace',
+  'forge/HostCombobox.tsx': 'combobox arrows / Enter / Esc',
   'ui/resetHandle.ts': 'resize handle Enter',
   'graph/ColumnResizer.tsx': 'resize handle arrows',
   'repo/PanelResizer.tsx': 'resize handle arrows',

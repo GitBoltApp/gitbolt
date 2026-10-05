@@ -31,4 +31,9 @@ describe('chipWidth', () => {
     const branch = { row: 0, name: 'feature/a', local: 'refs/heads/feature/a', tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [] };
     expect(chipWidth({ ...branch, upstreamMismatch: 'origin/feature/b' }, '12px sans-serif')).toBe(chipWidth(branch, '12px sans-serif') + 12 + 3);
   });
+  it('counts an MR/PR badge as one more icon, beside the local and remote ones', () => {
+    const branch = { row: 0, name: 'feature/a', local: 'refs/heads/feature/a', tag: false, isHead: false, worktree: null, checkedOut: null, remotes: [] };
+    const plain = chipWidth(branch, '12px sans-serif');
+    expect(chipWidth(branch, '12px sans-serif', false, true) - plain).toBeGreaterThanOrEqual(14);
+  });
 });

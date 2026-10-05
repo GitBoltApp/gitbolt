@@ -1,16 +1,53 @@
-.accounts-box { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
-.accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.account { display: flex; align-items: flex-start; gap: 10px; padding: 8px; border: 1px solid var(--section-border); border-radius: 6px; background: var(--panel-bg0); }
-.account-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.accounts-box { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.accounts-help { margin: 0; }
+.accounts-box button { font: inherit; padding: 5px 12px; border-radius: 5px; border: 1px solid var(--section-border); background: var(--panel-bg0); color: var(--text-selected); cursor: pointer; }
+.accounts-box button:hover:not(:disabled) { background: var(--control-hover-bg); }
+.accounts-box button.primary { background: var(--blue); border-color: var(--blue); color: var(--text-on-accent); }
+.accounts-box button:disabled { opacity: 0.45; cursor: default; }
+.accounts-box button.ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+.accounts-box button.danger { color: var(--red); }
+.accounts-box > button { align-self: flex-start; }
+.accounts-empty { border: 1px dashed var(--section-border); border-radius: 8px; padding: 22px; text-align: center; color: var(--text-secondary); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.accounts-empty p { margin: 0; }
+.accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.account { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; align-items: start; padding: 10px 12px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg0); }
+.forge-mark { width: 32px; height: 32px; border-radius: 7px; display: grid; place-items: center; color: var(--text-on-accent); }
+.forge-mark.is-gitlab { background: var(--forge-gitlab); }
+.forge-mark.is-github { background: var(--forge-github); }
+.account-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .account-line { overflow-wrap: anywhere; }
-.account-name { color: var(--text-selected); }
-.account-storage { font-size: 12px; color: var(--text-secondary); }
-.account-storage.is-file { color: var(--orange); }
-.account-warning, .account-status { margin: 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
-.account-warning { color: var(--orange); }
-.account > button { flex: none; display: inline-flex; align-items: center; gap: 4px; }
-.account-add { display: flex; flex-wrap: wrap; gap: 8px; }
-.account-add input { flex: 1 1 180px; min-width: 0; }
-.account-add .setting-error { flex-basis: 100%; margin: 0; }
+.account-name { color: var(--text-selected); font-weight: 600; }
+.account-meta { font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; overflow-wrap: anywhere; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 10px; font-size: 11px; border: 1px solid var(--section-border); }
+.chip.is-ok { color: var(--green); border-color: var(--green); }
+.chip.is-warn { color: var(--orange); border-color: var(--orange); }
+.chip.is-err { color: var(--red); border-color: var(--red); }
+.account-note { margin: 4px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.account-note.is-warn { color: var(--orange); }
+.account-note.is-err { color: var(--red); }
+.account-actions { display: flex; gap: 4px; }
+.account-add { border: 1px solid var(--blue); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.account-add h4 { margin: 0; font-size: 13px; color: var(--text-selected); }
+.account-add .field { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; align-items: center; }
+.account-add .field > label, .account-add .field-label { text-align: right; color: var(--text-secondary); }
+.account-add .field-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.account-add .field-help { grid-column: 2; margin: 0; font-size: 12px; }
+.account-add input { width: 100%; min-width: 0; font: inherit; padding: 6px 9px; border-radius: 5px; border: 1px solid var(--section-border); background: var(--app-bg0); color: var(--text-selected); outline: none; box-sizing: border-box; }
+.account-add input:focus { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.account-add .field-row input { flex: 1; }
+.account-add .field-row button { flex: none; }
+.seg { display: inline-flex; border: 1px solid var(--section-border); border-radius: 6px; overflow: hidden; }
+.accounts-box .seg button { border: 0; border-radius: 0; background: transparent; color: var(--text-secondary); padding: 5px 14px; }
+.accounts-box .seg button + button { border-left: 1px solid var(--section-border); }
+.accounts-box .seg button.is-on { background: var(--panel-bg1); color: var(--text-selected); }
+.host-combo { position: relative; }
+.host-combo-list { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; margin: 0; padding: 4px; list-style: none; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 18px var(--shadow-modal); }
+.host-combo-list li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+.host-combo-list li.is-active { background: var(--panel-bg0); }
+.account-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; border-top: 1px solid var(--section-border); padding-top: 12px; }
+.account-foot .account-add-error { margin: 0 auto 0 0; min-height: 1.4em; line-height: 1.4em; }
 .account-submit { min-width: 112px; }
-.account-add .account-add-error { min-height: 1.4em; line-height: 1.4em; }
+
+.account-add .link-btn { background: none; border: 0; padding: 0; color: var(--link); text-decoration: underline; cursor: pointer; font: inherit; }
+
+.account-taken { grid-column: 2; margin: 0; color: var(--text-secondary); }

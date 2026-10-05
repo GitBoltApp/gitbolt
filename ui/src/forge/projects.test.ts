@@ -3,7 +3,7 @@ import { mappedRemotes } from './projects';
 
 const project = (path: string, host = 'gitlab.example.com') => ({
   kind: 'gitlab' as const, id: 1, host, path, name: 'project', owner: path.split('/')[0], webUrl: `https://${host}/${path}`, defaultBranch: 'main',
-  cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false,
+  cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false, ownerAvatarUrl: null,
 });
 const RP = {
   remotes: [
@@ -11,7 +11,7 @@ const RP = {
     { remote: 'upstream', host: 'gitlab.example.com', path: 'group/project', account: 'gitlab' as const, project: project('group/project'), error: null },
     { remote: 'gh', host: 'github.com', path: 'o/r', account: null, project: null, error: null },
   ],
-  target: 'upstream',
+  target: 'upstream', targetChosen: false,
 };
 
 describe('the remotes a flyout can push from or to', () => {
@@ -25,7 +25,7 @@ describe('the remotes a flyout can push from or to', () => {
     const rp = { remotes: [
       { remote: 'a', host: 'gitlab.example.com', path: 'x/y', account: 'gitlab' as const, project: project('x/y', 'gitlab.example.com:8443'), error: null },
       { remote: 'b', host: 'gitlab.example.com', path: 'x/z', account: null, project: null, error: null },
-    ], target: 'a' };
+    ], target: 'a', targetChosen: false };
     expect(mappedRemotes(rp, 'gitlab.example.com:8443')).toEqual(['a']);
     expect(mappedRemotes(rp, 'gitlab.example.com')).toEqual(['a']);
   });

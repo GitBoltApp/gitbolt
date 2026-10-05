@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import type { ForgeKind } from '../api/gen/ForgeKind';
 import type { ForgeMr } from '../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../api/gen/ForgeMrDetail';
+import { ForgeAvatar } from '../avatars/Avatar';
+import { EmojiText } from './emoji';
 import { mrName, mrRef } from './labels';
 import { MrStateIcon, PipelineIcon } from './MrIcons';
 import { branchesText, conflictText, pipelineText, reviewText } from './mrText';
@@ -16,8 +18,9 @@ export function MrCard({ kind, mr, detail, error = null, hint, extra }: { kind: 
   const wait = error ? `Couldn't load: ${error}` : 'Loading…';
   return (
     <div className="mr-card" role="group" aria-label={`${mrName(kind)} ${mrRef(kind, mr.number)} details`}>
-      <div className="mr-card-title"><MrStateIcon state={m.state} /> <span className="mr-card-ref">{mrRef(kind, mr.number)}</span> {m.title}</div>
-      <div className="mr-card-meta">{m.author.name} · {branchesText(m)}{m.state === 'draft' ? ' · Draft' : ''}</div>
+      <div className="mr-card-title"><MrStateIcon state={m.state} /> <span className="mr-card-ref">{mrRef(kind, mr.number)}</span> <EmojiText text={m.title} /></div>
+      {/* The avatar's box is its size from the first render (initials until the picture comes): a tooltip never shifts. */}
+      <div className="mr-card-meta mr-card-author"><ForgeAvatar user={m.author} size={16} /><span>{m.author.name} · {branchesText(m)}{m.state === 'draft' ? ' · Draft' : ''}</span></div>
       {/* A badge's MR comes from the light list (no pipeline): wait for the detail rather than say "No pipeline". */}
       <div className="mr-card-meta">{m.pipeline ? <><PipelineIcon pipeline={m.pipeline} /> {pipelineText(kind, m.pipeline)}</> : detail ? pipelineText(kind, null) : wait}</div>
       <div className="mr-card-meta">{detail ? reviewText(detail.mr.review) : wait}</div>

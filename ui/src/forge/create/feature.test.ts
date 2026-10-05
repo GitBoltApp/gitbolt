@@ -15,7 +15,7 @@ await import('./feature');
 
 const project = (kind: 'gitlab' | 'github') => ({
   kind, id: 42, host: kind === 'gitlab' ? 'gitlab.example.com' : 'github.com', path: 'group/project', name: 'project', owner: 'group', webUrl: 'w',
-  defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false,
+  defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false, ownerAvatarUrl: null,
 });
 function seed(kind: 'gitlab' | 'github' = 'gitlab', mapped = true) {
   const p = project(kind);

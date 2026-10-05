@@ -1,7 +1,8 @@
 import { X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { errorMessage } from '../../api/client';
 import { debounce } from '../../util/debounce';
+import { chipStyle } from '../chipStyle';
 import './searchPicker.css';
 
 export interface PickOption<T> { key: string; label: string; detail?: string; color?: string | null; value: T }
@@ -15,9 +16,6 @@ interface Props<T> {
   search(query: string): Promise<Array<PickOption<T>>>;
   onPick(value: T): void;
 }
-
-/** A forge label's colour reaches CSS as `--chip-color` (the CSS itself uses tokens only). */
-const chipStyle = (color?: string | null): CSSProperties | undefined => (color ? ({ '--chip-color': color } as CSSProperties) : undefined);
 
 /**
  * Chips and a search box (spec #4 §4 "4C": reviewers, assignees and labels with a debounced

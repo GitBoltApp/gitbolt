@@ -13,7 +13,7 @@ describe('configuredOpenerId', () => {
     expect(configuredOpenerId({ ...base, editor: { kind: 'custom', template: 'ed {file}' } })).toBe('custom');
   });
   it("the active repository's own setting wins over the profile's", () => {
-    const repos = { '/r/a': { pin: null, columns: null, hiddenColumns: [], sidebarSort: {}, collapsed: [], mrFilter: null, editor: { kind: 'opener' as const, id: 'zed' } } };
+    const repos = { '/r/a': { pin: null, columns: null, hiddenColumns: [], sidebarSort: {}, collapsed: [], mrFilter: null, forgeTargetRemote: null, editor: { kind: 'opener' as const, id: 'zed' } } };
     const p = { ...base, repos, editor: { kind: 'opener' as const, id: 'vscode' } };
     expect(configuredOpenerId(p)).toBe('zed');
     expect(configuredOpenerId({ ...p, activeTab: 't2' })).toBe('vscode');

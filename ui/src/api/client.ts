@@ -103,6 +103,7 @@ import type { ForgeKind } from './gen/ForgeKind';
 // --- end 4A T11 ---
 // --- 4A T12 ---
 import type { ForgeProject } from './gen/ForgeProject';
+import type { ForkPage } from './gen/ForkPage';
 import type { ForgeProjectSettings } from './gen/ForgeProjectSettings';
 import type { RepoProjects } from './gen/RepoProjects';
 // --- end 4A T12 ---
@@ -190,6 +191,8 @@ export const api = {
   signature: (repo: number, id: string) => t().call({ method: 'signature', params: { repo, id } }) as Promise<SignaturePayload>,
   /** `null` when there's no avatar for `email` (or no avatar provider, as in the harness). */
   avatar: (email: string) => t().call({ method: 'avatar', params: { email } }) as Promise<AvatarPayload | null>,
+  /** A forge user's or project owner's picture by the `avatarUrl` the forge gave; `null` when there's none or the address isn't an account's (see `ForgeHub::avatar_at`). */
+  forgeAvatarImage: (url: string) => t().call({ method: 'forgeAvatarImage', params: { url } }) as Promise<AvatarPayload | null>,
   openUrl: (url: string) => t().call({ method: 'openUrl', params: { url } }) as Promise<null>,
   /** The external editors and the file manager found on this machine (spec §14.5). */
   /** `repo`: the list as that repository sees it (its Custom editor, if its setting is one). */
@@ -226,10 +229,12 @@ export const api = {
   /** Every remote with its forge project, and the remote MRs/PRs target (spec #4 §3.3). */
   forgeRepoProjects: (repo: number, refresh = false) => call<RepoProjects>({ method: 'forgeRepoProjects', params: { repo, refresh } }),
   forgeProjectSettings: (repo: number, remote: string) => call<ForgeProjectSettings>({ method: 'forgeProjectSettings', params: { repo, remote } }),
-  /** `remote`'s project's forks, newest first. */
-  forgeForks: (repo: number, remote: string) => call<ForgeProject[]>({ method: 'forgeForks', params: { repo, remote } }),
+  /** One page of `remote`'s project's forks, newest first. */
+  forgeForks: (repo: number, remote: string, page = 1, perPage = 10) => call<ForkPage>({ method: 'forgeForks', params: { repo, remote, page, perPage } }),
   /** `git remote add` (not journaled); fetch it with `fetch(repo, false, name)`. */
   addRemote: (repo: number, worktree: string, name: string, url: string) => call<WriteResult<null>>({ method: 'addRemote', params: { repo, worktree, name, url } }),
+  /** `git remote remove` (journaled: Undo puts its config, remote branches and upstreams back). */
+  removeRemote: (repo: number, worktree: string, name: string) => call<WriteResult<null>>({ method: 'removeRemote', params: { repo, worktree, name } }),
   // --- end 4A T12 ---
   /** The action queue (spec #2 §3.6). */
   queueState: (repo: number) => call<QueueStatePayload>({ method: 'queueState', params: { repo } }),
@@ -430,7 +435,7 @@ export const api = {
   addForgeAccount: (host: string, kind: ForgeKind, token: string) => call<ForgeAccountView>({ method: 'addForgeAccount', params: { host, kind, token } }),
   removeForgeAccount: (host: string) => call<null>({ method: 'removeForgeAccount', params: { host } }),
   /** The forge's prefilled "new token" page: open it with `openUrl`. */
-  forgeTokenPage: (host: string, kind: ForgeKind) => call<string>({ method: 'forgeTokenPage', params: { host, kind } }),
+  forgeTokenPage: (host: string, kind: ForgeKind, classic?: boolean) => call<string>({ method: 'forgeTokenPage', params: { host, kind, classic: classic ?? false } }),
   // --- end 4A T11 ---
   // --- end 3C T10 ---
   // --- 3C T13 ---

@@ -63,7 +63,7 @@ function release(img: AvatarImage) {
  * (the backend call: the UI never contacts an avatar host itself). An email is fetched once
  * unless its request was dropped or its image evicted; "no avatar" is remembered for the session.
  */
-export function createAvatarStore(fetchAvatar: (email: string) => Promise<AvatarPayload | null>, { concurrency = 4, capacity = AVATAR_CACHE_ENTRIES } = {}): AvatarStore {
+export function createAvatarStore(fetchAvatar: (email: string) => Promise<AvatarPayload | null>, { concurrency = 4, capacity = AVATAR_CACHE_ENTRIES, keyOf = avatarKey } = {}): AvatarStore {
   /** Loaded images, least recently used first. */
   const images = new Map<string, AvatarImage>();
   /** Queued or in flight, with the load that settles it. */
@@ -124,7 +124,7 @@ export function createAvatarStore(fetchAvatar: (email: string) => Promise<Avatar
 
   return {
     get(email) {
-      const key = avatarKey(email);
+      const key = keyOf(email);
       const img = images.get(key);
       if (!img) return null;
       images.delete(key);
@@ -132,13 +132,13 @@ export function createAvatarStore(fetchAvatar: (email: string) => Promise<Avatar
       return img;
     },
     request(email) {
-      const key = avatarKey(email);
+      const key = keyOf(email);
       if (!key || known(key)) return;
       // Already queued as a visible-rows prefetch: `get` promotes it, so it's never dropped.
       track(key, loader.get(key));
     },
     requestVisible(emails) {
-      const keys = [...new Set(emails.map(avatarKey))].filter((k) => k && !known(k));
+      const keys = [...new Set(emails.map(keyOf))].filter((k) => k && !known(k));
       loader.prefetch(keys);
       for (const k of keys) track(k, loader.get(k, 'prefetch'));
     },
@@ -164,13 +164,31 @@ export function createAvatarStore(fetchAvatar: (email: string) => Promise<Avatar
  */
 export const avatars = createAvatarStore((email) => api.avatar(email));
 
+/**
+ * Forge users' pictures by the URL the forge gave (`ForgeUser.avatarUrl`: MR/PR authors, reviewers,
+ * note authors, who carry no email). The backend fetches and disk-caches them like the others,
+ * only from the accounts' own hosts and the forges' avatar hosts. Keyed by the URL as given (a
+ * path is case-sensitive).
+ */
+export const forgeAvatars = createAvatarStore((url) => api.forgeAvatarImage(url), { keyOf: (url) => url.trim() });
+
+/** Both stores forget what they have (the Gravatar or forge-avatar setting, or the accounts, changed). */
+export function resetAvatars(): void {
+  avatars.reset();
+  forgeAvatars.reset();
+}
+
 /** Which store `Avatar` reads: the app's, unless a test provides its own. */
 export const AvatarStoreContext = createContext<AvatarStore>(avatars);
+/** Which store `Avatar` reads for a forge user's `url`. */
+export const ForgeAvatarStoreContext = createContext<AvatarStore>(forgeAvatars);
 
 /** `request: false`: only read the cache; someone else asks for it (the graph's visible-rows
- * requests, whose latest set wins on a fast scroll). */
-export function useAvatar(email: string, request = true): AvatarImage | null {
-  const store = useContext(AvatarStoreContext);
+ * requests, whose latest set wins on a fast scroll). `byUrl`: `email` is a forge avatar URL. */
+export function useAvatar(email: string, request = true, byUrl = false): AvatarImage | null {
+  const byEmail = useContext(AvatarStoreContext);
+  const forUrl = useContext(ForgeAvatarStoreContext);
+  const store = byUrl ? forUrl : byEmail;
   // The snapshot is this email's own entry: only its own arrival or eviction re-renders.
   const img = useSyncExternalStore(store.subscribe, () => store.get(email));
   // Changes only on `reset` (the Gravatar setting), when a "no avatar" answer must be re-asked.

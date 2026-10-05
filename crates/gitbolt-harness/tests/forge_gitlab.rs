@@ -88,6 +88,24 @@ async fn avatars_come_from_the_forge_are_cached_and_never_from_another_host() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_linked_avatar_comes_only_from_the_accounts_uploads_and_is_cached() {
+    let f = FakeForge::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let cache = Arc::new(DiskAvatarCache::new(dir.path().join(GITLAB_HOST)));
+    let p = provider(&f, GITLAB_TOKEN, Some(cache));
+    let ada = format!("{}/uploads/ada.png", f.gitlab_web());
+    assert_eq!(p.avatar_at(&ada).unwrap().await.unwrap().unwrap().mime, "image/png");
+    assert_eq!(p.avatar_at(&ada).unwrap().await.unwrap().unwrap().mime, "image/png", "from the disk cache");
+    let uploads: Vec<_> = f.requests().into_iter().filter(|r| r.path.starts_with("/uploads/")).collect();
+    assert_eq!(uploads.len(), 1);
+    assert!(uploads[0].authorized, "the account's own host (a private instance's uploads)");
+    for elsewhere in [format!("{}/user", f.gitlab_api()), format!("{}/u/583231", f.github_avatars()), "https://evil.example.com/uploads/a.png".to_string()] {
+        assert!(p.avatar_at(&elsewhere).is_none(), "{elsewhere}");
+    }
+    assert_eq!(f.requests().len(), 1, "nothing else was asked");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_scripted_429_rate_limits_the_account() {
     let f = FakeForge::start().await;
     f.script(Scripted { forge: "gitlab".into(), method: "GET".into(), path: "/api/v4/user".into(), status: 429, headers: vec![("Retry-After".into(), "90".into())], body: serde_json::json!({"message": "Too Many Requests"}), times: 1 });

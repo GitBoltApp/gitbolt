@@ -5,4 +5,8 @@ export type RepoProjects = { remotes: Array<RemoteProject>,
 /**
  * The remote whose project the repo's MRs/PRs target (`target_remote`).
  */
-target: string | null, };
+target: string | null, 
+/**
+ * The target is the user's choice (`RepoSettings::forge_target_remote`), not the automatic pick.
+ */
+targetChosen: boolean, };

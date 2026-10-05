@@ -3,7 +3,9 @@
 //! answers 1 day. Network errors are never cached (the caller doesn't store them).
 
 use crate::gravatar::{email_key, ensure_private_dir, ext_for, now, payload, write_atomic, FOUND_TTL_SECS, MISSING_TTL_SECS};
+use crate::http::HttpClient;
 use gitbolt_core::avatar::AvatarPayload;
+use gitbolt_core::error::GbError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,6 +40,36 @@ pub enum Lookup {
 /// An avatar payload, if `content_type` is an image GitBolt shows.
 pub fn payload_of(content_type: &str, bytes: &[u8]) -> Option<AvatarPayload> {
     ext_for(content_type).map(|ext| payload(ext, bytes))
+}
+
+/// The picture at `url` (a forge's `avatar_url`, already allowed by the caller), through the
+/// host's cache keyed by the URL: `HttpClient::get_image`'s size cap, redirect and token rules.
+pub async fn image_at(http: &HttpClient, cache: Option<&DiskAvatarCache>, url: &str, own_origin: &str) -> Result<Option<AvatarPayload>, GbError> {
+    let key = format!("url:{url}");
+    if let Some(cache) = cache {
+        match cache.lookup(&key) {
+            Lookup::Found(p) => return Ok(Some(p)),
+            Lookup::Missing => return Ok(None),
+            Lookup::Unknown => {}
+        }
+    }
+    let found = http.get_image(url, own_origin).await?;
+    Ok(match (found, cache) {
+        (Some((ct, bytes)), Some(cache)) => {
+            // A 200 that isn't an image GitBolt shows is "none" for a while, not asked every time.
+            let found = cache.store_found(&key, &ct, &bytes);
+            if found.is_none() {
+                cache.store_missing(&key);
+            }
+            found
+        }
+        (Some((ct, bytes)), None) => payload_of(&ct, &bytes),
+        (None, Some(cache)) => {
+            cache.store_missing(&key);
+            None
+        }
+        (None, None) => None,
+    })
 }
 
 pub struct DiskAvatarCache {
@@ -150,6 +182,19 @@ mod tests {
         assert!(matches!(again.lookup("nobody@example.com"), Lookup::Missing));
         assert!(cache.store_found("x@example.com", "text/html", b"<html>").is_none(), "not an image");
         assert!(matches!(again.lookup("x@example.com"), Lookup::Unknown));
+    }
+
+    #[tokio::test]
+    async fn a_linked_picture_that_isnt_an_image_is_none_for_a_while() {
+        use crate::test_server::{Canned, TestServer};
+        let s = TestServer::start(|_, _| Canned { status: 200, headers: vec![("Content-Type".into(), "text/html".into())], body: b"<html>".to_vec() });
+        let http = HttpClient::new(crate::http::ClientConfig { host: "h".into(), api_base: format!("{}/api", s.base), token: None, headers: vec![], timeout: std::time::Duration::from_secs(5) });
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DiskAvatarCache::new(dir.path().join("h"));
+        let url = format!("{}/uploads/a.png", s.base);
+        assert_eq!(image_at(&http, Some(&cache), &url, &s.base).await.unwrap(), None);
+        assert_eq!(image_at(&http, Some(&cache), &url, &s.base).await.unwrap(), None);
+        assert_eq!(s.hits(), 1, "remembered as none");
     }
 
     #[cfg(unix)]

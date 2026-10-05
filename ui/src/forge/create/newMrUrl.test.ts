@@ -5,7 +5,7 @@ import { MAX_URL_LENGTH, newMrUrl } from './newMrUrl';
 
 const gitlab: ForgeProject = {
   kind: 'gitlab', id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: 'https://gitlab.example.com/group/project',
-  defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false,
+  defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false, ownerAvatarUrl: null,
 };
 const github: ForgeProject = { ...gitlab, kind: 'github', id: 501, host: 'github.com', path: 'octo-org/widget', owner: 'octo-org', webUrl: 'https://github.com/octo-org/widget' };
 const d: MrDraft = {

@@ -360,8 +360,30 @@ describe('the sidebar item menus', () => {
 
   it('a remote: its name, redacted URL from the repo info, and its project page', () => {
     const rows = sidebarRemoteMenu(store(), 'origin')();
-    expect(labelsOf(rows)).toEqual(['Copy remote name', 'Copy URL', '---', 'Forge link']);
+    expect(labelsOf(rows)).toEqual(['Copy remote name', 'Copy URL', '---', 'Forge link', 'Use as the main remote']);
     expect((rows.find((r) => r.kind === 'action' && r.label === 'Copy URL') as Extract<MenuRow, { kind: 'action' }>).disabledReason).toBeUndefined();
+  });
+
+  it('a forge remote: "Use as the main remote" toggles the repo\'s choice and re-polls; a plain remote has none', async () => {
+    const { useAppState, EMPTY_PROFILE } = await import('../app/state');
+    const bus = await import('../forge/accountsBus');
+    const { api } = await import('../api/client');
+    vi.spyOn(api, 'saveProfile').mockResolvedValue(undefined as never);
+    const seen = vi.fn();
+    const off = bus.onForgeAccountsChanged(seen);
+    useAppState.setState({ profile: { ...EMPTY_PROFILE, repos: {} } });
+    const row = () => sidebarRemoteMenu(store(), 'origin')().find((r) => r.kind === 'action' && r.label === 'Use as the main remote') as Extract<MenuRow, { kind: 'action' }>;
+    expect(row().tooltip).toBe('Make this the remote whose project is used for merge requests');
+    row().run();
+    expect(useAppState.getState().profile.repos['/repo']?.forgeTargetRemote).toBe('origin');
+    await vi.waitFor(() => expect(seen).toHaveBeenCalledTimes(1));
+    expect(row().tooltip).toBe('The main remote: click to go back to Automatic');
+    row().run();
+    expect(useAppState.getState().profile.repos['/repo']?.forgeTargetRemote).toBeNull();
+    await vi.waitFor(() => expect(seen).toHaveBeenCalledTimes(2));
+    off();
+    const plain = createRepoViewStore(7, '/repo', g, fakeServices({ remotesSnapshot: () => [{ name: 'backup', host: 'example.org', path: 'a/b', hostKind: 'generic' as const }] }));
+    expect(labelsOf(sidebarRemoteMenu(plain, 'backup')())).not.toContain('Use as the main remote');
   });
 });
 

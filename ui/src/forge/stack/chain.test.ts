@@ -6,7 +6,7 @@ import { afterMerge, firstAfterMerge, MAX_CHAIN, mrChain, stackLine, type StackE
 const mr = (number: number, source: string, target: string, state: ForgeMr['state'] = 'open', over: Partial<ForgeMr> = {}): ForgeMr => ({
   number, title: `MR ${number}`, state, author: { id: 1, username: 'ada', name: 'Ada', avatarUrl: null, webUrl: '', email: null },
   sourceProject: 'group/project', sourceBranch: source, targetProject: 'group/project', targetBranch: target, headSha: `head${number}`,
-  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], updatedAt: number, stacked: true, ...over,
+  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: number, stacked: true, ...over,
 });
 /** An MR no GitBolt stack table is in (long-lived branches, MRs made elsewhere). */
 const plain = (number: number, source: string, target: string, state: ForgeMr['state'] = 'open') => mr(number, source, target, state, { stacked: false });

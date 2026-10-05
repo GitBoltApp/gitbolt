@@ -426,6 +426,9 @@ impl WriteIntent for UndoIntent {
         if self.out_of_order {
             self.out_of_order_check(pre).await?;
         }
+        if let Some(removed) = &self.entry.removed_remote {
+            crate::write::remotes::check_removed_remote(&pre.api.cli, pre.root, removed, &self.entry.config, self.dir == Direction::Undo).await?;
+        }
         if self.changes_nothing(pre.api, pre.root, &pre.before.head)? {
             return Ok(crate::write::Plan::default());
         }
@@ -743,6 +746,9 @@ impl WriteIntent for UndoIntent {
             cx.record_config(back)?;
         }
         crate::write::config::apply(cx, &self.entry.config, self.dir == Direction::Undo).await?;
+        if let Some(removed) = &self.entry.removed_remote {
+            crate::write::remotes::replay_symrefs(cx, removed, self.dir == Direction::Undo).await?;
+        }
         // UX Y: the undone entry leaves the stack (no Redo); its undo's entry takes its place, so
         // the entries after it stay Undo's, in order. The Redo stack stays when every redo entry
         // is independent of it (review 7). That entry's `after` is a fresh snapshot of P (review
@@ -790,7 +796,14 @@ pub(crate) async fn undo_or_redo(api: &Api, repo: u32, worktree: &str, dir: Dire
         Direction::Redo => journal.redo_top(),
     };
     let entry = top.filter(|e| e.id == entry).cloned().ok_or_else(|| GbError::stale("The undo history changed; refreshed"))?;
-    run_write(api, repo, worktree, Expect::default(), UndoIntent { dir, entry, confirm, autostash_ok, without_index, confirm_discard, out_of_order: false }).await
+    let remotes_change = entry.removed_remote.is_some();
+    let done = run_write(api, repo, worktree, Expect::default(), UndoIntent { dir, entry, confirm, autostash_ok, without_index, confirm_discard, out_of_order: false }).await;
+    // The handle's config snapshot predates the remote coming back or going again (`reopen_repo`).
+    // A failed reopen is logged: the undo itself happened.
+    if remotes_change && let Err(e) = api.reopen_repo(repo) {
+        tracing::warn!(target: "gitbolt_core::write", "reopening the repository after undoing a remote's removal: {e}");
+    }
+    done
 }
 
 // --- UX Y: out-of-order undo ---

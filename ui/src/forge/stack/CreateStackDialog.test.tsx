@@ -13,7 +13,7 @@ vi.mock('./deps', () => ({ createMr: (...a: unknown[]) => createMr(...a), forgeT
 const mr = (number: number, source: string, target: string, state: ForgeMr['state'] = 'open'): ForgeMr => ({
   number, title: `MR ${number}`, state, author: { id: 1, username: 'ada', name: 'Ada', avatarUrl: null, webUrl: '', email: null },
   sourceProject: 'group/project', sourceBranch: source, targetProject: 'group/project', targetBranch: target, headSha: null,
-  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], updatedAt: number, stacked: false,
+  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: number, stacked: false,
 });
 const stack = { branches: ['feature/a', 'feature/b'], base: 'refs/remotes/origin/main', leftBehind: [] };
 

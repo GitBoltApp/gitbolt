@@ -221,6 +221,10 @@ pub struct RemotePayload {
     pub host: Option<String>,
     pub path: Option<String>,
     pub host_kind: HostKind,
+    /// The repo's chosen main remote (`RepoSettings::forge_target_remote`). Server-side only.
+    #[serde(skip)]
+    #[ts(skip)]
+    pub main: bool,
 }
 
 /// Where one side of a file diff comes from (spec §10.2). The file list builds these and the

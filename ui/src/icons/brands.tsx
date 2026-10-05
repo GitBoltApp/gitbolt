@@ -1,6 +1,8 @@
 import { Cloud } from 'lucide-react';
 import type { HostKind } from '../api/gen/HostKind';
 import { useAppState } from '../app/state';
+import { useAvatar } from '../avatars/avatarStore';
+import { useForge } from '../forge/mrStore';
 import { effectiveKind } from '../forge/urls';
 
 // SVG paths from simple-icons 16.32.0 (CC0 1.0): https://simpleicons.org. Copied rather than
@@ -19,8 +21,32 @@ function Mark({ path, label, size, kind }: { path: string; label: string; size: 
 export const GitLabMark = ({ size = 12, label = 'GitLab' }: { size?: number; label?: string }) => <Mark path={GITLAB} label={label} size={size} kind="gitlab" />;
 export const GitHubMark = ({ size = 12, label = 'GitHub' }: { size?: number; label?: string }) => <Mark path={GITHUB} label={label} size={size} kind="github" />;
 
-/** Remote icon by host type (spec §8.5, §14.4): GitLab fox, GitHub mark, else a generic cloud. */
-export function RemoteIcon({ kind: detected, host, remote, size = 12 }: { kind: HostKind; host?: string | null; remote: string; size?: number }) {
+/**
+ * Remote icon by host type (spec §8.5, §14.4): GitLab fox, GitHub mark, else a generic cloud.
+ * `tabId`: in a repo tab, a user's fork (`TabForge.ownerAvatars`) shows its owner's picture
+ * instead, round and the mark's size, once it has loaded (the mark until then, on failure, for an
+ * organization's or a group's fork, and for the target remote).
+ */
+type RemoteIconProps = { kind: HostKind; host?: string | null; remote: string; size?: number };
+
+export function RemoteIcon({ tabId, ...props }: RemoteIconProps & { tabId?: string }) {
+  // Outside a repo tab: no forge-store or avatar subscriptions at all.
+  return tabId ? <OwnedRemoteIcon tabId={tabId} {...props} /> : <RemoteMark {...props} />;
+}
+
+function OwnedRemoteIcon({ tabId, ...props }: RemoteIconProps & { tabId: string }) {
+  const kind = useAppState((s) => effectiveKind(props.host, props.kind, s.profile.hostOverrides));
+  const owner = useForge((s) => s.byTab[tabId]?.ownerAvatars[props.remote] ?? null);
+  const img = useAvatar(owner ?? '', owner !== null, true);
+  const label = `remote ${props.remote}`;
+  const size = props.size ?? 12;
+  if (owner && img && kind !== 'generic') {
+    return <img src={img.url} alt={label} aria-label={label} data-host-kind={kind} data-owner-avatar="" width={size} height={size} style={{ borderRadius: '50%', objectFit: 'cover', display: 'block' }} />;
+  }
+  return <RemoteMark {...props} />;
+}
+
+function RemoteMark({ kind: detected, host, remote, size = 12 }: RemoteIconProps) {
   // The profile's host-type override for this remote's host (Settings > Hosts), else the detected one.
   const kind = useAppState((s) => effectiveKind(host, detected, s.profile.hostOverrides));
   const label = `remote ${remote}`;

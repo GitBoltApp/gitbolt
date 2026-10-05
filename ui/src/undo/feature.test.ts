@@ -33,6 +33,20 @@ describe('undo (spec #2 §5.4, §5.5)', () => {
     expect(useJournal.getState().states[journalKey(4, '/r')].undo).toBeNull();
   });
 
+  it('undoing a removed remote asks the forge again at once; another undo doesn\'t', async () => {
+    const bus = await import('../forge/accountsBus');
+    const seen = vi.fn();
+    const off = bus.onForgeAccountsChanged(seen);
+    api.undo.mockResolvedValueOnce(wrap({ status: 'done', label: 'commit "Fix x"' }));
+    await undo(ctx);
+    expect(seen).not.toHaveBeenCalled();
+    act(() => useJournal.getState().set(4, '/r', state({ undo: { entry: 8, label: 'remove remote origin', kind: 'branch' } })));
+    api.undo.mockResolvedValueOnce(wrap({ status: 'done', label: 'remove remote origin' }));
+    await undo(ctx);
+    expect(seen).toHaveBeenCalledTimes(1);
+    off();
+  });
+
   // --- 2C T10: a linked worktree's journal, and the entry's note in the toast (spec #2 §9.2) ---
   it("undoes the active worktree's own entry, and the toast adds the entry's note", async () => {
     const linked = { tabId: 't', repoId: 4, worktree: '/r-x' };

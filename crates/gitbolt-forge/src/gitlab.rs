@@ -1,7 +1,7 @@
 //! GitLab REST v4 (spec #4 §3.1): identity, projects, settings, forks, avatars. 4B–4D add the
 //! merge request methods to this impl, in their marked blocks.
 
-use crate::avatar_cache::{payload_of, DiskAvatarCache, Lookup};
+use crate::avatar_cache::{image_at, payload_of, DiskAvatarCache, Lookup};
 use crate::endpoints::HostEndpoints;
 use crate::http::{encode_component, under, ClientConfig, HttpClient, HttpResponse, Method};
 use crate::time::unix_now;
@@ -32,13 +32,15 @@ pub struct GitLabProvider {
     me: Mutex<Option<ForgeUser>>,
     /// Project id → path: an MR names its source project by id only.
     paths: Mutex<HashMap<u64, String>>,
+    /// Project id → label name → `#rrggbb`, from `/projects/:id/labels` (`fill_label_colors`).
+    label_colors: Mutex<HashMap<u64, HashMap<String, String>>>,
     // --- end 4B T2 ---
 }
 
 impl GitLabProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, avatars: Option<Arc<DiskAvatarCache>>) -> Self {
         let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: Vec::new(), timeout: Duration::from_secs(20) });
-        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, avatars, me: Mutex::new(None), paths: Mutex::default() } // 4B T2: me, paths
+        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, avatars, me: Mutex::new(None), paths: Mutex::default(), label_colors: Mutex::default() } // 4B T2: me, paths
     }
 
     /// The account's client, for 4B–4D's requests.
@@ -97,6 +99,7 @@ pub mod json {
             fork_of: text(&v["forked_from_project"]["path_with_namespace"]),
             updated_at: v["last_activity_at"].as_str().and_then(parse_rfc3339),
             archived: v["archived"].as_bool().unwrap_or(false),
+            owner_avatar_url: (v["namespace"]["kind"].as_str() == Some("user")).then(|| text(&v["namespace"]["avatar_url"])).flatten(),
             path,
         })
     }
@@ -199,7 +202,8 @@ pub mod json {
             pipeline: pipeline(&v["head_pipeline"]),
             review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
             conflicts: v["has_conflicts"].as_bool(),
-            labels: v["labels"].as_array().into_iter().flatten().filter_map(|l| l.as_str().or(l["name"].as_str()).map(str::to_string)).collect(),
+            labels: labels_of(&v["labels"]).0,
+            label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["description"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
@@ -425,7 +429,8 @@ pub mod json {
             pipeline: None,
             review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
             conflicts: v["has_conflicts"].as_bool(),
-            labels: v["labels"].as_array().map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect()).unwrap_or_default(),
+            labels: labels_of(&v["labels"]).0,
+            label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["description"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
         })
@@ -490,7 +495,7 @@ impl GitLabProvider {
     /// The open MRs for `filter`, newest activity first; `with_pipelines`: with the project's recent
     /// pipelines (the list), else without (the badges).
     async fn list_open(&self, project: &ForgeProject, filter: MrFilter, with_pipelines: bool) -> Result<Fresh<Vec<ForgeMr>>, GbError> {
-        let mut path = format!("/projects/{}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page={MR_PER_PAGE}", project.id);
+        let mut path = format!("/projects/{}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page={MR_PER_PAGE}&with_labels_details=true", project.id);
         match filter {
             MrFilter::All => {}
             MrFilter::Mine => path.push_str("&scope=created_by_me"),
@@ -514,6 +519,37 @@ impl GitLabProvider {
             }
         }
         out
+    }
+
+    /// Colours for `mr`'s labels that came without one (a single MR's GET): from the project's
+    /// labels (its groups' included), kept per project for the session and asked again (an
+    /// ETag-revalidated GET) only when the MR names a label the kept map doesn't have. Best effort:
+    /// a failure leaves plain chips.
+    async fn fill_label_colors(&self, project: &ForgeProject, mr: &mut ForgeMr) {
+        let wanted: Vec<String> = mr.labels.iter().filter(|l| !mr.label_colors.contains_key(*l)).cloned().collect();
+        if wanted.is_empty() {
+            return;
+        }
+        let kept = self.label_colors.lock().expect("label colours poisoned").get(&project.id).cloned();
+        let colors = match kept {
+            Some(c) if wanted.iter().all(|l| c.contains_key(l)) => c,
+            kept => match self.http.get(&format!("/projects/{}/labels?per_page=100", project.id)).await.and_then(|r| r.json::<Vec<Value>>(&self.host)) {
+                Ok(list) => {
+                    let c: HashMap<String, String> = list.iter().filter_map(json::label).filter_map(|l| Some((l.name, label_color(l.color.as_deref()?)?))).collect();
+                    self.label_colors.lock().expect("label colours poisoned").insert(project.id, c.clone());
+                    c
+                }
+                Err(e) => {
+                    tracing::debug!("label colours from {}: {}", self.host, e.message);
+                    kept.unwrap_or_default()
+                }
+            },
+        };
+        for l in wanted {
+            if let Some(c) = colors.get(&l) {
+                mr.label_colors.insert(l, c.clone());
+            }
+        }
     }
 
     fn mr_url(project: &ForgeProject, number: u64) -> String {
@@ -611,6 +647,24 @@ impl ForgeProvider for GitLabProvider {
         })
     }
 
+    // --- forks paging ---
+    fn forks_page<'a>(&'a self, project: &'a ForgeProject, page: u32, per_page: u32) -> ForgeFuture<'a, ForkPage> {
+        Box::pin(async move {
+            let path = format!("/projects/{}/forks?order_by=last_activity_at&sort=desc&per_page={per_page}&page={page}", project.id);
+            let r = self.http.get(&path).await?;
+            let items: Vec<Value> = r.json(&self.host)?;
+            Ok(ForkPage { forks: items.iter().filter_map(|v| json::project(&self.host, v)).collect(), next: r.next_page.is_some().then(|| page + 1) })
+        })
+    }
+    // --- end forks paging ---
+    /// Only the account's own uploads (`<web>/uploads/…`; with the token, as `avatar_for_email` fetches
+    /// them, for an instance that keeps them private) or Gravatar's (without it), checked by
+    /// `avatar_fetch_url`.
+    fn avatar_at<'a>(&'a self, url: &'a str) -> Option<ForgeFuture<'a, Option<AvatarPayload>>> {
+        let url = avatar_fetch_url(url, &[&format!("{}/uploads", self.web)])?;
+        Some(Box::pin(async move { image_at(&self.http, self.avatars.as_deref(), &url, &self.web).await }))
+    }
+
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
         Box::pin(async move {
             let email = email.trim();
@@ -657,7 +711,7 @@ impl ForgeProvider for GitLabProvider {
     // --- 4D T4 ---
     fn open_mrs_targeting<'a>(&'a self, project: &'a ForgeProject, branch: &'a str) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
         Box::pin(async move {
-            let path = format!("/projects/{}/merge_requests?state=opened&target_branch={}&per_page=100", project.id, encode_component(branch));
+            let path = format!("/projects/{}/merge_requests?state=opened&target_branch={}&per_page=100&with_labels_details=true", project.id, encode_component(branch));
             let r = self.http.get(&path).await?;
             let list: Vec<Value> = r.json(&self.host)?;
             Ok(Self::fresh(self.mrs_of(project, &list, &HashMap::new()).await, &r))
@@ -667,7 +721,7 @@ impl ForgeProvider for GitLabProvider {
 
     fn mr_for_branch<'a>(&'a self, project: &'a ForgeProject, source: &'a SourceRef) -> ForgeFuture<'a, Fresh<Option<ForgeMr>>> {
         Box::pin(async move {
-            let path = format!("/projects/{}/merge_requests?source_branch={}&state=all&order_by=updated_at&sort=desc&per_page=20", project.id, encode_component(&source.branch));
+            let path = format!("/projects/{}/merge_requests?source_branch={}&state=all&order_by=updated_at&sort=desc&per_page=20&with_labels_details=true", project.id, encode_component(&source.branch));
             let r = self.http.get(&path).await?;
             let list: Vec<Value> = r.json(&self.host)?;
             let mrs: Vec<ForgeMr> = self.mrs_of(project, &list, &HashMap::new()).await.into_iter().filter(|m| m.source_project == source.project).collect();
@@ -687,7 +741,9 @@ impl ForgeProvider for GitLabProvider {
                 Err(e) if e.kind == GbErrorKind::NotFound => (None, false),
                 Err(e) => return Err(e),
             };
-            let d = json::detail(&v, &project.path, &source, approvals.as_ref()).ok_or_else(|| unreadable(&self.host, "merge request"))?;
+            let mut d = json::detail(&v, &project.path, &source, approvals.as_ref()).ok_or_else(|| unreadable(&self.host, "merge request"))?;
+            // A single MR's GET has label names only (`with_labels_details` is for the lists).
+            self.fill_label_colors(project, &mut d.mr).await;
             // Not modified only when the MR and its approvals both were (a 304 each).
             let mut fresh = Self::fresh(d, &r);
             fresh.not_modified &= approvals_same;
@@ -886,7 +942,7 @@ mod tests {
     #[test]
     fn normalizes_a_fork_and_its_settings() {
         let v = json!({
-            "id": 77, "name": "project", "path_with_namespace": "alice/project", "namespace": {"full_path": "alice"},
+            "id": 77, "name": "project", "path_with_namespace": "alice/project", "namespace": {"full_path": "alice", "kind": "user", "avatar_url": "https://g/uploads/-/system/user/avatar/7/a.png"},
             "web_url": "https://g/alice/project", "default_branch": "main", "http_url_to_repo": "https://g/alice/project.git",
             "ssh_url_to_repo": "git@g:alice/project.git", "forked_from_project": {"path_with_namespace": "group/project"},
             "last_activity_at": "2026-10-04T12:00:00.000Z", "archived": false,
@@ -894,6 +950,9 @@ mod tests {
         });
         let p = json::project("g", &v).unwrap();
         assert_eq!((p.kind, p.id, p.owner.as_str(), p.fork_of.as_deref(), p.updated_at), (ForgeKind::GitLab, 77, "alice", Some("group/project"), Some(1_791_115_200)));
+        assert_eq!(p.owner_avatar_url.as_deref(), Some("https://g/uploads/-/system/user/avatar/7/a.png"));
+        let group = json::project("g", &json!({"id": 1, "path_with_namespace": "group/project", "namespace": {"full_path": "group", "kind": "group", "avatar_url": "https://g/uploads/g.png"}})).unwrap();
+        assert_eq!(group.owner_avatar_url, None, "a group's isn't kept");
         assert_eq!(json::settings(&v), ForgeProjectSettings { merge_methods: vec![MergeMethod::SemiLinear], squash: SquashOption::Always, delete_source_branch: true });
         assert_eq!(json::settings(&json!({})), ForgeProjectSettings { merge_methods: vec![MergeMethod::Merge], squash: SquashOption::DefaultOff, delete_source_branch: false });
     }

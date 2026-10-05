@@ -66,7 +66,7 @@ export function promptFor(tabId: string): void {
 
 /**
  * Reacts to 4B's forge store (its poller's updates) for the active tab: only when that tab's
- * badges (`byRef`, `upstreams`) or list changed, or the store changed with another tab active
+ * badges (`byRef`, `history`, `upstreams`) or list changed, or the store changed with another tab active
  * than last time (a merge seen while the tab was in the background). Returns the stop.
  */
 export function startAfterMergeWatch(): () => void {
@@ -77,7 +77,7 @@ export function startAfterMergeWatch(): () => void {
     if (t?.kind !== 'repo' || queued) return;
     const now = s.byTab[t.id];
     const was = prev.byTab[t.id];
-    const same = now === was || (now?.byRef === was?.byRef && now?.upstreams === was?.upstreams && now?.list === was?.list);
+    const same = now === was || (now?.byRef === was?.byRef && now?.history === was?.history && now?.upstreams === was?.upstreams && now?.list === was?.list);
     if (same && lastTab === t.id) return;
     lastTab = t.id;
     queued = true;

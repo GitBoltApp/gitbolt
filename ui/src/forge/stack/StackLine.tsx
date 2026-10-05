@@ -9,13 +9,14 @@ import './stack.css';
 /** The forge and runtime inputs `stackEnvOf` reads: a memo over them recomputes only when one changes. */
 export function useStackInputs(tabId: string): unknown[] {
   const byRef = useTabForgeField(tabId, 'byRef');
+  const history = useTabForgeField(tabId, 'history');
   const upstreams = useTabForgeField(tabId, 'upstreams');
   const project = useTabForgeField(tabId, 'project');
   const remote = useTabForgeField(tabId, 'remote');
   const kind = useTabForgeField(tabId, 'kind');
   const sidebar = useRuntime((s) => s.tabs[tabId]?.sidebar);
   const graph = useRuntime((s) => s.tabs[tabId]?.graph);
-  return [byRef, upstreams, project, remote, kind, sidebar?.locals, sidebar?.remotes, graph];
+  return [byRef, history, upstreams, project, remote, kind, sidebar?.locals, sidebar?.remotes, graph];
 }
 
 /** The chain through `mr` (Ruling 13), re-read when 4B's forge store or the tab's branches change. */

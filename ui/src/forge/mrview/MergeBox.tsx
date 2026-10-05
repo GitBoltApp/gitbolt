@@ -1,3 +1,4 @@
+import { Check, Clock, X } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../../api/client';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
@@ -64,24 +65,58 @@ export function MergeBox({ tabId, kind, mr, detail }: { tabId: string; kind: For
     putMr(tabId, out.value);
     useToast.getState().show(`Merged ${ref} into ${mr.targetBranch}`);
   };
+  const { tone, title } = status(blocked, detail, settings !== null || settingsError !== null);
+  const summary = tone === 'ready' ? readySummary(mr, detail) : null;
+  const Icon = tone === 'ready' ? Check : tone === 'bad' ? X : Clock;
+  const methodLine = <span className="mr-dim mr-merge-method mr-merge-row" {...reserved(!settings && !chosen)}>Merge method: {METHOD_LABELS[(kind === 'gitlab' ? methods[0] : chosen) ?? 'merge']}</span>;
   return (
     <section className="mr-merge" aria-label="Merge">
-      {/* The rows are reserved while the options load (hidden, not removed), so nothing shifts. */}
-      {kind === 'gitlab' && (
-        <>
-          <div className="mr-dim mr-merge-row" {...reserved(!settings)}>Merge method: {METHOD_LABELS[methods[0] ?? 'merge']}</div>
-          <label className="mr-check mr-merge-row" {...reserved(!settings || squashOpt === 'never')}><input type="checkbox" checked={squashOn} disabled={!settings || squashOpt === 'always'} onChange={(e) => setSquash(e.target.checked)} /> Squash commits</label>
-          <label className="mr-check mr-merge-row" {...reserved(!settings)}><input type="checkbox" checked={delOn} disabled={!settings} onChange={(e) => setDel(e.target.checked)} /> Delete the source branch</label>
-        </>
-      )}
-      {kind === 'github' && (chosen && methods.length > 1
-        ? <div className="mr-field mr-merge-row">Merge method <Select aria-label="Merge method" value={chosen} options={methods.map((m) => [m, METHOD_LABELS[m]] as const)} onChange={(v) => setMethod(v as MergeMethod)} /></div>
-        : <div className="mr-dim mr-merge-row" {...reserved(!chosen)}>Merge method: {METHOD_LABELS[chosen ?? 'merge']}</div>)}
-      {kind === 'github' && settings?.deleteSourceBranch && <div className="mr-dim">GitHub deletes the branch after merging (repository setting)</div>}
-      <div className="mr-form-row">
-        <button type="button" className="mr-button primary" disabled={blocked !== null || busy} onClick={() => void merge()}>{busy ? 'Merging…' : 'Merge'}</button>
+      <div className="mr-merge-top">
+        <span className={`mr-merge-dot ${tone}`} aria-hidden><Icon size={13} /></span>
+        <div className="mr-merge-ttl">
+          <b>{title}</b>
+          {/* Always in the layout: the reason, or what is ready, or an empty line. */}
+          <span className={`mr-merge-reason ${tone}`} role="note">{blocked ?? summary ?? '\u00a0'}</span>
+        </div>
+        <button type="button" className="mr-button merge" disabled={blocked !== null || busy} onClick={() => void merge()}>{busy ? 'Merging…' : 'Merge'}</button>
       </div>
-      <p className="mr-merge-reason" role="note" {...reserved(!blocked)}>{blocked ?? '\u00a0'}</p>
+      {/* The rows are reserved while the options load (hidden, not removed), so nothing shifts. */}
+      <div className="mr-merge-opts">
+        {kind === 'gitlab' && (
+          <>
+            <label className="mr-check mr-merge-row" {...reserved(!settings || squashOpt === 'never')}><input type="checkbox" checked={squashOn} disabled={!settings || squashOpt === 'always'} onChange={(e) => setSquash(e.target.checked)} /> Squash commits</label>
+            <label className="mr-check mr-merge-row" {...reserved(!settings)}><input type="checkbox" checked={delOn} disabled={!settings} onChange={(e) => setDel(e.target.checked)} /> Delete the source branch</label>
+            {methodLine}
+          </>
+        )}
+        {kind === 'github' && (
+          <>
+            {settings?.deleteSourceBranch && <span className="mr-dim">GitHub deletes the branch after merging (repository setting)</span>}
+            {chosen && methods.length > 1
+              ? <div className="mr-field mr-merge-row mr-merge-method">Merge method <Select aria-label="Merge method" value={chosen} options={methods.map((m) => [m, METHOD_LABELS[m]] as const)} onChange={(v) => setMethod(v as MergeMethod)} /></div>
+              : methodLine}
+          </>
+        )}
+      </div>
     </section>
   );
+}
+
+export type MergeTone = 'ready' | 'wait' | 'bad';
+
+/** The merge box's icon colour and bold title, from why Merge is (not) allowed. */
+function status(blocked: string | null, detail: ForgeMrDetail | null, loaded: boolean): { tone: MergeTone; title: string } {
+  if (blocked === null) return { tone: 'ready', title: 'Ready to merge' };
+  if (!detail || detail.mergeStatus.kind === 'checking' || (!loaded && detail.mergeStatus.kind === 'mergeable')) return { tone: 'wait', title: 'Checking…' };
+  if (/schedul/i.test(blocked)) return { tone: 'wait', title: 'Merge is scheduled' };
+  if (/conflict|fail|couldn't|can't|cannot|merged already/i.test(blocked)) return { tone: 'bad', title: 'Merge is blocked' };
+  return { tone: 'wait', title: 'Merge is blocked' };
+}
+
+/** "Pipeline passed · approved": what makes it ready, when the forge says. */
+function readySummary(mr: ForgeMr, detail: ForgeMrDetail | null): string | null {
+  const bits: string[] = [];
+  if (mr.pipeline?.status === 'success') bits.push('Pipeline passed');
+  if ((detail?.mr.review.decision ?? mr.review.decision) === 'approved') bits.push('approved');
+  return bits.length ? bits.join(' · ').replace(/^./, (c) => c.toUpperCase()) : null;
 }

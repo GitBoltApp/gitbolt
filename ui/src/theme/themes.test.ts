@@ -131,6 +131,7 @@ describe('themes', () => {
         'diff-inserted-text': 'rgba(92, 184, 92, 0.12)', 'diff-removed-text': 'rgba(217, 65, 61, 0.2)',
         'diff-inserted-line': 'rgba(92, 184, 92, 0.1)', 'diff-removed-line': 'rgba(217, 65, 61, 0.15)',
         'diff-diagonal-fill': 'rgba(204, 204, 204, 0.2)',
+        'forge-gitlab': '#e2432a', 'forge-github': '#6e5494', purple: '#a371f7',
       },
     });
   });

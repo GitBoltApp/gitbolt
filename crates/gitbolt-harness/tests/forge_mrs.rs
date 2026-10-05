@@ -38,7 +38,11 @@ async fn a_gitlab_repo_gets_badges_a_list_details_and_its_writes_answered() {
     let badges = call(&h.api, json!({"method": "forgeBranchMrs", "params": {"repo": id, "refs": ["refs/remotes/origin/dev", "refs/remotes/origin/feature/old"]}})).await.unwrap();
     let by: std::collections::BTreeMap<String, (u64, String)> = badges["mrs"].as_array().unwrap().iter().map(|b| (b["remoteRef"].as_str().unwrap().to_string(), (b["mr"]["number"].as_u64().unwrap(), b["mr"]["state"].as_str().unwrap().to_string()))).collect();
     assert_eq!(by["refs/remotes/origin/dev"], (12, "open".to_string()));
-    assert_eq!(by["refs/remotes/origin/feature/old"], (9, "merged".to_string()), "looked up in any state");
+    // Looked up in any state: merged, and this repo has no `origin/feature/old` at its head (nor a
+    // branch tracking it), so no badge; 4D's stacks still read it.
+    assert!(!by.contains_key("refs/remotes/origin/feature/old"), "{by:?}");
+    let history: Vec<(&str, u64)> = badges["history"].as_array().unwrap().iter().map(|b| (b["remoteRef"].as_str().unwrap(), b["mr"]["number"].as_u64().unwrap())).collect();
+    assert_eq!(history, [("refs/remotes/origin/feature/old", 9)]);
     assert_eq!(by["refs/remotes/origin/diverged"], (5, "draft".to_string()), "every open one on a mapped remote");
 
     let review = call(&h.api, json!({"method": "forgeMrList", "params": {"repo": id, "filter": "reviewRequested"}})).await.unwrap();

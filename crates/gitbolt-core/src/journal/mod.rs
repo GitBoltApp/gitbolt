@@ -369,6 +369,20 @@ pub struct JournalEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_paths: Option<Vec<String>>,
     // --- end UX Y ---
+    /// A removed remote (`removeRemote`): what its `refs` and `config` don't hold. Undo
+    /// recreates its symbolic refs; redo deletes them again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed_remote: Option<RemovedRemote>,
+}
+
+/// What Undo of "remove remote" needs beyond the entry's ref moves and config changes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedRemote {
+    pub name: String,
+    /// Its symbolic refs (`refs/remotes/<name>/HEAD` → `refs/remotes/<name>/main`): name, target.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub symrefs: Vec<(String, String)>,
 }
 
 // --- 3B T2 ---
@@ -619,6 +633,7 @@ impl Journal {
             note: None,
             stopped_pick: None, // 3B T2
             tree_paths: None,   // UX Y
+            removed_remote: None,
         }
     }
 

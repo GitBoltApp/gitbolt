@@ -81,7 +81,13 @@ describe('a closed diff is kept, hidden (J16)', () => {
     await act(async () => fireEvent.mouseDown(fileRow('a.txt'), { button: 0, detail: 1 }));
     expect(screen.queryByRole('region', { name: 'Diff' })).toBeNull();
     const settle = () => act(async () => { await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0))); });
-    await settle();
+    // The baseline is taken once the panel is quiet (its render count unchanged over two settles),
+    // not after one fixed wait: late loads from opening the file can still land on a slow machine.
+    for (let last = -1, quiet = 0; quiet < 2;) {
+      await settle();
+      quiet = toolbarRenders.n === last ? quiet + 1 : 0;
+      last = toolbarRenders.n;
+    }
     const before = toolbarRenders.n;
     // Select the other commit, then back: each moves the panel's sections, details and message.
     for (const i of [1, 0, 1]) {
@@ -91,7 +97,7 @@ describe('a closed diff is kept, hidden (J16)', () => {
       await settle();
     }
     expect(toolbarRenders.n - before).toBe(0);
-  }, 15_000);
+  }, 30_000);
 
   it('the view unmounting while the kept panel is hidden lets the editor go of its box', async () => {
     const view = renderView();

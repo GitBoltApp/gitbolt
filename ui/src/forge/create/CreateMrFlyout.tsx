@@ -68,7 +68,8 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
     let live = true;
     const rt = useRuntime.getState().tabs[tabId];
     const f = forgeOf(tabId);
-    if (!f.remote || !f.project || !rt?.repo) { setProblem(NO_FORGE); return; }
+    if (!f.remote || !rt?.repo) { setProblem(NO_FORGE); return; }
+    if (!f.project) { setProblem(f.error ?? NO_FORGE); return; }
     const target = { remote: f.remote, project: f.project };
     const repo = rt.repo;
     const begin = (mapped: string[]) => {

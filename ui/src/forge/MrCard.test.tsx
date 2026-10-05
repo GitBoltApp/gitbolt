@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { ForgeAvatarStoreContext, createAvatarStore } from '../avatars/avatarStore';
 import { MrCard } from './MrCard';
 import { detailOf, mrOf, user } from './testMrs';
 
@@ -26,6 +27,23 @@ describe('MrCard (spec #4 §4 "4B": the hover card)', () => {
     expect(card).toHaveTextContent('Approved by Ada Lovelace');
     expect(card).toHaveTextContent('Has conflicts');
     expect(card).not.toHaveTextContent('Loading…');
+  });
+
+  it("shows the author's avatar before the name: its box from the first render, initials until the picture comes", async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:grace');
+    URL.revokeObjectURL = vi.fn();
+    const url = 'https://gitlab.example.com/uploads/-/system/user/avatar/1/grace.png';
+    const fetch = vi.fn(async () => ({ mime: 'image/png', base64: btoa('png') }));
+    const store = createAvatarStore(fetch, { keyOf: (u) => u.trim() });
+    const withPic = mrOf(12, { author: { ...user('Grace Hopper'), avatarUrl: url } });
+    render(<ForgeAvatarStoreContext value={store}><MrCard kind="gitlab" mr={withPic} detail={null} /></ForgeAvatarStoreContext>);
+    const avatar = screen.getByTestId('avatar');
+    expect([avatar.textContent, avatar.style.width, avatar.style.height]).toEqual(['GH', '16px', '16px']);
+    expect(avatar.closest('.mr-card-author')).toHaveTextContent('Grace Hopper · dev → main');
+    await act(async () => {});
+    expect(avatar.querySelector('img')).toHaveAttribute('src', 'blob:grace');
+    expect([avatar.style.width, avatar.style.height]).toEqual(['16px', '16px']);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(url);
   });
 
   it("says why the detail couldn't load", () => {

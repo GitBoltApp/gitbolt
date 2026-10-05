@@ -12,7 +12,7 @@ const local = (name: string, pushTarget: string | null): LocalBranch => ({
 const CTX: CreateContext = {
   project: {
     kind: 'gitlab', id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: 'https://gitlab.example.com/group/project',
-    defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false,
+    defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false, ownerAvatarUrl: null,
   },
   sourceProject: 'group/project',
   settings: { mergeMethods: ['merge'], squash: 'defaultOn', deleteSourceBranch: true },

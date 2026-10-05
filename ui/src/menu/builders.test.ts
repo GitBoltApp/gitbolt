@@ -389,6 +389,13 @@ describe('the sidebar menus (plan 1C Task 15b)', () => {
     expect(find(side({ what: 'remote', name: 'o', url: null }, env), 'Copy URL').disabledReason).toBe('Not loaded yet');
   });
 
+  it('a remote, where writes can run: "Remove remote…" ends its menu', () => {
+    const env = envOf({ write: { tabId: 't', repoId: 1, worktree: '/r' } });
+    const rows = labels(side({ what: 'remote', name: 'origin', url: remoteUrl }, env));
+    expect(rows.slice(-2)).toEqual(['---', 'Remove remote…']);
+    expect(labels(side({ what: 'worktree', path: '/wt/x', branch: 'x', head: sha }, env))).not.toContain('Remove remote…');
+  });
+
   it('a worktree: copies its path, branch and head; opens its folder in the file manager', () => {
     const env = envOf();
     const rows = side({ what: 'worktree', path: '/wt/x', branch: 'x', head: sha }, env);

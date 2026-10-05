@@ -25,4 +25,8 @@ editor: EditorChoice | null,
 /**
  * The sidebar MR/PR section's filter (spec #4 §2 "MR/PR list"); `None` is All.
  */
-mrFilter: MrFilter | null, };
+mrFilter: MrFilter | null, 
+/**
+ * The remote whose forge project the repo's MRs/PRs target; `None` picks automatically.
+ */
+forgeTargetRemote: string | null, };

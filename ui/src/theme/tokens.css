@@ -40,8 +40,13 @@
      the component stylesheets, or are new with the theme set. ---- */
   --red: #d9413d;
   --orange: #de9b43;
+  /* Forge marks (Settings › Accounts): the forges' own brand colours, the same in every theme. */
+  --forge-gitlab: #e2432a;
+  --forge-github: #6e5494;
   --yellow: #ecb91c;
   --link: #40c5ec;
+  /* The MR/PR view: merged and mentions. */
+  --purple: #a371f7;
   --focus-outline: rgba(77, 136, 255, 0.6);
   --conflict-ours: #15a0bf;
   --conflict-theirs: #f2ca33;

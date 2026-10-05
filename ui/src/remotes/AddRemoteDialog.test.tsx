@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, EMPTY_PROFILE } from '../app/state';
 
 const api = vi.hoisted(() => ({
   forgeRepoProjects: vi.fn(async (): Promise<unknown> => ({ remotes: [], target: null })),
-  forgeForks: vi.fn(async (): Promise<unknown[]> => []),
+  forgeForks: vi.fn(async (..._a: unknown[]): Promise<unknown> => ({ forks: [], next: null })),
 }));
 const added = vi.hoisted(() => ({ addRemoteAndFetch: vi.fn(async () => true), addForkRemote: vi.fn(async () => 'alice') }));
 vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)) }));
@@ -28,7 +28,7 @@ beforeEach(() => {
     { name: 'bob', url: 'https://gitlab.example.com/bob/project.git', host: 'gitlab.example.com', path: 'bob/project', hostKind: 'gitlab' },
   ] } } } as never });
   api.forgeRepoProjects.mockResolvedValue({ remotes: [{ remote: 'origin', host: 'gitlab.example.com', path: 'group/project', account: 'gitlab', project: project('group/project', 9, null), error: null }], target: 'origin' });
-  api.forgeForks.mockResolvedValue([project('alice/project', 1_791_021_600), project('bob/project', 1_700_000_000)]);
+  api.forgeForks.mockResolvedValue({ forks: [project('alice/project', 1_791_021_600), project('bob/project', 1_700_000_000)], next: null });
   act(() => closeAddRemote());
 });
 
@@ -68,13 +68,13 @@ describe('Add remote', () => {
     const rows = await screen.findAllByRole('listitem');
     expect(rows.map((r) => r.querySelector('.fork-path')?.textContent)).toEqual(['alice/project', 'bob/project']);
     expect(rows[1].textContent).toContain('Added as bob');
-    expect(api.forgeForks).toHaveBeenCalledWith(7, 'origin');
+    expect(api.forgeForks).toHaveBeenCalledWith(7, 'origin', 1, 10);
     fireEvent.click(screen.getByRole('button', { name: "Add alice's fork" }));
     await waitFor(() => expect(added.addForkRemote).toHaveBeenCalledWith('t1', expect.objectContaining({ path: 'alice/project' })));
   });
 
   it('a fork on a ported host shows as added when a remote reaches it without the port', async () => {
-    api.forgeForks.mockResolvedValueOnce([{ ...project('bob/project', 1), host: 'gitlab.example.com:8443' }]);
+    api.forgeForks.mockResolvedValueOnce({ forks: [{ ...project('bob/project', 1), host: 'gitlab.example.com:8443' }], next: null });
     show();
     const rows = await screen.findAllByRole('listitem');
     expect(rows[0].textContent).toContain('Added as bob');
@@ -94,5 +94,47 @@ describe('Add remote', () => {
     show();
     expect((await screen.findByRole('alert')).textContent).toBe('gitlab.example.com rate limit reached: try again in 2 min');
     expect(screen.getByRole('heading', { name: 'Forks of group/project' })).toBeTruthy();
+  });
+
+  describe('lazy forks', () => {
+    const page = (from: number, n: number, next: number | null) => ({ forks: Array.from({ length: n }, (_, i) => project(`user${from + i}/project`, 1000 - from - i)), next });
+    const rows = () => screen.getAllByRole('listitem').filter((r) => r.classList.contains('fork-row'));
+
+    it('loads page 2 on the button, appends it, and hides the button on the last page', async () => {
+      api.forgeForks.mockResolvedValueOnce(page(0, 10, 2)).mockResolvedValueOnce(page(10, 5, null));
+      show();
+      await screen.findAllByRole('listitem');
+      expect(rows()).toHaveLength(10);
+      fireEvent.click(screen.getByRole('button', { name: 'Load more forks' }));
+      await waitFor(() => expect(rows()).toHaveLength(15));
+      expect(api.forgeForks).toHaveBeenLastCalledWith(7, 'origin', 2, 10);
+      expect(screen.queryByRole('button', { name: 'Load more forks' })).toBeNull();
+    });
+
+    it('loads the next page when the sentinel scrolls into view, once at a time', async () => {
+      let fire: (() => void) | null = null;
+      vi.stubGlobal('IntersectionObserver', class { constructor(cb: (e: { isIntersecting: boolean }[]) => void) { fire = () => cb([{ isIntersecting: true }]); } observe() {} disconnect() {} });
+      let resolve: (v: unknown) => void = () => {};
+      api.forgeForks.mockResolvedValueOnce(page(0, 10, 2)).mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+      show();
+      await screen.findAllByRole('listitem');
+      act(() => { fire?.(); fire?.(); });
+      expect(screen.getByText('Loading…')).toBeTruthy();
+      expect(api.forgeForks).toHaveBeenCalledTimes(2); // page 1 and one page 2
+      await act(async () => { resolve(page(10, 3, null)); });
+      await waitFor(() => expect(rows()).toHaveLength(13));
+      vi.unstubAllGlobals();
+    });
+
+    it('keeps what is loaded when a page fails and retries', async () => {
+      api.forgeForks.mockResolvedValueOnce(page(0, 10, 2)).mockRejectedValueOnce({ message: 'boom' }).mockResolvedValueOnce(page(10, 2, null));
+      show();
+      await screen.findAllByRole('listitem');
+      fireEvent.click(screen.getByRole('button', { name: 'Load more forks' }));
+      expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load more forks: boom");
+      expect(rows()).toHaveLength(10);
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(rows()).toHaveLength(12));
+    });
   });
 });

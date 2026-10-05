@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import type { LocalBranch } from '../../api/gen/LocalBranch';
 import { useRuntime } from '../../app/runtime';
-import { patchForge, writeEpoch } from '../mrStore';
+import { forgeOf, mrForLabel, patchForge, writeEpoch } from '../mrStore';
 import { mrOf } from '../testMrs';
 import { branchMrs, createMr } from './deps';
 import { inProgressOf, stackEnvOf } from './env';
 
-const project = { kind: 'gitlab' as const, id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: '', defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false };
+const project = { kind: 'gitlab' as const, id: 42, host: 'gitlab.example.com', path: 'group/project', name: 'project', owner: 'group', webUrl: '', defaultBranch: 'main', cloneHttps: '', cloneSsh: '', forkOf: null, updatedAt: null, archived: false, ownerAvatarUrl: null };
 const lb = (name: string, target: string): LocalBranch => ({
   name, fullName: `refs/heads/${name}`, target, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '',
   isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, rewritten: null,
@@ -16,7 +16,7 @@ const row = (id: string, parents: string[]) => ({ id, parents }) as never;
 
 describe("the stack predicates' tab inputs", () => {
   beforeEach(() => {
-    patchForge('e', { kind: 'gitlab', remote: 'origin', project, byRef: {}, upstreams: {} });
+    patchForge('e', { kind: 'gitlab', remote: 'origin', project, byRef: {}, history: {}, upstreams: {} });
     useRuntime.getState().patch('e', {
       repo: { id: 1, path: '/r' }, worktree: '/r',
       graph: { rows: [row('d2', ['d1']), row('d1', ['m'])], labels: [], worktrees: [{ path: '/r', isMain: true, inProgress: 'merge' }], head: { branch: 'refs/heads/develop', target: null, detached: false, unborn: false } },
@@ -26,10 +26,12 @@ describe("the stack predicates' tab inputs", () => {
 
   it("finds a merged bottom gone locally and on the remote through the target remote's ref the poll asked about", () => {
     const merged = mrOf(1, { sourceBranch: 'feature/a', targetBranch: 'main', state: 'merged' });
-    patchForge('e', { byRef: { 'refs/remotes/origin/feature/a': merged } });
+    // Its branch is gone, so its tip is unknown: no badge, but the history channel keeps it (polish #1).
+    patchForge('e', { history: { 'refs/remotes/origin/feature/a': merged } });
     const of = branchMrs('e');
     expect(of('feature/a')).toEqual(merged);
     expect(of('nothing')).toBeNull();
+    expect(mrForLabel(forgeOf('e'), { local: null, remotes: [{ fullName: 'refs/remotes/origin/feature/a' }] })).toBeNull();
   });
 
   it("reads the project's default branch, the local branches and their tips", () => {

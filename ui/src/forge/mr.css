@@ -14,6 +14,7 @@
 .mr-card-title { color: var(--text-selected); font-weight: 600; overflow-wrap: anywhere; }
 .mr-card-ref { color: var(--text-secondary); font-weight: 400; }
 .mr-card-meta { font-size: 11px; color: var(--text-secondary); }
+.mr-card-author { display: flex; align-items: center; gap: 5px; min-height: 16px; }
 .mr-card-hint { font-size: 11px; color: var(--text-disabled); margin-top: 2px; }
 .mr-pipeline-icon.spin { animation: mr-spin 1s linear infinite; }
 @keyframes mr-spin { to { transform: rotate(360deg); } }

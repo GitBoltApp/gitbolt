@@ -268,6 +268,8 @@ pub struct RepoSettings {
     /// The sidebar MR/PR section's filter (spec #4 §2 "MR/PR list"); `None` is All.
     pub mr_filter: Option<crate::forge::MrFilter>,
     // --- end 4B T11 ---
+    /// The remote whose forge project the repo's MRs/PRs target; `None` picks automatically.
+    pub forge_target_remote: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

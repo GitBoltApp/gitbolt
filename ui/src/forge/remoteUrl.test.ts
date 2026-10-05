@@ -4,7 +4,7 @@ import { forkCloneUrl, freeRemoteName, parseRemoteUrl, remoteNameError, remoteUr
 
 const fork: ForgeProject = {
   kind: 'gitlab', id: 77, host: 'gitlab.example.com', path: 'alice/project', name: 'project', owner: 'alice', webUrl: 'https://gitlab.example.com/alice/project',
-  defaultBranch: 'main', cloneHttps: 'https://gitlab.example.com/alice/project.git', cloneSsh: 'git@gitlab.example.com:alice/project.git', forkOf: 'group/project', updatedAt: 1, archived: false,
+  defaultBranch: 'main', cloneHttps: 'https://gitlab.example.com/alice/project.git', cloneSsh: 'git@gitlab.example.com:alice/project.git', forkOf: 'group/project', updatedAt: 1, archived: false, ownerAvatarUrl: null,
 };
 
 describe('remote URLs (the Rust parse_remote_url, same table)', () => {

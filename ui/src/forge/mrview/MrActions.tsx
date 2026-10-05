@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { Check, EllipsisVertical, Link, MessageSquareWarning, Pencil, GitPullRequestDraft, GitPullRequest } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
 import { api } from '../../api/client';
+import { copyText } from '../../api/transport';
+import { openMenuAt } from '../../menu/menuStore';
+import type { MenuRow } from '../../menu/types';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
@@ -38,12 +42,15 @@ function RequestChanges({ tabId, kind, mr, onDone }: { tabId: string; kind: Forg
   );
 }
 
-/** Approve, request changes, edit, draft ⇄ ready (spec #4 §4 "4B"): open and draft MRs/PRs only. */
-export function MrActions({ tabId, kind, mr, detail }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null }) {
+/** Approve, request changes (left), Check out (`children`), Edit and the ⋯ menu (right; spec #4 §4
+ * "4B"). Approve / request changes / edit / draft ⇄ ready are for open and draft MRs/PRs only;
+ * Check out and Copy link stay on a merged or closed one. */
+export function MrActions({ tabId, kind, mr, detail, children }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null; children?: ReactNode }) {
   const me = useForge((s) => s.byTab[tabId]?.me ?? null);
   const [mode, setMode] = useState<'none' | 'changes' | 'edit'>('none');
   const [busy, setBusy] = useState<'approve' | 'draft' | null>(null);
-  if (mr.state !== 'open' && mr.state !== 'draft') return null;
+  const more = useRef<HTMLButtonElement>(null);
+  const live = mr.state === 'open' || mr.state === 'draft';
   const ref = mrRef(kind, mr.number);
   const approvedByMe = me !== null && (detail?.mr.review.reviews ?? []).some((r) => r.user.username === me && r.state === 'approved');
   const approve = async () => {
@@ -56,26 +63,35 @@ export function MrActions({ tabId, kind, mr, detail }: { tabId: string; kind: Fo
   const toggleDraft = async () => {
     const draft = mr.state !== 'draft';
     setBusy('draft');
+    useToast.getState().show(draft ? `Marking ${ref} as a draft…` : `Marking ${ref} as ready…`);
     const out = await forgeWrite(tabId, draft ? `Couldn't mark ${ref} as a draft` : `Couldn't mark ${ref} as ready`, (repo) => api.forgeSetDraft(repo, mr.number, draft));
     setBusy(null);
     if (out) putMr(tabId, out.value);
   };
+  const rows = (): MenuRow[] => [
+    ...(live ? [{ kind: 'action' as const, id: 'mr.draft', label: mr.state === 'draft' ? 'Mark as ready' : 'Mark as draft', icon: mr.state === 'draft' ? GitPullRequest : GitPullRequestDraft, tooltip: mr.state === 'draft' ? `Mark ${ref} as ready for review` : `Mark ${ref} as a draft`, run: () => void toggleDraft() }] : []),
+    { kind: 'action', id: 'mr.copyLink', label: 'Copy link', icon: Link, tooltip: `Copy ${ref}'s web address`, run: () => { copyText(mr.webUrl).then(() => useToast.getState().show('Copied the link'), () => useToast.getState().show("Couldn't copy the link", { error: true })); } },
+  ];
   return (
     <>
       <div className="mr-actions" role="group" aria-label="Actions">
-        <button type="button" className="mr-button" disabled={approvedByMe || busy !== null} onClick={() => void approve()}>
-          {busy === 'approve' ? 'Approving…' : approvedByMe ? 'You approved it' : 'Approve'}
-        </button>
-        <HoverTooltip content={CHANGES_TIP[kind]}>
-          <button type="button" className="mr-button" aria-expanded={mode === 'changes'} disabled={busy !== null} onClick={() => setMode(mode === 'changes' ? 'none' : 'changes')}>Request changes</button>
-        </HoverTooltip>
-        <button type="button" className="mr-button" aria-expanded={mode === 'edit'} disabled={busy !== null} onClick={() => setMode(mode === 'edit' ? 'none' : 'edit')}>Edit</button>
-        <button type="button" className="mr-button" disabled={busy !== null} onClick={() => void toggleDraft()}>
-          {busy === 'draft' ? 'Saving…' : mr.state === 'draft' ? 'Mark as ready' : 'Mark as draft'}
-        </button>
+        {live && (
+          <>
+            <button type="button" className="mr-button approve" disabled={approvedByMe || busy !== null} onClick={() => void approve()}>
+              {busy === 'approve' ? 'Approving…' : approvedByMe ? <><Check size={13} aria-hidden /> Approved</> : <><Check size={13} aria-hidden /> Approve</>}
+            </button>
+            <HoverTooltip content={CHANGES_TIP[kind]}>
+              <button type="button" className="mr-button changes" aria-expanded={mode === 'changes'} disabled={busy !== null} onClick={() => setMode(mode === 'changes' ? 'none' : 'changes')}><MessageSquareWarning size={13} aria-hidden /> Request changes</button>
+            </HoverTooltip>
+          </>
+        )}
+        <span className="mr-spacer" />
+        {children}
+        {live && <button type="button" className="mr-button" aria-expanded={mode === 'edit'} disabled={busy !== null} onClick={() => setMode(mode === 'edit' ? 'none' : 'edit')}><Pencil size={13} aria-hidden /> Edit</button>}
+        <button ref={more} type="button" className="mr-button icon" aria-label="More actions" aria-haspopup="menu" disabled={busy !== null} onClick={() => { if (more.current) openMenuAt(more.current, rows(), undefined, rows, 'More actions'); }}><EllipsisVertical size={14} aria-hidden /></button>
       </div>
-      {mode === 'changes' && <RequestChanges tabId={tabId} kind={kind} mr={mr} onDone={() => setMode('none')} />}
-      {mode === 'edit' && <EditMr tabId={tabId} mr={mr} detail={detail} onDone={() => setMode('none')} />}
+      {live && mode === 'changes' && <RequestChanges tabId={tabId} kind={kind} mr={mr} onDone={() => setMode('none')} />}
+      {live && mode === 'edit' && <EditMr tabId={tabId} mr={mr} detail={detail} onDone={() => setMode('none')} />}
     </>
   );
 }

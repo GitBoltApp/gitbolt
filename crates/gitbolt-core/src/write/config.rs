@@ -23,7 +23,8 @@ pub(crate) fn parse_branch_config(raw: &[u8], name: &str) -> BranchConfig {
     let mut map = BranchConfig::new();
     for rec in raw.split(|b| *b == 0).filter(|r| !r.is_empty()) {
         let rec = String::from_utf8_lossy(rec);
-        let (key, value) = rec.split_once('\n').unwrap_or((rec.as_ref(), ""));
+        // A key with no value (no `=`) comes as `key\0`: git reads it as true.
+        let (key, value) = rec.split_once('\n').unwrap_or((rec.as_ref(), "true"));
         if let Some(var) = key.strip_prefix(&prefix)
             && !var.is_empty()
             && !var.contains('.')
@@ -126,6 +127,15 @@ mod tests {
         assert_eq!(c["branch.release.1/ü-x.pushremote"], ["a", "b"], "multi-valued keys keep their order");
         assert!(parse_branch_config(&raw, "release").contains_key("branch.release.remote"));
         assert_eq!(parse_branch_config(&raw, "release").len(), 1);
+    }
+
+    #[test]
+    fn a_key_with_no_value_is_true() {
+        let mut raw = rec(&[("branch.x.remote", "origin")]);
+        raw.extend_from_slice(b"branch.x.rebase\0");
+        let c = parse_branch_config(&raw, "x");
+        assert_eq!(c["branch.x.rebase"], ["true"]);
+        assert_eq!(c["branch.x.remote"], ["origin"]);
     }
 
     #[test]

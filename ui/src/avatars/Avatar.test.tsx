@@ -8,8 +8,9 @@ import { GRAPH_COLORS } from '../theme/graphColors';
 import { resolveColors } from '../theme/apply';
 import { useTheme } from '../theme/store';
 import { THEMES } from '../theme/themes';
-import { Avatar } from './Avatar';
-import { AvatarStoreContext, createAvatarStore } from './avatarStore';
+import type { ForgeUser } from '../api/gen/ForgeUser';
+import { Avatar, ForgeAvatar } from './Avatar';
+import { AvatarStoreContext, ForgeAvatarStoreContext, createAvatarStore } from './avatarStore';
 
 beforeAll(() => {
   URL.createObjectURL = vi.fn(() => 'blob:ada');
@@ -51,6 +52,37 @@ describe('Avatar and the theme', () => {
     expect(rgbToHex(el.style.background)).toBe(THEMES.nord.graph[lane]);
     expect(rgbToHex(el.style.color)).toBe(resolveColors(THEMES.nord).laneText[lane]);
     act(() => useTheme.getState().set('default-dark', {}));
+  });
+});
+
+describe('ForgeAvatar (the MR/PR view, the hover card)', () => {
+  it("fetches the forge's avatar URL as given (case kept), and the email's only without one", async () => {
+    const byUrl = vi.fn(async () => ({ mime: 'image/png', base64: btoa('png') }));
+    const byEmail = vi.fn(async () => null);
+    const urls = createAvatarStore(byUrl, { keyOf: (u) => u.trim() });
+    const emails = createAvatarStore(byEmail);
+    const url = 'https://avatars.githubusercontent.com/u/583231?v=4&X=Y';
+    const octocat: ForgeUser = { id: 1, username: 'octocat', name: 'The Octocat', avatarUrl: url, webUrl: '', email: 'Octo@Example.com' };
+    const wrap = (u: ForgeUser) => (
+      <AvatarStoreContext value={emails}><ForgeAvatarStoreContext value={urls}><ForgeAvatar user={u} size={20} /></ForgeAvatarStoreContext></AvatarStoreContext>
+    );
+    const { unmount } = render(wrap(octocat));
+    await act(async () => {});
+    expect(screen.getByTestId('avatar').querySelector('img')).not.toBeNull();
+    expect([byUrl.mock.calls, byEmail.mock.calls]).toEqual([[[url]], []]);
+    unmount();
+    render(wrap({ ...octocat, avatarUrl: null }));
+    await act(async () => {});
+    expect(byEmail).toHaveBeenCalledWith('octo@example.com');
+    expect(screen.getByTestId('avatar')).toHaveTextContent('TO');
+  });
+
+  it('asks for nothing without a URL or an email', async () => {
+    const fetch = vi.fn(async () => null);
+    render(<ForgeAvatarStoreContext value={createAvatarStore(fetch)}><ForgeAvatar user={{ id: 1, username: 'g', name: 'Grace Hopper', avatarUrl: null, webUrl: '', email: null }} size={20} /></ForgeAvatarStoreContext>);
+    await act(async () => {});
+    expect(fetch).not.toHaveBeenCalled();
+    expect(avatar).not.toHaveBeenCalledWith('');
   });
 });
 
