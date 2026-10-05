@@ -378,6 +378,30 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
      process is the `/usr/share/GitBolt/gitbolt` process without a `--type=` argument.
 - **Remove it:** `sudo apt remove git-bolt`. Then `just install-desktop` brings the dev entry back.
 
+### Arch Linux package (`just package-arch`, `just check-arch-pkg`)
+
+- `just package` ends with `just package-arch`, so one build gives both packages. It turns the
+  `.deb` into `target/release/bundle/arch/GitBolt-<ver>-1-x86_64.pkg.tar.zst` without makepkg
+  (`scripts/package-arch.sh`; the Python helpers are in `scripts/arch-pkg.py`).
+  - The payload is the `.deb`'s data member, path for path and mode for mode; the script checks
+    that, and that `chrome-sandbox` is root:root 4755.
+  - `pkgver` is the `.deb` version with `+` turned into `.` (`0.1.0+202610051325.ab4dbf9e` →
+    `0.1.0.202610051325.ab4dbf9e-1`). Every entry gets the build stamp's time, and so does
+    `builddate`; `$SOURCE_DATE_EPOCH` overrides it.
+  - `depend` lines come from the `.deb`'s `Depends` through the `DEB_TO_ARCH` table in
+    `scripts/arch-pkg.py`. A Debian name the table doesn't know fails the build: add a row.
+  - `.MTREE` is written in Python in the format makepkg's bsdtar uses (no bsdtar on Ubuntu).
+- `scripts/test-package-arch.sh` (part of `just test`) checks the version and dependency mapping,
+  mtree escaping, and a synthetic `.deb` through the whole script.
+- `just check-arch-pkg` installs the package in a throwaway `archlinux:latest` Docker container
+  (`--rm`; it needs Docker and the network, so `just package` doesn't run it). It runs
+  `pacman -Syu`, then `pacman -U`, and checks `pacman -Qkk gitbolt`, the setuid `chrome-sandbox`,
+  `ldd` on the binary and the CEF libraries, and a 20 s headless launch under `xvfb-run`.
+- `packaging/arch/PKGBUILD` is a template for a future `gitbolt-bin` AUR package that repackages
+  the release `.deb`, for when the repo is public. The build doesn't use it.
+- **Install on Arch:** `sudo pacman -U GitBolt-<ver>-1-x86_64.pkg.tar.zst`. **Remove:**
+  `sudo pacman -R gitbolt`.
+
 ## `just bench` (idle CPU and memory smoke)
 
 A small, non-gating check of the two spec §17.3 rows that need a live app. It runs

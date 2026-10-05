@@ -1,0 +1,34 @@
+# Template for a future `gitbolt-bin` AUR package, for when the repo goes public and releases
+# are published on GitHub. Not used by the build: `just package-arch` (scripts/package-arch.sh)
+# makes the .pkg.tar.zst directly from the .deb, without makepkg.
+#
+# It repackages the release .deb. Before publishing: set pkgver/_debver to the release, replace
+# the sha256 placeholder (`updpkgsums`), and keep `depends` in sync with DEB_TO_ARCH in
+# scripts/arch-pkg.py (or copy the `depend =` lines from the release package's .PKGINFO).
+#
+# Maintainer: GitBolt build
+pkgname=gitbolt-bin
+pkgver=0.1.0
+_debver=0.1.0 # the .deb's version, e.g. 0.1.0+202610051325.ab4dbf9e for a dev build
+pkgrel=1
+pkgdesc="A fast desktop Git client"
+arch=('x86_64')
+url="https://github.com/GitBoltApp/gitbolt"
+license=('custom')
+depends=('alsa-lib' 'at-spi2-core' 'cairo' 'dbus' 'expat' 'gcc-libs' 'gdk-pixbuf2' 'git' 'glib2'
+         'glibc' 'graphene' 'gtk4' 'libcups' 'libx11' 'libxcb' 'libxcomposite' 'libxdamage'
+         'libxext' 'libxfixes' 'libxkbcommon' 'libxrandr' 'mesa' 'nspr' 'nss' 'pango'
+         'systemd-libs' 'wayland')
+provides=('gitbolt')
+conflicts=('gitbolt')
+options=('!strip' '!debug')
+source=("GitBolt_${_debver}_amd64.deb::${url}/releases/download/v${pkgver}/GitBolt_${_debver}_amd64.deb")
+sha256sums=('SKIP_REPLACE_WITH_THE_RELEASE_SHA256')
+
+package() {
+  # makepkg extracts the .deb's members (debian-binary, control.tar.*, data.tar.*) into $srcdir.
+  bsdtar -xpf data.tar.* -C "$pkgdir"
+  # Chromium's sandbox helper must stay root-owned setuid, as in the .deb (makepkg runs under
+  # fakeroot, so the archive records root:root).
+  chmod 4755 "$pkgdir/usr/share/GitBolt/chrome-sandbox"
+}

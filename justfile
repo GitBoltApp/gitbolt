@@ -6,6 +6,7 @@ test: test-rust test-ui test-scripts
 
 test-scripts:
     scripts/test-fix-deb.sh
+    scripts/test-package-arch.sh
 
 # cargo-nextest when it's installed (each test its own process, every test binary at once: about
 # half the wall time of `cargo test` here); otherwise plain `cargo test`. No doctests to miss.
@@ -81,7 +82,8 @@ build-app: check-tauri-cli
     cd crates/gitbolt-app && env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS=4 cargo tauri build --no-bundle
 
 # The .deb (AppImage and .rpm are deferred) with the GTK 4 dependency fix (spec §18): the .deb's
-# control member is rewritten by scripts/fix-deb.sh and checked by scripts/check-deb.sh.
+# control member is rewritten by scripts/fix-deb.sh and checked by scripts/check-deb.sh. Then the
+# Arch package is made from it (`just package-arch`), so one build gives both.
 # `env -u CARGO_INCREMENTAL` (here and in build-app): a CARGO_INCREMENTAL=0 from the caller would
 # override the release profile's `incremental = true` (Cargo.toml), and sccache refuses a 1.
 package: check-tauri-cli
@@ -93,6 +95,19 @@ package: check-tauri-cli
       env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS=4 cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
     scripts/fix-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/check-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
+    scripts/package-arch.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/arch
+
+# The Arch package (target/release/bundle/arch/GitBolt-<ver>-1-x86_64.pkg.tar.zst), made from the
+# .deb of `just package` without makepkg: same payload, pacman's .PKGINFO and .MTREE, Depends
+# mapped through the table in scripts/arch-pkg.py. `just package` already runs it.
+package-arch:
+    scripts/package-arch.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/arch
+
+# Installs that package in a throwaway archlinux:latest container and checks it (needs Docker and
+# the network, so `just package` doesn't run it): dependencies, pacman -Qkk, the setuid
+# chrome-sandbox, ldd, and a headless launch. See scripts/check-arch-pkg.sh.
+check-arch-pkg:
+    scripts/check-arch-pkg.sh target/release/bundle/arch/GitBolt-*-x86_64.pkg.tar.zst
 
 # Runs the release binary from `just build-app`, with the installed sandbox helper if present.
 run-app repo="":
