@@ -29,12 +29,15 @@ async function watchLongTasks(page: Page) {
 const longestTask = (page: Page) => page.evaluate(() => (window as unknown as { __longest: number }).__longest);
 
 /** The sync fixture on the fake GitLab, with `!12`'s description set to `description`. */
-async function openWithDescription(page: Page, request: Parameters<typeof forgeSeed>[0], description: string) {
+async function openWithDescription(page: Page, request: Parameters<typeof forgeSeed>[0], description: string, firstComment?: string, title?: string) {
   const repo = freshFixture('sync');
   git(repo, 'remote', 'set-url', 'origin', 'https://gitlab.example.com/group/project.git');
   const seed = await forgeSeed(request);
-  const mrs = seed.gitlab.mergeRequests as Array<{ iid: number; description: string }>;
-  mrs.find((m) => m.iid === 12)!.description = description;
+  const mrs = seed.gitlab.mergeRequests as Array<{ iid: number; title: string; description: string; discussions: Array<{ notes: Array<{ body: string }> }> }>;
+  const mr = mrs.find((m) => m.iid === 12)!;
+  mr.description = description;
+  if (firstComment !== undefined) mr.discussions[0].notes[0].body = firstComment;
+  if (title !== undefined) mr.title = title;
   await setForgeSeed(request, seed);
   await addForgeAccount(request, 'gitlab.example.com', 'gitlab', E2E_GITLAB_TOKEN);
   await page.goto(openUrl(repo));
@@ -58,6 +61,27 @@ test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
     await ref.click();
     await expect(page.getByRole('dialog', { name: 'Merge request !5' })).toBeVisible();
     expect(await page.content()).not.toContain(E2E_GITLAB_TOKEN);
+  });
+
+  test('a long code line in a comment scrolls inside its block, and a long title wraps; the panel never scrolls sideways', async ({ page, request }) => {
+    const long = 'Unify the config-file lexer, parser and the standalone formatter so they share one tokenizer and stop drifting apart';
+    const badge = await openWithDescription(page, request, 'Short.', `Try this:\n\n\`\`\`sh\necho ${'x'.repeat(400)}\n\`\`\``, long);
+    await pointAt(page, badge, true);
+    const view = page.getByRole('dialog', { name: 'Merge request !12' });
+    const pre = view.locator('.mr-note-body pre').first();
+    await expect(pre).toContainText('echo xxx');
+    const widths = await pre.evaluate((el) => {
+      const panel = el.closest('.flyout-body') as HTMLElement;
+      return { pre: [el.scrollWidth, el.clientWidth], panel: [panel.scrollWidth, panel.clientWidth] };
+    });
+    expect(widths.pre[0]).toBeGreaterThan(widths.pre[1]);
+    expect(widths.panel[0]).toBeLessThanOrEqual(widths.panel[1] + 1);
+    // A long title wraps in the header: all of it shows, nothing is cut off.
+    const title = view.locator('.flyout-title');
+    await expect(title).toContainText('stop drifting apart');
+    const t = await title.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, height: el.getBoundingClientRect().height, line: parseFloat(getComputedStyle(el).lineHeight) }));
+    expect(t.scroll).toBeLessThanOrEqual(t.client + 1);
+    expect(t.height).toBeGreaterThan(t.line * 1.5);
   });
 
   test('a 900 KB description renders progressively with no long task over 200 ms @budget', async ({ page, request }) => {

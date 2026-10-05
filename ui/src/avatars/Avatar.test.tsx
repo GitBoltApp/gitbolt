@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 const avatar = vi.hoisted(() => vi.fn(async (email: string) => (email === 'ada@example.com' ? { mime: 'image/png', base64: btoa('png') } : null)));
@@ -24,7 +24,13 @@ describe('Avatar', () => {
     expect(el).toHaveTextContent('AL');
     expect(GRAPH_COLORS.map((c) => c.toLowerCase())).toContain(rgbToHex(el.style.background));
     await act(async () => {});
-    expect(el.querySelector('img')).toHaveAttribute('src', 'blob:ada');
+    // It waits, unseen, over the initials until the browser has loaded it.
+    const img = el.querySelector('img')!;
+    expect(img).toHaveAttribute('src', 'blob:ada');
+    expect(img).toHaveAttribute('data-loading');
+    expect(el).toHaveTextContent('AL');
+    fireEvent.load(img);
+    expect(img).not.toHaveAttribute('data-loading');
     expect(el).toHaveTextContent('');
     expect(avatar).toHaveBeenCalledWith('ada@example.com');
   });
@@ -83,6 +89,22 @@ describe('ForgeAvatar (the MR/PR view, the hover card)', () => {
     await act(async () => {});
     expect(fetch).not.toHaveBeenCalled();
     expect(avatar).not.toHaveBeenCalledWith('');
+  });
+
+  it("an avatar URL whose image fails to load shows the initials, not an <img> (no broken-image icon)", async () => {
+    // The fake forge's truncated PNG: it arrives, but the browser can't decode it.
+    const urls = createAvatarStore(vi.fn(async () => ({ mime: 'image/png', base64: btoa('\x89PNG\r\n\x1a\nfake') })), { keyOf: (u) => u.trim() });
+    const ada: ForgeUser = { id: 7, username: 'ada', name: 'Ada Lovelace', avatarUrl: 'https://gitlab.example.com/uploads/ada.png', webUrl: '', email: null };
+    render(<ForgeAvatarStoreContext value={urls}><ForgeAvatar user={ada} size={18} /></ForgeAvatarStoreContext>);
+    const el = screen.getByTestId('avatar');
+    expect(el).toHaveTextContent('AL');
+    await act(async () => {});
+    // Loading: the initials show; the image waits unseen over them.
+    expect(el).toHaveTextContent('AL');
+    expect(el.querySelector('img')).toHaveAttribute('data-loading');
+    fireEvent.error(el.querySelector('img')!);
+    expect(el.querySelector('img')).toBeNull();
+    expect(el).toHaveTextContent('AL');
   });
 });
 

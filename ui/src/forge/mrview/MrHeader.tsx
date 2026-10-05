@@ -5,36 +5,48 @@ import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
 import { ForgeAvatar } from '../../avatars/Avatar';
 import { relativeTime } from '../../format/relative';
 import { useToast } from '../../ui/toast';
-import { chipStyle } from '../chipStyle';
-import { EmojiText } from '../emoji';
 import { MrStateIcon, PipelineIcon } from '../MrIcons';
 import { MR_STATE_LABELS, ownerOf, pipelineWord, reviewText } from '../mrText';
-import { ArrowGlyph } from '../../ui/ArrowGlyph';
+import { useTabForgeField } from '../mrStore';
+import { BranchFlow } from '../ui/BranchFlow';
+import { PeopleCard, type PeopleChip } from '../ui/PeopleCard';
+import { useRangeStats } from '../ui/rangeStats';
+import type { ForgeUser } from '../../api/gen/ForgeUser';
 
 export const openInBrowser = (url: string) => {
   api.openUrl(url).catch((e: unknown) => useToast.getState().show(errorMessage(e), { error: true }));
 };
 
-const branchLabel = (project: string, mr: ForgeMr, branch: string) => (project !== '' && project !== mr.targetProject ? `${ownerOf(project)}:${branch}` : branch);
+const fromFork = (mr: ForgeMr) => mr.sourceProject !== '' && mr.sourceProject !== mr.targetProject;
+const userChip = (u: ForgeUser): PeopleChip => ({ key: String(u.id), label: u.name, user: u });
 
-/** The view's header (spec #4 §4 "4B"): the state pill and branch chips, the author, a strip of
- * three facts (pipeline, approvals or reviews, conflicts), reviewers, assignees, labels. */
-export function MrHeader({ kind, mr, detail }: { kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null }) {
+/** The view's header (spec #4 §4 "4B"): the state pill and the author, where it goes (the branch
+ * card: source → target, what it brings), a strip of three facts (pipeline, approvals or reviews,
+ * conflicts), and reviewers, assignees and labels (the people card, read-only). */
+export function MrHeader({ tabId, kind, mr, detail }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null }) {
+  const remote = useTabForgeField(tabId, 'remote');
+  // Counted locally while it's open (a merged one's head is in its target: nothing to count).
+  const open = mr.state === 'open' || mr.state === 'draft';
+  const stats = useRangeStats(tabId, open ? detail?.mr.headSha ?? mr.headSha : null, open && remote ? `refs/remotes/${remote}/${mr.targetBranch}` : null);
+  const none = mr.state === 'merged' ? `Merged into ${mr.targetBranch}` : mr.state === 'closed' ? 'Closed' : "Its commits aren't fetched into this repository";
   const decision = detail?.mr.review.decision;
   const reviewTone = decision === 'approved' ? 'ok' : decision === 'changesRequested' ? 'bad' : '';
   const conflicts = mr.conflicts === null ? { text: 'Checking…', tone: 'dim' } : mr.conflicts ? { text: 'Yes', tone: 'bad' } : { text: 'None', tone: 'ok' };
   const pipeTone = mr.pipeline?.status === 'success' ? 'ok' : mr.pipeline?.status === 'failed' ? 'bad' : mr.pipeline?.status === 'pending' || mr.pipeline?.status === 'running' ? 'warn' : '';
   return (
     <section className="mr-header" aria-label="Summary">
-      <div className="mr-line">
-        <span className="mr-state" data-state={mr.state}><MrStateIcon state={mr.state} /> {MR_STATE_LABELS[mr.state]}</span>
-        <span className="mr-branches"><span className="mr-chip">{branchLabel(mr.sourceProject, mr, mr.sourceBranch)}</span> <ArrowGlyph /> <span className="mr-chip">{mr.targetBranch}</span></span>
-      </div>
       <div className="mr-line mr-dim-line">
+        <span className="mr-state" data-state={mr.state}><MrStateIcon state={mr.state} /> {MR_STATE_LABELS[mr.state]}</span>
         <ForgeAvatar user={mr.author} size={20} />
-        <span>{mr.author.name}</span>
+        <span className="mr-author">{mr.author.name}</span>
         <span className="mr-dim">· updated {relativeTime(mr.updatedAt)}</span>
       </div>
+      <BranchFlow
+        from={{ branch: mr.sourceBranch, sub: fromFork(mr) ? ownerOf(mr.sourceProject) : mr.targetProject }}
+        into={{ branch: mr.targetBranch, sub: mr.targetProject }}
+        stats={stats}
+        none={none}
+      />
       <div className="mr-facts">
         <div className="mr-fact" data-fact="pipeline">
           <div className="mr-fact-k">{kind === 'gitlab' ? 'Pipeline' : 'Checks'}</div>
@@ -52,20 +64,14 @@ export function MrHeader({ kind, mr, detail }: { kind: ForgeKind; mr: ForgeMr; d
           <div className={`mr-fact-v ${conflicts.tone}`}>{conflicts.text}</div>
         </div>
       </div>
-      {detail && detail.reviewers.length > 0 && (
-        <div className="mr-line mr-dim-line">Reviewers: {detail.reviewers.map((u) => (
-          <span key={u.id} className="mr-person"><ForgeAvatar user={u} size={20} /> {u.name}</span>
-        ))}</div>
-      )}
-      {detail && detail.assignees.length > 0 && <div className="mr-line mr-dim-line">Assignees: {detail.assignees.map((u) => u.name).join(', ')}</div>}
-      {mr.labels.length > 0 && (
-        <div className="mr-labels">
-          {mr.labels.map((l) => {
-            const color = mr.labelColors && Object.hasOwn(mr.labelColors, l) ? mr.labelColors[l] : undefined;
-            return <span key={l} className="mr-label" data-colored={color ? '' : undefined} style={chipStyle(color)}><EmojiText text={l} /></span>;
-          })}
-        </div>
-      )}
+      <PeopleCard
+        label="Reviewers, assignees and labels"
+        rows={[
+          { label: 'Reviewers', noun: 'reviewer', chips: detail ? detail.reviewers.map(userChip) : null },
+          { label: 'Assignees', noun: 'assignee', chips: detail ? detail.assignees.map(userChip) : null },
+          { label: 'Labels', noun: 'label', chips: mr.labels.map((l) => ({ key: l, label: l, color: mr.labelColors && Object.hasOwn(mr.labelColors, l) ? mr.labelColors[l] : null })) },
+        ]}
+      />
     </section>
   );
 }

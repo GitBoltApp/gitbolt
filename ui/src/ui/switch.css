@@ -1,0 +1,15 @@
+/* ui/Switch.tsx: a toggle with a label and a one-line description. */
+.switch-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 2px 12px; }
+.switch-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 4px; border-radius: 6px; cursor: pointer; transition: background-color var(--motion-fast); }
+.switch-row:hover:not([data-disabled]) { background: var(--control-bg); }
+.switch-row[data-disabled] { cursor: default; }
+.switch { all: unset; box-sizing: border-box; flex: none; position: relative; width: 30px; height: 17px; border-radius: 9px; background: var(--switch-off); cursor: inherit; transition: background-color var(--motion-fast); }
+.switch[aria-checked="true"] { background: var(--switch-on); }
+.switch:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 2px; }
+.switch:disabled { opacity: 0.55; }
+.switch-knob { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--text-on-accent); transition: left var(--motion-fast); }
+.switch[aria-checked="true"] .switch-knob { left: 15px; }
+.switch-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.switch-label { font-size: 12.5px; color: var(--text-normal); }
+.switch-desc { font-size: 11.5px; color: var(--text-disabled); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switch-row[data-disabled] .switch-label { color: var(--text-secondary); }

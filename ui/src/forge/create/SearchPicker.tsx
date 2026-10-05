@@ -7,7 +7,7 @@ import { EmojiText } from '../emoji';
 import './searchPicker.css';
 
 export interface PickOption<T> { key: string; label: string; detail?: string; color?: string | null; value: T }
-export const SEARCH_DEBOUNCE_MS = 250;
+export const SEARCH_DEBOUNCE_MS = 200;
 
 interface Props<T> {
   /** The search box's accessible name: `Reviewers`, `Assignees`, `Labels`. */
@@ -15,7 +15,12 @@ interface Props<T> {
   chips: Array<{ key: string; label: string; color?: string | null }>;
   onRemove(key: string): void;
   search(query: string): Promise<Array<PickOption<T>>>;
+  /** Cached matches for the query, shown at once; `stale` ones are refreshed in place by `search`. */
+  peek?(query: string): { options: Array<PickOption<T>>; stale: boolean } | undefined;
   onPick(value: T): void;
+  /** In a popover (PeopleCard's + Add): the chosen chips are drawn elsewhere (only left out of the
+   * matches here), the box takes the focus at once and the list shows the matches in place. */
+  popover?: boolean;
 }
 
 /**
@@ -25,7 +30,7 @@ interface Props<T> {
  * ↑/↓ move, Enter picks, Backspace in an empty box removes the last chip. Keys typed here never
  * reach the app's shortcuts.
  */
-export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Props<T>) {
+export function SearchPicker<T>({ label, chips, onRemove, search, peek, onPick, popover = false }: Props<T>) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<Array<PickOption<T>> | null>(null);
@@ -36,18 +41,36 @@ export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Prop
   const listId = `${uid}-list`;
   const optId = (i: number) => `${uid}-opt-${i}`;
   const listRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // A popover's box takes the focus without scrolling what's under it (that would close it).
+  useEffect(() => { if (popover) inputRef.current?.focus({ preventScroll: true }); }, [popover]);
   const searchRef = useRef(search);
   searchRef.current = search;
+  const peekRef = useRef(peek);
+  peekRef.current = peek;
+  const swapping = useRef(false);
   const run = useMemo(() => debounce(async (query: string) => {
     const mine = ++seq.current;
     try {
       const found = await searchRef.current(query);
-      if (mine === seq.current) { setOptions(found); setError(null); setCursor(0); }
+      if (mine === seq.current) { setOptions(found); setError(null); if (!swapping.current) setCursor(0); }
     } catch (e) {
       if (mine === seq.current) { setOptions([]); setError(errorMessage(e)); }
     }
   }, SEARCH_DEBOUNCE_MS), []);
   useEffect(() => () => run.cancel(), [run]);
+  // Shows the cache's answer for `query` at once (no spinner, no shift); a missing or stale one is
+  // (re)fetched after the debounce and swapped in.
+  const go = (query: string) => {
+    const hit = peekRef.current?.(query);
+    swapping.current = !!hit;
+    if (hit) {
+      seq.current++;
+      setOptions(hit.options); setError(null); setCursor(0);
+      if (!hit.stale) { run.cancel(); return; }
+    } else setOptions(null);
+    run(query);
+  };
   const taken = new Set(chips.map((c) => c.key));
   const shown = (options ?? []).filter((o) => !taken.has(o.key));
   useEffect(() => {
@@ -57,8 +80,7 @@ export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Prop
     seq.current++;
     onPick(o.value);
     setQ('');
-    setOptions(null);
-    run('');
+    go('');
   };
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     const listOpen = open && options !== null && !error;
@@ -69,18 +91,19 @@ export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Prop
     if (e.key === 'ArrowDown') { e.stopPropagation(); e.preventDefault(); setOpen(true); setCursor((c) => Math.min(c + 1, Math.max(shown.length - 1, 0))); }
     else if (e.key === 'ArrowUp') { e.stopPropagation(); e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
     else if (e.key === 'Enter' && listOpen && shown[cursor]) { e.stopPropagation(); e.preventDefault(); pick(shown[cursor]); }
-    else if (e.key === 'Backspace' && !q && chips.length) { e.stopPropagation(); onRemove(chips[chips.length - 1].key); }
+    else if (e.key === 'Backspace' && !q && chips.length && !popover) { e.stopPropagation(); onRemove(chips[chips.length - 1].key); }
   };
   return (
-    <div className="pick">
+    <div className="pick" data-popover={popover || undefined}>
       <div className="pick-box">
-        {chips.map((c) => (
+        {!popover && chips.map((c) => (
           <span key={c.key} className="pick-chip" style={chipStyle(c.color)} data-colored={c.color ? '' : undefined}>
             <EmojiText text={c.label} />
             <button type="button" className="pick-remove" aria-label={`Remove ${c.label}`} onClick={() => onRemove(c.key)}><X size={12} /></button>
           </span>
         ))}
         <input
+          ref={inputRef}
           role="combobox"
           aria-expanded={open && options !== null && !error}
           aria-controls={listId}
@@ -91,9 +114,9 @@ export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Prop
           value={q}
           spellCheck={false}
           autoComplete="off"
-          onFocus={() => { setOpen(true); run(q); }}
+          onFocus={() => { setOpen(true); go(q); }}
           onBlur={() => setOpen(false)}
-          onChange={(e) => { seq.current++; setQ(e.target.value); setOptions(null); setOpen(true); run(e.target.value); }}
+          onChange={(e) => { seq.current++; setQ(e.target.value); setOpen(true); go(e.target.value); }}
           onKeyDown={onKey}
         />
       </div>

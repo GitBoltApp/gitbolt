@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ForgeUser } from '../api/gen/ForgeUser';
 import { initials } from '../format/initials';
 import { useTheme } from '../theme/store';
@@ -6,17 +7,34 @@ import { avatarLane } from './color';
 import './avatar.css';
 
 /** A person's avatar: initials on a lane-palette colour picked by the email, replaced by the
- * image once one arrives. Decorative: the name is always shown next to it (or in a tooltip).
- * `request: false`: never asks for the image itself (useAvatar). `url`: a forge user's picture
- * (`ForgeAvatar`), fetched by the backend instead of the email's. The graph's commit nodes draw
- * the same avatar on the canvas (graph/draw.ts), with the same `avatarLane`. */
+ * image once it has loaded. Until then the image waits invisibly over the initials; one that fails
+ * to load (bytes the browser can't decode) is dropped and the initials stay: never a broken-image
+ * icon. Decorative: the name is always shown next to it (or in a tooltip). `request: false`: never
+ * asks for the image itself (useAvatar). `url`: a forge user's picture (`ForgeAvatar`), fetched by
+ * the backend instead of the email's. The graph's commit nodes draw the same avatar on the canvas
+ * (graph/draw.ts), with the same `avatarLane`. */
 export function Avatar({ name, email, size = 24, request = true, url = null }: { name: string; email: string; size?: number; request?: boolean; url?: string | null }) {
   const img = useAvatar(url ?? email, request, url !== null);
   const colors = useTheme((s) => s.colors);
   const lane = avatarLane(name, email, colors.graph.length);
+  // How the current image went, keyed by its src (a new image starts over): loaded, or failed.
+  const [outcome, setOutcome] = useState<{ src: string; ok: boolean } | null>(null);
+  const src = img?.url ?? null;
+  const done = src !== null && outcome?.src === src ? outcome.ok : null;
   return (
     <span className="avatar" data-testid="avatar" aria-hidden style={{ width: size, height: size, fontSize: Math.round(size * 0.42), background: colors.graph[lane], color: colors.laneText[lane] }}>
-      {img ? <img src={img.url} alt="" width={size} height={size} /> : initials(name)}
+      {done !== true && initials(name)}
+      {src && done !== false && (
+        <img
+          src={src}
+          alt=""
+          width={size}
+          height={size}
+          data-loading={done === null || undefined}
+          onLoad={() => setOutcome({ src, ok: true })}
+          onError={() => setOutcome({ src, ok: false })}
+        />
+      )}
     </span>
   );
 }

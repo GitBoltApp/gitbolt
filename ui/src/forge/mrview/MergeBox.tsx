@@ -8,6 +8,7 @@ import type { MergeMethod } from '../../api/gen/MergeMethod';
 import type { MergeOptions } from '../../api/gen/MergeOptions';
 import { confirmAction } from '../../ui/ConfirmDialog';
 import { Select } from '../../ui/Select';
+import { Switch } from '../../ui/Switch';
 import { useToast } from '../../ui/toast';
 import { forgeName, mrRef } from '../labels';
 import { useForge } from '../mrStore';
@@ -84,8 +85,14 @@ export function MergeBox({ tabId, kind, mr, detail }: { tabId: string; kind: For
       <div className="mr-merge-opts">
         {kind === 'gitlab' && (
           <>
-            <label className="mr-check mr-merge-row" {...reserved(!settings || squashOpt === 'never')}><input type="checkbox" checked={squashOn} disabled={!settings || squashOpt === 'always'} onChange={(e) => setSquash(e.target.checked)} /> Squash commits</label>
-            <label className="mr-check mr-merge-row" {...reserved(!settings)}><input type="checkbox" checked={delOn} disabled={!settings} onChange={(e) => setDel(e.target.checked)} /> Delete the source branch</label>
+            <div className="switch-group mr-merge-switches">
+              <div className="mr-merge-row" {...reserved(!settings || squashOpt === 'never')}>
+                <Switch label="Squash commits" description={squashOpt === 'always' ? 'This project always squashes' : `One commit on ${mr.targetBranch}`} checked={squashOn} disabled={!settings || squashOpt === 'always'} onChange={setSquash} />
+              </div>
+              <div className="mr-merge-row" {...reserved(!settings)}>
+                <Switch label="Delete the source branch" description="After the merge" checked={delOn} disabled={!settings} onChange={setDel} />
+              </div>
+            </div>
             {methodLine}
           </>
         )}

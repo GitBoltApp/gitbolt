@@ -52,6 +52,8 @@ const DERIVED_TOKENS = [
   'forge-gitlab', 'forge-github',
   // The MR/PR view's merged state and mentions (forge/mrview): purple.
   'purple',
+  // A switch's track, on and off (ui/Switch.tsx); its knob is --text-on-accent.
+  'switch-on', 'switch-off',
 ] as const;
 
 /** Every colour custom property a theme sets on :root. */
@@ -143,6 +145,8 @@ function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
     'forge-gitlab': '#e2432a',
     'forge-github': '#6e5494',
     purple: light ? '#8250df' : '#a371f7',
+    'switch-on': c.blue,
+    'switch-off': alpha(fg, light ? 0.24 : 0.16),
   };
 }
 
@@ -178,6 +182,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'diff-inserted-line': 'rgba(92, 184, 92, 0.1)', 'diff-removed-line': 'rgba(217, 65, 61, 0.15)',
       'diff-diagonal-fill': 'rgba(204, 204, 204, 0.2)',
       'forge-gitlab': '#e2432a', 'forge-github': '#6e5494', purple: '#a371f7',
+      'switch-on': '#4d88ff', 'switch-off': 'rgba(255, 255, 255, 0.16)',
     },
     graph: ['#15a0bf', '#0669f7', '#8e00c2', '#c517b6', '#d90171', '#cd0101', '#f25d2e', '#f2ca33', '#7bd938', '#2ece9d'],
     // White initials on every lane, its yellow included (1C's look, kept as is).

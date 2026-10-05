@@ -35,8 +35,8 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
   it("GitLab: the project's method, squash and delete-source-branch defaults; Merge arms, then merges with them and the head", async () => {
     show('gitlab');
     expect(await screen.findByText('Merge method: Merge commit')).toBeTruthy();
-    expect(screen.getByRole('checkbox', { name: 'Squash commits' })).toBeChecked();
-    const del = screen.getByRole('checkbox', { name: 'Delete the source branch' });
+    expect(screen.getByRole('switch', { name: 'Squash commits' })).toBeChecked();
+    const del = screen.getByRole('switch', { name: 'Delete the source branch' });
     expect(del).toBeChecked();
     fireEvent.click(del);
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }));
@@ -49,7 +49,7 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
   it('GitLab: a project that always squashes locks it on; one that never does hides it', async () => {
     api.forgeProjectSettings.mockResolvedValue(settings({ squash: 'always' }));
     const { unmount } = show('gitlab');
-    const squash = await screen.findByRole('checkbox', { name: 'Squash commits' });
+    const squash = await screen.findByRole('switch', { name: 'Squash commits' });
     expect(squash).toBeChecked();
     expect(squash).toBeDisabled();
     unmount();
@@ -57,7 +57,7 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
     api.forgeProjectSettings.mockResolvedValue(settings({ squash: 'never' }));
     show('gitlab');
     await screen.findByText('Merge method: Merge commit');
-    expect(screen.queryByRole('checkbox', { name: 'Squash commits' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Squash commits' })).toBeNull();
   });
 
   it("GitHub: the method is chosen among the repository's; deleting the branch is its own setting", async () => {
@@ -68,6 +68,7 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
     act(() => { if (squash?.kind === 'action') squash.run(); });
     expect(screen.getByText('GitHub deletes the branch after merging (repository setting)')).toBeTruthy();
     expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }));
     await waitFor(() => expect(api.forgeMerge).toHaveBeenCalledWith(4, 12, { method: 'squash', squash: null, deleteSourceBranch: null, expectedSha: mr.headSha }));
   });

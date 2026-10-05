@@ -86,15 +86,22 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     const view = screen.getByRole('dialog', { name: 'Merge request !12' });
     expect(within(view).getByRole('heading')).toHaveTextContent('!12 Dev work');
     const summary = within(view).getByRole('region', { name: 'Summary' });
-    expect(summary.querySelector('.mr-branches svg.lucide-arrow-right')).not.toBeNull();
-    for (const text of ['Open', 'dev → main', 'Grace Hopper', 'Passed', '0 of 1 approval', 'None', 'Reviewers:', 'Ada Lovelace', 'backend']) expect(summary).toHaveTextContent(text);
+    const flow = within(summary).getByRole('region', { name: 'Branches' });
+    expect(flow).toHaveTextContent(/From\s*dev.*Into\s*main/);
+    expect(flow.querySelector('svg.lucide-arrow-right')).not.toBeNull();
+    const people = within(summary).getByRole('group', { name: 'Reviewers, assignees and labels' });
+    expect(people).toHaveTextContent(/Reviewers.*Ada Lovelace.*Assignees\s*None/);
+    expect(people).toHaveTextContent(/Labels\s*backend/);
+    // Read-only: no + Add, no ×.
+    expect(within(people).queryByRole('button')).toBeNull();
+    for (const text of ['Open', 'Grace Hopper', 'Passed', '0 of 1 approval', 'None']) expect(summary).toHaveTextContent(text);
   });
 
   it("colours a label with the forge's colour and shows its emoji shortcode as the emoji", async () => {
     const labelled = { ...detail.mr, labels: ['feature :gear:', 'plain :not_an_emoji:', 'constructor'], labelColors: { 'feature :gear:': '#a2eeef' } };
     patchForge('t', { details: { 12: { value: { ...detail, mr: labelled }, at: 1 } } });
     show();
-    const chips = () => [...document.querySelectorAll<HTMLElement>('.mr-label')];
+    const chips = () => [...document.querySelectorAll<HTMLElement>('.people-pill')];
     expect(await screen.findByText('feature ⚙️')).toBeInTheDocument();
     expect(chips().map((c) => [c.textContent, c.style.getPropertyValue('--chip-color'), c.hasAttribute('data-colored')])).toEqual([
       ['feature ⚙️', '#a2eeef', true],

@@ -75,4 +75,13 @@ describe('MarkdownField (spec #5 §3.2)', () => {
       expect([box.selectionStart, box.selectionEnd]).toEqual([5, 5]);
     } finally { vi.useRealTimers(); }
   });
+
+  it('one editor box: the tabs and a toolbar in its header, the Markdown hint in its footer', () => {
+    render(<MarkdownField label="Description" value="" onChange={() => {}} flavor="gitlab" context={ctx} toolbar={<button type="button">Template: none</button>} />);
+    const box = screen.getByRole('textbox', { name: 'Description' }).closest('.md-field')!;
+    const head = box.querySelector('.md-field-head')!;
+    expect(head).toContainElement(screen.getByRole('tab', { name: 'Write' }));
+    expect(head).toContainElement(screen.getByRole('button', { name: 'Template: none' }));
+    expect(box.querySelector('.md-field-foot')).toHaveTextContent('Markdown supported · Ctrl+Shift+P to preview');
+  });
 });

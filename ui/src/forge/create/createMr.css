@@ -1,18 +1,42 @@
-.create-mr { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 0; }
-.create-mr-error { margin: 0; color: var(--red); }
-.create-mr-route { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 6px 8px; align-items: center; }
-.create-mr-label { color: var(--text-secondary); }
-.create-mr-branch, .create-mr-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
-.create-mr-target { justify-self: start; max-width: 100%; padding: 2px 6px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); cursor: pointer; }
-.create-mr-target:hover { background: var(--control-hover-bg); }
-.create-mr-field { display: flex; flex-direction: column; gap: 4px; }
-.create-mr-field > span { color: var(--text-secondary); }
-.create-mr-field input, .create-mr-field textarea { padding: 4px 6px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--wip-input-bg); color: var(--text-normal); font: inherit; }
-.create-mr-field textarea { min-height: 10em; resize: vertical; }
-.create-mr-template { display: flex; align-items: center; gap: 8px; }
-.create-mr-note { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--orange); }
+/* The Create MR/PR flyout: a branch card, the title, the description, people, merge options;
+   the buttons in the frame's pinned footer. */
+.create-mr { display: flex; flex-direction: column; gap: 14px; min-width: 0; margin: 0; padding: 2px; border: 0; }
+.create-mr-mark { display: inline-flex; flex: none; }
+.create-mr-mark[data-kind="gitlab"] { color: var(--forge-gitlab); }
+.create-mr-mark[data-kind="github"] { color: var(--text-selected); }
+.create-mr-heading { flex: none; }
+.create-mr-project { min-width: 0; margin-left: 2px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 400; color: var(--text-secondary); }
+.create-mr-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.create-mr-label { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 600; color: var(--text-secondary); }
+.create-mr-label-hint { margin-left: auto; font-weight: 400; color: var(--text-disabled); }
+input.create-mr-title { box-sizing: border-box; width: 100%; padding: 7px 10px; border: 1px solid var(--wip-input-border); border-radius: 6px; outline: none; background: var(--wip-input-bg); color: var(--text-selected); font: inherit; font-size: 14px; font-weight: 500; transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
+input.create-mr-title:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var(--focus-outline); }
+input.create-mr-title:disabled { color: var(--text-secondary); }
+/* The template picker in the description's header: a quiet dropdown. */
+.md-field-tools .select { flex: none; gap: 4px; padding: 2px 6px; border: 0; border-radius: 4px; background: none; color: var(--text-secondary); font-size: 12px; }
+.md-field-tools .select:hover { background: var(--control-hover-bg); color: var(--text-normal); }
+.md-field-tools .select:focus-visible { outline: 1px solid var(--focus-outline); }
+.md-field-tools .select-value { display: inline-flex; align-items: center; gap: 4px; }
+.md-field-tools .select-caret { width: 12px; height: 12px; }
+.create-mr-error { margin: 0; color: var(--red); overflow-wrap: anywhere; }
 .create-mr-hint { margin: 0; color: var(--text-secondary); }
-.create-mr-problem { margin: 12px; color: var(--red); }
-.create-mr-loading { margin: 12px; color: var(--text-secondary); }
-.create-mr-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.create-mr-actions button.primary { color: var(--text-on-accent); background: var(--blue); border-color: var(--blue); }
+.create-mr-problem { margin: 0; color: var(--red); }
+.create-mr-loading { margin: 0; color: var(--text-secondary); }
+
+/* The pinned footer: messages over the buttons; Continue left, the split Create right. */
+.flyout-foot:has(.create-mr-foot, .create-mr-actions) { padding: 12px 14px; }
+.create-mr-foot { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.create-mr-messages { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.create-mr-actions { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.create-mr-spacer { flex: 1; }
+button.create-mr-ghost { display: inline-flex; align-items: center; gap: 6px; height: 30px; box-sizing: border-box; padding: 0 12px; border: 1px solid var(--section-border); border-radius: 6px; background: var(--control-bg); color: var(--text-normal); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+button.create-mr-ghost:hover:not(:disabled) { background: var(--control-hover-bg); }
+button.create-mr-ghost:disabled { color: var(--text-disabled); cursor: default; }
+.create-mr-split { display: inline-flex; border-radius: 6px; overflow: hidden; }
+.create-mr-split button { height: 30px; box-sizing: border-box; border: 0; background: var(--blue); color: var(--text-on-accent); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+button.create-mr-primary { padding: 0 12px; }
+button.create-mr-caret { display: inline-flex; align-items: center; padding: 0 8px; border-left: 1px solid var(--shadow-popup); }
+.create-mr-split button:hover:not(:disabled) { filter: brightness(1.1); }
+.create-mr-split button:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: -2px; }
+.create-mr-split button:disabled { background: var(--control-bg); color: var(--text-disabled); cursor: default; }
+.create-mr-split button.create-mr-caret:disabled { border-left-color: var(--section-border); }

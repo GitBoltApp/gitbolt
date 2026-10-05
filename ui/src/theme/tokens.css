@@ -47,6 +47,9 @@
   --link: #40c5ec;
   /* The MR/PR view: merged and mentions. */
   --purple: #a371f7;
+  /* A switch's track, on and off (ui/Switch.tsx). */
+  --switch-on: #4d88ff;
+  --switch-off: rgba(255, 255, 255, 0.16);
   --focus-outline: rgba(77, 136, 255, 0.6);
   --conflict-ours: #15a0bf;
   --conflict-theirs: #f2ca33;

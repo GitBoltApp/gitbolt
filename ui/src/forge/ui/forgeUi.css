@@ -1,0 +1,76 @@
+/* BranchFlow and PeopleCard (forge/ui): the Create flyout, Edit and the MR/PR view. */
+
+/* --- BranchFlow: From → Into, what it brings, a status strip --- */
+.flow { flex: none; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); overflow: hidden; }
+.flow-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); align-items: stretch; }
+.flow-end { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 10px 12px; }
+.flow-cap { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-disabled); }
+.flow-branch { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font: 12.5px var(--font-mono); color: var(--text-selected); }
+.flow-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.flow-pick { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 4px; align-self: flex-start; min-width: 0; max-width: 100%; margin: -1px -5px; padding: 1px 5px; border-radius: 4px; font: 12.5px var(--font-mono); color: var(--text-selected); cursor: pointer; }
+button.flow-pick svg { flex: none; color: var(--text-secondary); }
+button.flow-pick:hover:not(:disabled) { background: var(--control-hover-bg); }
+button.flow-pick:focus-visible { outline: 1px solid var(--focus-outline); }
+button.flow-pick:disabled { cursor: default; color: var(--text-secondary); }
+.flow-sub { display: flex; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-arrow { display: grid; place-items: center; color: var(--text-disabled); }
+.flow-meta { display: flex; align-items: center; gap: 12px; min-height: 31px; box-sizing: border-box; padding: 6px 12px; border-top: 1px solid var(--section-border); background: var(--panel-bg0); font-size: 12px; color: var(--text-secondary); }
+.flow-meta b { font-weight: 600; color: var(--text-normal); }
+.flow-add { color: var(--green); }
+.flow-del { color: var(--red); }
+.flow-wait { color: var(--text-disabled); }
+button.flow-more { all: unset; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; color: var(--text-secondary); cursor: pointer; border-radius: 4px; }
+button.flow-more:hover { color: var(--text-normal); }
+button.flow-more:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 2px; }
+.flow-commits { margin: 0; padding: 4px 0; list-style: none; max-height: 200px; overflow: auto; border-top: 1px solid var(--section-border); }
+.flow-commits li { display: flex; align-items: baseline; gap: 8px; padding: 3px 12px; font-size: 12px; color: var(--text-normal); }
+.flow-commits code { flex: none; font: 11px var(--font-mono); color: var(--text-disabled); }
+.flow-commits span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-strip { display: flex; align-items: center; gap: 10px; min-height: 42px; box-sizing: border-box; padding: 6px 10px 6px 12px; border-top: 1px solid color-mix(in srgb, var(--orange) 35%, transparent); background: color-mix(in srgb, var(--orange) 10%, transparent); color: var(--orange); font-size: 12px; }
+.flow-strip[data-tone="bad"] { border-top-color: color-mix(in srgb, var(--red) 35%, transparent); background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red); }
+.flow-strip-icon { flex: none; }
+.flow-strip-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.flow-strip-msg code { font: 11.5px var(--font-mono); color: var(--text-normal); }
+button.flow-strip-btn { flex: none; height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--orange); color: var(--app-bg0); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+button.flow-strip-btn:hover:not(:disabled) { filter: brightness(1.1); }
+button.flow-strip-btn:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 1px; }
+button.flow-strip-btn:disabled { opacity: 0.6; cursor: default; }
+/* The remote under a branch, as a quiet dropdown (Create). */
+.flow-sub .select { flex: none; max-width: 100%; padding: 1px 4px 1px 4px; margin-left: -4px; gap: 4px; border: 0; background: none; color: var(--text-secondary); font-size: 12px; }
+.flow-sub .select:hover { background: var(--control-hover-bg); color: var(--text-normal); }
+.flow-sub .select:focus-visible { outline: 1px solid var(--focus-outline); }
+.flow-sub .select-caret { width: 12px; height: 12px; }
+
+/* --- PeopleCard: Reviewers / Assignees / Labels --- */
+.people { flex: none; border: 1px solid var(--section-border); border-radius: 8px; }
+.people-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 40px; box-sizing: border-box; padding: 6px 10px; }
+.people-row + .people-row { border-top: 1px solid var(--section-border); }
+.people-k { font-size: 12px; color: var(--text-secondary); }
+.people-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.people-none { font-size: 12px; color: var(--text-disabled); }
+.people-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; box-sizing: border-box; max-width: 100%; padding: 0 8px 0 3px; border-radius: 12px; background: var(--control-bg); font-size: 12px; color: var(--text-normal); }
+.people-chip:has(.people-rm) { padding-right: 4px; }
+.people-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; box-sizing: border-box; max-width: 100%; padding: 0 9px; border-radius: 11px; background: var(--control-bg); font-size: 12px; font-weight: 500; color: var(--text-normal); }
+.people-pill:has(.people-rm) { padding-right: 4px; }
+.people-pill[data-colored] { background: var(--chip-color); color: var(--chip-text, var(--text-normal)); }
+button.people-rm { all: unset; flex: none; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: var(--text-disabled); cursor: pointer; }
+button.people-rm:hover:not(:disabled) { background: var(--control-hover-bg); color: var(--text-normal); }
+button.people-rm:focus-visible { outline: 1px solid var(--focus-outline); }
+button.people-rm:disabled { cursor: default; }
+.people-pill[data-colored] button.people-rm { color: inherit; opacity: 0.7; }
+.people-pill[data-colored] button.people-rm:hover:not(:disabled) { background: transparent; opacity: 1; }
+button.people-add { all: unset; display: inline-flex; align-items: center; gap: 4px; height: 24px; box-sizing: border-box; padding: 0 8px; border: 1px dashed color-mix(in srgb, var(--text-selected) 18%, transparent); border-radius: 12px; font-size: 12px; color: var(--text-secondary); cursor: pointer; transition: border-color var(--motion-fast), color var(--motion-fast); }
+button.people-add:hover:not(:disabled), button.people-add[aria-expanded="true"] { border-color: var(--blue); color: var(--text-normal); }
+button.people-add:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
+button.people-add:disabled { cursor: default; opacity: 0.6; }
+button.people-me { all: unset; margin-left: 4px; font-size: 11.5px; color: var(--link); cursor: pointer; border-radius: 3px; }
+button.people-me:hover:not(:disabled) { text-decoration: underline; }
+button.people-me:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
+button.people-me:disabled { cursor: default; color: var(--text-disabled); }
+/* + Add's search: placed in the window (it isn't clipped by the scrolling body under it). */
+.people-pop { position: fixed; z-index: 650; box-sizing: border-box; padding: 6px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); box-shadow: 0 6px 20px var(--shadow-popup); }
+.people-pop .pick-box { padding: 4px 6px; border-radius: 6px; }
+.people-pop .pick-list { position: static; margin: 4px 0 0; border: 0; box-shadow: none; background: none; max-height: 220px; }
+.people-pop .pick-list [role='option'] { border-radius: 4px; }
+.people-pop .pick-error { position: static; margin: 4px 2px 0; }

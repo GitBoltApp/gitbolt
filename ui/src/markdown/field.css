@@ -1,11 +1,23 @@
-/* Write / Preview (spec #5 §3.2): the preview lies over the textarea, which keeps the size. */
-.md-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* Write / Preview (spec #5 §3.2), one editor box: the tabs (and a toolbar) in its header, the
+   textarea, a hint footer. The preview lies over the textarea, which keeps the size. */
+.md-field { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--wip-input-border); border-radius: 6px; background: var(--wip-input-bg); overflow: hidden; transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
+.md-field:focus-within { border-color: var(--blue); box-shadow: 0 0 0 2px var(--focus-outline); }
+.md-field-head { display: flex; align-items: flex-end; gap: 2px; min-height: 30px; box-sizing: border-box; padding: 4px 6px 0; background: var(--panel-bg1); border-bottom: 1px solid var(--wip-input-border); }
 .md-field-tabs { display: flex; gap: 2px; }
-.md-field-tab { padding: 2px 8px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--text-secondary); font: inherit; font-size: 11px; cursor: pointer; transition: color var(--motion-fast), background-color var(--motion-fast); }
-.md-field-tab[aria-selected="true"] { color: var(--text-normal); background: var(--control-bg); border-color: var(--section-border); }
-.md-field-tab:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
+.md-field-tab { margin-bottom: -1px; padding: 4px 10px 5px; border: 1px solid transparent; border-radius: 5px 5px 0 0; background: none; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; transition: color var(--motion-fast), background-color var(--motion-fast); }
+.md-field-tab:hover { color: var(--text-normal); }
+.md-field-tab[aria-selected="true"] { color: var(--text-selected); background: var(--wip-input-bg); border-color: var(--wip-input-border); border-bottom-color: var(--wip-input-bg); }
+.md-field-tab:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: -1px; }
+.md-field-tools { margin-left: auto; align-self: center; display: flex; align-items: center; gap: 4px; min-width: 0; margin-bottom: 3px; }
 .md-field-body { position: relative; display: flex; flex-direction: column; }
+/* The textarea is the box's inside: no border, focus ring or background of its own (any form's
+   textarea rule included). */
+.md-field .md-field-body > textarea { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 10px 12px; border: 0; border-radius: 0; outline: none; box-shadow: none; background: transparent; color: var(--text-normal); font: 12.5px/1.55 var(--font-mono); resize: vertical; }
+.md-field .md-field-body > textarea::placeholder { color: var(--wip-input-placeholder); }
+.md-field .md-field-body > textarea:disabled { color: var(--text-secondary); }
 .md-field[data-mode="preview"] .md-field-body > textarea { visibility: hidden; }
-.md-field-preview { position: absolute; inset: 0; overflow: auto; padding: 4px 6px; box-sizing: border-box; border: 1px solid var(--section-border); border-radius: 6px; background: var(--panel-bg1); color: var(--text-normal); }
-.md-field-preview:focus-visible { outline: none; border-color: var(--focus-outline); box-shadow: 0 0 0 1px var(--focus-outline); }
+.md-field-preview { position: absolute; inset: 0; overflow: auto; padding: 10px 12px; box-sizing: border-box; background: var(--wip-input-bg); color: var(--text-normal); }
+.md-field-preview:focus-visible { outline: none; }
 .md-field-empty { margin: 0; color: var(--text-secondary); }
+.md-field-foot { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-top: 1px solid var(--wip-input-border); font-size: 11px; color: var(--text-disabled); }
+.md-field-mark { flex: none; }

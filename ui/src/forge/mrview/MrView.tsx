@@ -76,6 +76,7 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
     <FlyoutFrame
       label={label}
       onClose={close}
+      wrapTitle
       title={<>{mr && <MrStateIcon state={mr.state} size={14} />}<span>{ref} <EmojiText text={mr?.title ?? ''} /></span></>}
       headerActions={mr && (
         <HoverTooltip content="Open in browser">
@@ -88,7 +89,7 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
       {!mr && <p className="mr-wait">{error ? `Couldn't load ${label}: ${error}` : 'Loading…'}</p>}
       {/* The MR/PR's own refresh failed: what's shown is older. */}
       {mr && error && <p className="forge-stale-note" role="status">{`Couldn't refresh ${ref}: ${error}`}</p>}
-      {mr && <MrHeader kind={kind} mr={mr} detail={detail} />}
+      {mr && <MrHeader tabId={tabId} kind={kind} mr={mr} detail={detail} />}
       {/* --- 4D: the stack --- */}
       {mr && <StackPanel tabId={tabId} mr={mr} />}
       {/* --- end 4D --- */}

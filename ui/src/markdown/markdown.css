@@ -1,6 +1,8 @@
 /* Rendered Markdown (spec #5 §3.1): GitHub-like typography on the theme's tokens. Full width in the
    MR/PR flyout; 5B caps File View's reading width. */
-.md { font-size: 12px; line-height: 1.55; color: var(--text-normal); overflow-wrap: anywhere; min-width: 0; }
+.md { font-size: 12px; line-height: 1.55; color: var(--text-normal); overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+/* Wide blocks scroll inside themselves: a long code line never widens the panel around it. */
+.md pre, .md .md-code, .md .md-mermaid, .md details { max-width: 100%; min-width: 0; }
 .md > :first-child, .md > .md-chunk:first-child > :first-child { margin-top: 0; }
 .md > :last-child, .md > .md-chunk:last-child > :last-child { margin-bottom: 0; }
 /* A large document's chunks (Task 12): off-screen ones skip layout and paint. Each chunk sets its

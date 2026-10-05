@@ -5,6 +5,10 @@
 .flyout { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel-bg1); color: var(--text-normal); border-right: 1px solid var(--section-border); box-shadow: 4px 0 16px var(--shadow-popup); }
 .flyout-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--section-border); }
 .flyout-title { flex: 1; min-width: 0; margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text-selected); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; outline: none; }
+/* A wrapping title (an MR/PR's): every line shown; the icon and the buttons stay with the first line. */
+.flyout-head.wrap { align-items: flex-start; }
+.flyout-head.wrap .flyout-title { align-items: flex-start; white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.35; padding-top: 2px; }
+.flyout-head.wrap .flyout-title > svg { flex: none; margin-top: 2px; }
 .flyout-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 .flyout-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--section-border); }
 .flyout-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; }

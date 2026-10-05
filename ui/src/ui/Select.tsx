@@ -1,5 +1,5 @@
 import { Check, ChevronDown, type LucideIcon } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { openMenuAt, useMenu } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
 import { registerKeys } from './keyRouter';
@@ -14,6 +14,8 @@ export interface SelectProps<T extends string | number> {
   /** `[value, label]`, or `[value, label, tooltip]`: the open list's row tooltip (default: the label). */
   options: ReadonlyArray<readonly [T, string] | readonly [T, string, string]>;
   onChange(v: T): void;
+  /** What the button shows in place of the chosen option's label (Create's "Template: none"). */
+  shown?: ReactNode;
   'aria-label'?: string;
   'aria-labelledby'?: string;
 }
@@ -24,7 +26,7 @@ export interface SelectProps<T extends string | number> {
  * never stayed open. Enter / Space (the button's click) and ArrowDown / ArrowUp open it; the menu
  * takes the arrows, Enter and Esc, and gives focus back here.
  */
-export function Select<T extends string | number>({ id, value, options, onChange, ...rest }: SelectProps<T>) {
+export function Select<T extends string | number>({ id, value, options, onChange, shown, ...rest }: SelectProps<T>) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -61,7 +63,7 @@ export function Select<T extends string | number>({ id, value, options, onChange
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
     >
-      <span className="select-value">{current}</span>
+      <span className="select-value">{shown ?? current}</span>
       <ChevronDown size={14} aria-hidden className="select-caret" />
     </button>
   );

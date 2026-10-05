@@ -86,9 +86,10 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     fireEvent.change(within(form).getByRole('textbox', { name: 'Title' }), { target: { value: 'Dev work, part 1' } });
     // Labels come from the project's own labels: no free text.
     expect(within(form).queryByRole('textbox', { name: 'Labels' })).toBeNull();
+    fireEvent.click(within(form).getByRole('button', { name: 'Add label' }));
     fireEvent.change(within(form).getByRole('combobox', { name: 'Labels' }), { target: { value: 'u' } });
     fireEvent.click(await within(form).findByRole('option', { name: /ui/ }));
-    expect(api.forgeLabels).toHaveBeenCalledWith(4, 'origin', 'u');
+    expect(api.forgeLabels).toHaveBeenCalledWith(4, 'origin', '');
     fireEvent.click(save);
     await waitFor(() => expect(api.forgeEditMr).toHaveBeenCalledWith(4, 12, { title: 'Dev work, part 1', description: null, labels: ['backend', 'ui'] }));
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Edit' })).toBeNull());

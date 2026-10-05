@@ -66,10 +66,16 @@ test.describe('forge accounts and remotes (spec #4 §7, 4A)', () => {
     const flyout = page.getByRole('dialog', { name: 'Create pull request' });
     await expect(flyout.getByLabel('Title', { exact: true })).toHaveValue('Add the widget');
     await expect(flyout.getByLabel('Description', { exact: true })).toHaveValue('It spins.');
+    await flyout.getByRole('button', { name: 'Add reviewer' }).click();
     await flyout.getByLabel('Reviewers', { exact: true }).fill('hub');
     await flyout.getByRole('option', { name: /hubot/ }).click();
+    await page.keyboard.press('Escape');
+    await flyout.getByRole('button', { name: 'Add label' }).click();
     await flyout.getByLabel('Labels', { exact: true }).fill('bug');
     await flyout.getByRole('option', { name: /bug/ }).click();
+    await page.keyboard.press('Escape');
+    // Esc closed only the searches: the flyout is still open, with the picks as chips.
+    await expect(flyout.getByRole('group', { name: 'People and labels' })).toContainText(/hubot/i);
     await flyout.getByRole('button', { name: 'Create pull request' }).click();
 
     await expect(page.getByText("PR #1 created; couldn't add reviewers: Reviews may only be requested from collaborators")).toBeVisible();

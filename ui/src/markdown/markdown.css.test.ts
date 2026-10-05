@@ -13,6 +13,12 @@ describe('markdown.css (spec #5 §3.1)', () => {
     expect(css).not.toMatch(/transition:\s*all/);
   });
 
+  it('scrolls wide code inside its block, never widening the panel', () => {
+    expect(rule('.md pre')).toMatch(/overflow-x:\s*auto/);
+    expect(rule('.md pre, .md .md-code, .md .md-mermaid, .md details')).toMatch(/max-width:\s*100%/);
+    expect(rule('.md')).toMatch(/max-width:\s*100%/);
+  });
+
   it('fits images to the width and keeps their aspect ratio (no shift when they load)', () => {
     expect(rule('.md-img')).toMatch(/max-width:\s*100%/);
     expect(rule('.md-img')).toMatch(/height:\s*auto/);
