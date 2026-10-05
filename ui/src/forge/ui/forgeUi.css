@@ -23,9 +23,16 @@ button.flow-more { all: unset; display: inline-flex; align-items: center; gap: 4
 button.flow-more:hover { color: var(--text-normal); }
 button.flow-more:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 2px; }
 .flow-commits { margin: 0; padding: 4px 0; list-style: none; max-height: 200px; overflow: auto; border-top: 1px solid var(--section-border); }
-.flow-commits li { display: flex; align-items: baseline; gap: 8px; padding: 3px 12px; font-size: 12px; color: var(--text-normal); }
+.flow-commits li { display: block; }
+/* A row: a button that selects the commit in the graph (the MR/PR view, Create), or a dim span
+   when the graph hasn't loaded it (or nothing to jump to). */
+.flow-commit { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 3px 12px; font-size: 12px; color: var(--text-normal); }
+button.flow-commit { cursor: pointer; }
+button.flow-commit:hover { background: var(--hover-row); }
+button.flow-commit:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: -1px; }
+.flow-commit.missing { color: var(--text-secondary); cursor: default; }
 .flow-commits code { flex: none; font: 11px var(--font-mono); color: var(--text-disabled); }
-.flow-commits span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-commit-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flow-strip { display: flex; align-items: center; gap: 10px; min-height: 42px; box-sizing: border-box; padding: 6px 10px 6px 12px; border-top: 1px solid color-mix(in srgb, var(--orange) 35%, transparent); background: color-mix(in srgb, var(--orange) 10%, transparent); color: var(--orange); font-size: 12px; }
 .flow-strip[data-tone="bad"] { border-top-color: color-mix(in srgb, var(--red) 35%, transparent); background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red); }
 .flow-strip-icon { flex: none; }

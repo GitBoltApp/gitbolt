@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import type { TabSlotProps } from '../../app/slots';
@@ -12,7 +12,7 @@ import { isDismissKey } from '../HoverTooltip';
 import { useKeys } from '../keyRouter';
 import { isEditableTarget } from '../keys';
 import { onResetDoubleClick } from '../resetHandle';
-import { closeFlyout, flyoutComponent, flyoutWidth, FLYOUT_W, useFlyout } from './flyout';
+import { canDock, closeFlyout, DOCK_W, dockWidth, flyoutComponent, flyoutDockable, FlyoutDockContext, flyoutWidth, FLYOUT_W, setDockPrefs, useFlyout, useFlyoutDock, type FlyoutDock } from './flyout';
 import './flyout.css';
 
 const STEP = 16;
@@ -29,7 +29,8 @@ function useViewOnTop(tabId: string): boolean {
 /**
  * The tab's open flyout (spec #4 §5), over the left of the tab's center: its left edge is the
  * sidebar's right edge (or its narrow strip's). It stays over an open file, and hides while a
- * center view is on top (that view owns the center and its Esc).
+ * center view is on top (that view owns the center and its Esc). A dockable one left docked is a
+ * pane instead, beside the graph (which shrinks to fit), while the center has room for both.
  */
 export function FlyoutHost({ tab }: TabSlotProps) {
   const tabId = tab.id;
@@ -37,6 +38,7 @@ export function FlyoutHost({ tab }: TabSlotProps) {
   const onTop = useViewOnTop(tabId);
   // Read only while this tab has a flyout open, so a hidden tab never re-renders on another's resize.
   const preferred = useAppState((s) => (open !== null ? s.profile.flyoutWidth : null));
+  const dockPref = useFlyoutDock((s) => (open !== null ? s : null));
   const updateProfile = useAppState((s) => s.updateProfile);
   const hostRef = useRef<HTMLDivElement>(null);
   /** Ends a drag in progress (its window listeners), also when the host unmounts mid-drag. */
@@ -45,6 +47,15 @@ export function FlyoutHost({ tab }: TabSlotProps) {
   const [room, setRoom] = useState(1200);
   const shown = open !== null && !onTop;
   const close = useCallback(() => closeFlyout(tabId), [tabId]);
+  const dockable = open !== null && flyoutDockable(open.kind);
+  const roomToDock = canDock(room);
+  const docked = dockable && !!dockPref?.docked && roomToDock;
+  const dock = useMemo<FlyoutDock>(() => ({
+    dockable,
+    docked,
+    canDock: roomToDock,
+    toggle: () => setDockPrefs({ docked: !docked }),
+  }), [dockable, docked, roomToDock]);
 
   // The center's width, which bounds the flyout's.
   useLayoutEffect(() => {
@@ -61,6 +72,7 @@ export function FlyoutHost({ tab }: TabSlotProps) {
   // Esc, in the key router's `overlay` layer: inside the flyout it closes it (an armed control
   // there disarms first); elsewhere it's the app's (close the file, leave a compare), and closes
   // the flyout only when the app's has nothing to do. Never a key typed in another text box.
+  // Docked, it's a pane like the graph: Esc closes it only from inside.
   useKeys('overlay', (e) => {
     if (!isDismissKey(e) || e.defaultPrevented) return;
     const host = hostRef.current;
@@ -72,7 +84,7 @@ export function FlyoutHost({ tab }: TabSlotProps) {
       e.preventDefault();
       return 'handled';
     }
-    if (isEditableTarget(t)) return;
+    if (docked || isEditableTarget(t)) return;
     const s = tabStore(tabId)?.getState();
     if (s && (s.diff || s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree' || s.selection.kind === 'multi')) return;
     close();
@@ -83,9 +95,18 @@ export function FlyoutHost({ tab }: TabSlotProps) {
   if (!open) return null;
   const Component = flyoutComponent(open.kind);
   if (!Component) return null;
-  const width = flyoutWidth(preferred, room);
-  const commit = (px: number) => updateProfile((p) => ({ ...p, flyoutWidth: Math.round(Math.min(FLYOUT_W.max, Math.max(FLYOUT_W.min, px))) }));
-  const reset = () => updateProfile((p) => ({ ...p, flyoutWidth: null }));
+  const bounds = docked ? DOCK_W : FLYOUT_W;
+  const fit = (px: number | null) => (docked ? dockWidth(px, room) : flyoutWidth(px, room));
+  const width = fit(docked ? dockPref?.width ?? null : preferred);
+  const commit = (px: number) => {
+    const w = Math.round(Math.min(bounds.max, Math.max(bounds.min, px)));
+    if (docked) setDockPrefs({ width: w });
+    else updateProfile((p) => ({ ...p, flyoutWidth: w }));
+  };
+  const reset = () => {
+    if (docked) setDockPrefs({ width: null });
+    else updateProfile((p) => ({ ...p, flyoutWidth: null }));
+  };
   // The drag writes the width straight to the element and commits it once, on release.
   const startResize = (e: ReactPointerEvent) => {
     e.preventDefault();
@@ -94,7 +115,7 @@ export function FlyoutHost({ tab }: TabSlotProps) {
     const x0 = e.clientX;
     let last = width;
     const move = (ev: PointerEvent) => {
-      last = flyoutWidth(width + ev.clientX - x0, room);
+      last = fit(width + ev.clientX - x0);
       el.style.width = `${last}px`;
     };
     const stop = () => {
@@ -118,19 +139,21 @@ export function FlyoutHost({ tab }: TabSlotProps) {
     e.preventDefault();
   };
   return (
-    <div ref={hostRef} className="flyout-host" style={{ width }} hidden={onTop}>
-      <PanelErrorBoundary key={open.seq} name="Panel" onClose={close}>
-        <Suspense fallback={<section className="flyout" aria-busy="true" />}>
-          <Component tabId={tabId} props={open.props} close={close} />
-        </Suspense>
-      </PanelErrorBoundary>
+    <div ref={hostRef} className={`flyout-host${docked ? ' docked' : ''}`} style={{ width }} hidden={onTop}>
+      <FlyoutDockContext value={dock}>
+        <PanelErrorBoundary key={open.seq} name="Panel" onClose={close}>
+          <Suspense fallback={<section className="flyout" aria-busy="true" />}>
+            <Component tabId={tabId} props={open.props} close={close} />
+          </Suspense>
+        </PanelErrorBoundary>
+      </FlyoutDockContext>
       <div
         className="flyout-resize"
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize the panel"
-        aria-valuemin={FLYOUT_W.min}
-        aria-valuemax={FLYOUT_W.max}
+        aria-valuemin={bounds.min}
+        aria-valuemax={bounds.max}
         aria-valuenow={width}
         tabIndex={0}
         onPointerDown={startResize}

@@ -511,6 +511,10 @@ pub enum Request {
         #[serde(default)]
         #[ts(optional)]
         update_refs: Option<bool>,
+        /// Merge only: pass `--ff-only` (the UI labelled the row a fast-forward), whatever `merge.ff` says.
+        #[serde(default)]
+        #[ts(optional)]
+        ff_only: Option<bool>,
         #[serde(default)]
         expect: crate::write::types::Expect,
         #[serde(default)]
@@ -2500,7 +2504,7 @@ impl Api {
             Request::DeleteBranch { repo, worktree, branch, local, remote, force, expect } => to_json(crate::write::run_write(self, repo, &worktree, expect, crate::write::branch_delete::DeleteBranch::new(branch, local, remote, force)).await?),
             // --- end 2C T4 ---
             // --- 2D T9: integrate ---
-            Request::Integrate { repo, worktree, kind, target, update_refs, expect, confirm } => to_json(crate::write::integrate::integrate(self, repo, &worktree, kind, target, update_refs, expect, confirm).await?),
+            Request::Integrate { repo, worktree, kind, target, update_refs, ff_only, expect, confirm } => to_json(crate::write::integrate::integrate(self, repo, &worktree, kind, target, update_refs, ff_only, expect, confirm).await?),
             Request::RebaseControl { repo, worktree, action, message } => to_json(crate::write::rebase::control(self, repo, &worktree, action, message).await?),
             Request::PickControl { repo, worktree, action, message } => to_json(crate::write::pick::control(self, repo, &worktree, action, message).await?),
             // --- 3B T1 ---

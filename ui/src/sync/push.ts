@@ -9,7 +9,7 @@ import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { useToast, type ToastAction } from '../ui/toast';
-import { withPending } from '../pending/store';
+import { runOnce, withPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 import { askPushTarget } from './PushUpstreamPanel';
 import { showServerResult } from './serverOutput';
@@ -139,7 +139,9 @@ async function rejected(ctx: WriteCtx, b: LocalBranch, err: GbError, target: str
 
 async function send(ctx: WriteCtx, b: LocalBranch, opts: { target?: PushTarget; setUpstream?: boolean; lease?: { oid: string | null } }, origin: Origin | null = currentOrigin()): Promise<void> {
   const shown = opts.target ? `${opts.target.remote}/${opts.target.branch}` : (b.pushTarget ?? b.name);
-  await withPending(ctx.tabId, [b.fullName], 'push', () => runWrite(ctx, () => api.push(ctx.repoId, ctx.worktree, b.name, { ...opts, expect: { head: null, refs: { [b.fullName]: b.target } } }), {
+  // The rejection's question runs once this push has ended (its Force push is a push of the same branch).
+  let rejection: GbError | null = null;
+  await runOnce(ctx.tabId, 'push', b.fullName, () => withPending(ctx.tabId, [b.fullName], 'push', () => runWrite(ctx, () => api.push(ctx.repoId, ctx.worktree, b.name, { ...opts, expect: { head: null, refs: { [b.fullName]: b.target } } }), {
     onSuccess: (o) => {
       const dst = `${o.remote}/${o.dst}`;
       // A rewrite mark's lease held (spec #2 §12.3): say it was forced, and why.
@@ -148,11 +150,12 @@ async function send(ctx: WriteCtx, b: LocalBranch, opts: { target?: PushTarget; 
     },
     handle: (err) => {
       if (err.kind !== 'NonFastForward') return false;
-      void rejected(ctx, b, err, shown, origin);
+      rejection = err;
       return true;
     },
     origin,
-  }));
+  })));
+  if (rejection) void rejected(ctx, b, rejection, shown, origin);
 }
 
 /** Push: to the branch's target; with none, asks where (and tracks it). */

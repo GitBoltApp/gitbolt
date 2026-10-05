@@ -228,7 +228,7 @@ test.describe('sidebar item menus', () => {
     // isn't on main), no Interactive rebase main onto hotfix (main is in its history).
     expect(await labels(page)).toEqual([
       'Push', 'Set upstream', 'Reset main to this commit',
-      'Merge hotfix into main', 'Rebase main onto hotfix',
+      'Fast-forward main to hotfix', 'Rebase main onto hotfix',
       'Checkout', 'Create worktree from', 'Create branch here',
       'Cherry-pick onto main', 'Create tag here', 'Rename hotfix',
       'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD', 'Show in graph',

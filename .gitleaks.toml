@@ -1,0 +1,9 @@
+# Secret scanning (gitleaks): the default rules, minus one known false positive.
+# Test tokens are fake by construction: `glpat-FAKE-…`/`ghp_FAKE-…` literals that don't match the
+# real token shapes, or real shapes built at runtime (`format!("ghp_{}", "a".repeat(36))`).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "localStorage keys (gitbolt.<name>.v<N>) aren't secrets"
+regexes = ['''^gitbolt\.[A-Za-z]+\.v[0-9]+$''']

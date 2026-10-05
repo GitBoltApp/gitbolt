@@ -43,7 +43,8 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
   const button = (
     <HoverTooltip content={tip}>
       <button type="button" className="tb-btn" aria-label={label} aria-busy={busy || undefined} disabled={busy} aria-disabled={off || undefined} onClick={() => { if (!off) runAction(a.id); }}>
-        <Icon size={16} className={busy ? 'spin' : undefined} aria-hidden />
+        <Icon size={16} className={busy ? 'spin tb-busy-icon' : undefined} aria-hidden />
+        {busy && <span className="tb-busy-dot" aria-hidden />}
         <span>{label}</span>
         {queued && <span className="tb-queued" aria-hidden />}
       </button>

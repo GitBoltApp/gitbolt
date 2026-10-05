@@ -12,8 +12,10 @@ import type { ForgeUser } from '../api/gen/ForgeUser';
 import { Avatar, ForgeAvatar } from './Avatar';
 import { AvatarStoreContext, ForgeAvatarStoreContext, createAvatarStore } from './avatarStore';
 
+let objectUrls = 0;
 beforeAll(() => {
-  URL.createObjectURL = vi.fn(() => 'blob:ada');
+  // Unique, as the browser's are: an image known to have loaded is known by its URL.
+  URL.createObjectURL = vi.fn(() => `blob:ada-${++objectUrls}`);
   URL.revokeObjectURL = vi.fn();
 });
 
@@ -26,7 +28,7 @@ describe('Avatar', () => {
     await act(async () => {});
     // It waits, unseen, over the initials until the browser has loaded it.
     const img = el.querySelector('img')!;
-    expect(img).toHaveAttribute('src', 'blob:ada');
+    expect(img.getAttribute('src')).toMatch(/^blob:ada-/);
     expect(img).toHaveAttribute('data-loading');
     expect(el).toHaveTextContent('AL');
     fireEvent.load(img);
@@ -105,6 +107,63 @@ describe('ForgeAvatar (the MR/PR view, the hover card)', () => {
     fireEvent.error(el.querySelector('img')!);
     expect(el.querySelector('img')).toBeNull();
     expect(el).toHaveTextContent('AL');
+  });
+});
+
+describe('Avatar for an image already loaded elsewhere (the graph, then the details header)', () => {
+  it('renders the <img> on its first render, with no initials frame', async () => {
+    const fetch = vi.fn(async () => ({ mime: 'image/png', base64: btoa('png') }));
+    const store = createAvatarStore(fetch);
+    const wrap = (size: number) => <AvatarStoreContext value={store}><Avatar name="Ada Lovelace" email="ada@seen" size={size} /></AvatarStoreContext>;
+    const first = render(wrap(16));
+    await act(async () => {});
+    fireEvent.load(first.getByTestId('avatar').querySelector('img')!);
+    first.unmount();
+    // A new surface mounts the same person: the image straight away, no initials, no waiting.
+    const frames: string[] = [];
+    const Probe = () => { frames.push(document.querySelector('[data-testid=avatar]')?.textContent ?? ''); return null; };
+    const { getByTestId } = render(<>{wrap(28)}<Probe /></>);
+    const el = getByTestId('avatar');
+    const img = el.querySelector('img')!;
+    expect(img).not.toBeNull();
+    expect(img).not.toHaveAttribute('data-loading');
+    expect(el).toHaveTextContent('');
+    expect(frames.every((t) => t === '')).toBe(true);
+  });
+
+  it('an image the store decoded on arrival renders directly, with no load event needed', async () => {
+    const decode = vi.fn(async () => {});
+    const proto = HTMLImageElement.prototype as unknown as { decode?: () => Promise<void> };
+    const had = proto.decode;
+    proto.decode = decode;
+    try {
+      const store = createAvatarStore(vi.fn(async () => ({ mime: 'image/png', base64: btoa('png') })));
+      render(<AvatarStoreContext value={store}><Avatar name="Ada Lovelace" email="ada@decoded" /></AvatarStoreContext>);
+      await act(async () => {});
+      await act(async () => {});
+      const el = screen.getByTestId('avatar');
+      expect(decode).toHaveBeenCalledOnce();
+      expect(el.querySelector('img')).not.toHaveAttribute('data-loading');
+      expect(el).toHaveTextContent('');
+    } finally {
+      proto.decode = had;
+    }
+  });
+
+  it('two surfaces at different sizes share one entry and one request', async () => {
+    const fetch = vi.fn(async () => ({ mime: 'image/png', base64: btoa('png') }));
+    const store = createAvatarStore(fetch);
+    render(
+      <AvatarStoreContext value={store}>
+        <Avatar name="Ada Lovelace" email="Ada@Shared" size={16} />
+        <Avatar name="Ada Lovelace" email="ada@shared" size={28} />
+      </AvatarStoreContext>,
+    );
+    await act(async () => {});
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('ada@shared');
+    const [a, b] = screen.getAllByTestId('avatar').map((el) => el.querySelector('img')!);
+    expect(a.getAttribute('src')).toBe(b.getAttribute('src'));
+    expect([a.getAttribute('width'), b.getAttribute('width')]).toEqual(['16', '28']);
   });
 });
 

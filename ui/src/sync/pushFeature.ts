@@ -7,6 +7,7 @@ import type { RepoCtx } from '../app/repoContext';
 import { registerAppSlot } from '../app/slots';
 import { useRuntime } from '../app/runtime';
 import type { MenuRow } from '../menu/types';
+import { useInFlight } from '../pending/store';
 import { useQueuedKind } from '../queue/store';
 import { registerToolbarButton } from '../toolbar/registry';
 import { runWrite } from '../write/client';
@@ -59,7 +60,14 @@ const offs = [
     useView: ({ tabId }) => {
       const head = useRuntime(() => headBranchOf(tabId));
       const b = useRuntime(() => branchOf(tabId, head));
-      return pushTooltip(b, head, defaultRemote(tabId));
+      const pushing = useInFlight(tabId, 'push', b?.fullName ?? null);
+      const v = pushTooltip(b, head, defaultRemote(tabId));
+      return pushing && b ? { ...v, tooltip: `Pushing ${b.name}…` } : v;
+    },
+    useBusy: ({ tabId }) => {
+      const head = useRuntime(() => headBranchOf(tabId));
+      const b = useRuntime(() => branchOf(tabId, head));
+      return useInFlight(tabId, 'push', b?.fullName ?? null);
     },
     useQueued: ({ repoId }) => useQueuedKind(repoId, 'push'),
     menuRows: pushMenuRows,

@@ -25,6 +25,7 @@ import { forgeName, mrLongNoun } from '../labels';
 import { forgeOf } from '../mrStore';
 import { mappedRemotes } from '../projects';
 import { BranchFlow, FlowStrip } from '../ui/BranchFlow';
+import { useCommitJump } from '../ui/commitJump';
 import { PeopleCard, type PeopleChip, type PeopleRow } from '../ui/PeopleCard';
 import { useRangeStats } from '../ui/rangeStats';
 import { notifyForgeWrite } from '../usePolling';
@@ -67,6 +68,7 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
   latest.current = draft;
   const local = sidebar?.locals.find((b) => b.name === branch);
   // What the branch brings over its target: counted locally (merge base, then the compare list).
+  const jump = useCommitJump(tabId);
   const stats = useRangeStats(tabId, local?.target ?? null, route ? `refs/remotes/${route.targetRemote}/${route.targetBranch}` : null);
   // "Assign to me": the account's own user on the target's host.
   const host = ctx?.project.host;
@@ -336,6 +338,7 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
             count={ctx.firstCommit?.count ?? null}
             none={`${draft.targetRemote}/${draft.targetBranch} isn't fetched: no counts yet`}
             strip={strip}
+            jump={jump}
           />
           <label className="create-mr-field">
             <span className="create-mr-label">Title{fromFirstCommit && <span className="create-mr-label-hint">from the first commit</span>}</span>

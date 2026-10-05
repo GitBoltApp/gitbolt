@@ -1,5 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ForgeKind } from '../../api/gen/ForgeKind';
+import type { ForgeMr } from '../../api/gen/ForgeMr';
+import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
 
 const api = vi.hoisted(() => ({ forgeApprove: vi.fn(async () => null), forgeRequestChanges: vi.fn(async () => null), forgeSetDraft: vi.fn(), forgeEditMr: vi.fn(), forgeLabels: vi.fn(async () => [{ name: 'ui', color: '#1f75cb', description: null }]) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e) }));
@@ -8,18 +11,46 @@ vi.mock('../usePolling', () => polling);
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}) }));
 vi.mock('../poll', () => poll);
 
-const { MrActions } = await import('./MrActions');
+const { MrForms, ReviewButtons, StatusActions, useMrActions } = await import('./MrActions');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
 const { useToast } = await import('../../ui/toast');
 const { useMenu } = await import('../../menu/menuStore');
 const { ContextMenu } = await import('../../menu/ContextMenu');
+const { ArmLayer } = await import('../../ui/arm/ArmLayer');
+const { ConfirmDialog } = await import('../../ui/ConfirmDialog');
+const { disarm } = await import('../../ui/arm/store');
+const { setOrigin } = await import('../../ui/arm/origin');
+const { armClock, press } = await import('../../ui/arm/armTesting');
 const { detailOf, mrOf, user } = await import('../testMrs');
+
+/** The three places the actions live in the view: the APPROVALS box's buttons, the status line's,
+ * and the forms under the header. */
+function Actions({ kind, mr, detail }: { kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null }) {
+  const a = useMrActions('t', kind, mr, detail);
+  return (
+    <>
+      <div data-testid="approvals"><ReviewButtons kind={kind} mr={mr} actions={a} /></div>
+      <div data-testid="status"><StatusActions actions={a}><button type="button">Check out</button></StatusActions></div>
+      <MrForms tabId="t" kind={kind} mr={mr} detail={detail} actions={a} />
+    </>
+  );
+}
 
 const mr = mrOf(12, { title: 'Dev work', labels: ['backend'] });
 const detail = detailOf(mr);
-const show = (m = mr, d = detail) => render(<><MrActions tabId="t" kind="gitlab" mr={m} detail={d}><button type="button">Check out</button></MrActions><ContextMenu /></>);
+const show = (m = mr, d = detail, kind: ForgeKind = 'gitlab') => render(<><Actions kind={kind} mr={m} detail={d} /><p>elsewhere</p><ContextMenu /><ArmLayer /><ConfirmDialog /></>);
 const menuRow = (label: string) => { fireEvent.click(screen.getByRole('button', { name: 'More actions' })); return screen.getByRole('menuitem', { name: new RegExp(label) }); };
+const overlay = () => document.querySelector<HTMLElement>('.arm-overlay');
+
+let rects: ReturnType<typeof vi.spyOn>;
+let clock: ReturnType<typeof armClock>;
+/** Approve: the first click arms it, the second (past the settle guard) approves. */
+const approve = () => {
+  press(screen.getByRole('button', { name: 'Approve' }));
+  clock.settle();
+  press(overlay()!);
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -28,12 +59,28 @@ beforeEach(() => {
   useRuntime.setState({ tabs: { t: { repo: { id: 4 } } as never } });
   useToast.getState().dismiss();
   useMenu.getState().close();
+  clock = armClock();
+  // jsdom does no layout: a rendered control reports one box, so it's "shown" and arms in place.
+  rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function (this: HTMLElement) {
+    return (this.isConnected ? [new DOMRect(10, 10, 20, 20)] : []) as unknown as DOMRectList;
+  });
+});
+afterEach(() => {
+  act(() => disarm());
+  setOrigin(null);
+  rects.mockRestore();
+  clock.restore();
 });
 
 describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
-  it('Approve approves, says so, and has the poller reload (no second refresh of its own)', async () => {
+  it('Approve arms in place first, then approves on the second click, says so, and has the poller reload', async () => {
     show();
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    press(screen.getByRole('button', { name: 'Approve' }));
+    expect(overlay()).toHaveTextContent('Click again to approve');
+    expect(overlay()).toHaveClass('tone-positive');
+    expect(api.forgeApprove).not.toHaveBeenCalled();
+    clock.settle();
+    press(overlay()!);
     await waitFor(() => expect(useToast.getState().message).toBe('Approved !12'));
     expect(api.forgeApprove).toHaveBeenCalledWith(4, 12);
     expect(polling.notifyForgeWrite).toHaveBeenCalledTimes(1);
@@ -41,16 +88,58 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     expect(poll.refreshMr).not.toHaveBeenCalled();
   });
 
-  it('is "Approved" once you have', () => {
-    const approved = detailOf({ ...mr, review: { decision: 'approved', approvals: 1, approvalsRequired: null, reviews: [{ user: user('Ada Lovelace'), state: 'approved', submittedAt: null }] } });
-    show(mr, approved);
-    expect(screen.getByRole('button', { name: 'Approved' })).toBeDisabled();
+  it('an armed Approve is cancelled by Esc or a click elsewhere', async () => {
+    show();
+    press(screen.getByRole('button', { name: 'Approve' }));
+    expect(overlay()).not.toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(overlay()).toBeNull();
+    press(screen.getByRole('button', { name: 'Approve' }));
+    expect(overlay()).not.toBeNull();
+    fireEvent.pointerDown(screen.getByText('elsewhere'));
+    expect(overlay()).toBeNull();
+    await Promise.resolve();
+    expect(api.forgeApprove).not.toHaveBeenCalled();
   });
 
-  it('Request changes needs a comment, then sends it', async () => {
+  it('Approve and Request changes are small icon buttons in the APPROVALS box, with the forge wording in their tooltips', () => {
+    show();
+    const box = screen.getByTestId('approvals');
+    const group = within(box).getByRole('group', { name: 'Review' });
+    const [ok, changes] = within(group).getAllByRole('button');
+    expect(ok).toHaveAccessibleName('Approve');
+    expect(ok).toHaveClass('mr-review-btn', 'approve');
+    expect(ok).toHaveTextContent('');
+    expect(changes).toHaveAccessibleName('Request changes');
+    expect(changes).toHaveClass('mr-review-btn', 'changes');
+    fireEvent.mouseEnter(ok!);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Approve !12');
+    fireEvent.mouseLeave(ok!);
+    fireEvent.mouseEnter(changes!);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Request changes on !12');
+  });
+
+  it("a GitHub PR's tooltips say #12", () => {
+    show(mr, detail, 'github');
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Approve' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Approve #12');
+  });
+
+  it('is "Approved" once you have, and disabled', () => {
+    const approved = detailOf({ ...mr, review: { decision: 'approved', approvals: 1, approvalsRequired: null, reviews: [{ user: user('Ada Lovelace'), state: 'approved', submittedAt: null }] } });
+    show(mr, approved);
+    const btn = screen.getByRole('button', { name: 'Approved' });
+    expect(btn).toBeDisabled();
+    fireEvent.mouseEnter(btn);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('You approved !12');
+  });
+
+  it('Request changes opens its composer (no arm), which needs a comment, then sends it', async () => {
     show();
     fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    expect(overlay()).toBeNull();
     const form = screen.getByRole('form', { name: 'Request changes' });
+    expect(form).toHaveTextContent("GitLab's API has no review state");
     const send = within(form).getByRole('button', { name: 'Request changes' });
     expect(send).toBeDisabled();
     fireEvent.change(within(form).getByRole('textbox', { name: 'What should change?' }), { target: { value: 'Please add a test.' } });
@@ -109,18 +198,16 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
   it('a failed write says why and leaves the MR as it was', async () => {
     api.forgeApprove.mockRejectedValueOnce({ message: 'gitlab.example.com refused: insufficient_scope' });
     show();
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    approve();
     await waitFor(() => expect(useToast.getState().message).toBe("Couldn't approve !12: gitlab.example.com refused: insufficient_scope"));
     expect(polling.notifyForgeWrite).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 
-  it('Approve is green-tinted and Request changes orange-tinted; Check out, Edit and the ⋯ menu sit on the right', () => {
+  it('Check out, Edit and the ⋯ menu are the status line group', () => {
     show();
-    expect(screen.getByRole('button', { name: 'Approve' })).toHaveClass('approve');
-    expect(screen.getByRole('button', { name: 'Request changes' })).toHaveClass('changes');
-    const group = screen.getByRole('group', { name: 'Actions' });
-    expect(within(group).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim())).toEqual(['Approve', 'Request changes', 'Check out', 'Edit', 'More actions']);
+    const group = within(screen.getByTestId('status')).getByRole('group', { name: 'Actions' });
+    expect(within(group).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim())).toEqual(['Check out', 'Edit', 'More actions']);
   });
 
   it('the ⋯ menu holds Mark as draft and Copy link', () => {
@@ -129,13 +216,16 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     expect(screen.getAllByRole('menuitem').map((r) => r.textContent)).toEqual([expect.stringContaining('Mark as draft'), expect.stringContaining('Copy link')]);
   });
 
-  it('is disabled while a write runs', async () => {
+  it('is disabled while a write runs, with a spinner in the check\'s place', async () => {
     let done: (v: null) => void = () => {};
     api.forgeApprove.mockReturnValueOnce(new Promise((r) => { done = r; }));
     show();
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(await screen.findByRole('button', { name: 'More actions' })).toBeDisabled();
+    approve();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'More actions' })).toBeDisabled());
     expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    const btn = screen.getByRole('button', { name: 'Approve' });
+    expect(btn).toHaveAttribute('aria-busy', 'true');
+    expect(btn.querySelector('.spin')).not.toBeNull();
     done(null);
     await waitFor(() => expect(screen.getByRole('button', { name: 'More actions' })).toBeEnabled());
   });

@@ -53,17 +53,45 @@ const URGENT_SLOTS = 2;
 /** Images kept (bitmap + object URL each); the least recently used is evicted beyond it. */
 export const AVATAR_CACHE_ENTRIES = 512;
 
+/** Object URLs the browser has decoded as an `<img>` (on arrival, or an `<img>` of it has
+ * loaded): `Avatar` shows these at once, with no initials stage. Removed when the URL is revoked. */
+const decodedUrls = new Set<string>();
+/** Whether an `<img>` of this object URL is known to load (`Avatar`: render it straight away). */
+export const isDecoded = (url: string): boolean => decodedUrls.has(url);
+/** An `<img>` of this object URL loaded. */
+export function markDecoded(url: string): void {
+  decodedUrls.add(url);
+}
+
+/** Has the browser decode the image once, as an `<img>` would, so every `<img>` of it afterwards
+ * paints at once. False where it can't (bytes it can't read) or there's no `decode()` (tests). */
+async function decodeAsImg(url: string): Promise<boolean> {
+  if (typeof Image !== 'function') return false;
+  const el = new Image();
+  if (typeof el.decode !== 'function') return false;
+  el.src = url;
+  return el.decode().then(() => true, () => false);
+}
+
+/** The one image per person: the backend fetches a single size (80 px) and every surface scales
+ * it. One object URL per image, made here and revoked only on eviction (or `reset`). */
 async function decode(p: AvatarPayload): Promise<AvatarImage> {
   const blob = new Blob([Uint8Array.from(atob(p.base64), (c) => c.charCodeAt(0))], { type: p.mime });
   const side = Math.round(LARGEST_AVATAR_PX * Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1)));
-  const bitmap = typeof createImageBitmap === 'function'
-    ? await createImageBitmap(blob, { resizeWidth: side, resizeHeight: side, resizeQuality: 'high' }).catch(() => null)
-    : null;
-  return { url: URL.createObjectURL(blob), bitmap };
+  const url = URL.createObjectURL(blob);
+  const [bitmap, decoded] = await Promise.all([
+    typeof createImageBitmap === 'function'
+      ? createImageBitmap(blob, { resizeWidth: side, resizeHeight: side, resizeQuality: 'high' }).catch(() => null)
+      : null,
+    decodeAsImg(url),
+  ]);
+  if (decoded) markDecoded(url);
+  return { url, bitmap };
 }
 
 function release(img: AvatarImage) {
   img.bitmap?.close();
+  decodedUrls.delete(img.url);
   URL.revokeObjectURL(img.url);
 }
 

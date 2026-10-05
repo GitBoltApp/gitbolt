@@ -15,7 +15,7 @@ import { toastRebaseOutcome } from '../irebase/outcome';
 const files = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
 
 /** What the Integrate rows call back (the menu wires them to the tab's write context). */
-export interface IntegrateRun { ff(y: string): void; go(kind: IntegrateKind, y: string): void }
+export interface IntegrateRun { ff(y: string): void; go(kind: IntegrateKind, y: string, ffOnly?: boolean): void }
 
 /**
  * The Integrate group for a branch label chip `Y`, with HEAD on `X` (spec #2 §13.1): Fast-forward Y
@@ -39,7 +39,11 @@ export function integrateRows(t: CommitTarget, env: Pick<MenuEnv, 'headBranch'> 
   const rows: MenuRow[] = [];
   if (local && inX !== false && t.sha !== env.headSha && !checkedOut) rows.push({ kind: 'action', id: 'integrate.ff', label: `Fast-forward ${local} to ${x}`, icon: FastForward, tooltip: `Move ${local} up to ${x}`, run: () => run.ff(local), disabledReason });
   if (inX === true) return rows;
-  rows.push({ kind: 'action', id: 'integrate.merge', label: `Merge ${target} into ${x}`, icon: GitMerge, tooltip: `git merge ${target} on ${x}`, run: () => run.go('merge', target), disabledReason });
+  // X in Y's history: the merge only moves X forward. Labelled so, it runs `--ff-only`, so the label and the result agree whatever `merge.ff` says.
+  const ff = !!env.headSha && t.sha !== env.headSha && env.isAncestor?.(env.headSha, t.sha) === true;
+  rows.push(ff
+    ? { kind: 'action', id: 'integrate.merge', label: `Fast-forward ${x} to ${target}`, icon: FastForward, tooltip: `Moves ${x} up to ${target}; no merge commit is made`, run: () => run.go('merge', target, true), disabledReason }
+    : { kind: 'action', id: 'integrate.merge', label: `Merge ${target} into ${x}`, icon: GitMerge, tooltip: `git merge ${target} on ${x}`, run: () => run.go('merge', target), disabledReason });
   rows.push({ kind: 'action', id: 'integrate.rebase', label: `Rebase ${x} onto ${target}`, icon: GitPullRequestArrow, tooltip: `git rebase ${target} on ${x}`, run: () => run.go('rebase', target), disabledReason });
   return rows;
 }
@@ -59,7 +63,7 @@ function toastOutcome(o: IntegrateOutcome, kind: IntegrateKind, target: string, 
  * open while the preview runs (spec §ui confirms, board A); a stack's "Also move N stacked
  * branches" is a checkbox right under the armed row (with no row to arm, the board-H popover
  * carries it). A refused rebase says why: the anchored popover (board G). */
-export async function startIntegrate(ctx: WriteCtx, kind: IntegrateKind, target: string, x: string): Promise<void> {
+export async function startIntegrate(ctx: WriteCtx, kind: IntegrateKind, target: string, x: string, ffOnly = false): Promise<void> {
   const origin = currentOrigin();
   const release = holdOrigin();
   const rebase = kind === 'rebase';
@@ -112,7 +116,7 @@ export async function startIntegrate(ctx: WriteCtx, kind: IntegrateKind, target:
   } finally {
     release();
   }
-  const out = await runWrite(ctx, (_, asked) => api.integrate(ctx.repoId, ctx.worktree, kind, target, { updateRefs, confirmAutostash: asked.autostash }), { origin });
+  const out = await runWrite(ctx, (_, asked) => api.integrate(ctx.repoId, ctx.worktree, kind, target, { updateRefs, ffOnly: ffOnly || undefined, confirmAutostash: asked.autostash }), { origin });
   if (out) toastOutcome(out, kind, target, x);
 }
 

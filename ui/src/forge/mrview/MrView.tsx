@@ -1,5 +1,8 @@
 import { ExternalLink } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
+import type { ForgeKind } from '../../api/gen/ForgeKind';
+import type { ForgeMr } from '../../api/gen/ForgeMr';
+import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
 import { FlyoutFrame } from '../../ui/flyout/FlyoutFrame';
 import type { FlyoutProps } from '../../ui/flyout/flyout';
 import { HoverTooltip } from '../../ui/HoverTooltip';
@@ -23,7 +26,7 @@ import { CheckoutButton } from './CheckoutButton';
 import { MergeBox } from './MergeBox';
 import { Thread } from './Thread';
 // --- 4B T13 ---
-import { MrActions } from './MrActions';
+import { MrForms, ReviewButtons, StatusActions, useMrActions } from './MrActions';
 import { ReplyBox } from './ReplyBox';
 import { StackPanel } from '../stack/StackPanel';
 // --- end 4B T13 ---
@@ -36,6 +39,30 @@ import './mrview.css';
  * fresh through the poller (`openMr`).
  */
 const REFRESH_GRACE_MS = 120;
+
+/** The header with the actions in it (Check out, Edit and ⋯ on the status line; Approve and
+ * Request changes in the APPROVALS box), the stack (4D), then the Request changes or Edit form. */
+function MrTop({ tabId, kind, mr, detail }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null }) {
+  const actions = useMrActions(tabId, kind, mr, detail);
+  return (
+    <>
+      <MrHeader
+        tabId={tabId}
+        kind={kind}
+        mr={mr}
+        detail={detail}
+        actions={<StatusActions actions={actions}><CheckoutButton tabId={tabId} mr={mr} /></StatusActions>}
+        review={<ReviewButtons kind={kind} mr={mr} actions={actions} />}
+      />
+      {/* --- 4D: the stack --- */}
+      <StackPanel tabId={tabId} mr={mr} />
+      {/* --- end 4D --- */}
+      {/* --- 4B T13: the actions' forms --- */}
+      <MrForms tabId={tabId} kind={kind} mr={mr} detail={detail} actions={actions} />
+      {/* --- end 4B T13 --- */}
+    </>
+  );
+}
 
 export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
   const { number } = props;
@@ -89,13 +116,8 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
       {!mr && <p className="mr-wait">{error ? `Couldn't load ${label}: ${error}` : 'Loading…'}</p>}
       {/* The MR/PR's own refresh failed: what's shown is older. */}
       {mr && error && <p className="forge-stale-note" role="status">{`Couldn't refresh ${ref}: ${error}`}</p>}
-      {mr && <MrHeader tabId={tabId} kind={kind} mr={mr} detail={detail} />}
-      {/* --- 4D: the stack --- */}
-      {mr && <StackPanel tabId={tabId} mr={mr} />}
-      {/* --- end 4D --- */}
-      {/* --- 4B T13: actions --- */}
-      {mr && <MrActions tabId={tabId} kind={kind} mr={mr} detail={detail}><CheckoutButton tabId={tabId} mr={mr} /></MrActions>}
-      {/* --- end 4B T13 --- */}
+      {/* The header, the stack and the actions' forms. */}
+      {mr && <MrTop tabId={tabId} kind={kind} mr={mr} detail={detail} />}
       {/* --- 4B T14: merge and check out --- */}
       {mr && <MergeBox key={mr.number} tabId={tabId} kind={kind} mr={mr} detail={detail} />}
       {/* --- end 4B T14 --- */}

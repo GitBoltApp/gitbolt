@@ -1005,7 +1005,7 @@ mod tests {
     }
 
     async fn rebase(api: &Api, id: u32, r: &Path, target: &str, update_refs: Option<bool>) -> Result<serde_json::Value, crate::error::GbError> {
-        api.dispatch(Request::Integrate { repo: id, worktree: wt(r), kind: IntegrateKind::Rebase, target: target.into(), update_refs, expect: Default::default(), confirm: Default::default() }).await
+        api.dispatch(Request::Integrate { repo: id, worktree: wt(r), kind: IntegrateKind::Rebase, target: target.into(), update_refs, expect: Default::default(), ff_only: None, confirm: Default::default() }).await
     }
 
     async fn control(api: &Api, id: u32, r: &Path, action: RebaseAction) -> serde_json::Value {

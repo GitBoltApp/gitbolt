@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AvatarPayload } from '../api/gen/AvatarPayload';
-import { AVATAR_CACHE_ENTRIES, LARGEST_AVATAR_PX, createAvatarStore } from './avatarStore';
+import { AVATAR_CACHE_ENTRIES, LARGEST_AVATAR_PX, createAvatarStore, isDecoded } from './avatarStore';
 
 let urls = 0;
 beforeEach(() => {
@@ -172,6 +172,28 @@ describe('avatar store', () => {
     const side = LARGEST_AVATAR_PX * 2;
     expect(createImageBitmap).toHaveBeenCalledWith(expect.any(Blob), { resizeWidth: side, resizeHeight: side, resizeQuality: 'high' });
     expect(avatars.get('boom@example.com')).toBeNull();
+  });
+
+  it('decodes each arriving image once as an <img> would (one object URL), and forgets that when the URL is revoked', async () => {
+    const decode = vi.fn(async () => {});
+    const proto = HTMLImageElement.prototype as unknown as { decode?: () => Promise<void> };
+    const had = proto.decode;
+    proto.decode = decode;
+    try {
+      const avatars = createAvatarStore(async () => png);
+      avatars.request('ada@example.com');
+      await flush();
+      await flush();
+      const img = avatars.get('ada@example.com')!;
+      expect(decode).toHaveBeenCalledOnce();
+      expect(URL.createObjectURL).toHaveBeenCalledOnce();
+      expect(isDecoded(img.url)).toBe(true);
+      avatars.reset();
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(img.url);
+      expect(isDecoded(img.url)).toBe(false);
+    } finally {
+      proto.decode = had;
+    }
   });
 
   it(`keeps at most ${AVATAR_CACHE_ENTRIES} images by default; an evicted one is closed, revoked, and requested again on demand`, async () => {

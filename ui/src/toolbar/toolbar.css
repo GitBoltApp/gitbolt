@@ -19,6 +19,12 @@
 .spin { animation: gb-spin 1s linear infinite; }
 @keyframes gb-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+/* Busy: the spinner takes the icon's place (same box); with reduced motion a static dot does. */
+.tb-busy-dot { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .tb-btn .tb-busy-icon { display: none; }
+  .tb-btn .tb-busy-dot { display: block; width: 16px; height: 16px; box-sizing: border-box; border: 5px solid var(--text-secondary); border-radius: 50%; }
+}
 .tb-btn { position: relative; }
 .tb-queued { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }
 

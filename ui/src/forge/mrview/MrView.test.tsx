@@ -97,6 +97,29 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     for (const text of ['Open', 'Grace Hopper', 'Passed', '0 of 1 approval', 'None']) expect(summary).toHaveTextContent(text);
   });
 
+  it('the status line ends in Check out, Edit and ⋯; Approve and Request changes sit in the APPROVALS box; no "·" before the time', () => {
+    show();
+    const summary = screen.getByRole('region', { name: 'Summary' });
+    const line = summary.querySelector<HTMLElement>('.mr-line')!;
+    expect(line).toHaveTextContent(/^Open\s*(GH)?Grace Hopper\s*updated /);
+    expect(line.textContent).not.toContain('·');
+    const actions = within(line).getByRole('group', { name: 'Actions' });
+    expect(within(actions).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim())).toEqual([expect.any(String), 'Edit', 'More actions']);
+    expect(actions.previousElementSibling).toHaveClass('mr-spacer');
+    const approvals = summary.querySelector<HTMLElement>('.mr-fact[data-fact="reviews"]')!;
+    expect(within(approvals).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Approve', 'Request changes']);
+    // The old actions row is gone: nothing between the header and the merge box but the stack.
+    expect(document.querySelectorAll('.mr-actions')).toHaveLength(1);
+  });
+
+  it('Request changes opens its composer under the header', () => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    const form = screen.getByRole('form', { name: 'Request changes' });
+    expect(screen.getByRole('region', { name: 'Summary' }).compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(form.compareDocumentPosition(screen.getByRole('region', { name: 'Merge' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("colours a label with the forge's colour and shows its emoji shortcode as the emoji", async () => {
     const labelled = { ...detail.mr, labels: ['feature :gear:', 'plain :not_an_emoji:', 'constructor'], labelColors: { 'feature :gear:': '#a2eeef' } };
     patchForge('t', { details: { 12: { value: { ...detail, mr: labelled }, at: 1 } } });

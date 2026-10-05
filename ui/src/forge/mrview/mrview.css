@@ -146,3 +146,21 @@ button.mr-button.merge:disabled { background: var(--control-bg); border-color: v
 .mr-edit-field > span { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); }
 .mr-edit .md-field textarea, .mr-reply .md-field textarea { width: 100%; box-sizing: border-box; }
 /* --- end 5A T9 --- */
+
+/* The status line's actions (Check out, Edit, ⋯) at its right end, and the APPROVALS box's review
+   buttons (Approve, Request changes) at its top right, in space it keeps for them: no shift. */
+.mr-line > .mr-actions { flex-wrap: nowrap; }
+.mr-fact[data-fact="reviews"] { position: relative; }
+.mr-fact[data-fact="reviews"]:has(.mr-review-buttons) .mr-fact-k { padding-right: 46px; }
+.mr-review-buttons { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; }
+button.mr-review-btn { all: unset; box-sizing: border-box; width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 4px; cursor: pointer; }
+button.mr-review-btn.approve { color: var(--green); }
+button.mr-review-btn.changes { color: var(--orange); }
+button.mr-review-btn.approve:hover:not(:disabled) { background: color-mix(in srgb, var(--green) 18%, transparent); }
+button.mr-review-btn.changes:hover:not(:disabled) { background: color-mix(in srgb, var(--orange) 16%, transparent); }
+button.mr-review-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--orange) 16%, transparent); }
+button.mr-review-btn:disabled { cursor: default; opacity: 0.7; }
+button.mr-review-btn:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
+.mr-review-btn .spin { animation: mr-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .mr-review-btn .spin { animation: none; } }
+.mr-form-note { margin: 0; font-size: 11px; color: var(--text-secondary); }

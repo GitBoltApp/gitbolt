@@ -17,3 +17,8 @@
 .flyout-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; }
 .flyout-resize:focus-visible { outline: 2px solid var(--focus-outline); }
 .flyout-host[hidden] { display: none; }
+/* Docked (a dockable flyout, `useFlyoutDock`): a pane between the sidebar and the graph, which
+   shrinks to fit (`.center-slot` is a row; this comes first in it). No shadow: it's beside the
+   graph, not over it. */
+.flyout-host.docked { position: relative; order: -1; flex: none; z-index: 2; }
+.flyout-host.docked .flyout { box-shadow: none; }

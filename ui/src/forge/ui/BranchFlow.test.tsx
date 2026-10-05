@@ -65,3 +65,37 @@ describe('commitsBetween (the first-parent line from the tip down to the base)',
     expect(commitsBetween(rows, 't', 'x')).toBeNull();
   });
 });
+
+describe("BranchFlow's commit rows jump to the graph", () => {
+  const commits = [{ sha: 'a1f3c9e00', summary: 'Build the request' }, { sha: '7be2d1000', summary: 'Resolve the currency' }];
+  const show = (open: (sha: string) => void) => {
+    render(<BranchFlow from={{ branch: 'dev', sub: 'origin' }} into={{ branch: 'main', sub: 'origin' }} stats={ready(commits)} jump={{ inGraph: (sha) => sha === 'a1f3c9e00', open }} />);
+    fireEvent.click(screen.getByRole('button', { name: /Show commits/ }));
+    return within(screen.getByRole('list', { name: 'Commits' }));
+  };
+
+  it('a loaded commit is a real button (focusable; Enter clicks it): a click opens it', () => {
+    const open = vi.fn();
+    const list = show(open);
+    const row = list.getByRole('button', { name: /a1f3c9e/ });
+    expect(row.tagName).toBe('BUTTON');
+    expect(row).toHaveClass('flow-commit');
+    row.focus();
+    expect(row).toHaveFocus();
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith('a1f3c9e00');
+  });
+
+  it("one the graph hasn't loaded isn't clickable: dim, with why in its tooltip", async () => {
+    const open = vi.fn();
+    const list = show(open);
+    expect(list.queryByRole('button', { name: /7be2d10/ })).toBeNull();
+    const row = list.getByText('Resolve the currency').closest('.flow-commit')!;
+    expect(row).toHaveClass('missing');
+    expect(row).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(row);
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.mouseEnter(row);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Not in the graph yet: fetch first');
+  });
+});

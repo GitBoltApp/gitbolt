@@ -6,6 +6,7 @@ import { useRuntime } from '../app/runtime';
 import { registerTabSlot } from '../app/slots';
 import { useAppState } from '../app/state';
 import { ICONS } from '../menu/icons';
+import { useInFlight } from '../pending/store';
 import { useQueuedKind } from '../queue/store';
 import { MODE_OF, pull, syncView } from '../sync/pull';
 import { branchOf, headBranchOf } from '../sync/push';
@@ -62,9 +63,18 @@ const offs = [
       const b = useRuntime(() => branchOf(tabId, head));
       const loaded = useRuntime((s) => !!s.tabs[tabId]?.sidebar && !!s.tabs[tabId]?.graph);
       if (mode !== 'fetchAll' && !loaded) return { label: 'Pull', tooltip: 'Loading…', disabled: true };
-      return syncView(mode, b, head);
+      const v = syncView(mode, b, head);
+      const pulling = useInFlight(tabId, 'pull', head ?? '');
+      const fetching = useInFlight(tabId, 'fetch', '');
+      if (mode === 'fetchAll') return fetching ? { ...v, tooltip: 'Fetching…' } : v;
+      return pulling && head ? { ...v, tooltip: `Pulling ${head}…` } : v;
     },
-    useBusy: ({ repoId }) => useOps((s) => Object.values(s.ops).some((o) => isShownFetch(o, repoId) || (o.kind === 'pull' && o.repo === repoId))),
+    useBusy: ({ repoId, tabId }) => {
+      const fetching = useInFlight(tabId, 'fetch', '');
+      const pulling = useInFlight(tabId, 'pull', headBranchOf(tabId) ?? '');
+      const running = useOps((s) => Object.values(s.ops).some((o) => isShownFetch(o, repoId) || (o.kind === 'pull' && o.repo === repoId)));
+      return fetching || pulling || running;
+    },
     useQueued: ({ repoId }) => {
       const fetching = useQueuedKind(repoId, 'fetch');
       const pulling = useQueuedKind(repoId, 'pull');

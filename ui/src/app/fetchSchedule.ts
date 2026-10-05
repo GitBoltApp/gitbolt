@@ -9,6 +9,7 @@ import { platform } from './platform';
 import { useRuntime } from './runtime';
 import { clampFetchInterval } from '../settings/schema';
 import { useAppState } from './state';
+import { runOnce } from '../pending/store';
 
 export interface FetchDeps {
   now(): number;
@@ -112,6 +113,11 @@ const failing = new Set<number>();
  * that finds a background one running waits on that one: the Fetch button shows it as busy.
  */
 export async function runFetch(tabId: string, background: boolean, remote?: string): Promise<void> {
+  // A background fetch has its own key: it must not light the Fetch button (K30).
+  await runOnce(tabId, 'fetch', `${background ? 'bg:' : ''}${remote ?? ''}`, () => fetchNow(tabId, background, remote));
+}
+
+async function fetchNow(tabId: string, background: boolean, remote?: string): Promise<void> {
   const rt = useRuntime.getState().tabs[tabId];
   if (!rt?.repo) return;
   const repo = rt.repo;

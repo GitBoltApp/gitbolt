@@ -438,7 +438,7 @@ impl WriteIntent for PullIntent {
                         }
                         out?
                     }
-                    _ => integrate::run_merge(cx, &self.upstream_ref, &self.upstream).await?,
+                    _ => integrate::run_merge(cx, &self.upstream_ref, &self.upstream, false).await?,
                 };
                 match done {
                     IntegrateOutcome::Stopped { kind, files, warning } => PullResult::Stopped { kind, files, warning },
@@ -686,7 +686,7 @@ mod tests {
         let pushed = r.git(&["rev-parse", "origin/dev"]);
         let (api, data) = api();
         let id = open(&api, r.path()).await;
-        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), ff_only: None, confirm: Default::default() };
         api.dispatch(req).await.unwrap();
         assert_ne!(r.git(&["rev-parse", "dev"]), pushed, "dev was rewritten");
         (r, api, data, id, pushed)
@@ -785,7 +785,7 @@ mod tests {
         r.switch("shared");
         let (api, _data) = api();
         let id = open(&api, r.path()).await;
-        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), ff_only: None, confirm: Default::default() };
         api.dispatch(req).await.unwrap();
         assert_eq!(rewritten(&api, id, "shared").await, serde_json::Value::Null);
         assert_eq!(api.dispatch(push(id, &r, "shared")).await.unwrap_err().kind, GbErrorKind::NonFastForward);
@@ -807,7 +807,7 @@ mod tests {
         r.push("main");
         let (api, _data) = api();
         let id = open(&api, r.path()).await;
-        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "side".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "side".into(), update_refs: None, expect: Default::default(), ff_only: None, confirm: Default::default() };
         api.dispatch(req).await.unwrap();
         assert_eq!(rewritten(&api, id, "main").await, serde_json::Value::Null);
         let repo = gix::open(r.path()).unwrap();
@@ -869,7 +869,7 @@ mod tests {
         r.switch("dev");
         let (api, data) = api();
         let id = open(&api, r.path()).await;
-        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), ff_only: None, confirm: Default::default() };
         let res = api.dispatch(req).await.unwrap();
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
         api.dispatch(Request::Undo { repo: id, worktree: wt(r.path()), entry, confirm: None, confirm_autostash: None, without_index: None, confirm_discard: None }).await.unwrap();
@@ -890,7 +890,7 @@ mod tests {
         let before = r.git(&["rev-parse", "diverged"]);
         let (api, _data) = api();
         let id = open(&api, r.path()).await;
-        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), confirm: Default::default() };
+        let req = Request::Integrate { repo: id, worktree: wt(r.path()), kind: crate::write::integrate::IntegrateKind::Rebase, target: "main".into(), update_refs: None, expect: Default::default(), ff_only: None, confirm: Default::default() };
         api.dispatch(req).await.unwrap();
         assert_ne!(r.git(&["rev-parse", "diverged"]), before, "it was rebased");
         assert_eq!(rewritten(&api, id, "diverged").await, serde_json::Value::Null);

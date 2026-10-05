@@ -40,6 +40,29 @@ describe('integrate (spec #2 §13.1)', () => {
     expect(integrateRows(remote, { headBranch: 'main', headSha: 'h', isAncestor: () => false } as never, null).map((r) => (r.kind === 'action' ? r.label : ''))).toEqual(['Merge origin/y into main', 'Rebase main onto origin/y']);
   });
 
+  it('labels the merge a fast-forward when HEAD is in the target\'s history, and then passes ff-only', async () => {
+    const t = { sha: 'a', mrRefs: [], isWip: false, isStash: false, branch: { name: 'feature/x', local: 'refs/heads/feature/x', remotes: [] } };
+    const merge = (isAncestor: (a: string, b: string) => boolean | null) => {
+      const go = vi.fn();
+      const row = integrateRows(t, { headBranch: 'main', headSha: 'h', isAncestor } as never, null, { ff: () => {}, go }).find((r) => r.kind === 'action' && r.id === 'integrate.merge');
+      return { row: row as Extract<typeof row, { kind: 'action' }>, go };
+    };
+    const ffable = merge((a, b) => a === 'h' && b === 'a');
+    expect(ffable.row.label).toBe('Fast-forward main to feature/x');
+    expect(ffable.row.tooltip).toMatch(/no merge commit/);
+    ffable.row.run();
+    expect(ffable.go).toHaveBeenCalledWith('merge', 'feature/x', true);
+    const diverged = merge(() => false);
+    expect(diverged.row.label).toBe('Merge feature/x into main');
+    diverged.row.run();
+    expect(diverged.go).toHaveBeenCalledWith('merge', 'feature/x');
+    expect(merge(() => null).row.label).toBe('Merge feature/x into main');
+    vi.spyOn(api, 'integratePreview').mockResolvedValue(preview({}));
+    const send = vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'done', commits: 1, fastForward: true }) as never);
+    await startIntegrate(ctx, 'merge', 'feature/x', 'main', true);
+    expect(send.mock.calls[0][4]).toMatchObject({ ffOnly: true });
+  });
+
   it('a rebase with a stack arms the row with the checkbox under it, and sends its answer explicitly (UX round 3)', async () => {
     vi.spyOn(api, 'integratePreview').mockResolvedValue(preview({ stacked: [{ name: 'feature/a', worktree: null }, { name: 'feature/b', worktree: '/r-b' }] }));
     const send = vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'done', commits: 3, fastForward: false }) as never);

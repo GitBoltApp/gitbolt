@@ -88,9 +88,11 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
   // where the branch is, and the PR icon sits beside them). chipFit counts it. ---
   const { tabId } = useRepoContext();
   const badge = useChipMr(tabId, label);
-  // The spinner takes the checkmark's box while an action runs on this branch (src/pending).
+  // The spinner while an action runs on this branch (src/pending): a checkout's sits where its
+  // checkmark will appear (the left of the chip); any other action's takes the source icon's place.
   const pending = usePendingAny(tabId, [label.local, ...label.remotes.map((r) => r.fullName)]);
-  const spinHere: 'local' | number | null = !pending || label.isHead ? null : label.local ? 'local' : label.remotes.length ? 0 : null;
+  const checkingOut = pending === 'checkout' && !label.isHead;
+  const spinHere: 'local' | number | null = !pending || label.isHead || checkingOut ? null : label.local ? 'local' : label.remotes.length ? 0 : null;
   // --- end 4B T10 ---
   return (
     <>
@@ -98,6 +100,7 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
       {label.upstreamMismatch && <UpstreamWarning branch={label.name} upstream={label.upstreamMismatch} />}
       {/* The checked-out branch's check, ~1.4x the other icons (J21, graph.css .ref-head-check). */}
       {label.isHead && (pending ? <PendingMark action={pending} className="ref-head-check" /> : <Check size={12} className="ref-head-check" aria-label="HEAD" />)}
+      {checkingOut && <PendingMark action="checkout" className="ref-head-check" />}
       {/* UX round 3, M.2: an annotated tag's icon is filled, a lightweight one's outlined. */}
       {label.tag && (label.annotation ? <Tag size={12} fill="currentColor" className="ref-tag-annotated" aria-label="annotated tag" /> : <Tag size={12} aria-label="tag" />)}
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}

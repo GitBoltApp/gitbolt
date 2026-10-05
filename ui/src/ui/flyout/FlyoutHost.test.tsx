@@ -8,7 +8,7 @@ vi.mock('../../app/tabStores', async (importOriginal) => ({ ...(await importOrig
 
 const { FlyoutHost } = await import('./FlyoutHost');
 const { FlyoutFrame } = await import('./FlyoutFrame');
-const { closeFlyout, flyoutOf, openFlyout, registerFlyout } = await import('./flyout');
+const { closeFlyout, DOCK_KEEP, DOCK_W, dockWidth, flyoutOf, openFlyout, registerFlyout, reloadDockPrefs, setDockPrefs, useFlyoutDock } = await import('./flyout');
 const { EMPTY_PROFILE, useAppState } = await import('../../app/state');
 const { closeCenterView, openCenterView, registerCenterView } = await import('../../repo/centerView');
 
@@ -22,6 +22,15 @@ function Demo({ props, close }: { props: { text: string }; close(): void }) {
   );
 }
 registerFlyout('demo', Demo);
+function DockDemo({ props, close }: { props: { text: string }; close(): void }) {
+  return (
+    <FlyoutFrame label="Dock panel" title="Dock" onClose={close} headerActions={<button type="button" aria-label="Open in browser" />}>
+      <p>{props.text}</p>
+      <textarea aria-label="Reply" />
+    </FlyoutFrame>
+  );
+}
+registerFlyout('demo-dock', DockDemo, { dockable: true });
 registerCenterView('demo-view', () => <section>view</section>);
 
 const show = () => render(<div className="center-slot"><button type="button">Opener</button><FlyoutHost tab={tab} /></div>);
@@ -139,6 +148,96 @@ describe('FlyoutHost (spec #4 §5)', () => {
     Object.defineProperty(parent, 'clientWidth', { configurable: true, value: 700 });
     act(() => openFlyout('t', 'demo', { text: 'a' }));
     expect(document.querySelector<HTMLElement>('.flyout-host')!.style.width).toBe('460px');
+  });
+
+  describe('docking beside the graph', () => {
+    const host = () => document.querySelector<HTMLElement>('.flyout-host')!;
+    const dockBtn = () => screen.getByRole('button', { name: /^(Dock beside the graph|Undock)/ });
+    beforeEach(() => {
+      localStorage.removeItem('gitbolt.flyoutDock.v1');
+      reloadDockPrefs();
+    });
+
+    it('only a dockable flyout has the dock button, left of its other header buttons', () => {
+      show();
+      act(() => openFlyout('t', 'demo', { text: 'a' }));
+      expect(screen.queryByRole('button', { name: 'Dock beside the graph' })).toBeNull();
+      act(() => openFlyout('t', 'demo-dock', { text: 'a' }));
+      const head = document.querySelector('.flyout-head')!;
+      expect([...head.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Dock beside the graph', 'Open in browser', 'Close']);
+    });
+
+    it('the dock button docks it, then floats it again; the mode is remembered for the next one', () => {
+      show();
+      act(() => openFlyout('t', 'demo-dock', { text: 'a' }));
+      expect(host()).not.toHaveClass('docked');
+      fireEvent.mouseEnter(dockBtn());
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Dock beside the graph');
+      fireEvent.click(dockBtn());
+      expect(host()).toHaveClass('docked');
+      expect(dockBtn()).toHaveAccessibleName('Undock (float over the graph)');
+      expect(dockBtn()).toHaveAttribute('aria-pressed', 'true');
+      expect(JSON.parse(localStorage.getItem('gitbolt.flyoutDock.v1')!)).toEqual({ docked: true, width: null });
+      // The next one opens docked, also after a reload.
+      act(() => closeFlyout('t'));
+      act(() => reloadDockPrefs());
+      act(() => openFlyout('t', 'demo-dock', { text: 'b' }));
+      expect(host()).toHaveClass('docked');
+      expect(host().style.width).toBe(`${DOCK_W.default}px`);
+      // A flyout that can't dock still floats.
+      act(() => openFlyout('t', 'demo', { text: 'c' }));
+      expect(host()).not.toHaveClass('docked');
+      act(() => openFlyout('t', 'demo-dock', { text: 'b' }));
+      fireEvent.click(dockBtn());
+      expect(host()).not.toHaveClass('docked');
+      expect(useFlyoutDock.getState().docked).toBe(false);
+    });
+
+    it('docked, its separator sets the docked width (not the floating one), clamped so the graph keeps its room', () => {
+      show();
+      act(() => setDockPrefs({ docked: true }));
+      act(() => openFlyout('t', 'demo-dock', { text: 'a' }));
+      const sep = screen.getByRole('separator', { name: 'Resize the panel' });
+      fireEvent.keyDown(sep, { key: 'ArrowRight' });
+      expect(useFlyoutDock.getState().width).toBe(DOCK_W.default + 16);
+      expect(useAppState.getState().profile.flyoutWidth).toBeNull();
+      fireEvent.keyDown(sep, { key: 'Enter' });
+      expect(useFlyoutDock.getState().width).toBeNull();
+      expect(dockWidth(9999, 1200)).toBe(1200 - DOCK_KEEP);
+      expect(dockWidth(100, 1200)).toBe(DOCK_W.min);
+      expect(dockWidth(null, 2000)).toBe(DOCK_W.default);
+      expect(dockWidth(9999, 2000)).toBe(DOCK_W.max);
+    });
+
+    it('in a center too narrow for both, it floats and the dock button says why', () => {
+      show();
+      const parent = document.querySelector<HTMLElement>('.center-slot')!;
+      Object.defineProperty(parent, 'clientWidth', { configurable: true, value: DOCK_KEEP + DOCK_W.min - 1 });
+      act(() => setDockPrefs({ docked: true }));
+      act(() => openFlyout('t', 'demo-dock', { text: 'a' }));
+      expect(host()).not.toHaveClass('docked');
+      expect(dockBtn()).toBeDisabled();
+      fireEvent.mouseEnter(dockBtn());
+      expect(screen.getByRole('tooltip')).toHaveTextContent('The window is too narrow to dock');
+      // Just wide enough: docked, at the narrowest.
+      Object.defineProperty(parent, 'clientWidth', { configurable: true, value: DOCK_KEEP + DOCK_W.min });
+      act(() => { closeFlyout('t'); });
+      act(() => openFlyout('t', 'demo-dock', { text: 'a' }));
+      expect(host()).toHaveClass('docked');
+      expect(host().style.width).toBe(`${DOCK_W.min}px`);
+    });
+
+    it('docked, Esc closes it only with the focus inside it', () => {
+      show();
+      act(() => setDockPrefs({ docked: true }));
+      act(() => openFlyout('t', 'demo-dock', { text: 'a' }));
+      view.selection = { kind: 'commit' };
+      esc(document.body);
+      esc(screen.getByRole('button', { name: 'Opener' }));
+      expect(flyoutOf('t')).not.toBeNull();
+      esc(screen.getByRole('textbox', { name: 'Reply' }));
+      expect(flyoutOf('t')).toBeNull();
+    });
   });
 
   it('drops its drag listeners when it unmounts mid-drag', () => {

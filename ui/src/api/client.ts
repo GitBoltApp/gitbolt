@@ -382,8 +382,8 @@ export const api = {
   // --- end 2D T17 ---
   // --- 2D T18 ---
   /** Merge or rebase HEAD's branch with `target` (spec #2 §13.1). `updateRefs` is explicit for a rebase. */
-  integrate: (repo: number, worktree: string, kind: IntegrateKind, target: string, opts: { updateRefs?: boolean; confirmAutostash?: boolean; expect?: Expect } = {}) =>
-    call<WriteResult<IntegrateOutcome>>({ method: 'integrate', params: { repo, worktree, kind, target, updateRefs: opts.updateRefs, expect: opts.expect ?? NO_EXPECT, confirm: { autostash: opts.confirmAutostash ?? false } } }),
+  integrate: (repo: number, worktree: string, kind: IntegrateKind, target: string, opts: { updateRefs?: boolean; ffOnly?: boolean; confirmAutostash?: boolean; expect?: Expect } = {}) =>
+    call<WriteResult<IntegrateOutcome>>({ method: 'integrate', params: { repo, worktree, kind, target, updateRefs: opts.updateRefs, ffOnly: opts.ffOnly, expect: opts.expect ?? NO_EXPECT, confirm: { autostash: opts.confirmAutostash ?? false } } }),
   integratePreview: (repo: number, worktree: string, kind: IntegrateKind, target: string) => call<IntegratePreviewPayload>({ method: 'integratePreview', params: { repo, worktree, kind, target } }),
   fastForward: (repo: number, worktree: string, branch: string, to: string) => call<WriteResult<IntegrateOutcome>>({ method: 'fastForward', params: { repo, worktree, branch, to, expect: NO_EXPECT } }),
   // --- end 2D T18 ---

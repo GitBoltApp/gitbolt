@@ -48,12 +48,25 @@ describe('the graph chip', () => {
     expect(container.querySelector('svg.ref-head-check')).toBeTruthy();
   });
 
-  it('non-HEAD chip: the spinner replaces the source icon; same children count and slot class', () => {
+  it("non-HEAD chip, checkout: the spinner sits where the checkmark will appear, and the local icon stays", () => {
+    const { container } = render(<RefLabels labels={[chip()]} color={0} />);
+    act(() => startPending(TAB, REF, 'checkout'));
+    const mark = container.querySelector('.pending-mark.ref-head-check');
+    expect(mark).toBeTruthy();
+    // On the left: before the branch name.
+    const name = container.querySelector('.ref-name, .ref-name-full')!;
+    expect(mark!.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector('svg[aria-label="local"]')).toBeTruthy();
+    act(() => endPending(TAB, REF));
+    expect(container.querySelector('.pending-mark')).toBeNull();
+  });
+
+  it('non-HEAD chip, another action (push): the spinner replaces the source icon; same children count and slot class', () => {
     const { container } = render(<RefLabels labels={[chip()]} color={0} />);
     const slots = () => [...container.querySelectorAll('.ref-label > *')];
     const before = slots();
     const slotClass = before.at(-1)!.className;
-    act(() => startPending(TAB, REF, 'checkout'));
+    act(() => startPending(TAB, REF, 'push'));
     const during = slots();
     expect(during).toHaveLength(before.length);
     expect(during.at(-1)!.className).toBe(slotClass);
@@ -64,10 +77,10 @@ describe('the graph chip', () => {
     expect(container.querySelector('svg[aria-label="local"]')).toBeTruthy();
   });
 
-  it('a remote chip spins its remote icon', () => {
+  it('a remote chip spins its remote icon (not a checkout)', () => {
     const remote = chip({ local: null, remotes: [{ fullName: 'refs/remotes/origin/feature', remote: 'origin', host: null, hostKind: 'generic' }] });
     const { container } = render(<RefLabels labels={[remote]} color={0} />);
-    act(() => startPending(TAB, 'refs/remotes/origin/feature', 'checkout'));
+    act(() => startPending(TAB, 'refs/remotes/origin/feature', 'push'));
     expect(container.querySelector('.pending-mark')).toBeTruthy();
   });
 });

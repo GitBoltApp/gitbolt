@@ -84,7 +84,7 @@ test.describe('action queue (spec #2 §3.6)', () => {
 });
 
 // --- 2D T17 ---
-test('two real pushes queue in click order; a Cancel of the running one never stops the queue (spec #2 §3.6)', async ({ page }) => {
+test('a push in flight is not queued again: the Push button is busy and takes no second click (spec #2 §3.6)', async ({ page }) => {
   const repo = freshFixture('sync');
   git(repo, 'switch', '-q', 'dev');
   git(repo, 'commit', '-q', '--allow-empty', '-m', 'dev more');
@@ -93,16 +93,13 @@ test('two real pushes queue in click order; a Cancel of the running one never st
   await page.goto(openUrl(repo));
   const push = page.getByRole('button', { name: 'Push', exact: true });
   await push.click();
-  await push.click();
-  await expect(page.getByRole('button', { name: /Running: push dev to origin\/dev · 1 queued/ })).toBeVisible();
-  await page.getByRole('button', { name: /Running: push dev/ }).click();
-  await page.getByRole('menuitem', { name: 'Cancel push dev to origin/dev' }).click();
-  // The first push stopped (its hook still waits) and the second one runs: nothing is queued.
+  // Pushing again while it runs is ignored (not queued): the button shows it busy and takes no click.
+  await expect(push).toHaveAttribute('aria-busy', 'true');
+  await expect(push).toBeDisabled();
   await expect(chip(page)).toHaveText('Running: push dev to origin/dev');
   touch(go);
-  // While the cancelled push is still being stopped, the chip reads "1 queued": wait for the
-  // whole chip to go (the second push done), not just its Running/Stopped text.
   await expect(chip(page)).toBeHidden();
+  await expect(push).not.toHaveAttribute('aria-busy', 'true');
   expect(originGit(repo, 'rev-parse', 'dev')).toBe(git(repo, 'rev-parse', 'dev'));
 });
 // --- end 2D T17 ---

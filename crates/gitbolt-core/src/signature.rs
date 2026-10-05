@@ -8,13 +8,15 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
+/// git's signature placeholders, NUL-separated: status `%G?`, signer `%GS`, key `%GK`, fingerprint
+/// `%GF` and trust `%GT`.
 pub const SIGNATURE_FORMAT: &str = "--format=%G?%x00%GS%x00%GK%x00%GF%x00%GT";
 
 pub fn unsigned() -> SignaturePayload {
     SignaturePayload { kind: SignatureKind::Unsigned, signer: String::new(), key: String::new(), fingerprint: String::new(), trust: String::new(), detail: None }
 }
 
-/// Parses `%G?%x00%GS%x00%GK%x00%GF%x00%GT`. `signed` says whether the raw commit has a
+/// Parses `SIGNATURE_FORMAT`'s output. `signed` says whether the raw commit has a
 /// `gpgsig` header: git answers `N` when it can't verify at all (for example SSH signing without
 /// `gpg.ssh.allowedSignersFile`), and that must not read as "not signed".
 pub fn parse_signature_status(stdout: &[u8], stderr: &str, signed: bool) -> SignaturePayload {
@@ -162,7 +164,7 @@ fn gpg_program(repo: &gix::Repository, include: Option<&Path>) -> std::path::Pat
     }
 }
 
-/// git's `parse_gpg_output` and the `%G?%x00%GS%x00%GK%x00%GF%x00%GT` it would print from gpg's
+/// git's `parse_gpg_output` and the `SIGNATURE_FORMAT` fields it would print from gpg's
 /// status lines: one GOODSIG/BADSIG/ERRSIG/EXPSIG/EXPKEYSIG/REVKEYSIG (a second one is an error,
 /// 'E'), VALIDSIG's fingerprint, TRUST_*'s level. A good signature from a key whose validity is
 /// undefined or never is 'U' (pretty.c); marginal, full and ultimate are 'G', as git shows them.

@@ -14,7 +14,7 @@ export const offIntegrateMenu = registerMenu<CommitTarget, MenuEnv>({
     const busy = env.inProgress ? `Finish or abort the ${env.inProgress} first` : !x ? 'Check out a branch first' : null;
     return integrateRows(t, env, busy, {
       ff: (y) => { if (x) void fastForward(ctx, y, x); },
-      go: (kind, y) => { if (x) void startIntegrate(ctx, kind, y, x); },
+      go: (kind, y, ffOnly) => { if (x) void startIntegrate(ctx, kind, y, x, ffOnly); },
     });
   },
 });

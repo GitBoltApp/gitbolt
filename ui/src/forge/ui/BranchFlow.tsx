@@ -1,6 +1,7 @@
 import { ArrowRight, ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { HoverTooltip } from '../../ui/HoverTooltip';
+import type { CommitJump } from './commitJump';
 import type { RangeState } from './rangeStats';
 import './forgeUi.css';
 
@@ -19,10 +20,12 @@ export interface FlowEnd {
  * status strip at the bottom (Create's "isn't on origin yet" with Push). The footer keeps its
  * height while the counts load.
  */
-export function BranchFlow({ from, into, stats, count = null, none, strip }: {
+export function BranchFlow({ from, into, stats, count = null, none, strip, jump }: {
   from: FlowEnd;
   into: FlowEnd;
   stats: RangeState;
+  /** The commit rows select their commit in the graph (`useCommitJump`). */
+  jump?: CommitJump;
   /** The commit count when the graph can't list them (Create's first-commit count). */
   count?: number | null;
   /** The footer when the repository lacks the commits. */
@@ -62,13 +65,30 @@ export function BranchFlow({ from, into, stats, count = null, none, strip }: {
       </div>
       {open && commits && (
         <ol className="flow-commits" id={listId} aria-label="Commits">
-          {commits.map((c) => (
-            <li key={c.sha}><code>{c.sha.slice(0, 7)}</code><span>{c.summary}</span></li>
-          ))}
+          {commits.map((c) => <li key={c.sha}><CommitRow sha={c.sha} summary={c.summary} jump={jump} /></li>)}
         </ol>
       )}
       {strip}
     </section>
+  );
+}
+
+/** A commit of the list: with `jump`, a button that selects it in the graph, or, when the graph
+ * hasn't loaded it, a dim row that says why it isn't one. */
+function CommitRow({ sha, summary, jump }: { sha: string; summary: string; jump?: CommitJump }) {
+  const body = <><code>{sha.slice(0, 7)}</code><span className="flow-commit-msg">{summary}</span></>;
+  if (!jump) return <span className="flow-commit">{body}</span>;
+  if (!jump.inGraph(sha)) {
+    return (
+      <HoverTooltip content="Not in the graph yet: fetch first">
+        <span className="flow-commit missing" aria-disabled="true">{body}</span>
+      </HoverTooltip>
+    );
+  }
+  return (
+    <HoverTooltip content={`Show ${sha.slice(0, 7)} in the graph`}>
+      <button type="button" className="flow-commit" onClick={() => jump.open(sha)}>{body}</button>
+    </HoverTooltip>
   );
 }
 

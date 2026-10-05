@@ -8,7 +8,7 @@ import type { MenuRow } from '../menu/types';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
 import { useToast } from '../ui/toast';
-import { withPending } from '../pending/store';
+import { runOnce, withPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 import { headBranchOf } from './push';
 import { showServerResult } from './serverOutput';
@@ -71,7 +71,7 @@ export async function pull(ctx: WriteCtx, mode: PullMode, branch?: string): Prom
   // Where it started: a diverged pull asks there, after the fetch (spec §ui confirms).
   const origin = currentOrigin();
   const name = branch ?? headBranchOf(ctx.tabId);
-  const out = await withPending(ctx.tabId, name ? [`refs/heads/${name}`] : [], 'pull', () => runWrite(ctx, (_, asked) => api.pull(ctx.repoId, ctx.worktree, mode, { branch, confirmAutostash: asked.autostash })));
+  const out = await runOnce(ctx.tabId, 'pull', name ?? '', () => withPending(ctx.tabId, name ? [`refs/heads/${name}`] : [], 'pull', () => runWrite(ctx, (_, asked) => api.pull(ctx.repoId, ctx.worktree, mode, { branch, confirmAutostash: asked.autostash }))));
   if (out) await done(ctx, out, origin);
 }
 

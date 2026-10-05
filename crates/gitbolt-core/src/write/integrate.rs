@@ -232,7 +232,7 @@ impl BranchLabel {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn integrate(api: &Api, repo: u32, worktree: &str, kind: IntegrateKind, target: String, update_refs: Option<bool>, expect: Expect, confirm: Confirm) -> Result<WriteResult<IntegrateOutcome>, GbError> {
+pub(crate) async fn integrate(api: &Api, repo: u32, worktree: &str, kind: IntegrateKind, target: String, update_refs: Option<bool>, ff_only: Option<bool>, expect: Expect, confirm: Confirm) -> Result<WriteResult<IntegrateOutcome>, GbError> {
     // For the queue's label only: the branch, the label and the refs settle when the op runs,
     // under the lock (review M5), and `run_write` checks the worktree. A guess needs no `worktree
     // list` of its own (review P1).
@@ -246,7 +246,7 @@ pub(crate) async fn integrate(api: &Api, repo: u32, worktree: &str, kind: Integr
         }
         IntegrateKind::Merge => {
             let label = BranchLabel::new(seen, move |b| format!("merge {short} into {b}"));
-            run_write(api, repo, worktree, expect, MergeIntent { target, confirm, label }).await
+            run_write(api, repo, worktree, expect, MergeIntent { target, confirm, label, ff_only: ff_only == Some(true) }).await
         }
     }
 }
@@ -262,6 +262,7 @@ pub(crate) struct MergeIntent {
     pub target: String,
     pub confirm: Confirm,
     pub label: BranchLabel,
+    pub ff_only: bool,
 }
 
 impl WriteIntent for MergeIntent {
@@ -298,17 +299,17 @@ impl WriteIntent for MergeIntent {
         Ok(Plan { autostash: Some(AutostashSpec { rule, target: Some(target), op: format!("merge {}", self.target), target_name: Some(self.target.clone()) }), ..Plan::default() })
     }
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<IntegrateOutcome, GbError> {
-        run_merge(cx, &self.target, &self.target).await
+        run_merge(cx, &self.target, &self.target, self.ff_only).await
     }
 }
 
 /// `git merge --no-edit <target>` (§13.1; pull's merge, T14). Stopped on conflicts, it pauses
 /// with `label` as the banner's target, and `MERGE_HEAD` as the target's oid.
-pub(crate) async fn run_merge(cx: &mut WriteCx<'_>, target: &str, label: &str) -> Result<IntegrateOutcome, GbError> {
+pub(crate) async fn run_merge(cx: &mut WriteCx<'_>, target: &str, label: &str, ff_only: bool) -> Result<IntegrateOutcome, GbError> {
     let repo = gix::open(cx.root).map_err(gix_err)?;
     let theirs = repo.rev_parse_single(target).map_err(gix_err)?.detach();
     let before = repo.head_id().map_err(gix_err)?.detach();
-    let inv = cx.git(["merge", "--no-edit", target]);
+    let inv = if ff_only { cx.git(["merge", "--ff-only", target]) } else { cx.git(["merge", "--no-edit", target]) };
     let res = cx.run_git(inv).await;
     for k in [ChangeKind::Worktree, ChangeKind::Index, ChangeKind::Refs, ChangeKind::State] {
         cx.touch(k);
@@ -513,7 +514,7 @@ pub(crate) mod tests {
     }
 
     async fn merge(api: &Api, id: u32, r: &Path, target: &str) -> Result<serde_json::Value, GbError> {
-        api.dispatch(Request::Integrate { repo: id, worktree: wt(r), kind: IntegrateKind::Merge, target: target.into(), update_refs: None, expect: Default::default(), confirm: Default::default() }).await
+        api.dispatch(Request::Integrate { repo: id, worktree: wt(r), kind: IntegrateKind::Merge, target: target.into(), update_refs: None, expect: Default::default(), ff_only: None, confirm: Default::default() }).await
     }
 
     async fn preview(api: &Api, id: u32, r: &Path, kind: IntegrateKind, target: &str) -> serde_json::Value {
@@ -545,6 +546,19 @@ pub(crate) mod tests {
         let res = merge(&api, id, r.path(), "feature/c").await.unwrap();
         assert_eq!(res["outcome"], serde_json::json!({"status": "done", "commits": 2, "fastForward": true}));
         assert_eq!(merge(&api, id, r.path(), "feature/b").await.unwrap()["outcome"]["status"], "upToDate");
+    }
+
+    #[tokio::test]
+    async fn ff_only_fast_forwards_even_when_merge_ff_is_false_and_refuses_a_true_merge() {
+        let r = TestRepo::new();
+        fixtures::stack(&r);
+        r.switch("feature/a");
+        r.git(&["config", "merge.ff", "false"]);
+        let (api, _data) = api();
+        let id = open(&api, r.path()).await;
+        let go = |t: &str| Request::Integrate { repo: id, worktree: wt(r.path()), kind: IntegrateKind::Merge, target: t.into(), update_refs: None, ff_only: Some(true), expect: Default::default(), confirm: Default::default() };
+        let res = api.dispatch(go("feature/c")).await.unwrap();
+        assert_eq!(res["outcome"], serde_json::json!({"status": "done", "commits": 2, "fastForward": true}));
     }
 
     #[tokio::test]
@@ -734,7 +748,7 @@ pub(crate) mod tests {
         assert_eq!(r.git(&["status", "--porcelain"]), " M sm");
         let (api, _data) = api();
         let id = open(&api, r.path()).await;
-        let confirmed = Request::Integrate { repo: id, worktree: wt(r.path()), kind: IntegrateKind::Merge, target: "up".into(), update_refs: None, expect: Default::default(), confirm: crate::write::types::Confirm { autostash: true } };
+        let confirmed = Request::Integrate { repo: id, worktree: wt(r.path()), kind: IntegrateKind::Merge, target: "up".into(), update_refs: None, ff_only: None, expect: Default::default(), confirm: crate::write::types::Confirm { autostash: true } };
         let e = api.dispatch(confirmed).await.unwrap_err();
         assert_eq!(e.message, "sm is a repository in the way of the merge: move it first");
         assert!(r.path().join("sm/.git").is_dir());
