@@ -12,19 +12,39 @@ use gitbolt_core::error::{GbError, GbErrorKind};
 use gitbolt_core::forge::*;
 use gitbolt_core::redact::Secret;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub const GITHUB_HEADERS: [(&str, &str); 2] = [("Accept", "application/vnd.github+json"), ("X-GitHub-Api-Version", "2022-11-28")];
 pub const FORKS_PER_PAGE: u32 = 100;
 pub const FORK_PAGES: usize = 3;
+// --- GitHub commit-author avatars ---
+/// No commit-author lookup while fewer API requests than this are left this hour: avatars are
+/// the least of what the account's budget is for.
+pub const AUTHOR_LOOKUP_FLOOR: u32 = 500;
+// --- end GitHub commit-author avatars ---
 
 /// The user id in a `<id>+<login>@users.noreply.github.com` email.
 pub fn noreply_id(email: &str) -> Option<u64> {
     let lower = email.trim().to_ascii_lowercase();
     let local = lower.strip_suffix("@users.noreply.github.com")?;
     local.split_once('+')?.0.parse().ok()
+}
+
+/// The login in an older `<login>@users.noreply.github.com` email (no id): a GitHub login, 1–39
+/// letters, digits or single inner hyphens.
+pub fn noreply_login(email: &str) -> Option<&str> {
+    let email = email.trim();
+    let at = email.len().checked_sub("@users.noreply.github.com".len())?;
+    let (local, domain) = (email.get(..at)?, email.get(at..)?);
+    let ok = domain.eq_ignore_ascii_case("@users.noreply.github.com")
+        && (1..=39).contains(&local.len())
+        && local.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && !local.starts_with('-')
+        && !local.ends_with('-')
+        && !local.contains("--");
+    ok.then_some(local)
 }
 
 pub struct GitHubProvider {
@@ -39,13 +59,19 @@ pub struct GitHubProvider {
       /// The token's user, once asked (Mine, Review requested).
       me: Mutex<Option<ForgeUser>>,
       // --- end 4B T4 ---
+    // --- GitHub commit-author avatars ---
+    /// Lowercase emails whose commit author was asked this session, answered or not.
+    authors_asked: Mutex<HashSet<String>>,
+    /// One commit-author lookup at a time.
+    author_turn: tokio::sync::Mutex<()>,
+    // --- end GitHub commit-author avatars ---
   }
 
 impl GitHubProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, cache: Option<Arc<DiskAvatarCache>>) -> Self {
         let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: GITHUB_HEADERS.to_vec(), timeout: Duration::from_secs(20) });
         let avatars_base = endpoints.avatars.clone().unwrap_or_else(|| "https://avatars.githubusercontent.com".into()).trim_end_matches('/').to_string();
-        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None) }
+        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()) }
     }
 
     pub fn http(&self) -> &HttpClient {
@@ -107,7 +133,7 @@ pub mod json {
             fork_of: text(&v["parent"]["full_name"]),
             updated_at: v["pushed_at"].as_str().or(v["updated_at"].as_str()).and_then(parse_rfc3339),
             archived: v["archived"].as_bool().unwrap_or(false),
-            owner_avatar_url: (v["owner"]["type"].as_str() == Some("User")).then(|| text(&v["owner"]["avatar_url"])).flatten(),
+            owner_avatar_url: text(&v["owner"]["avatar_url"]),
             path,
         })
     }
@@ -504,9 +530,11 @@ impl ForgeProvider for GitHubProvider {
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
         Box::pin(async move {
             let email = email.trim();
-            let url = match noreply_id(email) {
-                Some(id) => Some(format!("{}/u/{id}?s=80", self.avatars_base)),
-                None => self.learned.lock().expect("learned avatars poisoned").get(&email.to_ascii_lowercase()).cloned(),
+            // The avatar host also serves a picture by login (a redirect to its `/u/<id>`).
+            let url = match (noreply_id(email), noreply_login(email)) {
+                (Some(id), _) => Some(format!("{}/u/{id}?s=80", self.avatars_base)),
+                (None, Some(login)) => Some(format!("{}/{login}?s=80", self.avatars_base)),
+                (None, None) => self.learned.lock().expect("learned avatars poisoned").get(&email.to_ascii_lowercase()).cloned(),
             };
             let Some(url) = url else { return Ok(None) };
             if let Some(cache) = &self.cache {
@@ -529,6 +557,62 @@ impl ForgeProvider for GitHubProvider {
             })
         })
     }
+
+    // --- GitHub commit-author avatars ---
+    /// `GET /repos/{o}/{r}/commits?author=<email>&per_page=1`: GitHub's `author` filter matches
+    /// the commit author's email, and the first commit's `author` is the account GitHub linked it
+    /// to. Its `avatar_url` is fetched without the token and kept under the email (disk cache,
+    /// `learned`); no linked account is "none" for a day. Each email is asked once a session, one
+    /// at a time, and never while under `AUTHOR_LOOKUP_FLOOR` requests are left. Never the search
+    /// API. The email is never logged.
+    fn avatar_for_email_in<'a>(&'a self, project: &'a ForgeProject, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
+        Box::pin(async move {
+            let email = email.trim().to_ascii_lowercase();
+            if email.is_empty() || noreply_id(&email).is_some() || noreply_login(&email).is_some() {
+                return Ok(None);
+            }
+            let miss_key = format!("author:{email}");
+            if let Some(cache) = &self.cache {
+                if let Lookup::Found(p) = cache.lookup(&email) {
+                    return Ok(Some(p));
+                }
+                if let Lookup::Missing = cache.lookup(&miss_key) {
+                    return Ok(None);
+                }
+            }
+            let low = |s: &Self| s.http.rate_limit().remaining.is_some_and(|n| n < AUTHOR_LOOKUP_FLOOR);
+            if low(self) || self.authors_asked.lock().expect("authors poisoned").contains(&email) {
+                return Ok(None);
+            }
+            let _turn = self.author_turn.lock().await;
+            // Checked again in turn: the request before this one may have spent the budget, or asked for this email.
+            if low(self) || !self.authors_asked.lock().expect("authors poisoned").insert(email.clone()) {
+                return Ok(None);
+            }
+            let path = format!("{}/commits?author={}&per_page=1", Self::repo_url(&project.path)?, encode_component(&email));
+            let items: Vec<Value> = self.http.get(&path).await?.json(&self.host)?;
+            let linked = items.first().and_then(|c| c["author"]["avatar_url"].as_str()).and_then(|u| avatar_fetch_url(u, &[&self.avatars_base]).filter(|u| !is_gravatar_url(u)));
+            let Some(url) = linked else {
+                if let Some(cache) = &self.cache {
+                    cache.store_missing(&miss_key);
+                }
+                return Ok(None);
+            };
+            self.learn_avatar(&email, &url);
+            // `own_origin` is the API's: the avatar host is another origin, so no token goes there.
+            let found = self.http.get_image(&url, &self.api_base).await?;
+            Ok(match (found, &self.cache) {
+                (Some((ct, bytes)), Some(cache)) => cache.store_found(&email, &ct, &bytes),
+                (Some((ct, bytes)), None) => payload_of(&ct, &bytes),
+                (None, Some(cache)) => {
+                    cache.store_missing(&miss_key);
+                    None
+                }
+                (None, None) => None,
+            })
+        })
+    }
+    // --- end GitHub commit-author avatars ---
 
     // --- 4B: pull requests ---
     // --- 4B T4: reads ---
@@ -959,7 +1043,7 @@ fn enc_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{json, noreply_id};
+    use super::{json, noreply_id, noreply_login};
     use gitbolt_core::forge::*;
 
     #[test]
@@ -974,7 +1058,7 @@ mod tests {
         assert_eq!((r.kind, r.owner.as_str(), r.fork_of.as_deref(), r.updated_at), (ForgeKind::GitHub, "octocat", Some("octo-org/widget"), Some(1_791_115_200)));
         assert_eq!(r.owner_avatar_url.as_deref(), Some("https://avatars.githubusercontent.com/u/583231?v=4"), "a user's");
         let org = json::project("github.com", &json!({"id": 1, "full_name": "octo-org/widget", "owner": {"login": "octo-org", "type": "Organization", "avatar_url": "https://avatars.githubusercontent.com/u/9?v=4"}})).unwrap();
-        assert_eq!(org.owner_avatar_url, None, "an organization's isn't kept");
+        assert_eq!(org.owner_avatar_url.as_deref(), Some("https://avatars.githubusercontent.com/u/9?v=4"), "an organization's too");
     }
 
     #[test]
@@ -999,6 +1083,11 @@ mod tests {
     #[test]
     fn noreply_emails_carry_the_user_id() {
         assert_eq!(noreply_id("583231+octocat@users.noreply.github.com"), Some(583231));
+        assert_eq!(noreply_login("oldstyle@users.noreply.github.com"), Some("oldstyle"));
+        assert_eq!(noreply_login("Some-User@Users.NoReply.GitHub.com"), Some("Some-User"));
+        for not in ["583231+octocat@users.noreply.github.com", "noreply@github.com", "a--b@users.noreply.github.com", "-a@users.noreply.github.com", "a.b@users.noreply.github.com", "@users.noreply.github.com", "oldstyle@example.com"] {
+            assert_eq!(noreply_login(not), None, "{not}");
+        }
         assert_eq!(noreply_id(" 583231+Octocat@Users.NoReply.GitHub.com "), Some(583231));
         assert_eq!(noreply_id("octocat@users.noreply.github.com"), None, "the old login-only form has no id");
         assert_eq!(noreply_id("ada@example.com"), None);

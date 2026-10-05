@@ -9,6 +9,7 @@ import { chipStyle } from '../chipStyle';
 import { EmojiText } from '../emoji';
 import { MrStateIcon, PipelineIcon } from '../MrIcons';
 import { MR_STATE_LABELS, ownerOf, pipelineWord, reviewText } from '../mrText';
+import { ArrowGlyph } from '../../ui/ArrowGlyph';
 
 export const openInBrowser = (url: string) => {
   api.openUrl(url).catch((e: unknown) => useToast.getState().show(errorMessage(e), { error: true }));
@@ -27,7 +28,7 @@ export function MrHeader({ kind, mr, detail }: { kind: ForgeKind; mr: ForgeMr; d
     <section className="mr-header" aria-label="Summary">
       <div className="mr-line">
         <span className="mr-state" data-state={mr.state}><MrStateIcon state={mr.state} /> {MR_STATE_LABELS[mr.state]}</span>
-        <span className="mr-branches"><span className="mr-chip">{branchLabel(mr.sourceProject, mr, mr.sourceBranch)}</span> → <span className="mr-chip">{mr.targetBranch}</span></span>
+        <span className="mr-branches"><span className="mr-chip">{branchLabel(mr.sourceProject, mr, mr.sourceBranch)}</span> <ArrowGlyph /> <span className="mr-chip">{mr.targetBranch}</span></span>
       </div>
       <div className="mr-line mr-dim-line">
         <ForgeAvatar user={mr.author} size={20} />

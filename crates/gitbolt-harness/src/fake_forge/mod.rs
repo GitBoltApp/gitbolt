@@ -131,6 +131,11 @@ pub struct GitHubSeed {
       /// Pull requests created through the API, with their reviewers, assignees and labels.
       pub created: Vec<Value>,
       // --- end 4C T2 ---
+    // --- GitHub commit-author avatars ---
+    /// Lowercase commit-author email → the account GitHub linked it to (`None`: commits with no
+    /// linked account). `/commits?author=` answers one commit for a listed email, none otherwise.
+    pub commit_authors: BTreeMap<String, Option<FakeUser>>,
+    // --- end GitHub commit-author avatars ---
   }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -340,6 +345,9 @@ pub fn default_seed(base: &str) -> ForgeSeed {
               files: BTreeMap::new(),
               created: Vec::new(),
               // --- end 4C T2 ---
+            // --- GitHub commit-author avatars ---
+            commit_authors: github::seed_commit_authors(base),
+            // --- end GitHub commit-author avatars ---
           },
     }
 }

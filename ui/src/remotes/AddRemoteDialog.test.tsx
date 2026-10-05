@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, EMPTY_PROFILE } from '../app/state';
 
@@ -14,6 +15,7 @@ vi.mock('./addRemote', () => added);
 const { AddRemoteDialog, openAddRemote, closeAddRemote } = await import('./AddRemoteDialog');
 const { useAppState } = await import('../app/state');
 const { useRuntime } = await import('../app/runtime');
+const { useForge, EMPTY_FORGE } = await import('../forge/mrStore');
 
 const project = (path: string, updatedAt: number, forkOf: string | null = 'group/project') => ({
   kind: 'gitlab', id: updatedAt, host: 'gitlab.example.com', path, name: 'project', owner: path.split('/')[0], webUrl: 'w', defaultBranch: 'main',
@@ -29,6 +31,7 @@ beforeEach(() => {
   ] } } } as never });
   api.forgeRepoProjects.mockResolvedValue({ remotes: [{ remote: 'origin', host: 'gitlab.example.com', path: 'group/project', account: 'gitlab', project: project('group/project', 9, null), error: null }], target: 'origin' });
   api.forgeForks.mockResolvedValue({ forks: [project('alice/project', 1_791_021_600), project('bob/project', 1_700_000_000)], next: null });
+  useForge.setState({ byTab: { t1: { ...EMPTY_FORGE, kind: 'gitlab' } } });
   act(() => closeAddRemote());
 });
 
@@ -82,6 +85,7 @@ describe('Add remote', () => {
   });
 
   it('shows no forks section without an account', async () => {
+    useForge.setState({ byTab: {} });
     api.forgeRepoProjects.mockResolvedValueOnce({ remotes: [{ remote: 'origin', host: 'gitlab.example.com', path: 'group/project', account: null, project: null, error: null }], target: null });
     show();
     await waitFor(() => expect(api.forgeRepoProjects).toHaveBeenCalled());
@@ -94,6 +98,52 @@ describe('Add remote', () => {
     show();
     expect((await screen.findByRole('alert')).textContent).toBe('gitlab.example.com rate limit reached: try again in 2 min');
     expect(screen.getByRole('heading', { name: 'Forks of group/project' })).toBeTruthy();
+  });
+
+  describe('reserved space', () => {
+    const box = () => screen.getByTestId('fork-box');
+    it('the forks box has a fixed height in the stylesheet and holds loading, forks, empty and error alike', async () => {
+      const css = readFileSync('src/remotes/remotes.css', 'utf8');
+      expect(css).toMatch(/\.fork-box \{ height: min\(240px, 40vh\);/);
+      expect(css).toMatch(/\.fork-list \{[^}]*flex: 1; min-height: 0; overflow: auto;/);
+      let release!: (v: unknown) => void;
+      api.forgeForks.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+      const dialog = show();
+      await screen.findByText('Loading forks…');
+      const el = box();
+      expect(el.textContent).toContain('Loading forks…');
+      const cls = el.className;
+      await act(async () => { release({ forks: [project('alice/project', 5)], next: null }); });
+      await screen.findByText('alice/project');
+      expect(box()).toBe(el);
+      expect(box().className).toBe(cls);
+      expect(box().querySelector('.fork-list')).toBeTruthy();
+      expect(dialog.querySelectorAll('.fork-box')).toHaveLength(1);
+    });
+    it('is there from the first frame when the tab already has a forge, and stays when the lookup finds none', async () => {
+      useForge.setState({ byTab: { t1: { ...EMPTY_FORGE, kind: 'gitlab' } } });
+      api.forgeRepoProjects.mockResolvedValueOnce({ remotes: [], target: null });
+      show();
+      expect(box()).toBeTruthy();
+      expect(screen.getByText('Loading forks…')).toBeTruthy();
+      expect(await screen.findByText('No forks to show')).toBeTruthy();
+      expect(box().className).toBe('fork-box');
+      useForge.setState({ byTab: {} });
+    });
+    it('an empty result and an error sit in the same box', async () => {
+      api.forgeForks.mockResolvedValueOnce({ forks: [], next: null });
+      show();
+      const empty = await screen.findByText('No forks yet');
+      expect(box().contains(empty)).toBe(true);
+      expect(box().className).toBe('fork-box');
+    });
+    it('an error sits in the same box', async () => {
+      api.forgeForks.mockRejectedValueOnce({ kind: 'RateLimited', message: 'rate limited' });
+      show();
+      const err = await screen.findByRole('alert');
+      expect(box().contains(err)).toBe(true);
+      expect(box().className).toBe('fork-box');
+    });
   });
 
   describe('lazy forks', () => {

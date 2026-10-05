@@ -2,7 +2,7 @@ import { ChevronDown, LoaderCircle } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
 import { actionsVersion, getAction, invoke, runAction, subscribeActions, type Action } from '../app/actions';
 import { useRepoContext, type RepoCtx } from '../app/repoContext';
-import { openMenuAt } from '../menu/menuStore';
+import { openMenuAt, pressClosedMenu } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { BranchPicker } from './BranchPicker';
@@ -52,6 +52,7 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
   if (!b.menu?.length && !b.picker && !b.menuRows) return button;
   const openCaret = async (el: HTMLElement) => {
     if (b.picker) return setPickerAt(el);
+    if (pressClosedMenu(el)) return; // this press toggled the open menu closed: don't reopen after the await
     if (b.prepareMenu) await b.prepareMenu(ctx);
     const build = () => (b.menuRows ? b.menuRows(ctx) : menuRows(b.menu ?? []));
     openMenuAt(el, build(), undefined, build, `${label} options`);

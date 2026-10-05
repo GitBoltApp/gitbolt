@@ -72,6 +72,8 @@
 /* A line's button, right of the numbers (as the diff view's): a green + takes the line, a red −
    drops it once taken. */
 .merge-line-btn { cursor: pointer; }
+/* Only the hovered line shows its button (the cell keeps its width). */
+.merge-line-btn:not(.hover)::before { display: none; }
 .merge-line-btn::before { position: absolute; top: 50%; left: 50%; display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; transform: translate(-50%, -50%); border-radius: 3px; background: var(--green); color: var(--text-on-accent); font: 700 13px/1 var(--font-ui, sans-serif); content: '+'; }
 .merge-line-btn.drop::before { background: var(--red); content: '\2212'; }
 .merge-line-btn:hover::before { filter: brightness(1.15); }

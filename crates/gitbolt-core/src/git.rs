@@ -5,7 +5,7 @@ use crate::log::{truncate_utf8, CommandLog, CommandLogEntry, STDERR_LOG_LIMIT};
 use crate::redact::redact;
 use crate::shellenv::{EnvVars, ShellEnv};
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -22,6 +22,15 @@ const PENDING_MAX: usize = 64 * 1024;
 /// How long the output pipes may stay open after git exits (a background process it left
 /// behind still holding them) before the run gives up on them.
 const PIPE_GRACE: Duration = Duration::from_secs(2);
+
+/// How a run that never started (the program can't be executed) begins its error message.
+const SPAWN_FAILED: &str = "failed to run ";
+
+/// The program couldn't be started at all (missing, not executable), as opposed to one that ran
+/// and failed or timed out.
+pub fn is_spawn_failure(e: &GbError) -> bool {
+    e.kind == GbErrorKind::Io && e.message.starts_with(SPAWN_FAILED)
+}
 
 #[derive(Clone)]
 pub struct GitCli {
@@ -265,7 +274,21 @@ impl GitCli {
         &self.log
     }
 
-    pub async fn run(&self, mut inv: GitInvocation) -> Result<GitOutput, GbError> {
+    pub async fn run(&self, inv: GitInvocation) -> Result<GitOutput, GbError> {
+        let bin = self.bin.clone();
+        self.run_bin(&bin, true, inv).await
+    }
+
+    /// Runs another program (`gpg` for a signature check) the way `run` runs git: the same
+    /// environment (login shell, `with_env`, hook, no GitBolt-private variables), process group,
+    /// timeout and pipes, logged in the command log with the program as its first argument. None
+    /// of git's own arguments are added.
+    pub async fn run_program(&self, program: &Path, mut inv: GitInvocation) -> Result<GitOutput, GbError> {
+        inv.args.insert(0, program.as_os_str().to_owned());
+        self.run_bin(program, false, inv).await
+    }
+
+    async fn run_bin(&self, bin: &Path, git: bool, mut inv: GitInvocation) -> Result<GitOutput, GbError> {
         let id = self.log.next_id();
         let started = Instant::now();
         let started_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
@@ -273,21 +296,27 @@ impl GitCli {
         // Environment, lowest to highest: the captured login-shell env (replacing the inherited
         // one) or the inherited one, `with_env`, the invocation's `envs`, the fixed variables
         // below, then `PRIVATE_ENV` removal, then the hook.
-        let mut cmd = tokio::process::Command::new(&self.bin);
+        let mut cmd = tokio::process::Command::new(bin);
         if let Some(shell) = &self.shell_env
             && let Some(vars) = shell.get().await
         {
             cmd.env_clear().envs(vars.iter().map(|(k, v)| (k, v)));
         }
         // The profile include comes first, so GitBolt's fixed `-c` values after it win.
-        cmd.current_dir(&inv.cwd).arg("--no-pager");
-        if let Some(inc) = self.include_path() {
-            let mut arg = OsString::from("include.path=");
-            arg.push(&inc);
-            cmd.arg("-c").arg(arg);
+        cmd.current_dir(&inv.cwd);
+        if git {
+            cmd.arg("--no-pager");
+            if let Some(inc) = self.include_path() {
+                let mut arg = OsString::from("include.path=");
+                arg.push(&inc);
+                cmd.arg("-c").arg(arg);
+            }
+            cmd.args(["-c", "core.quotepath=false"]).args(&inv.args);
+        } else {
+            // `args[0]` is the program itself, there for the log.
+            cmd.args(&inv.args[1..]);
         }
-        cmd.args(["-c", "core.quotepath=false"])
-            .args(&inv.args)
+        cmd
             // A partial clone must never fetch missing objects behind the user's back from a
             // read (status, log, numstat, the watcher's lists). Network ops override it
             // (netops.rs), as a clone's checkout needs the lazy fetch.
@@ -341,7 +370,7 @@ impl GitCli {
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                let err_msg = format!("failed to run git: {e}");
+                let err_msg = if git { format!("{SPAWN_FAILED}git: {e}") } else { format!("{SPAWN_FAILED}{}: {e}", bin.display()) };
                 let redacted_err = redact(&err_msg);
                 self.log.push(CommandLogEntry {
                     id,

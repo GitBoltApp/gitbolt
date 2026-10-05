@@ -17,11 +17,12 @@ export const useTooltip = create<{ tip: Tip | null }>(() => ({ tip: null }));
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-/** Shows `text` next to `target`: immediately by default (the app-wide rule, spec §7), after
+/** Shows `text` next to `target` (an element, or a rect for a target with no element, such as a
+ * canvas-drawn node): immediately by default (the app-wide rule, spec §7), after
  * `delay` ms if given. */
-export function showTooltip(target: Element, text: string, delay = 0, placement: TooltipPlacement = 'below'): void {
+export function showTooltip(target: Element | DOMRect, text: string, delay = 0, placement: TooltipPlacement = 'below'): void {
   clearTimeout(timer);
-  const show = () => useTooltip.setState({ tip: { text, rect: target.getBoundingClientRect(), placement } });
+  const show = () => useTooltip.setState({ tip: { text, rect: target instanceof Element ? target.getBoundingClientRect() : target, placement } });
   if (delay > 0) timer = setTimeout(show, delay);
   else show();
 }

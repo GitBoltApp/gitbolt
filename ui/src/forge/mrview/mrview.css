@@ -2,10 +2,11 @@
 .mr-header, .mr-description, .mr-merge { display: flex; flex-direction: column; gap: 4px; }
 .mr-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-normal); }
 .mr-labels { display: flex; gap: 4px; flex-wrap: wrap; }
-/* A forge label's colour (`--chip-color`, from the forge) tints a token background and draws the border; the text stays a token, readable on either theme. */
-.mr-label { padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--control-bg); color: var(--text-normal); border: 1px solid transparent; }
-.mr-label[data-colored] { background: color-mix(in srgb, var(--chip-color) 22%, var(--control-bg)); border-color: var(--chip-color); }
+/* A forge label (`--chip-color` and its readable `--chip-text`, from the forge) is a solid pill as GitHub draws it; without a colour it keeps the token look. */
+.mr-label { padding: 0 7px; border-radius: 2em; font-size: 12px; font-weight: 500; background: var(--control-bg); color: var(--text-normal); }
+.mr-label[data-colored] { background: var(--chip-color); color: var(--chip-text, var(--text-normal)); }
 .mr-description { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; padding-top: 8px; border-top: 1px solid var(--section-border); }
+.mr-merge + .mr-description { padding-top: 0; border-top: 0; }  /* the merge box's own border already divides it from the description */
 .mr-dim { color: var(--text-secondary); font-size: 11px; }
 .mr-wait { margin: 0; color: var(--text-secondary); }
 .mr-snippet { margin: 0; padding: 4px 6px; font: 11px/1.4 var(--font-mono); white-space: pre; overflow-x: auto; background: var(--app-bg0); border-radius: 4px; }

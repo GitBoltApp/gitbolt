@@ -28,15 +28,19 @@ export class Loader<V> {
   private readonly fetcher: (key: string) => Promise<V>;
   private readonly concurrency: number;
   private readonly cacheable: (key: string) => boolean;
+  private readonly reserve: number;
   private readonly inflight = new Map<string, Promise<V>>();
   private queue: Job<V>[] = [];
   private running = 0;
 
-  constructor(fetcher: (key: string) => Promise<V>, cache: Lru<string, V>, concurrency = 4, cacheable: (key: string) => boolean = () => true) {
+  /** `reserve`: slots past `concurrency` that only `get`s (priority `now`) may use, so what the
+   * user is looking at never waits for prefetches already running. */
+  constructor(fetcher: (key: string) => Promise<V>, cache: Lru<string, V>, concurrency = 4, cacheable: (key: string) => boolean = () => true, reserve = 0) {
     this.fetcher = fetcher;
     this.cache = cache;
     this.concurrency = concurrency;
     this.cacheable = cacheable;
+    this.reserve = reserve;
   }
 
   /** The cached value, if any (a hit counts as a use: it refreshes recency); never starts a load. */
@@ -88,7 +92,8 @@ export class Loader<V> {
   }
 
   private pump(): void {
-    while (this.running < this.concurrency && this.queue.length > 0) {
+    // `now` jobs are always ahead of prefetches in the queue (`get` unshifts, `promote` moves).
+    while (this.queue.length > 0 && this.running < this.concurrency + (this.queue[0].priority === 'now' ? this.reserve : 0)) {
       const job = this.queue.shift()!;
       this.running++;
       let p: Promise<V>;

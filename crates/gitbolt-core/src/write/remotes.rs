@@ -103,6 +103,19 @@ fn is_remote_key(key: &str, name: &str) -> bool {
     key.strip_prefix("remote.").and_then(|k| k.strip_prefix(name)).and_then(|k| k.strip_prefix('.')).is_some_and(|var| !var.is_empty() && !var.contains('.'))
 }
 
+/// Whether the repository's own config has a `[remote "<name>"]` header (empty or not): the
+/// name is matched exactly and case-sensitively, as git does.
+fn has_section(root: &Path, name: &str) -> bool {
+    let Ok(repo) = gix::open(root) else { return false };
+    let Ok(text) = std::fs::read_to_string(repo.common_dir().join("config")) else { return false };
+    text.lines().any(|l| {
+        let Some(inner) = l.trim().strip_prefix('[').and_then(|l| l.split_once(']')).map(|(i, _)| i.trim()) else { return false };
+        let Some(rest) = inner.strip_prefix("remote").map(str::trim_start) else { return false };
+        let Some(q) = rest.strip_prefix('"').and_then(|r| r.strip_suffix('"')) else { return false };
+        q == name
+    })
+}
+
 /// A key `git remote remove <name>` may change: the remote's own, a branch's upstream or push
 /// remote, `remote.pushDefault`. Anything else that changed meanwhile isn't the removal's, and
 /// Undo leaves it alone.
@@ -179,14 +192,28 @@ impl WriteIntent for RemoveRemote {
         if parse_config_list(&all.stdout).iter().any(|(k, _)| is_remote_key(k, &self.name)) {
             return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} is defined outside this repository's config; remove it there", self.name)));
         }
+        // A stale remote (an earlier tool's partial removal): tracking refs or an empty section left.
+        let (direct, symbolic) = tracking_refs(pre.root)?;
+        let prefix = format!("refs/remotes/{}/", self.name);
+        if direct.keys().chain(symbolic.keys()).any(|n| n.starts_with(&prefix)) || has_section(pre.root, &self.name) {
+            return Ok(Plan::default());
+        }
         Err(GbError::new(GbErrorKind::NotFound, format!("No remote {}", self.name)))
     }
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
         let config_before = local_config(&cx.api.cli, cx.root).await?;
         let (direct_before, symbolic_before) = tracking_refs(cx.root)?;
-        // `--`: a name git would read as an option is a name.
-        let inv = cx.git(["remote", "remove", "--", self.name.as_str()]);
-        let ran = cx.run_git(inv).await;
+        let stale = !config_before.iter().any(|(k, _)| is_remote_key(k, &self.name));
+        let mut ran: Result<(), GbError> = Ok(());
+        if stale {
+            // No `git remote remove` (it says "No such remote"): do its three parts by hand.
+            ran = self.remove_stale(cx, &config_before, &direct_before, &symbolic_before).await;
+        }
+        if !stale {
+            // `--`: a name git would read as an option is a name.
+            let inv = cx.git(["remote", "remove", "--", self.name.as_str()]);
+            ran = cx.run_git(inv).await.map(|_| ());
+        }
         // What git did, done or failed half-way: the entry records it (a partial change keeps it).
         let config_after = local_config(&cx.api.cli, cx.root).await?;
         let (direct_after, symbolic_after) = tracking_refs(cx.root)?;
@@ -201,7 +228,46 @@ impl WriteIntent for RemoveRemote {
         cx.record_config(config_changes(&config_before, &config_after).into_iter().filter(|c| removal_key(&c.key, name)).collect())?;
         cx.touch(ChangeKind::Refs);
         cx.touch(ChangeKind::Config);
-        ran.map(|_| ())
+        ran
+    }
+}
+
+impl RemoveRemote {
+    /// A stale remote's removal: its tracking refs (symbolic, then direct), the empty section
+    /// header, and the upstream and push settings that name it.
+    async fn remove_stale(&self, cx: &mut WriteCx<'_>, config: &[(String, String)], direct: &BTreeMap<String, String>, symbolic: &BTreeMap<String, String>) -> Result<(), GbError> {
+        let prefix = format!("refs/remotes/{}/", self.name);
+        for n in symbolic.keys().filter(|n| n.starts_with(&prefix)) {
+            let inv = cx.git(["symbolic-ref", "--delete", n.as_str()]);
+            cx.run_git(inv).await?;
+        }
+        for n in direct.keys().filter(|n| n.starts_with(&prefix)) {
+            let inv = cx.git(["update-ref", "-d", n.as_str()]);
+            cx.run_git(inv).await?;
+        }
+        if has_section(cx.root, &self.name) {
+            let section = format!("remote.{}", self.name);
+            let inv = cx.git(["config", "--local", "--remove-section", section.as_str()]);
+            cx.run_git(inv).await?;
+        }
+        let mut unset: Vec<String> = Vec::new();
+        for (k, _) in config.iter().filter(|(_, v)| *v == self.name) {
+            if k == "remote.pushdefault" {
+                unset.push(k.clone());
+            } else if let Some(b) = k.strip_suffix(".remote").filter(|b| b.starts_with("branch.")) {
+                unset.push(k.clone());
+                unset.push(format!("{b}.merge"));
+            } else if k.starts_with("branch.") && k.ends_with(".pushremote") {
+                unset.push(k.clone());
+            }
+        }
+        unset.sort();
+        unset.dedup();
+        for k in unset {
+            let inv = cx.git(["config", "--local", "--unset-all", k.as_str()]);
+            cx.run_git(inv).await?;
+        }
+        Ok(())
     }
 }
 
@@ -212,7 +278,10 @@ impl WriteIntent for RemoveRemote {
 pub(crate) async fn check_removed_remote(cli: &GitCli, root: &Path, removed: &RemovedRemote, config: &[ConfigChange], undo: bool) -> Result<(), GbError> {
     let now = local_config(cli, root).await?;
     let exists = now.iter().any(|(k, _)| is_remote_key(k, &removed.name));
+    // A stale remote's removal recorded no `remote.<name>.*` key: redo has no config to look for.
+    let stale = !config.iter().any(|c| is_remote_key(&c.key, &removed.name));
     match (undo, exists) {
+        (false, false) if stale => {}
         (true, true) => return Err(GbError::new(GbErrorKind::InvalidInput, format!("A remote named {} exists again; remove it to undo", removed.name))),
         (false, false) => return Err(GbError::new(GbErrorKind::InvalidInput, format!("The remote {} is gone already", removed.name))),
         _ => {}
@@ -529,5 +598,67 @@ mod tests {
         journal_step(&api, id, r.path(), "undo").await.unwrap();
         assert_eq!(r.git(&["config", "gitbolt.during"]), "yes", "not the removal's");
         assert!(r.git(&["config", "--local", "--list"]).contains("remote.origin.url="));
+    }
+
+    // --- A stale remote: refs and/or an empty section, no `remote.<name>.*` keys ---
+
+    fn stale(section: bool) -> TestRepo {
+        let r = repo();
+        for b in ["main", "dev"] {
+            r.git(&["update-ref", &format!("refs/remotes/StaleRemote/{b}"), "HEAD"]);
+        }
+        r.git(&["config", "branch.x.remote", "StaleRemote"]);
+        r.git(&["config", "branch.x.merge", "refs/heads/dev"]);
+        if section {
+            let cfg = r.path().join(".git/config");
+            let mut text = std::fs::read_to_string(&cfg).unwrap();
+            text.push_str("[remote \"StaleRemote\"]\n");
+            std::fs::write(cfg, text).unwrap();
+        }
+        r
+    }
+
+    #[tokio::test]
+    async fn removes_a_stale_remote_and_undo_redo_round_trip() {
+        use crate::write::test_support::journal_step;
+        let data = tempfile::tempdir().unwrap();
+        let r = stale(true);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let (refs_before, config_before) = (refs(&r), sorted_config(&r));
+        let args = json!({"repo": id, "worktree": wt(r.path()), "name": "StaleRemote"});
+        call(&api, "removeRemote", args).await.unwrap();
+        assert!(!refs(&r).contains("StaleRemote"), "{}", refs(&r));
+        assert!(!std::fs::read_to_string(r.path().join(".git/config")).unwrap().contains("StaleRemote"));
+        assert!(!r.git(&["config", "--local", "--list"]).contains("branch.x"));
+        let removed = (refs(&r), sorted_config(&r));
+
+        journal_step(&api, id, r.path(), "undo").await.unwrap();
+        assert_eq!(refs(&r), refs_before);
+        assert_eq!(sorted_config(&r), config_before);
+
+        journal_step(&api, id, r.path(), "redo").await.unwrap();
+        assert_eq!((refs(&r), sorted_config(&r)), removed);
+    }
+
+    #[tokio::test]
+    async fn removes_a_stale_remote_with_refs_only() {
+        let data = tempfile::tempdir().unwrap();
+        let r = stale(false);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        call(&api, "removeRemote", json!({"repo": id, "worktree": wt(r.path()), "name": "StaleRemote"})).await.unwrap();
+        assert!(!refs(&r).contains("StaleRemote"));
+    }
+
+    #[tokio::test]
+    async fn a_truly_missing_remote_is_not_found() {
+        let data = tempfile::tempdir().unwrap();
+        let r = stale(true);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        // Names are exact and case-sensitive.
+        let e = call(&api, "removeRemote", json!({"repo": id, "worktree": wt(r.path()), "name": "staleremote"})).await.unwrap_err();
+        assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::NotFound, "No remote staleremote"));
     }
 }

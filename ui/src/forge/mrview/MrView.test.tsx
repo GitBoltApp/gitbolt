@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
@@ -36,6 +36,7 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     const view = screen.getByRole('dialog', { name: 'Merge request !12' });
     expect(within(view).getByRole('heading')).toHaveTextContent('!12 Dev work');
     const summary = within(view).getByRole('region', { name: 'Summary' });
+    expect(summary.querySelector('.mr-branches svg.lucide-arrow-right')).not.toBeNull();
     for (const text of ['Open', 'dev → main', 'Grace Hopper', 'Passed', '0 of 1 approval', 'None', 'Reviewers:', 'Ada Lovelace', 'backend']) expect(summary).toHaveTextContent(text);
   });
 
@@ -50,6 +51,14 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
       ['plain :not_an_emoji:', '', false],
       ['constructor', '', false],
     ]);
+  });
+
+  it('one divider between the merge box and the description: the box follows the actions and the description drops its own rule', async () => {
+    show();
+    const merge = screen.getByRole('region', { name: 'Merge' });
+    expect(merge.nextElementSibling).toBe(screen.getByRole('region', { name: 'Description' }));
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('src/forge/mrview/mrview.css', 'utf8')).toMatch(/\.mr-merge \+ \.mr-description \{[^}]*border-top: 0/);
   });
 
   it('the fact strip: Conflicts is None, Yes or Checking…; GitHub calls the second tile Reviews', () => {
@@ -173,9 +182,9 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(screen.getByText('approved these changes')).toBeTruthy();
   });
 
-  it('loads the MR/PR when it opens, and forgets it when it closes', () => {
+  it('loads the MR/PR when it opens (after a beat, so arrowing past loads nothing), and forgets it when it closes', async () => {
     const { unmount } = show();
-    expect(poll.refreshMr).toHaveBeenCalledWith('t', 12);
+    await waitFor(() => expect(poll.refreshMr).toHaveBeenCalledWith('t', 12));
     expect(forgeOf('t').openMr).toBe(12);
     unmount();
     expect(forgeOf('t').openMr).toBeNull();

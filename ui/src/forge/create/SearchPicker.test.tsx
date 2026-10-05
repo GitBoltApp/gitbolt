@@ -93,4 +93,18 @@ describe('SearchPicker keys and ARIA', () => {
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(outer).toHaveBeenCalledTimes(1);
   });
+
+  it('draws a label chip in its colour and shows emoji in chips and options', async () => {
+    const search = async () => [{ key: 'b :gear:', label: 'b :gear:', color: '#a2eeef', value: 'b' }];
+    render(<SearchPicker label="Labels" chips={[{ key: 'a', label: 'a :gear:', color: '#0e8a16' }, { key: 'u', label: 'ada' }]} onRemove={vi.fn()} search={search} onPick={vi.fn()} />);
+    const chip = (await screen.findByText('a ⚙️')).closest('.pick-chip') as HTMLElement;
+    expect(chip.hasAttribute('data-colored')).toBe(true);
+    expect(chip.style.getPropertyValue('--chip-color')).toBe('#0e8a16');
+    expect(chip.style.getPropertyValue('--chip-text')).toBe('#fff');
+    expect(screen.getByText('ada').closest('.pick-chip')!.hasAttribute('data-colored')).toBe(false);
+    fireEvent.focus(screen.getByLabelText('Labels'));
+    const option = await screen.findByRole('option', { name: 'b ⚙️' });
+    expect(option.style.getPropertyValue('--chip-color')).toBe('#a2eeef');
+    expect(option.querySelector('.pick-dot')).not.toBeNull();
+  });
 });

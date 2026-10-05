@@ -11,7 +11,9 @@ import { overflowLayer } from '../diff/monaco/overflow';
 import { monaco } from '../diff/monaco/setup';
 import { ensureLanguage } from '../diff/monaco/shiki';
 import { currentEditorTheme } from '../theme/editorThemes';
+import { useTheme } from '../theme/store';
 import { createCheckBox } from './checkBox';
+import { createHoverTracker, regionMarks, resolveMarkColors } from './lineMarks';
 import type { Span } from './mergeDrafts';
 import { buildOutput, changeHits, emptyPicks, eolText, hunkState, regionText, type CheckState, type ConflictSegment, type OutRegion, type Picks, type Side } from './model';
 
@@ -78,7 +80,8 @@ export function mergeEditorOptions(readOnly: boolean, stickyScroll: boolean, fon
     fontSize: clampEditorFont(fontSize),
     scrollbar: { ...EDITOR_SCROLLBAR },
     fixedOverflowWidgets: true,
-    minimap: { enabled: false },
+    minimap: { enabled: true },
+    renderOverviewRuler: true,
     stickyScroll: { enabled: stickyScroll },
     folding: false,
     glyphMargin: readOnly,
@@ -200,8 +203,19 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
     }));
   }
 
+  // The line button shows only under the pointer: the hovered line gets a `hover` class.
+  let marks = resolveMarkColors();
+  const hovered: Record<Side, number | null> = { current: null, incoming: null };
+  const T = monaco.editor.MouseTargetType;
+  const overLine = [T.CONTENT_TEXT, T.CONTENT_EMPTY, T.GUTTER_LINE_NUMBERS, T.GUTTER_LINE_DECORATIONS, T.GUTTER_GLYPH_MARGIN];
+  for (const side of ['current', 'incoming'] as const) {
+    const tracker = createHoverTracker((line) => { hovered[side] = line; paintPanes(); });
+    subs.push(paneEd[side].onMouseMove((e) => tracker.move(overLine.includes(e.target.type) ? e.target.position?.lineNumber : null)));
+    subs.push(paneEd[side].onMouseLeave(() => tracker.leave()));
+  }
+
   const HUNK_CLASS: Record<string, string> = { all: ' on', some: ' some', none: '' };
-  const paintPanes = () => {
+  function paintPanes() {
     for (const side of ['current', 'incoming'] as const) {
       const decos: MonacoNs.editor.IModelDeltaDecoration[] = [];
       const lineCount = paneEd[side].getModel()?.getLineCount() ?? 1;
@@ -211,7 +225,7 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
           // Nothing on this side: a rule where its lines would go.
           const below = r.start > 1;
           const n = Math.min(lineCount, below ? r.start - 1 : 1);
-          decos.push({ range: new monaco.Range(n, 1, n, 1), options: { isWholeLine: true, className: `merge-pane-gap-${below ? 'below' : 'above'} merge-pane-gap-${side}` } });
+          decos.push({ range: new monaco.Range(n, 1, n, 1), options: { isWholeLine: true, className: `merge-pane-gap-${below ? 'below' : 'above'} merge-pane-gap-${side}`, ...regionMarks(marks, side) } });
           continue;
         }
         const flags = lastPicks[r.id]?.[side] ?? [];
@@ -226,7 +240,8 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
               className: `merge-${side}-line${on ? ' picked' : ''}`,
               glyphMarginClassName: hunk,
               glyphMargin: { position: LEFT },
-              linesDecorationsClassName: `merge-line-btn ${on ? 'drop' : 'take'}`,
+              linesDecorationsClassName: `merge-line-btn ${on ? 'drop' : 'take'}${hovered[side] === r.start + i ? ' hover' : ''}`,
+              ...regionMarks(marks, side),
             },
           });
         }
@@ -238,7 +253,7 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
       }
       paneDecos[side].set(decos);
     }
-  };
+  }
 
   // --- The output: one tracked range per region, its tints, and the hand edits ---
   // M1: the end edge doesn't grow, so typing at column 1 of the line after a region stays out.
@@ -295,21 +310,25 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
   /** M4: each line tinted by the side it came from; a hand-edited region in the base colour. */
   const paintOutput = () => {
     const decos: MonacoNs.editor.IModelDeltaDecoration[] = [];
-    const line = (n: number, className: string) => decos.push({ range: new monaco.Range(n, 1, n, 1), options: { isWholeLine: true, className } });
     for (const r of regionsNow()) {
+      const p = lastPicks[r.id];
+      // Unresolved until a line is taken (or the user types in it).
+      const m = regionMarks(marks, edited.has(r.id) || (p && (p.current.some(Boolean) || p.incoming.some(Boolean))) ? 'resolved' : 'unresolved');
+      const line = (n: number, className: string) => decos.push({ range: new monaco.Range(n, 1, n, 1), options: { isWholeLine: true, className, ...m } });
       if (r.lines === 0) {
         // An empty region shows as a rule where its lines would go.
         if (r.start > 1) line(r.start - 1, 'merge-output-gap-below');
         else line(1, 'merge-output-gap-above');
         continue;
       }
-      const p = lastPicks[r.id];
       const cur = p ? p.current.filter(Boolean).length : 0;
       const exact = !edited.has(r.id) && p && r.lines === cur + p.incoming.filter(Boolean).length;
       for (let i = 0; i < r.lines; i++) line(r.start + i, !exact ? 'merge-output-edited' : i < cur ? 'merge-output-current' : 'merge-output-incoming');
     }
     tints.set(decos);
   };
+  // The marks' colours follow the app theme (the tokens apply after the store changes).
+  unsubs.push(useTheme.subscribe(() => requestAnimationFrame(() => { if (disposed) return; marks = resolveMarkColors(); paintPanes(); paintOutput(); })));
   const setChecks = (picks: Picks) => {
     lastPicks = picks;
     paintPanes();

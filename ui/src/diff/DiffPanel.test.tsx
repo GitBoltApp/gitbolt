@@ -282,7 +282,7 @@ describe('DiffPanel', () => {
     const big = (force: boolean) => contents(sized({ size: 3_000_000, text: force ? 'a\n' : null }), sized({ size: 3_000_001, text: force ? 'b\n' : null }), { tooLarge: !force });
     const { fetch } = renderPanel(targetFor(change('big.txt'), spec), async (key) => big(JSON.parse(key).force as boolean));
     expect(await screen.findByText('Large file — load anyway?')).toBeInTheDocument();
-    expect(screen.getByText('2.9 MB → 2.9 MB')).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '2.9 MB → 2.9 MB').querySelector('svg.lucide-arrow-right')).not.toBeNull();
     expect(screen.queryByTestId('text-diff')).toBeNull();
     fireEvent.click(button('Load anyway'));
     await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ original: 'a\n', modified: 'b\n' })));
@@ -294,7 +294,7 @@ describe('DiffPanel', () => {
     const { fetch } = renderPanel(targetFor(change('huge.txt'), spec), async () => huge);
     fireEvent.click(await screen.findByRole('button', { name: 'Load anyway' }));
     expect(await screen.findByText('Too large to show — over 64 MB per side')).toBeInTheDocument();
-    expect(screen.getByText('66.8 MB → 66.8 MB')).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '66.8 MB → 66.8 MB')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Load anyway' })).toBeNull();
     expect(fetch.mock.calls.map(([k]) => JSON.parse(k).force)).toEqual([false, true]);
   });

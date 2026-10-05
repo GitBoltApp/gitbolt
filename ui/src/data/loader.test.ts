@@ -41,6 +41,17 @@ describe('Loader', () => {
     expect(calls).toEqual(['a', 'd', 'b', 'c']);
   });
 
+  it('a reserve slot lets a "now" load start while prefetches fill the others', async () => {
+    const { calls, fetcher } = deferred();
+    const l = new Loader(fetcher, new Lru(10), 2, () => true, 1);
+    l.prefetch(['a', 'b', 'c']);
+    expect(calls).toEqual(['a', 'b']);
+    void l.get('d');
+    expect(calls).toEqual(['a', 'b', 'd']);
+    void l.get('e');
+    expect(calls).toEqual(['a', 'b', 'd']); // the reserve is one slot
+  });
+
   it('latest request wins: a superseded prefetch is dropped before it is ever sent', async () => {
     const { calls, pending, fetcher } = deferred();
     const l = new Loader(fetcher, new Lru(10), 1);

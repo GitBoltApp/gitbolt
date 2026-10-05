@@ -13,6 +13,7 @@ import { mrNoun, mrRef } from '../labels';
 import { baseBranch, createSummary, memberPlans, runCreateStack, submitLabel, type MemberPlan } from './create';
 import { forgeTarget } from './deps';
 import './stack.css';
+import { ArrowGlyph } from '../../ui/ArrowGlyph';
 
 interface Req { tabId: string; stack: Stack }
 const useDialog = create<{ req: Req | null }>(() => ({ req: null }));
@@ -88,7 +89,7 @@ function Form({ req }: { req: Req }) {
             {plans.map((p, i) => (
               <li key={p.branch}>
                 <span className="stack-create-pos">{i + 1}</span>
-                <span className="stack-create-branches">{p.branch} → {p.target}</span>
+                <span className="stack-create-branches">{p.branch} <ArrowGlyph /> {p.target}</span>
                 {p.kind === 'create' && <input aria-label={`Title for ${p.branch}`} value={titleOf(p)} onChange={(e) => setTitles({ ...titles, [p.branch]: e.target.value })} spellCheck={false} />}
                 {p.kind === 'ok' && <span className="stack-create-note">{mrRef(kind, p.mr.number)} is open</span>}
                 {p.kind === 'retarget' && <span className="stack-create-note">{mrRef(kind, p.mr.number)}: retarget from {p.mr.targetBranch}</span>}

@@ -105,8 +105,8 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
       const projects = await api.forgeRepoProjects(repo, reason === 'activate' || forgeScratch.recheck.delete(tabId));
       const target = projects.remotes.find((r) => r.remote === projects.target);
       const remoteErrors = Object.fromEntries(projects.remotes.flatMap((r) => (r.error ? [[r.remote, r.error]] : [])));
-      // A user's fork (any user-owned project but the target's) shows its owner's picture on its remote icons.
-      const ownerAvatars = Object.fromEntries(projects.remotes.flatMap((r) => (r.remote !== projects.target && r.project?.ownerAvatarUrl ? [[r.remote, r.project.ownerAvatarUrl]] : [])));
+      // Every remote whose project has an owner picture (a user's, an organization's or a group's, the target's too) shows it on its icons.
+      const ownerAvatars = Object.fromEntries(projects.remotes.flatMap((r) => (r.project?.ownerAvatarUrl ? [[r.remote, r.project.ownerAvatarUrl]] : [])));
       patchForge(tabId, (f) => ({ target: projects.target, targetChosen: projects.targetChosen, remoteErrors: keepSame(f.remoteErrors, remoteErrors), ownerAvatars: keepSame(f.ownerAvatars, ownerAvatars) }));
       if (target && !target.project && target.account && target.error) {
         // The target (the user's choice, or origin) is on a forge but its project can't be loaded: say why, don't hide the section or show another remote.

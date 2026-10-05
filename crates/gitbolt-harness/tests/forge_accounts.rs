@@ -64,3 +64,50 @@ async fn reset_forgets_accounts_tokens_and_the_fakes_state() {
     assert!(!h.tokens_path().exists());
     assert!(h.forge.requests().is_empty());
 }
+
+// --- GitHub commit-author avatars ---
+fn author_lookups(h: &Harness) -> usize {
+    h.forge.requests().iter().filter(|r| r.path.ends_with("/commits") && r.query.contains("author=")).count()
+}
+
+fn repo_with_origin(url: &str) -> TestRepo {
+    let r = TestRepo::new();
+    r.commit("a");
+    r.git(&["remote", "add", "origin", url]);
+    r
+}
+
+/// The avatar request's last step: the tab's GitHub project, asked who an email's commits belong to.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_github_repos_commit_author_gets_the_linked_accounts_picture() {
+    use gitbolt_harness::fake_forge::github::{LINKED_AUTHOR_EMAIL, UNLINKED_AUTHOR_EMAIL};
+    let h = Harness::for_tests().await;
+    let avatar = |repo: Option<u64>, email: &str| {
+        let params = match repo { Some(id) => json!({"email": email, "repo": id}), None => json!({"email": email}) };
+        call(&h.api, json!({"method": "avatar", "params": params}))
+    };
+    let gh = repo_with_origin("https://github.com/octo-org/widget.git");
+    let gh_id = call(&h.api, json!({"method": "openRepo", "params": {"path": gh.path()}})).await.unwrap()["id"].as_u64().unwrap();
+    assert!(avatar(Some(gh_id), LINKED_AUTHOR_EMAIL).await.unwrap().is_null(), "no account");
+    assert_eq!(author_lookups(&h), 0);
+    assert!(h.forge.requests().is_empty(), "nothing at all without an account");
+
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "github.com", "kind": "github", "token": GITHUB_TOKEN}})).await.unwrap();
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": GITLAB_TOKEN}})).await.unwrap();
+    assert!(avatar(None, LINKED_AUTHOR_EMAIL).await.unwrap().is_null(), "no repo: no project to ask");
+    let gl = repo_with_origin("https://gitlab.example.com/group/project.git");
+    let gl_id = call(&h.api, json!({"method": "openRepo", "params": {"path": gl.path()}})).await.unwrap()["id"].as_u64().unwrap();
+    assert!(avatar(Some(gl_id), LINKED_AUTHOR_EMAIL).await.unwrap().is_null(), "a GitLab repo");
+    assert_eq!(author_lookups(&h), 0);
+
+    assert_eq!(avatar(Some(gh_id), LINKED_AUTHOR_EMAIL).await.unwrap()["mime"], "image/png");
+    assert_eq!(author_lookups(&h), 1);
+    assert!(!avatar(Some(gh_id), LINKED_AUTHOR_EMAIL).await.unwrap().is_null());
+    assert!(!avatar(None, LINKED_AUTHOR_EMAIL).await.unwrap().is_null(), "learned: any tab has it now");
+    assert!(avatar(Some(gh_id), UNLINKED_AUTHOR_EMAIL).await.unwrap().is_null());
+    assert!(avatar(Some(gh_id), UNLINKED_AUTHOR_EMAIL).await.unwrap().is_null());
+    assert_eq!(author_lookups(&h), 2, "each email once");
+    let log = serde_json::to_string(&h.forge.requests()).unwrap();
+    assert!(!log.contains("search") && !log.contains(GITHUB_TOKEN));
+}
+// --- end GitHub commit-author avatars ---

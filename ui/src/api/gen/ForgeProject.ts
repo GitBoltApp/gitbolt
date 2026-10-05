@@ -19,8 +19,7 @@ defaultBranch: string | null, cloneHttps: string, cloneSsh: string,
  */
 forkOf: string | null, updatedAt: number | null, archived: boolean, 
 /**
- * The owner's picture when the owner is a user, not an organization or group (GitHub's
- * `owner.avatar_url` with `owner.type` User, GitLab's `namespace.avatar_url` with
- * `namespace.kind` user): a user's fork's remote shows it.
+ * The owner's picture, a user's, an organization's or a group's (GitHub's `owner.avatar_url`,
+ * GitLab's `namespace.avatar_url`): the remote's icon shows it.
  */
 ownerAvatarUrl: string | null, };

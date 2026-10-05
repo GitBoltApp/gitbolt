@@ -1,7 +1,7 @@
 import { stashLabel } from '../sidebar/stashLabel';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Clock, GitBranch, GitGraph, MessageSquare, User } from 'lucide-react';
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from 'react';
 import type { CommitMessageCache } from '../api/commitMessages';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
@@ -13,17 +13,19 @@ import { useAppState } from '../app/state';
 import { formatDate } from '../format/date';
 import { Avatar } from '../avatars/Avatar';
 import { avatars } from '../avatars/avatarStore';
+import { useRepoContext } from '../app/repoContext';
 import { buildMenu } from '../menu/registry';
 import { openContextMenu, openMenuAt, type MenuEventLike } from '../menu/menuStore';
 import { useContextTarget } from '../menu/contextTarget';
 import { isEditableTarget } from '../ui/keys';
 import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
+import { hideTooltip, showTooltip } from '../ui/tooltipStore';
 import { useToast } from '../ui/toast';
 import { ColumnResizer } from './ColumnResizer';
 import './columnMenu';
 import type { ColumnTarget } from './columnMenu';
 import { allocateColumns, autoGraphWidth, handleShown, isCollapsed, lanesWidth, useColumnPrefs, type ColumnWidths, type HideableColumn } from './columns';
-import { graphLayout, LINE_W } from './draw';
+import { graphLayout, LINE_W, nodeAt, nodeCentre, nodeRadius } from './draw';
 import { GraphCanvas } from './GraphCanvas';
 import { HeaderCell } from './HeaderCell';
 import { PinButton } from './PinButton';
@@ -390,6 +392,32 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   const [laneScroll, setLaneScroll] = useState(0);
   const canvasId = useId();
   const scrollX = Math.min(laneScroll, laneScrollMax);
+  // The canvas draws the nodes and has no DOM of its own, and it takes no pointer events: the
+  // rows above it do, so their pointer moves (bubbling to the scroll element) are hit-tested
+  // against the drawn nodes. The tooltip updates only when the node under the pointer changes.
+  const nodeTip = useRef<string | null>(null);
+  const onGridPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    // Only over the graph itself: a chip (or any other cell's content) drawn over a node has its
+    // own tooltip, and wins.
+    const cell = e.target instanceof Element ? e.target.closest('[data-col]') : null;
+    if (cell && cell.getAttribute('data-col') !== 'graph') { hideNodeTip(); return; }
+    const el = e.currentTarget;
+    const box = el.getBoundingClientRect();
+    const geo = { rows: graph.rows, scrollTop: el.scrollTop, width: cols.graph, metrics, clipped, scrollX, dpr };
+    // Canvas coordinates: the canvas sits `labels` px into the scrolled content.
+    const x = e.clientX - box.left + el.scrollLeft - cols.labels;
+    const i = nodeAt(geo, x, e.clientY - box.top);
+    const row = i === null ? null : graph.rows[i];
+    if (!row || i === null) { if (nodeTip.current !== null) { nodeTip.current = null; hideTooltip(); } return; }
+    if (nodeTip.current === row.id) return;
+    nodeTip.current = row.id;
+    const c = nodeCentre(geo, row, i);
+    const r = nodeRadius(metrics);
+    const left = box.left - el.scrollLeft + cols.labels + c.x - r;
+    showTooltip(new DOMRect(left, box.top + c.y - r, 2 * r, 2 * r), `${row.authorName} <${row.authorEmail}>`);
+  };
+  const hideNodeTip = () => { if (nodeTip.current !== null) { nodeTip.current = null; hideTooltip(); } };
+  useEffect(() => hideNodeTip, []);
   // Hidden Branch/Tag: no chips, so no connectors on the canvas either.
   const canvasLabeledRows = cols.labels > 0 ? labeledRows : NO_ROWS;
   const columnMenu = () => buildMenu<ColumnTarget, object>('column', { hidden, toggle: toggleHidden }, {});
@@ -426,6 +454,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
 
   // A new avatar redraws the canvas only: rows don't take it as a prop, so memoized rows stay put.
   const avatarVersion = useSyncExternalStore(avatars.subscribe, avatars.version);
+  // The tab's repo: its GitHub project is the backend's last place to look for an author's picture.
+  const tabRepo = useRepoContext().repoId;
   // Ask for the avatars of the rows on screen plus AVATAR_OVERSCAN, latest set wins: a fast
   // scroll drops the queued requests of rows it went past. Re-asked on each arrival too, so an
   // image evicted while on screen comes back. Clamped: elastic overscroll (WebKit) gives a
@@ -438,8 +468,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
       const r = graph.rows[i];
       if (r?.kind === 'commit') emails.push(r.authorEmail);
     }
-    avatars.requestVisible(emails);
-  }, [graph.rows, firstVisible, lastVisible, avatarVersion]);
+    avatars.requestVisible(emails, tabRepo);
+  }, [graph.rows, firstVisible, lastVisible, avatarVersion, tabRepo]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -585,7 +615,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
         </div>
       </div>
       <div className="graph-body">
-        <div {...gridProps} ref={scrollRef} className="graph-scroll" role="grid" aria-label="Commit graph" aria-rowcount={graph.rows.length} tabIndex={0} onKeyDown={onKeyDown} onScroll={(e) => {
+        <div {...gridProps} ref={scrollRef} className="graph-scroll" role="grid" aria-label="Commit graph" aria-rowcount={graph.rows.length} tabIndex={0} onKeyDown={onKeyDown} onPointerMove={onGridPointerMove} onPointerLeave={hideNodeTip} onScroll={(e) => {
+          hideNodeTip();
           if (e.currentTarget.offsetParent !== null) lastScroll.current = e.currentTarget.scrollTop;
           setScrollTop(e.currentTarget.scrollTop);
           setScrollLeft(e.currentTarget.scrollLeft);

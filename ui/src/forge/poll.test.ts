@@ -117,14 +117,14 @@ describe('pollForge (spec #4 §3.4)', () => {
 });
 
 describe('a poll that finds nothing new', () => {
-  it("keeps the owner pictures of user-owned projects other than the target's (a user's fork)", async () => {
+  it("keeps every project's owner picture, the target's too, and none for a project without one", async () => {
     const pic = (owner: string) => `https://gitlab.example.com/uploads/${owner}.png`;
     const alice = { ...target, remote: 'alice', path: 'alice/project', project: { ...projectOf('alice/project'), forkOf: 'group/project', ownerAvatarUrl: pic('alice') } };
     const team = { ...target, remote: 'team', path: 'team/project', project: { ...projectOf('team/project'), ownerAvatarUrl: null } };
     const own = { ...target, project: { ...project, ownerAvatarUrl: pic('group') } };
     api.forgeRepoProjects.mockResolvedValue({ remotes: [own, alice, team], target: 'origin' });
     await pollForge('t', 'timer');
-    expect(forgeOf('t').ownerAvatars).toEqual({ alice: pic('alice') });
+    expect(forgeOf('t').ownerAvatars).toEqual({ origin: pic('group'), alice: pic('alice') });
   });
 
   it("keeps a moved-on merged MR out of the badges, in the stacks' history", async () => {

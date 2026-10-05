@@ -1,5 +1,7 @@
-import { errorMessage } from '../../api/client';
+import { api, errorMessage } from '../../api/client';
+import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
+import { mrRef } from '../labels';
 import { useRuntime } from '../../app/runtime';
 import { useToast } from '../../ui/toast';
 import { noteForgeWritten, patchForge } from '../mrStore';
@@ -34,6 +36,17 @@ export function putMr(tabId: string, mr: ForgeMr): void {
     const merged = { ...mr, review: d.value.mr.review, pipeline: mr.pipeline ?? d.value.mr.pipeline };
     return { list, details: { ...f.details, [mr.number]: { value: { ...d.value, mr: merged }, at: d.at } } };
   });
+}
+
+/** Draft ⇄ ready (the MR view's ⋯ menu, the sidebar row's menu): a toast as it starts, the
+ * answer into the store, and the poll `forgeWrite` asks for. True when it worked. */
+export async function toggleMrDraft(tabId: string, kind: ForgeKind, mr: ForgeMr): Promise<boolean> {
+  const draft = mr.state !== 'draft';
+  const ref = mrRef(kind, mr.number);
+  useToast.getState().show(draft ? `Marking ${ref} as a draft…` : `Marking ${ref} as ready…`);
+  const out = await forgeWrite(tabId, draft ? `Couldn't mark ${ref} as a draft` : `Couldn't mark ${ref} as ready`, (repo) => api.forgeSetDraft(repo, mr.number, draft));
+  if (out) putMr(tabId, out.value);
+  return out !== null;
 }
 
 export function putDescription(tabId: string, number: number, description: string): void {

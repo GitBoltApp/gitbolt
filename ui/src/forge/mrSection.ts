@@ -26,7 +26,8 @@ export function mrSection(v: SectionView): Section | null {
 /** The panels with the MR/PR section right after Remote. */
 export function withMrSection(sections: Section[], mrs: Section | null): Section[] {
   if (!mrs) return sections;
-  const i = sections.findIndex((s) => s.id === 'remote');
+  // Below the worktrees and stashes (the last of local, remote, worktrees, stashes there is).
+  const i = Math.max(...['local', 'remote', 'worktrees', 'stashes'].map((id) => sections.findIndex((s) => s.id === id)));
   return [...sections.slice(0, i + 1), mrs, ...sections.slice(i + 1)];
 }
 

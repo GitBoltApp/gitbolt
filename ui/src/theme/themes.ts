@@ -115,7 +115,8 @@ function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
     'focus-outline': alpha(c.blue, light ? 0.5 : 0.6),
     'text-row-dimmed': alpha(fg, light ? 0.28 : 0.2),
     'text-row-dimmed-branch': alpha(fg, 0.5),
-    'sidebar-icon': c['text-secondary'],
+    // A step below the secondary text, so the labels beside the icons stand out.
+    'sidebar-icon': alpha(fg, light ? 0.5 : 0.45),
     'stats-added-bright': c.green,
     'stats-deleted-bright': c.red,
     'status-added': c.green,
@@ -165,7 +166,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'conflict-ours': '#15a0bf', 'conflict-theirs': '#f2ca33', 'conflict-base': '#c517b6',
       'wip-input-bg': '#16181c', 'wip-input-border': '#282a2d', 'wip-input-placeholder': '#6e6f71',
       'hover-row': 'rgba(77, 136, 255, 0.1)', 'selected-row': 'rgba(77, 136, 255, 0.2)', 'section-border': 'rgba(255, 255, 255, 0.08)', 'focus-outline': 'rgba(77, 136, 255, 0.6)',
-      'text-row-dimmed': 'rgba(255, 255, 255, 0.2)', 'text-row-dimmed-branch': 'rgba(255, 255, 255, 0.5)', 'sidebar-icon': 'rgba(255, 255, 255, 0.62)',
+      'text-row-dimmed': 'rgba(255, 255, 255, 0.2)', 'text-row-dimmed-branch': 'rgba(255, 255, 255, 0.5)', 'sidebar-icon': 'rgba(255, 255, 255, 0.45)',
       'stats-added-bright': '#5cb85c', 'stats-deleted-bright': '#f0625d',
       'status-added': '#5cb85c', 'status-modified': '#de9b43', 'status-deleted': '#d9413d', 'status-renamed': '#4d88ff', 'status-conflicted': '#b56ee6',
       'scroll-thumb-bg': 'rgba(255, 255, 255, 0.15)', 'scroll-thumb-hover-bg': 'rgba(255, 255, 255, 0.25)',

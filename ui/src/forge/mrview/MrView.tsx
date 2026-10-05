@@ -26,14 +26,17 @@ import './mrview.css';
  * out. It shows what's loaded (the list's or a badge's MR) at once, loads the rest, and keeps it
  * fresh through the poller (`openMr`).
  */
+const REFRESH_GRACE_MS = 120;
+
 export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
   const { number } = props;
   const f = useTabForge(tabId);
   const kind = f.kind ?? 'gitlab';
   useEffect(() => {
     patchForge(tabId, { openMr: number });
-    void refreshMr(tabId, number).catch(() => {});
-    return () => patchForge(tabId, (cur) => (cur.openMr === number ? { openMr: null } : {}));
+    // A beat of grace: arrowing down the sidebar's list opens each row in turn; only the one it rests on loads.
+    const t = setTimeout(() => { void refreshMr(tabId, number).catch(() => {}); }, REFRESH_GRACE_MS);
+    return () => { clearTimeout(t); patchForge(tabId, (cur) => (cur.openMr === number ? { openMr: null } : {})); };
   }, [tabId, number]);
   const detail = f.details[number]?.value ?? null;
   const mr = detail?.mr ?? knownMr(f, number);

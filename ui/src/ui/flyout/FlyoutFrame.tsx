@@ -22,6 +22,8 @@ export interface FlyoutFrameProps {
 export function FlyoutFrame({ label, title, onClose, headerActions, footer, children }: FlyoutFrameProps) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
+    // A list that drives the flyout with its arrow keys (the sidebar's MR/PR rows) keeps its focus.
+    if (document.activeElement?.closest('[data-keep-flyout-focus]')) return;
     heading.current?.focus({ preventScroll: true });
   }, []);
   return (

@@ -13,6 +13,7 @@ import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/toast';
 import { openWorktreeTab, setActiveWorktree } from '../worktrees/active';
+import { withPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /** "feature/x is checked out in ../shop-feature-x." [Switch to it] [Open in a new tab] (§9.3). */
@@ -36,7 +37,9 @@ function offerWorktree(ctx: WriteCtx, err: GbError): boolean {
  * a plain refusal: the error toast shows it, with no Retry and nothing to force. */
 export async function checkout(ctx: WriteCtx, target: CheckoutTarget, expect: Expect, onDiverged?: 'reset', origin: Origin | null = currentOrigin()): Promise<void> {
   // `origin`: where it started; the question comes after the backend's answer (spec §ui confirms).
-  const out = await runWrite(ctx, (ok) => api.checkout(ctx.repoId, ctx.worktree, target, expect, ok, onDiverged), { handle: (err) => offerWorktree(ctx, err), origin });
+  // The ref the user acted on shows the spinner while the write runs (a remote one for a new local).
+  const ref = target.kind === 'branch' ? `refs/heads/${target.name}` : target.kind === 'remote' ? `refs/remotes/${target.remote}/${target.branch}` : null;
+  const out = await withPending(ctx.tabId, ref ? [ref] : [], 'checkout', () => runWrite(ctx, (ok) => api.checkout(ctx.repoId, ctx.worktree, target, expect, ok, onDiverged), { handle: (err) => offerWorktree(ctx, err), origin }));
   if (out?.status !== 'diverged') return;
   const ok = await confirmAction({
     title: 'Branches have diverged',
@@ -98,10 +101,10 @@ export function checkoutSideItem({ tabId }: SidebarCtx, item: SideItem): void {
 }
 
 /** The toolbar branch picker and the palette: a local branch by name. */
-export function checkoutLocal(tabId: string, name: string): void {
+export async function checkoutLocal(tabId: string, name: string): Promise<void> {
   const ctx = ctxOf(tabId);
   const b = useRuntime.getState().tabs[tabId]?.sidebar?.locals.find((l) => l.name === name);
-  if (ctx && b) void checkout(ctx, { kind: 'branch', name }, { head: headOf(tabId), refs: { [b.fullName]: b.target } });
+  if (ctx && b) await checkout(ctx, { kind: 'branch', name }, { head: headOf(tabId), refs: { [b.fullName]: b.target } });
 }
 
 /** The palette's `@origin/x`: the remote branch. */

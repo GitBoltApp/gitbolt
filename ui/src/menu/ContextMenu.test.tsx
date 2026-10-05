@@ -696,3 +696,15 @@ describe('ContextMenu: an armed row (spec §ui confirms, board A)', () => {
     expect(screen.getByRole('menu')).toBeVisible();
   });
 });
+
+describe('ContextMenu: the anchor keeps aria-expanded', () => {
+  afterEach(() => act(() => useMenu.getState().close()));
+  it('is true while open and false after the toggle press', () => {
+    render(<><button type="button" onClick={(e) => openMenuAt(e.currentTarget, [action('one')])}>t</button><ContextMenu /></>);
+    const t = screen.getByRole('button', { name: 't' });
+    fireEvent.pointerDown(t); fireEvent.pointerUp(t); fireEvent.click(t);
+    expect(t.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.pointerDown(t); fireEvent.pointerUp(t); fireEvent.click(t);
+    expect(t.getAttribute('aria-expanded')).toBe('false');
+  });
+});

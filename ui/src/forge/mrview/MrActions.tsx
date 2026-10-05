@@ -12,7 +12,7 @@ import { useToast } from '../../ui/toast';
 import { mrRef } from '../labels';
 import { useForge } from '../mrStore';
 import { EditMr } from './EditMr';
-import { forgeWrite, putMr } from './writes';
+import { forgeWrite, toggleMrDraft } from './writes';
 
 const CHANGES_TIP: Record<ForgeKind, string> = {
   gitlab: "Posts your comment and withdraws your approval: GitLab's API has no review state",
@@ -61,12 +61,9 @@ export function MrActions({ tabId, kind, mr, detail, children }: { tabId: string
     useToast.getState().show(`Approved ${ref}`);
   };
   const toggleDraft = async () => {
-    const draft = mr.state !== 'draft';
     setBusy('draft');
-    useToast.getState().show(draft ? `Marking ${ref} as a draft…` : `Marking ${ref} as ready…`);
-    const out = await forgeWrite(tabId, draft ? `Couldn't mark ${ref} as a draft` : `Couldn't mark ${ref} as ready`, (repo) => api.forgeSetDraft(repo, mr.number, draft));
+    await toggleMrDraft(tabId, kind, mr);
     setBusy(null);
-    if (out) putMr(tabId, out.value);
   };
   const rows = (): MenuRow[] => [
     ...(live ? [{ kind: 'action' as const, id: 'mr.draft', label: mr.state === 'draft' ? 'Mark as ready' : 'Mark as draft', icon: mr.state === 'draft' ? GitPullRequest : GitPullRequestDraft, tooltip: mr.state === 'draft' ? `Mark ${ref} as ready for review` : `Mark ${ref} as a draft`, run: () => void toggleDraft() }] : []),

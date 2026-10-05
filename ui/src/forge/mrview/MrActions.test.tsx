@@ -70,6 +70,12 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     expect(api.forgeSetDraft).toHaveBeenCalledWith(4, 12, false);
   });
 
+  it("Edit's description is a ten-row textarea", () => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute('rows', '10');
+  });
+
   it('Edit sends only what changed', async () => {
     api.forgeEditMr.mockResolvedValue(mrOf(12, { title: 'Dev work, part 1', labels: ['backend', 'ui'] }));
     show();

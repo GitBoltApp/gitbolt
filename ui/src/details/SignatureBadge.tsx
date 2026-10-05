@@ -9,6 +9,9 @@ import './header.css';
 
 const LABEL: Record<SignatureKind, string> = { verified: 'Verified', unverified: 'Unverified', bad: 'Bad signature', expired: 'Expired', unknownKey: 'Unknown key', unsigned: 'Not signed' };
 
+/** How long a pending check keeps its box empty before the dim "checking" shield shows. */
+export const CHECKING_DELAY_MS = 300;
+
 type Check = { status: 'ready'; value: SignaturePayload } | { status: 'error'; message: string };
 
 function card(title: string, s: SignaturePayload | null): ReactNode {
@@ -25,8 +28,9 @@ function card(title: string, s: SignaturePayload | null): ReactNode {
 /**
  * The signature status (spec §9.1), as just an icon with a different drawing per status
  * (feedback F16); "Not signed" is a dim bare shield. An unsigned commit says so without asking
- * git; a signed one is verified lazily when selected (cached per commit id by
- * `services.signature`). The status, signer, key, fingerprint, trust and detail show in a hover
+ * git; a signed one is verified when selected (the selection starts the check with the details
+ * and prefetches the neighbours'; cached per commit id by `services.signature`). The box stays
+ * empty for `CHECKING_DELAY_MS`, then shows a dim "checking" shield. The status, signer, key, fingerprint, trust and detail show in a hover
  * card, portaled so the details panel can't clip it.
  */
 export function SignatureBadge({ id, signed }: { id: string; signed: boolean }) {
@@ -45,6 +49,16 @@ export function SignatureBadge({ id, signed }: { id: string; signed: boolean }) 
   const cached = signed ? services.signature.peek(id) : undefined;
   const result: Check | null = check?.id === id ? check.result : cached ? { status: 'ready', value: cached } : null;
 
+  // The "checking" shield only after CHECKING_DELAY_MS: most checks are in by then, and the
+  // status icon then simply appears in its reserved box, with no dashed shield flashing first.
+  const waiting = signed && !result;
+  const [slow, setSlow] = useState<string | null>(null);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setTimeout(() => setSlow(id), CHECKING_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [waiting, id]);
+
   let kind: SignatureIconKind, label: string, content: ReactNode;
   if (!signed) [kind, label] = ['unsigned', LABEL.unsigned];
   else if (!result) [kind, label] = ['loading', 'Checking signature…'];
@@ -56,7 +70,7 @@ export function SignatureBadge({ id, signed }: { id: string; signed: boolean }) 
   // Focusable, and focus shows the same card (the hover tooltip only needs the trigger element).
   const onFocus = (e: FocusEvent<HTMLElement>) => triggerProps.onMouseEnter(e as unknown as MouseEvent<HTMLElement>);
   return (
-    <span className={`sig-badge sig-${kind}`} role="img" aria-label={label} tabIndex={0} data-testid="signature-badge" data-kind={kind} {...triggerProps} onFocus={onFocus} onBlur={hide}>
+    <span className={`sig-badge sig-${kind}${waiting && slow !== id ? ' sig-pending' : ''}`} role="img" aria-label={label} tabIndex={0} data-testid="signature-badge" data-kind={kind} {...triggerProps} onFocus={onFocus} onBlur={hide}>
       <SignatureIcon kind={kind} />
       {tooltip}
     </span>

@@ -46,6 +46,17 @@ describe('avatar store', () => {
     unsubscribe();
   });
 
+  it('passes the asking tab\'s repo to the fetch (its GitHub project is the last place looked), none outside a tab', async () => {
+    const fetch = vi.fn(async (_email: string, _repo?: number) => null);
+    const avatars = createAvatarStore(fetch);
+    avatars.requestVisible(['ada@example.com'], 3);
+    avatars.prefetchOne('grace@example.com', 4);
+    avatars.request('linus@example.com', -1);
+    await flush();
+    await flush();
+    expect(Object.fromEntries(fetch.mock.calls.map((c) => [c[0], c[1]]))).toEqual({ 'ada@example.com': 3, 'grace@example.com': 4, 'linus@example.com': undefined });
+  });
+
   it('reset forgets images and "no avatar" answers, so every email is asked for again (the Gravatar setting changed)', async () => {
     const fetch = vi.fn(async (email: string) => (email === 'ada@example.com' ? png : null));
     const avatars = createAvatarStore(fetch);
@@ -71,17 +82,50 @@ describe('avatar store', () => {
     expect(avatars.get('ada@example.com')).not.toBeNull();
   });
 
-  it('runs at most 4 requests at a time', async () => {
+  it('runs at most 4 requests at a time, plus 2 kept for the details panel\'s people', async () => {
     const m = manual();
     const avatars = createAvatarStore(m.fetch);
-    for (let i = 0; i < 6; i++) avatars.request(`u${i}@example.com`);
+    avatars.requestVisible(Array.from({ length: 6 }, (_, i) => `row${i}@example.com`));
     expect(m.fetch).toHaveBeenCalledTimes(4);
+    // The panel's committer and co-authors don't wait for the graph's rows on the network.
+    for (let i = 0; i < 3; i++) avatars.request(`u${i}@example.com`);
+    expect(m.fetched().slice(4)).toEqual(['u0@example.com', 'u1@example.com']);
     m.settle('u0@example.com', null);
     await flush();
-    expect(m.fetch).toHaveBeenCalledTimes(5);
+    expect(m.fetched().slice(6)).toEqual(['u2@example.com']);
   });
 
-  it('visible rows are latest-wins: a newer set drops the older set\'s queued requests, which can be asked for again later', async () => {
+  it('neighbours\' people (prefetchOne) never take the reserved slots, and the selected commit\'s co-author goes first', async () => {
+    const m = manual();
+    const avatars = createAvatarStore(m.fetch);
+    avatars.requestVisible(Array.from({ length: 4 }, (_, i) => `row${i}@example.com`));
+    for (let i = 0; i < 3; i++) avatars.prefetchOne(`near${i}@example.com`);
+    expect(m.fetched()).toHaveLength(4); // all 4 slots are the graph's; the reserve stays free
+    avatars.request('co@example.com');
+    expect(m.fetched()[4]).toBe('co@example.com'); // a reserved slot, at once
+    m.settle('row0@example.com', null);
+    await flush();
+    expect(m.fetched()).toHaveLength(5); // 4 running (3 rows + the co-author): no prefetch slot yet
+    m.settle('co@example.com', null);
+    await flush();
+    expect(m.fetched().slice(5)).toEqual(['near0@example.com']); // then the neighbours, within the 4
+  });
+
+  it('a queued neighbour avatar the user then selects is promoted ahead of the others', async () => {
+    const m = manual();
+    const avatars = createAvatarStore(m.fetch, { concurrency: 1 });
+    avatars.request('busy@example.com');
+    avatars.request('busy2@example.com');
+    avatars.request('busy3@example.com'); // concurrency 1 + 2 reserved: all three running
+    avatars.prefetchOne('a@example.com');
+    avatars.prefetchOne('b@example.com');
+    avatars.request('b@example.com');
+    m.settle('busy@example.com', null);
+    await flush();
+    expect(m.fetched().slice(3, 4)).toEqual(['b@example.com']);
+  });
+
+  it('visible rows are latest-wins:a newer set drops the older set\'s queued requests, which can be asked for again later', async () => {
     const m = manual();
     const avatars = createAvatarStore(m.fetch);
     const a = Array.from({ length: 8 }, (_, i) => `a${i}@example.com`);

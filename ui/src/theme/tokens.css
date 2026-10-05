@@ -26,7 +26,7 @@
   --stats-deleted: #c93c37;
   --blue: #4d88ff;
   /* K62: sidebar row and strip icons, dimmer than the item text so they don't read as text. */
-  --sidebar-icon: rgba(255, 255, 255, 0.62);
+  --sidebar-icon: rgba(255, 255, 255, 0.45);
   /* K55: the sidebar section counts, in bold light blue. */
   --count-blue: #6d9deb;
   --green: #5cb85c;
@@ -93,7 +93,7 @@
   --graph-8: #7bd938;
   --graph-9: #2ece9d;
   /* ---- end plan 1D themes ---- */
-  --font-ui: system-ui, "Segoe UI", Ubuntu, Cantarell, sans-serif;
+  --font-ui: system-ui, "Segoe UI", Ubuntu, Cantarell, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
   --font-mono: ui-monospace, monospace;
   color-scheme: dark;
 }

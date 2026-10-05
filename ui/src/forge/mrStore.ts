@@ -28,7 +28,7 @@ export interface TabForge {
   targetChosen: boolean;
   /** Why a remote's forge project couldn't be loaded (its row's hint), by remote name. */
   remoteErrors: Record<string, string>;
-  /** Remote → its owner's picture (`ForgeProject.ownerAvatarUrl`), for a user-owned project that isn't the target (a user's fork): its remote icons show it (`RemoteIcon`). */
+  /** Remote → its project owner's picture (`ForgeProject.ownerAvatarUrl`: a user's, an organization's or a group's): its remote icons show it (`RemoteIcon`). */
   ownerAvatars: Record<string, string>;
   /** The account's username (Approve's "You approved it"). */
   me: string | null;

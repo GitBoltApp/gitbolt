@@ -503,6 +503,42 @@ impl ForgeHub {
         None
     }
 
+    // --- GitHub commit-author avatars ---
+    /// The last avatar step, after `avatar` and Gravatar found nothing: the repo's forge target
+    /// (`target_remote`), when it's a GitHub project with an account, asked who `email`'s commits
+    /// belong to (`ForgeProvider::avatar_for_email_in`). The email only goes to that project's
+    /// API. Failures are quiet: the UI keeps the initials.
+    pub async fn author_avatar(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], email: &str) -> Option<AvatarPayload> {
+        let email = email.trim();
+        if email.is_empty() || crate::avatar::is_github_noreply(email) {
+            return None;
+        }
+        // Cheap first: no request at all without a GitHub account.
+        if !store.active_profile().forge_accounts.iter().any(|a| a.kind == ForgeKind::GitHub) {
+            return None;
+        }
+        let rp = self.repo_projects(store, remotes, false).await;
+        let target = rp.target.as_deref()?;
+        let mapped = rp.remotes.iter().find(|r| r.remote == target)?;
+        if mapped.account != Some(ForgeKind::GitHub) || mapped.project.is_none() {
+            return None;
+        }
+        let (key, provider, project) = self.project_for_remote(store, remotes, target).await.ok()?;
+        let result = provider.avatar_for_email_in(&project, email).await;
+        match result {
+            Ok(found) => found,
+            Err(e) => {
+                // Never the email: the message names the host only.
+                tracing::debug!("commit-author avatar from {}: {}", project.host, e.message);
+                if e.kind == GbErrorKind::Network {
+                    self.record::<()>(&key, &Err(e));
+                }
+                None
+            }
+        }
+    }
+    // --- end GitHub commit-author avatars ---
+
     /// The picture a forge linked to (`ForgeUser.avatar_url`, a project owner's): fetched by the
     /// first of the active profile's accounts that serves `url` (`ForgeProvider::avatar_at`: its
     /// own host's uploads or its forge's avatar host, so never an arbitrary address), Gravatar's

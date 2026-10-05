@@ -1,6 +1,8 @@
 import { api, errorMessage } from '../api/client';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { DiffSpec } from '../api/gen/DiffSpec';
+import type { ForgeKind } from '../api/gen/ForgeKind';
+import type { ForgeMr } from '../api/gen/ForgeMr';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
 import type { RefLabel } from '../api/gen/RefLabel';
@@ -193,6 +195,9 @@ export type SidebarTarget =
   | { what: 'remote'; name: string; url: string | null }
   | { what: 'worktree'; path: string; branch: string | null; head: string | null }
   | { what: 'stash'; sha: string; message: string };
+
+/** A sidebar MR/PR row (`mr` kind): the MR/PR, its forge's kind (the wording) and the tab it's in. */
+export interface MrTarget { tabId: string; mr: ForgeMr; forge: ForgeKind }
 
 export const commitTargetOf = (row: RowPayload, branch: BranchRef | null = null): CommitTarget =>
   ({ sha: row.id, mrRefs: row.mrRefs, isWip: row.kind === 'wip', isStash: row.kind === 'stash', branch });
@@ -617,8 +622,9 @@ const joinGroups = (...groups: MenuRow[][]): MenuRow[] =>
 
 /** A right-click (or the menu key) on a sidebar item. A local or remote branch gets the branch
  * label's commit menu (a local's remote copy is its configured upstream, from the sidebar), a tag
- * the tag menu, a stash and a worktree their own copy/open rows; each ends with "Show in graph". */
-export function sidebarItemMenu(store: RepoViewStore, item: SideItem): () => MenuRow[] {
+ * the tag menu, a stash and a worktree their own copy/open rows; each ends with "Show in graph".
+ * An MR/PR gets the `mr` menu (forge/mrMenu.ts) of tab `tab` (else the store's own tab). */
+export function sidebarItemMenu(store: RepoViewStore, item: SideItem, tab: string | null = null): () => MenuRow[] {
   afterOpening(store);
   return () => {
     const s = store.getState();
@@ -641,10 +647,11 @@ export function sidebarItemMenu(store: RepoViewStore, item: SideItem): () => Men
         return view({ what: 'stash', sha: item.stash.id, message: item.stash.message });
       case 'worktree':
         return view({ what: 'worktree', path: item.worktree.path, branch: item.worktree.branch, head: item.worktree.head });
-      // --- 4B T11: an MR/PR row has no menu ---
-      case 'mr':
-        return [];
-      // --- end 4B T11 ---
+      // An MR/PR row: its own `mr` kind (forge/mrMenu.ts).
+      case 'mr': {
+        const tabId = tab ?? tabIdOf(store);
+        return tabId ? buildMenu<MrTarget, MenuEnv>('mr', { tabId, mr: item.mr, forge: item.forge }, env) : [];
+      }
     }
   };
 }

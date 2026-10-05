@@ -196,4 +196,21 @@ describe('Toolbar (spec §6.3)', () => {
     offB();
     offC();
   });
+  it('the caret toggles: a second press closes the menu even when the caret awaits prepareMenu', async () => {
+    const run = vi.fn();
+    const offA = registerActions([{ id: 't.undo', label: 'Undo', group: 'Repository', icon: Search, tooltip: 'Undo', run }]);
+    const offB = registerToolbarButton({ action: 't.undo', order: 97, prepareMenu: async () => { await Promise.resolve(); }, menuRows: () => [{ kind: 'action' as const, id: 'u', label: 'one', icon: Search, tooltip: 'one', run }] });
+    const { ContextMenu } = await import('../menu/ContextMenu');
+    render(<RepoContext value={ctx}><Toolbar /><ContextMenu /></RepoContext>);
+    const caret = screen.getByRole('button', { name: 'Undo options' });
+    const press = () => { fireEvent.pointerDown(caret); fireEvent.pointerUp(caret); fireEvent.click(caret); };
+    press();
+    await vi.waitFor(() => expect(useMenu.getState().rows).not.toBeNull());
+    press();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(useMenu.getState().rows).toBeNull();
+    expect(caret.getAttribute('aria-expanded')).toBe('false');
+    offA();
+    offB();
+  });
 });

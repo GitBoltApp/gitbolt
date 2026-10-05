@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, graphLayout, nodeRadius, PACKED_ALPHA, SELECTED_BAND_ALPHA, SHADE_ALPHA, SHADE_W, stashHalf, zoneWidth } from './draw';
+import { BAND_ALPHA, CONNECTOR_ALPHA, drawGraph, graphLayout, nodeAt, nodeRadius, PACKED_ALPHA, SELECTED_BAND_ALPHA, SHADE_ALPHA, SHADE_W, stashHalf, zoneWidth } from './draw';
+import { laneX } from './geometry';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { avatarLane } from '../avatars/color';
 
@@ -413,5 +414,37 @@ describe('drawGraph: the collapse zone, packed nodes and the minimum-width strip
     const square = calls.indexOf(`rect(${23 - s},${62.5 - s},${2 * s},${2 * s})`);
     expect(calls.slice(0, square).filter((c) => c.startsWith('lineTo('))).toEqual(['lineTo(14,12.5)']);
     expect(calls).toContain('fillRect(46,2,2,21)'); // the rail edge
+  });
+});
+
+describe('nodeAt (hit-testing the drawn commit nodes)', () => {
+  const m = { rowH: 22, laneW: 16, padX: 8 };
+  const base = { rows: [row(0, 'commit', []), row(1, 'commit', []), row(0, 'wip', []), row(0, 'stash', []), row(0, 'merge', [])], scrollTop: 0, width: 100, metrics: m };
+  const r = nodeRadius(m);
+  it('hits the centre and misses just outside the radius', () => {
+    expect(nodeAt(base, laneX(0, m), 11)).toBe(0);
+    expect(nodeAt(base, laneX(0, m) + r - 0.1, 11)).toBe(0);
+    expect(nodeAt(base, laneX(0, m) + r + 0.1, 11)).toBeNull();
+    expect(nodeAt(base, laneX(1, m), 22 + 11)).toBe(1);
+    expect(nodeAt(base, laneX(1, m), 11)).toBeNull();
+  });
+  it('only commit nodes count: not wip, stash or a merge dot', () => {
+    expect(nodeAt(base, laneX(0, m), 44 + 11)).toBeNull();
+    expect(nodeAt(base, laneX(0, m), 66 + 11)).toBeNull();
+    expect(nodeAt(base, laneX(0, m), 88 + 11)).toBeNull();
+  });
+  it('respects scrollTop and scrollX', () => {
+    expect(nodeAt({ ...base, scrollTop: 22 }, laneX(1, m), 11)).toBe(1);
+    expect(nodeAt({ ...base, scrollX: 10 }, laneX(0, m) - 10, 11)).toBe(0);
+    expect(nodeAt({ ...base, scrollX: 10 }, laneX(0, m), 11)).toBeNull();
+  });
+  it('a packed or strip node is hit where it is drawn, and a scrolled-out lane at the packed column', () => {
+    const { packedX } = graphLayout(100, m, true);
+    expect(nodeAt({ ...base, clipped: true, scrollX: 20 }, packedX, 11)).toBe(0);
+    expect(nodeAt({ ...base, clipped: true, scrollX: 20 }, laneX(0, m) - 20, 11)).toBeNull();
+    const strip = { ...base, width: 12, clipped: true };
+    expect(graphLayout(12, m, true).strip).toBe(true);
+    expect(nodeAt(strip, 5, 11)).toBe(0);
+    expect(nodeAt(strip, laneX(0, m), 11)).toBeNull();
   });
 });

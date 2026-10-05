@@ -39,7 +39,7 @@ export function EditMr({ tabId, mr, detail, onDone }: { tabId: string; mr: Forge
   return (
     <form className="mr-edit" aria-label="Edit" onSubmit={(e) => { e.preventDefault(); if (changed && title.trim() && !busy) void save(); }}>
       <label>Title<input aria-label="Title" value={title} onChange={(e) => setTitle(e.target.value)} /></label>
-      <label>Description<textarea aria-label="Description" value={description} disabled={!detail} onChange={(e) => setDescription(e.target.value)} /></label>
+      <label>Description<textarea aria-label="Description" rows={10} value={description} disabled={!detail} onChange={(e) => setDescription(e.target.value)} /></label>
       {repoId !== undefined && remote ? (
         <SearchPicker<ForgeLabel>
           label="Labels"

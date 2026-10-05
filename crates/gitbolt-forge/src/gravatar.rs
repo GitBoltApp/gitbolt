@@ -164,24 +164,28 @@ impl GravatarCache {
 
     /// Blocking: call it from `spawn_blocking`. `Ok(None)` means no avatar.
     pub fn get_blocking(&self, email: &str) -> Result<Option<AvatarPayload>, String> {
+        match self.cached_blocking(email) {
+            Some(known) => Ok(known),
+            None => self.fetch(&email_key(email)),
+        }
+    }
+
+    /// Blocking, and never the network: `Some(answer)` when the disk cache knows this email
+    /// (`Some(None)`: no avatar, or a blank email), `None` when only a request can tell.
+    pub fn cached_blocking(&self, email: &str) -> Option<Option<AvatarPayload>> {
         if email.trim().is_empty() {
-            return Ok(None);
+            return Some(None);
         }
         let key = email_key(email);
-        if let Some(entry) = self.with_index(|index| index.get(&key).cloned()) {
-            let ttl = if entry.ext.is_some() { FOUND_TTL_SECS } else { MISSING_TTL_SECS };
-            if now() - entry.fetched < ttl {
-                match entry.ext {
-                    None => return Ok(None),
-                    Some(ext) => {
-                        if let Ok(bytes) = std::fs::read(self.dir.join(format!("{key}.{ext}"))) {
-                            return Ok(Some(payload(&ext, &bytes)));
-                        }
-                    }
-                }
-            }
+        let entry = self.with_index(|index| index.get(&key).cloned())?;
+        let ttl = if entry.ext.is_some() { FOUND_TTL_SECS } else { MISSING_TTL_SECS };
+        if now() - entry.fetched >= ttl {
+            return None;
         }
-        self.fetch(&key)
+        match entry.ext {
+            None => Some(None),
+            Some(ext) => std::fs::read(self.dir.join(format!("{key}.{ext}"))).ok().map(|bytes| Some(payload(&ext, &bytes))),
+        }
     }
 
     fn fetch(&self, key: &str) -> Result<Option<AvatarPayload>, String> {
@@ -237,6 +241,13 @@ impl AvatarProvider for Gravatar {
         Box::pin(async move {
             if !self.enabled.load(Ordering::Relaxed) {
                 return Ok(None);
+            }
+            // What the disk cache already knows never waits for a permit: those are for requests,
+            // and a cached answer (the details panel's committer) mustn't queue behind the graph's
+            // rows waiting on the network.
+            let (cache, mail) = (self.cache.clone(), email.to_string());
+            if let Ok(Some(known)) = tokio::task::spawn_blocking(move || cache.cached_blocking(&mail)).await {
+                return Ok(known);
             }
             let _permit = self.permits.acquire().await.map_err(|e| GbError::other(e.to_string()))?;
             let cache = self.cache.clone();
@@ -530,5 +541,22 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 1, "disabled: no request");
         let offline = Gravatar::new(dir.path().join("x"), closed_base());
         assert_eq!(offline.avatar("x@example.com").await.unwrap(), None, "offline shows initials, not an error");
+    }
+
+    /// Every request slot busy (the graph's rows waiting on the network): what the disk cache
+    /// knows is still answered at once, without a request.
+    #[tokio::test]
+    async fn a_cached_answer_never_waits_for_a_request_slot() {
+        let (base, hits) = server();
+        let dir = tempfile::tempdir().unwrap();
+        let g = Gravatar::new(dir.path().to_path_buf(), &base);
+        assert!(g.avatar("found@example.com").await.unwrap().is_some());
+        assert_eq!(g.avatar("none@example.com").await.unwrap(), None);
+        let _all = g.permits.acquire_many(PARALLEL_REQUESTS as u32).await.unwrap();
+        let quick = |email: &'static str| tokio::time::timeout(Duration::from_secs(2), g.avatar(email));
+        assert!(quick("found@example.com").await.expect("not queued").unwrap().is_some());
+        assert_eq!(quick("none@example.com").await.expect("not queued").unwrap(), None);
+        assert_eq!(hits.load(Ordering::SeqCst), 2, "both from disk");
+        assert!(quick("new@example.com").await.is_err(), "a new email does wait for a slot");
     }
 }

@@ -38,6 +38,7 @@ import { HunkActions, wipSideOf } from './hunkActions';
 import { wipHunkZones } from './wipHunks';
 import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty, saveWorkingCopy, suspendCopy, trackCopy, useWorkingCopy, worktreeFileTarget } from './workingCopy';
 import './diff.css';
+import { ArrowGlyph } from '../ui/ArrowGlyph';
 
 /** The target's contents. A cached (e.g. prefetched) file is ready on the first render, so
  * Up/Down through prefetched files never shows a loading frame. */
@@ -224,7 +225,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     return (
       <div className="diff-message">
         <p>Too large to show — over {FORCED_CEILING_LABEL} per side</p>
-        <p className="dim">{formatBytes(c.old?.size)} → {formatBytes(c.new?.size)}</p>
+        <p className="dim">{formatBytes(c.old?.size)} <ArrowGlyph /> {formatBytes(c.new?.size)}</p>
       </div>
     );
   }
@@ -232,7 +233,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     return (
       <div className="diff-message">
         <p>Large file — load anyway?</p>
-        <p className="dim">{formatBytes(c.old?.size)} → {formatBytes(c.new?.size)}</p>
+        <p className="dim">{formatBytes(c.old?.size)} <ArrowGlyph /> {formatBytes(c.new?.size)}</p>
         <button type="button" className="text-button" onClick={onLoadAnyway}>Load anyway</button>
       </div>
     );
@@ -255,7 +256,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
   // (detaches and re-attaches) the editor.
   return (
     <>
-      {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} → {eolLabel(c.new?.eol)})</div>}
+      {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} <ArrowGlyph /> {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
         ? <FileView identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} />
         : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined} />}

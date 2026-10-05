@@ -1,6 +1,6 @@
 import type { MenuRow } from './types';
 
-export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection' | 'chip';
+export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection' | 'chip' | 'mr';
 
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
@@ -26,6 +26,9 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   selection: ['squash', 'commit', 'rebase'],
   // A branch chip in the interactive rebase editor (UX R1.3): Delete branch, Restore, then Copy.
   chip: ['manage', 'copy'],
+  // A sidebar MR/PR row: Open, Check out (here or in a new worktree), Show in graph, the copies
+  // and the link, then the author's draft ⇄ ready.
+  mr: ['open', 'checkout', 'view', 'copy', 'forge'],
 };
 
 export interface MenuContribution<T, E> {

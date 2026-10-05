@@ -9,6 +9,7 @@ import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { useToast, type ToastAction } from '../ui/toast';
+import { withPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 import { askPushTarget } from './PushUpstreamPanel';
 import { showServerResult } from './serverOutput';
@@ -138,7 +139,7 @@ async function rejected(ctx: WriteCtx, b: LocalBranch, err: GbError, target: str
 
 async function send(ctx: WriteCtx, b: LocalBranch, opts: { target?: PushTarget; setUpstream?: boolean; lease?: { oid: string | null } }, origin: Origin | null = currentOrigin()): Promise<void> {
   const shown = opts.target ? `${opts.target.remote}/${opts.target.branch}` : (b.pushTarget ?? b.name);
-  await runWrite(ctx, () => api.push(ctx.repoId, ctx.worktree, b.name, { ...opts, expect: { head: null, refs: { [b.fullName]: b.target } } }), {
+  await withPending(ctx.tabId, [b.fullName], 'push', () => runWrite(ctx, () => api.push(ctx.repoId, ctx.worktree, b.name, { ...opts, expect: { head: null, refs: { [b.fullName]: b.target } } }), {
     onSuccess: (o) => {
       const dst = `${o.remote}/${o.dst}`;
       // A rewrite mark's lease held (spec #2 §12.3): say it was forced, and why.
@@ -151,7 +152,7 @@ async function send(ctx: WriteCtx, b: LocalBranch, opts: { target?: PushTarget; 
       return true;
     },
     origin,
-  });
+  }));
 }
 
 /** Push: to the branch's target; with none, asks where (and tracks it). */

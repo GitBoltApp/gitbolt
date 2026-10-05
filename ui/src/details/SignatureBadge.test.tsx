@@ -68,6 +68,34 @@ describe('SignatureBadge', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
+  it('keeps its box empty for the first 300 ms of a check, then shows the dim "checking" shield', () => {
+    vi.useFakeTimers();
+    try {
+      renderBadge(() => new Promise<SignaturePayload>(() => {}), '9'.repeat(40), true);
+      const badge = screen.getByTestId('signature-badge');
+      expect(badge).toHaveAttribute('data-kind', 'loading');
+      expect(badge).toHaveClass('sig-pending');
+      expect(badge.querySelector('svg')).not.toBeNull(); // the box is reserved: no shift later
+      act(() => vi.advanceTimersByTime(299));
+      expect(badge).toHaveClass('sig-pending');
+      act(() => vi.advanceTimersByTime(1));
+      expect(badge).not.toHaveClass('sig-pending');
+      expect(badge).toHaveAccessibleName('Checking signature…');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a check already cached shows its status at once, never the pending box', () => {
+    const loader = new Loader(async () => verified, new Lru<string, SignaturePayload>(5));
+    loader.cache.set('8'.repeat(40), verified);
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ signature: loader }));
+    render(<RepoViewContext value={store}><SignatureBadge id={'8'.repeat(40)} signed /></RepoViewContext>);
+    const badge = screen.getByTestId('signature-badge');
+    expect(badge).toHaveAttribute('data-kind', 'verified');
+    expect(badge).not.toHaveClass('sig-pending');
+  });
+
   it('shows a bad signature with its detail, and a failed check as such', async () => {
     renderBadge(async () => ({ kind: 'bad', signer: '', key: 'ABCD', fingerprint: 'ABCD1234', trust: '', detail: 'BAD signature from x' }), 'c'.repeat(40), true);
     const badge = await screen.findByRole('img', { name: 'Bad signature' });

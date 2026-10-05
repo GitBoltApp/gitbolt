@@ -61,4 +61,29 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
     await page.keyboard.press('Escape');
     await expect(view).toBeHidden();
   });
+
+  test("a sidebar row's menu: Copy link, then Check out a same-repository MR", async ({ page, request }) => {
+    const repo = freshFixture('sync');
+    git(repo, 'remote', 'set-url', 'origin', 'https://gitlab.example.com/group/project.git');
+    await addForgeAccount(request, 'gitlab.example.com', 'gitlab', E2E_GITLAB_TOKEN);
+    await page.goto(openUrl(repo));
+    const sidebar = page.getByRole('complementary', { name: 'Sidebar', exact: true });
+    const row = sidebar.getByRole('region', { name: 'Merge requests', exact: true }).getByRole('treeitem', { name: '!12 Dev work' });
+    const menu = page.getByTestId('context-menu');
+    const action = (label: string) => menu.locator('[data-depth="0"] > [role="menuitem"]').filter({ has: page.locator('.ctx-label').getByText(label, { exact: true }) });
+
+    await row.click({ button: 'right' });
+    await action('Copy link').click();
+    await expect(page.getByRole('status')).toHaveText('Copied');
+    if (test.info().project.name === 'chromium') {
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/group\/project\/-\/merge_requests\/12$/);
+    }
+
+    // `dev` already tracks origin/dev: Check out switches to it, and the row then says so.
+    await row.click({ button: 'right' });
+    await action('Check out').click();
+    await expect(sidebar.getByRole('region', { name: 'Local', exact: true }).locator('.sb-item.is-head')).toHaveAttribute('aria-label', 'dev');
+    await row.click({ button: 'right' });
+    await expect(action('Checked out')).toHaveAttribute('aria-disabled', 'true');
+  });
 });

@@ -6,6 +6,7 @@ import { useModalKeys } from '../app/modalKeys';
 import { registerAppSlot } from '../app/slots';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
+import { forgeOf } from '../forge/mrStore';
 import { detectHostKind, HOST_KIND_NAMES } from '../forge/hostKind';
 import { freeRemoteName, parseRemoteUrl, remoteNameError, remoteUrlError } from '../forge/remoteUrl';
 import { effectiveKind } from '../forge/urls';
@@ -42,6 +43,9 @@ function Form({ tabId }: { tabId: string }) {
   const [url, setUrl] = useState('');
   const [name, setName] = useState<string | null>(null); // null: follows the URL's owner
   const [forks, setForks] = useState<Forks>({ status: 'none' });
+  // Decided at open from what the tab already knows, so the box is there from the first frame.
+  const [expectForks] = useState(() => { const f = forgeOf(tabId); return f.kind !== null || f.mapped.length > 0; });
+  const [lookedUp, setLookedUp] = useState(false);
   const inFlight = useRef(false);
   const generation = useRef(0); // bumps on each (re)open load: older answers are dropped
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -63,7 +67,8 @@ function Form({ tabId }: { tabId: string }) {
     void (async () => {
       const projects = await api.forgeRepoProjects(repoId).catch(() => null);
       const target = projects?.remotes.find((r) => r.remote === projects.target);
-      if (!live || !target?.project) return;
+      if (!live) return;
+      if (!target?.project) { setLookedUp(true); return; }
       const of = target.project;
       setForks({ status: 'loading', of });
       try {
@@ -142,9 +147,12 @@ function Form({ tabId }: { tabId: string }) {
             <button type="submit" className="primary" disabled={!!urlError || !!nameError}>Add remote</button>
           </div>
         </form>
-        {forks.status !== 'none' && (
+        {(expectForks || forks.status !== 'none') && (
           <section className="add-remote-forks" aria-label="Forks">
-            <h3>Forks of {forks.of.path}</h3>
+            <h3>{forks.status === 'none' ? 'Forks' : `Forks of ${forks.of.path}`}</h3>
+            {/* One box of fixed height from the first frame, so the dialog never resizes as forks arrive (or none do). */}
+            <div className="fork-box" data-testid="fork-box">
+            {forks.status === 'none' && <p className="dim">{lookedUp ? 'No forks to show' : 'Loading forks…'}</p>}
             {forks.status === 'loading' && <p className="dim">Loading forks…</p>}
             {forks.status === 'error' && <p role="alert" className="modal-error">{forks.message}</p>}
             {forks.status === 'ready' && forks.list.length === 0 && <p className="dim">No forks yet</p>}
@@ -171,6 +179,7 @@ function Form({ tabId }: { tabId: string }) {
                 )}
               </ul>
             )}
+            </div>
           </section>
         )}
       </div>

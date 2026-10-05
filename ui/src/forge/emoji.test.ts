@@ -10,6 +10,12 @@ describe('emoji shortcodes', () => {
     expect(emojify('feature :gear:', null)).toBe('feature :gear:');
   });
 
+  it('adds the colour selector to a text-presentation emoji that lacks it', () => {
+    expect(emojify(':gear:', { gear: '⚙' })).toBe('⚙️');
+    expect(emojify(':a:', { a: '⚙️' })).toBe('⚙️');
+    expect(emojify(':b:', { b: '📚' })).toBe('📚');
+  });
+
   it("never reads the object prototype's names", () => {
     expect(emojify(':constructor: :toString: :__proto__:', map)).toBe(':constructor: :toString: :__proto__:');
   });

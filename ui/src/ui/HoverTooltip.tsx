@@ -89,11 +89,58 @@ export function measureNatural(el: HTMLElement): Size {
   return { width, height };
 }
 
-export function placeBelow(anchor: Anchor, { width, height }: Size, gap = GAP) {
-  const left = Math.max(EDGE, Math.min(anchor.left, window.innerWidth - EDGE - width));
-  let top = anchor.bottom + gap;
-  if (top + height > window.innerHeight - EDGE) top = Math.max(EDGE, anchor.top - gap - height);
+export function placeBelow(anchor: Anchor, size: Size, gap = GAP) {
+  const { left, top } = placeCard(anchor, size, gap);
   return { left, top };
+}
+
+/**
+ * The one placement for every card and tooltip (K52 and the hover cards): kept inside the window.
+ * `below` (default): under the anchor when it fits, else above it, else (taller than both) at the
+ * top margin with `maxHeight` set to the window's height minus margins, for the caller to scroll.
+ * `top`: beside the anchor with its top edge on the anchor's, moved up just enough to fit.
+ * Pure: the window's size is passed in (default: the live one).
+ */
+export function placeCard(
+  anchor: { left: number; top: number; bottom: number },
+  { width, height }: Size,
+  gap = GAP,
+  mode: 'below' | 'top' = 'below',
+  vw = window.innerWidth,
+  vh = window.innerHeight,
+): { left: number; top: number; maxHeight?: number } {
+  const left = Math.max(EDGE, Math.min(anchor.left, vw - EDGE - width));
+  const room = vh - 2 * EDGE;
+  if (height > room) return { left, top: EDGE, maxHeight: room };
+  if (mode === 'top') return { left, top: Math.max(EDGE, Math.min(anchor.top, vh - EDGE - height)) };
+  let top = anchor.bottom + gap;
+  if (top + height > vh - EDGE) top = Math.max(EDGE, anchor.top - gap - height);
+  return { left, top };
+}
+
+/** Places `ref`'s fixed-position card with `placeCard`, now and whenever its size changes (the
+ * detail of an MR card arrives after it is shown) or the window resizes. Pass a stable `anchor`. */
+export function useCardPlacement(ref: { current: HTMLElement | null }, anchor: { left: number; top: number; bottom: number } | null, mode: 'below' | 'top' = 'below', gap = GAP) {
+  const { left, top, bottom } = anchor ?? { left: 0, top: 0, bottom: 0 };
+  const on = anchor !== null;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!on || !el) return;
+    const place = () => {
+      el.style.maxHeight = '';
+      const size = measureNatural(el);
+      const p = placeCard({ left, top, bottom }, size, gap, mode);
+      el.style.left = `${p.left}px`;
+      el.style.top = `${p.top}px`;
+      el.style.maxHeight = p.maxHeight === undefined ? '' : `${p.maxHeight}px`;
+      el.style.overflowY = p.maxHeight === undefined ? '' : 'auto';
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    window.addEventListener('resize', place);
+    return () => { ro.disconnect(); window.removeEventListener('resize', place); };
+  }, [ref, on, left, top, bottom, mode, gap]);
 }
 
 /** Beside `anchor` on `side` (flipped to the other side when it doesn't fit), at its top, kept
@@ -221,6 +268,26 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
     }
     tip.style.left = `${left}px`;
     tip.style.top = `${top}px`;
+  }, [shown, interactive, atPointer]);
+
+  // The content can grow after it is shown (an MR card's detail arrives): re-place on a size change.
+  useLayoutEffect(() => {
+    const tip = tipEl.current;
+    if (!shown || !tip || atPointer) return;
+    const { anchor } = shown;
+    if (anchor.leftOf !== undefined) return;
+    let last = tip.getBoundingClientRect().height;
+    const ro = new ResizeObserver(() => {
+      const h = tip.getBoundingClientRect().height;
+      if (h === last) return;
+      const size = measureNatural(tip);
+      const p = placeBelow(anchor, size, gapFor(interactive));
+      tip.style.left = `${p.left}px`;
+      tip.style.top = `${p.top}px`;
+      last = tip.getBoundingClientRect().height;
+    });
+    ro.observe(tip);
+    return () => ro.disconnect();
   }, [shown, interactive, atPointer]);
 
   const isInside = (el: HTMLElement | null, target: EventTarget | null) => !!el && target instanceof Node && el.contains(target);

@@ -3,10 +3,14 @@
 .pick-box:focus-within { outline: 1px solid var(--focus-outline); }
 .pick-box input { flex: 1; min-width: 8em; border: 0; outline: 0; background: transparent; color: var(--text-normal); font: inherit; }
 .pick-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 6px; border-radius: 3px; background: var(--control-bg); border-left: 3px solid var(--chip-color, var(--section-border)); }
+.pick-chip[data-colored] { padding: 0 3px 0 7px; border-radius: 2em; border-left: 0; font-size: 12px; font-weight: 500; background: var(--chip-color); color: var(--chip-text, var(--text-normal)); }
+.pick-chip[data-colored] .pick-remove { color: var(--chip-text, var(--text-secondary)); }
+.pick-chip[data-colored] .pick-remove:hover { color: var(--chip-text, var(--text-normal)); background: transparent; opacity: 0.7; }
 .pick-remove { display: inline-flex; padding: 1px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .pick-remove:hover { color: var(--text-normal); background: var(--control-hover-bg); }
 .pick-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 2; margin: 2px 0 0; padding: 2px 0; list-style: none; max-height: 14em; overflow: auto; background: var(--panel-bg1); border: 1px solid var(--section-border); box-shadow: 0 4px 12px var(--shadow-popup); }
-.pick-list [role='option'] { padding: 3px 8px; cursor: pointer; border-left: 3px solid var(--chip-color, transparent); }
+.pick-list [role='option'] { padding: 3px 8px; cursor: pointer; }
+.pick-dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; background: var(--chip-color); }
 .pick-list [role='option'][aria-selected='true'] { background: var(--selected-row); color: var(--text-selected); }
 .pick-detail { margin-left: 6px; color: var(--text-secondary); }
 .pick-note { padding: 3px 8px; color: var(--text-secondary); }

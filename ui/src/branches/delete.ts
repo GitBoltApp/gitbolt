@@ -6,6 +6,7 @@ import type { MenuRow, Variant } from '../menu/types';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { holdOrigin } from '../ui/arm/store';
 import { confirmAction } from '../ui/ConfirmDialog';
+import { withPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /** `unpushed`: the local branch's commits that aren't on the remote branch being deleted with it
@@ -86,7 +87,8 @@ export async function deleteBranch(ctx: WriteCtx, plan: DeletePlan, force = fals
   // A local delete may come back `unmerged`: the menu it came from stays open meanwhile, so that
   // question arms the clicked row in place (board A) instead of falling back to a popover.
   const release = force ? () => {} : holdOrigin();
-  const out = await runWrite(ctx, () => api.deleteBranch(ctx.repoId, ctx.worktree, { branch: plan.branch, local: !!plan.local, remote: plan.remote, force, expect }), { origin })
+  const refs = [...(plan.local ? [`refs/heads/${plan.branch}`] : []), ...(plan.remote ? [`refs/remotes/${plan.remote.remote}/${plan.remote.branch}`] : [])];
+  const out = await withPending(ctx.tabId, refs, 'delete', () => runWrite(ctx, () => api.deleteBranch(ctx.repoId, ctx.worktree, { branch: plan.branch, local: !!plan.local, remote: plan.remote, force, expect }), { origin }))
     .catch((e: unknown) => { release(); throw e; });
   if (out?.status !== 'unmerged') return release();
   // Armed first, then the hold goes: the row stays armed in its open menu.

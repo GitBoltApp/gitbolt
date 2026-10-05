@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCardPlacement } from '../ui/HoverTooltip';
 import type { LastPushPayload } from '../api/gen/LastPushPayload';
 import { relativeTime } from '../format/relative';
 import { shortSha } from '../format/sha';
@@ -12,6 +13,15 @@ import { BranchMrBlock } from '../forge/MrBadge';
 // --- 4B T11 ---
 import { MrCardLive } from '../forge/MrCardLive';
 // --- end 4B T11 ---
+
+/** The card's box: placed beside the row, kept inside the window (moved up to fit, `max-height` and
+ * scrolling when taller than the window), and re-placed when its content grows (an MR's detail). */
+export function CardShell({ label, top, left, children }: { label: string; top: number; left: number; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const anchor = useMemo(() => ({ left, top, bottom: top }), [left, top]);
+  useCardPlacement(ref, anchor, 'top', 0);
+  return <div ref={ref} className="hover-card" role="tooltip" aria-label={label} style={{ top, left }}>{children}</div>;
+}
 
 /**
  * Spec §6.4 hover card: tip, author, date, ahead/behind, last push (or last seen on remote).
@@ -47,9 +57,9 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
   // --- 4B T11: an MR/PR row's card ---
   if (item.kind === 'mr') {
     return (
-      <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
+      <CardShell label={`${item.name} details`} top={top} left={left}>
         <MrCardLive tabId={tabId} kind={item.forge} mr={item.mr} hint="Click to open" />
-      </div>
+      </CardShell>
     );
   }
   // --- end 4B T11 ---
@@ -58,26 +68,26 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
   if (item.kind === 'worktree') {
     const w = item.worktree;
     return (
-      <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
+      <CardShell label={`${item.name} details`} top={top} left={left}>
         <div className="hc-name">{w.name}</div>
         <div className="hc-summary" style={{ wordBreak: 'break-all' }}>{w.path}</div>
         <div className="hc-meta">{w.branch ? `Branch: ${w.branch}` : `Detached${w.head ? ` at ${shortSha(w.head)}` : ''}`}</div>
         {w.head && w.branch && <div className="hc-meta">HEAD {shortSha(w.head)}</div>}
         <div className="hc-meta">{[w.isMain ? 'Main checkout' : 'Linked worktree', w.isCurrent ? 'current' : ''].filter(Boolean).join(' · ')}</div>
-      </div>
+      </CardShell>
     );
   }
   if (item.kind === 'tag') {
     // UX round 3, M.2: an annotated tag's message, tagger and date; a lightweight tag's commit.
     return (
-      <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
+      <CardShell label={`${item.name} details`} top={top} left={left}>
         <div className="hc-name">{item.name}</div>
         <div className="hc-summary"><TagTip annotation={item.tag.annotation} sha={item.tag.target} /></div>
-      </div>
+      </CardShell>
     );
   }
   return (
-    <div className="hover-card" role="tooltip" aria-label={`${item.name} details`} style={{ top, left }}>
+    <CardShell label={`${item.name} details`} top={top} left={left}>
       <div className="hc-name">{item.name}</div>
       {summary && <div className="hc-summary">{summary}</div>}
       <div className="hc-meta">{author && `${author} · `}{item.time ? relativeTime(item.time) : ''}</div>
@@ -92,6 +102,6 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
       {/* --- 4B T10: the branch's MR/PR --- */}
       {item.kind === 'local' && <BranchMrBlock tabId={tabId} upstream={item.branch.upstream} />}
       {/* --- end 4B T10 --- */}
-    </div>
+    </CardShell>
   );
 }

@@ -3,8 +3,6 @@
 .hex-capped { color: var(--text-normal); }
 /* The UI font draws → small and low: an icon at text size instead, centred on the line. The glyph
    itself stays in the text, out of sight. */
-.size-arrow { display: inline-flex; vertical-align: -2px; }
-.size-arrow-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* The hex view (lane K, monaco/hexPanes.ts): each side is [hex | text], every pane exactly as wide
    as its rows (`--hex-pane-w`, `--hex-text-w`, set from the editor font and the bytes per row,

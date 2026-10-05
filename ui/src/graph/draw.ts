@@ -115,14 +115,57 @@ export function graphLayout(width: number, m: Metrics, clipped: boolean): GraphL
   return { zone, area, packedX: area + (zone - RAIL_W) / 2, strip: laneX(0, m) + nodeRadius(m) > area };
 }
 
+/** The bright rail edge's x and width: a whole number of device pixels, flush with the backing
+ * store's right edge, so it stays crisp at fractional DPR. */
+function railEdge(width: number, dpr: number): { x: number; w: number } {
+  const dev = Math.max(1, Math.round(RAIL_W * dpr));
+  return { x: (Math.round(width * dpr) - dev) / dpr, w: dev / dpr };
+}
+
+/** What placing nodes needs: the draw options' geometry, so drawing and hit-testing agree. */
+export type NodeGeometry = Pick<DrawOptions, 'width' | 'metrics' | 'clipped' | 'scrollX'> & { dpr?: number };
+
+/** A row's node x in its lane, or null when it's packed: its lane's centre is outside the lane
+ * area (past the zone's edge, or scrolled out on the left). By the centre, the same test as the
+ * lines' clip, so every line drawn still ends in a drawn node (a lane half under the shade keeps
+ * its nodes; spec §8.3 "lines never break"). Per lane: a lane is shown or packed whole. */
+export function laneNodeX(o: NodeGeometry, row: RowPayload): number | null {
+  const scrollX = o.scrollX ?? 0;
+  const clipping = !!o.clipped || scrollX > 0;
+  const { area, strip } = graphLayout(o.width, o.metrics, clipping);
+  if (strip) return null;
+  const x = laneX(row.lane, o.metrics) - scrollX;
+  return clipping && (x < 0 || x >= area) ? null : x;
+}
+
+/** Where a row's node is drawn (its centre, CSS px in the canvas, `scrollTop` applied), packed
+ * ones in the collapse zone or the strip. Packed merges draw as commit nodes, so they hit too. */
+export function nodeCentre(o: NodeGeometry & { scrollTop: number }, row: RowPayload, index: number): { x: number; y: number } {
+  const clipping = !!o.clipped || (o.scrollX ?? 0) > 0;
+  const { packedX, strip } = graphLayout(o.width, o.metrics, clipping);
+  const lane = laneNodeX(o, row);
+  return { x: lane ?? (strip ? railEdge(o.width, o.dpr ?? 1).x / 2 : packedX), y: index * o.metrics.rowH - o.scrollTop + o.metrics.rowH / 2 };
+}
+
+/** The row whose drawn commit node's circle contains the point (x, y) (CSS px in the canvas), or
+ * null. Only commit nodes (and the packed merges drawn as commits) count: not WIP, stash, or the
+ * merge dot. */
+export function nodeAt(o: NodeGeometry & { rows: RowPayload[]; scrollTop: number }, x: number, y: number): number | null {
+  const i = Math.floor((y + o.scrollTop) / o.metrics.rowH);
+  const row = o.rows[i];
+  if (!row) return null;
+  const lane = laneNodeX(o, row);
+  if (row.kind !== 'commit' && !(row.kind === 'merge' && lane === null)) return null;
+  const c = nodeCentre(o, row, i);
+  return Math.hypot(x - c.x, y - c.y) <= nodeRadius(o.metrics) ? i : null;
+}
+
 export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
   const { metrics: m, colors } = o;
   const color = (i: number) => colors[i % colors.length];
   ctx.setTransform(o.dpr, 0, 0, o.dpr, 0, 0);
   ctx.clearRect(0, 0, o.width, o.height);
-  const railDev = Math.max(1, Math.round(RAIL_W * o.dpr));
-  const railX = (Math.round(o.width * o.dpr) - railDev) / o.dpr;
-  const railW = railDev / o.dpr;
+  const { x: railX, w: railW } = railEdge(o.width, o.dpr);
   // The band's and rail's vertical inset: the density's (H1), 2 px by default.
   const inset = m.bandInset ?? 2;
   // The scroll offset on the device grid: what the connectors and the dash phase are placed
@@ -134,15 +177,7 @@ export function drawGraph(ctx: CanvasRenderingContext2D, o: DrawOptions): void {
   const { area, packedX, strip } = graphLayout(o.width, m, clipping);
   const r = nodeRadius(m);
   const stripX = railX / 2;
-  /** A row's node x in its lane, or null when it's packed: its lane's centre is outside the lane
-   * area (past the zone's edge, or scrolled out on the left). By the centre, the same test as
-   * the lines' clip, so every line drawn still ends in a drawn node (a lane half under the shade
-   * keeps its nodes; spec §8.3 "lines never break"). Per lane: a lane is shown or packed whole. */
-  const nodeXOf = (row: RowPayload): number | null => {
-    if (strip) return null;
-    const x = laneX(row.lane, m) - scrollX;
-    return clipping && (x < 0 || x >= area) ? null : x;
-  };
+  const nodeXOf = (row: RowPayload) => laneNodeX(o, row);
   /** Where a packed row's node sits. */
   const packedAt = strip ? stripX : packedX;
 

@@ -23,9 +23,9 @@ export const GitHubMark = ({ size = 12, label = 'GitHub' }: { size?: number; lab
 
 /**
  * Remote icon by host type (spec §8.5, §14.4): GitLab fox, GitHub mark, else a generic cloud.
- * `tabId`: in a repo tab, a user's fork (`TabForge.ownerAvatars`) shows its owner's picture
- * instead, round and the mark's size, once it has loaded (the mark until then, on failure, for an
- * organization's or a group's fork, and for the target remote).
+ * `tabId`: in a repo tab, a remote whose project has an owner picture (`TabForge.ownerAvatars`: a
+ * user's, an organization's or a group's) shows it instead, round and the mark's size, once it has
+ * loaded (the mark until then, on failure, for a project without one, and outside a tab).
  */
 type RemoteIconProps = { kind: HostKind; host?: string | null; remote: string; size?: number };
 

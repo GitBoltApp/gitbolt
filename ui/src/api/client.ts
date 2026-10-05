@@ -189,8 +189,9 @@ export const api = {
   /** UX G.2: the worktree's tracked files (the WIP row's View all files). */
   worktreeFiles: (repo: number, worktree: string) => t().call({ method: 'worktreeFiles', params: { repo, worktree } }) as Promise<string[]>,
   signature: (repo: number, id: string) => t().call({ method: 'signature', params: { repo, id } }) as Promise<SignaturePayload>,
-  /** `null` when there's no avatar for `email` (or no avatar provider, as in the harness). */
-  avatar: (email: string) => t().call({ method: 'avatar', params: { email } }) as Promise<AvatarPayload | null>,
+  /** `null` when there's no avatar for `email` (or no avatar provider, as in the harness). `repo`:
+   * the tab asking; its GitHub project is the last place asked (who the email's commits belong to). */
+  avatar: (email: string, repo?: number) => t().call({ method: 'avatar', params: repo === undefined ? { email } : { email, repo } }) as Promise<AvatarPayload | null>,
   /** A forge user's or project owner's picture by the `avatarUrl` the forge gave; `null` when there's none or the address isn't an account's (see `ForgeHub::avatar_at`). */
   forgeAvatarImage: (url: string) => t().call({ method: 'forgeAvatarImage', params: { url } }) as Promise<AvatarPayload | null>,
   openUrl: (url: string) => t().call({ method: 'openUrl', params: { url } }) as Promise<null>,

@@ -7,6 +7,7 @@ import { wipCountsText } from '../format/wip';
 import { useRepoView } from '../repo/store';
 import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { personLabel } from './CoAuthors';
+import { ArrowGlyph } from '../ui/ArrowGlyph';
 
 /** Compare rows' avatar size: the co-author chips' scale, a notch under the author's. */
 const AVATAR_PX = 20;
@@ -71,7 +72,7 @@ export function CompareHeader() {
   return (
     <header className="compare-header">
       <div className="panel-bar compare-bar">
-        <span data-testid="compare-header">Comparing <code>{shortSha(selection.from)}</code> <span role="img" aria-label="to">→</span> {to}</span>
+        <span data-testid="compare-header">Comparing <code>{shortSha(selection.from)}</code> <span role="img" aria-label="to"><ArrowGlyph /></span> {to}</span>
         {selection.kind === 'compare' && (
           <HoverTooltip content="Swap from and to"><button type="button" className="icon-button" aria-label="Swap" onClick={swap}><ArrowLeftRight size={14} /></button></HoverTooltip>
         )}

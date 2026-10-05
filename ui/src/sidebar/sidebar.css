@@ -22,6 +22,9 @@
 /* The row a context menu is open for (UX round 2: a right-click never moves the active row). */
 .sb-row[data-context="true"] { outline: 1px solid var(--blue); outline-offset: -1px; }
 .sb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A draft MR/PR (its row has no state icon). */
+.sb-label[data-draft] { color: var(--text-secondary); }
+.sb-pipeline { flex: none; display: inline-flex; }
 .sb-count { font-weight: 700; color: var(--count-blue); }
 .sb-item.is-head { background: var(--checked-out-row); color: var(--text-selected); font-weight: 600; }
 .sb-row > svg:not([data-host-kind]) { flex: none; color: var(--sidebar-icon); }
@@ -50,3 +53,6 @@
 .sb-main-chip { flex: none; font-size: 10px; line-height: 1; padding: 2px 5px; border-radius: 8px; color: var(--text-secondary); background: var(--panel-bg1); }
 .sb-main-auto { opacity: 0.65; }
 .sb-lookup-warn { opacity: 0.7; }
+/* The MR/PR list selection is the open view: the row stays marked when the list loses focus, a touch quieter. */
+.sb-row[aria-selected="true"] { background: color-mix(in srgb, var(--selected-row) 55%, transparent); color: var(--text-selected); }
+.sb-list:focus .sb-row[aria-selected="true"] { background: var(--selected-row); }

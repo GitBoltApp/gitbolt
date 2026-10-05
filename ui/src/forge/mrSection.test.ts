@@ -32,6 +32,7 @@ describe('the MR/PR section (spec #4 §2 "MR/PR list")', () => {
     const s = (id: string) => ({ id, kind: id, label: id, items: [], nests: false }) as never;
     const mrs = mrSection({ ...EMPTY_FORGE, kind: 'gitlab', list: list('all') });
     expect(withMrSection([s('local'), s('remote'), s('tags')], mrs).map((x) => x.id)).toEqual(['local', 'remote', 'mrs', 'tags']);
+    expect(withMrSection([s('local'), s('remote'), s('worktrees'), s('stashes'), s('tags')], mrs).map((x) => x.id)).toEqual(['local', 'remote', 'worktrees', 'stashes', 'mrs', 'tags']);
     expect(withMrSection([s('local')], null).map((x) => x.id)).toEqual(['local']);
   });
 

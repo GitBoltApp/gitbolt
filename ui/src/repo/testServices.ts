@@ -44,6 +44,7 @@ export function fakeServices(overrides: Partial<RepoServices> = {}): RepoService
     files: idle(),
     contents: idle(),
     signature: idle(),
+    avatars: { request: () => {}, prefetchOne: () => {} },
     treeFiles: idle(),
     worktreeFiles: idle(),
     wip: new WipLists(() => new Promise(() => {})),
@@ -75,6 +76,7 @@ export function recordingServices(overrides: Partial<RepoServices> = {}) {
     files: mk('files'),
     contents: mk('contents'),
     signature: mk('signature'),
+    avatars: { request: () => {}, prefetchOne: () => {} },
     treeFiles: mk('tree'),
     worktreeFiles: mk('worktreeFiles'),
     // Recorded as `files <key>`, like the `files` loader's (WIP lists are `fileList` reads too).

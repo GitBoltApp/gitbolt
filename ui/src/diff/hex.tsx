@@ -5,7 +5,6 @@
 // (`hexDump`, hex.rs), each capped (`HexDumpPayload.cap`); the bytes are read back from them
 // (hexModel.ts). A binary's load with its contents (hexContents.ts); `HexBody` loads them itself
 // (an image's Hex toggle).
-import { ArrowRight } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
@@ -17,6 +16,7 @@ import { contentsRequest, type DiffTarget } from '../repo/store';
 import type { HexView as HexViewApi } from './monaco/host';
 import { EditorLoadError, useMonacoHost, useOnShown } from './TextDiff';
 import './hex.css';
+import { ArrowGlyph } from '../ui/ArrowGlyph';
 
 /** One decimal, none when it's 0: "1.2", "256". */
 const decimal = (x: number) => x.toFixed(1).replace(/\.0$/, '');
@@ -31,7 +31,7 @@ export function formatSize(n: number): string {
 /** "1.2 KB → 1.3 KB", the arrow at text size (the UI font's own → is tiny). */
 export function SizeChange({ old, new: neu }: { old: number; new: number }) {
   // The glyph stays in the text (copy, screen readers); the icon is what shows.
-  return <>{formatSize(old)} <span className="size-arrow"><ArrowRight size={13} strokeWidth={1.75} aria-hidden="true" /><span className="size-arrow-text">→</span></span> {formatSize(neu)}</>;
+  return <>{formatSize(old)} <ArrowGlyph /> {formatSize(neu)}</>;
 }
 
 /** Both sides' sizes, or the one there is, labelled "(added)" / "(deleted)". */

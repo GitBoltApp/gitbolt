@@ -91,7 +91,20 @@ export function openMenuAt(el: Element, rows: MenuRow[], initial?: string, build
   const r = el.getBoundingClientRect();
   useMenu.getState().show(rows, r.left, r.bottom, performance.now(), build, initial, label);
   useMenu.setState({ anchor: el });
+  // Keep `aria-expanded` accurate for as long as this menu is the open one.
+  el.setAttribute('aria-expanded', 'true');
+  const off = useMenu.subscribe((s) => {
+    if (s.anchor === el) return;
+    off();
+    el.setAttribute('aria-expanded', 'false');
+  });
   return true;
+}
+
+/** Whether the press that is being clicked just closed `el`'s menu. A caller that does async work
+ * before `openMenuAt` (the Undo caret's prepare step) checks this at click time, before it awaits. */
+export function pressClosedMenu(el: Element): boolean {
+  return swallowed === el;
 }
 
 let swallowed: Element | null = null;

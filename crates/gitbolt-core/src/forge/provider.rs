@@ -166,6 +166,15 @@ pub trait ForgeProvider: Send + Sync {
 
     // Avatars (4A). `Ok(None)`: the forge has none for this email (Gravatar is next).
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>>;
+    // --- GitHub commit-author avatars ---
+    /// The last step for an email neither `avatar_for_email` nor Gravatar knows: the account
+    /// linked to `email`'s commits in `project` (the repo's own forge target, so the email only
+    /// goes where its commits came from). Rationed: providers answer each email at most once a
+    /// session. By default there's no such lookup.
+    fn avatar_for_email_in<'a>(&'a self, _project: &'a ForgeProject, _email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
+        Box::pin(async { Ok(None) })
+    }
+    // --- end GitHub commit-author avatars ---
     /// The picture at `url`, a forge user's or project owner's `avatar_url`, cached like the
     /// others. `None` (and no request) unless `url` is one this account serves: under its own web
     /// host (GitLab's uploads) or its forge's avatar host (GitHub's), or Gravatar's

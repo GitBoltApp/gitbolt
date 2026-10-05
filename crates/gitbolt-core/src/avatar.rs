@@ -15,6 +15,15 @@ pub struct AvatarPayload {
     pub base64: String,
 }
 
+/// GitHub's noreply addresses: `noreply@github.com` (the committer of every commit made in
+/// GitHub's web UI) and `[<id>+]<login>@users.noreply.github.com`. They never receive mail, so
+/// no Gravatar account can be verified for one: asking Gravatar is a round trip for nothing. Only
+/// a GitHub account can show one (by the user id in the address).
+pub fn is_github_noreply(email: &str) -> bool {
+    let email = email.trim().to_ascii_lowercase();
+    email == "noreply@github.com" || email.ends_with("@users.noreply.github.com")
+}
+
 pub type AvatarFuture<'a> = Pin<Box<dyn Future<Output = Result<Option<AvatarPayload>, GbError>> + Send + 'a>>;
 
 pub trait AvatarProvider: Send + Sync {

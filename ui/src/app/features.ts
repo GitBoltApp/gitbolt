@@ -76,6 +76,8 @@ import '../remotes/feature';
 // --- 4B T12 ---
 import '../forge/mrview/feature';
 // --- end 4B T12 ---
+// The sidebar MR/PR row's menu.
+import '../forge/mrMenu';
 // --- 4B T15 ---
 import '../forge/entryPoints';
 // --- end 4B T15 ---

@@ -73,7 +73,7 @@ export function ProfileSwitcher() {
   return (
     <>
       <HoverTooltip content="Switch profile">
-        <button type="button" className="profile-switcher" aria-label={`Profile: ${name}`} onClick={(e) => openMenuAt(e.currentTarget, rows(), undefined, rows, 'Switch profile')}>
+        <button type="button" className="profile-switcher" aria-label={`Profile: ${name}`} onClick={(e) => openMenuAt(e.currentTarget, rows(), `profile.${useAppState.getState().profile.id}`, rows, 'Switch profile')}>
           <span className="profile-dot" style={{ background: color }} aria-hidden />
           {name}
         </button>

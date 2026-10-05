@@ -99,7 +99,7 @@ pub mod json {
             fork_of: text(&v["forked_from_project"]["path_with_namespace"]),
             updated_at: v["last_activity_at"].as_str().and_then(parse_rfc3339),
             archived: v["archived"].as_bool().unwrap_or(false),
-            owner_avatar_url: (v["namespace"]["kind"].as_str() == Some("user")).then(|| text(&v["namespace"]["avatar_url"])).flatten(),
+            owner_avatar_url: text(&v["namespace"]["avatar_url"]),
             path,
         })
     }
@@ -952,7 +952,7 @@ mod tests {
         assert_eq!((p.kind, p.id, p.owner.as_str(), p.fork_of.as_deref(), p.updated_at), (ForgeKind::GitLab, 77, "alice", Some("group/project"), Some(1_791_115_200)));
         assert_eq!(p.owner_avatar_url.as_deref(), Some("https://g/uploads/-/system/user/avatar/7/a.png"));
         let group = json::project("g", &json!({"id": 1, "path_with_namespace": "group/project", "namespace": {"full_path": "group", "kind": "group", "avatar_url": "https://g/uploads/g.png"}})).unwrap();
-        assert_eq!(group.owner_avatar_url, None, "a group's isn't kept");
+        assert_eq!(group.owner_avatar_url.as_deref(), Some("https://g/uploads/g.png"), "a group's too");
         assert_eq!(json::settings(&v), ForgeProjectSettings { merge_methods: vec![MergeMethod::SemiLinear], squash: SquashOption::Always, delete_source_branch: true });
         assert_eq!(json::settings(&json!({})), ForgeProjectSettings { merge_methods: vec![MergeMethod::Merge], squash: SquashOption::DefaultOff, delete_source_branch: false });
     }

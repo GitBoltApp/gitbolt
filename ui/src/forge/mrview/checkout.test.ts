@@ -8,8 +8,12 @@ const remotes = vi.hoisted(() => ({ addForkRemote: vi.fn() }));
 vi.mock('../../remotes/addRemote', () => remotes);
 const fetching = vi.hoisted(() => ({ runFetch: vi.fn(async () => {}) }));
 vi.mock('../../app/fetchSchedule', () => fetching);
+const dialog = vi.hoisted(() => ({ openCreateWorktree: vi.fn() }));
+vi.mock('../../worktrees/CreateWorktreeDialog', () => dialog);
 
-const { checkoutMr, checkoutState } = await import('./checkout');
+const nav = vi.hoisted(() => ({ selectCommit: vi.fn(() => true) }));
+vi.mock('../../app/graphNav', () => nav);
+const { checkoutMr, checkoutMrInWorktree, checkoutState, worktreeBlocked } = await import('./checkout');
 const { patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
 const { useToast } = await import('../../ui/toast');
@@ -19,7 +23,7 @@ const DEV = 'd'.repeat(40);
 const FIX = 'f'.repeat(40);
 type Group = { name: string; branches: Array<{ name: string; fullName: string; target: string }> };
 const group = (name: string, branch?: [string, string]): Group => ({ name, branches: branch ? [{ name: branch[0], fullName: `refs/remotes/${name}/${branch[0]}`, target: branch[1] }] : [] });
-function tab(sidebar: { locals?: Array<{ name: string; upstream: string | null; isHead?: boolean }>; remotes?: Group[] }, refreshTo?: { remotes: Group[] }) {
+function tab(sidebar: { locals?: Array<{ name: string; upstream: string | null; isHead?: boolean; target?: string; checkedOut?: string }>; remotes?: Group[] }, refreshTo?: { remotes: Group[] }) {
   const info = { remotes: [{ name: 'origin', url: 'https://gitlab.example.com/group/project.git', host: 'gitlab.example.com', path: 'group/project', hostKind: 'gitlab' }] };
   useRuntime.setState({
     tabs: { t: { repo: { id: 4 }, info, sidebar: { locals: sidebar.locals ?? [], remotes: sidebar.remotes ?? [], worktrees: [], stashes: [], tags: [] } } as never },
@@ -39,6 +43,20 @@ beforeEach(() => {
 });
 
 describe("checking out an MR/PR's branch (spec #4 §4 \"4B\")", () => {
+  it("selects the branch's tip in the graph once the checkout lands, without taking focus; a failed one leaves the selection", async () => {
+    tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/origin/dev', target: DEV }] });
+    branches.checkoutLocal.mockImplementationOnce(async () => {
+      const cur = useRuntime.getState().tabs.t as never as { sidebar: { locals: object[] } };
+      useRuntime.setState({ tabs: { t: { ...cur, sidebar: { ...cur.sidebar, locals: [{ name: 'dev', upstream: 'refs/remotes/origin/dev', target: DEV, isHead: true }] } } as never } });
+    });
+    await checkoutMr('t', mrOf(12, { sourceProject: 'group/project', sourceBranch: 'dev' }));
+    expect(nav.selectCommit).toHaveBeenCalledWith('t', DEV, { focus: false });
+    nav.selectCommit.mockClear();
+    tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/origin/dev', target: DEV }] });
+    await checkoutMr('t', mrOf(12, { sourceProject: 'group/project', sourceBranch: 'dev' }));
+    expect(nav.selectCommit).not.toHaveBeenCalled();
+  });
+
   it('a local branch that already tracks the source is checked out', async () => {
     tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/origin/dev' }] });
     await checkoutMr('t', mrOf(12));
@@ -117,5 +135,58 @@ describe("checking out an MR/PR's branch (spec #4 §4 \"4B\")", () => {
     tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/other/dev' }, { name: 'origin-dev', upstream: 'refs/remotes/origin/dev' }], remotes: [group('origin', ['dev', DEV])] });
     await checkoutMr('t', mrOf(12));
     expect(branches.checkoutLocal).toHaveBeenCalledWith('t', 'origin-dev');
+  });
+});
+
+describe('checking out an MR/PR in a new worktree (the sidebar row menu)', () => {
+  const first = (m: { mock: { invocationCallOrder: number[] } }) => m.mock.invocationCallOrder[0];
+
+  it('opens Create worktree with the remote branch, under its own name', async () => {
+    tab({ remotes: [group('origin', ['dev', DEV])] });
+    await checkoutMrInWorktree('t', mrOf(12));
+    expect(dialog.openCreateWorktree).toHaveBeenCalledWith({ tabId: 't', at: DEV, branch: { kind: 'remote', remote: 'origin', branch: 'dev', name: 'dev' } });
+    expect(branches.checkoutRemote).not.toHaveBeenCalled();
+  });
+
+  it('uses the local branch that already tracks it', async () => {
+    tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/origin/dev', target: DEV }] });
+    await checkoutMrInWorktree('t', mrOf(12));
+    expect(dialog.openCreateWorktree).toHaveBeenCalledWith({ tabId: 't', at: DEV, branch: { kind: 'existing', name: 'dev' } });
+    expect(branches.checkoutLocal).not.toHaveBeenCalled();
+  });
+
+  it('a same-named local branch tracking something else: <remote>-<branch>', async () => {
+    tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/other/dev' }], remotes: [group('origin', ['dev', DEV])] });
+    await checkoutMrInWorktree('t', mrOf(12));
+    expect(dialog.openCreateWorktree).toHaveBeenCalledWith({ tabId: 't', at: DEV, branch: { kind: 'remote', remote: 'origin', branch: 'dev', name: 'origin-dev' } });
+  });
+
+  it('adds the fork as a remote (which fetches it) first, then opens the dialog', async () => {
+    const fork = projectOf('alice/project');
+    api.forgeProjectByPath.mockResolvedValue(fork);
+    remotes.addForkRemote.mockResolvedValue('alice');
+    tab({ remotes: [group('origin')] }, { remotes: [group('origin'), group('alice', ['fix', FIX])] });
+    await checkoutMrInWorktree('t', mrOf(14, { sourceProject: 'alice/project', sourceBranch: 'fix' }));
+    expect(remotes.addForkRemote).toHaveBeenCalledWith('t', fork);
+    expect(dialog.openCreateWorktree).toHaveBeenCalledWith({ tabId: 't', at: FIX, branch: { kind: 'remote', remote: 'alice', branch: 'fix', name: 'fix' } });
+    expect(first(remotes.addForkRemote)).toBeLessThan(first(dialog.openCreateWorktree));
+  });
+
+  it('fetches a source branch not fetched yet before the dialog', async () => {
+    tab({ remotes: [group('origin')] }, { remotes: [group('origin', ['dev', DEV])] });
+    await checkoutMrInWorktree('t', mrOf(12));
+    expect(fetching.runFetch).toHaveBeenCalledWith('t', false, 'origin');
+    expect(first(fetching.runFetch)).toBeLessThan(first(dialog.openCreateWorktree));
+  });
+
+  it('is blocked while the tracking branch is checked out in a worktree', async () => {
+    tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/origin/dev', checkedOut: '/w/dev' }] });
+    expect(worktreeBlocked('t', mrOf(12))).toBe('dev is checked out in /w/dev');
+    expect(worktreeBlocked('t', mrOf(12), () => '../dev')).toBe('dev is checked out in ../dev');
+    await checkoutMrInWorktree('t', mrOf(12));
+    expect(dialog.openCreateWorktree).not.toHaveBeenCalled();
+    expect(useToast.getState().message).toBe('dev is checked out in /w/dev');
+    tab({ locals: [{ name: 'dev', upstream: 'refs/remotes/origin/dev' }] });
+    expect(worktreeBlocked('t', mrOf(12))).toBeNull();
   });
 });

@@ -40,8 +40,14 @@ export const ownerOf = (path: string): string => path.split('/').slice(0, -1).jo
 
 /** `dev → main`; from a fork, `alice:fix → main`. */
 export function branchesText(mr: ForgeMr): string {
+  const [from, to] = branchesParts(mr);
+  return `${from} → ${to}`;
+}
+
+/** The two sides of `branchesText`, for a view that draws the arrow itself. */
+export function branchesParts(mr: ForgeMr): [string, string] {
   const fork = mr.sourceProject !== '' && mr.sourceProject !== mr.targetProject;
-  return `${fork ? `${ownerOf(mr.sourceProject)}:` : ''}${mr.sourceBranch} → ${mr.targetBranch}`;
+  return [`${fork ? `${ownerOf(mr.sourceProject)}:` : ''}${mr.sourceBranch}`, mr.targetBranch];
 }
 
 /** A pipeline's one-word state for the header's fact tile: "Passed", "Failed", "None". */

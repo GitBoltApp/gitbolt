@@ -10,6 +10,7 @@ import type { ImageSource } from './sources';
 import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
 import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import './image.css';
+import { ArrowGlyph } from '../ui/ArrowGlyph';
 
 export type ImageMode = 'side' | 'swipe' | 'onion' | 'difference';
 interface Dim { w: number; h: number }
@@ -426,7 +427,7 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
         <span className="dim image-meta" data-testid="image-meta">
           {both ? (
             <>
-              <span data-testid="image-dims">{dims(oldImg)} → {dims(newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes(old?.size)} → {formatBytes(neu?.size)}</span>
+              <span data-testid="image-dims">{dims(oldImg)} <ArrowGlyph /> {dims(newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes(old?.size)} <ArrowGlyph /> {formatBytes(neu?.size)}</span>
             </>
           ) : (
             // Only the side that exists (H25).

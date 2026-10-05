@@ -33,7 +33,7 @@ describe("RemoteIcon: a user's fork shows its owner's picture", () => {
     expect(fetch).toHaveBeenCalledWith(ALICE);
   });
 
-  it('stays the mark for the target, an organization or a failed picture, and outside a tab', async () => {
+  it('stays the mark without a picture, for a failed picture, and outside a tab', async () => {
     patchForge('t', { ownerAvatars: { alice: ALICE, bob: 'https://gitlab.example.com/uploads/missing.png' } });
     for (const [remote, tabId] of [['origin', 't'], ['bob', 't'], ['alice', null]] as const) {
       const { unmount } = show(remote, tabId);

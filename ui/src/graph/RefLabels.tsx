@@ -1,3 +1,5 @@
+import { PendingMark } from '../pending/PendingMark';
+import { usePendingAny } from '../pending/store';
 import { Check, Laptop, LoaderCircle, Tag, TreePine } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { RefLabel } from '../api/gen/RefLabel';
@@ -86,19 +88,23 @@ function ChipContent({ label, full = false, compact = false }: { label: RefLabel
   // where the branch is, and the PR icon sits beside them). chipFit counts it. ---
   const { tabId } = useRepoContext();
   const badge = useChipMr(tabId, label);
+  // The spinner takes the checkmark's box while an action runs on this branch (src/pending).
+  const pending = usePendingAny(tabId, [label.local, ...label.remotes.map((r) => r.fullName)]);
+  const spinHere: 'local' | number | null = !pending || label.isHead ? null : label.local ? 'local' : label.remotes.length ? 0 : null;
   // --- end 4B T10 ---
   return (
     <>
       {/* UX round 3, M.1: an upstream with another branch name, first in the chip (its width counted in chipFit.ts). */}
       {label.upstreamMismatch && <UpstreamWarning branch={label.name} upstream={label.upstreamMismatch} />}
       {/* The checked-out branch's check, ~1.4x the other icons (J21, graph.css .ref-head-check). */}
-      {label.isHead && <Check size={12} className="ref-head-check" aria-label="HEAD" />}
+      {label.isHead && (pending ? <PendingMark action={pending} className="ref-head-check" /> : <Check size={12} className="ref-head-check" aria-label="HEAD" />)}
       {/* UX round 3, M.2: an annotated tag's icon is filled, a lightweight one's outlined. */}
       {label.tag && (label.annotation ? <Tag size={12} fill="currentColor" className="ref-tag-annotated" aria-label="annotated tag" /> : <Tag size={12} aria-label="tag" />)}
       {/* No tooltip on the name (F9): the expanded copy already shows it in full. */}
       {!(compact && !full) && <span className={full ? 'ref-name-full' : 'ref-name'}>{label.name}</span>}
-      {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}><Laptop size={SOURCE_OUTLINE} aria-label="local" /></SourceIcon>}
-      {label.remotes.map((r) => <Fragment key={r.fullName}><SourceIcon tip={<RemoteTip remote={r} />}><RemoteIcon kind={r.hostKind} host={r.host} remote={r.remote} size={12} tabId={tabId} /></SourceIcon></Fragment>)}
+      {/* A non-HEAD chip has no check box: the spinner stands in for its first source icon, at its size, so the chip's width holds (chipFit). */}
+      {label.local && <SourceIcon tip={`${label.local.replace(/^refs\/heads\//, '')} (Local)`}>{spinHere === 'local' ? <PendingMark action={pending!} size={SOURCE_OUTLINE} /> : <Laptop size={SOURCE_OUTLINE} aria-label="local" />}</SourceIcon>}
+      {label.remotes.map((r, i) => <Fragment key={r.fullName}><SourceIcon tip={<RemoteTip remote={r} />}>{spinHere === i ? <PendingMark action={pending!} size={12} /> : <RemoteIcon kind={r.hostKind} host={r.host} remote={r.remote} size={12} tabId={tabId} />}</SourceIcon></Fragment>)}
       {label.worktree && <SourceIcon tip={`Checked out in ${label.worktree}`}><TreePine size={SOURCE_OUTLINE} aria-label="checked out in another worktree" /></SourceIcon>}
       {badge && <MrBadge tabId={tabId} kind={badge.kind} mr={badge.mr} size={SOURCE_OUTLINE} />}
     </>

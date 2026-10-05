@@ -383,11 +383,38 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       set({ selection, picks: NO_PICKS, parent: 0, diff: null, details: IDLE, message: IDLE });
       loadCommit(row.id, mySeq);
       loadSections(sectionSpecs(selection, 0), mySeq);
+      // The signature check starts with the details, not after them (the badge asks for the same
+      // load); an unsigned commit answers without running anything.
+      services.signature.get(row.id).catch(() => {});
+      askPeople(row.id, true);
       // The neighbours' details, file lists and messages: Up/Down then swaps the panel at once.
-      const near = [index - 1, index + 1].filter((i) => i >= 0 && i < rows.length && rows[i].kind !== 'wip').map((i) => rows[i].id);
-      services.details.prefetch(near);
+      // Two away for the details, signatures and avatars (cheap); one for the rest.
+      const commitsAt = (offsets: number[]) => offsets.map((d) => index + d).filter((i) => i >= 0 && i < rows.length && rows[i].kind !== 'wip').map((i) => rows[i].id);
+      const near = commitsAt([-1, 1]);
+      const near2 = commitsAt([-1, 1, -2, 2]);
+      services.details.prefetch(near2);
+      services.signature.prefetch(near2);
+      for (const id of near2) askPeople(id, false);
       services.files.prefetch(near.map((id) => filesKey({ kind: 'commit', id, parent: 0 })));
       for (const id of near) if (!services.messages.peek(id)) services.messages.get(id).catch(() => {});
+    }
+
+    /** Asks for the avatars of commit `id`'s people once its details are in (a prefetched
+     * neighbour's too): the author, a different committer and the co-authors. The graph draws
+     * only authors, so the others would otherwise be asked for only when the panel renders them. */
+    function askPeople(id: string, selected: boolean) {
+      const ask = (d: CommitDetailsPayload | undefined) => {
+        // Partial payloads (test doubles) ask for whatever they carry.
+        if (!d) return;
+        for (const email of new Set([d.author?.email, d.committer?.email, ...(d.coAuthors ?? []).map((c) => c.email)])) {
+          if (!email) continue;
+          if (selected) services.avatars.request(email);
+          else services.avatars.prefetchOne(email);
+        }
+      };
+      const hit = services.details.peek(id);
+      if (hit) ask(hit);
+      else services.details.get(id, 'prefetch').then(ask, () => {});
     }
 
     /** Selects row `index` alone. */

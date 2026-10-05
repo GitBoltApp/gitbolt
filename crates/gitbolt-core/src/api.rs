@@ -15,14 +15,13 @@ use crate::openers::chooser::Chooser;
 use crate::openers::folder_picker::FolderPicker;
 use crate::ops::{OpId, OpRegistry};
 use crate::openers::{template_opener, DetectEnv, Launcher, Opener, OpenerKind, OpenerPayload, CHOOSER_ID, CUSTOM_ID};
-use crate::payload::{BlobSource, RepoSummary, SignatureKind, SignaturePayload};
+use crate::payload::{BlobSource, RepoSummary};
 use crate::scan::ScannedRepo;
 use crate::settings::{AppSettings, EditorChoice, PinSetting, Profile, SettingsStore};
 use crate::signature::signature_status;
 use crate::snapshot::{build_graph_with_text, BuildOptions};
 use crate::tree::tree_files;
 use crate::worktree::list_worktrees;
-use gix::ObjectId;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -96,11 +95,19 @@ pub enum Request {
     TreeFiles { repo: u32, id: String },
     /// UX G.2: the worktree's tracked files, sorted bytewise ("View all files" on the WIP row).
     WorktreeFiles { repo: u32, worktree: String },
-    /// The commit's signature status, verified through the user's own gpg/ssh config and cached
-    /// per repository and commit id for the process lifetime (spec §9.1).
+    /// The commit's signature status, verified through the user's own gpg/ssh config (an
+    /// OpenPGP signature by one gpg run) and cached per repository and commit id: a settled
+    /// verdict for the process lifetime, an unknown or untrusted key briefly (spec §9.1).
     Signature { repo: u32, id: String },
     /// A cached avatar for an email, or `null` (the UI shows initials; spec §14.3).
-    Avatar { email: String },
+    /// `repo`: the tab asking. Its GitHub forge target, if any, is asked last who the email's
+    /// commits belong to (`ForgeHub::author_avatar`).
+    Avatar {
+        email: String,
+        #[serde(default)]
+        #[ts(optional)]
+        repo: Option<u32>,
+    },
     /// A forge user's or project owner's picture by the `avatarUrl` the forge gave, or `null`:
     /// fetched only from an account's own host or its forge's avatar host (`ForgeHub::avatar_at`),
     /// disk-cached like the others. Off with the forge-avatars setting.
@@ -1125,15 +1132,10 @@ pub struct Api {
     pub(crate) next_id: AtomicU32,
     /// git's version, checked (and cached) by the first `openRepo` (or `appInfo`).
     pub(crate) version: OnceCell<(u32, u32, u32)>,
-    /// Signature verdicts, keyed by (the repository's git directory, commit id), for the process
-    /// lifetime (spec §9.1). Keyed on the repository too, not just the commit: the signature
-    /// bytes never change, but git's verdict depends on the keyring, trust database and
-    /// repo-local config (`gpg.ssh.allowedSignersFile`, `gpg.program`), which differ per
-    /// repository. Only a definitive verdict is cached (verified, unverified, bad, expired):
-    /// `unknownKey` means "couldn't verify with what's configured right now" (a missing key, or
-    /// `gpg.ssh.allowedSignersFile` not set yet) and must be re-checked every time, since the
-    /// user can fix their configuration between calls without the commit changing at all.
-    pub(crate) signatures: Mutex<HashMap<(PathBuf, ObjectId), SignaturePayload>>,
+    /// Signature verdicts per (git directory, commit id), spec §9.1: a settled one for the
+    /// session, an unknown key or untrusted one briefly and only while the config files are
+    /// unchanged (`signature::SignatureCache`).
+    pub(crate) signatures: Mutex<crate::signature::SignatureCache>,
     pub(crate) avatars: Option<Arc<dyn AvatarProvider>>,
     // --- 4A T5 ---
     /// Forge accounts and providers (spec #4 §3.2). `None` (most tests): the account list is
@@ -1217,15 +1219,8 @@ impl OpenerSource {
     }
 }
 
-/// Signature statuses kept per process; past this the cache starts over.
+/// Signature statuses kept per process; past this the least recently used goes.
 const SIGNATURE_CACHE_MAX: usize = 4096;
-
-/// Whether a signature status may be remembered for the process lifetime. An unknown key and an
-/// unverified signature both change when the user trusts the key (or adds it to the allowed
-/// signers), so neither is cached: the badge follows the next look.
-fn cacheable(kind: SignatureKind) -> bool {
-    !matches!(kind, SignatureKind::UnknownKey | SignatureKind::Unverified)
-}
 
 /// `opener_refresh` unless changed.
 const OPENER_REFRESH: Duration = Duration::from_secs(30);
@@ -1354,7 +1349,7 @@ impl Api {
             repos: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(1),
             version: OnceCell::new(),
-            signatures: Mutex::new(HashMap::new()),
+            signatures: Mutex::new(crate::signature::SignatureCache::new(SIGNATURE_CACHE_MAX)),
             avatars: None,
             forge: None,
             url_opener: None,
@@ -1989,33 +1984,50 @@ impl Api {
                 let h = self.handle(repo)?;
                 let id = parse_oid(&id)?;
                 let cache_key = (h.repo.git_dir().to_path_buf(), id);
-                if let Some(s) = self.signatures.lock().expect("signatures poisoned").get(&cache_key).cloned() {
+                let (repo_handle, include) = (h.repo.clone(), self.cli.include_path());
+                let stamp = blocking(move || {
+                    let repo = repo_handle.to_thread_local();
+                    Ok(crate::signature::config_stamp(repo.git_dir(), repo.common_dir(), include.as_deref(), crate::signature::config_files(&repo)))
+                })
+                .await?;
+                if let Some(s) = self.signatures.lock().expect("signatures poisoned").get(&cache_key, &stamp) {
                     return to_json(s);
                 }
                 let signed = parse_commit(&read_commit(&h.repo.to_thread_local(), id)?)?.signed;
-                let s = signature_status(&self.cli, &h.workdir, id, signed).await?;
-                if cacheable(s.kind) {
-                    let mut cache = self.signatures.lock().expect("signatures poisoned");
-                    if cache.len() >= SIGNATURE_CACHE_MAX {
-                        cache.clear();
-                    }
-                    cache.insert(cache_key, s.clone());
-                }
+                let s = signature_status(&self.cli, &h.workdir, &self.tmp_dir()?, id, signed).await?;
+                self.signatures.lock().expect("signatures poisoned").put(cache_key, s.clone(), stamp);
                 to_json(s)
             }
-            Request::Avatar { email } => {
+            Request::Avatar { email, repo } => {
                 // --- 4A T6: the forges first (spec #4 §2 "Avatars") ---
-                if self.store.state().settings.forge_avatars
+                let forge_avatars = self.store.state().settings.forge_avatars;
+                if forge_avatars
                     && let Some(hub) = &self.forge
                     && let Some(found) = hub.avatar(&self.store, &email).await
                 {
                     return to_json(Some(found));
                 }
                 // --- end 4A T6 ---
-                match &self.avatars {
-                    Some(p) => to_json(p.avatar(&email).await?),
-                    None => to_json(Option::<AvatarPayload>::None),
+                if crate::avatar::is_github_noreply(&email) {
+                    return to_json(Option::<AvatarPayload>::None);
                 }
+                let gravatar = match &self.avatars {
+                    Some(p) => p.avatar(&email).await,
+                    None => Ok(None),
+                };
+                if let Ok(Some(found)) = gravatar {
+                    return to_json(Some(found));
+                }
+                // --- GitHub commit-author avatars: last, the repo's GitHub project ---
+                if forge_avatars
+                    && let (Some(hub), Some(repo)) = (&self.forge, repo)
+                    && let Ok(h) = self.handle(repo)
+                    && let Some(found) = hub.author_avatar(&self.store, &self.forge_remotes_of(&h), &email).await
+                {
+                    return to_json(Some(found));
+                }
+                // --- end GitHub commit-author avatars ---
+                to_json(gravatar?)
             }
             Request::ForgeAvatarImage { url } => {
                 let settings = self.store.state().settings;
@@ -2797,14 +2809,15 @@ mod tests {
     }
 
     /// An unverified signature (a good one from a key that isn't trusted yet) is looked at again
-    /// next time, as an unknown key is, so trusting the key shows without a restart.
+    /// after a while, as an unknown key is, so trusting the key shows without a restart.
     #[test]
     fn only_settled_signature_statuses_are_cached() {
+        use crate::payload::SignatureKind;
         for kind in [SignatureKind::Verified, SignatureKind::Bad, SignatureKind::Expired, SignatureKind::Unsigned] {
-            assert!(cacheable(kind), "{kind:?}");
+            assert!(crate::signature::settled(kind), "{kind:?}");
         }
         for kind in [SignatureKind::Unverified, SignatureKind::UnknownKey] {
-            assert!(!cacheable(kind), "{kind:?}");
+            assert!(!crate::signature::settled(kind), "{kind:?}");
         }
     }
 
@@ -3306,11 +3319,45 @@ mod tests {
         assert_eq!(api.command_log().entries().len(), before);
     }
 
-    /// An `unknownKey` verdict (no allowed-signers file configured yet) must never be cached,
-    /// since it only means "couldn't verify with what's configured right now"; a `verified`
-    /// verdict, once git can actually check it, is definitive and is served from the cache.
+    /// An OpenPGP signature costs one gpg run (no git), and asking again runs nothing.
     #[tokio::test]
-    async fn signature_cache_never_holds_unknown_key_but_caches_a_verified_result() {
+    async fn a_gpg_signature_is_checked_by_one_gpg_run_then_cached() {
+        if let Some(reason) = crate::testing::gpg_signing_unavailable() {
+            eprintln!("{reason}; skipping");
+            return;
+        }
+        let gpg = crate::testing::GpgHome::new();
+        if !gpg.gpg(&["--quick-generate-key", "Ada Lovelace <ada@example.com>", "ed25519", "sign", "never"]).status.success() {
+            eprintln!("gpg can't make a key here; skipping");
+            return;
+        }
+        let r = TestRepo::new();
+        r.commit("base");
+        r.git(&["config", "gpg.program", gpg.program.to_str().unwrap()]);
+        r.git(&["config", "user.signingkey", "ada@example.com"]);
+        r.write("signed.txt", "signed\n");
+        r.git(&["add", "-A"]);
+        r.git(&["commit", "-q", "-S", "-m", "signed"]);
+        let head = r.git(&["rev-parse", "HEAD"]);
+        let api = api();
+        let id = open(&api, &r).await;
+        let ask = || api.dispatch(req(serde_json::json!({"method": "signature", "params": {"repo": id, "id": head}})));
+        let before = api.command_log().entries().len();
+        assert_eq!(ask().await.unwrap()["kind"], "verified");
+        let runs = api.command_log().entries()[before..].to_vec();
+        assert_eq!(runs.len(), 1, "{runs:?}");
+        assert_eq!(runs[0].args[0], gpg.program.to_str().unwrap(), "gpg, not git");
+        let before = api.command_log().entries().len();
+        assert_eq!(ask().await.unwrap()["kind"], "verified");
+        assert_eq!(api.command_log().entries().len(), before, "the second ask spawns nothing");
+    }
+
+    /// An `unknownKey` verdict (no allowed-signers file configured yet) only means "couldn't
+    /// verify with what's configured right now": it is reused briefly, but never past a config
+    /// change; a `verified` verdict, once git can actually check it, is definitive and is served
+    /// from the cache.
+    #[tokio::test]
+    async fn signature_cache_drops_unknown_key_on_a_config_change_and_keeps_a_verified_result() {
         if let Some(reason) = crate::testing::ssh_signing_unavailable() {
             eprintln!("{reason}; skipping");
             return;
@@ -3336,11 +3383,13 @@ mod tests {
         let after_first = api.command_log().entries().len();
         assert!(after_first > before, "git ran to try to verify");
 
-        // Queried again with nothing changed: still not cached, so git runs again.
+        // Queried again with nothing changed: served from the cache, nothing runs.
         let unknown_again = api.dispatch(req(serde_json::json!({"method": "signature", "params": {"repo": id, "id": head}}))).await.unwrap();
         assert_eq!(unknown_again["kind"], "unknownKey");
         let after_second = api.command_log().entries().len();
-        assert!(after_second > after_first, "an unknownKey verdict is never cached");
+        assert_eq!(after_second, after_first, "reused while the config is unchanged");
+        // mtimes can be coarse: make sure the config edit below is seen as one.
+        std::thread::sleep(std::time::Duration::from_millis(20));
 
         // Now the user fixes their config; the very next call must re-verify rather than serve a
         // stale unknownKey from a cache, and this time it succeeds.
@@ -3441,6 +3490,27 @@ mod tests {
         let a = with.dispatch(req(serde_json::json!({"method": "avatar", "params": {"email": "ada@example.com"}}))).await.unwrap();
         assert_eq!(a["mime"], "image/png");
         assert!(with.dispatch(req(serde_json::json!({"method": "avatar", "params": {"email": "x@y"}}))).await.unwrap().is_null());
+    }
+
+    /// GitHub's web-flow committer and the users.noreply forms never reach Gravatar (no request
+    /// can find them there): they answer "no avatar" at once.
+    #[tokio::test]
+    async fn github_noreply_emails_never_ask_gravatar() {
+        struct Counting(std::sync::atomic::AtomicUsize);
+        impl crate::avatar::AvatarProvider for Counting {
+            fn avatar<'a>(&'a self, _: &'a str) -> crate::avatar::AvatarFuture<'a> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Box::pin(async { Ok(None) })
+            }
+        }
+        let counting = Arc::new(Counting(Default::default()));
+        let api = api().with_avatars(counting.clone());
+        for email in ["noreply@github.com", " NoReply@GitHub.com", "583231+octocat@users.noreply.github.com", "octocat@users.noreply.github.com"] {
+            assert!(api.dispatch(req(serde_json::json!({"method": "avatar", "params": {"email": email}}))).await.unwrap().is_null(), "{email}");
+        }
+        assert_eq!(counting.0.load(std::sync::atomic::Ordering::SeqCst), 0, "no Gravatar lookup");
+        api.dispatch(req(serde_json::json!({"method": "avatar", "params": {"email": "noreply@example.com"}}))).await.unwrap();
+        assert_eq!(counting.0.load(std::sync::atomic::Ordering::SeqCst), 1, "only GitHub's addresses");
     }
 
     #[tokio::test]
@@ -4016,6 +4086,9 @@ mod tests {
             json!({"method": "worktreeFiles", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "signature", "params": {"repo": id, "id": head}}),
             json!({"method": "avatar", "params": {"email": "ada@example.com"}}),
+            // --- GitHub commit-author avatars ---
+            json!({"method": "avatar", "params": {"email": "ada@example.com", "repo": id}}),
+            // --- end GitHub commit-author avatars ---
             json!({"method": "forgeAvatarImage", "params": {"url": "https://avatars.githubusercontent.com/u/1?v=4"}}),
             json!({"method": "openUrl", "params": {"url": "https://example.com"}}),
             json!({"method": "listOpeners"}),

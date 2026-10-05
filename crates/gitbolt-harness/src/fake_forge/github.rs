@@ -1,6 +1,7 @@
 //! GitHub REST, the subset GitBolt uses. 4A: user (with classic scopes), repos, forks, avatars.
 
-use super::{FakeProject, FakeRequest, ForgeState, Reply, GITHUB_HOST};
+use super::{FakeProject, FakeRequest, FakeUser, ForgeState, Reply, GITHUB_HOST};
+use std::collections::BTreeMap;
 use serde_json::{json, Value};
 
 pub fn repo_json(p: &FakeProject, base: &str) -> Value {
@@ -59,15 +60,38 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
         // --- 4C T2: a user by id (avatars of reviewers and assignees) ---
         ("GET", ["user", id]) => super::create::github_user(st, r, id),
         // --- end 4C T2 ---
+        // --- GitHub commit-author avatars ---
+        ("GET", ["repos", o, n, "commits"]) if repos.iter().any(|p| p.path == format!("{o}/{n}")) => commits_by_author(&st.seed.github.commit_authors, r),
+        // --- end GitHub commit-author avatars ---
         _ => Reply::status(404, json!({ "message": "Not Found" })),
     };
     reply.header("x-ratelimit-limit", "5000").header("x-ratelimit-remaining", &5000u64.saturating_sub(st.served).to_string()).header("x-ratelimit-used", &st.served.min(5000).to_string()).header("x-ratelimit-reset", "4102444800")
 }
 
-/// `<base>/github-avatars/u/<id>`: any id has a picture.
+/// `<base>/github-avatars/u/<id>`, or `/<login>`: any id or login has a picture.
 pub(crate) fn avatar(r: &FakeRequest) -> Reply {
     match (r.method, r.segments.iter().map(String::as_str).collect::<Vec<_>>().as_slice()) {
-        ("GET", ["u", _]) => Reply::png(),
+        ("GET", ["u", _]) | ("GET", [_]) => Reply::png(),
         _ => Reply::status(404, json!({ "message": "Not Found" })),
     }
 }
+
+// --- GitHub commit-author avatars ---
+/// A commit author whose email GitHub links to an account, and one it doesn't.
+pub const LINKED_AUTHOR_EMAIL: &str = "linus@personal.example";
+pub const UNLINKED_AUTHOR_EMAIL: &str = "nobody@personal.example";
+
+pub fn seed_commit_authors(base: &str) -> BTreeMap<String, Option<FakeUser>> {
+    let linus = FakeUser { id: 4242, username: "linus-gh".into(), name: "Linus".into(), email: None, avatar_url: Some(format!("{base}/github-avatars/u/4242?v=4")) };
+    BTreeMap::from([(LINKED_AUTHOR_EMAIL.to_string(), Some(linus)), (UNLINKED_AUTHOR_EMAIL.to_string(), None)])
+}
+
+/// `/repos/{o}/{r}/commits?author=<email>`: one commit for a seeded email (its `author` the
+/// linked account, or `null`), none for any other. Every repository has the same authors.
+fn commits_by_author(authors: &BTreeMap<String, Option<FakeUser>>, r: &FakeRequest) -> Reply {
+    let Some(email) = r.query.get("author").map(|e| e.to_ascii_lowercase()) else { return Reply::json(json!([])) };
+    let Some(linked) = authors.get(&email) else { return Reply::json(json!([])) };
+    let author = linked.as_ref().map_or(Value::Null, |u| json!({ "id": u.id, "login": u.username, "avatar_url": u.avatar_url, "type": "User" }));
+    Reply::json(json!([{ "sha": "0123456789abcdef0123456789abcdef01234567", "commit": { "author": { "name": "Someone", "email": email } }, "author": author }]))
+}
+// --- end GitHub commit-author avatars ---

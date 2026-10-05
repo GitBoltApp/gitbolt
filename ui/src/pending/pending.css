@@ -1,0 +1,8 @@
+/* The pending-action mark: a ~11px ring in the box of the checkmark / branch icon it stands in for. */
+.pending-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; color: var(--text-secondary); }
+.pending-mark::before { content: ''; width: 11px; height: 11px; box-sizing: border-box; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: pending-spin 0.8s linear infinite; }
+.sb-item > .pending-mark { margin: 0 -1px; width: 15px; height: 15px; }
+@keyframes pending-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .pending-mark::before { animation: none; width: 6px; height: 6px; border: 0; background: currentColor; }
+}

@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { errorMessage } from '../../api/client';
 import { debounce } from '../../util/debounce';
 import { chipStyle } from '../chipStyle';
+import { EmojiText } from '../emoji';
 import './searchPicker.css';
 
 export interface PickOption<T> { key: string; label: string; detail?: string; color?: string | null; value: T }
@@ -74,8 +75,8 @@ export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Prop
     <div className="pick">
       <div className="pick-box">
         {chips.map((c) => (
-          <span key={c.key} className="pick-chip" style={chipStyle(c.color)}>
-            {c.label}
+          <span key={c.key} className="pick-chip" style={chipStyle(c.color)} data-colored={c.color ? '' : undefined}>
+            <EmojiText text={c.label} />
             <button type="button" className="pick-remove" aria-label={`Remove ${c.label}`} onClick={() => onRemove(c.key)}><X size={12} /></button>
           </span>
         ))}
@@ -108,7 +109,7 @@ export function SearchPicker<T>({ label, chips, onRemove, search, onPick }: Prop
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(o)}
             >
-              {o.label}{o.detail && <span className="pick-detail"> {o.detail}</span>}
+              {o.color && <span className="pick-dot" aria-hidden="true" />}<EmojiText text={o.label} />{o.detail && <span className="pick-detail"> {o.detail}</span>}
             </li>
           ))}
           {!shown.length && !error && <li className="pick-note" aria-disabled="true">No matches</li>}

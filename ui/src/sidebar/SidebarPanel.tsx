@@ -1,3 +1,5 @@
+import { PendingMark } from '../pending/PendingMark';
+import { usePendingAny } from '../pending/store';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Clock, Folder, FolderOpen, GitBranch, House, ListTree, Tag, TreePine } from 'lucide-react';
 import { stashLabel } from './stashLabel';
@@ -24,20 +26,26 @@ import { UpstreamWarning } from '../branches/UpstreamWarning';
 import { LocalBranchBadge } from '../forge/MrBadge';
 // --- end 4B T10 ---
 // --- 4B T11 ---
-import { MrStateIcon, PipelineIcon } from '../forge/MrIcons';
+import { PipelineIcon } from '../forge/MrIcons';
+import { pipelineText } from '../forge/mrText';
+
+/** The pipeline states an MR/PR row shows an icon for. */
+const NOTABLE_PIPELINE = new Set(['failed', 'running', 'pending']);
 import { openMrView } from '../forge/poll';
 import { MrFilterButton } from '../forge/MrFilterButton';
 import { ForgeStaleIcon } from '../forge/ForgeStale';
 import { RemoteLookupWarning, RemoteMainChip } from './RemoteForgeMarks';
-import { useTabForgeField } from '../forge/mrStore';
+import { useForge, useTabForgeField } from '../forge/mrStore';
 // --- end 4B T11 ---
 
 const toggle = (list: string[], key: string) => (list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
 
-function ItemIcon({ item }: { item: SideItem }) {
+export function ItemIcon({ item, tabId }: { item: SideItem; tabId: string }) {
+  const pending = usePendingAny(tabId, [item.kind === 'local' || item.kind === 'remote' ? item.branch.fullName : null]);
+  if (pending) return <PendingMark action={pending} />;
   if (item.kind === 'local') return item.branch.isHead ? <span className="co-check" aria-label="current branch"><Check size={11} strokeWidth={3} /></span> : <GitBranch size={13} />;
   if (item.kind === 'remote') return <GitBranch size={13} />;
-  if (item.kind === 'mr') return <MrStateIcon state={item.mr.state} size={13} />; // 4B T11
+  if (item.kind === 'mr') return null; // the section says what these are; a draft's label is dimmed
   if (item.kind === 'worktree') {
     const Icon = item.worktree.isMain ? House : TreePine;
     return <Icon size={13} data-wt={item.worktree.isMain ? 'main' : 'linked'} aria-label={item.worktree.isCurrent ? 'current worktree' : undefined} aria-hidden={item.worktree.isCurrent ? undefined : true} />;
@@ -78,6 +86,8 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
   const mainKind = useTabForgeField(tabId, 'kind');
   const lookupErrors = useTabForgeField(tabId, 'remoteErrors');
   const [cursor, setCursor] = useState(0);
+  // An MR/PR section's selection is the open view's MR/PR (null in the other sections).
+  const openMr = useForge((s) => (section.kind === 'mrs' ? s.byTab[tabId]?.openMr ?? null : null));
   const [hover, setHover] = useState<{ item: SideItem; top: number; left: number } | null>(null);
   const [body, setBody] = useState<HTMLDivElement | null>(null);
   const id = panel.section.id;
@@ -87,6 +97,12 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => body, estimateSize: () => ROW_H, overscan: 10, initialRect: { width: 240, height: bodyH } });
 
   useEffect(() => { setCursor((c) => Math.min(c, Math.max(0, rows.length - 1))); }, [rows.length]);
+
+  useEffect(() => {
+    if (openMr === null) return;
+    const i = rows.findIndex((r) => r.type === 'item' && r.item.kind === 'mr' && r.item.mr.number === openMr);
+    if (i >= 0) setCursor(i);
+  }, [openMr, rows]);
 
   const jump = (item: SideItem, focus = false) => {
     // --- 4B T11: an MR/PR row opens its view ---
@@ -108,11 +124,14 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
     const c = Math.max(0, Math.min(rows.length - 1, i));
     setCursor(c);
     v.scrollToIndex(c, { align: 'auto' });
+    // In the MR/PR list the selection is the open view: moving it opens that row's.
+    const r = rows[c];
+    if (section.kind === 'mrs' && r?.type === 'item' && r.item.kind === 'mr' && c !== cursor) openMrView(tabId, r.item.mr.number);
   };
-  /** The row's context menu (spec §7): a branch, tag, stash or worktree item, or a remote's folder. */
+  /** The row's context menu (spec §7): a branch, tag, stash, worktree or MR/PR item, or a remote's folder. */
   const menuOf = (row: FlatRow | undefined) => {
     if (!row) return null;
-    if (row.type === 'item') return row.item.kind === 'mr' ? null : sidebarItemMenu(store, row.item); // 4B T11: an MR/PR row has no menu in 4B
+    if (row.type === 'item') return sidebarItemMenu(store, row.item, tabId);
     return row.remote && section.kind === 'remote' ? sidebarRemoteMenu(store, row.remote) : null;
   };
   // A right-click never moves the active row (UX round 2): the row it was on gets the temporary
@@ -195,6 +214,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
           role="tree"
           aria-label={`${section.label} items`}
           tabIndex={0}
+          data-keep-flyout-focus={section.kind === 'mrs' ? '' : undefined}
           onKeyDown={onKey}
         >
           {rows.length === 0 && <div className="sb-empty">{panel.filtering ? 'No matches' : section.empty ?? 'Nothing here'}</div>}
@@ -225,26 +245,27 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   aria-level={row.depth}
                   aria-label={it.kind === 'stash' ? `stash@{${it.stash.index}}: ${it.name}` : it.name}
                   data-active={active}
+                  aria-selected={section.kind === 'mrs' ? it.kind === 'mr' && it.mr.number === openMr : undefined}
                   data-context={row.key === contextKey || undefined}
                   data-kind={it.kind}
                   className={`sb-row sb-item${head ? ' is-head' : ''}`}
                   style={style}
-                  onClick={() => { setCursor(vi.index); jump(it); }}
+                  onClick={(e) => { setCursor(vi.index); if (it.kind === 'mr') (e.currentTarget.closest('.sb-list') as HTMLElement | null)?.focus({ preventScroll: true }); jump(it); }}
                   onDoubleClick={() => { sidebarDoubleClick({ tabId, store }, it); }}
                   onPointerEnter={(e) => onItemEnter(it, e.currentTarget)}
                   onPointerLeave={() => setHover(null)}
                   onContextMenu={(e) => { setHover(null); onRowMenu(e, row); }}
                 >
-                  <ItemIcon item={it} />
+                  <ItemIcon item={it} tabId={tabId} />
                   {/* UX round 3, M.1: an upstream with another branch name, before the name. */}
                   {it.kind === 'local' && it.branch.upstreamMismatch && <UpstreamWarning branch={it.name} upstream={it.branch.upstreamMismatch} size={13} />}
-                  <span className="sb-label" title={it.kind === 'stash' ? `stash@{${it.stash.index}}` : undefined}>{it.kind === 'stash' ? <StashText label={row.label} /> : row.label}</span>
+                  <span className="sb-label" title={it.kind === 'stash' ? `stash@{${it.stash.index}}` : undefined} data-draft={it.kind === 'mr' && it.mr.state === 'draft' ? '' : undefined}>{it.kind === 'stash' ? <StashText label={row.label} /> : row.label}</span>
                   {it.kind === 'local' && (it.branch.ahead > 0 || it.branch.behind > 0) && <span className="sb-ab" aria-label={`${it.branch.ahead} ahead, ${it.branch.behind} behind`}><span>{it.branch.ahead}<ArrowUp size={12} strokeWidth={2.5} aria-hidden /></span><span>{it.branch.behind}<ArrowDown size={12} strokeWidth={2.5} aria-hidden /></span></span>}
                   {/* --- 4B T10: the branch's MR/PR badge (spec #4 §5) --- */}
                   {it.kind === 'local' && <LocalBranchBadge tabId={tabId} upstream={it.branch.upstream} />}
                   {/* --- end 4B T10 --- */}
-                  {/* --- 4B T11: an MR/PR row's pipeline --- */}
-                  {it.kind === 'mr' && it.mr.pipeline && <PipelineIcon pipeline={it.mr.pipeline} size={12} />}
+                  {/* --- 4B T11: an MR/PR row's pipeline, only when it needs a look (failed, running, pending); the hover card says the rest --- */}
+                  {it.kind === 'mr' && it.mr.pipeline && NOTABLE_PIPELINE.has(it.mr.pipeline.status) && <span className="sb-pipeline" role="img" aria-label={pipelineText(it.forge, it.mr.pipeline)}><PipelineIcon pipeline={it.mr.pipeline} size={12} /></span>}
                   {/* --- end 4B T11 --- */}
                 </div>
               );

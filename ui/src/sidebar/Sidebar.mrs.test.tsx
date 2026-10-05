@@ -46,20 +46,65 @@ describe('the sidebar MR/PR section (spec #4 §2, §5)', () => {
     expect(order()).toEqual(['Local', 'Remote', 'Worktrees', 'Stashes', 'Tags']);
   });
 
-  it('sits after Remote and lists the open ones, each with its state and pipeline; a click opens one', () => {
+  it('sits below the worktrees and stashes and lists the open ones: no state icon, a draft dimmed, a pipeline only when it needs a look; a click opens one', () => {
     patchForge('t', { kind: 'gitlab', list: list() });
     show();
-    expect(order()).toEqual(['Local', 'Remote', 'Merge requests', 'Worktrees', 'Stashes', 'Tags']);
+    expect(order()).toEqual(['Local', 'Remote', 'Worktrees', 'Stashes', 'Merge requests', 'Tags']);
     const panel = screen.getByRole('region', { name: 'Merge requests' });
     expect(within(panel).getByLabelText('Merge requests count')).toHaveTextContent('2');
     const row = within(panel).getByRole('treeitem', { name: '!12 Dev work' });
-    expect(row.querySelector('.mr-state-icon[data-state="open"]')).toBeTruthy();
-    expect(row.querySelector('.mr-pipeline-icon[data-status="success"]')).toBeTruthy();
-    fireEvent.click(row);
+    expect(row.querySelector('.mr-state-icon')).toBeNull();
+    expect(row.querySelector('.mr-pipeline-icon'), 'a passed pipeline is the hover card\'s').toBeNull();
+    expect(within(panel).getByRole('treeitem', { name: '!5 Explore' }).querySelector('.sb-label[data-draft]')).toBeTruthy();
+    act(() => patchForge('t', { list: list([mrOf(12, { title: 'Dev work', pipeline: { status: 'failed', webUrl: null } })]) }));
+    expect(within(panel).getByRole('img', { name: 'Pipeline failed' }).querySelector('.mr-pipeline-icon[data-status="failed"]')).toBeTruthy();
+    act(() => patchForge('t', { list: list() }));
+    fireEvent.click(within(panel).getByRole('treeitem', { name: '!12 Dev work' }));
     expect(poll.openMrView).toHaveBeenCalledWith('t', 12);
     fireEvent.keyDown(within(panel).getByRole('tree'), { key: 'ArrowDown' });
     fireEvent.keyDown(within(panel).getByRole('tree'), { key: 'Enter' });
     expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5);
+  });
+
+  describe('selection and arrow keys', () => {
+    const open = () => {
+      patchForge('t', { kind: 'gitlab', list: list([mrOf(12, { title: 'Dev work' }), mrOf(5, { title: 'Explore' }), mrOf(3, { title: 'Third' })]) });
+      show();
+      const panel = screen.getByRole('region', { name: 'Merge requests' });
+      return { panel, tree: within(panel).getByRole('tree'), row: (n: string) => within(panel).getByRole('treeitem', { name: n }) };
+    };
+
+    it('a click selects the row and focuses the tree', () => {
+      const { tree, row } = open();
+      fireEvent.click(row('!5 Explore'));
+      expect(poll.openMrView).toHaveBeenCalledWith('t', 5);
+      act(() => patchForge('t', { openMr: 5 }));
+      expect(row('!5 Explore')).toHaveAttribute('aria-selected', 'true');
+      expect(row('!12 Dev work')).toHaveAttribute('aria-selected', 'false');
+      expect(document.activeElement).toBe(tree);
+    });
+
+    it('Down / Up move the selection, opening each view; Home and End go to the ends', () => {
+      const { tree } = open();
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5);
+      fireEvent.keyDown(tree, { key: 'ArrowDown' });
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 3);
+      fireEvent.keyDown(tree, { key: 'ArrowUp' });
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 5);
+      fireEvent.keyDown(tree, { key: 'End' });
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 3);
+      fireEvent.keyDown(tree, { key: 'Home' });
+      expect(poll.openMrView).toHaveBeenLastCalledWith('t', 12);
+    });
+
+    it('closing the view clears the selection; opening one from elsewhere selects its row', () => {
+      const { row } = open();
+      act(() => patchForge('t', { openMr: 3 }));
+      expect(row('!3 Third')).toHaveAttribute('aria-selected', 'true');
+      act(() => patchForge('t', { openMr: null }));
+      expect(row('!3 Third')).toHaveAttribute('aria-selected', 'false');
+    });
   });
 
   it('a new list rebuilds only the MR/PR section, not the repository sections', () => {
@@ -88,6 +133,28 @@ describe('the sidebar MR/PR section (spec #4 §2, §5)', () => {
     expect(forgeOf('t').filter).toBe('mine');
     expect(api.forgeMrList).toHaveBeenCalledWith(4, 'mine');
     expect(screen.getByRole('button', { name: 'Filter merge requests: Mine' })).toBeTruthy();
+  });
+
+  it('a row has a menu: right-click, the ContextMenu key and Shift+F10; the hover card and click stay', async () => {
+    await import('../forge/mrMenu');
+    patchForge('t', { kind: 'gitlab', list: list() });
+    show();
+    const panel = screen.getByRole('region', { name: 'Merge requests' });
+    const rowsOpen = () => useMenu.getState().rows?.map((r) => (r.kind === 'separator' ? '---' : r.label)) ?? null;
+    const ev = fireEvent.contextMenu(within(panel).getByRole('treeitem', { name: '!12 Dev work' }));
+    expect(ev).toBe(false);
+    expect(rowsOpen()?.[0]).toBe('Open merge request');
+    expect(rowsOpen()).toContain('Copy link');
+    act(() => useMenu.getState().close());
+    const tree = within(panel).getByRole('tree');
+    fireEvent.keyDown(tree, { key: 'ContextMenu' });
+    expect(rowsOpen()).toContain('Show in graph');
+    act(() => useMenu.getState().close());
+    fireEvent.keyDown(tree, { key: 'F10', shiftKey: true });
+    expect(rowsOpen()).toContain('Copy number');
+    act(() => useMenu.getState().close());
+    fireEvent.click(within(panel).getByRole('treeitem', { name: '!12 Dev work' }));
+    expect(poll.openMrView).toHaveBeenCalledWith('t', 12);
   });
 
   it('warns in its header when the last poll failed, keeping the rows', () => {

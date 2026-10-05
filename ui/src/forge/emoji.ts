@@ -30,8 +30,11 @@ export function loadEmoji(): Promise<void> {
   return loading;
 }
 
+/** A lone text-presentation emoji (⚙ U+2699) gets U+FE0F, or it draws monochrome. */
+const colourful = (e: string): string => (/^\p{Emoji}$/u.test(e) && !/^\p{Emoji_Presentation}$/u.test(e) && !/^[#*0-9]$/.test(e) ? `${e}️` : e);
+
 const lookup = (map: Readonly<Record<string, string>>, name: string): string | undefined =>
-  Object.hasOwn(map, name) ? map[name] : Object.hasOwn(map, name.toLowerCase()) ? map[name.toLowerCase()] : undefined;
+  Object.hasOwn(map, name) ? colourful(map[name]) : Object.hasOwn(map, name.toLowerCase()) ? colourful(map[name.toLowerCase()]) : undefined;
 
 /** `text` with each known `:shortcode:` replaced by its emoji; as is without a map. */
 export function emojify(text: string, map: Readonly<Record<string, string>> | null = names): string {
