@@ -221,10 +221,6 @@ fn prompt_dismissed(e: &GbError, op: &OpEntry) -> bool {
 /// Never the `ext::` transport (it runs an arbitrary command), whatever the config says.
 pub(crate) const NO_EXT: [&str; 2] = ["-c", "protocol.ext.allow=never"];
 
-/// K28: a fetch never starts upkeep in the user's repo. Without these, every fetch spawns
-/// `git maintenance run --auto` (which may gc or repack) and, with `fetch.writeCommitGraph`,
-/// rewrites the commit-graph: that's the user's own git's job, not a viewer's.
-pub(crate) const NO_UPKEEP: [&str; 2] = ["--no-auto-maintenance", "--no-write-commit-graph"];
 
 /// The command as the activity log shows it (K101): `git` and its argv (no environment), through
 /// the redactor so a URL's credentials never reach the log.
@@ -233,7 +229,9 @@ fn display_command(args: &[&str]) -> String {
 }
 
 impl Api {
-    /// `git fetch --all` for repo `id` (spec §15), with no upkeep after it (`NO_UPKEEP`). `background` fetches are GitBolt-started: they
+    /// `git fetch --all` for repo `id` (spec §15), with git's own upkeep after it, as a plain `git fetch` (`git maintenance run --auto` repacks only when
+    /// git decides to; without it every fetch left one more pack behind; the user's call, 2026-10-05, over K28's
+    /// hands-off rule). `background` fetches are GitBolt-started: they
     /// never prompt, and a credential prompt makes them `skipped: authRequired`.
     ///
     /// Not behind the harness's write guard (§17.2), like a clone (2A final M2): neither touches
@@ -286,7 +284,7 @@ impl Api {
             let fetch_head = background.then_some("--no-write-fetch-head");
             // 4A T7: one remote (named last, after the options), or every remote.
             let target: Vec<&str> = match &remote { Some(r) => vec!["--end-of-options", r.as_str()], None => vec!["--all"] };
-            let args: Vec<&str> = ["fetch", prune, "--no-prune-tags"].into_iter().chain(fetch_head).chain(NO_UPKEEP).chain(["--progress"]).chain(target).collect();
+            let args: Vec<&str> = ["fetch", prune, "--no-prune-tags"].into_iter().chain(fetch_head).chain(["--progress"]).chain(target).collect();
             command = Some(display_command(&args));
             let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(args))
                 .timeout(None)
@@ -496,10 +494,10 @@ mod tests {
         assert_eq!(snapshot(), before);
     }
 
-    /// K28: GitBolt's fetch never starts upkeep in the user's repo (`git maintenance run --auto`,
-    /// which may gc). Seen through git's own trace: a plain fetch does spawn it.
+    /// GitBolt's fetch runs git's own upkeep, as a plain fetch does (`git maintenance run --auto`,
+    /// which may gc), so packs don't pile up. Seen through git's own trace.
     #[tokio::test]
-    async fn fetch_never_starts_maintenance_or_gc() {
+    async fn fetch_runs_gits_own_maintenance() {
         let r = TestRepo::new();
         fixtures::basic(&r);
         r.git(&["config", "gc.auto", "1"]);
@@ -513,17 +511,11 @@ mod tests {
         let _ = std::fs::remove_file(&trace);
         let out = api.fetch(id, true).await.unwrap();
         assert!(matches!(out, FetchOutcome::Done { changed: true, .. }), "{out:?}");
-        assert!(!spawned_maintenance(), "GitBolt's fetch started maintenance");
+        assert!(spawned_maintenance(), "GitBolt's fetch runs git's auto maintenance");
         let args = api.cli.log().entries().into_iter().find(|e| e.args.iter().any(|a| a == "fetch")).unwrap().args;
-        assert!(args.contains(&"--no-auto-maintenance".to_string()) && args.contains(&"--no-write-commit-graph".to_string()), "{args:?}");
+        assert!(!args.contains(&"--no-auto-maintenance".to_string()) && !args.contains(&"--no-write-commit-graph".to_string()), "{args:?}");
         assert!(args.contains(&"--no-write-fetch-head".to_string()), "a background fetch leaves FETCH_HEAD alone: {args:?}");
         assert!(!r.path().join(".git/FETCH_HEAD").exists(), "no FETCH_HEAD written by a background fetch");
-        // The check can see it: the same fetch without the flags does start it.
-        let _ = std::fs::remove_file(&trace);
-        let mut cmd = std::process::Command::new("git");
-        cmd.current_dir(r.path()).args(["fetch", "-q", "origin"]).envs(isolated_git_env()).env("GIT_TRACE2_EVENT", &trace);
-        assert!(cmd.status().unwrap().success());
-        assert!(spawned_maintenance(), "a plain fetch starts maintenance, so the check above means something");
     }
 
     #[test]
@@ -1028,5 +1020,111 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// The graph's rows, as the UI's refresh asks for them.
+    async fn graph_rows(api: &Api, id: u32) -> Vec<serde_json::Value> {
+        let g = api.dispatch(serde_json::from_value::<Request>(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}})).unwrap()).await.unwrap();
+        g["rows"].as_array().unwrap().clone()
+    }
+
+    fn row_ids(rows: &[serde_json::Value]) -> std::collections::HashSet<&str> {
+        rows.iter().filter_map(|row| row["id"].as_str()).collect()
+    }
+
+    /// A commit of a new file (`f<n>.txt`) in the clone `dir`; its id.
+    fn commit_new_file(r: &TestRepo, dir: &Path, n: usize, msg: &str) -> String {
+        std::fs::write(dir.join(format!("f{n}.txt")), msg).unwrap();
+        r.git_in(dir, &["add", "-A"]);
+        r.git_in(dir, &["commit", "-q", "-m", msg]);
+        r.git_in(dir, &["rev-parse", "HEAD"])
+    }
+
+    /// The live graph after many fetches (the missing `origin/integration` and the dangling
+    /// `origin/dev` lane): the repository opened once, then a busy repository's fetches each
+    /// add a pack. Every fetched commit must reach the refreshed graph, connected to its
+    /// parents: a remote branch whose tip is new (with a local branch of the same name further
+    /// back), and one whose tip came loose while its parents came in packs. A leftover
+    /// `tmp_pack_*` from an interrupted fetch sits in the pack directory throughout.
+    #[tokio::test]
+    async fn every_fetched_commit_reaches_the_live_graph_however_many_packs_arrive() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        // Every fetch writes a pack, as one bringing more than 100 objects does.
+        r.git(&["config", "fetch.unpackLimit", "1"]);
+        std::fs::write(r.path().join(".git/objects/pack/tmp_pack_q3aTdj"), b"interrupted").unwrap();
+        r.git(&["branch", "integration", "main~1"]);
+        let api = api();
+        let id = open(&api, &r).await;
+        let graph = || graph_rows(&api, id);
+        graph().await;
+        let other = r.clone_origin("elsewhere");
+        let n = std::cell::Cell::new(0);
+        let commit = |msg: &str| {
+            n.set(n.get() + 1);
+            commit_new_file(&r, &other, n.get(), msg)
+        };
+        r.git_in(&other, &["switch", "-q", "-c", "integration"]);
+        for i in 0..40 {
+            commit(&format!("integration {i}"));
+            r.git_in(&other, &["push", "-q", "origin", "integration"]);
+            api.fetch(id, true).await.unwrap();
+            graph().await; // the refresh that follows each fetch's refsUpdated
+        }
+        let integration = r.git(&["rev-parse", "origin/integration"]);
+        // dev: a grandparent and a parent in a pack, then the tip alone, loose.
+        r.git_in(&other, &["switch", "-q", "-c", "dev", "origin/main"]);
+        let grandparent = commit("dev grandparent");
+        let parent = commit("dev parent");
+        r.git_in(&other, &["push", "-q", "origin", "dev"]);
+        api.fetch(id, true).await.unwrap();
+        graph().await;
+        r.git(&["config", "fetch.unpackLimit", "1000"]);
+        let tip = commit("dev tip");
+        r.git_in(&other, &["push", "-q", "origin", "dev"]);
+        api.fetch(id, true).await.unwrap();
+        assert_eq!(r.git(&["rev-parse", "origin/dev"]), tip);
+
+        let rows = graph().await;
+        let ids = row_ids(&rows);
+        for (c, what) in [(&tip, "tip"), (&parent, "parent"), (&grandparent, "grandparent")] {
+            assert!(ids.contains(c.as_str()), "origin/dev's {what} {c} is in the graph");
+        }
+        assert!(ids.contains(integration.as_str()), "origin/integration's tip {integration} is in the graph");
+        // Down to the old history: every commit's parents are rows (no lane runs into the void).
+        for row in rows.iter().filter(|row| row["kind"] != "wip") {
+            for p in row["parents"].as_array().unwrap() {
+                assert!(ids.contains(p.as_str().unwrap()), "{}'s parent {p} is in the graph", row["summary"]);
+            }
+        }
+    }
+
+    /// A handle whose object store runs short of index slots is replaced before it hides a
+    /// pack: here one opened with 8 slots, then 12 fetches that each add a pack, each followed
+    /// by the graph's refresh, which must show the fetched tip every time.
+    #[tokio::test]
+    async fn a_handle_short_of_object_store_slots_is_reopened() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        r.git(&["config", "fetch.unpackLimit", "1"]);
+        let api = api();
+        let id = open(&api, &r).await;
+        {
+            let mut repos = api.repos.lock().unwrap();
+            let h = repos[&id].clone();
+            let few = gix::open::Options::default().object_store_slots(gix::odb::store::init::Slots::Given(8));
+            let repo = gix::ThreadSafeRepository::open_opts(&h.workdir, few).unwrap();
+            let short = crate::api::RepoHandle { repo, workdir: h.workdir.clone(), name: h.name.clone(), common_dir: h.common_dir.clone(), wip: h.wip.clone(), snapshot: Default::default(), walk: Default::default() };
+            repos.insert(id, Arc::new(short));
+        }
+        let other = r.clone_origin("elsewhere");
+        r.git_in(&other, &["switch", "-q", "-c", "busy"]);
+        for i in 0..12 {
+            let tip = commit_new_file(&r, &other, i, &format!("busy {i}"));
+            r.git_in(&other, &["push", "-q", "origin", "busy"]);
+            api.fetch(id, true).await.unwrap();
+            assert!(row_ids(&graph_rows(&api, id).await).contains(tip.as_str()), "fetch {i}'s tip is in the graph");
+        }
+        assert!(!crate::api::odb_nearly_full(&api.handle(id).unwrap().repo));
     }
 }

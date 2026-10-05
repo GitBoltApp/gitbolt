@@ -45,6 +45,9 @@ test.describe('UX round 3 O.1: Create file…', () => {
     // Undo the save, then the create: the file and the folders it made are gone.
     await undoButton(page).click();
     await expect.poll(() => readFileSync(join(repo, 'newdir/deep/hello.md'), 'utf8')).toBe('');
+    // Answered (the file can change before the reply): an Undo pressed while one is in flight
+    // is ignored (undo/feature.ts `once`).
+    await expect(page.getByRole('status').filter({ hasText: 'Undid save newdir/deep/hello.md' })).toBeVisible();
     await undoButton(page).click();
     await expect.poll(() => existsSync(join(repo, 'newdir'))).toBe(false);
     await expect(fileRow(page, 'unstaged', 'newdir/deep/hello.md')).toHaveCount(0);

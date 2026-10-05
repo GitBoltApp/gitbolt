@@ -1,5 +1,7 @@
 .claude/worktrees/
 .superpowers/
+# Design specs and plans stay local (not part of the public repo).
+/docs/superpowers/
 /target
 node_modules/
 /ui/dist

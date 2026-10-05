@@ -464,11 +464,15 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   const lastVisible = Math.min(graph.rows.length, Math.ceil((scrollTop + viewportH) / metrics.rowH) + AVATAR_OVERSCAN);
   useEffect(() => {
     const emails: string[] = [];
+    const names = new Map<string, string>();
     for (let i = firstVisible; i < lastVisible; i++) {
       const r = graph.rows[i];
-      if (r?.kind === 'commit') emails.push(r.authorEmail);
+      if (r?.kind === 'commit') {
+        emails.push(r.authorEmail);
+        if (!names.has(r.authorEmail)) names.set(r.authorEmail, r.authorName);
+      }
     }
-    avatars.requestVisible(emails, tabRepo);
+    avatars.requestVisible(emails, tabRepo, names);
   }, [graph.rows, firstVisible, lastVisible, avatarVersion, tabRepo]);
 
   useLayoutEffect(() => {

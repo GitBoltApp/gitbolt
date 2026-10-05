@@ -1,6 +1,7 @@
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import { selectCommit } from '../app/graphNav';
 import { tabView, useTabViews, type TabView } from '../app/tabStores';
+import { markdownViewOf } from '../diff/markdownOverride';
 import { useDiffPrefs } from '../diff/diffPrefs';
 import { isMarkdownPath } from '../diff/markdownFiles';
 import { shortSha } from '../format/sha';
@@ -34,7 +35,7 @@ export function fileCommitOf(s: Pick<RepoViewState, 'selection'>, t: DiffTarget)
   }
 }
 
-const viewOf = (path: string): PlaceView => (isMarkdownPath(path) ? useDiffPrefs.getState().prefs.markdownView : 'source');
+const viewOf = (path: string): PlaceView => (isMarkdownPath(path) ? markdownViewOf(path) : 'source');
 
 /** The navigation place a File View of `t` is; `null` for a Diff View or a file with no commit. */
 export function filePlaceOf(s: Pick<RepoViewState, 'selection'>, t: DiffTarget): FilePlace | null {

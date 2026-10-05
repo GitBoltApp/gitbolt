@@ -100,7 +100,12 @@ test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
     await watchLongTasks(page);
     await pointAt(page, badge, true);
     const view = page.getByRole('dialog', { name: 'Merge request !12' });
-    await expect(view.getByRole('heading', { name: 'Section 1', exact: true })).toBeVisible();
+    // The first chunk comes once the worker has parsed the whole text (parseAsync), so it shares
+    // the full render's wait: about 4 s on Chromium and 7-9 s on WebKit on a loaded machine. The
+    // budget here is the long tasks, not the parse.
+    const t0 = Date.now();
+    await expect(view.getByRole('heading', { name: 'Section 1', exact: true })).toBeVisible({ timeout: 20_000 });
+    console.log(`[budget] 900 KB description: first heading after ${Date.now() - t0} ms`);
     // The last section is rendered (in the DOM; content-visibility may skip painting it).
     await expect(view.locator('.mr-description .md-rendering')).toHaveCount(0, { timeout: 20_000 });
     await expect(view.locator('.mr-description h2').last()).toHaveText(/^Section \d+$/);

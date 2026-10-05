@@ -1,6 +1,6 @@
 import { chmodSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { expect, test, type Page } from './test';
+import { budgetApplies, expect, test, type Page } from './test';
 import { openWip, selectWip } from './wip';
 import { freshFixture, git, openUrl } from './fixtures';
 
@@ -52,7 +52,7 @@ test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
     expect(git(repo, 'log', '-1', '--format=%B')).toBe('Stage notes\n\nWhy: the fixture');
     await selectWip(page);
     await expect(summary(page)).toHaveValue('');
-    expect(ms, 'commit → graph').toBeLessThan(300); // §16; the wave pass reports the best of 3 runs
+    if (budgetApplies()) expect(ms, 'commit → graph').toBeLessThan(300); // §16; the wave pass reports the best of 3 runs
   });
 
   test('the row box and the commit box are one draft', async ({ page }) => {

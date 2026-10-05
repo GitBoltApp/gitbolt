@@ -57,6 +57,20 @@ describe('avatar store', () => {
     expect(Object.fromEntries(fetch.mock.calls.map((c) => [c[0], c[1]]))).toEqual({ 'ada@example.com': 3, 'grace@example.com': 4, 'linus@example.com': undefined });
   });
 
+  it("passes the person's name along (the backend's last look: a forge user by that name)", async () => {
+    const fetch = vi.fn(async (_email: string, _repo?: number, _name?: string) => null);
+    const avatars = createAvatarStore(fetch);
+    avatars.requestVisible(['Ada@Example.com', 'nobody@example.com'], 3, new Map([['Ada@Example.com', 'Ada Lovelace']]));
+    avatars.prefetchOne('grace@example.com', 4, 'Grace Hopper');
+    avatars.request('linus@example.com', undefined, '  ');
+    await flush();
+    await flush();
+    expect(fetch.mock.calls.map((c) => [...c])).toEqual(
+      expect.arrayContaining([['ada@example.com', 3, 'Ada Lovelace'], ['nobody@example.com', 3], ['grace@example.com', 4, 'Grace Hopper'], ['linus@example.com']]),
+    );
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
   it('reset forgets images and "no avatar" answers, so every email is asked for again (the Gravatar setting changed)', async () => {
     const fetch = vi.fn(async (email: string) => (email === 'ada@example.com' ? png : null));
     const avatars = createAvatarStore(fetch);

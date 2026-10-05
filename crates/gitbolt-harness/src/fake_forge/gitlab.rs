@@ -56,6 +56,22 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
             let t = r.token.as_ref().expect("checked");
             Reply::json(json!({ "id": 1, "name": "GitBolt", "scopes": t.scopes, "active": true, "revoked": false }))
         }
+        // --- commit-author avatars by name ---
+        // As GitLab for a non-admin: `search` matches names and usernames (any case, a part of
+        // either), and the users carry no email.
+        ("GET", ["api", "v4", "users"]) => {
+            let q = r.query.get("search").map(|s| s.to_lowercase()).unwrap_or_default();
+            let per_page = r.query.get("per_page").and_then(|n| n.parse().ok()).unwrap_or(20);
+            let g = &st.seed.gitlab;
+            let mut seen = std::collections::HashSet::new();
+            let found: Vec<Value> = g.tokens.iter().map(|t| &t.user).chain(&g.users).chain(&g.members)
+                .filter(|u| seen.insert(u.id) && (u.name.to_lowercase().contains(&q) || u.username.to_lowercase().contains(&q)))
+                .take(per_page)
+                .map(|u| json!({ "id": u.id, "username": u.username, "name": u.name, "state": "active", "avatar_url": u.avatar_url, "web_url": format!("{}/gitlab/{}", r.base, u.username) }))
+                .collect();
+            Reply::json(Value::Array(found))
+        }
+        // --- end commit-author avatars by name ---
         ("GET", ["api", "v4", "version"]) => Reply::json(json!({ "version": st.seed.gitlab.version, "revision": "fake" })),
         ("GET", ["api", "v4", "projects", id]) => match find(projects, id) {
             Some(p) => Reply::json(project_json(p, projects, r.base)),

@@ -100,13 +100,16 @@ pub enum Request {
     /// verdict for the process lifetime, an unknown or untrusted key briefly (spec §9.1).
     Signature { repo: u32, id: String },
     /// A cached avatar for an email, or `null` (the UI shows initials; spec §14.3).
-    /// `repo`: the tab asking. Its GitHub forge target, if any, is asked last who the email's
-    /// commits belong to (`ForgeHub::author_avatar`).
+    /// `repo`: the tab asking. Its forge target, if any, is asked last who the email's commits
+    /// belong to (GitHub), then who has the commit author's `name` (`ForgeHub::author_avatar`).
     Avatar {
         email: String,
         #[serde(default)]
         #[ts(optional)]
         repo: Option<u32>,
+        #[serde(default)]
+        #[ts(optional)]
+        name: Option<String>,
     },
     /// A forge user's or project owner's picture by the `avatarUrl` the forge gave, or `null`:
     /// fetched only from an account's own host or its forge's avatar host (`ForgeHub::avatar_at`),
@@ -1133,6 +1136,33 @@ pub(crate) struct RepoHandle {
     pub(crate) walk: Arc<Mutex<Option<crate::snapshot::WalkCache>>>,
 }
 
+/// The object store's index slots, one per pack index or multi-pack index: gix fixes their
+/// number when a handle opens, and its default (1.1 times the indices then on disk, at least
+/// 32) runs out in a long session, since every fetch may add a pack (git's auto maintenance
+/// repacks only now and then). With the slots full, gix sees none of the newer packs: their objects
+/// read as missing, and the graph drops a fetched tip, or a fetched commit's parents. So twice
+/// the indices, at least 128, and a fresh handle once fewer than a quarter are free
+/// (`odb_nearly_full`, checked by `Api::handle`).
+const ODB_SLOTS: gix::odb::store::init::Slots = gix::odb::store::init::Slots::AsNeededByDiskState { multiplier: 2.0, minimum: 128 };
+
+/// How a repository handle opens (`ODB_SLOTS`).
+pub(crate) fn open_options() -> gix::open::Options {
+    gix::open::Options::default().object_store_slots(ODB_SLOTS)
+}
+
+/// `open_options`, for discovery's trust levels.
+fn discover_options() -> gix::sec::trust::Mapping<gix::open::Options> {
+    let gix::sec::trust::Mapping { full, reduced } = gix::sec::trust::Mapping::<gix::open::Options>::default();
+    gix::sec::trust::Mapping { full: full.object_store_slots(ODB_SLOTS), reduced: reduced.object_store_slots(ODB_SLOTS) }
+}
+
+/// Fewer than a quarter of `repo`'s object-store slots are free (`ODB_SLOTS`): time to reopen.
+pub(crate) fn odb_nearly_full(repo: &gix::ThreadSafeRepository) -> bool {
+    let m = repo.objects.metrics();
+    let taken = m.known_reachable_indices + m.unreachable_indices;
+    m.unused_slots * 4 < m.unused_slots + taken
+}
+
 /// Decides whether a write may touch a repository (spec #2 §17.2), given its canonical common
 /// dir. The app has none; the harness allows fixture repositories only (`fixture_guard`).
 pub type WriteGuard = Arc<dyn Fn(&Path) -> Result<(), GbError> + Send + Sync>;
@@ -2019,7 +2049,7 @@ impl Api {
                 self.signatures.lock().expect("signatures poisoned").put(cache_key, s.clone(), stamp);
                 to_json(s)
             }
-            Request::Avatar { email, repo } => {
+            Request::Avatar { email, repo, name } => {
                 // --- 4A T6: the forges first (spec #4 §2 "Avatars") ---
                 let forge_avatars = self.store.state().settings.forge_avatars;
                 if forge_avatars
@@ -2039,11 +2069,11 @@ impl Api {
                 if let Ok(Some(found)) = gravatar {
                     return to_json(Some(found));
                 }
-                // --- GitHub commit-author avatars: last, the repo's GitHub project ---
+                // --- GitHub commit-author avatars: last, the repo's forge project (then by name) ---
                 if forge_avatars
                     && let (Some(hub), Some(repo)) = (&self.forge, repo)
                     && let Ok(h) = self.handle(repo)
-                    && let Some(found) = hub.author_avatar(&self.store, &self.forge_remotes_of(&h), &email).await
+                    && let Some(found) = hub.author_avatar(&self.store, &self.forge_remotes_of(&h), &email, name.as_deref()).await
                 {
                     return to_json(Some(found));
                 }
@@ -2656,13 +2686,24 @@ impl Api {
         list
     }
 
+    /// Repository `id`'s handle; a fresh one when its object store is running out of index
+    /// slots (`odb_nearly_full`), so the packs written since it opened stay visible.
     pub(crate) fn handle(&self, id: u32) -> Result<Arc<RepoHandle>, GbError> {
-        self.repos
-            .lock()
-            .expect("repos poisoned")
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("no open repository with id {id}")))
+        let h = self.lookup(id)?;
+        if !odb_nearly_full(&h.repo) {
+            return Ok(h);
+        }
+        match self.reopen(id, &h) {
+            Ok(fresh) => {
+                // A walk the full store made may lack commits: walk anew.
+                *fresh.walk.lock().expect("walk poisoned") = None;
+                Ok(fresh)
+            }
+            Err(e) => {
+                tracing::warn!("couldn't reopen {} for its new packs: {e}", h.workdir.display());
+                Ok(h)
+            }
+        }
     }
 
     // --- 4A T7 ---
@@ -2671,8 +2712,23 @@ impl Api {
     /// (the sidebar, the graph's labels, the forge mapping). The caches move over. Holders of the
     /// old handle finish with it.
     pub(crate) fn reopen_repo(&self, id: u32) -> Result<(), GbError> {
-        let old = self.handle(id)?;
-        let repo = gix::ThreadSafeRepository::open(&old.workdir).map_err(crate::error::gix_err)?;
+        let old = self.lookup(id)?;
+        self.reopen(id, &old).map(|_| ())
+    }
+    // --- end 4A T7 ---
+
+    fn lookup(&self, id: u32) -> Result<Arc<RepoHandle>, GbError> {
+        self.repos
+            .lock()
+            .expect("repos poisoned")
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("no open repository with id {id}")))
+    }
+
+    /// `old`, reopened: it replaces `old` unless the repository was closed meanwhile.
+    fn reopen(&self, id: u32, old: &RepoHandle) -> Result<Arc<RepoHandle>, GbError> {
+        let repo = gix::ThreadSafeRepository::open_opts(&old.workdir, open_options()).map_err(crate::error::gix_err)?;
         let fresh = Arc::new(RepoHandle {
             repo,
             workdir: old.workdir.clone(),
@@ -2682,14 +2738,16 @@ impl Api {
             snapshot: Mutex::new(old.snapshot.lock().expect("snapshot poisoned").clone()),
             walk: old.walk.clone(),
         });
-        self.repos.lock().expect("repos poisoned").insert(id, fresh);
-        Ok(())
+        let mut repos = self.repos.lock().expect("repos poisoned");
+        if let Some(slot) = repos.get_mut(&id) {
+            *slot = fresh.clone();
+        }
+        Ok(fresh)
     }
-    // --- end 4A T7 ---
 
     pub(crate) async fn open_repo(&self, path: &str) -> Result<RepoSummary, GbError> {
         self.git_version().await?;
-        let repo = gix::ThreadSafeRepository::discover(path)
+        let repo = gix::ThreadSafeRepository::discover_opts(path, Default::default(), discover_options())
             .map_err(|_| GbError::new(GbErrorKind::NotFound, format!("Not a git repository: {path}")))?;
         let opened = repo
             .work_dir()
@@ -2709,7 +2767,7 @@ impl Api {
         // The handle lives in the main worktree; a bare main keeps the one opened.
         let main = crate::worktree::list_worktrees(&self.cli, &opened).await?.into_iter().find(|w| w.is_main && !w.bare && w.path.is_dir()).map(|w| w.path.canonicalize().unwrap_or(w.path));
         let workdir = main.unwrap_or_else(|| opened.clone());
-        let repo = if workdir == opened { repo } else { gix::ThreadSafeRepository::open(&workdir).map_err(crate::error::gix_err)? };
+        let repo = if workdir == opened { repo } else { gix::ThreadSafeRepository::open_opts(&workdir, open_options()).map_err(crate::error::gix_err)? };
         let name = workdir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| workdir.display().to_string());
         // Lock order: `repos`, then `write_locks` (nothing takes them the other way round).
         self.recover_journals(&workdir, &common_dir);

@@ -79,7 +79,8 @@ test.describe('fetch and pull (spec #2 §12.1, §12.2)', () => {
     await pull.hover();
     await expect(page.getByRole('tooltip')).toHaveText('Pull origin/main into main (fast-forward only)');
     await pull.click();
-    await expect(page.getByRole('status')).toContainText('Pulled 1 commit into main (fast-forward)');
+    // The toast, not the pending marks (also role=status) the pull shows while it runs.
+    await expect(page.getByRole('status').filter({ hasText: 'Pulled 1 commit into main (fast-forward)' })).toBeVisible();
     expect(git(repo, 'rev-parse', 'main')).toBe(git(repo, 'rev-parse', 'origin/main'));
   });
 

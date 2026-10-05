@@ -1,4 +1,4 @@
-import { expect, test } from './test';
+import { budgetApplies, expect, test } from './test';
 import { git } from './fixtures';
 import { fileRow, openWip, section } from './wip';
 
@@ -30,7 +30,8 @@ test.describe('the staging undo log (spec #2 §7.6)', () => {
       await expect(fileRow(page, 'unstaged', 'new.txt')).toBeVisible();
       runs.push(Date.now() - t0);
     }
-    expect(Math.min(...runs), `runs: ${runs.join(', ')}`).toBeLessThan(100);
+    console.log(`[budget] staging undo (Ctrl+Z): ${runs.join(', ')} ms`);
+    if (budgetApplies()) expect(Math.min(...runs), `runs: ${runs.join(', ')}`).toBeLessThan(100);
     expect(git(repo, 'diff', '--cached', '--name-only')).toBe('notes.txt');
   });
 

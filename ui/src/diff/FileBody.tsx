@@ -6,29 +6,32 @@ import type { MarkdownContext } from '../markdown/types';
 import type { FileCommit } from '../nav/history';
 import { useScrollPlace } from '../nav/scroll';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useDiffPrefs } from './diffPrefs';
+import { useDiffPrefs, type MarkdownView } from './diffPrefs';
 import { FileView } from './FileView';
 import type { MonacoHost } from './monaco/host';
 import { markSlow, PARSE_BUDGET_MS, PRECHECK_BYTES, renderKey, TOO_LARGE_TO_RENDER, useTooLargeToRender } from './markdownFiles';
 import { loadedHost } from './TextDiff';
 // --- 5B T6: relative links and images in File View's Markdown (registered with the renderer) ---
 import '../markdown/fileLinks';
+import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
 // --- end 5B T6 ---
 
 type ViewState = ReturnType<MonacoHost['fileViewState']>;
 
 /** Spec #5 §3.3: `Source | Rendered`, in the diff toolbar for a Markdown file in File View. The
- * pick is the app-wide `markdownView`. `forced`: why Rendered can't be picked (§3.1). */
-export function MarkdownViewToggle({ forced = null }: { forced?: string | null }) {
-  const view = useDiffPrefs((s) => s.prefs.markdownView);
+ * pick is the app-wide `markdownView` (a just-created file shows Source on its own until this is
+ * used: `markdownOverride.ts`). `forced`: why Rendered can't be picked (§3.1). */
+export function MarkdownViewToggle({ path = null, forced = null }: { path?: string | null; forced?: string | null }) {
+  const view = useMarkdownView(path);
   const set = useDiffPrefs((s) => s.set);
   const source = view === 'source' || forced !== null;
+  const pick = (v: MarkdownView) => { clearMarkdownOverride(); set({ markdownView: v }); };
   return (
     <div className="segmented" role="group" aria-label="Markdown view">
-      <button type="button" aria-pressed={source} onClick={() => set({ markdownView: 'source' })}>Source</button>
+      <button type="button" aria-pressed={source} onClick={() => pick('source')}>Source</button>
       {/* `aria-disabled`, so the tooltip still shows on hover. */}
       <HoverTooltip content={forced ?? ''} disabled={forced === null}>
-        <button type="button" aria-pressed={!source} aria-disabled={forced !== null ? 'true' : undefined} onClick={() => { if (forced === null) set({ markdownView: 'rendered' }); }}>Rendered</button>
+        <button type="button" aria-pressed={!source} aria-disabled={forced !== null ? 'true' : undefined} onClick={() => { if (forced === null) pick('rendered'); }}>Rendered</button>
       </HoverTooltip>
     </div>
   );
@@ -56,7 +59,9 @@ export function FileBody({ identity, path, text, language, onShown, editable = f
   markdown: { commit: FileCommit } | null;
 }) {
   const { tabId } = useRepoContext();
-  const picked = useDiffPrefs((s) => s.prefs.markdownView);
+  const picked = useMarkdownView(path);
+  // Another file shown ends a just-created file's Source (markdownOverride.ts).
+  useEffect(() => { const over = useMarkdownOverride.getState().path; if (over !== null && over !== path) clearMarkdownOverride(); }, [path]);
   const pane = useRef<HTMLDivElement>(null);
   // The editor as Rendered was picked: its cursor and scroll, and the working copy's buffer.
   const kept = useRef<{ identity: string; view: ViewState; buffer: string | null } | null>(null);
@@ -103,13 +108,25 @@ export function FileBody({ identity, path, text, language, onShown, editable = f
   const waiting = needsCheck && checked !== key;
   const fileText = useRef(text);
   fileText.current = text;
-  useEffect(() => useDiffPrefs.subscribe((s, prev) => {
-    if (prev.prefs.markdownView !== 'source' || s.prefs.markdownView !== 'rendered') return;
+  useEffect(() => {
+    // Source → Rendered for this file: the app-wide pick, or the end of its just-created Source.
+    const was = { view: markdownViewOf(path) };
+    const check = () => {
+      const now = markdownViewOf(path);
+      const flipped = was.view === 'source' && now === 'rendered';
+      was.view = now;
+      if (flipped) keep();
+    };
+    const offPrefs = useDiffPrefs.subscribe(check);
+    const offOver = useMarkdownOverride.subscribe(check);
+    return () => { offPrefs(); offOver(); };
+  }, [editable, identity, path]); // eslint-disable-line react-hooks/exhaustive-deps
+  function keep() {
     const h = loadedHost();
     // The buffer only when it holds unsaved edits: otherwise Rendered follows the file on disk.
     const buffer = editable ? h?.fileText(identity) ?? null : null;
     kept.current = { identity, view: h?.fileViewState() ?? null, buffer: buffer !== fileText.current ? buffer : null };
-  }), [editable, identity]);
+  }
   // Back to Source: the cursor and scroll as they were.
   useLayoutEffect(() => {
     if (rendered) return;

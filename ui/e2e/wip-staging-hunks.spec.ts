@@ -1,5 +1,5 @@
 import type { Locator } from '@playwright/test';
-import { expect, test, type Page } from './test';
+import { budgetApplies, expect, test, type Page } from './test';
 import { git } from './fixtures';
 import { fileRow, fileRowSelector, openWip, timedClick } from './wip';
 
@@ -135,7 +135,7 @@ test.describe('hunks and lines (spec #2 §7.3)', () => {
       await expect(fileRow(page, 'staged', 'src/app.txt')).toHaveCount(0);
     }
     console.log(`[budget] stage selected lines: ${runs.map((n) => n.toFixed(1)).join(', ')} ms`);
-    expect(Math.min(...runs), `stage lines: ${runs.map((n) => n.toFixed(1)).join(', ')} ms`).toBeLessThan(150);
+    if (budgetApplies()) expect(Math.min(...runs), `stage lines: ${runs.map((n) => n.toFixed(1)).join(', ')} ms`).toBeLessThan(150);
     // The modified side's own lines; Inline mode's deleted lines are view zones, also `.view-lines`.
     await modified(page).locator('.view-lines:not(.line-delete)').click();
     await page.keyboard.type('x');
@@ -155,6 +155,6 @@ test.describe('hunks and lines (spec #2 §7.3)', () => {
       await expect(fileRow(page, 'staged', 'src/app.txt')).toHaveCount(0);
     }
     console.log(`[budget] stage a hunk: ${runs.map((n) => n.toFixed(1)).join(', ')} ms`);
-    expect(Math.min(...runs), `stage a hunk: ${runs.map((n) => n.toFixed(1)).join(', ')} ms`).toBeLessThan(100);
+    if (budgetApplies()) expect(Math.min(...runs), `stage a hunk: ${runs.map((n) => n.toFixed(1)).join(', ')} ms`).toBeLessThan(100);
   });
 });

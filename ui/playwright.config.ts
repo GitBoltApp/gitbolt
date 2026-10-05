@@ -47,7 +47,11 @@ export default defineConfig({
     // them. Same browser, same budgets.
     { name: 'chromium', grepInvert: /@budget/, use: chromium },
     { name: 'chromium-budget', grep: /@budget/, use: chromium },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    // WebKit stands in for engine portability, not for macOS: GitBolt ships on Linux, where its
+    // shortcuts (and Monaco's) are Ctrl ones. The Desktop Safari device's Mac user agent made
+    // Monaco take Cmd keybindings, so a test's Ctrl+Home/Ctrl+F fell through to the hidden
+    // textarea. Same engine, the user agent's platform Linux.
+    { name: 'webkit', use: { ...devices['Desktop Safari'], userAgent: devices['Desktop Safari'].userAgent.replace(/\(Macintosh;[^)]*\)/, '(X11; Linux x86_64)') } },
   ],
   webServer: [
     { command: `${HARNESS_BIN} serve --port ${harnessPort}`, url: `http://127.0.0.1:${harnessPort}/health`, reuseExistingServer: false, timeout: 60_000 },

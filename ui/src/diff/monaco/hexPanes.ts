@@ -139,6 +139,7 @@ export class HexPanes implements HexView {
     this.bar.className = 'hex-bar';
     this.marks.className = 'hex-marks';
     this.scroller.className = 'hex-scroller';
+    this.spacer.className = 'hex-spacer';
     this.scroller.appendChild(this.spacer);
     this.bar.append(this.marks, this.scroller);
     el.appendChild(this.bar);

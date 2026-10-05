@@ -99,6 +99,22 @@ describe('Create branch: inline in the graph row (UX round 1)', () => {
     fireEvent.blur(input);
     expect(useRowEditors.getState().editor).toBeNull();
   });
+  it('waits for a row that renders a few frames late (a loaded machine), no dialog', async () => {
+    // Frames and the clock are faked, so a loaded test machine can't spend the wait's budget.
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] });
+    try {
+      const ask = vi.spyOn(prompt, 'promptText').mockResolvedValue(null);
+      const done = createBranchAt(ctx, { sha: A, ref: null });
+      const editor = useRowEditors.getState().editor!;
+      for (let i = 0; i < 4; i++) await act(async () => { vi.advanceTimersToNextFrame(); });
+      render(<>{editor.render()}</>);
+      await act(async () => { vi.advanceTimersToNextFrame(); await done; });
+      expect(ask).not.toHaveBeenCalled();
+      expect(useRowEditors.getState().editor).toBe(editor);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('falls back to the dialog when the row never renders', async () => {
     const ask = vi.spyOn(prompt, 'promptText').mockResolvedValue(null);
     await createBranchAt(ctx, { sha: A, ref: null });

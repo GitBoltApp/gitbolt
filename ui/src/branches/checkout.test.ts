@@ -7,6 +7,7 @@ import * as active from '../worktrees/active';
 import { checkout, checkoutLabel, checkoutSideItem } from './checkout';
 import { useTabViews } from '../app/tabStores';
 import { resetTo } from './reset';
+import { usePending } from '../pending/store';
 
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
 const done = (outcome: unknown) => ({ outcome, journal: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [] }, staging: { undo: null, redo: null, off: null }, wip: null });
@@ -24,6 +25,21 @@ describe('checkout (spec #2 §9.3)', () => {
     await checkout(ctx, target, { head: 'h0', refs: {} });
     expect(ask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Branches have diverged', body: 'feature/x and origin/feature/x have diverged (2 ahead, 3 behind).', confirmLabel: 'Reset feature/x to origin/feature/x', arm: 'Click again to reset feature/x to origin/feature/x (drops 2 local commits)', danger: true }), null);
     expect(call).toHaveBeenLastCalledWith(1, '/r', target, { head: 'h0', refs: { 'refs/heads/feature/x': 'l1', 'refs/remotes/origin/feature/x': 'r1' } }, false, 'reset');
+  });
+  it("the spinner hands straight over to the checkmark: it stays until the refreshed graph and sidebar arrive", async () => {
+    useRuntime.getState().patch('t', { graph: { worktrees: [] } as never, sidebar: { locals: [] } as never });
+    vi.spyOn(api, 'checkout').mockResolvedValue(done({ status: 'done', branch: 'feature/x' }) as never);
+    const pendingOf = () => usePending.getState().byTab.t?.['refs/heads/feature/x'] ?? null;
+    let finished = false;
+    const run = checkout(ctx, { kind: 'branch', name: 'feature/x' }, expectNone).then(() => { finished = true; });
+    await vi.waitFor(() => expect(api.checkout).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(pendingOf()).toBe('checkout');
+    expect(finished).toBe(false);
+    // The refresh lands: a new graph and sidebar showing the new HEAD.
+    useRuntime.getState().patch('t', { graph: { worktrees: [] } as never, sidebar: { locals: [] } as never });
+    await run;
+    expect(pendingOf()).toBeNull();
   });
   it('Cancel leaves it', async () => {
     vi.spyOn(api, 'checkout').mockResolvedValueOnce(done(diverged) as never);

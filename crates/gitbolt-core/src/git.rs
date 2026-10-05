@@ -608,14 +608,54 @@ fn flush_line(tx: &UnboundedSender<String>, pending: &mut Vec<u8>) {
     }
 }
 
-/// git's first real message line: not a hint, and not progress (`Fetching origin`, a
-/// `\r`-rewritten percentage, `From <url>`), which a network command prints before it fails.
+/// git's first real message line: not a hint, and not the chatter a network command prints
+/// before it fails (`is_chatter`). A warning only when there's nothing else.
 fn first_message_line(stderr: &str) -> Option<String> {
-    stderr
-        .split(['\r', '\n'])
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("hint:") && !l.starts_with("From ") && !l.starts_with("Cloning into ") && !is_rebase_step(l) && crate::netops::parse_progress(l).is_none())
-        .map(|l| l.trim_start_matches("fatal: ").trim_start_matches("error: ").to_string())
+    let mut lines = stderr.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty() && !is_chatter(l)).peekable();
+    let first_warning = lines.peek().copied();
+    lines
+        .find(|l| !l.starts_with("warning:"))
+        .or(first_warning)
+        .map(|l| l.trim_start_matches("fatal: ").trim_start_matches("error: ").trim_start_matches("warning: ").to_string())
+}
+
+/// Not a message: a hint, progress (`Fetching origin`, a `\r`-rewritten percentage, a rebase's
+/// counter), a transfer count (`remote: Enumerating objects: 824, done.`, `remote: Total 824
+/// (delta 412), …`), an empty `remote:` line, `From <url>`, `Cloning into …`, `POST
+/// git-upload-pack (…)`, or a fetch's ref summary (`   a..b  dev -> origin/dev`, `* [new
+/// branch] …`; a rejected ` ! …` one is kept).
+fn is_chatter(l: &str) -> bool {
+    let bare = l.strip_prefix("remote:").map_or(l, str::trim_start);
+    bare.is_empty()
+        || l.starts_with("hint:")
+        || l.starts_with("From ")
+        || l.starts_with("Cloning into ")
+        || l.starts_with("POST git-")
+        || is_rebase_step(l)
+        || crate::netops::parse_progress(l).is_some()
+        || is_transfer_count(bare)
+        || is_ref_summary(l)
+}
+
+/// `Enumerating objects: 824, done.`, `Total 824 (delta 412), reused …`: counts, no percentage.
+fn is_transfer_count(l: &str) -> bool {
+    let counted = |rest: &str| {
+        let after = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+        after.len() < rest.len() && (after.is_empty() || after.starts_with(',') || after.starts_with(" ("))
+    };
+    if let Some(rest) = l.strip_prefix("Total ") {
+        return counted(rest);
+    }
+    l.split_once(':').is_some_and(|(phase, rest)| !phase.is_empty() && phase.chars().all(|c| c.is_ascii_alphabetic() || c == ' ') && counted(rest.trim_start()))
+}
+
+/// A fetch's per-ref summary line, other than a rejected (`!`) one.
+fn is_ref_summary(l: &str) -> bool {
+    if !l.contains(" -> ") {
+        return false;
+    }
+    let range = l.split_once(' ').is_some_and(|(r, _)| r.split_once("..").is_some_and(|(a, b)| !a.is_empty() && a.chars().all(|c| c.is_ascii_hexdigit()) && b.trim_start_matches('.').chars().all(|c| c.is_ascii_hexdigit())));
+    range || ["* [", "+ ", "- [", "= [", "t ["].iter().any(|p| l.starts_with(p))
 }
 
 /// A rebase's `Rebasing (2/5)` counter line.
@@ -771,6 +811,26 @@ mod tests {
         assert_eq!(first_message_line("Cloning into '/tmp/x'...\nfatal: repository '/nope' does not exist\n").as_deref(), Some("repository '/nope' does not exist"));
         assert_eq!(first_message_line("hint: x\nerror: boom\n").as_deref(), Some("boom"));
         assert_eq!(first_message_line("Rebasing (1/2)\rerror: could not apply abc\n").as_deref(), Some("could not apply abc"), "a rebase's counter isn't the message");
+    }
+
+    /// A fetch that failed after the server began sending: its counts (`Enumerating objects:
+    /// 824, done.`, no percentage), the `Total` line, the ref summary and warnings aren't the
+    /// message; git's error is.
+    #[test]
+    fn a_failed_fetchs_message_is_its_error_never_a_transfer_count() {
+        let counts = "remote: Enumerating objects: 824, done.\nremote: Counting objects: 100% (500/500), done.\nremote: Compressing objects: 100% (200/200), done.\nremote: Total 824 (delta 412), reused 300 (delta 200), pack-reused 0 (from 0)\n";
+        let cut = format!("{counts}Receiving objects:  13% (108/824)\rerror: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly: CANCEL (err 8)\nerror: 5677 bytes of body are still expected\nfetch-pack: unexpected disconnect while reading sideband packet\nfatal: early EOF\nfatal: fetch-pack: invalid index-pack output\n");
+        assert_eq!(first_message_line(&cut).as_deref(), Some("RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly: CANCEL (err 8)"));
+        let locked = format!("{counts}Receiving objects: 100% (824/824), 1.86 MiB | 5.00 MiB/s, done.\nResolving deltas: 100% (412/412), done.\nFrom gitlab.example.com:team/app\n   e7c0919563..d79b766c1e  dev         -> origin/dev\n * [new branch]          topic       -> origin/topic\n + 1111111...2222222 forced      -> origin/forced  (forced update)\nerror: cannot lock ref 'refs/remotes/origin/integration': is at 3333 but expected 4444\n ! 4444..5555  integration -> origin/integration  (unable to update local ref)\n");
+        assert_eq!(first_message_line(&locked).as_deref(), Some("cannot lock ref 'refs/remotes/origin/integration': is at 3333 but expected 4444"));
+        let rejected = " = [up to date]      main -> origin/main\n ! [rejected]        tag -> tag  (would clobber existing tag)\n";
+        assert_eq!(first_message_line(rejected).as_deref(), Some("! [rejected]        tag -> tag  (would clobber existing tag)"), "a rejected ref is the message");
+        let redirected = "warning: redirecting to https://h/x.git/\nremote:\nremote: Enumerating objects: 3, done.\nfatal: the remote end hung up unexpectedly\n";
+        assert_eq!(first_message_line(redirected).as_deref(), Some("the remote end hung up unexpectedly"), "a warning yields to an error");
+        assert_eq!(first_message_line("warning: only this\n").as_deref(), Some("only this"), "a warning when there's nothing else");
+        assert_eq!(first_message_line(counts), None, "only counts: the caller says what exited");
+        assert_eq!(first_message_line("remote: GitLab: You are not allowed to fetch\nfatal: Could not read from remote repository.\n").as_deref(), Some("remote: GitLab: You are not allowed to fetch"), "a server's own message is one");
+        assert_eq!(first_message_line("error: 5677 bytes of body are still expected\n").as_deref(), Some("5677 bytes of body are still expected"), "a count that's a message");
     }
 
     /// UX F: a signer's failure names gpg's reason, without its status lines.

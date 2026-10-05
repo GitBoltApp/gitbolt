@@ -40,6 +40,8 @@ async function createInDialog(ctx: WriteCtx, start: BranchStart): Promise<void> 
 }
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+/** How long the inline input may take to render before the dialog takes its place. */
+const INLINE_WAIT_MS = 500;
 
 /**
  * Create branch here and the toolbar Branch button (§9.1, UX round 1): an inline "enter
@@ -64,9 +66,11 @@ export async function createBranchAt(ctx: WriteCtx, start: BranchStart): Promise
     }),
   };
   openRowEditor(store, editor);
-  // Rendered once the row is in the virtual window (the selection scrolled it there).
-  await nextFrame();
-  await nextFrame();
+  // Rendered once the row is in the virtual window (the selection scrolled it there): usually
+  // within two frames, a few more on a loaded machine (the selection re-renders the graph).
+  const until = performance.now() + INLINE_WAIT_MS;
+  do await nextFrame();
+  while (!document.querySelector('.branch-inline-input') && performance.now() < until);
   if (!document.querySelector('.branch-inline-input')) {
     closeRowEditor(editor);
     await createInDialog(ctx, start);

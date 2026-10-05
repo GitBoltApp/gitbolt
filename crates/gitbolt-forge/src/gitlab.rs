@@ -4,13 +4,14 @@
 use crate::avatar_cache::{image_at, payload_of, DiskAvatarCache, Lookup};
 use crate::endpoints::HostEndpoints;
 use crate::http::{encode_component, under, ClientConfig, HttpClient, HttpResponse, Method};
+use crate::known_names::{normalize, KnownNames, NameMatch};
 use crate::time::{parse_rfc3339, unix_now};
 use gitbolt_core::avatar::AvatarPayload;
 use gitbolt_core::error::{GbError, GbErrorKind};
 use gitbolt_core::forge::*;
 use gitbolt_core::redact::Secret;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 pub const FORKS_PER_PAGE: u32 = 100;
@@ -51,12 +52,22 @@ pub struct GitLabProvider {
     /// second probe (`HttpClient::still_fresh`).
     unchanged: Mutex<HashMap<(u64, i64), (u64, u64)>>,
     marks: Mutex<HashMap<u64, i64>>,
+    // --- commit-author avatars by name ---
+    /// Lowercase email → avatar URL, found for a commit author by name (`avatar_for_name`).
+    learned: Mutex<HashMap<String, String>>,
+    /// The people the API data showed, by name (`known_names`).
+    names: KnownNames,
+    /// Normalized names searched for this session (`/users?search=`), answered or not.
+    names_asked: Mutex<HashSet<String>>,
+    /// One name search at a time.
+    name_turn: tokio::sync::Mutex<()>,
+    // --- end commit-author avatars by name ---
 }
 
 impl GitLabProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, avatars: Option<Arc<DiskAvatarCache>>) -> Self {
         let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: Vec::new(), timeout: crate::http::REQUEST_TIMEOUT });
-        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, avatars, me: Mutex::new(None), paths: Mutex::default(), label_colors: Mutex::default(), pipelines: Default::default(), unconditional: Mutex::default(), unchanged: Mutex::default(), marks: Mutex::default() } // 4B T2: me, paths
+        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, avatars, me: Mutex::new(None), paths: Mutex::default(), label_colors: Mutex::default(), pipelines: Default::default(), unconditional: Mutex::default(), unchanged: Mutex::default(), marks: Mutex::default(), learned: Mutex::default(), names: KnownNames::default(), names_asked: Mutex::default(), name_turn: tokio::sync::Mutex::new(()) } // 4B T2: me, paths
     }
 
     /// The account's client, for 4B–4D's requests.
@@ -639,6 +650,7 @@ impl GitLabProvider {
                 out.push(m);
             }
         }
+        self.names.learn_mrs(&out);
         out
     }
 
@@ -678,6 +690,49 @@ impl GitLabProvider {
     }
 }
 // --- end 4B T2 ---
+
+// --- commit-author avatars by name ---
+/// A name search asks for this many users: an exact match ranks among the first.
+pub const NAME_SEARCH_PER_PAGE: u32 = 5;
+/// No name search while fewer API requests than this are left: avatars are the least of what the
+/// account's budget is for.
+pub const NAME_SEARCH_FLOOR: u32 = 100;
+
+impl GitLabProvider {
+    /// `/users?search=<name>` once a session per name (`avatar_for_name`), its users learned; who
+    /// among them is exactly `key` (normalized). A search answered with no single match is "none"
+    /// on disk for the misses' TTL; one that couldn't be asked (rate floor, already asked) is
+    /// `Unknown`.
+    async fn search_name(&self, key: &str) -> Result<NameMatch, GbError> {
+        let miss_key = format!("name-search:{key}");
+        if let Some(cache) = &self.avatars
+            && let Lookup::Missing = cache.lookup(&miss_key)
+        {
+            return Ok(NameMatch::Unknown);
+        }
+        let low = |s: &Self| s.http.rate_limit().remaining.is_some_and(|n| n < NAME_SEARCH_FLOOR);
+        if low(self) || self.names_asked.lock().expect("names poisoned").contains(key) {
+            return Ok(self.names.find(key));
+        }
+        let _turn = self.name_turn.lock().await;
+        // Checked again in turn: the search before this one may have spent the budget, or asked this name.
+        if low(self) || !self.names_asked.lock().expect("names poisoned").insert(key.to_string()) {
+            return Ok(self.names.find(key));
+        }
+        let path = format!("/users?search={}&per_page={NAME_SEARCH_PER_PAGE}", encode_component(key));
+        let found: Vec<ForgeUser> = self.http.get(&path).await?.json::<Vec<Value>>(&self.host)?.iter().filter_map(json::user).collect();
+        let exact: HashMap<u64, Option<String>> = found.iter().filter(|u| normalize(&u.name) == key || normalize(&u.username) == key).map(|u| (u.id, u.avatar_url.clone())).collect();
+        self.names.learn_all(&found);
+        if exact.len() == 1 {
+            return Ok(NameMatch::One(exact.into_values().next().flatten()));
+        }
+        if let Some(cache) = &self.avatars {
+            cache.store_missing(&miss_key);
+        }
+        Ok(if exact.is_empty() { NameMatch::Unknown } else { NameMatch::Many })
+    }
+}
+// --- end commit-author avatars by name ---
 
 // --- 4B T3: merge requests (writes) ---
 /// GitLab's refusals of a merge, said plainly: another head sha (409), or it can't merge now
@@ -736,7 +791,9 @@ impl ForgeProvider for GitLabProvider {
     fn current_user(&self) -> ForgeFuture<'_, ForgeUser> {
         Box::pin(async move {
             let r = self.http.get("/user").await?;
-            json::user(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "user"))
+            let user = json::user(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "user"))?;
+            self.names.learn(&user);
+            Ok(user)
         })
     }
 
@@ -826,8 +883,15 @@ impl ForgeProvider for GitLabProvider {
                     Lookup::Unknown => {}
                 }
             }
-            let r = self.http.get(&format!("/avatar?email={}&size=80", encode_component(email))).await?;
-            let url = r.json::<Value>(&self.host)?["avatar_url"].as_str().map(str::to_string);
+            // A commit author found by name (`avatar_for_name`) whose picture wasn't kept on disk.
+            let learned = self.learned.lock().expect("learned avatars poisoned").get(&email.to_lowercase()).cloned();
+            let url = match learned {
+                Some(u) => Some(u),
+                None => {
+                    let r = self.http.get(&format!("/avatar?email={}&size=80", encode_component(email))).await?;
+                    r.json::<Value>(&self.host)?["avatar_url"].as_str().map(str::to_string)
+                }
+            };
             // Only an image the forge itself hosts. A Gravatar URL falls through to GitBolt's own
             // Gravatar lookup, which follows the user's Gravatar setting.
             let found = match url.filter(|u| under(u, &self.web)) {
@@ -845,6 +909,46 @@ impl ForgeProvider for GitLabProvider {
             })
         })
     }
+
+    // --- commit-author avatars by name ---
+    /// `known_names` first (free); a name nobody seen has is searched once a session
+    /// (`/users?search=<name>`, which matches names and usernames: never an email, which only an
+    /// admin may search by), one search at a time and none while under `NAME_SEARCH_FLOOR`
+    /// requests are left. Only the one user whose name or username is exactly `name` counts, and
+    /// only a picture of the account's own uploads. Found: kept under `email` (disk, `learned`), so
+    /// `avatar_for_email` answers it next time; a search with no single match is "none" for the
+    /// misses' TTL. Neither the email nor the name is logged.
+    fn avatar_for_name<'a>(&'a self, email: &'a str, name: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
+        Box::pin(async move {
+            let email = email.trim().to_lowercase();
+            let key = normalize(name);
+            if email.is_empty() || key.is_empty() {
+                return Ok(None);
+            }
+            if let Some(cache) = &self.avatars
+                && let Lookup::Found(p) = cache.lookup(&email)
+            {
+                return Ok(Some(p));
+            }
+            let url = match self.names.find(&key) {
+                NameMatch::One(url) => url,
+                NameMatch::Many => return Ok(None),
+                NameMatch::Unknown => match self.search_name(&key).await? {
+                    NameMatch::One(url) => url,
+                    _ => None,
+                },
+            };
+            let uploads = format!("{}/uploads", self.web);
+            let Some(url) = url.and_then(|u| avatar_fetch_url(&u, &[&uploads])).filter(|u| !is_gravatar_url(u)) else { return Ok(None) };
+            self.learned.lock().expect("learned avatars poisoned").insert(email.clone(), url.clone());
+            Ok(match (self.http.get_image(&url, &self.web).await?, &self.avatars) {
+                (Some((ct, bytes)), Some(cache)) => cache.store_found(&email, &ct, &bytes),
+                (Some((ct, bytes)), None) => payload_of(&ct, &bytes),
+                (None, _) => None,
+            })
+        })
+    }
+    // --- end commit-author avatars by name ---
 
     // --- 4B: merge requests ---
     // --- 4B T2: reads ---
@@ -892,6 +996,7 @@ impl ForgeProvider for GitLabProvider {
             let mut d = json::detail(&v, &project.path, &source, approvals.as_ref()).ok_or_else(|| unreadable(&self.host, "merge request"))?;
             // A single MR's GET has label names only (`with_labels_details` is for the lists).
             self.fill_label_colors(project, &mut d.mr).await;
+            self.names.learn_detail(&d);
             // Not modified only when the MR and its approvals both were (a 304 each).
             let mut fresh = Self::fresh(d, &r);
             fresh.not_modified &= approvals_same;
@@ -909,6 +1014,7 @@ impl ForgeProvider for GitLabProvider {
                 let diffs = self.http.get_pages(&format!("{url}/diffs?per_page=100"), DIFF_PAGES).await.unwrap_or_default();
                 json::fill_snippets(&mut ds, &diffs);
             }
+            self.names.learn_discussions(&ds);
             Ok(Fresh::new(ds, unix_now()))
         })
     }
@@ -1017,7 +1123,9 @@ impl ForgeProvider for GitLabProvider {
         Box::pin(async move {
             let path = format!("/projects/{}/members/all?query={}&per_page={USERS_PER_PAGE}", project.id, encode_component(query.trim()));
             let r = self.http.get(&path).await?;
-            Ok(r.json::<Vec<Value>>(&self.host)?.iter().filter_map(json::user).collect())
+            let users: Vec<ForgeUser> = r.json::<Vec<Value>>(&self.host)?.iter().filter_map(json::user).collect();
+            self.names.learn_all(&users);
+            Ok(users)
         })
     }
 

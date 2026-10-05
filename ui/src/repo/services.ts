@@ -6,7 +6,7 @@ import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileListPayload } from '../api/gen/FileListPayload';
 import type { RemotePayload } from '../api/gen/RemotePayload';
 import type { SignaturePayload } from '../api/gen/SignaturePayload';
-import { avatars, type AvatarStore } from '../avatars/avatarStore';
+import { avatars } from '../avatars/avatarStore';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
 import { hexSize, loadContents } from '../diff/hexContents';
@@ -29,7 +29,7 @@ export interface RepoServices {
   signature: Loader<SignaturePayload>;
   /** The app's avatars: the selection asks for the people the graph doesn't draw (a different
    * committer, co-authors) as soon as their emails are known. */
-  avatars: Pick<AvatarStore, 'request' | 'prefetchOne'>;
+  avatars: { request(email: string, name?: string): void; prefetchOne(email: string, name?: string): void };
   /** "View all files" (§9.3). Keyed by commit id. */
   treeFiles: Loader<string[]>;
   /** UX G.2: the WIP row's View all files. Keyed by worktree; never cached (the index moves). */
@@ -70,7 +70,7 @@ export function createServices(repo: number): RepoServices {
     contents: new Loader((k) => loadContents(repo, JSON.parse(k) as ContentsRequest), new Lru(CONTENT_CACHE_ENTRIES, CONTENT_CACHE_BYTES, contentSize), 4, (k) => !isMutableKey(k)),
     // One reserve slot: the selected commit's check never waits behind its neighbours' prefetches.
     signature: new Loader((id) => api.signature(repo, id), new Lru(512), 2, () => true, 1),
-    avatars: { request: (email) => avatars.request(email, repo), prefetchOne: (email) => avatars.prefetchOne(email, repo) },
+    avatars: { request: (email, name) => avatars.request(email, repo, name), prefetchOne: (email, name) => avatars.prefetchOne(email, repo, name) },
     treeFiles: new Loader((id) => api.treeFiles(repo, id), new Lru(4), 1),
     worktreeFiles: new Loader((wt) => api.worktreeFiles(repo, wt), new Lru(1), 1, () => false),
     messages: createCommitMessageCache((id) => api.commitMessage(repo, id)),

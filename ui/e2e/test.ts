@@ -27,6 +27,11 @@ expect.poll = ((actual, messageOrOptions) =>
 
 export type { Locator, Page } from '@playwright/test';
 
+/** Whether a `@budget` test's timing assertions apply: in the `chromium-budget` project only, the
+ * engine GitBolt ships (CEF = Chromium), run after the rest so a loaded run doesn't trip them.
+ * WebKit still runs those tests' flows, and their `[budget]` logs, but its timings aren't a budget. */
+export const budgetApplies = () => base.info().project.name === 'chromium-budget';
+
 /** An armed control's overlay (spec §ui confirms): visual only (aria-hidden), so found by its text. */
 export const armedOverlay = (page: import('@playwright/test').Page, text: string | RegExp) => page.locator('.arm-overlay', { hasText: text });
 

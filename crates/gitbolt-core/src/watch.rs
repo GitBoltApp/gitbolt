@@ -878,8 +878,14 @@ impl Loop {
     /// own last read, or on the `first` pass, against the cache (what the graph last showed; a
     /// first read of an uncached worktree isn't a change).
     async fn refresh_status(&mut self, roots: &BTreeSet<PathBuf>, first: bool, touched: &HashMap<PathBuf, BTreeSet<String>>, relist: bool) -> BTreeSet<String> {
+        // The lists read blobs (HEAD's side of a change), maybe from a pack fetched since.
+        if crate::api::odb_nearly_full(&self.spec.handle)
+            && let Ok(fresh) = gix::ThreadSafeRepository::open_opts(&self.spec.workdir, crate::api::open_options())
+        {
+            self.spec.handle = fresh;
+        }
         let (cli, wip, handle, fail) = (&self.cli, &self.wip, &self.spec.handle, &self.tuning.fail_lists);
-        let reads = roots.iter().filter(|root| root.is_dir()).map(|root| async move {
+        let reads = roots.iter().filter(|root| still_a_worktree(root)).map(|root| async move {
             let stamp = wip.stamp();
             let res = status_raw(cli, root).await;
             // `None`: not recomputed. `Some(Err)`: recomputing failed.
@@ -922,7 +928,11 @@ impl Loop {
                             moved
                         }
                         Some(Err(e)) => {
-                            tracing::warn!("WIP file lists failed for {}: {e}", root.display());
+                            if still_a_worktree(root) {
+                                tracing::warn!("WIP file lists failed for {}: {e}", root.display());
+                            } else {
+                                tracing::debug!("{} stopped being a worktree during its WIP file lists: {e}", root.display());
+                            }
                             // Kept, they could still match the (unchanged) status: drop them.
                             let held = self.wip.lists(root).is_some();
                             self.wip.drop_lists(root);
@@ -936,7 +946,8 @@ impl Loop {
                     self.digests.insert(root.clone(), entry.digest);
                     self.untracked.insert(root.clone(), untracked_dirs(root, &raw));
                 }
-                Err(e) => tracing::warn!("status failed for {}: {e}", root.display()),
+                Err(e) if still_a_worktree(root) => tracing::warn!("status failed for {}: {e}", root.display()),
+                Err(e) => tracing::debug!("{} stopped being a worktree during its status: {e}", root.display()),
             }
             if self.tuning.overflow_after_status {
                 let _ = self.inject.send(notify::Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan));
@@ -1003,6 +1014,14 @@ impl Loop {
         let versions = changed.iter().filter_map(|w| Some((w.clone(), self.wip.fresh_lists(Path::new(w))?.version))).collect();
         self.bus.emit(AppEvent::RepoChanged { repo: self.spec.repo, kinds: kinds.into_iter().collect(), worktrees: changed.into_iter().collect(), versions });
     }
+}
+
+/// `root` still has its `.git` (a directory, or a linked worktree's file). `git worktree
+/// remove` deletes it before the rest: a git command then run there finds no repository, and
+/// `git diff --cached` even falls back to `--no-index`, failing with "unknown option `cached'".
+/// Such a worktree is on its way out (`forget_worktrees`), not a failure.
+fn still_a_worktree(root: &Path) -> bool {
+    root.join(".git").exists()
 }
 
 impl Api {
@@ -2002,5 +2021,39 @@ mod tests {
         assert!(!api.status_is_watched(id));
         assert_eq!(worktrees.into_iter().collect::<BTreeSet<_>>(), roots.into_iter().collect());
         assert!(versions.is_empty());
+    }
+
+    /// A worktree being removed (`git worktree remove` deletes its `.git` first) changes while
+    /// its directory is still there: it's skipped quietly, with no WARN (a `git diff --cached`
+    /// run there failed with "unknown option `cached'"), and the other worktrees still refresh.
+    /// On the test's own thread, so the WARNs it logs are the ones captured.
+    #[tokio::test]
+    async fn a_worktree_losing_its_git_file_is_skipped_without_a_warning() {
+        #[derive(Clone, Default)]
+        struct Buf(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Buf::default();
+        let out = buf.clone();
+        let sub = tracing_subscriber::fmt().with_writer(move || out.clone()).with_ansi(false).with_max_level(tracing::Level::WARN).finish();
+        let _guard = tracing::subscriber::set_default(sub);
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (_api, _id, mut rx) = watched(&r).await;
+        let hotfix = r.root().join("wt-hotfix");
+        std::fs::remove_file(hotfix.join(".git")).unwrap();
+        std::fs::write(hotfix.join("late.txt"), "x\n").unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        r.write("brand_new.txt", "new\n");
+        change_naming(&mut rx, &canonical(r.path())).await;
+        let text = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        assert!(!text.contains("WARN"), "{text}");
     }
 }

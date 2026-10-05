@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test, type Page, confirmArmed } from './test';
+import { budgetApplies, expect, test, type Page, confirmArmed } from './test';
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Commit graph' }).filter({ visible: true });
 // The Worktrees panel's row (a Local branch row can carry the same name).
@@ -41,7 +41,7 @@ test.describe('the active worktree (spec #2 §11.2)', () => {
       }, [row, branch]);
       times.push(ms);
     }
-    expect(Math.min(...times), `switch times ${times.map((t) => t.toFixed(1)).join(', ')} ms`).toBeLessThan(50);
+    if (budgetApplies()) expect(Math.min(...times), `switch times ${times.map((t) => t.toFixed(1)).join(', ')} ms`).toBeLessThan(50);
     // The row-0 WIP follows from the cached relayout. (A dblclick event alone, as above: a real
     // double-click's first click also selects wt-one's tip, scrolling row 0 out of view.)
     await sidebarRow(page, 'wt-one').dispatchEvent('dblclick');

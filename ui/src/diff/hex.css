@@ -15,6 +15,9 @@
    scroller, the changes' marks under its thumb. */
 .hex-bar { flex: none; width: 10px; margin-left: auto; position: relative; }
 .hex-scroller { position: absolute; inset: 0; overflow-x: hidden; overflow-y: auto; }
+/* Its spacer is given a width: WebKit leaves a zero-width box out of the scrollable height (the
+   bar then had nothing to scroll there); 1px never shows past the 10px bar. */
+.hex-spacer { width: 1px; }
 .hex-marks { position: absolute; inset: 0; pointer-events: none; }
 .hex-mark { position: absolute; }
 .hex-mark-removed { background: color-mix(in srgb, var(--red) 60%, transparent); }

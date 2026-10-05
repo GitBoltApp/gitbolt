@@ -12,6 +12,9 @@ const fileRow = (page: Page, path: string) => page.getByRole('option').and(page.
 const diff = (page: Page) => page.getByRole('region', { name: 'Diff' });
 const pane = (page: Page, side: 'old' | 'new' | 'file', kind: 'hex' | 'text') => diff(page).locator(`.hex-view .hex-side[data-side="${side}"] .hex-pane-${kind}`);
 const lines = (l: Locator) => l.locator('.view-lines');
+/** A pane's offset gutter cells. Scoped to the margin: Monaco also gives its textarea cover
+ * (drawn while the hidden textarea sits over the gutter, as in WebKit) the `line-numbers` class. */
+const GUTTER = '.margin-view-overlays .line-numbers';
 /** A pane's rows, top to bottom (Monaco keeps its line elements in no set order). */
 const rows = (l: Locator) => l.locator('.view-line').evaluateAll((els) => els
   .sort((a, b) => parseFloat((a as HTMLElement).style.top) - parseFloat((b as HTMLElement).style.top))
@@ -39,7 +42,7 @@ async function open(page: Page, path: string) {
 }
 
 test.describe('the hex view', () => {
-  test('File View: hex | text; a selection in the hex pane is its bytes only, shown in the text pane too', async ({ page }) => {
+  test('File View: hex | text; a selection in the hex pane is its bytes only, shown in the text pane too', async ({ page, browserName }) => {
     await page.goto(openUrl(fixtures.details));
     await page.getByRole('row').filter({ hasText: COMMIT }).click();
     await open(page, 'data.bin');
@@ -49,8 +52,8 @@ test.describe('the hex view', () => {
     await expect(lines(hex)).toHaveText('42 49 4e 00 01 02 6e 65  77 21', { timeout: 15_000 });
     await expect(lines(text)).toHaveText('BIN...new!');
     // The offset is the hex pane's gutter; the text pane has none.
-    await expect(hex.locator('.line-numbers')).toHaveText('00000000');
-    await expect(text.locator('.line-numbers')).toHaveCount(0);
+    await expect(hex.locator(GUTTER)).toHaveText('00000000');
+    await expect(text.locator(GUTTER)).toHaveCount(0);
     await expect(diff(page).getByTestId('binary-summary')).toHaveText('Binary · 10 bytes');
     // At 1280×720 a side fits at 16 bytes a row; each pane is as wide as its rows, the room left
     // over after the text pane, and nothing scrolls sideways.
@@ -59,17 +62,17 @@ test.describe('the hex view', () => {
     expect((await text.boundingBox())!.width).toBeLessThan(200);
     expect(await leftover(page)).toBeGreaterThan(100);
     // A drag from the offset gutter across into the text pane: the hex pane's bytes, nothing else.
-    const gutter = (await hex.locator('.line-numbers').boundingBox())!;
+    const gutter = (await hex.locator(GUTTER).boundingBox())!;
     const textBox = (await text.boundingBox())!;
     await page.mouse.move(gutter.x + 2, gutter.y + gutter.height / 2);
     await page.mouse.down();
     await page.mouse.move(textBox.x + textBox.width - 20, gutter.y + gutter.height / 2, { steps: 8 });
     await page.mouse.up();
     await page.keyboard.press('Control+c');
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^42 49 4e 00 01 02 6e 65 {2}77 21\n?$/);
+    // Clipboard reads are granted on Chromium only (playwright.config.ts).
+    if (browserName === 'chromium') await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^42 49 4e 00 01 02 6e 65 {2}77 21\n?$/);
     // …and the same bytes show selected in the text pane.
     await expect.poll(() => marked(text, 'hex-mirror')).toBe('BIN...new!');
-    await page.screenshot({ path: '/tmp/ux-k-file.png' });
     // One byte, double-clicked: its character. A click elsewhere clears it.
     const box = (await hex.locator('.view-line > span').first().boundingBox())!;
     const charW = box.width / '42 49 4e 00 01 02 6e 65  77 21'.length;
@@ -94,7 +97,7 @@ test.describe('the hex view', () => {
     await expect.poll(() => rows(pane(page, 'new', 'hex'))).toEqual(['42 49 4e 00  01 02 6e 65', '77 21']);
     await expect.poll(() => rows(pane(page, 'old', 'text'))).toEqual(['BIN...ol', 'd']);
     await expect.poll(() => rows(pane(page, 'new', 'text'))).toEqual(['BIN...ne', 'w!']);
-    await expect(pane(page, 'new', 'hex').locator('.line-numbers')).toHaveText(['00000000', '00000008']);
+    await expect(pane(page, 'new', 'hex').locator(GUTTER)).toHaveText(['00000000', '00000008']);
     expect(await sideways(page)).toBe(0);
     expect(await leftover(page)).toBeGreaterThanOrEqual(0);
     // Byte i against byte i: "old" → "new", and "!" past the old side's end.
@@ -113,7 +116,6 @@ test.describe('the hex view', () => {
     await expect(page.getByText('A binary file always shows side by side')).toBeVisible();
     await page.mouse.move(0, 0);
     await expect(d.getByRole('button', { name: 'Next change' })).toBeEnabled();
-    await page.screenshot({ path: '/tmp/ux-k-diff.png' });
     // Wider, both sides fit at 16 bytes a row: laid out again, the colours following.
     await page.setViewportSize({ width: 2000, height: 720 });
     await expect(d.locator('.hex-view')).toHaveAttribute('data-row-bytes', '16');
@@ -137,7 +139,7 @@ test.describe('the hex view', () => {
     await page.getByRole('row').filter({ hasText: 'Edit blob' }).click();
     await open(page, 'blob.bin');
     const newHex = pane(page, 'new', 'hex');
-    await expect(newHex.locator('.line-numbers').first()).toHaveText('00000000', { timeout: 15_000 });
+    await expect(newHex.locator(GUTTER).first()).toHaveText('00000000', { timeout: 15_000 });
     await expect(pane(page, 'old', 'hex').locator('.hex-removed')).toHaveCount(1);
     const together = async () => {
       const tops = await scrollTops(page);
@@ -147,7 +149,7 @@ test.describe('the hex view', () => {
     const d = diff(page);
     await d.getByRole('button', { name: 'Next change' }).click();
     await d.getByRole('button', { name: 'Next change' }).click();
-    await expect(newHex.locator('.line-numbers').filter({ hasText: '000018f0' })).toBeVisible();
+    await expect(newHex.locator(GUTTER).filter({ hasText: '000018f0' })).toBeVisible();
     await expect(pane(page, 'old', 'text').locator('.hex-removed')).toBeVisible();
     await expect.poll(together).toBeGreaterThan(0);
     // The wheel over any pane moves all four.
@@ -167,8 +169,8 @@ test.describe('the hex view', () => {
     await expect(pane(page, 'new', 'hex').locator('.hex-inserted')).toBeVisible();
     // Next wraps around to the first change (its row at 0x90).
     await d.getByRole('button', { name: 'Next change' }).click();
-    await expect(newHex.locator('.line-numbers').filter({ hasText: '00000090' })).toBeVisible();
-    await expect(newHex.locator('.line-numbers').filter({ hasText: '000018f0' })).toHaveCount(0);
+    await expect(newHex.locator(GUTTER).filter({ hasText: '00000090' })).toBeVisible();
+    await expect(newHex.locator(GUTTER).filter({ hasText: '000018f0' })).toHaveCount(0);
     // One vertical scrollbar, the view's, at its far right (the panes have none of their own),
     // with the changes marked on it; scrolled, it moves all four panes.
     const bar = d.locator('.hex-bar');

@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
-import { expect, test, type Page, confirmArmed } from './test';
+import { budgetApplies, expect, test, type Page, confirmArmed } from './test';
 
 const grid = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
 const chip = (page: Page, name: string) => grid(page).locator('.ref-label', { hasText: name }).first();
@@ -32,7 +32,7 @@ test.describe('checkout (spec #2 §9.3)', () => {
       await expect(chip(page, name)).toHaveClass(/ref-label-head/);
       times.push(Date.now() - t0);
     }
-    expect(Math.min(...times), `checkout times ${times.join(', ')} ms`).toBeLessThan(300);
+    if (budgetApplies()) expect(Math.min(...times), `checkout times ${times.join(', ')} ms`).toBeLessThan(300);
     expect(head(repo)).toBe('feature/login');
     await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => head(repo)).toBe('main');

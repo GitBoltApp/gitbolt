@@ -19,18 +19,20 @@ export interface AvatarStore {
    * evicted, failed, or there's no avatar. */
   get(email: string): AvatarImage | null;
   /** Asks for one avatar now (the details panel). Never dropped by `requestVisible`. `repo`, here
-   * and below: the tab asking (its forge project is the backend's last place to look). */
-  request(email: string, repo?: number): void;
+   * and below: the tab asking (its forge project is the backend's last place to look). `name`,
+   * here and below: the person's name, for that last look (a forge user by that exact name). */
+  request(email: string, repo?: number, name?: string): void;
   /** Asks for one avatar at prefetch priority (a neighbouring commit's people): behind
    * `request`s, never in their reserved slots. Dropped by the next `requestVisible` if still
    * queued, and asked for again when it's wanted. */
-  prefetchOne(email: string, repo?: number): void;
+  prefetchOne(email: string, repo?: number, name?: string): void;
   /**
    * The graph's visible rows, latest set wins: queued, unstarted requests for emails no longer
    * in the set are dropped (and asked for again if they come back), so a fast scroll through a
-   * long history doesn't leave a backlog of avatar requests behind it.
+   * long history doesn't leave a backlog of avatar requests behind it. `names`: each email's
+   * person's name (the rows' authors), by the email as given.
    */
-  requestVisible(emails: string[], repo?: number): void;
+  requestVisible(emails: string[], repo?: number, names?: ReadonlyMap<string, string>): void;
   /** Called after an avatar arrives (and after any it evicted). */
   subscribe(listener: () => void): () => void;
   /** Bumped by every such change. */
@@ -100,7 +102,7 @@ function release(img: AvatarImage) {
  * (the backend call: the UI never contacts an avatar host itself). An email is fetched once
  * unless its request was dropped or its image evicted; "no avatar" is remembered for the session.
  */
-export function createAvatarStore(fetchAvatar: (email: string, repo?: number) => Promise<AvatarPayload | null>, { concurrency = 4, capacity = AVATAR_CACHE_ENTRIES, keyOf = avatarKey } = {}): AvatarStore {
+export function createAvatarStore(fetchAvatar: (email: string, repo?: number, name?: string) => Promise<AvatarPayload | null>, { concurrency = 4, capacity = AVATAR_CACHE_ENTRIES, keyOf = avatarKey } = {}): AvatarStore {
   /** Loaded images, least recently used first. */
   const images = new Map<string, AvatarImage>();
   /** Queued or in flight, with the load that settles it. */
@@ -109,8 +111,11 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number) =>
   const none = new Set<string>();
   /** The tab that last asked for each key (an open repo's id). */
   const repos = new Map<string, number>();
-  const noteRepo = (key: string, repo: number | undefined) => {
+  /** The name each key was last asked with (the backend's last look: a forge user by name). */
+  const names = new Map<string, string>();
+  const noteRepo = (key: string, repo: number | undefined, name?: string) => {
     if (repo !== undefined && repo >= 0) repos.set(key, repo);
+    if (name?.trim()) names.set(key, name.trim());
   };
   const listeners = new Set<() => void>();
   let version = 0;
@@ -119,7 +124,8 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number) =>
   // loader's, which could hand back a bitmap already closed on eviction).
   const loader = new Loader<AvatarImage | null>(async (key) => {
     const repo = repos.get(key);
-    const p = await (repo === undefined ? fetchAvatar(key) : fetchAvatar(key, repo));
+    const name = names.get(key);
+    const p = await (name !== undefined ? fetchAvatar(key, repo, name) : repo === undefined ? fetchAvatar(key) : fetchAvatar(key, repo));
     return p ? decode(p) : null;
   }, new Lru(1), concurrency, () => false, URGENT_SLOTS);
 
@@ -174,22 +180,28 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number) =>
       images.set(key, img);
       return img;
     },
-    request(email, repo) {
+    request(email, repo, name) {
       const key = keyOf(email);
       if (!key || known(key)) return;
-      noteRepo(key, repo);
+      noteRepo(key, repo, name);
       // Already queued as a visible-rows prefetch: `get` promotes it, so it's never dropped.
       track(key, loader.get(key));
     },
-    prefetchOne(email, repo) {
+    prefetchOne(email, repo, name) {
       const key = keyOf(email);
       if (!key || known(key) || pending.has(key)) return;
-      noteRepo(key, repo);
+      noteRepo(key, repo, name);
       track(key, loader.get(key, 'prefetch'));
     },
-    requestVisible(emails, repo) {
-      const keys = [...new Set(emails.map(keyOf))].filter((k) => k && !known(k));
-      for (const k of keys) noteRepo(k, repo);
+    requestVisible(emails, repo, byEmail) {
+      const wanted = new Set<string>();
+      for (const email of emails) {
+        const k = keyOf(email);
+        if (!k || known(k)) continue;
+        wanted.add(k);
+        noteRepo(k, repo, byEmail?.get(email));
+      }
+      const keys = [...wanted];
       loader.prefetch(keys);
       for (const k of keys) track(k, loader.get(k, 'prefetch'));
     },
@@ -235,8 +247,9 @@ export const AvatarStoreContext = createContext<AvatarStore>(avatars);
 export const ForgeAvatarStoreContext = createContext<AvatarStore>(forgeAvatars);
 
 /** `request: false`: only read the cache; someone else asks for it (the graph's visible-rows
- * requests, whose latest set wins on a fast scroll). `byUrl`: `email` is a forge avatar URL. */
-export function useAvatar(email: string, request = true, byUrl = false): AvatarImage | null {
+ * requests, whose latest set wins on a fast scroll). `byUrl`: `email` is a forge avatar URL.
+ * `name`: the person's name (the backend's last look, a forge user by that name). */
+export function useAvatar(email: string, request = true, byUrl = false, name?: string): AvatarImage | null {
   const byEmail = useContext(AvatarStoreContext);
   const forUrl = useContext(ForgeAvatarStoreContext);
   const store = byUrl ? forUrl : byEmail;
@@ -247,7 +260,7 @@ export function useAvatar(email: string, request = true, byUrl = false): AvatarI
   const epoch = useSyncExternalStore(store.subscribe, store.epoch);
   // Asks again after an eviction too (`img` goes back to null).
   useEffect(() => {
-    if (!img && request) store.request(email, repo);
-  }, [store, email, img, request, epoch, repo]);
+    if (!img && request) store.request(email, repo, name);
+  }, [store, email, img, request, epoch, repo, name]);
   return img;
 }

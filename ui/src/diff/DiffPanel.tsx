@@ -403,7 +403,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // §3.1: the toggle says why Rendered can't be picked for a file too large to render.
   const tooLarge = useTooLargeToRender(filePlaceKey({ selection }, shown), loaded?.new?.text ?? loaded?.old?.text ?? '');
   const markdownToggle = shown.view === 'file' && loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded) && markdownOf(selection, shown)
-    ? <MarkdownViewToggle forced={tooLarge ? TOO_LARGE_TO_RENDER : null} />
+    ? <MarkdownViewToggle path={shown.path} forced={tooLarge ? TOO_LARGE_TO_RENDER : null} />
     : null;
   const openLine = useMemo(() => openInLine(loaded), [loaded]);
   // An SVG's Source toggle, per file: its text diff gets the text-diff controls (H26).

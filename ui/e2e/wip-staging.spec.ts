@@ -1,4 +1,4 @@
-import { expect, test, confirmArmed, armedOverlay } from './test';
+import { budgetApplies, expect, test, confirmArmed, armedOverlay } from './test';
 import { git } from './fixtures';
 import { fileRow, fileRowSelector, openWip, section, timedClick } from './wip';
 
@@ -79,7 +79,7 @@ test.describe('WIP staging (spec #2 §7.1, §7.2)', () => {
       await expect(fileRow(page, 'unstaged', 'new.txt')).toBeVisible();
     }
     console.log(`[budget] stage a file: ${runs.map((n) => n.toFixed(1)).join(', ')} ms`);
-    expect(Math.min(...runs), `runs: ${runs.map((n) => n.toFixed(1)).join(', ')}`).toBeLessThan(100);
+    if (budgetApplies()) expect(Math.min(...runs), `runs: ${runs.map((n) => n.toFixed(1)).join(', ')}`).toBeLessThan(100);
   });
 });
 

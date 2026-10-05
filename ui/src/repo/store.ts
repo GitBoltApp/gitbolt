@@ -410,10 +410,14 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       const ask = (d: CommitDetailsPayload | undefined) => {
         // Partial payloads (test doubles) ask for whatever they carry.
         if (!d) return;
-        for (const email of new Set([d.author?.email, d.committer?.email, ...(d.coAuthors ?? []).map((c) => c.email)])) {
-          if (!email) continue;
-          if (selected) services.avatars.request(email);
-          else services.avatars.prefetchOne(email);
+        // Each email once, with its first person's name (the backend's last look: by name).
+        const people = new Map<string, string | undefined>();
+        for (const p of [d.author, d.committer, ...(d.coAuthors ?? [])]) {
+          if (p?.email && !people.has(p.email)) people.set(p.email, p.name);
+        }
+        for (const [email, name] of people) {
+          if (selected) services.avatars.request(email, name);
+          else services.avatars.prefetchOne(email, name);
         }
       };
       const hit = services.details.peek(id);

@@ -4,6 +4,7 @@
 //! emails only). 4B–4D add the pull request methods, in their marked blocks.
 
 use crate::avatar_cache::{image_at, payload_of, DiskAvatarCache, Lookup};
+use crate::known_names::{KnownNames, NameMatch};
 use crate::endpoints::HostEndpoints;
 use crate::http::{encode_component, ClientConfig, HttpClient, HttpResponse, Method};
 use crate::time::unix_now;
@@ -70,6 +71,11 @@ pub struct GitHubProvider {
     /// One commit-author lookup at a time.
     author_turn: tokio::sync::Mutex<()>,
     // --- end GitHub commit-author avatars ---
+    // --- commit-author avatars by name ---
+    /// The people the API data showed, by name (`known_names`): logins, mostly (a list's users
+    /// carry no display name).
+    names: KnownNames,
+    // --- end commit-author avatars by name ---
     // --- 5A T2 ---
     /// The bases Markdown images load from without asking (`images::github_route`).
     image_bases: Vec<String>,
@@ -81,7 +87,7 @@ impl GitHubProvider {
         let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: GITHUB_HEADERS.to_vec(), timeout: crate::http::REQUEST_TIMEOUT });
         let avatars_base = endpoints.avatars.clone().unwrap_or_else(|| "https://avatars.githubusercontent.com".into()).trim_end_matches('/').to_string();
         let image_bases = crate::images::default_github_image_bases(&endpoints.web, &avatars_base);
-        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), checks: Default::default(), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), image_bases }
+        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), checks: Default::default(), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), names: KnownNames::default(), image_bases }
     }
 
     // --- 5A T2 ---
@@ -531,6 +537,7 @@ impl ForgeProvider for GitHubProvider {
             if let (Some(email), Some(url)) = (&user.email, &user.avatar_url) {
                 self.learn_avatar(email, url);
             }
+            self.names.learn(&user);
             Ok(user)
         })
     }
@@ -542,6 +549,7 @@ impl ForgeProvider for GitHubProvider {
             if let (Some(email), Some(url)) = (&user.email, &user.avatar_url) {
                 self.learn_avatar(email, url);
             }
+            self.names.learn(&user);
             Ok(TokenCheck { user, write: json::token_write(r.oauth_scopes.as_deref()) })
         })
     }
@@ -687,6 +695,35 @@ impl ForgeProvider for GitHubProvider {
     }
     // --- end GitHub commit-author avatars ---
 
+    // --- commit-author avatars by name ---
+    /// Only `known_names` (free): GitHub's user search is its own tight budget, and the commits
+    /// lookup above already asks GitHub who an email is. The one person seen whose login (or
+    /// name) is exactly `name`: their picture from the avatar host, without the token, kept under
+    /// `email` (disk cache, `learned`).
+    fn avatar_for_name<'a>(&'a self, email: &'a str, name: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
+        Box::pin(async move {
+            let email = email.trim().to_ascii_lowercase();
+            if email.is_empty() || noreply_id(&email).is_some() || noreply_login(&email).is_some() {
+                return Ok(None);
+            }
+            if let Some(cache) = &self.cache
+                && let Lookup::Found(p) = cache.lookup(&email)
+            {
+                return Ok(Some(p));
+            }
+            let NameMatch::One(Some(url)) = self.names.find(name) else { return Ok(None) };
+            let Some(url) = avatar_fetch_url(&url, &[&self.avatars_base]).filter(|u| !is_gravatar_url(u)) else { return Ok(None) };
+            self.learn_avatar(&email, &url);
+            // `own_origin` is the API's: the avatar host is another origin, so no token goes there.
+            Ok(match (self.http.get_image(&url, &self.api_base).await?, &self.cache) {
+                (Some((ct, bytes)), Some(cache)) => cache.store_found(&email, &ct, &bytes),
+                (Some((ct, bytes)), None) => payload_of(&ct, &bytes),
+                (None, _) => None,
+            })
+        })
+    }
+    // --- end commit-author avatars by name ---
+
     // --- 4B: pull requests ---
     // --- 4B T4: reads ---
     fn open_mrs<'a>(&'a self, project: &'a ForgeProject, filter: MrFilter) -> ForgeFuture<'a, Fresh<Vec<ForgeMr>>> {
@@ -743,6 +780,7 @@ impl ForgeProvider for GitHubProvider {
                 mr,
                 body_html: json::text(&v["body_html"]),
             };
+            self.names.learn_detail(&detail);
             // Not modified only when the PR, its reviews and its checks all were (a 304 each).
             let mut fresh = Self::fresh(detail, &r);
             fresh.not_modified &= reviews_same && checks_same;
@@ -756,7 +794,9 @@ impl ForgeProvider for GitHubProvider {
             let comments = self.http.get_pages_as(&format!("{repo}/issues/{number}/comments?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
             let review_comments = self.http.get_pages_as(&format!("{repo}/pulls/{number}/comments?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
             let reviews = self.http.get_pages_as(&format!("{repo}/pulls/{number}/reviews?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
-            Ok(Fresh::new(json::discussions(&comments, &review_comments, &reviews), unix_now()))
+            let ds = json::discussions(&comments, &review_comments, &reviews);
+            self.names.learn_discussions(&ds);
+            Ok(Fresh::new(ds, unix_now()))
         })
     }
     // --- end 4B T4 ---
@@ -865,7 +905,9 @@ impl ForgeProvider for GitHubProvider {
         Box::pin(async move {
             let repo = Self::repo_url(&project.path)?;
             let all = self.http.get_pages(&format!("{repo}/assignees?per_page=100"), PEOPLE_PAGES).await?;
-            Ok(all.iter().filter_map(json::user).filter(|u| json::matches(u, query)).take(PEOPLE_SHOWN).collect())
+            let users: Vec<ForgeUser> = all.iter().filter_map(json::user).filter(|u| json::matches(u, query)).take(PEOPLE_SHOWN).collect();
+            self.names.learn_all(&users);
+            Ok(users)
         })
     }
 
@@ -987,6 +1029,7 @@ impl GitHubProvider {
                 m.pipeline = m.head_sha.as_deref().and_then(|sha| self.checks.get(sha));
             }
         }
+        self.names.learn_mrs(&mrs);
         Ok(Self::fresh(mrs, &r))
     }
 

@@ -176,6 +176,16 @@ pub trait ForgeProvider: Send + Sync {
         Box::pin(async { Ok(None) })
     }
     // --- end GitHub commit-author avatars ---
+    // --- commit-author avatars by name ---
+    /// The very last step, for a commit author whose `email` no other step knows: the one person
+    /// this account has seen (MR/PR authors, assignees, reviewers, approvers, note authors) whose
+    /// display name or username is exactly `name` (case and spacing aside), else, where the forge
+    /// has one, a user search by that name (never by email) with a single exact match. Two people
+    /// with that name: none. A found picture is kept under `email`. By default there's none.
+    fn avatar_for_name<'a>(&'a self, _email: &'a str, _name: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {
+        Box::pin(async { Ok(None) })
+    }
+    // --- end commit-author avatars by name ---
     /// The picture at `url`, a forge user's or project owner's `avatar_url`, cached like the
     /// others. `None` (and no request) unless `url` is one this account serves: under its own web
     /// host (GitLab's uploads) or its forge's avatar host (GitHub's), or Gravatar's

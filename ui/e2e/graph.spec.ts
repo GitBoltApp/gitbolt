@@ -1140,8 +1140,9 @@ test.describe('resizable columns', () => {
 
     await page.setViewportSize({ width: 1000, height: 700 });
     await expect.poll(async () => page.getByRole('grid', { name: 'Commit graph' }).evaluate((el) => el.clientWidth)).toBeLessThan(1001);
-    const max = Number(await handle.getAttribute('aria-valuemax'));
-    expect(max).toBeGreaterThanOrEqual(700);
+    // The handle's max follows the graph's measured width a render after the grid narrows: at
+    // 1000 px only the column's own width is left (700), not a wider max from the layout before.
+    await expect(handle).toHaveAttribute('aria-valuemax', '700');
     await handle.focus();
     await page.keyboard.press('ArrowRight');
     await expect(handle).toHaveAttribute('aria-valuenow', '700');

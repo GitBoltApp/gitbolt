@@ -524,38 +524,47 @@ impl ForgeHub {
     }
 
     // --- GitHub commit-author avatars ---
-    /// The last avatar step, after `avatar` and Gravatar found nothing: the repo's forge target
-    /// (`target_remote`), when it's a GitHub project with an account, asked who `email`'s commits
-    /// belong to (`ForgeProvider::avatar_for_email_in`). The email only goes to that project's
-    /// API. Failures are quiet: the UI keeps the initials.
-    pub async fn author_avatar(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], email: &str) -> Option<AvatarPayload> {
+    /// The last avatar steps, after `avatar` and Gravatar found nothing, both asked of the repo's
+    /// forge target (`target_remote`) when it's a project with an account: on GitHub, who
+    /// `email`'s commits belong to (`ForgeProvider::avatar_for_email_in`); then, given the commit
+    /// author's `name`, the one person that account knows by that name
+    /// (`ForgeProvider::avatar_for_name`). The email and the name only go to that project's
+    /// account. Failures are quiet: the UI keeps the initials.
+    pub async fn author_avatar(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], email: &str, name: Option<&str>) -> Option<AvatarPayload> {
         let email = email.trim();
         if email.is_empty() || crate::avatar::is_github_noreply(email) {
             return None;
         }
-        // Cheap first: no request at all without a GitHub account.
-        if !store.active_profile().forge_accounts.iter().any(|a| a.kind == ForgeKind::GitHub) {
+        let name = name.map(str::trim).filter(|n| !n.is_empty());
+        // Cheap first: no request at all without an account that has a step to take.
+        if !store.active_profile().forge_accounts.iter().any(|a| a.kind == ForgeKind::GitHub || name.is_some()) {
             return None;
         }
         let rp = self.repo_projects(store, remotes, false).await;
         let target = rp.target.as_deref()?;
         let mapped = rp.remotes.iter().find(|r| r.remote == target)?;
-        if mapped.account != Some(ForgeKind::GitHub) || mapped.project.is_none() {
+        let kind = mapped.account?;
+        if mapped.project.is_none() || (kind != ForgeKind::GitHub && name.is_none()) {
             return None;
         }
         let (key, provider, project) = self.project_for_remote(store, remotes, target).await.ok()?;
-        let result = provider.avatar_for_email_in(&project, email).await;
-        match result {
-            Ok(found) => found,
+        let quiet = |result: Result<Option<AvatarPayload>, GbError>| match result {
+            Ok(found) => Some(found),
             Err(e) => {
-                // Never the email: the message names the host only.
+                // Never the email or the name: the message names the host only.
                 tracing::debug!("commit-author avatar from {}: {}", project.host, e.message);
                 if e.kind == GbErrorKind::Network {
                     self.record::<()>(&key, &Err(e));
                 }
                 None
             }
+        };
+        if kind == ForgeKind::GitHub
+            && let Some(found) = quiet(provider.avatar_for_email_in(&project, email).await)?
+        {
+            return Some(found);
         }
+        quiet(provider.avatar_for_name(email, name?).await)?
     }
     // --- end GitHub commit-author avatars ---
 

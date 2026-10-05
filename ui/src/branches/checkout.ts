@@ -1,4 +1,5 @@
 import { api } from '../api/client';
+import type { CheckoutOutcome } from '../api/gen/CheckoutOutcome';
 import type { CheckoutTarget } from '../api/gen/CheckoutTarget';
 import type { Expect } from '../api/gen/Expect';
 import type { GbError } from '../api/gen/GbError';
@@ -13,7 +14,7 @@ import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/toast';
 import { openWorktreeTab, setActiveWorktree } from '../worktrees/active';
-import { withPending } from '../pending/store';
+import { endPending, startPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /** "feature/x is checked out in ../shop-feature-x." [Switch to it] [Open in a new tab] (§9.3). */
@@ -32,6 +33,24 @@ function offerWorktree(ctx: WriteCtx, err: GbError): boolean {
   return true;
 }
 
+/** How long a checkout's spinner waits for the refreshed graph before it goes anyway. */
+const HANDOFF_MAX_MS = 3000;
+
+const snapshot = (tabId: string) => { const t = useRuntime.getState().tabs[tabId]; return { graph: t?.graph ?? null, sidebar: t?.sidebar ?? null }; };
+
+/** Resolves once both the tab's graph and sidebar are newer than `before` (the refresh a write
+ * triggers), or after `maxMs`. */
+function refreshedSince(tabId: string, before: ReturnType<typeof snapshot>, maxMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => { const now = snapshot(tabId); return now.graph !== before.graph && now.sidebar !== before.sidebar; };
+    // No graph shown in this tab yet: nothing to hand over to.
+    if (before.graph === null || done()) return resolve();
+    const timer = setTimeout(finish, maxMs);
+    const off = useRuntime.subscribe(() => { if (done()) finish(); });
+    function finish() { clearTimeout(timer); off(); resolve(); }
+  });
+}
+
 /** One checkout (§9.3); the backend resolves the case when it runs. Diverged asks Reset/Cancel.
  * A repository in the way ("<path> is a repository in the way of the checkout: move it first") is
  * a plain refusal: the error toast shows it, with no Retry and nothing to force. */
@@ -39,7 +58,17 @@ export async function checkout(ctx: WriteCtx, target: CheckoutTarget, expect: Ex
   // `origin`: where it started; the question comes after the backend's answer (spec §ui confirms).
   // The ref the user acted on shows the spinner while the write runs (a remote one for a new local).
   const ref = target.kind === 'branch' ? `refs/heads/${target.name}` : target.kind === 'remote' ? `refs/remotes/${target.remote}/${target.branch}` : null;
-  const out = await withPending(ctx.tabId, ref ? [ref] : [], 'checkout', () => runWrite(ctx, (ok) => api.checkout(ctx.repoId, ctx.worktree, target, expect, ok, onDiverged), { handle: (err) => offerWorktree(ctx, err), origin }));
+  if (ref) startPending(ctx.tabId, ref, 'checkout');
+  // The spinner hands straight over to the checkmark: on success it stays until the graph and
+  // the sidebar that show the new HEAD have arrived, so there's no moment with neither.
+  const before = snapshot(ctx.tabId);
+  let out: CheckoutOutcome | undefined;
+  try {
+    out = (await runWrite(ctx, (ok) => api.checkout(ctx.repoId, ctx.worktree, target, expect, ok, onDiverged), { handle: (err) => offerWorktree(ctx, err), origin })) ?? undefined;
+    if (out && out.status !== 'diverged') await refreshedSince(ctx.tabId, before, HANDOFF_MAX_MS);
+  } finally {
+    if (ref) endPending(ctx.tabId, ref, 'checkout');
+  }
   if (out?.status !== 'diverged') return;
   const ok = await confirmAction({
     title: 'Branches have diverged',

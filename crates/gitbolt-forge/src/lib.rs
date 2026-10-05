@@ -12,6 +12,7 @@ pub mod http;
 // --- 5A T2 ---
 pub mod images;
 // --- end 5A T2 ---
+pub mod known_names;
 pub mod time;
 pub mod pipelines;
 #[cfg(test)]

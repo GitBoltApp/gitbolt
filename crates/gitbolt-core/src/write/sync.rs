@@ -331,7 +331,7 @@ impl WriteIntent for PullIntent {
     async fn transfer_first(&self, net: &mut NetCx<'_>) -> Result<(), GbError> {
         let before = crate::netops::ref_state_async(net.h.repo.clone()).await?;
         let prune = if net.api.store.state().settings.prune { "--prune" } else { "--no-prune" };
-        let args = ["fetch", self.remote.as_str(), prune, "--no-prune-tags"].into_iter().chain(crate::netops::NO_UPKEEP).chain(["--progress"]);
+        let args = ["fetch", self.remote.as_str(), prune, "--no-prune-tags"].into_iter().chain(["--progress"]);
         let (tx, progress) = crate::netops::forward_progress_to(net.api.bus.clone(), net.op.id, Some(net.output()));
         let inv = net.git(args).stream_stderr(tx);
         let mut res = net.api.cli.run(inv).await;

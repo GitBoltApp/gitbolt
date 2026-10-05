@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from './test';
+import { budgetApplies, expect, test, type Locator, type Page } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 // Diff prefs persist in localStorage (plan 1B amendment 3). Every test starts from the defaults
@@ -431,7 +431,7 @@ test.describe('diff viewer controls', () => {
     expect(orphaned).toEqual([]);
   });
 
-  test('Esc closes the file even from inside the editor with a selection; an open find widget closes first; from the file list it closes the file (J4)', async ({ page, browserName }) => {
+  test('Esc closes the file even from inside the editor with a selection; an open find widget closes first; from the file list it closes the file (J4)', async ({ page }) => {
     await open(page, 'src/app.php');
     await computed(page);
     const d = diff(page);
@@ -440,7 +440,7 @@ test.describe('diff viewer controls', () => {
     await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('.editor.modified'))).toBe(true);
     await expect(d.locator('.editor.modified .selected-text').first()).toBeVisible();
     // WebKit's "Desktop Safari" user agent makes Monaco use the macOS bindings.
-    await page.keyboard.press(browserName === 'webkit' ? 'Meta+f' : 'Control+f');
+    await page.keyboard.press('Control+f');
     const find = d.locator('.editor.modified .find-widget.visible');
     await expect(find).toBeVisible();
     await page.keyboard.press('Escape');
@@ -463,7 +463,7 @@ test.describe('diff viewer controls', () => {
     // has the keyboard.
     await open(page, 'src/app.php');
     await d.locator('.editor.modified .view-line').filter({ hasText: 'final class Card' }).click();
-    await page.keyboard.press(browserName === 'webkit' ? 'Meta+f' : 'Control+f');
+    await page.keyboard.press('Control+f');
     await expect(find).toBeVisible();
     await page.getByRole('listbox', { name: 'Changed files' }).focus();
     await page.keyboard.press('Escape');
@@ -605,7 +605,7 @@ test.describe('diff viewer controls', () => {
     const [cold, ...reopens] = ready;
     // Before J16 a reopen remounted the panel and its lazy chunk suspended: React holds a
     // revealed Suspense boundary back ~300 ms. Now it's the diff's own present, tens of ms.
-    for (const t of reopens) expect(t, `cold ${cold} ms, reopens ${reopens.join(', ')} ms`).toBeLessThan(Math.min(cold / 3, 200));
+    if (budgetApplies()) for (const t of reopens) expect(t, `cold ${cold} ms, reopens ${reopens.join(', ')} ms`).toBeLessThan(Math.min(cold / 3, 200));
   });
 
   test('a toolbar click leaves the focus in the file list: ↓ then opens the next file', async ({ page }) => {

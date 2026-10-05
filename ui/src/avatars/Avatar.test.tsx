@@ -34,7 +34,7 @@ describe('Avatar', () => {
     fireEvent.load(img);
     expect(img).not.toHaveAttribute('data-loading');
     expect(el).toHaveTextContent('');
-    expect(avatar).toHaveBeenCalledWith('ada@example.com');
+    expect(avatar).toHaveBeenCalledWith('ada@example.com', undefined, 'Ada Lovelace');
   });
 
   it('keeps the initials when there is no avatar, and the same colour for the same email', async () => {
@@ -81,7 +81,7 @@ describe('ForgeAvatar (the MR/PR view, the hover card)', () => {
     unmount();
     render(wrap({ ...octocat, avatarUrl: null }));
     await act(async () => {});
-    expect(byEmail).toHaveBeenCalledWith('octo@example.com');
+    expect(byEmail).toHaveBeenCalledWith('octo@example.com', undefined, 'The Octocat');
     expect(screen.getByTestId('avatar')).toHaveTextContent('TO');
   });
 
@@ -160,7 +160,7 @@ describe('Avatar for an image already loaded elsewhere (the graph, then the deta
       </AvatarStoreContext>,
     );
     await act(async () => {});
-    expect(fetch).toHaveBeenCalledExactlyOnceWith('ada@shared');
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('ada@shared', undefined, 'Ada Lovelace');
     const [a, b] = screen.getAllByTestId('avatar').map((el) => el.querySelector('img')!);
     expect(a.getAttribute('src')).toBe(b.getAttribute('src'));
     expect([a.getAttribute('width'), b.getAttribute('width')]).toEqual(['16', '28']);

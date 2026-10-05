@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl, testWrite } from './fixtures';
-import { expect, test, type Page, confirmArmed, armedOverlay } from './test';
+import { budgetApplies, expect, test, type Page, confirmArmed, armedOverlay } from './test';
 import { fileRow, selectWip, timedClick } from './wip';
 
 const undoButton = (page: Page) => page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true });
@@ -24,7 +24,7 @@ test.describe('undo of a real commit (spec #2 §5.3, 2B)', () => {
     await expect(undoButton(page)).not.toHaveAttribute('aria-disabled', 'true');
     const ms = await timedClick(page, undoButton(page), { sel: '[role="grid"] [role="row"]', text: 'To undo', gone: true });
     await expect(graph(page).getByText('To undo')).toHaveCount(0);
-    expect(ms, 'undo of a commit').toBeLessThan(150);
+    if (budgetApplies()) expect(ms, 'undo of a commit').toBeLessThan(150);
     expect(git(repo, 'diff', '--cached', '--name-only')).toBe('notes.txt');
   });
 });
@@ -100,7 +100,7 @@ test.describe('undo (spec #2 §5.5)', () => {
       times.push(ms);
     }
     console.log(`[budget] undo of a commit: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
-    expect(Math.min(...times)).toBeLessThan(150);
+    if (budgetApplies()) expect(Math.min(...times)).toBeLessThan(150);
   });
 
   test('a click while another op runs shows in the chip within a frame (spec #2 §16)', { tag: '@budget' }, async ({ page, request }) => {
@@ -123,7 +123,7 @@ test.describe('undo (spec #2 §5.5)', () => {
     });
     console.log(`[budget] queued click to chip: ${ms.toFixed(1)} ms`);
     // One frame after the queueChanged event; the harness round trip is a few ms (Deviation 13).
-    expect(ms).toBeLessThan(50);
+    if (budgetApplies()) expect(ms).toBeLessThan(50);
     await running;
   });
 

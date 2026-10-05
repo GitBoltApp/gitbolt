@@ -16,7 +16,7 @@ import './avatar.css';
  * the backend instead of the email's. The graph's commit nodes draw the same avatar on the canvas
  * (graph/draw.ts), with the same `avatarLane`. */
 export function Avatar({ name, email, size = 24, request = true, url = null }: { name: string; email: string; size?: number; request?: boolean; url?: string | null }) {
-  const img = useAvatar(url ?? email, request, url !== null);
+  const img = useAvatar(url ?? email, request, url !== null, url === null ? name : undefined);
   const colors = useTheme((s) => s.colors);
   const lane = avatarLane(name, email, colors.graph.length);
   // How the current image went, keyed by its src (a new image starts over): loaded, or failed.
