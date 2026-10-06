@@ -8,3 +8,7 @@
 .center-slot { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: row; }
 .center-slot > .repo-view { flex: 1; height: auto; min-height: 0; min-width: 0; }
 .center-slot > .center-message { flex: 1; min-width: 0; height: auto; }
+
+/* Help > About > Open source licenses: here, not in the lazy licenses.css, so the dialog is full
+   size from its first frame instead of growing when the page's chunk arrives. */
+.modal.about-licenses { width: min(1200px, calc(100vw - 64px)); max-width: none; height: min(900px, calc(100vh - 64px)); }
