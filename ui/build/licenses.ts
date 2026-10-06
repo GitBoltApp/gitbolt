@@ -152,6 +152,17 @@ function licenseTexts(dir: string, chosen: string[]): string[] {
   return pick.map((f) => readText(dir, f)).filter((t): t is string => !!t?.trim());
 }
 
+/** Licenses whose terms require saying where a package's source is (EPL-2.0: elkjs, Mermaid's layout). */
+const WEAK_COPYLEFT_SOURCE = new Set(['EPL-2.0']);
+
+/** Where a copyleft package's source is: its npm page and its repository. */
+function sourceNote(label: string, name: string, pkg: Record<string, unknown>, licenses: string[]): string[] {
+  const repo = pkg.repository;
+  const raw = typeof repo === 'string' ? repo : repo && typeof repo === 'object' && 'url' in repo ? String((repo as { url: unknown }).url) : '';
+  const url = raw.replace(/^git\+/, '').replace(/^git:\/\//, 'https://').replace(/\.git$/, '');
+  return [`${label} (${licenses.join(', ')})`, `  npm package: https://www.npmjs.com/package/${name}/v/${String(pkg.version ?? '')}`, ...(url ? [`  source repository: ${url}`] : [])];
+}
+
 interface Group { packages: Map<string, string[] | { none: string }>; texts: { key: string; text: string; users: Set<string> }[] }
 
 function render(groups: Map<string, Group>, extra: string[]): string {
@@ -254,6 +265,7 @@ export function buildUiNotices(opts: {
   const groups = new Map<string, Group>();
   const counts: Record<string, number> = {};
   const notices: string[] = [];
+  const sources: string[][] = [];
   for (const [dir, name] of [...pkgs].sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]))) {
     let pkg: Record<string, unknown>;
     try {
@@ -270,6 +282,7 @@ export function buildUiNotices(opts: {
       continue;
     }
     const texts = licenseTexts(dir, chosen);
+    if (chosen.some((l) => WEAK_COPYLEFT_SOURCE.has(l))) sources.push(sourceNote(label, name, pkg, chosen.filter((l) => WEAK_COPYLEFT_SOURCE.has(l))));
     for (const lid of chosen) {
       counts[lid] = (counts[lid] ?? 0) + 1;
       const g: Group = groups.get(lid) ?? { packages: new Map(), texts: [] };
@@ -401,6 +414,12 @@ export function buildUiNotices(opts: {
       extra.push('', '='.repeat(100), `The upstream license texts of the ${kind}s (the NOTICE file of tm-${kind}s, for the bundled ones)`, '='.repeat(100), '',
         n.head, ...kept.flatMap((s) => ['', '='.repeat(100), s.text]), '');
     }
+  }
+  if (sources.length) {
+    extra.push('', '='.repeat(100), 'Source code of the packages under a file-level copyleft license', '='.repeat(100), '',
+      'The packages below ship in GitBolt as minified JavaScript, from the npm package named. Their license requires\n' +
+        'telling you how to get their source: each is published, unmodified, at the address given.');
+    for (const s of sources) extra.push('', ...s);
   }
   extra.push(...notices);
   return { text: render(groups, extra), errors, warnings, counts };

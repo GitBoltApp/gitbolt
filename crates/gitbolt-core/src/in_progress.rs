@@ -210,13 +210,18 @@ pub fn read(root: &Path) -> Result<Option<InProgress>, GbError> {
             // UX L: GitBolt's Edit stop, soft-reset: the box starts with the note's message.
             // Only once HEAD left git's commit: a note with HEAD still on it is a reset that
             // didn't happen (git's own stop).
-            let head = repo.head_id().ok().map(|h| h.to_string());
+            // HEAD is read once, before the note: the stop's reset (`stage_edit_stop`) writes the
+            // note and then moves HEAD, so HEAD off git's commit here means the note is there. A
+            // second read of HEAD for the message could see the reset this one didn't, and give
+            // the parent's message (the box keeps a stop's first message).
+            let head_commit = if edit_stop.is_some() { repo.head_commit().ok() } else { None };
+            let head = head_commit.as_ref().map(|c| c.id.to_string());
             let staged = if edit_stop.is_some() && git_dir.join(GITBOLT_MARKER).is_file() { edit_staged(&git_dir).filter(|s| head.as_deref() != Some(s.amend.as_str())) } else { None };
             let edit_changed = staged.as_ref().is_some_and(|s| index_differs(&repo, &s.amend));
             let message = if let Some(s) = &staged {
                 s.message.clone()
             } else if edit_stop.is_some() {
-                repo.head_commit().ok().and_then(|c| c.message_raw().ok().map(|m| normalise(&m.to_string()))).unwrap_or_default()
+                head_commit.as_ref().and_then(|c| c.message_raw().ok().map(|m| normalise(&m.to_string()))).unwrap_or_default()
             } else {
                 message(&format!("{dir}/{}", if merge { "message" } else { "final-commit" }))
             };
@@ -341,6 +346,58 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// UX L (the flaky e2e "flow 2b"): GitBolt's Edit stop moves HEAD off git's commit (the note
+    /// first, then `reset --soft`) while the watcher may be reading the stop. A read that saw
+    /// HEAD on git's commit, then took the message from HEAD again after the reset, showed the
+    /// parent's message, and the box kept it for the whole stop. HEAD is read once.
+    #[test]
+    fn an_edit_stop_being_staged_never_shows_the_parents_message() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let r = TestRepo::new();
+        r.commit("base");
+        r.commit("first");
+        r.commit("second");
+        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        let made = r.git(&["rev-parse", "HEAD"]);
+        let base = r.git(&["rev-parse", "HEAD~1"]);
+        let git_dir = r.path().join(".git");
+        std::fs::write(git_dir.join(GITBOLT_MARKER), "x\n").unwrap();
+        let at = last_done(&git_dir).unwrap();
+        write_edit_staged(&git_dir, &EditStaged { at, amend: made.clone(), base: base.clone(), added: Vec::new(), message: "second\n".into() }).unwrap();
+        // HEAD flips between git's commit and its parent (atomically, as git's lock-and-rename
+        // does), as the stop's reset moves it, while the stop is read.
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let flipper = {
+            let (stop, git_dir) = (stop.clone(), git_dir.clone());
+            std::thread::spawn(move || {
+                let tmp = git_dir.join("HEAD.flip");
+                for i in 0usize.. {
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    std::fs::write(&tmp, format!("{}\n", if i % 2 == 0 { &base } else { &made })).unwrap();
+                    std::fs::rename(&tmp, git_dir.join("HEAD")).unwrap();
+                }
+            })
+        };
+        let started = std::time::Instant::now();
+        let mut reads = 0;
+        let mut seen = Ok(());
+        while reads < 3000 && started.elapsed() < std::time::Duration::from_secs(3) {
+            match read(r.path()) {
+                Ok(Some(InProgress::Rebase { message, .. })) if message.trim_end() == "second" => {}
+                other => {
+                    seen = Err(format!("read {reads}: {other:?}"));
+                    break;
+                }
+            }
+            reads += 1;
+        }
+        stop.store(true, Ordering::Relaxed);
+        flipper.join().unwrap();
+        seen.unwrap();
     }
 
     #[test]

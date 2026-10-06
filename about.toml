@@ -14,7 +14,11 @@ accepted = [
   "ISC",
   "0BSD",
   "Zlib",
+  # Weak, file-level copyleft: fine alongside MIT code as long as the covered files stay under it and
+  # their source stays available. Used by elkjs (Mermaid's ELK layout; the notices point to its source).
+  # MPL-2.0 is the same kind.
   "MPL-2.0",
+  "EPL-2.0",
   "Unicode-3.0",
   "Unicode-DFS-2016",
   "OFL-1.1",

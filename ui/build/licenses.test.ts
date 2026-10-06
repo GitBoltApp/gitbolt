@@ -99,6 +99,19 @@ describe('buildUiNotices', () => {
     expect(r.counts).toEqual({ MIT: 5, 'Apache-2.0': 1 });
   });
 
+  it('points to the source of a package under EPL-2.0 (npm package and repository)', () => {
+    const { pkg } = fakeRepo();
+    const ids = [
+      pkg('elkish', { license: 'EPL-2.0', version: '0.9.3', repository: { type: 'vcs', url: 'https://example.invalid/example/elkish.repo' } }, { LICENSE: '# Eclipse Public License - v 2.0\n\nTHE ACCOMPANYING PROGRAM' }),
+      pkg('ok', { license: 'MIT' }, { LICENSE: MIT }),
+    ];
+    const r = buildUiNotices({ moduleIds: ids, accepted: [...ACCEPTED, 'EPL-2.0'], exceptions: {} });
+    expect(r.errors).toEqual([]);
+    expect(r.text).toContain('Source code of the packages under a file-level copyleft license');
+    expect(r.text).toContain('elkish 0.9.3 (EPL-2.0)\n  npm package: https://www.npmjs.com/package/elkish/v/0.9.3\n  source repository: https://example.invalid/example/elkish.repo');
+    expect(r.text).toContain('Eclipse Public License - v 2.0');
+  });
+
   it('fails on a copyleft or unknown license, and names the package', () => {
     const { pkg } = fakeRepo();
     const ids = [pkg('gpl', { license: 'GPL-3.0' }, { LICENSE: 'GNU GPL' }), pkg('none', {}), pkg('ok', { license: 'MIT' }, { LICENSE: MIT })];

@@ -163,10 +163,25 @@ pub(crate) fn warn_about_replacing_switches(args: &[(String, Option<String>)]) {
   }
 }
 
+/// GitBolt: a `--host-resolver-rules` value that only blocks name resolution (`MAP * ~NOTFOUND`,
+/// with `EXCLUDE` exceptions) can't redirect traffic anywhere, so it isn't the boundary the warning
+/// is about: GitBolt sets exactly this to stop Chromium's own background requests (PRIVACY.md).
+fn only_blocks_resolution(key: &str, value: Option<&str>) -> bool {
+  key == "host-resolver-rules"
+    && value.is_some_and(|v| {
+      let mut rules = split_list(v).map(str::trim).peekable();
+      rules.peek().is_some() && rules.all(|r| r == "MAP * ~NOTFOUND" || r.starts_with("EXCLUDE "))
+    })
+}
+
 /// Warns about application switches that turn off a security boundary.
 pub(crate) fn warn_about_dangerous_switches(args: &[(String, Option<String>)]) {
-  for (argument, _) in args {
+  for (argument, value) in args {
     let key = switch_key(argument);
+    if only_blocks_resolution(key, value.as_deref()) {
+      log::debug!("--{key} only blocks name resolution here: not a redirect");
+      continue;
+    }
     if DANGEROUS_SWITCHES.contains(&key) {
       log::warn!(
         "the --{key} switch turns off a Chromium security boundary. Chrome itself warns \
@@ -179,6 +194,17 @@ pub(crate) fn warn_about_dangerous_switches(args: &[(String, Option<String>)]) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn resolver_rules_that_only_block_are_not_a_redirect() {
+    assert!(only_blocks_resolution("host-resolver-rules", Some("MAP * ~NOTFOUND, EXCLUDE localhost")));
+    assert!(only_blocks_resolution("host-resolver-rules", Some("MAP * ~NOTFOUND")));
+    assert!(!only_blocks_resolution("host-resolver-rules", Some("MAP * 127.0.0.1")));
+    assert!(!only_blocks_resolution("host-resolver-rules", Some("MAP * ~NOTFOUND, MAP evil.test 10.0.0.1")));
+    assert!(!only_blocks_resolution("host-resolver-rules", Some("")));
+    assert!(!only_blocks_resolution("host-resolver-rules", None));
+    assert!(!only_blocks_resolution("host-rules", Some("MAP * ~NOTFOUND")));
+  }
 
   #[test]
   fn a_list_is_split_the_way_chromium_splits_it() {

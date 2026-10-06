@@ -140,6 +140,8 @@ says.
   only. `TauriCefKeyboardHandler` gains a `frame_navigation_state` field for that, passed in by
   `src/cef_impl/client/mod.rs`'s `keyboard_handler()`. Unit tests
   for the chord table, the Shift rules and the ownership scoping.
+- `src/switches.rs` (resolver rules, below): `only_blocks_resolution()`, checked first in
+  `warn_about_dangerous_switches`, and its unit test.
 - `src/cef_impl/client/context_menu.rs` (context menu, below): more IDC names in
   `BROWSER_ONLY_COMMANDS`, and the file's first unit tests.
 - `src/cef_impl/client/mod.rs`: `keyboard_handler()` passes `frame_navigation_state` (above),
@@ -299,3 +301,12 @@ dictionaries` (a missing, the same or a different dictionary; a missing bundled 
 `context_menu::tests::spelling_suggestions_stay_and_googles_spelling_service_goes`.
 
 No other files differ from the published 3.0.0-alpha.5 crate (its `Cargo.lock` is not vendored).
+
+## A resolver-blocking `--host-resolver-rules` isn't warned about
+
+`switches.rs`' `warn_about_dangerous_switches` warned on every launch that
+`--host-resolver-rules` "turns off a Chromium security boundary … do not ship it". GitBolt sets
+`MAP * ~NOTFOUND, EXCLUDE localhost` to stop Chromium's own background requests (PRIVACY.md):
+that only blocks name resolution and can't redirect traffic, which is what the warning is about.
+**Fix:** a value made only of `MAP * ~NOTFOUND` and `EXCLUDE …` rules is logged at debug instead;
+any other rule (a real redirect) still warns. Test: `resolver_rules_that_only_block_are_not_a_redirect`.

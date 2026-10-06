@@ -91,7 +91,7 @@ Chromium's profile at startup (`Cef::bundled_dictionary`, vendor/tauri-runtime-c
 ## The license allow-list
 
 `accepted` in `about.toml` is the list of licenses GitBolt ships code under: MIT, Apache-2.0,
-BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Zlib, MPL-2.0, Unicode, OFL-1.1, CC0-1.0, BSL-1.0,
+BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Zlib, MPL-2.0, EPL-2.0, Unicode, OFL-1.1, CC0-1.0, BSL-1.0,
 Unlicense and CDLA-Permissive-2.0. The UI plugin reads the same list. A crate or package under
 any other license, or with no recognizable license, fails the build with its name, so a
 copyleft dependency (GPL, LGPL, AGPL) is never added unnoticed. Review it, then either drop the
@@ -102,6 +102,22 @@ dependency or record the decision:
 - **UI:** `ui/build/license-exceptions.json`. Its `packages` entries give a license to a package
   whose `package.json` declares none (checked against its license file). The rest is about
   Shiki's grammars and themes, below.
+
+### Weak copyleft: MPL-2.0 and EPL-2.0
+
+Both are file-level copyleft: they bind the licensed files themselves, not the MIT code beside
+them, so shipping those files unmodified under their license is fine. The obligations are that
+the files stay under their license (its text ships in the notices) and that recipients can get
+their source.
+
+- **elkjs** (Mermaid's ELK layout, the default since Mermaid 12) is declared `EPL-2.0` by its
+  `package.json` (the upstream project offers "EPL-2.0 OR GPL-3.0-or-later" in places; we take
+  EPL-2.0, the choice the OR allows). Its JavaScript is in the Mermaid chunk, minified and
+  unmodified. `ui/build/licenses.ts` writes a "Source code of the packages under a file-level
+  copyleft license" section into `THIRD-PARTY-NOTICES-ui.txt` for every bundled package under
+  EPL-2.0 (`WEAK_COPYLEFT_SOURCE`): its npm package and source repository
+  (https://github.com/kieler/elkjs). The EPL-2.0 text is in the list above it like any other.
+  If we ever modify elkjs, publish the modified files' source and say so there.
 
 ### Shiki's grammars and themes
 
