@@ -1,0 +1,254 @@
+# Release: a pushed tag v<version> (from `just release <version>`) builds the .deb and the Arch
+# package, checks them, and uploads them with SHA256SUMS to a draft GitHub release for review.
+# "Run workflow" (workflow_dispatch) is a dry run: the same build and checks, with the packages
+# kept as a workflow artifact and no release. Run it from main to warm the caches for the next
+# tag: a tag's run can restore main's caches but not another tag's. See docs/releasing.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Keep in step with the justfile's check-tauri-cli recipe and scripts/licenses.sh.
+  TAURI_CLI_VERSION: 3.0.0-alpha.3
+  CARGO_ABOUT_VERSION: 0.9.2
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and check the packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        id: version
+        run: |
+          conf=$(jq -er .version crates/gitbolt-app/tauri.conf.json)
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            v=${GITHUB_REF_NAME#v}
+            if [ "$v" != "$conf" ]; then
+              echo "::error::The tag $GITHUB_REF_NAME doesn't match tauri.conf.json's version $conf; tag with 'just release <version>'."
+              exit 1
+            fi
+          else
+            v=$conf
+          fi
+          python3 scripts/version.py check "$v"
+          cef=$(awk '$0 == "name = \"cef\"" { getline; print }' Cargo.lock | sed -n 's/^version = "[^+"]*+\([^"]*\)"$/\1/p')
+          [ -n "$cef" ] || { echo "::error::No CEF version in Cargo.lock's cef entry"; exit 1; }
+          {
+            echo "version=$v"
+            echo "prerelease=$(python3 scripts/version.py prerelease "$v")"
+            echo "cef=$cef"
+          } >> "$GITHUB_OUTPUT"
+          # The Arch package's file times and builddate: the release commit's time.
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          echo "Version $v (pre-release: $(python3 scripts/version.py prerelease "$v")), CEF $cef"
+
+      # Before the long build: a tag needs its CHANGELOG.md section (just release writes it).
+      - name: Release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          if python3 scripts/changelog.py notes "$VERSION" CHANGELOG.md > dist/release-notes.md; then
+            echo "Release notes: $(wc -l < dist/release-notes.md) lines"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            exit 1
+          else
+            echo "::warning::No CHANGELOG.md section for $VERSION (fine for a dry run)."
+            rm dist/release-notes.md
+          fi
+
+      - name: Disk space
+        run: |
+          df -h / | tail -1
+          # The release target dir, CEF (1.5 GB unpacked) and the two packages' work dirs need
+          # room; drop the largest preinstalled SDKs when the runner has less than 30 GB free.
+          if [ "$(df --output=avail -BG / | tail -1 | tr -dc 0-9)" -lt 30 ]; then
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+            df -h / | tail -1
+          fi
+
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          # libgtk-4-dev and patchelf: the CEF runtime (docs/dev-setup.md); cmake and ninja: the
+          # cef-dll-sys wrapper; dpkg-dev: fix-deb.sh's dpkg-shlibdeps; zstd and python3:
+          # package-arch.sh. The packages' Depends come from this runner's libraries (24.04).
+          sudo apt-get install -y -q --no-install-recommends \
+            libgtk-4-dev patchelf pkg-config cmake ninja-build dpkg-dev zstd python3 jq
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      # Dependencies' build artifacts and the registry. Saved from main only (the dry run): a
+      # tag's cache would only ever serve a re-run of that tag.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The pinned cargo subcommands, compiled once per version pair: the Tauri CLI, and
+      # cargo-about for the license notices `just package` generates (scripts/licenses.sh).
+      - name: Restore the cargo tools
+        id: cargo-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/bin/cargo-about
+          key: cargo-tools-tauri-${{ env.TAURI_CLI_VERSION }}-about-${{ env.CARGO_ABOUT_VERSION }}-ubuntu-24.04
+      - name: Install the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install tauri-cli --version "=$TAURI_CLI_VERSION" --locked
+          cargo install cargo-about --version "=$CARGO_ABOUT_VERSION" --locked --features cli
+      - name: Save the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/bin/cargo-about
+          key: ${{ steps.cargo-tools.outputs.cache-primary-key }}
+
+      # Only the CEF archive (~310 MB, already compressed): the cef-dll-sys build script verifies
+      # its checksum and unpacks it (1.5 GB) instead of downloading it.
+      - name: Restore the CEF archive
+        id: cef
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/tauri-cef/${{ steps.version.outputs.cef }}/cef_binary_*_linux64_minimal.tar.bz2
+          key: cef-${{ steps.version.outputs.cef }}-linux64-minimal
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: just
+
+      # vite and vitest need Node ^22.12 or >= 24 (ui/package-lock.json).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      # `just package` = the license notices (scripts/licenses.sh, failing on a license outside
+      # about.toml's allow-list), cargo tauri build (the UI build and its notices first),
+      # fix-deb.sh, check-deb.sh (Depends, the setuid chrome-sandbox, icons, desktop entry and
+      # the license notices) and package-arch.sh, with the plain version for a release.
+      - name: Build the packages
+        env:
+          GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: CARGO_BUILD_JOBS=$(nproc) just package
+
+      - name: Save the CEF archive
+        if: steps.cef.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/tauri-cef/${{ steps.version.outputs.cef }}/cef_binary_*_linux64_minimal.tar.bz2
+          key: ${{ steps.cef.outputs.cache-primary-key }}
+
+      # Installs it in archlinux:latest: dependencies, pacman -Qkk, chrome-sandbox, the license
+      # notices in /usr/share/licenses/gitbolt, ldd and a headless launch.
+      - name: Check the Arch package
+        run: just check-arch-pkg
+
+      - name: Collect the packages and SHA256SUMS
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          deb=(target/release/bundle/deb/GitBolt_*_amd64.deb)
+          pkg=(target/release/bundle/arch/GitBolt-*-x86_64.pkg.tar.zst)
+          [ ${#deb[@]} = 1 ] && [ ${#pkg[@]} = 1 ] || { echo "::error::Expected one .deb and one Arch package: ${deb[*]} ${pkg[*]}"; exit 1; }
+          [ "${deb[0]}" = "target/release/bundle/deb/GitBolt_${VERSION}_amd64.deb" ] || { echo "::error::Unexpected .deb name ${deb[0]}"; exit 1; }
+          echo "deb version: $(dpkg-deb -f "${deb[0]}" Version); Arch package: $(basename "${pkg[0]}")"
+          cp "${deb[0]}" "${pkg[0]}" dist/
+          (cd dist && sha256sum -- *.deb *.pkg.tar.zst > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitbolt-${{ steps.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          overwrite: true # a re-run replaces the earlier attempt's artifact
+
+  release:
+    name: Draft the GitHub release
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the draft release and upload its assets
+      id-token: write # attestations: the Sigstore signing certificate
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: gitbolt-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Verify SHA256SUMS
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+
+      # Artifact attestations need a public repository, or GitHub Enterprise Cloud for a private
+      # one: while the repository is private this is skipped unless the GITBOLT_ATTEST variable is
+      # 'true'.
+      - name: Build provenance
+        if: ${{ !github.event.repository.private || vars.GITBOLT_ATTEST == 'true' }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/*.pkg.tar.zst
+
+      # Creates the draft, or on a re-run updates it and replaces its assets (--clobber). A
+      # release that's already published is left alone: the run fails instead.
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          assets=(dist/*.deb dist/*.pkg.tar.zst dist/SHA256SUMS)
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo "::error::The release $TAG is already published; not replacing its assets."
+              exit 1
+            fi
+            gh release edit "$TAG" --draft --title "GitBolt $VERSION" --notes-file dist/release-notes.md --prerelease="$PRERELEASE"
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" --draft --verify-tag --title "GitBolt $VERSION" \
+              --notes-file dist/release-notes.md --prerelease="$PRERELEASE" "${assets[@]}"
+          fi
+          url=$(gh release view "$TAG" --json url --jq .url)
+          echo "Draft release: $url" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -6,9 +6,12 @@
 # package's control member:
 #   Depends = what dpkg-shlibdeps finds for every shipped ELF file
 #           + tauri.conf.json's extra deps (libgtk-4-1, git), minus libgtk-3-0
+#   Version = the SemVer version as a Debian one (scripts/version.py deb): 0.1.0-alpha.1 becomes
+#             0.1.0~alpha.1, which sorts before 0.1.0 (Tauri only takes SemVer)
 # The data member is copied byte for byte, so chrome-sandbox keeps the root:root 4755 the bundler
 # wrote. No re-extraction as a normal user can drop the setuid bit.
 set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
 deb=$(realpath "${1:?usage: fix-deb.sh <package.deb>}")
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 cd "$work"
@@ -34,7 +37,8 @@ new=$(printf '%s\n%s\n' "$shlib" "$orig" | tr ',' '\n' | sed 's/^ *//; s/ *$//' 
     if (!(name in seen)) { seen[name] = $0; order[++n] = name }
     else if (index($0, "(") && !index(seen[name], "(")) seen[name] = $0 }
   END { for (i = 1; i <= n; i++) printf "%s%s", (i > 1 ? ", " : ""), seen[order[i]] }')
-awk -v d="Depends: $new" '/^Depends:/ { print d; done = 1; next } { print } END { if (!done) print d }' control/control > control/control.new
+debver=$(python3 "$here/version.py" deb "$(sed -n 's/^Version: //p' control/control)")
+awk -v d="Depends: $new" -v v="Version: $debver" '/^Depends:/ { print d; done = 1; next } /^Version:/ { print v; next } { print } END { if (!done) print d }' control/control > control/control.new
 mv control/control.new control/control
 case "$ctrl" in
   *.gz) comp=(-z) ;;
@@ -48,4 +52,4 @@ mv "$ctrl.new" "$ctrl"
 rm -f "$deb.tmp"
 ar rc "$deb.tmp" debian-binary "$ctrl" "$data" # member order matters to dpkg
 mv "$deb.tmp" "$deb"
-echo "fix-deb: Depends: $new"
+echo "fix-deb: Version: $debver; Depends: $new"

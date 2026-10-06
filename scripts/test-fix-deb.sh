@@ -31,4 +31,14 @@ grep -Eq '(^|, )git \(>= 1:2\.40\)' <<<"$deps" || fail "lost the git requirement
 grep -Eq '(^|, )libc6 \(>= ' <<<"$deps" || fail "no dpkg-shlibdeps result: $deps"
 [ "$(data_sum)" = "$before" ] || fail "the data member changed"
 dpkg-deb -c "$work/t.deb" | grep -Eq '^-rwsr-xr-x (root/root|0/0) .*/chrome-sandbox$' || { dpkg-deb -c "$work/t.deb" >&2; fail "chrome-sandbox lost root:root 4755"; }
+eq() { [ "$2" = "$3" ] || fail "$1: expected '$3', got '$2'"; }
+eq version-plain "$(dpkg-deb -f "$work/t.deb" Version)" 0.1.0
+# A SemVer pre-release becomes a Debian one: '~' sorts before the final release, '-' wouldn't.
+for v in '0.1.0-alpha.1:0.1.0~alpha.1' '0.1.0-rc.2+202610051325.ab4dbf9e:0.1.0~rc.2+202610051325.ab4dbf9e' \
+         '0.1.0+202610051325.ab4dbf9e:0.1.0+202610051325.ab4dbf9e'; do
+  sed -i "s/^Version: .*/Version: ${v%%:*}/" "$pkg/DEBIAN/control"
+  dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/v.deb" >/dev/null
+  "$here/fix-deb.sh" "$work/v.deb" >/dev/null
+  eq "version ${v%%:*}" "$(dpkg-deb -f "$work/v.deb" Version)" "${v#*:}"
+done
 echo "test-fix-deb: OK ($deps)"
