@@ -3,7 +3,7 @@ import './licenses.css';
 
 /** The notices the production build puts in dist/licenses/ (ui/build/licenses.ts), by file name. */
 const KNOWN: Record<string, { label: string; detail: string }> = {
-  LICENSE: { label: 'GitBolt', detail: 'MIT license' },
+  'LICENSE.txt': { label: 'GitBolt', detail: 'MIT license' },
   'THIRD-PARTY-NOTICES-ui.txt': { label: 'Interface', detail: 'npm packages, Shiki grammars and themes' },
   'THIRD-PARTY-NOTICES-rust.txt': { label: 'Rust crates', detail: "the app's native code" },
   'CEF-LICENSE.txt': { label: 'Chromium Embedded Framework', detail: 'CEF' },
@@ -39,7 +39,8 @@ export default function Licenses() {
     let live = true;
     setText(null);
     fetch(url(current))
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      // A missing asset comes back as the app's index.html (the asset protocol's fallback), not a 404.
+      .then((r) => (r.ok && !(r.headers.get('content-type') ?? '').includes('text/html') ? r.text() : Promise.reject(new Error(String(r.status)))))
       .then((t) => live && setText(t))
       .catch(() => live && setText(`Couldn't load ${current}.`));
     return () => { live = false; };

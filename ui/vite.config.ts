@@ -25,7 +25,8 @@ const notices = licenseNotices({
   aboutToml: here('../about.toml'),
   exceptions: here('build/license-exceptions.json'),
   extraFiles: [
-    { name: 'LICENSE', path: here('../LICENSE') },
+    // .txt: the app's asset protocol serves index.html for a path with no extension.
+    { name: 'LICENSE.txt', path: here('../LICENSE') },
     { name: 'THIRD-PARTY-NOTICES-rust.txt', path: `${licensesDir}/THIRD-PARTY-NOTICES-rust.txt` },
     { name: 'CEF-LICENSE.txt', path: `${licensesDir}/CEF-LICENSE.txt` },
     { name: 'DICTIONARY-en-US-LICENSE.txt', path: here('../crates/gitbolt-app/dictionaries/en-US-LICENSE.txt') },

@@ -11,13 +11,13 @@ const FILES: Record<string, string> = {
   'licenses/index.json': JSON.stringify({
     files: [
       { name: 'THIRD-PARTY-NOTICES-ui.txt', size: 900_000 },
-      { name: 'LICENSE', size: 1071 },
+      { name: 'LICENSE.txt', size: 1071 },
       { name: 'THIRD-PARTY-NOTICES-rust.txt', size: 177_000 },
       { name: 'DICTIONARY-en-US-LICENSE.txt', size: 16_900 },
       { name: 'CEF-LICENSE.txt', size: 1662 },
     ],
   }),
-  'licenses/LICENSE': 'MIT License\n\nCopyright (c) 2026 Francis Lavoie',
+  'licenses/LICENSE.txt': 'MIT License\n\nCopyright (c) 2026 Francis Lavoie',
   'licenses/THIRD-PARTY-NOTICES-rust.txt': 'GitBolt: third-party notices for the Rust crates',
   'licenses/THIRD-PARTY-NOTICES-ui.txt': 'GitBolt: third-party notices for the UI',
   'licenses/CEF-LICENSE.txt': 'Marshall A. Greenblatt',
@@ -35,6 +35,17 @@ function mockFetch(files: Record<string, string> | null) {
 describe('About > Open source licenses', () => {
   beforeEach(() => { vi.stubGlobal('fetch', mockFetch(FILES)); });
   afterEach(() => { useAbout.setState({ open: false }); vi.unstubAllGlobals(); });
+
+  it("an index.html fallback (the asset protocol's answer for a missing file) shows as an error, not as text", async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).endsWith('index.json')
+      ? new Response(JSON.stringify({ files: [{ name: 'LICENSE.txt', size: 10 }] }), { status: 200 })
+      : new Response('<html><head></head></html>', { status: 200, headers: { 'content-type': 'text/html' } })));
+    render(<About />);
+    act(() => useAbout.getState().setOpen(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Open source licenses' }));
+    expect(await screen.findByText("Couldn't load LICENSE.txt.")).toBeTruthy();
+    expect(screen.queryByText(/<html>/)).toBeNull();
+  });
 
   it('lists the notices the build ships, and shows the one picked', async () => {
     render(<About />);
