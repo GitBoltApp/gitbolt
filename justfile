@@ -6,7 +6,17 @@ test: test-rust test-ui test-scripts
 
 test-scripts:
     scripts/test-fix-deb.sh
+    scripts/test-check-deb.sh
     scripts/test-package-arch.sh
+    scripts/test-licenses.sh
+    scripts/test-version-order.sh
+    scripts/test-release.sh
+
+# Prepares a release on main: sets the version everywhere, dates CHANGELOG.md's Unreleased
+# section, commits "Release <version>" and tags v<version>. It never pushes; it prints the push
+# command, and the pushed tag builds a draft GitHub release. See docs/releasing.md.
+release version:
+    @scripts/release.sh "{{version}}"
 
 # cargo-nextest when it's installed (each test its own process, every test binary at once: about
 # half the wall time of `cargo test` here); otherwise plain `cargo test`. No doctests to miss.
@@ -53,6 +63,19 @@ e2e-shots *args:
     cargo build -p gitbolt-harness
     cd ui && GITBOLT_E2E_SHOTS=1 npx playwright test --project=chromium e2e/themes.spec.ts e2e/zoom.spec.ts {{args}}
 
+# The README's screenshot, docs/images/screenshot.webp: the made-up repos of scripts/showcase-repo.sh
+# in four tabs, a commit selected, 1600x1000 (ui/e2e/readme-screenshot.spec.ts; skipped by
+# `just e2e`). Reduced to 256 colours with Pillow, then oxipng or optipng when installed.
+readme-screenshot:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build -p gitbolt-harness
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    (cd ui && GITBOLT_README_SHOT="$tmp/raw.png" npx playwright test --project=chromium e2e/readme-screenshot.spec.ts)
+    mkdir -p docs/images
+    python3 -c 'import sys; from PIL import Image; Image.open(sys.argv[1]).convert("RGB").save(sys.argv[2], lossless=True, method=6)' "$tmp/raw.png" docs/images/screenshot.webp
+    echo "docs/images/screenshot.webp: $(du -k docs/images/screenshot.webp | cut -f1) KB"
+
 # The CEF app needs the v3-alpha `cargo tauri` CLI, pinned to match the vendored/patched
 # tauri-runtime-cef and the other Tauri crates (root Cargo.toml, vendor/tauri-runtime-cef/
 # GITBOLT-PATCH.md). Install with: cargo install tauri-cli --version =3.0.0-alpha.3 --locked
@@ -89,13 +112,27 @@ build-app: check-tauri-cli
 package: check-tauri-cli
     # Old packages first: the globs below must match only the .deb this build makes.
     rm -f target/release/bundle/deb/GitBolt_*_amd64.deb
+    # The license notices, fresh for every package (docs/licensing.md): the Rust, CEF and Chromium
+    # ones into target/licenses here; the UI's come from the UI build `cargo tauri build` runs.
+    # Either fails the build on a license outside the allow-list in about.toml.
+    scripts/licenses.sh
     # Each build gets its own, increasing version (0.1.0+<UTC time>.<sha>), so `apt install` of a
     # newer build replaces the installed one instead of skipping it as "already the newest".
-    cd crates/gitbolt-app && v="$(jq -r .version tauri.conf.json)+$(date -u +%Y%m%d%H%M).$(git rev-parse --short HEAD)" && \
-      env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS=4 cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
+    # GITBOLT_RELEASE_VERSION=<version> (the release workflow) builds the plain version instead,
+    # which must equal tauri.conf.json's (scripts/package-version.sh). CARGO_BUILD_JOBS defaults to 4.
+    cd crates/gitbolt-app && v="$(../../scripts/package-version.sh tauri.conf.json)" && \
+      env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
     scripts/fix-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/check-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/package-arch.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/arch
+
+# The third-party license notices the packages ship (docs/licensing.md): the Rust crates, CEF and
+# Chromium into target/licenses (scripts/licenses.sh, needs cargo-about), then the UI build, which
+# writes ui/dist/licenses/THIRD-PARTY-NOTICES-ui.txt. Fails on a license outside the allow-list in
+# about.toml. `just package` runs the same steps.
+licenses:
+    scripts/licenses.sh
+    cd ui && npm run build
 
 # The Arch package (target/release/bundle/arch/GitBolt-<ver>-1-x86_64.pkg.tar.zst), made from the
 # .deb of `just package` without makepkg: same payload, pacman's .PKGINFO and .MTREE, Depends

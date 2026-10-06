@@ -7,8 +7,8 @@ the app either won't launch or (never do this) has to run with the sandbox disab
 
 Packages: the `.deb` payload itself ships `chrome-sandbox` as root:root, mode 4755 (the Tauri
 bundler writes the tar entry that way; there is no post-install script involved), so a packaged
-`.deb` needs no setup. Only the `.deb` is built for now (`.rpm` and AppImage are deferred). The
-app uses `SandboxPolicy::Required` on Linux: it refuses to start rather than run unsandboxed.
+`.deb` needs no setup, and neither does the Arch package built from it. There is no `.rpm` or
+AppImage build. The app uses `SandboxPolicy::Required` on Linux: it refuses to start rather than run unsandboxed.
 
 **Symptom:** an unbundled run without a usable setuid helper opens no window and exits with code 133.
 The only message is Chromium's `FATAL:...] No usable sandbox!`, and GitBolt itself prints nothing
@@ -104,7 +104,7 @@ run `just uninstall-desktop` before installing it so the local entry can't shado
 `chromium-budget` (the tests tagged `@budget`, which assert a latency budget, run last so a
 loaded run doesn't trip them), then `webkit`. Arguments go to Playwright:
 `just e2e --project=chromium --project=chromium-budget`, `just e2e e2e/diff.spec.ts`,
-`just e2e -g 'K7'`.
+`just e2e -g '<part of a test title>'`.
 
 - **The UI is a production build**, not the Vite dev server: `vite build --mode e2e` into
   `ui/dist-e2e`, served by `vite preview`. The build is redone only when its inputs change
@@ -125,7 +125,7 @@ loaded run doesn't trip them), then `webkit`. Arguments go to Playwright:
 
 `just e2e` starts the `gitbolt-harness` WebSocket server and the UI server on fixed ports
 (7433 and 1420 by default). Two `just e2e` runs on those same ports collide, so if you're running
-the suite from more than one git worktree at once (e.g. parallel agents), give each worktree a
+the suite from more than one git worktree at once, give each worktree a
 distinct `GITBOLT_E2E_PORT_BASE`:
 
 ```bash
@@ -165,88 +165,43 @@ and the packaged app are unaffected and always use 1420.
   `.config/nextest.toml`. There are no doctests, so nothing is skipped.
 - **Vitest** keeps its default pool (forks) and worker count. `just test-ui-changed` runs only
   the files related to what this branch changed; `just test-ui` stays the full gate.
-- **sccache and mold** are set up machine-wide on the dev machine (`~/.cargo/config.toml`), not
-  by this repo. sccache caches dependency builds across worktrees, though about a third of them
+- **sccache and mold** are optional and not configured by this repo: set them up yourself in
+  `~/.cargo/config.toml`. sccache caches dependency builds across worktrees, though about a third of them
   still miss in a new worktree (their cache key includes the worktree's own paths), and it never
   caches our own incremental crates, build scripts, proc macros or test binaries. mold links a
   test binary in about 0.3 s, where GNU ld took about 10 s.
 
-## Plan 1C runtime notes
+## How the app behaves at runtime
 
-- **Open Repository screen** (Ctrl+O, or the automatic tab of an empty profile): Recent (pinned
-  first, filterable), "Your repos" (a scan of the profile's default repos folder; a banner offers
-  to set one), **Open folder…** and Clone. Any folder inside a repository opens that repository;
-  a linked worktree opens as its own tab.
-- **Folder picker:** a direct D-Bus call to xdg-desktop-portal's
-  `org.freedesktop.portal.FileChooser` (zbus, `crates/gitbolt-core/src/openers/folder_picker.rs`),
-  parented to the main window (`x11:<xid>`). No GTK 3 dialog, which would clash with the CEF
-  runtime's GTK 4. It needs `xdg-desktop-portal` plus a desktop backend (GNOME:
-  `xdg-desktop-portal-gnome`; KDE: `-kde`), which standard desktops already run. Without a portal,
-  **Open folder…** picks nothing and logs a warning.
-- **Settings and profiles:** `$XDG_CONFIG_HOME/gitbolt` (`~/.config/gitbolt`): `settings.json`
-  (app-wide: fetch interval, prune, commit limit, date format, Gravatar, window geometry) and
-  `profiles/<id>/profile.json` (tabs, recent repos, repos folder, editor, extra gitconfig, host
-  overrides, per-repo settings). Written debounced and flushed once more on exit. The Settings
-  dialog is Ctrl+, (or the hamburger's File menu). The CEF profile is
-  `$XDG_CACHE_HOME/dev.gitbolt.desktop/cef`, avatars and "open old version" copies are under
-  `$XDG_CACHE_HOME/gitbolt`. To run a second instance without touching your own, point
-  `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME` at throwaway dirs.
-- **Single instance:** one GitBolt runs per config dir (a lock and a socket,
-  `$XDG_RUNTIME_DIR/gitbolt-instance-<hash of the config dir>.{lock,sock}`). A second launch on
-  the same config dir hands its path (argv or `GITBOLT_OPEN`) to the running one, which opens it
-  in a tab and comes to the front, and exits 0. So `just dev` or `just run-app` with your own config
-  while an installed GitBolt runs only focuses that one: use throwaway XDG dirs, or
-  `GITBOLT_MULTI_INSTANCE=1` (both then write the same settings files, the last write wins).
+How GitBolt works inside (the request API, reads and writes, askpass, the watcher, background
+fetch, where settings and logs live, the harness) is in [ARCHITECTURE.md](../ARCHITECTURE.md).
+A few things that matter while developing:
+
+- **One instance per config dir.** `just dev` or `just run-app` with your own config while an
+  installed GitBolt runs only focuses that one and exits. Point `XDG_CONFIG_HOME`,
+  `XDG_CACHE_HOME` and `XDG_DATA_HOME` at throwaway dirs, or set `GITBOLT_MULTI_INSTANCE=1`.
+- **Open Repository** (Ctrl+O, or the automatic tab of an empty profile): Recent (pinned first,
+  filterable), "Your repos" (a scan of the profile's default repos folder; a banner offers to set
+  one), **Open folder…** and Clone. Any folder inside a repository opens that repository; a linked
+  worktree opens as its own tab. **Open folder…** needs `xdg-desktop-portal` and a desktop backend
+  (GNOME: `xdg-desktop-portal-gnome`; KDE: `-kde`), which standard desktops already run.
 - **Command palette:** Ctrl+P. Prefixes narrow it to one group: `>` actions, `@` branches and
-  tags, `/` files at HEAD, `#` settings (opens the Settings dialog on that setting).
-- **Askpass:** git and ssh run the `gitbolt` binary itself as `GIT_ASKPASS`/`SSH_ASKPASS`
-  (`SSH_ASKPASS_REQUIRE=force`, so ssh uses it with or without `DISPLAY`; OpenSSH 8.4+). The
-  per-session socket is `$XDG_RUNTIME_DIR/gitbolt-askpass-<pid>-<rand>.sock` (mode 0600, removed
-  on exit). Fetch and clone run with `GIT_TERMINAL_PROMPT=0`, stdin closed and in their own
-  session (`setsid`, no controlling terminal), so no prompt can wait on a tty, even when GitBolt
-  was started from a shell. A user-started fetch or clone shows the credential modal; background
-  fetches never prompt: one that needs credentials is reported as skipped in the status bar until
-  a fetch succeeds. To try it without your real keys, see "Trying the askpass flow" below.
-- **Background fetch:** `git fetch --all` of the **active** tab's repo every
-  `fetchIntervalSecs` (default 60; 0 is off), with `--prune` per the Prune setting,
-  `--no-prune-tags`, `--no-auto-maintenance` and `--no-write-commit-graph`. It writes only
-  remote-tracking refs, objects and `FETCH_HEAD`, never the worktree, the index, local branches
-  or config. Ticks are skipped while the window is minimized and replayed on focus. A successful
-  background fetch shows nowhere but the activity log.
-- **Watcher (only the active tab):** inotify, non-recursive on every tracked directory of every
-  worktree (from its index) and every directory with an untracked, non-ignored file, plus `.git`,
-  `.git/worktrees`, each linked worktree's gitdir and `.git/refs` (recursive). Ignored trees
-  (`node_modules`, `vendor`) are never watched. Past 20 000 directories (or inotify's limit), the
-  watch degrades: it still reports what it sees, and each graph build re-reads status. Inactive
-  tabs aren't watched and aren't even opened until first activated.
-- **Worktrees:** the sidebar's Worktrees panel lists the main and linked worktrees (the current
-  one marked); a change in any of them refreshes the tab.
-- **Activity log:** every finished fetch and clone, background ones included (newest first, at
-  most 200), with git's message. Open it from the bell's "Activity log" submenu or Help →
-  Activity log (devtools, dev builds only: `window.__gb.activity()`). Since 1D, the same modal
-  is the Debug modal: Help → Debug… opens it on the **Commands** tab (git's command log, the last
-  1000) or the **Actions** tab (the actions you ran). Its header has Copy diagnostics, Open logs
-  folder and the Perf overlay toggle.
-- **Log files (1D):** `~/.cache/gitbolt/logs/gitbolt.YYYY-MM-DD.log` (`$XDG_CACHE_HOME`
-  honoured; 7 days, 50 MB total). The level is `info`; Settings → Advanced switches on `debug`
-  live. `RUST_LOG` works until debug is switched on. A release build writes nothing to the
-  console unless `RUST_LOG` is set. Background fetch errors go to the status bar's bell. A
-  user's Fetch always says how it went: a short "Fetched: …" toast, or an 8 s "Fetch failed: …"
-  toast with git's message and an "Activity log" link. A user's fetch still running after 2 s
-  shows "Fetching <repo>… N%" with Cancel in the status bar.
-- **Harness:** `gitbolt-harness serve [--port N] [--config-dir DIR]` uses a throwaway config dir
-  (never `~/.config/gitbolt`), a temp home and runtime dir, no avatar provider, starts with
-  background fetch off, records launches instead of running them, and exposes test-only routes:
-  `POST /test/reset`, `/test/emit`, `/test/next-pick`, `GET /test/watched`, `GET /launches`, and
-  `ANY /test/auth/*` (always 401).
-
+  tags, `/` files at HEAD, `#` settings (opens the Settings dialog on that setting). The Settings
+  dialog itself is Ctrl+, (or the hamburger's File menu).
+- **Fetch feedback:** a user's Fetch always says how it went: a short "Fetched: …" toast, or an
+  8 s "Fetch failed: …" toast with git's message and an "Activity log" link. One still running
+  after 2 s shows "Fetching <repo>… N%" with Cancel in the status bar. Background fetch errors go
+  to the status bar's bell.
+- **Activity log and Debug:** open the activity log from the bell's "Activity log" submenu or Help
+  → Activity log (in dev builds, also `window.__gb.activity()` in devtools). Help → Debug… opens
+  the same modal on its **Commands** tab (git's command log) or **Actions** tab.
 
 ## Trying the askpass flow (no real keys)
 
 Everything lives in `/tmp/gb-askpass` and runs in a **throwaway GitBolt instance**. Neither the
 setup nor that instance reads your git config:
 - `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` keep out `~/.gitconfig`, so no
-  `credential.helper store`, no signing and no 1Password.
+  `credential.helper store`, no signing and no password-manager ssh agent.
 - Throwaway `XDG_*` dirs give a fresh default profile, with no extra gitconfig and none of your
   tabs or recent repos.
 
@@ -308,8 +263,8 @@ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C /tmp/gb-askpass/work co
   went.
 - Press Esc in the modal: the fetch is cancelled quietly (no toast).
 
-**4. A dead agent, and a stuck remote.** A dead agent is what 1Password closed looks like to an
-ssh remote:
+**4. A dead agent, and a stuck remote.** A dead agent is what a closed password manager's ssh
+agent looks like to an ssh remote:
 
 ```sh
 git -C /tmp/gb-askpass/work config core.sshCommand "$HOME/repos/gitbolt/scripts/fake-ssh --dead-agent"
@@ -360,10 +315,20 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
   `Depends`: dpkg-shlibdeps results plus `libgtk-4-1` and `git (>= 1:2.40)`, without the
   `libgtk-3-0` the alpha CLI always adds (upstream draft: `docs/upstream/tauri-cli-cef-gtk-depends.md`).
   `scripts/check-deb.sh` verifies that, that `chrome-sandbox` is root:root 4755, and that the
-  package carries the hicolor PNGs, the scalable SVG and a desktop entry with
-  `Categories=...Development;` and `StartupWMClass=gitbolt`.
-- `scripts/test-fix-deb.sh` (part of `just test`) checks `fix-deb.sh` on a synthetic package.
-  It needs `dpkg-dev`; without it, it skips and exits 0.
+  package carries the hicolor PNGs, the scalable SVG, a desktop entry with
+  `Categories=...Development;` and `StartupWMClass=gitbolt`, and the license notices in
+  `/usr/share/doc/gitbolt/`.
+- `fix-deb.sh` also writes the Debian form of the version: a SemVer pre-release's `-` becomes
+  `~` (`0.1.0-alpha.1` → `0.1.0~alpha.1`), which sorts before `0.1.0`.
+- `GITBOLT_RELEASE_VERSION=<version> just package` builds the plain, unstamped version, as the
+  release workflow does; it must equal `tauri.conf.json`'s version. See
+  [releasing.md](releasing.md).
+- Before building, it generates the third-party license notices (`scripts/licenses.sh`, needs
+  cargo-about), and fails on a dependency whose license isn't on the allow-list. See
+  [licensing.md](licensing.md).
+- `scripts/test-fix-deb.sh` and `scripts/test-check-deb.sh` (part of `just test`) check
+  `fix-deb.sh` and `check-deb.sh` on synthetic packages. The first needs `dpkg-dev`; without it,
+  it skips and exits 0.
 - The package is `git-bolt` (about 146 MiB). It installs `/usr/share/GitBolt/` (the binary and
   CEF, `chrome-sandbox` root:root 4755) and `/usr/bin/gitbolt` as a symlink to it.
 - **Install and check:**
@@ -371,8 +336,10 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
      one would just be focused instead of the installed app starting.
   2. Run `just uninstall-desktop`, so the dev entry doesn't duplicate or shadow the `.deb`'s
      `GitBolt.desktop`.
-  3. Run `sudo apt install ./target/release/bundle/deb/GitBolt_0.1.0_amd64.deb`, then launch
-     GitBolt from the app menu.
+  3. Run `sudo apt install ./target/release/bundle/deb/GitBolt_*_amd64.deb`, then launch
+     GitBolt from the app menu. The file name carries a build stamp
+     (`GitBolt_0.1.0+<UTC time>.<commit>_amd64.deb`, e.g. `0.1.0+202610051325.ab4dbf9e`), and
+     `just package` deletes older packages first, so the glob matches only the new one.
   4. Run `GITBOLT_PID=<browser pid> scripts/check-sandbox.sh`, which checks that every renderer has
      seccomp and its own PID namespace. Then `GITBOLT_PID=<browser pid> just bench`. The browser
      process is the `/usr/share/GitBolt/gitbolt` process without a `--type=` argument.
@@ -384,10 +351,14 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
   `.deb` into `target/release/bundle/arch/GitBolt-<ver>-1-x86_64.pkg.tar.zst` without makepkg
   (`scripts/package-arch.sh`; the Python helpers are in `scripts/arch-pkg.py`).
   - The payload is the `.deb`'s data member, path for path and mode for mode; the script checks
-    that, and that `chrome-sandbox` is root:root 4755.
+    that, and that `chrome-sandbox` is root:root 4755. The one addition is
+    `/usr/share/licenses/gitbolt`, a symlink to the license notices in `/usr/share/doc/gitbolt`.
   - `pkgver` is the `.deb` version with `+` turned into `.` (`0.1.0+202610051325.ab4dbf9e` →
-    `0.1.0.202610051325.ab4dbf9e-1`). Every entry gets the build stamp's time, and so does
-    `builddate`; `$SOURCE_DATE_EPOCH` overrides it.
+    `0.1.0.202610051325.ab4dbf9e-1`), and a pre-release's `~` dropped (`0.1.0~alpha.1` →
+    `0.1.0alpha.1-1`): pacman's `vercmp` would sort `0.1.0.alpha.1` after `0.1.0`. Every entry
+    gets the build stamp's time, and so does `builddate`; `$SOURCE_DATE_EPOCH` overrides it (a
+    release build has no stamp: the workflow sets it to the commit time, and a local one falls
+    back to the `.deb`'s mtime).
   - `depend` lines come from the `.deb`'s `Depends` through the `DEB_TO_ARCH` table in
     `scripts/arch-pkg.py`. A Debian name the table doesn't know fails the build: add a row.
   - `.MTREE` is written in Python in the format makepkg's bsdtar uses (no bsdtar on Ubuntu).
@@ -395,16 +366,18 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
   mtree escaping, and a synthetic `.deb` through the whole script.
 - `just check-arch-pkg` installs the package in a throwaway `archlinux:latest` Docker container
   (`--rm`; it needs Docker and the network, so `just package` doesn't run it). It runs
-  `pacman -Syu`, then `pacman -U`, and checks `pacman -Qkk gitbolt`, the setuid `chrome-sandbox`,
-  `ldd` on the binary and the CEF libraries, and a 20 s headless launch under `xvfb-run`.
+  `pacman -Syu`, then `pacman -U`, and checks `pacman -Qkk gitbolt`, the license notices, the
+  setuid `chrome-sandbox`, `ldd` on the binary and the CEF libraries, and a 20 s headless launch
+  under `xvfb-run`.
 - `packaging/arch/PKGBUILD` is a template for a future `gitbolt-bin` AUR package that repackages
-  the release `.deb`, for when the repo is public. The build doesn't use it.
+  the release `.deb`. The build doesn't use it.
 - **Install on Arch:** `sudo pacman -U GitBolt-<ver>-1-x86_64.pkg.tar.zst`. **Remove:**
   `sudo pacman -R gitbolt`.
 
 ## `just bench` (idle CPU and memory smoke)
 
-A small, non-gating check of the two spec §17.3 rows that need a live app. It runs
+A small, non-gating check of the two performance budgets that need a live app: idle CPU and
+memory. It runs
 `scripts/measure-idle.sh 60` and `scripts/measure-mem.sh` against a running instance and prints
 each next to its budget (idle CPU < 1.5%, memory with 12 tabs < 650 MB). It never fails on a
 number.
@@ -421,5 +394,6 @@ renderer.
 - `GITBOLT_PID` is the instance's browser (main) process; it scopes the scripts to that instance
   and its CEF children. Start the instance yourself (`just run-app`, with any throwaway XDG dirs
   you like), open the tabs to measure, and leave the window focused and idle for the 60 s.
-- The other §17.3 rows are asserted by `just e2e` (`menu-perf.spec`, the `tabs.spec` switch) and
-  the opt-in, read-only `real-repo.spec` timings. There's no generator or statistics.
+- The other performance budgets (latencies) are asserted by `just e2e` (`menu-perf.spec`, the
+  `tabs.spec` switch) and the opt-in, read-only `real-repo.spec` timings. These are single
+  timings: there's no repo generator and no statistics.
