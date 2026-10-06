@@ -78,9 +78,9 @@ readme-screenshot:
 
 # The CEF app needs the v3-alpha `cargo tauri` CLI, pinned to match the vendored/patched
 # tauri-runtime-cef and the other Tauri crates (root Cargo.toml, vendor/tauri-runtime-cef/
-# GITBOLT-PATCH.md). Install with: cargo install tauri-cli --version =3.0.0-alpha.3 --locked
+# GITBOLT-PATCH.md). Install with: cargo install tauri-cli --version =3.0.0-alpha.4 --locked
 check-tauri-cli:
-    cargo tauri --version | grep -qxF 'tauri-cli 3.0.0-alpha.3' || { echo "wrong cargo-tauri version; install: cargo install tauri-cli --version =3.0.0-alpha.3 --locked"; exit 1; }
+    cargo tauri --version | grep -qxF 'tauri-cli 3.0.0-alpha.4' || { echo "wrong cargo-tauri version; install: cargo install tauri-cli --version =3.0.0-alpha.4 --locked"; exit 1; }
 
 # The installed copy of Chromium's setuid sandbox helper (one-time `sudo install`, see
 # docs/dev-setup.md). When it exists, the run recipes point Chromium at it through

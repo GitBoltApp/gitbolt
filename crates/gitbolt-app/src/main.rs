@@ -257,7 +257,7 @@ fn main() {
     // "Open Repository" (spec §13): the folder-picker portal, parented to the main window once
     // it exists (R2: no picker on a portal-less desktop; the UI falls back to a typed path).
     let parent: ParentWindow = Arc::default();
-    let mut built = build_api(cli, launch, child_env).with_runtime_info("tauri 3.0.0-alpha.3 · tauri-runtime-cef 3.0.0-alpha.4 (GitBolt patch: CEF #3002)");
+    let mut built = build_api(cli, launch, child_env).with_runtime_info("tauri 3.0.0-alpha.4 · tauri-runtime-cef 3.0.0-alpha.5 (GitBolt patch: CEF #3002)");
     if let Some(h) = log_handle {
         built = built.with_log_handle(h);
     }

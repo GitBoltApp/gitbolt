@@ -1,12 +1,19 @@
-# GitBolt patch: tauri-runtime-cef 3.0.0-alpha.4
+# GitBolt patch: tauri-runtime-cef 3.0.0-alpha.5
 
-Vendored from the upstream crate `tauri-runtime-cef` 3.0.0-alpha.4 (published crate contents,
-copied from the GitBolt CEF spike's `spike-cef/vendor/tauri-runtime-cef/`; upstream source is
-`crates/tauri-runtime-cef` in `tauri-apps/tauri` at git commit `d05973d48957343599889030400ec1a79e7d0363`,
-see `.cargo_vcs_info.json`). License unchanged: `Apache-2.0 OR MIT`.
+Vendored from the upstream crate `tauri-runtime-cef` 3.0.0-alpha.5 (published crate contents from
+crates.io, minus its `Cargo.lock`; upstream source is `crates/tauri-runtime-cef` in
+`tauri-apps/tauri` at git commit `a8703ee487c659efbebb27c799752d523a6d09a1`, see
+`.cargo_vcs_info.json`). License unchanged: `Apache-2.0 OR MIT`.
 
 Pulled in via `[patch.crates-io]` in the workspace root `Cargo.toml`, pinned to the same
-`=3.0.0-alpha.4` version as the crates.io release so the patch is a drop-in replacement.
+`=3.0.0-alpha.5` version as the crates.io release so the patch is a drop-in replacement.
+
+**Re-vendoring** (alpha.4 to alpha.5 on 2026-10-06): diff this directory against the published
+crate it was vendored from (`diff -ruN -x Cargo.lock -x GITBOLT-PATCH.md <old crate>
+vendor/tauri-runtime-cef`), copy the new published crate in, and apply that diff (`patch -p2`).
+Upstream alpha.5 changed only `src/window_builder.rs` (the `macos-private-api` feature is gone)
+and the manifest. Every patch below applied cleanly and none is fixed upstream; CEF stays at
+`=152.3.0` (CEF 152.0.6, Chromium 152.0.7977.83).
 
 ## Workaround: CEF issue #3002 (Linux idle busy loop)
 
@@ -86,7 +93,7 @@ CEF-owned popup is a real Chrome window and keeps Chrome's reserved-key protecti
 `cfg!(debug_assertions)`, so a release build never logs keystrokes whatever the environment
 says.
 
-## Exact files changed vs. the unpatched 3.0.0-alpha.4 crate
+## Exact files changed vs. the unpatched 3.0.0-alpha.5 crate
 
 - `src/external_message_pump/linux.rs`: added two functions —
   `next_default_context_source_id()` (returns the GLib source id the default context will hand
@@ -291,4 +298,4 @@ dictionaries` (a missing, the same or a different dictionary; a missing bundled 
 `configuration_tests::bundled_dictionaries_are_kept_in_order`, and
 `context_menu::tests::spelling_suggestions_stay_and_googles_spelling_service_goes`.
 
-No other files differ from the published 3.0.0-alpha.4 crate.
+No other files differ from the published 3.0.0-alpha.5 crate (its `Cargo.lock` is not vendored).

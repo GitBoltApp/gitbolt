@@ -142,7 +142,7 @@ const ZOOM_COMMANDS: &[&CStr] = &[
   cef::resources::IDC_ZOOM_NORMAL,
 ];
 
-/// GitBolt patch: Chrome accelerators upstream 3.0.0-alpha.4 leaves live that have
+/// GitBolt patch: Chrome accelerators upstream 3.0.0-alpha.5 still leaves live that have
 /// no place in an app window. Always blocked for the app's own browser (`owns()`),
 /// never for a DevTools window, and not subject to `allowed_chrome_commands`.
 ///

@@ -10,11 +10,11 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@shikijs/monaco": "4.4.3",
+    "@shikijs/monaco": "4.5.0",
     "@tanstack/react-virtual": "^3.14.13",
     "@tauri-apps/api": "3.0.0-alpha.2",
-    "@tauri-apps/plugin-clipboard-manager": "3.0.0-alpha.1",
-    "diff": "8.0.4",
+    "@tauri-apps/plugin-clipboard-manager": "3.0.0-alpha.2",
+    "diff": "9.0.0",
     "fuzzysort": "^4.0.2",
     "gemoji": "8.1.0",
     "github-slugger": "2.0.0",
@@ -30,7 +30,7 @@
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
     "remark-rehype": "11.1.2",
-    "shiki": "4.4.3",
+    "shiki": "4.5.0",
     "unified": "11.0.5",
     "unist-util-visit": "5.1.0",
     "zustand": "^5.0.15"
@@ -46,8 +46,8 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^30.1.1",
-    "tm-grammars": "1.32.3",
-    "tm-themes": "1.12.3",
+    "tm-grammars": "1.32.22",
+    "tm-themes": "1.12.12",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vitest": "^5.0.2"

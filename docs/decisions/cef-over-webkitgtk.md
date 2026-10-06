@@ -223,7 +223,7 @@ alpha gaps and the runtime patch, but said CEF could be adopted with native deco
 - **The setuid sandbox helper:** packages ship it setuid root; unbundled dev builds need a
   one-time install of the helper or a `chown`/`chmod` after each build. The app requires the
   sandbox (`SandboxPolicy::Required`) and won't start without it.
-- **Alpha runtime:** Tauri 3.0.0-alpha.3 and `tauri-runtime-cef` 3.0.0-alpha.4 are pinned, and
+- **Alpha runtime:** Tauri 3.0.0-alpha.4 and `tauri-runtime-cef` 3.0.0-alpha.5 are pinned, and
   the runtime is vendored with GitBolt's patches until upstream fixes them. Known gaps: no
   custom-title-bar drag (native decorations instead), no AppImage, a wrong GTK dependency in the
   bundler's `.deb` (fixed by `scripts/fix-deb.sh`), and always XWayland.

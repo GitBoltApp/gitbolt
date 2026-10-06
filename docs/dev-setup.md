@@ -69,8 +69,8 @@ land in the repo.
 - `libgtk-4-dev` and `patchelf` (`sudo apt install libgtk-4-dev patchelf`) — the CEF runtime uses
   GTK 4, not WebKitGTK.
 - The v3-alpha `cargo tauri` CLI, pinned to match the vendored runtime:
-  `cargo install tauri-cli --version =3.0.0-alpha.3 --locked` (`justfile`'s `dev`/`build-app`
-  recipes check for exactly `tauri-cli 3.0.0-alpha.3` and tell you the command if it's missing
+  `cargo install tauri-cli --version =3.0.0-alpha.4 --locked` (`justfile`'s `dev`/`build-app`
+  recipes check for exactly `tauri-cli 3.0.0-alpha.4` and tell you the command if it's missing
   or the wrong version).
 - The first build downloads the CEF distribution (~320 MB compressed) into `~/.cache/tauri-cef`;
   after that, rebuilds are incremental.

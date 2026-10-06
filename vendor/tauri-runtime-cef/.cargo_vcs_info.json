@@ -1,6 +1,6 @@
 {
   "git": {
-    "sha1": "d05973d48957343599889030400ec1a79e7d0363"
+    "sha1": "a8703ee487c659efbebb27c799752d523a6d09a1"
   },
   "path_in_vcs": "crates/tauri-runtime-cef"
 }

@@ -36,10 +36,10 @@ axum = { version = "0.8.9", features = ["ws"] }
 tokio-tungstenite = "0.30"
 # Tauri 3 alpha + the official CEF (Chromium) runtime (Task 14). Pinned exactly: this is an
 # alpha series. See vendor/tauri-runtime-cef/GITBOLT-PATCH.md for the vendored runtime patch.
-tauri = { version = "=3.0.0-alpha.3", features = [] }
-tauri-build = { version = "=3.0.0-alpha.2", features = [] }
-tauri-runtime-cef = "=3.0.0-alpha.4"
-tauri-plugin-clipboard-manager = "=3.0.0-alpha.1"
+tauri = { version = "=3.0.0-alpha.4", features = [] }
+tauri-build = { version = "=3.0.0-alpha.3", features = [] }
+tauri-runtime-cef = "=3.0.0-alpha.5"
+tauri-plugin-clipboard-manager = "=3.0.0-alpha.2"
 # Avatars and URL opening (plan 1B Task 5).
 sha2 = "0.11.0"
 ureq = "3.4.2"
@@ -48,7 +48,7 @@ dirs = "7.0.0"
 glib = "0.22"
 # Pre-release: the only line compatible with tauri 3 alpha. Only its free function
 # `open_url` is used; the plugin isn't registered and there's no JS package (plan 1C does the same).
-tauri-plugin-opener = "=3.0.0-alpha.1"
+tauri-plugin-opener = "=3.0.0-alpha.2"
 # "Other…" (feedback H32): the xdg-desktop-portal Open With chooser over D-Bus. Already in the
 # tree through tauri-plugin-opener; same version and features.
 zbus = "5.19"

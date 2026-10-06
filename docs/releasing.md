@@ -88,7 +88,7 @@ On a `v*` tag, two jobs run on `ubuntu-24.04`:
    - checks the tag against `tauri.conf.json`'s version and extracts the release notes from
      CHANGELOG.md (`scripts/changelog.py notes <version> CHANGELOG.md`);
    - installs the toolchain: the system packages (`libgtk-4-dev`, `patchelf`, `dpkg-dev`, `zstd`,
-     `cmake`, `ninja-build`), stable Rust, Node 22, `just`, `tauri-cli` 3.0.0-alpha.3 and
+     `cmake`, `ninja-build`), stable Rust, Node 22, `just`, `tauri-cli` 3.0.0-alpha.4 and
      cargo-about 0.9.2;
    - runs `just package` with `GITBOLT_RELEASE_VERSION` set. That generates the third-party
      license notices (`scripts/licenses.sh`, failing on a license outside `about.toml`'s

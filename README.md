@@ -107,11 +107,11 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 
 ## Building from source
 
-Requirements: a stable Rust toolchain (1.85 or newer, for edition 2024), Node.js and npm, [`just`](https://github.com/casey/just),
+Requirements: a stable Rust toolchain (1.95 or newer, as Tauri 3 requires), Node.js and npm, [`just`](https://github.com/casey/just),
 and the Tauri CLI at the version the build expects:
 
 ```sh
-cargo install tauri-cli --version =3.0.0-alpha.3 --locked
+cargo install tauri-cli --version =3.0.0-alpha.4 --locked
 ```
 
 Then:

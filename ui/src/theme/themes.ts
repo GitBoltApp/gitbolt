@@ -80,7 +80,7 @@ export interface ThemeDef {
   laneText?: string;
 }
 
-/** The Shiki themes §12.1 pairs that @shikijs/themes 4.4.3 ships. Darcula isn't among them (darcula.ts);
+/** The Shiki themes §12.1 pairs that @shikijs/themes 4.5.0 ships. Darcula isn't among them (darcula.ts);
  * GitHub Dark uses the modern `github-dark-default` palette (amendment 3, ruling R5). */
 export const SHIKI_BUNDLED_THEMES = ['dark-plus', 'light-plus', 'monokai', 'dracula', 'one-dark-pro', 'solarized-dark', 'solarized-light', 'github-dark-default', 'nord'] as const;
 

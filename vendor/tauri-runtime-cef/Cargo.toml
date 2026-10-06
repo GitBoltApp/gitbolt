@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.95"
 name = "tauri-runtime-cef"
-version = "3.0.0-alpha.4"
+version = "3.0.0-alpha.5"
 authors = ["Tauri Programme within The Commons Conservancy"]
 build = "build.rs"
 links = "tauri_runtime_cef"
@@ -32,15 +32,24 @@ categories = [
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/tauri-apps/tauri"
 
+[package.metadata.docs.rs]
+features = [
+    "cef/dox",
+    "devtools",
+    "unstable",
+]
+default-target = "x86_64-unknown-linux-gnu"
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+]
+
 [features]
 default = []
 devtools = [
     "tauri-runtime/devtools",
     "tauri/devtools",
-]
-macos-private-api = [
-    "tauri-runtime/macos-private-api",
-    "tauri/macos-private-api",
 ]
 unstable = ["tauri/unstable"]
 
@@ -100,18 +109,18 @@ version = "1"
 version = "0.10"
 
 [dependencies.tauri]
-version = "3.0.0-alpha.3"
+version = "3.0.0-alpha.4"
 features = ["gtk4"]
 default-features = false
 
 [dependencies.tauri-macros]
-version = "~3.0.0-alpha.2"
+version = "~3.0.0-alpha.3"
 
 [dependencies.tauri-runtime]
-version = "~3.0.0-alpha.2"
+version = "~3.0.0-alpha.3"
 
 [dependencies.tauri-utils]
-version = "~3.0.0-alpha.2"
+version = "~3.0.0-alpha.3"
 features = ["html-manipulation"]
 
 [dependencies.url]

@@ -1,6 +1,6 @@
 [package]
 name = "tauri-runtime-cef"
-version = "3.0.0-alpha.4"
+version = "3.0.0-alpha.5"
 description = "Tauri runtime interface for Chromium Embedded Framework"
 # lets `tauri-build` detect the CEF runtime through the `DEP_TAURI_RUNTIME_CEF_RUNTIME` env var
 links = "tauri_runtime_cef"
@@ -11,6 +11,16 @@ categories.workspace = true
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+
+[package.metadata.docs.rs]
+# docs.rs builds without network access, `dox` skips downloading the CEF binary distribution
+features = ["cef/dox", "devtools", "unstable"]
+default-target = "x86_64-unknown-linux-gnu"
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+  "x86_64-apple-darwin",
+]
 
 [[test]]
 name = "macos-application-bootstrap"
@@ -119,10 +129,5 @@ x11-dl = "2.21"
 default = []
 # also enables devtools on `tauri` so the feature only needs to be enabled on this crate
 devtools = ["tauri-runtime/devtools", "tauri/devtools"]
-# also enables macos-private-api on `tauri` so the feature only needs to be enabled on this crate
-macos-private-api = [
-  "tauri-runtime/macos-private-api",
-  "tauri/macos-private-api",
-]
 # exposes the extension traits for `tauri::webview::WebviewBuilder`
 unstable = ["tauri/unstable"]
