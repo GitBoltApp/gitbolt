@@ -39,8 +39,8 @@ pub fn basic(r: &TestRepo) {
 pub const WIDE_BRANCHES: usize = 30;
 
 /// A root commit on `main` with `WIDE_BRANCHES` unmerged branches forked from it, one commit
-/// each: every branch holds its own lane down to the root, so the graph is `WIDE_BRANCHES`
-/// lanes wide (no remote, so nothing is pinned). Used by the "no lane is clipped at the default
+/// each: every branch holds its own lane down to the root, and the trunk (the local `main`: no
+/// remote) keeps lane 0, so the graph is `WIDE_BRANCHES + 1` lanes wide. Used by the "no lane is clipped at the default
 /// Graph width" Playwright check.
 pub fn wide(r: &TestRepo) {
     r.commit("Root");

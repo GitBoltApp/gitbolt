@@ -167,12 +167,12 @@ function openInLine(c: DiffContentsPayload | null): number | null {
 
 /** The backend's ceiling for a forced load (`MAX_FORCED_BYTES`, diff.rs): a side over it stays
  * `tooLarge` even with `force`. */
-const FORCED_CEILING_LABEL = '64 MB';
+export const FORCED_CEILING_LABEL = '64 MB';
 
 /** A raster image (the backend's `image` flag) or a text SVG: `Body` shows the image diff. A
  * binary side of an SVG carries no bytes (base64 is for raster images only), so that one shows as
  * hex, as any other binary. */
-const isImage = (target: DiffTarget, c: DiffContentsPayload) =>
+export const isImage = (target: DiffTarget, c: DiffContentsPayload) =>
   c.image || (target.path.toLowerCase().endsWith('.svg') && !c.old?.binary && !c.new?.binary);
 
 /** Whether the body shows the shared editor (a text diff, or File View's text): it's on screen
@@ -200,7 +200,7 @@ const markdownOf = (selection: Selection, t: DiffTarget): { commit: FileCommit }
   const commit = isMarkdownPath(t.path) ? fileCommitOf({ selection }, t) : null;
   return commit === null ? null : { commit };
 };
-const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !isImage(target, c) && !!(c.old?.binary || c.new?.binary);
+export const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !isImage(target, c) && !!(c.old?.binary || c.new?.binary);
 
 /**
  * The image diff (spec §10.4). `contents` is the loader's cached object, so its identity holds
@@ -209,7 +209,7 @@ const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !is
  * An SVG's Source toggle shows its text: the diff, or the file in File View. A raster image's
  * Hex toggle shows its hex dump, as a binary file's (hex.tsx).
  */
-function ImageBody({ target, contents: c, onSourceChange, onHex }: { target: DiffTarget; contents: DiffContentsPayload; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void }) {
+export function ImageBody({ target, contents: c, onSourceChange, onHex }: { target: DiffTarget; contents: DiffContentsPayload; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void }) {
   const sources = useImageSources(c, target.path);
   if (!sources) return <div className="diff-message" aria-busy="true">Loading…</div>;
   const fileView = target.view === 'file';

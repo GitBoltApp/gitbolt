@@ -5,7 +5,13 @@ import type { InProgress } from "./InProgress";
 import type { RefLabel } from "./RefLabel";
 import type { RowPayload } from "./RowPayload";
 
-export type GraphPayload = { rows: Array<RowPayload>, labels: Array<RefLabel>, maxLanes: number, pinnedRef: string | null, head: HeadPayload, truncated: boolean, 
+export type GraphPayload = { rows: Array<RowPayload>, labels: Array<RefLabel>, maxLanes: number, pinnedRef: string | null, 
+/**
+ * The remote counterpart of a pinned local branch: the default pick's remote trunk (the
+ * branch it stands for), an explicit pin's upstream. Absent when the pin is a remote ref,
+ * has no upstream, or there's no pin. Branch membership ranks it right after the trunk.
+ */
+pinnedRemote?: string, head: HeadPayload, truncated: boolean, 
 /**
  * The open worktree (the one this tab opened), spelled as its WIP row's
  * `WipPayload::worktree_path` would be, dirty or not: what "Compare with working tree"

@@ -7,6 +7,7 @@ import { setChangeStepper, stepChange } from './changeStepper';
 import { useDiffPrefs } from './diffPrefs';
 import type { DiffSides } from './markdownDiffSides';
 import { markSlow, PRECHECK_BYTES, TOO_LARGE_TO_RENDER, useDiffTooLarge } from './markdownFiles';
+import { useNarrowPane } from './narrowPane';
 import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
 import type { HunkZoneRequest } from './monaco/host';
 import { useParseBudget } from './parseBudget';
@@ -89,6 +90,9 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   }, [identity]);
   // R3: Previous/Next change (and F7) step through the rendered changes.
   useEffect(() => (rendered ? setChangeStepper((dir) => { if (pane.current) stepChange(pane.current, dir); }) : undefined), [rendered]);
+  // The diff mode applies (5C): Split shows it side by side, unless the pane is too narrow.
+  const splitPicked = useDiffPrefs((s) => s.prefs.mode === 'split');
+  const narrow = useNarrowPane(pane, rendered && splitPicked);
   const oldSide = markdown?.old ?? null;
   const newSide = markdown?.new ?? null;
   const ctx = useMemo<{ new: FileMarkdownContext; old: FileMarkdownContext } | null>(() => (isMd
@@ -110,7 +114,7 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
             ? <div className="diff-message" aria-busy="true">Rendering…</div>
             : (
               <Suspense fallback={<div className="diff-message" aria-busy="true">Loading…</div>}>
-                <MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} onTooLarge={onTooLarge} />
+                <MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} split={splitPicked && !narrow} onTooLarge={onTooLarge} />
               </Suspense>
             ))}
         </div>

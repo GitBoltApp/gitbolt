@@ -3,7 +3,7 @@ import type { BrowserContext } from '@playwright/test';
 import { devicePx } from '../src/graph/pixels';
 import { SHORT_SHA_LEN } from '../src/format/sha';
 import { allocateColumns, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_MAX } from '../src/graph/columns';
-import { graphLayout, RAIL_W, SHADE_W } from '../src/graph/draw';
+import { graphLayout, nodeRadius, RAIL_W, SHADE_W } from '../src/graph/draw';
 import { laneX } from '../src/graph/geometry';
 import { METRICS } from '../src/graph/metrics';
 import { DENSITIES, DENSITY_METRICS, DENSITY_STORAGE_KEY } from '../src/theme/density';
@@ -1160,20 +1160,114 @@ test.describe('resizable columns', () => {
     await expectConnectorMeetsCanvas(page);
   });
 
-  test('the canvas is clipped to the scroll viewport (never over the vertical scrollbar)', async ({ page }) => {
-    await page.setViewportSize({ width: 900, height: 300 });
-    await page.goto(openUrl(fixtures.basic));
+  test('the canvas scrolls in lock-step with the rows, inside the scroll viewport (never over the vertical scrollbar)', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 400 });
+    await page.goto(openUrl(fixtures.longHistory));
     const grid = page.getByRole('grid', { name: 'Commit graph' });
-    await expect(grid).toBeVisible();
-    const { clientWidth, clientHeight } = await grid.evaluate((el) => ({ clientWidth: el.clientWidth, clientHeight: el.clientHeight }));
-    const clip = (await page.locator('.graph-canvas-clip').boundingBox())!;
-    const gridBox = (await grid.boundingBox())!;
-    expect(clip.x).toBeCloseTo(gridBox.x, 0);
-    expect(clip.width).toBeCloseTo(clientWidth, 0);
-    expect(clip.height).toBeCloseTo(clientHeight, 0);
-    // The 300 px viewport makes the 10 rows overflow vertically, so there is a real scrollbar
-    // to protect (unless the platform uses overlay scrollbars).
-    expect(await page.locator('.graph-canvas-clip').evaluate((el) => getComputedStyle(el).overflow)).toBe('hidden');
+    await expect(grid.getByRole('row').first()).toBeVisible();
+    const rowH = (await grid.getByRole('row').first().boundingBox())!.height;
+
+    await test.step('in the scrolled content (the scroller clips it), clipped to that content: its band adds no scroll', async () => {
+      const g = await grid.evaluate((el) => {
+        const clip = el.querySelector('.graph-canvas-clip')!;
+        const canvas = el.querySelector('[data-testid="graph-canvas"]')!;
+        return { inGrid: el.contains(canvas), overflow: getComputedStyle(clip).overflow, scrollH: el.scrollHeight, clientH: el.clientHeight, rows: Number(el.getAttribute('aria-rowcount')), canvasH: canvas.getBoundingClientRect().height };
+      });
+      expect(g.inGrid).toBe(true);
+      expect(g.overflow).toBe('hidden');
+      expect(g.scrollH).toBeCloseTo(g.rows * rowH, 0);
+      // A band: taller than the viewport (up to one more viewport above and below).
+      expect(g.canvasH).toBeGreaterThan(g.clientH);
+    });
+
+    // Where the canvas is against the rows, read in one go: the canvas's top less the content's
+    // top (the first rendered row's, less its index's rows) is the band's `top` (its style),
+    // whatever the scroll, with no redraw waited for.
+    await page.evaluate((h) => {
+      (window as unknown as { __drift: (el: Element) => { off: number; top: string } }).__drift = (el) => {
+        const canvas = el.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!;
+        const row = el.querySelector<HTMLElement>('[role="row"]')!;
+        const origin = row.getBoundingClientRect().top - (Number(row.getAttribute('aria-rowindex')) - 1) * h;
+        return { off: Math.abs(canvas.getBoundingClientRect().top - origin - parseFloat(canvas.style.top)), top: canvas.style.top };
+      };
+    }, rowH);
+    type Drift = { __drift: (el: Element) => { off: number; top: string } };
+
+    await test.step('scrollTop set by odd amounts: the canvas and the rows move together, in the same frame', async () => {
+      const r = await grid.evaluate(async (el, [h, nodeX, nodeR]) => {
+        const canvas = el.querySelector<HTMLCanvasElement>('[data-testid="graph-canvas"]')!;
+        const ctx = canvas.getContext('2d')!;
+        const dpr = canvas.width / canvas.getBoundingClientRect().width;
+        const offs: number[] = [];
+        const tops = new Set<string>();
+        const nodes: number[] = [];
+        for (const dy of [13.5, 77, 333, 41, 289, 403, -157, -401.5, 250, 19]) {
+          el.scrollTop += dy;
+          // At once, before this frame's scroll event (no redraw yet): where the canvas is.
+          offs.push((window as unknown as Drift).__drift(el).off);
+          // In the frame's rAF, after its scroll event: the band redrawn if it had to be, and
+          // the pixels right. Inside the first whole row's node, off its line: the node's fill.
+          await new Promise(requestAnimationFrame);
+          const d = (window as unknown as Drift).__drift(el);
+          offs.push(d.off);
+          tops.add(d.top);
+          const gridTop = el.getBoundingClientRect().top;
+          const row = [...el.querySelectorAll<HTMLElement>('[role="row"]')].find((x) => x.getBoundingClientRect().top >= gridTop)!;
+          const y = row.getBoundingClientRect().top + h / 2 - canvas.getBoundingClientRect().top;
+          nodes.push(ctx.getImageData(Math.round((nodeX + 0.6 * nodeR) * dpr), Math.floor(y * dpr), 1, 1).data[3]);
+        }
+        return { max: Math.max(...offs), tops: tops.size, nodes };
+      }, [rowH, laneX(0, METRICS), nodeRadius(METRICS)] as const);
+      expect(r.max).toBeLessThanOrEqual(0.51);
+      expect(r.nodes).toEqual(r.nodes.map(() => 255));
+      // The band was redrawn (moved) on the way: the check spans band changes too.
+      expect(r.tops).toBeGreaterThan(1);
+    });
+
+    await test.step('the mouse wheel: every frame of its scroll has the canvas on the rows', async () => {
+      await grid.evaluate((el) => {
+        el.scrollTop = 0;
+        const w = window as unknown as Drift & { __lockstep: { offs: number[]; stop: boolean } };
+        w.__lockstep = { offs: [], stop: false };
+        const tick = () => {
+          w.__lockstep.offs.push(w.__drift(el).off);
+          if (!w.__lockstep.stop) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      const box = (await grid.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      for (const dy of [37, 53, 101, 211, -71, 163]) await page.mouse.wheel(0, dy);
+      await expect.poll(() => grid.evaluate((el) => el.scrollTop)).toBeGreaterThan(300);
+      const r = await page.evaluate(() => new Promise<{ n: number; max: number }>((done) => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const w = window as unknown as { __lockstep: { offs: number[]; stop: boolean } };
+        w.__lockstep.stop = true;
+        done({ n: w.__lockstep.offs.length, max: Math.max(...w.__lockstep.offs) });
+      }))));
+      expect(r.n).toBeGreaterThan(2);
+      expect(r.max).toBeLessThanOrEqual(0.51);
+    });
+
+    await test.step('after band redraws, a chip\'s connector still ends at the canvas, on its row, into its node', async () => {
+      await grid.evaluate((el) => { el.scrollTop = 1200; });
+      await grid.evaluate((el) => { el.scrollTop = 7; });
+      const row = grid.getByRole('row').filter({ has: page.locator('.ref-connector') }).first();
+      const connector = row.locator('.ref-connector').first();
+      await expect(connector).toBeVisible();
+      const [conn, canvas, box] = await Promise.all([connector.boundingBox(), page.getByTestId('graph-canvas').boundingBox(), row.boundingBox()]);
+      expect(Math.abs(conn!.x + conn!.width - canvas!.x)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(conn!.y + conn!.height / 2 - (box!.y + box!.height / 2))).toBeLessThanOrEqual(1);
+      // In the canvas at those same y: its half of the connector at its left edge, and the node
+      // (lane 0's, opaque) at the row's centre.
+      const [line, node] = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [cy, ny, nx]) => {
+        const dpr = c.width / c.getBoundingClientRect().width;
+        const ctx = c.getContext('2d')!;
+        const a = (x: number, y: number) => ctx.getImageData(Math.round(x * dpr), Math.floor(y * dpr), 1, 1).data[3];
+        return [Math.max(a(2, cy), a(2, cy - 1 / dpr)), a(nx, ny)];
+      }, [conn!.y + conn!.height / 2 - canvas!.y, box!.y + box!.height / 2 - canvas!.y, laneX(0, METRICS)] as const);
+      expect(line).toBeGreaterThan(0);
+      expect(node).toBe(255);
+    });
   });
 });
 

@@ -3,11 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { createRepoViewStore, RepoViewContext, targetFor } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
-import { DEFAULT_DIFF_PREFS, useDiffPrefs } from './diffPrefs';
+import { DEFAULT_DIFF_PREFS, DIFF_PREFS_STORAGE_KEY, useDiffPrefs } from './diffPrefs';
 
 const host = vi.hoisted(() => ({ goToChange: vi.fn() }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
-const { DiffToolbar, goToChange, RENDERED_MODE_TIP, RENDERED_WHITESPACE_TIP, RENDERED_WRAP_TIP } = await import('./DiffToolbar');
+const { DiffToolbar, goToChange, RENDERED_HUNK_TIP, RENDERED_WHITESPACE_TIP, RENDERED_WRAP_TIP } = await import('./DiffToolbar');
 const { setChangeStepper } = await import('./changeStepper');
 
 const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
@@ -18,13 +18,13 @@ const bar = (rendered: boolean) => render(<RepoViewContext value={createRepoView
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); useDiffPrefs.setState({ prefs: DEFAULT_DIFF_PREFS }); });
 
 describe('the diff toolbar while the rendered Markdown diff shows (5C, R3)', () => {
-  it('keeps the view mode, whitespace and wrap in place, off, each saying why', () => {
+  it('keeps Hunk, whitespace and wrap in place, off, each saying why', () => {
     bar(true);
-    for (const name of ['Hunk', 'Inline', 'Split']) expect(button(name)).toHaveAttribute('aria-disabled', 'true');
-    fireEvent.click(button('Split'));
-    fireEvent.mouseEnter(button('Split'));
-    expect(screen.getByRole('tooltip')).toHaveTextContent(RENDERED_MODE_TIP);
-    fireEvent.mouseLeave(button('Split'));
+    expect(button('Hunk')).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(button('Hunk'));
+    fireEvent.mouseEnter(button('Hunk'));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(RENDERED_HUNK_TIP);
+    fireEvent.mouseLeave(button('Hunk'));
     for (const [name, tip] of [['Ignore whitespace', RENDERED_WHITESPACE_TIP], ['Word wrap', RENDERED_WRAP_TIP]] as const) {
       expect(button(name)).toHaveAttribute('aria-disabled', 'true');
       fireEvent.click(button(name));
@@ -34,6 +34,26 @@ describe('the diff toolbar while the rendered Markdown diff shows (5C, R3)', () 
     }
     expect(useDiffPrefs.getState().prefs).toEqual(DEFAULT_DIFF_PREFS);
     expect(button('Next change')).toBeEnabled();
+  });
+
+  it('Inline and Split pick the rendered layout: the saved diff mode, so it persists', () => {
+    bar(true);
+    for (const name of ['Inline', 'Split']) expect(button(name)).not.toHaveAttribute('aria-disabled');
+    expect(button('Inline')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(button('Split'));
+    expect(useDiffPrefs.getState().prefs.mode).toBe('split');
+    expect(button('Split')).toHaveAttribute('aria-pressed', 'true');
+    expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!).mode).toBe('split');
+    fireEvent.click(button('Inline'));
+    expect(useDiffPrefs.getState().prefs.mode).toBe('inline');
+  });
+
+  it('a saved Hunk shows the rendered diff as Inline, leaving the pick as it is', () => {
+    useDiffPrefs.setState({ prefs: { ...DEFAULT_DIFF_PREFS, mode: 'hunk' } });
+    bar(true);
+    expect(button('Inline')).toHaveAttribute('aria-pressed', 'true');
+    expect(button('Hunk')).toHaveAttribute('aria-pressed', 'false');
+    expect(useDiffPrefs.getState().prefs.mode).toBe('hunk');
   });
 
   it('in Source they work as before', () => {

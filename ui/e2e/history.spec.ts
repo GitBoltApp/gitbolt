@@ -1,4 +1,6 @@
 import { expect, test, type Locator, type Page } from './test';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
 
 // Spec #3 §7 e2e flow 5: File History plus Blame, over the `file_history` fixture (plan 3A T2).
@@ -10,6 +12,12 @@ const action = (menu: Locator, label: string) => menu.locator('[data-depth="0"] 
 // start-up), in an order where each starts from what it needs (the history view closed).
 test('File History and Blame: following the rename, Blame groups, Esc; the gutter beside the line numbers; a hash copies; the list resizes and persists', async ({ page, browserName }) => {
   const repo = freshFixture('file_history');
+  // A Markdown guide edited once, for the last step's rendered diff.
+  writeFileSync(join(repo, 'guide.md'), '# Setup guide\n\nRun the tool once.\n');
+  git(repo, 'add', 'guide.md');
+  git(repo, 'commit', '-qm', 'Add the guide');
+  writeFileSync(join(repo, 'guide.md'), '# Setup guide\n\nRun the tool twice.\n');
+  git(repo, 'commit', '-qam', 'Edit the guide');
   await page.goto(openUrl(repo));
   await test.step('File History follows the rename, Blame groups the lines, a group selects its commit, Esc returns to the diff', async () => {
     const shaOf = (subject: string) => git(repo, 'log', '--format=%H', '-F', `--grep=${subject}`, '-1');
@@ -151,6 +159,37 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
     await page.reload();
     await openHistory();
     await expect.poll(async () => (await list.boundingBox())!.width).toBe(widened);
+  });
+  await test.step('Changes: the commit\'s diff of the file, row by row, in place of the file; a Markdown file\'s rendered', async () => {
+    const view = page.getByRole('region', { name: 'File history' });
+    const commits = view.getByRole('listbox', { name: 'Commits' }).getByRole('option');
+    await expect(commits.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(view.getByTestId('file-view')).toContainText('Once upon a sharper time');
+    const top = (await view.locator('.diff-body').boundingBox())!.y;
+    await view.getByRole('group', { name: 'History view' }).getByRole('button', { name: 'Changes' }).click();
+    const changes = view.getByTestId('history-changes');
+    const inserted = changes.locator('.editor.modified .line-insert');
+    await expect(inserted).toHaveCount(1);
+    await expect(changes.locator('.editor.modified .view-line').filter({ hasText: 'Once upon a sharper time' })).toBeVisible();
+    expect((await changes.boundingBox())!.y).toBe(top);
+    await expect(view.getByRole('button', { name: 'Blame', exact: true })).toHaveAttribute('aria-disabled', 'true');
+    // An older row (the rename under src): its own change, against the old path.
+    await view.getByRole('listbox', { name: 'Commits' }).focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(changes.locator('.view-line').filter({ hasText: 'Once upon a sharper time' })).toHaveCount(0);
+    await expect(changes.locator('.editor.modified .view-line').filter({ hasText: 'until the day it moved under src.' })).toBeVisible();
+    await expect(inserted).toHaveCount(1);
+
+    // Another file's history opens on Changes (remembered): a Markdown file's diff, rendered.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await graphRow(page, 'Edit the guide').click();
+    await fileRow(page, 'guide.md').click();
+    await page.getByRole('region', { name: 'Diff' }).getByRole('toolbar', { name: 'Diff options' }).getByRole('button', { name: 'History', exact: true }).click();
+    await expect(view.getByRole('heading', { name: 'File History: guide.md' })).toBeVisible();
+    const md = view.getByTestId('markdown-diff');
+    await expect(md.locator('p del')).toContainText('once');
+    await expect(md.locator('p ins')).toContainText('twice');
   });
 });
 

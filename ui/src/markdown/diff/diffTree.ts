@@ -143,13 +143,21 @@ function diffList(o: List, n: List, c: Ctx): List {
   const oi = new Map(o.children.map((it, i) => [it, i] as const));
   const ni = new Map(n.children.map((it, i) => [it, i] as const));
   const num = (l: List, at: Map<ListItem, number>, it: ListItem) => (n.ordered ? (l.start ?? 1) + at.get(it)! : undefined);
-  const mark = (it: ListItem, gbDiff: DiffMark | undefined, gbValue: number | undefined): ListItem =>
-    gbDiff === undefined && gbValue === undefined ? it : { ...it, data: { ...it.data, ...(gbDiff ? { gbDiff } : {}), ...(gbValue !== undefined ? { gbValue } : {}) } };
+  // `was`: a kept or changed item's old side, for the split view (its number and checkbox there).
+  const mark = (it: ListItem, gbDiff: DiffMark | undefined, gbValue: number | undefined, was?: ListItem): ListItem => {
+    const gbOldValue = was ? num(o, oi, was) : undefined;
+    const old = {
+      ...(gbOldValue !== undefined && gbOldValue !== gbValue ? { gbOldValue } : {}),
+      ...(was && (was.checked ?? null) !== (it.checked ?? null) ? { gbOldChecked: was.checked ?? null } : {}),
+    };
+    return gbDiff === undefined && gbValue === undefined && Object.keys(old).length === 0 ? it
+      : { ...it, data: { ...it.data, ...(gbDiff ? { gbDiff } : {}), ...(gbValue !== undefined ? { gbValue } : {}), ...old } };
+  };
   const items: ListItem[] = [];
   for (const op of ops) {
     if (op.op === 'same') {
       const it = op.new.nodes[0] as ListItem;
-      items.push(mark(it, undefined, num(n, ni, it)));
+      items.push(mark(it, undefined, num(n, ni, it), op.old.nodes[0] as ListItem));
     } else if (op.op === 'added') {
       c.changes++;
       const it = op.new.nodes[0] as ListItem;
@@ -167,14 +175,14 @@ function diffList(o: List, n: List, c: Ctx): List {
       // inline (a wrapper would push a task's checkbox onto its own line, and loosen a tight list).
       const only = kids.length === 1 && kids[0]!.type === 'diffBlock' ? kids[0] : null;
       if (only && only.mark === 'changed' && only.children.length === 1 && only.children[0]!.type === 'paragraph') {
-        items.push(mark({ ...b, children: [only.children[0]] }, 'changed', num(n, ni, b)));
+        items.push(mark({ ...b, children: [only.children[0]] }, 'changed', num(n, ni, b), a));
         continue;
       }
       // The innermost marked node counts and carries the bar: an item whose content holds marks
       // stays unmarked. Only a change of the item's own (a ticked checkbox) marks the item.
       const own = c.changes === before && (a.checked ?? null) !== (b.checked ?? null);
       if (own) c.changes++;
-      items.push(mark({ ...b, children: kids as ListItem['children'] }, own ? 'changed' : undefined, num(n, ni, b)));
+      items.push(mark({ ...b, children: kids as ListItem['children'] }, own ? 'changed' : undefined, num(n, ni, b), a));
     }
   }
   return { ...n, children: items };

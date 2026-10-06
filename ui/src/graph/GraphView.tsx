@@ -26,7 +26,7 @@ import './columnMenu';
 import type { ColumnTarget } from './columnMenu';
 import { allocateColumns, autoGraphWidth, handleShown, isCollapsed, lanesWidth, useColumnPrefs, type ColumnWidths, type HideableColumn } from './columns';
 import { graphLayout, LINE_W, nodeAt, nodeCentre, nodeRadius } from './draw';
-import { GraphCanvas } from './GraphCanvas';
+import { GraphCanvas, type GraphCanvasHandle } from './GraphCanvas';
 import { HeaderCell } from './HeaderCell';
 import { PinButton } from './PinButton';
 import { HScroll, HSCROLL_H } from './HScroll';
@@ -93,6 +93,13 @@ const toggleHidden = (col: HideableColumn) => useColumnPrefs.getState().toggleHi
 /** Rows either side of the screen whose avatars are also asked for, so normal scrolling doesn't
  * pop them in. Much smaller than the virtualizer's overscan: a fast scroll must stay cheap. */
 export const AVATAR_OVERSCAN = 5;
+
+/** The same rows are (partly) on screen at scroll offsets `a` and `b`: nothing that follows the
+ * rows on screen (the avatar window) needs a re-render. */
+const sameRowsOnScreen = (a: number, b: number, viewportH: number, rowH: number) => {
+  const [ya, yb] = [Math.max(0, a), Math.max(0, b)];
+  return Math.floor(ya / rowH) === Math.floor(yb / rowH) && Math.ceil((a + viewportH) / rowH) === Math.ceil((b + viewportH) / rowH);
+};
 
 /** Graph nodes draw from the shared avatar cache (keyed by email). Module-level, so stable. */
 const avatarBitmap = (email: string) => avatars.get(email)?.bitmap ?? null;
@@ -186,7 +193,7 @@ const EDITOR_MIN_W = 200;
 /**
  * One virtual row. Memoized: its props are all stable across scroll events (rows, memoized
  * widths, label lists and membership objects, stable callbacks), so scrolling re-renders only
- * the view and the canvas, not every row; a hover re-renders only the rows whose membership
+ * the view (as rows enter or leave the screen), not every row; a hover re-renders only the rows whose membership
  * chip appears or goes, and a branch focus (J22) only the rows whose `dimmed` changes.
  */
 const GraphRow = memo(function GraphRow({ row, dateFormat, repoId, index, start, rowH, dpr, selected, cols, labels, membership, messages, onSelect, onHover, onCopySha, dimmed, onBranchHover, onContextMenu, onLabelContextMenu, onLabelDoubleClick, onRowDoubleClick, onWipContextMenu, rebasing = null, context = false, editor }: GraphRowProps) {
@@ -320,7 +327,11 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   // The last scroll offset while visible: restored when <Activity> shows the graph again
   // (spec §10.1). A hidden (display: none) element loses its scroll position.
   const lastScroll = useRef(0);
+  // The scroll offset as of the last change of the rows on screen (the avatar window below). Not
+  // every scroll event's: the canvas follows the scroll on its own (GraphCanvas, band.ts), so a
+  // scroll re-renders the view only when a row enters or leaves the screen.
   const [scrollTop, setScrollTop] = useState(0);
+  const canvas = useRef<GraphCanvasHandle>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportH, setViewportH] = useState(0);
   const [viewportW, setViewportW] = useState(0);
@@ -350,7 +361,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   // The checked-out branch's row: HEAD's label sorts first on its row (J21).
   const headRow = useMemo(() => [...labelsByRow].find(([, ls]) => ls[0]?.isHead)?.[0] ?? -1, [labelsByRow]);
   // Once per graph (linear): the branch each non-tip commit belongs to (F7).
-  const membership = useMemo(() => membershipOf(graph.rows, labelsByRow, graph.pinnedRef), [graph.rows, labelsByRow, graph.pinnedRef]);
+  const membership = useMemo(() => membershipOf(graph.rows, labelsByRow, graph.pinnedRef, graph.pinnedRemote ?? null), [graph.rows, labelsByRow, graph.pinnedRef, graph.pinnedRemote]);
   const membershipRef = useRef(membership);
   membershipRef.current = membership;
   // J22: a branch chip hovered for 500 ms dims the text of every row outside that branch (its
@@ -450,6 +461,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
     v.measure();
     const el = scrollRef.current;
     if (el) el.scrollTop = Math.round((el.scrollTop / old) * metrics.rowH);
+    canvas.current?.sync();
   }, [metrics.rowH, v, scrollRef]);
 
   // A new avatar redraws the canvas only: rows don't take it as a prop, so memoized rows stay put.
@@ -492,7 +504,10 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   // from a diff lands where the user left off.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && el.scrollTop !== lastScroll.current) el.scrollTop = lastScroll.current;
+    if (el && el.scrollTop !== lastScroll.current) {
+      el.scrollTop = lastScroll.current;
+      canvas.current?.sync();
+    }
   }, [scrollRef]);
 
   const select = useCallback((i: number, mods: SelectMods = PLAIN) => {
@@ -500,6 +515,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
     if (onSelect) onSelect(clamped, mods);
     else setOwnSelected(clamped);
     v.scrollToIndex(clamped, { align: 'auto' });
+    canvas.current?.sync();
   }, [graph.rows.length, v, onSelect]);
 
   // The selection index last scrolled to. Before the refresh anchor below, which runs first: a
@@ -535,7 +551,8 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
     if (next !== top) {
       el.scrollTop = next;
       lastScroll.current = next;
-      // The canvas and the virtual window follow in this same frame, not on the scroll event.
+      // The canvas and the avatar window follow in this same frame, not on the scroll event.
+      canvas.current?.sync();
       setScrollTop(next);
     }
   }, [graph.rows]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -553,7 +570,10 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   useLayoutEffect(() => {
     if (selected === shownSelection.current) return;
     shownSelection.current = selected;
-    if (selected >= 0) v.scrollToIndex(selected, { align: 'auto' });
+    if (selected >= 0) {
+      v.scrollToIndex(selected, { align: 'auto' });
+      canvas.current?.sync();
+    }
   }, [selected, v]);
 
   // The commit menu from the keyboard (the menu key, Shift+F10), at the selected row (fix round
@@ -620,9 +640,12 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
       </div>
       <div className="graph-body">
         <div {...gridProps} ref={scrollRef} className="graph-scroll" role="grid" aria-label="Commit graph" aria-rowcount={graph.rows.length} tabIndex={0} onKeyDown={onKeyDown} onPointerMove={onGridPointerMove} onPointerLeave={hideNodeTip} onScroll={(e) => {
+          // The canvas's band first: redrawn here, imperatively, if the scroll left it (band.ts).
+          canvas.current?.sync();
           hideNodeTip();
-          if (e.currentTarget.offsetParent !== null) lastScroll.current = e.currentTarget.scrollTop;
-          setScrollTop(e.currentTarget.scrollTop);
+          const y = e.currentTarget.scrollTop;
+          if (e.currentTarget.offsetParent !== null) lastScroll.current = y;
+          if (!sameRowsOnScreen(y, scrollTop, viewportH, metrics.rowH)) setScrollTop(y);
           setScrollLeft(e.currentTarget.scrollLeft);
         }}>
           <div style={{ height: v.getTotalSize(), width: Math.max(cols.total, viewportW), position: 'relative' }}>
@@ -660,12 +683,14 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
                 />
               );
             })}
+            {/* In the scrolled content, after the rows (it paints over them, under the chips'
+                z-indexes): the compositor scrolls it with the rows, so it never lags them
+                (band.ts). Clipped to the content, so its band reaching past the last row doesn't
+                lengthen the scroll; the scroller clips it to the viewport, scrollbars excluded. */}
+            <div className="graph-canvas-clip">
+              <GraphCanvas ref={canvas} scroller={scrollRef} rows={graph.rows} width={cols.graph} height={viewportH} left={cols.labels} metrics={metrics} labeledRows={canvasLabeledRows} avatar={avatarBitmap} avatarVersion={avatarVersion} clipped={clipped} scrollX={scrollX} id={canvasId} selected={selected} alsoSelected={alsoSelected} headRow={headRow} />
+            </div>
           </div>
-        </div>
-        {/* Clipped to the scroll viewport (clientWidth/clientHeight exclude the scrollbars), so a
-            canvas that reaches past it never paints over the vertical scrollbar. */}
-        <div className="graph-canvas-clip" style={{ width: viewportW, height: viewportH }}>
-          <GraphCanvas rows={graph.rows} scrollTop={scrollTop} width={cols.graph} height={viewportH} left={cols.labels - scrollLeft} metrics={metrics} labeledRows={canvasLabeledRows} avatar={avatarBitmap} avatarVersion={avatarVersion} clipped={clipped} scrollX={scrollX} id={canvasId} selected={selected} alsoSelected={alsoSelected} headRow={headRow} />
         </div>
         {laneScrollMax > 0 && <HScroll left={cols.labels - scrollLeft} top={viewportH - HSCROLL_H} width={layout.area} contentW={lanesW} scrollX={scrollX} onScroll={setLaneScroll} controls={canvasId} />}
       </div>

@@ -154,7 +154,7 @@ test.describe('graph extras', () => {
       await page.keyboard.press('Escape');
       await expect(page.getByRole('menu')).toHaveCount(0);
     });
-    await test.step('the header pin button: Default (origin/HEAD), None and the branches; the choice persists', async () => {
+    await test.step('the header pin button: Default (showing the trunk it picked), None and the branches; the choice persists', async () => {
       const pin = page.getByRole('button', { name: /^Pinned trunk: / });
       const trunk = ((await pin.getAttribute('aria-label')) ?? '').replace('Pinned trunk: ', '');
       expect(trunk).not.toBe('No trunk');
@@ -162,7 +162,7 @@ test.describe('graph extras', () => {
       await expect(page.getByRole('tooltip')).toContainText(`Pinned trunk: ${trunk}`);
       await pin.click();
       const options = page.getByRole('option');
-      await expect(options.nth(0)).toContainText('Default (origin/HEAD)');
+      await expect(options.nth(0)).toHaveText(`Default${trunk}`);
       await expect(options.nth(0)).toHaveAttribute('data-current', 'true');
       await expect(options.nth(1)).toHaveText('None');
       await expect(options.filter({ hasText: 'hotfix' })).toHaveCount(1);
@@ -184,7 +184,7 @@ test.describe('graph extras', () => {
       await expect(page.getByRole('button', { name: 'Pinned trunk: hotfix' })).toBeVisible();
 
       await page.getByRole('button', { name: 'Pinned trunk: hotfix' }).click();
-      await page.getByRole('option', { name: /^Default \(origin\/HEAD\)/ }).click();
+      await page.getByRole('option', { name: /^Default/ }).click();
       await expect(page.getByRole('button', { name: `Pinned trunk: ${trunk}` })).toBeVisible();
     });
   });

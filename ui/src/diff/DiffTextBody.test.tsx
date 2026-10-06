@@ -14,6 +14,7 @@ import { DiffTextBody } from './DiffTextBody';
 import { DEFAULT_DIFF_PREFS, useDiffPrefs } from './diffPrefs';
 import { PARSE_BUDGET_MS, PRECHECK_BYTES, RENDER_MAX_BYTES, useSlowMarkdown } from './markdownFiles';
 import { clearMarkdownOverride, showSourceFor, useMarkdownOverride } from './markdownOverride';
+import { INLINE_BREAKPOINT_PX } from './options';
 
 const host = vi.hoisted(() => ({
   hexView: vi.fn(() => ({ show: vi.fn(), dispose: vi.fn() })),
@@ -34,9 +35,9 @@ vi.mock('../markdown/lazy', async () => {
   const { useEffect } = await import('react');
   return {
     Markdown: () => null,
-    MarkdownDiff: ({ old, new: neu, context, oldContext, onTooLarge }: { old: string; new: string; context: { commit: string }; oldContext: { commit: string; path: string }; onTooLarge?: () => void }) => {
+    MarkdownDiff: ({ old, new: neu, context, oldContext, split, onTooLarge }: { old: string; new: string; context: { commit: string }; oldContext: { commit: string; path: string }; split?: boolean; onTooLarge?: () => void }) => {
       useEffect(() => { if (neu.includes(GIVE_UP)) onTooLarge?.(); }, [neu, onTooLarge]);
-      return <div data-testid="md-diff" data-old={old} data-new={neu} data-commit={context.commit} data-old-commit={oldContext.commit} data-old-path={oldContext.path} />;
+      return <div data-testid="md-diff" data-old={old} data-new={neu} data-commit={context.commit} data-old-commit={oldContext.commit} data-old-path={oldContext.path} data-split={split ? 'yes' : 'no'} />;
     },
   };
 });
@@ -99,7 +100,8 @@ describe('the rendered Markdown diff in Diff View (5C)', () => {
     await waitFor(() => expect(host.showDiff).toHaveBeenCalled());
     expect(screen.getByTestId('text-diff')).not.toBeVisible();
     expect(host.detachDiff).not.toHaveBeenCalled();
-    for (const name of ['Hunk', 'Inline', 'Split']) expect(button(name)).toHaveAttribute('aria-disabled', 'true');
+    expect(button('Hunk')).toHaveAttribute('aria-disabled', 'true');
+    for (const name of ['Inline', 'Split']) expect(button(name)).not.toHaveAttribute('aria-disabled');
     expect(changeStepper()).not.toBeNull();
     // F7 steps the rendered changes, not the hidden editor's.
     fireEvent.keyDown(screen.getByRole('region', { name: 'Diff' }), { key: 'F7' });
@@ -149,6 +151,28 @@ describe('the rendered Markdown diff in Diff View (5C)', () => {
     expect(await screen.findByTestId('md-diff')).toBeInTheDocument();
     // The override ends in an effect, which a loaded machine may run after the diff shows.
     await waitFor(() => expect(useMarkdownOverride.getState().path).toBeNull());
+  });
+
+  it('Inline and Split switch the rendered diff between one column and side by side; the pick persists', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200);
+    renderPanel(targetFor(change('guide.md', at(P), at(C)), spec), async () => contents(blob('# Q\n'), blob('# R\n')));
+    const md = await screen.findByTestId('md-diff');
+    expect(md).toHaveAttribute('data-split', 'no');
+    fireEvent.click(button('Split'));
+    expect(md).toHaveAttribute('data-split', 'yes');
+    expect(button('Split')).toHaveAttribute('aria-pressed', 'true');
+    expect(localStorage.getItem('gitbolt.diffPrefs.v1')).toContain('"mode":"split"');
+    fireEvent.click(button('Inline'));
+    expect(md).toHaveAttribute('data-split', 'no');
+  });
+
+  it("a panel narrower than the text diff's Split breakpoint shows Split as one column", async () => {
+    useDiffPrefs.getState().set({ mode: 'split' });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(INLINE_BREAKPOINT_PX - 1);
+    renderPanel(targetFor(change('guide.md', at(P), at(C)), spec), async () => contents(blob('# Q\n'), blob('# R\n')));
+    const md = await screen.findByTestId('md-diff');
+    await waitFor(() => expect(md).toHaveAttribute('data-split', 'no'));
+    expect(button('Split')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('shows no toggle for a text file', async () => {

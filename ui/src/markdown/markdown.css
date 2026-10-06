@@ -96,3 +96,16 @@
 .md-code-del { background: var(--diff-removed-line); }
 .md-diff-none { margin: 0 0 10px; color: var(--text-secondary); font-size: 11px; }
 .md .md-diff-note { margin: 0 0 4px; color: var(--text-secondary); font-size: 11px; font-style: italic; }
+
+/* 5C split view: one scroll, a grid row per aligned unit, the old side left and the new right.
+   Both columns are the same width in every row, so the sides stay in step without syncing. The
+   margin bars sit in the pane's padding (left) and the column gap (right). */
+.md-split-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 24px; }
+.md-split-cell { min-width: 0; }
+.md > .md-split-row:first-child > .md-split-cell > :first-child, .md > .md-chunk:first-child > .md-split-row:first-child > .md-split-cell > :first-child { margin-top: 0; }
+/* A block only the other side has: a hatched placeholder, as the text diff's Split draws. */
+.md-split-empty { margin-bottom: 10px; border-radius: 2px; background: repeating-linear-gradient(-45deg, var(--diff-diagonal-fill) 0 2px, transparent 2px 8px); }
+.md tr.md-split-empty-row > td { background: repeating-linear-gradient(-45deg, var(--diff-diagonal-fill) 0 2px, transparent 2px 8px); }
+/* A list or blockquote split into rows continues into the next one. */
+.md-split-joined > .md-split-cell > :is(ul, ol, blockquote) { margin-bottom: 0; }
+.md-split-joined + .md-split-row > .md-split-cell > :is(ul, ol) > li:first-child { margin-top: 2px; }

@@ -94,7 +94,9 @@
 .graph-row > [data-col].row-dim, .graph-row > [data-col].row-dim :is(.dim, .sha, .wip-tag, .wip-counts) { transition: color var(--motion-row-dim) ease-out; }
 .graph-row > [data-col].row-dim-branch, .graph-row > [data-col].row-dim-branch :is(.dim, .sha, .wip-tag, .wip-counts) { color: var(--text-row-dimmed-branch); }
 .graph-row > [data-col].row-dim-filter, .graph-row > [data-col].row-dim-filter :is(.dim, .sha, .wip-tag, .wip-counts) { color: var(--text-row-dimmed); }
-.graph-canvas-clip { position: absolute; top: 0; left: 0; overflow: hidden; pointer-events: none; }
+/* In the scrolled content (GraphView): the canvas's band may reach past the last row, and is
+   clipped there instead of lengthening the scroll. Its `top` is the band's (GraphCanvas). */
+.graph-canvas-clip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .graph-canvas { position: absolute; top: 0; pointer-events: none; }
 .col-labels { display: flex; align-items: center; }
 /* No right padding: the label column is exactly its allocated width and the connector below must

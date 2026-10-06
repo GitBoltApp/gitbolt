@@ -7,7 +7,8 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkRehype, { defaultHandlers } from 'remark-rehype';
 import { unified } from 'unified';
-import type { DiffBlockNode, DiffDelNode, DiffInsNode, DiffPairNode } from './diff/nodes';
+import type { DiffBlockNode, DiffDelNode, DiffInsNode, DiffPairNode, SplitCellNode, SplitRowNode } from './diff/nodes';
+import { splitTree } from './diff/split';
 import { MdCode } from './MdCode';
 import { MdImage } from './MdImage';
 import { MdLink } from './MdLink';
@@ -55,7 +56,7 @@ export function toSafeHast(tree: Root): SafeHast {
     refs.push(node);
     return { type: 'element', tagName: 'span', properties: { dataGbRef: `${nonce}:${refs.length - 1}` }, children: [{ type: 'text', value: node.value }] };
   };
-  const wrap = (tagName: 'div' | 'span', mark: string, state: State, node: DiffBlockNode | DiffPairNode | DiffInsNode | DiffDelNode): Element =>
+  const wrap = (tagName: 'div' | 'span', mark: string, state: State, node: DiffBlockNode | DiffPairNode | DiffInsNode | DiffDelNode | SplitCellNode): Element =>
     ({ type: 'element', tagName, properties: { dataGbDiff: tag(mark) }, children: isolated(state.all(node) as ElementContent[]) });
   const handlers = {
     reference,
@@ -67,6 +68,10 @@ export function toSafeHast(tree: Root): SafeHast {
     diffPair: (state: State, node: DiffPairNode) => wrap('div', 'pair', state, node),
     diffIns: (state: State, node: DiffInsNode) => wrap('span', 'ins', state, node),
     diffDel: (state: State, node: DiffDelNode) => wrap('span', 'del', state, node),
+    // The split view (5C): a row's cells, each one's HTML parsed on its own.
+    splitRow: (state: State, node: SplitRowNode): Element =>
+      ({ type: 'element', tagName: 'div', properties: { dataGbDiff: tag(`row:${node.mark ?? 'same'}${node.joined ? ':joined' : ''}`) }, children: state.all(node) as ElementContent[] }),
+    splitCell: (state: State, node: SplitCellNode) => wrap('div', node.empty ? 'empty' : node.side, state, node),
     listItem: (state: State, node: ListItem, parent: ListParent) => {
       const el = defaultHandlers.listItem(state, node, parent);
       if (node.data?.gbDiff) el.properties.dataGbDiff = tag(node.data.gbDiff);
@@ -76,6 +81,7 @@ export function toSafeHast(tree: Root): SafeHast {
     tableRow: (state: State, node: TableRow, parent: RowParent) => {
       const el = defaultHandlers.tableRow(state, node, parent);
       if (node.data?.gbDiff) el.properties.dataGbDiff = tag(node.data.gbDiff);
+      if (node.data?.gbEmpty) el.properties.dataGbDiff = tag('empty');
       return el;
     },
     code: (state: State, node: Code) => {
@@ -106,10 +112,12 @@ const size = (v: unknown): number | undefined => {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 
-/** 5C: a rendered diff's old side, which its removed parts resolve against. */
-export interface DiffRender { old: MarkdownContext }
+/** 5C: a rendered diff's old side, which its removed parts (and in `split`, its whole left
+ * column) resolve against. `split`: show it side by side (`splitTree`). */
+export interface DiffRender { old: MarkdownContext; split?: boolean }
 
 const MARK_LABEL: Record<string, string> = { added: 'Added', removed: 'Removed', changed: 'Changed' };
+const isMark = (m: string) => Object.hasOwn(MARK_LABEL, m);
 const LINE_MARKS = /^[ +-]*$/;
 
 /** A link, image or reference inside a removed part resolves on the old side (R7, R9). */
@@ -153,6 +161,16 @@ export function componentsFor(ctx: MarkdownContext, refs: MdReferenceNode[], non
       const { 'data-gb-diff': raw, 'data-gb-note': rawNote, ...plain } = rest as Record<string, unknown>;
       const mark = markOf(raw);
       if (mark === 'pair') return <div className="md-diff-pair" data-diff-mark="pair">{children}</div>;
+      // The split view: a changed row is the change Previous/Next stop at; the old column
+      // resolves on the old side.
+      if (mark?.startsWith('row:')) {
+        const [, rowMark = '', joined] = mark.split(':');
+        const ok = isMark(rowMark);
+        return <div className={`md-split-row${ok ? ` md-split-${rowMark}` : ''}${joined ? ' md-split-joined' : ''}`} data-diff-mark={ok ? rowMark : undefined}>{children}</div>;
+      }
+      if (mark === 'old') return <div className="md-split-cell md-split-old">{onOldSide(children)}</div>;
+      if (mark === 'new') return <div className="md-split-cell md-split-new">{children}</div>;
+      if (mark === 'empty') return <div className="md-split-cell md-split-empty" aria-hidden="true" />;
       if (mark !== null && mark in MARK_LABEL) {
         const note = markOf(rawNote);
         return (
@@ -173,6 +191,7 @@ export function componentsFor(ctx: MarkdownContext, refs: MdReferenceNode[], non
     tr: ({ node: _node, children, ...rest }) => {
       const { 'data-gb-diff': raw, ...plain } = rest as Record<string, unknown>;
       const mark = markOf(raw);
+      if (mark === 'empty') return <tr className="md-split-empty-row" aria-hidden="true">{children}</tr>;
       const ok = mark !== null && mark in MARK_LABEL;
       return <tr {...(plain as ComponentProps<'tr'>)} className={ok ? `md-diff-${mark}` : undefined} data-diff-mark={ok ? mark : undefined}>{ok && mark === 'removed' ? onOldSide(children) : children}</tr>;
     },
@@ -193,8 +212,8 @@ export function componentsFor(ctx: MarkdownContext, refs: MdReferenceNode[], non
 }
 
 /** The tree as React elements (never an HTML string). `diff` (5C): render its diff marks, with
- * removed parts resolving on `diff.old`. */
+ * removed parts resolving on `diff.old`; `diff.split`: side by side, in rows. */
 export function renderTree(tree: Root, ctx: MarkdownContext, diff?: DiffRender): ReactNode {
-  const { hast, refs, nonce } = toSafeHast(tree);
+  const { hast, refs, nonce } = toSafeHast(diff?.split ? splitTree(tree) : tree);
   return toJsxRuntime(hast, { Fragment, jsx: jsx as Jsx, jsxs: jsxs as Jsx, components: componentsFor(ctx, refs, nonce, diff), passNode: true });
 }

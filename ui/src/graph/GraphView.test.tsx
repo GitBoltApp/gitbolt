@@ -544,7 +544,10 @@ describe('GraphView columns', () => {
     grid.scrollLeft = 120;
     fireEvent.scroll(grid);
     expect(document.querySelector('.graph-header-inner')).toHaveStyle({ transform: 'translateX(-120px)' });
-    expect(screen.getByTestId('graph-canvas')).toHaveStyle({ left: '80px' });
+    // The canvas is in the scrolled content: the scroll itself moves it, at the Branch/Tag
+    // column's width (200 px here) in content coordinates.
+    expect(grid).toContainElement(screen.getByTestId('graph-canvas'));
+    expect(screen.getByTestId('graph-canvas')).toHaveStyle({ left: '200px' });
   });
 });
 
@@ -593,13 +596,34 @@ describe('GraphView columns: aria, persistence, canvas clip', () => {
     expect(save).toHaveBeenCalledTimes(2);
   });
 
-  it('clips the canvas to the scroll viewport, so it never paints over the vertical scrollbar', () => {
+  it('puts the canvas in the scrolled content, after the rows, clipped to that content', () => {
+    // In the scroller: the compositor moves it with the rows (never a frame behind them), and the
+    // scroller clips it to the viewport, scrollbars excluded. Clipped to the content (graph.css:
+    // `inset: 0`, overflow hidden), so its band reaching past the last row doesn't add scroll.
     render(<GraphView graph={graph} repoId="/repo" />);
     const canvas = screen.getByTestId('graph-canvas');
     const clip = canvas.parentElement!;
     expect(clip).toHaveClass('graph-canvas-clip');
-    // clientWidth/clientHeight exclude the scrollbars (1200 x 600 in this jsdom setup).
-    expect(clip).toHaveStyle({ width: '1200px', height: '600px' });
+    const content = screen.getByRole('grid', { name: 'Commit graph' }).firstElementChild!;
+    expect(clip.parentElement).toBe(content);
+    // Last: it paints over the rows' own boxes, as it did from outside the scroller.
+    expect(content.lastElementChild).toBe(clip);
+  });
+
+  it('a scroll event moves the canvas\'s band once the viewport nears its edge, from the scroll handler', () => {
+    const rows = Array.from({ length: 400 }, (_, i) => ({ ...graph.rows[1], id: String(i).padStart(40, '0') }));
+    render(<GraphView graph={{ ...graph, rows, labels: [] }} repoId="/repo" />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    const canvas = screen.getByTestId('graph-canvas');
+    expect(canvas.style.top).toBe('0px');
+    const rowH = METRICS.rowH;
+    grid.scrollTop = 200;
+    fireEvent.scroll(grid);
+    expect(canvas.style.top).toBe('0px');
+    grid.scrollTop = 3000;
+    fireEvent.scroll(grid);
+    // The 600 px viewport's band (band.ts): its row less half a viewport of whole rows.
+    expect(canvas.style.top).toBe(`${Math.floor(3000 / rowH) * rowH - Math.ceil(300 / rowH) * rowH}px`);
   });
 });
 

@@ -1946,6 +1946,12 @@ impl Api {
                     Some(PinSetting::Ref { name }) => (Some(name), false),
                     Some(PinSetting::Auto) | None => (None, false),
                 };
+                // The default trunk follows the root of the remotes' forks: cached data only, the
+                // build never waits on a forge (`forgeRepoProjects` refreshes it).
+                let fork_parents = match &self.forge {
+                    Some(hub) if pinned_ref.is_none() && !no_pin => hub.cached_fork_parents(&self.store, &self.forge_remotes_of(&h)),
+                    _ => HashMap::new(),
+                };
                 let opts = BuildOptions {
                     limit: limit.map(|l| l as usize).unwrap_or(crate::snapshot::DEFAULT_COMMIT_LIMIT),
                     pinned_ref,
@@ -1954,6 +1960,7 @@ impl Api {
                     rescan: rescan.unwrap_or(false) || !self.status_is_watched(repo),
                     active,
                     walk_cache: Some(h.walk.clone()),
+                    fork_parents,
                 };
                 let (payload, texts) = build_graph_with_text(h.repo.clone(), h.workdir.clone(), self.cli.clone(), opts).await?;
                 {
@@ -2233,7 +2240,16 @@ impl Api {
                 let h = self.handle(repo)?;
                 let list = self.forge_remotes_of(&h);
                 match &self.forge {
-                    Some(hub) => to_json(hub.repo_projects(&self.store, &list, refresh).await),
+                    Some(hub) => {
+                        // A fork relationship this lookup learned (or saw change) moves the default
+                        // trunk: the graph refreshes once.
+                        let before = hub.cached_fork_parents(&self.store, &list);
+                        let projects = hub.repo_projects(&self.store, &list, refresh).await;
+                        if hub.cached_fork_parents(&self.store, &list) != before {
+                            self.bus.emit(AppEvent::RefsUpdated { repo });
+                        }
+                        to_json(projects)
+                    }
                     None => to_json(crate::forge::hub::RepoProjects::without_accounts(&list)),
                 }
             }
@@ -4509,6 +4525,41 @@ mod tests {
         api.dispatch(req(serde_json::json!({"method": "saveSettings", "params": {"settings": {"forgeAvatars": false}}}))).await.unwrap();
         assert!(ask("grace@example.com").await.unwrap().is_null(), "off: the forge isn't asked");
         assert_eq!(ask("ada@example.com").await.unwrap()["base64"], "iVBO");
+    }
+
+    /// The default trunk follows the root of the remotes' forks, from cached forge data only; a
+    /// lookup that learns a fork relationship refreshes the graph once.
+    #[tokio::test]
+    async fn the_default_trunk_follows_the_fork_root_once_the_forge_says_so() {
+        use crate::forge::fake::{project, FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::{ForgeKind, TokenStorage};
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        const HOST: &str = "gitlab.example.com";
+        let p = FakeProvider::new(ForgeKind::GitLab, HOST);
+        // Reversed naming: origin is the original, upstream the fork.
+        p.projects.lock().unwrap().insert("group/project".into(), project(HOST, "group/project", None, 1));
+        p.projects.lock().unwrap().insert("ada/project".into(), project(HOST, "ada/project", Some("group/project"), 1));
+        let api = api().with_forge(FakeConnector::with(TOKEN, p), MemTokens::new(TokenStorage::Keyring));
+        api.dispatch(req(serde_json::json!({"method": "addForgeAccount", "params": {"host": HOST, "kind": "gitlab", "token": TOKEN}}))).await.unwrap();
+        let r = TestRepo::new();
+        r.commit("base");
+        r.git(&["remote", "add", "origin", &format!("https://{HOST}/group/project.git")]);
+        r.git(&["remote", "add", "upstream", &format!("https://{HOST}/ada/project.git")]);
+        r.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        r.git(&["update-ref", "refs/remotes/upstream/main", "HEAD"]);
+        r.git(&["branch", "-q", "--set-upstream-to", "origin/main", "main"]);
+        let id = open(&api, &r).await as u32;
+        let pinned = || async { api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}))).await.unwrap() };
+        let trunk = |g: serde_json::Value| (g["pinnedRef"].clone(), g["pinnedRemote"].clone());
+        assert_eq!(trunk(pinned().await), (serde_json::json!("refs/heads/main"), serde_json::json!("refs/remotes/upstream/main")), "no forge data yet: upstream is the root by convention");
+        let mut events = api.subscribe();
+        let projects = || api.dispatch(req(serde_json::json!({"method": "forgeRepoProjects", "params": {"repo": id, "refresh": false}})));
+        projects().await.unwrap();
+        let refreshes = |rx: &mut broadcast::Receiver<AppEvent>| std::iter::from_fn(|| rx.try_recv().ok()).filter(|e| matches!(e, AppEvent::RefsUpdated { repo } if *repo == id)).count();
+        assert_eq!(refreshes(&mut events), 1, "the fork data moved the trunk: one refresh");
+        assert_eq!(trunk(pinned().await), (serde_json::json!("refs/heads/main"), serde_json::json!("refs/remotes/origin/main")), "origin is the root: main stands for origin/main");
+        projects().await.unwrap();
+        assert_eq!(refreshes(&mut events), 0, "nothing new: no refresh");
     }
 
     #[tokio::test]

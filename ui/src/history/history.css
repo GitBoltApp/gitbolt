@@ -21,7 +21,8 @@
 .file-history-more { margin: 8px; align-self: center; }
 .file-history-end { padding: 8px; display: grid; gap: 2px; text-align: center; font-size: 12px; color: var(--text-secondary); }
 .file-history-note { padding: 6px 8px; color: var(--text-secondary); }
-.file-history-file { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* Diff View's toolbar over the file or its changes: its narrow layout follows this column, as it does the panel. */
+.file-history-file { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container: diff-panel / inline-size; }
 /* 3A T5: the Blame toggle and gutter (spec #3 §3.10). */
 .blame-toggle { all: unset; cursor: pointer; padding: 2px 8px; border-radius: 4px; color: var(--text-secondary); }
 .blame-toggle[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }

@@ -44,15 +44,17 @@ describe('PinButton (spec §8.4, amendment 4)', () => {
     expect(pinButton()).toBeInTheDocument();
   });
 
-  it('the picker offers Default (origin/HEAD), None and every branch; the current one is marked', () => {
-    setup('refs/remotes/origin/main');
+  it('the picker offers Default, None and every branch; the current one is marked', () => {
+    setup('refs/heads/main');
     fireEvent.click(pinButton());
     const names = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(names[0]).toMatch(/^Default \(origin\/HEAD\)/);
+    expect(names[0]).toBe('Defaultmain');
     expect(names[1]).toBe('None');
     expect(names.slice(2).join('|')).toMatch(/hotfix.*main.*origin\/main/);
     expect(screen.getByRole('option', { name: /Default/ }).hasAttribute('data-current')).toBe(true);
     expect(screen.getByRole('option', { name: 'None' }).hasAttribute('data-current')).toBe(false);
+    fireEvent.mouseEnter(screen.getByRole('option', { name: /Default/ }));
+    expect(screen.getByRole('tooltip').textContent).toBe('The local branch that tracks the main remote\'s default branch (its HEAD), or that remote branch itself if there\'s none. The main remote is the one the others are forks of, else upstream, else origin. With no remote: main, master, dev or develop');
   });
 
   it('picking a branch stores a ref pin and refreshes the graph; None and Default are reversible', () => {

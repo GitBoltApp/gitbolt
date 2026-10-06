@@ -10,6 +10,8 @@ import type { DiffTarget } from '../repo/store';
 import { selectCommit } from '../app/graphNav';
 import { Avatar } from '../avatars/Avatar';
 import { editorOwnsEscape, ESCAPE_OWNER_AREAS, useContents } from '../diff/DiffPanel';
+import { useDiffPrefs, type HistoryView } from '../diff/diffPrefs';
+import { DiffToolbar } from '../diff/DiffToolbar';
 import { FileView } from '../diff/FileView';
 import { fileSideOf, HexBody, HexView } from '../diff/hex';
 import { hexOf } from '../diff/hexContents';
@@ -24,15 +26,32 @@ import { registerKeys } from '../ui/keyRouter';
 import { isEditableTarget } from '../ui/keys';
 import { useToast } from '../ui/toast';
 import { BlameLayer } from './BlameGutter';
+import { ChangesAtCommit } from './HistoryChanges';
 import { NO_BINARY_BLAME } from './HistoryButtons';
 import { historyEnd, selectedRow, type FileHistoryArgs } from './model';
 import { clampListW, LIST_W, loadListW, saveListW } from './listWidth';
 import { createHistoryStore, HISTORY_PAGE, type HistoryStore } from './store';
 import './history.css';
 
+/** The Blame toggle's tooltip in Changes, where it's off: blame is the file's, not the diff's. */
+export const NO_CHANGES_BLAME = 'Blame shows on File: pick File to see who last changed each line';
+
+/** File History's `File | Changes` switch, in the toolbar's centre where Diff View has File View /
+ * Diff View. The pick is a diff pref, so it holds from row to row and from one history to the next. */
+function HistoryViewToggle({ view }: { view: HistoryView }) {
+  const set = useDiffPrefs((s) => s.set);
+  return (
+    <div className="segmented" role="group" aria-label="History view">
+      <button type="button" aria-pressed={view === 'file'} onClick={() => set({ historyView: 'file' })}>File</button>
+      <button type="button" aria-pressed={view === 'changes'} onClick={() => set({ historyView: 'changes' })}>Changes</button>
+    </div>
+  );
+}
+
 /**
  * File History (spec #3 §4.2), in the graph's place: the file's commits on the left (newest
- * first, paged), the file at the selected commit on the right, read-only. × or Esc (from
+ * first, paged), the file at the selected commit on the right, read-only, or the changes that
+ * commit made to it (`File | Changes`, a remembered pick). × or Esc (from
  * anywhere in the tab, unless a text box or one of Monaco's own overlays has it) closes it.
  */
 export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistoryArgs>) {
@@ -42,6 +61,10 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
   const blame = useStore(store, (s) => s.blame);
   // The selected file at its commit is a binary: shown as hex, with no lines to blame (no toggle).
   const [binary, setBinary] = useState(false);
+  const view = useDiffPrefs((s) => s.prefs.historyView);
+  const changes = view === 'changes';
+  // Blame is the file's: off (in place, saying why) for a binary and in Changes.
+  const noBlame = binary ? NO_BINARY_BLAME : changes ? NO_CHANGES_BLAME : null;
   const [listW, setListW] = useState(loadListW);
   const changeListW = useCallback((w: number) => { setListW(w); saveListW(w); }, []);
   // The drag writes the columns straight to the section (rAF-coalesced by the resizer); React state
@@ -51,6 +74,8 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
   // row's file at its commit, not the open file this view may hide.
   const shown = row && row.status !== 'D' ? row : null;
   const editorFile = useMemo(() => (shown ? { target: rowTarget(shown.path, shown.sha), root: props.worktree } : null), [shown, props.worktree]);
+  const fileTarget = useMemo(() => (row ? rowTarget(row.path, row.sha) : null), [row]);
+  const views = <HistoryViewToggle view={view} />;
   useCenterViewEditorFile(tabId, editorFile);
   // Spec #3 §3.10: a blame group's commit opens in this list (pages load until it shows); Alt+click
   // selects it in the graph instead, which the view closes to show (ruling 5).
@@ -79,9 +104,9 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
       <header className="file-history-header">
         <h2 className="file-history-title">File History: <span className="file-history-path">{props.path}</span></h2>
         <div className="file-history-tools">
-          {/* A binary keeps the toggle, disabled, so the bar (and Close) never moves between files. */}
-          <HoverTooltip content={binary ? NO_BINARY_BLAME : blame ? 'Hide who last changed each line' : 'Show who last changed each line'}>
-            <button type="button" className="blame-toggle" aria-pressed={!binary && blame} aria-disabled={binary || undefined} onClick={() => { if (!binary) store.getState().setBlame(!blame); }}>Blame</button>
+          {/* A binary or Changes keeps the toggle, disabled, so the bar (and Close) never moves between files. */}
+          <HoverTooltip content={noBlame ?? (blame ? 'Hide who last changed each line' : 'Show who last changed each line')}>
+            <button type="button" className="blame-toggle" aria-pressed={!noBlame && blame} aria-disabled={!!noBlame || undefined} onClick={() => { if (!noBlame) store.getState().setBlame(!blame); }}>Blame</button>
           </HoverTooltip>
           <HoverTooltip content="Close (Esc)">
             <button type="button" className="icon-button" aria-label="Close file history" onClick={close}><X size={14} /></button>
@@ -91,7 +116,19 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
       <div className="file-history-body">
         <HistoryList store={store} path={props.path} />
         <PanelResizer className="fh-resizer" label="Resize commit list" grows="right" width={listW} defaultWidth={LIST_W.default} min={LIST_W.min} max={LIST_W.max} onChange={changeListW} onLive={liveColumns} />
-        <div className="file-history-file">{row && <FileAtCommit row={row} onBinary={setBinary}>{blame && <BlameLayer repoId={props.repoId} worktree={props.worktree} row={row} onPick={onPick} />}</FileAtCommit>}</div>
+        {/* Both views have Diff View's toolbar, the switch at its centre, so switching moves nothing. */}
+        <div className="file-history-file">
+          {row && fileTarget && (changes
+            ? <ChangesAtCommit row={row} views={views} />
+            : (
+              <>
+                <DiffToolbar target={fileTarget} canDiff canStep={false} binary={binary} views={views} />
+                <div className="diff-body">
+                  <FileAtCommit row={row} onBinary={setBinary}>{blame && <BlameLayer repoId={props.repoId} worktree={props.worktree} row={row} onPick={onPick} />}</FileAtCommit>
+                </div>
+              </>
+            ))}
+        </div>
       </div>
     </section>
   );

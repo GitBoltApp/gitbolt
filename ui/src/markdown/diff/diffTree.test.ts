@@ -270,12 +270,14 @@ describe('diffMarkdown (5C)', () => {
     it('a changed fence over WORD_DIFF_MAX_CHARS is removed and added, not line-diffed', () => {
       const body = Array.from({ length: 10_000 }, (_, i) => `line ${i} ${'x'.repeat(12)}`).join('\n');
       const fence = (b: string) => '```txt\n' + b + '\n```\n';
-      const t0 = performance.now();
-      const r = d(fence(body), fence(body.replace('line 5000 ', 'line five ')));
+      clearParseCache();
+      // A deadline no loaded machine reaches: the outcome is the size cap's, never the clock's
+      // (a line diff would give one changed block with '-' and '+' lines).
+      const r = diffTrees(parseMarkdown(fence(body), 'github'), parseMarkdown(fence(body.replace('line 5000 ', 'line five ')), 'github'), { timeout: 600_000 });
       expect(body.length).toBeGreaterThan(200_000);
+      expect(r.gaveUp).toBe(false);
       expect(summary(r.root)).toEqual(['removed:code', 'added:code']);
       expect(r.changes).toBe(2);
-      expect(performance.now() - t0).toBeLessThan(1_500);
     });
   });
 

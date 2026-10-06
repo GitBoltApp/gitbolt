@@ -1,5 +1,5 @@
 import { Copy } from 'lucide-react';
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, useContext, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { copyText } from '../api/transport';
 import type { CodeTokens } from '../diff/monaco/shiki';
 import { useTheme } from '../theme/store';
@@ -7,6 +7,7 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toast';
 import { queueHighlight } from './highlightQueue';
 import { useNearViewport } from './nearViewport';
+import { MdContextOverride } from './sideContext';
 import type { MdCodeProps } from './types';
 
 /** Longer blocks stay plain: one would hold the main thread too long (ruling 21). */
@@ -37,8 +38,10 @@ export function MdCode({ code, lang, marks }: MdCodeProps) {
     job.result.then((t) => { if (live) setTokens(t); }, () => {});
     return () => { live = false; job.cancel(); };
   }, [code, lang, theme, near]);
-  // A changed block (5C) copies its new code: the lines that aren't removed.
-  const copied = marks === undefined ? code : code.split('\n').filter((_, i) => marks[i] !== '-').join('\n');
+  // A changed block (5C) copies its new code: the lines that aren't removed. In the split view's
+  // old column (the old side's context), it copies the old code: the lines that aren't added.
+  const oldSide = useContext(MdContextOverride) !== null;
+  const copied = marks === undefined ? code : code.split('\n').filter((_, i) => marks[i] !== (oldSide ? '+' : '-')).join('\n');
   const copy = () => { copyText(copied).then(() => useToast.getState().show('Copied'), () => useToast.getState().show('Copy failed', { error: true })); };
   const lineClass = (m: string | undefined) => (m === '+' ? 'md-code-line md-code-add' : m === '-' ? 'md-code-line md-code-del' : 'md-code-line');
   const tokenLine = (line: CodeTokens['lines'][number]) => line.map((t, j) => <span key={j} style={style(t)}>{t.content}</span>);

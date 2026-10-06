@@ -3,12 +3,14 @@ import { create } from 'zustand';
 export type DiffMode = 'hunk' | 'inline' | 'split';
 /** Spec #5 §3.3: how File View shows a Markdown file, app-wide. */
 export type MarkdownView = 'rendered' | 'source';
-export interface DiffPrefs { mode: DiffMode; ignoreWhitespace: boolean; wordWrap: boolean; markdownView: MarkdownView }
+/** What File History shows for the selected commit: the file at that version, or the changes it made. */
+export type HistoryView = 'file' | 'changes';
+export interface DiffPrefs { mode: DiffMode; ignoreWhitespace: boolean; wordWrap: boolean; markdownView: MarkdownView; historyView: HistoryView }
 /** What the diff editor's options are built from (`diffEditorOptions`). */
 export type EditorDiffPrefs = Pick<DiffPrefs, 'mode' | 'ignoreWhitespace' | 'wordWrap'>;
-/** Inline by default (plan 1B amendment 3); Markdown rendered (spec #5 §3.3). The user's last
- * pick is remembered app-wide. */
-export const DEFAULT_DIFF_PREFS: DiffPrefs = { mode: 'inline', ignoreWhitespace: false, wordWrap: false, markdownView: 'rendered' };
+/** Inline by default (plan 1B amendment 3); Markdown rendered (spec #5 §3.3); File History on the
+ * file (its first behaviour). The user's last pick is remembered app-wide. */
+export const DEFAULT_DIFF_PREFS: DiffPrefs = { mode: 'inline', ignoreWhitespace: false, wordWrap: false, markdownView: 'rendered', historyView: 'file' };
 
 const MODES: readonly DiffMode[] = ['hunk', 'inline', 'split'];
 
@@ -25,6 +27,7 @@ export function parseDiffPrefs(raw: unknown): DiffPrefs | null {
     ignoreWhitespace: typeof r.ignoreWhitespace === 'boolean' ? r.ignoreWhitespace : DEFAULT_DIFF_PREFS.ignoreWhitespace,
     wordWrap: typeof r.wordWrap === 'boolean' ? r.wordWrap : DEFAULT_DIFF_PREFS.wordWrap,
     markdownView: r.markdownView === 'source' || r.markdownView === 'rendered' ? r.markdownView : DEFAULT_DIFF_PREFS.markdownView,
+    historyView: r.historyView === 'file' || r.historyView === 'changes' ? r.historyView : DEFAULT_DIFF_PREFS.historyView,
   };
 }
 

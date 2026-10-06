@@ -23,7 +23,7 @@ describe('GraphCanvas theme changes', () => {
   });
 
   it("redraws with the new theme's node fill and lanes", () => {
-    render(<GraphCanvas rows={rows} scrollTop={0} width={100} height={50} left={0} metrics={METRICS} labeledRows={new Set()} />);
+    render(<GraphCanvas rows={rows} width={100} height={50} left={0} metrics={METRICS} labeledRows={new Set()} />);
     const first = vi.mocked(drawGraph).mock.lastCall![1];
     expect(first.nodeFill).toBe('#1c1e23');
     expect(first.nodeText).toBe('#ffffff');
@@ -41,7 +41,7 @@ describe('GraphCanvas theme changes', () => {
   });
 
   it('redraws when only a lane override changes', () => {
-    render(<GraphCanvas rows={rows} scrollTop={0} width={100} height={50} left={0} metrics={METRICS} labeledRows={new Set()} />);
+    render(<GraphCanvas rows={rows} width={100} height={50} left={0} metrics={METRICS} labeledRows={new Set()} />);
     const calls = vi.mocked(drawGraph).mock.calls.length;
     act(() => useTheme.getState().set('default-dark', { 'default-dark': ['#123456'] }));
     expect(vi.mocked(drawGraph).mock.calls.length).toBeGreaterThan(calls);

@@ -500,8 +500,8 @@ describe('DiffPanel', () => {
     fireEvent.click(button('Word wrap'));
     expect(button(/Ignore whitespace/)).toHaveAttribute('aria-pressed', 'true');
     expect(button('Word wrap')).toHaveAttribute('aria-pressed', 'true');
-    expect(host.setDiffPrefs).toHaveBeenLastCalledWith({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered' });
-    expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!)).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered' });
+    expect(host.setDiffPrefs).toHaveBeenLastCalledWith({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered', historyView: 'file' });
+    expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!)).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered', historyView: 'file' });
     fireEvent.click(button('Hunk'));
     expect(useDiffPrefs.getState().prefs.mode).toBe('hunk');
     // No placeholder UI (plan 1B global constraints); Blame | History are #3's real buttons.

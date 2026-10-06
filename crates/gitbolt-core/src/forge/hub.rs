@@ -455,6 +455,33 @@ impl ForgeHub {
         RepoProjects { remotes: out, target, target_chosen: remotes.iter().any(|r| r.main) }
     }
 
+    /// Remote → the remote whose project it's a fork of, from what's known without a request:
+    /// this session's projects, else the cross-session cache (`project_on` keeps each one seen).
+    /// The graph's default trunk follows the root (`snapshot::default_trunk`).
+    pub fn cached_fork_parents(&self, store: &SettingsStore, remotes: &[RemotePayload]) -> HashMap<String, String> {
+        let profile = store.active_profile();
+        if profile.forge_accounts.is_empty() {
+            return HashMap::new();
+        }
+        let cached = |host: &str, path: &str| -> Option<crate::forge::ForgeProject> {
+            let host = account_for(&profile.forge_accounts, host)?.host.clone();
+            let key = (profile.id.clone(), host, path.to_string());
+            if let Some(p) = self.projects.lock().expect("projects poisoned").get(&key) {
+                return Some(p.clone());
+            }
+            self.cache.with(&key, |c| c.project.clone())
+        };
+        let mut out = HashMap::new();
+        for r in remotes {
+            let (Some(host), Some(path)) = (&r.host, &r.path) else { continue };
+            let Some(parent) = cached(host, path).and_then(|p| p.fork_of) else { continue };
+            if let Some(up) = remotes.iter().find(|u| u.name != r.name && u.host.as_ref() == Some(host) && u.path.as_ref().is_some_and(|p| p.eq_ignore_ascii_case(&parent))) {
+                out.insert(r.name.clone(), up.name.clone());
+            }
+        }
+        out
+    }
+
     /// `remote`'s project and the provider to ask about it (4B's door to MRs).
     pub async fn project_for_remote(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], remote: &str) -> Result<(AccountKey, Arc<dyn ForgeProvider>, ForgeProject), GbError> {
         let r = remotes.iter().find(|r| r.name == remote).ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("No remote {remote}")))?;
@@ -883,6 +910,29 @@ mod tests {
         assert_eq!((rp.remotes[2].account, rp.remotes[2].project.is_none()), (None, true));
         assert_eq!((rp.remotes[3].account, rp.remotes[3].error.is_none(), rp.remotes[3].project.is_none()), (None, true, true), "no account for github.com: nothing asked");
         assert_eq!(rp.target.as_deref(), Some("upstream"));
+    }
+
+    #[tokio::test]
+    async fn fork_parents_come_from_cached_projects_only_and_survive_a_restart() {
+        let (conn, first, store) = mapped().await;
+        let dir = tempfile::tempdir().unwrap();
+        first.set_cache_dir(dir.path().to_path_buf());
+        let remotes = [remote("origin", Some(HOST), Some("ada/project")), remote("upstream", Some(HOST), Some("group/project")), remote("other", Some(HOST), Some("ada/elsewhere"))];
+        let calls = || conn.by_token.lock().unwrap()[TOKEN].calls().len();
+        let before = calls();
+        assert!(first.cached_fork_parents(&store, &remotes).is_empty(), "nothing seen yet");
+        assert_eq!(calls(), before, "never a request");
+        first.repo_projects(&store, &remotes, false).await;
+        let expected = HashMap::from([("origin".to_string(), "upstream".to_string())]);
+        assert_eq!(first.cached_fork_parents(&store, &remotes), expected);
+        // The next session reads them from the cache, still without a request.
+        let next = hub(conn.clone(), MemTokens::new(TokenStorage::Keyring));
+        next.set_cache_dir(dir.path().to_path_buf());
+        let before = calls();
+        assert_eq!(next.cached_fork_parents(&store, &remotes), expected);
+        assert_eq!(calls(), before);
+        // Without an account, nothing.
+        assert!(next.cached_fork_parents(&SettingsStore::in_memory(), &remotes).is_empty());
     }
 
     #[test]

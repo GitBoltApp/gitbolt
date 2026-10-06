@@ -92,3 +92,5 @@
 /* The rendered Markdown: read-only, scrolling on its own, at a reading width (about 880 px). */
 .md-rendered { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; padding: 16px 24px; background: var(--app-bg0); outline: none; }
 .md-rendered > * { max-width: 880px; margin-inline: auto; }
+/* 5C: the split Markdown diff holds two reading columns. */
+.md-rendered > .md-diff-split { max-width: 1784px; }

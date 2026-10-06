@@ -13,6 +13,12 @@ pub struct GraphPayload {
     pub labels: Vec<RefLabel>,
     pub max_lanes: u16,
     pub pinned_ref: Option<String>,
+    /// The remote counterpart of a pinned local branch: the default pick's remote trunk (the
+    /// branch it stands for), an explicit pin's upstream. Absent when the pin is a remote ref,
+    /// has no upstream, or there's no pin. Branch membership ranks it right after the trunk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pinned_remote: Option<String>,
     pub head: HeadPayload,
     pub truncated: bool,
     /// The open worktree (the one this tab opened), spelled as its WIP row's

@@ -255,7 +255,18 @@ test.describe('the rendered Markdown diff (5C)', () => {
     await expect(md.locator('.md-code-del')).toHaveText('const port = 8080;');
     await expect(md.locator('.md-code-add')).toHaveText('const port = 9090;');
     await expect(md.locator('.md-diff-pair img[alt="Mermaid diagram"]')).toHaveCount(2, { timeout: 10_000 });
-    await expect(page.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-disabled', 'true');
+
+    await test.step('Split: old words on the left, new ones on the right, in one aligned row; Inline again', async () => {
+      const modes = page.getByRole('group', { name: 'View mode' });
+      await modes.getByRole('button', { name: 'Split' }).click();
+      const row = md.locator('.md-split-row[data-diff-mark="changed"]').filter({ hasText: 'Run the tool' });
+      await expect(row.locator('.md-split-old del')).toHaveText('once');
+      await expect(row.locator('.md-split-new ins')).toHaveText('twice');
+      await expect(row.locator('.md-split-old ins, .md-split-new del')).toHaveCount(0);
+      // The mode persists app-wide: back to Inline for the specs after this one.
+      await modes.getByRole('button', { name: 'Inline' }).click();
+      await expect(md.locator('.md-split-row')).toHaveCount(0);
+    });
 
     // Source: the text diff and its view modes again.
     await page.getByRole('group', { name: 'Markdown view' }).getByRole('button', { name: 'Source' }).click();

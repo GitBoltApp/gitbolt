@@ -64,8 +64,10 @@ const REMOTES = /^refs\/remotes\//;
  *    or a pinned override that isn't a branch ref), the checked-out (HEAD) local branch. So
  *    `main` keeps its history even when `hotfix`, forked off main's tip, took main's own lane
  *    (unpinned) or is newer than main's unpushed commits;
- * 1. the pinned ref itself, if it's a branch ref not already rank 0: when local main is behind
- *    origin/main, origin/main claims its own commits before a branch forked off it can;
+ * 1. the pinned ref itself, if it's a branch ref not already rank 0; for a pinned local branch,
+ *    its remote counterpart (`pinnedRemote`, else the remote branches of its name):
+ *    when local main is behind origin/main, origin/main claims its own commits before a branch
+ *    forked off it can;
  * 2. the other local branches, newest tip first;
  * 3. remote branches with no local branch of that name (`origin/topic`), newest tip first;
  * 4. the remaining remote branches (`upstream/main` next to a local `main`): they get only what
@@ -74,7 +76,7 @@ const REMOTES = /^refs\/remotes\//;
  * Tags and a detached `HEAD` never claim. Unclaimed rows (a deleted branch's merged side
  * history, stash and WIP rows) get none.
  */
-export function branchMembership(rows: RowPayload[], labels: Map<number, RefLabel[]>, pinnedRef: string | null = null): (BranchMembership | null)[] {
+export function branchMembership(rows: RowPayload[], labels: Map<number, RefLabel[]>, pinnedRef: string | null = null, pinnedRemote: string | null = null): (BranchMembership | null)[] {
   const n = rows.length;
   const index = new Map<string, number>();
   for (let i = 0; i < n; i++) index.set(rows[i].id, i);
@@ -109,10 +111,16 @@ export function branchMembership(rows: RowPayload[], labels: Map<number, RefLabe
     const branch = remotes.find((r) => r.ref === pinnedBranch)?.branch ?? pinnedBranch.replace(/^refs\/remotes\/[^/]+\//, '');
     trunkRef = locals.find((l) => l.name === branch)?.ref ?? pinnedBranch;
   } else trunkRef = locals.find((l) => l.head)?.ref ?? null;
+  // A pinned local branch (the default trunk is the local counterpart of the remote trunk): its
+  // remote counterpart ranks 1, as the pinned remote ref would. The payload names it
+  // (`pinnedRemote`: the default pick's remote trunk, an explicit pin's upstream); without one
+  // (an explicit pin with no upstream), the remote branches named like it.
+  const pinnedLocal = pinnedBranch?.startsWith('refs/heads/') ? locals.find((l) => l.ref === pinnedBranch) : undefined;
+  const counterparts = new Set(!pinnedLocal ? [] : pinnedRemote ? [pinnedRemote] : remotes.filter((r) => r.branch === pinnedLocal.name).map((r) => r.ref));
 
   const claimants: Claimant[] = [];
   const add = (tip: number, rank: number, name: string, ref: string) => claimants.push({ tip, rank, membership: { name, color: rows[tip].color, ref } });
-  const top = (ref: string) => (ref === trunkRef ? 0 : ref === pinnedBranch ? 1 : -1);
+  const top = (ref: string) => (ref === trunkRef ? 0 : ref === pinnedBranch || counterparts.has(ref) ? 1 : -1);
   for (const l of locals) add(l.tip, top(l.ref) >= 0 ? top(l.ref) : 2, l.name, l.ref);
   for (const r of remotes) add(r.tip, top(r.ref) >= 0 ? top(r.ref) : localNames.has(r.branch) ? 4 : 3, r.name, r.ref);
   // Within a rank, newest tip (lowest row) first. Stable, so payload order breaks ties.

@@ -222,7 +222,7 @@ function loadRemotes(services: RepoServices): void {
 export function warmFileMenu(services: RepoServices, graph?: GraphPayload): void {
   loadOpeners().catch(() => {});
   loadRemotes(services);
-  if (graph) membershipOf(graph.rows, labelsByRowOf(graph.labels), graph.pinnedRef);
+  if (graph) membershipOf(graph.rows, labelsByRowOf(graph.labels), graph.pinnedRef, graph.pinnedRemote ?? null);
 }
 
 /** Loads what the commit and label menus read ahead of the first right-click: the openers and the
@@ -346,7 +346,7 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
  * opens. */
 function graphInfo(g: GraphPayload) {
   const byRow = labelsByRowOf(g.labels);
-  return { byRow, membership: membershipOf(g.rows, byRow, g.pinnedRef) };
+  return { byRow, membership: membershipOf(g.rows, byRow, g.pinnedRef, g.pinnedRemote ?? null) };
 }
 
 const upstreamFrom = (r: RemoteRefLabel): Upstream => ({ remote: r.remote, branch: r.fullName.slice(`refs/remotes/${r.remote}/`.length) });

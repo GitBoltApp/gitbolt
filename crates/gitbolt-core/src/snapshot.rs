@@ -33,11 +33,14 @@ pub struct BuildOptions {
     pub active: Option<PathBuf>,
     /// The handle's walk cache.
     pub walk_cache: Option<Arc<Mutex<Option<WalkCache>>>>,
+    /// Remote → the remote whose project it's a fork of, from the forge's cached data (never a
+    /// request): the default trunk follows the root (`default_trunk`).
+    pub fork_parents: HashMap<String, String>,
 }
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None, no_pin: false, wip_cache: None, rescan: false, active: None, walk_cache: None }
+        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None, no_pin: false, wip_cache: None, rescan: false, active: None, walk_cache: None, fork_parents: HashMap::new() }
     }
 }
 
@@ -306,26 +309,74 @@ async fn collect_wip(cli: &GitCli, worktrees: &[Worktree], cache: Option<&WipCac
     futures_util::future::join_all(jobs).await.into_iter().flatten().filter(|(i, c)| !c.is_empty() || crate::in_progress::mid_operation(&worktrees[*i].path)).collect()
 }
 
-fn default_trunk(refs: &RepoRefs) -> Option<String> {
-    let exists = |n: &str| refs.refs.iter().any(|r| r.full_name == n);
-    let mut remotes: Vec<&String> = refs.remote_hosts.keys().collect();
-    remotes.sort_by_key(|r| (r.as_str() != "origin", r.as_str()));
-    for remote in &remotes {
-        if let Some(t) = refs.remote_heads.get(*remote)
-            && exists(t)
-        {
-            return Some(t.clone());
-        }
+/// The default trunk (the pin setting `auto`): the local counterpart of the main remote's
+/// default branch.
+/// 1. The remote trunk `T`: per remote, its HEAD's target, else its main, master, dev or develop.
+///    Remotes in order: roots first (a remote whose project forks another remote's, by the
+///    forge's cached data, comes after it), then by convention `upstream` (GitHub's fork
+///    workflow: `origin` is your fork, `upstream` the original), `origin`, the others by name.
+/// 2. Its local counterpart: a local branch whose upstream is `T` (the one named like `T`'s
+///    branch first, then by name); else the local branch named like `T`'s branch, whatever its
+///    upstream (in the fork workflow, `main` tracking your fork stands for `upstream/main`);
+///    else `T` itself.
+/// 3. No remote trunk at all (a local-only repo): the local main, master, dev or develop.
+///
+/// Returns the pin and, when it's a local counterpart, `T` (`GraphPayload::pinned_remote`).
+fn default_trunk(refs: &RepoRefs, fork_parents: &HashMap<String, String>) -> Option<(String, Option<String>)> {
+    match remote_trunk(refs, fork_parents) {
+        Some((t, branch)) => Some(match local_counterpart(refs, &t, &branch) {
+            Some(local) => (local, Some(t)),
+            None => (t, None),
+        }),
+        None => ["main", "master", "dev", "develop"].into_iter().map(|b| format!("refs/heads/{b}")).find(|n| refs.refs.iter().any(|r| &r.full_name == n)).map(|n| (n, None)),
     }
-    for remote in &remotes {
+}
+
+/// An explicitly pinned local branch's remote counterpart: its upstream, when that ref exists.
+fn upstream_ref(refs: &RepoRefs, pinned: &str) -> Option<String> {
+    let upstream = refs.refs.iter().find(|r| r.kind == RefKind::Local && r.full_name == pinned)?.upstream.clone()?;
+    refs.refs.iter().any(|r| r.full_name == upstream).then_some(upstream)
+}
+
+/// `T` and its branch part (`main` for `refs/remotes/origin/main`).
+fn remote_trunk(refs: &RepoRefs, fork_parents: &HashMap<String, String>) -> Option<(String, String)> {
+    let exists = |n: &str| refs.refs.iter().any(|r| r.full_name == n);
+    // A parent that isn't a configured remote says nothing about the order.
+    let is_fork = |r: &str| fork_parents.get(r).is_some_and(|p| p != r && refs.remote_hosts.contains_key(p));
+    let convention = |r: &str| match r {
+        "upstream" => 0,
+        "origin" => 1,
+        _ => 2,
+    };
+    let mut remotes: Vec<&String> = refs.remote_hosts.keys().collect();
+    remotes.sort_by_key(|r| (is_fork(r), convention(r), r.as_str()));
+    for remote in remotes {
+        let prefix = format!("refs/remotes/{remote}/");
+        if let Some(t) = refs.remote_heads.get(remote)
+            && exists(t)
+            && let Some(branch) = t.strip_prefix(&prefix)
+        {
+            return Some((t.clone(), branch.to_string()));
+        }
         for b in ["main", "master", "dev", "develop"] {
-            let name = format!("refs/remotes/{remote}/{b}");
+            let name = format!("{prefix}{b}");
             if exists(&name) {
-                return Some(name);
+                return Some((name, b.to_string()));
             }
         }
     }
     None
+}
+
+/// The local branch standing for the remote trunk `t` (see `default_trunk`).
+fn local_counterpart(refs: &RepoRefs, t: &str, branch: &str) -> Option<String> {
+    let locals = || refs.refs.iter().filter(|r| r.kind == RefKind::Local);
+    let mut tracking: Vec<_> = locals().filter(|r| r.upstream.as_deref() == Some(t)).collect();
+    tracking.sort_by_key(|r| (r.short_name != branch, r.short_name.as_str()));
+    if let Some(r) = tracking.first() {
+        return Some(r.full_name.clone());
+    }
+    locals().find(|r| r.short_name == branch).map(|r| r.full_name.clone())
 }
 
 enum Entry {
@@ -353,7 +404,11 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
     }
     let index: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
 
-    let pinned_ref_candidate = if opts.no_pin { None } else { opts.pinned_ref.clone().or_else(|| default_trunk(&refs)) };
+    let (pinned_ref_candidate, pinned_remote) = match (&opts.pinned_ref, opts.no_pin) {
+        (_, true) => (None, None),
+        (Some(name), false) => (Some(name.clone()), upstream_ref(&refs, name)),
+        (None, false) => default_trunk(&refs, &opts.fork_parents).map_or((None, None), |(pin, t)| (Some(pin), t)),
+    };
     let trunk_target = pinned_ref_candidate.as_ref().and_then(|n| refs.refs.iter().find(|r| &r.full_name == n)).map(|r| r.target);
     // Lane 0 is the trunk's whenever a pinned ref resolves, even if this window was cut above its
     // tip: the window then lays out exactly as the prefix of a longer one (spec §8.2).
@@ -362,7 +417,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
     // Don't report a trunk name whose target isn't actually in the walked window (an invalid
     // override, or a ref whose commit got truncated out): that would show a name with nothing
     // pinned to it.
-    let pinned_ref = if pinned_tip.is_some() { pinned_ref_candidate } else { None };
+    let (pinned_ref, pinned_remote) = if pinned_tip.is_some() { (pinned_ref_candidate, pinned_remote) } else { (None, None) };
     let mut pinned: HashSet<usize> = HashSet::new();
     let mut cur = pinned_tip;
     while let Some(id) = cur {
@@ -520,6 +575,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         labels: build_labels(&refs, worktrees, &here, &index, &row_of_commit),
         max_lanes: lay.max_lanes,
         pinned_ref,
+        pinned_remote,
         head: HeadPayload {
             branch: refs.head.branch.clone(),
             target: refs.head.target.map(|t| t.to_string()),
@@ -763,7 +819,7 @@ mod tests {
         assert_eq!(summaries[1], "On main: Experiment");
         assert_eq!(summaries[3], "Hotfix: null check");
         assert_eq!(summaries[4], "Merge branch 'feature/login'");
-        assert_eq!(g.pinned_ref.as_deref(), Some("refs/remotes/origin/main"));
+        assert_eq!(g.pinned_ref.as_deref(), Some("refs/heads/main"));
 
         let lane = |s: &str| g.rows.iter().find(|x| x.summary == s).unwrap().lane;
         for s in ["Merge branch 'feature/login'", "Fix typo", "Add readme", "Initial commit"] {
@@ -864,6 +920,140 @@ mod tests {
         assert_eq!(g.pinned_ref, None);
     }
 
+    /// A repo with `main` published to origin and origin/HEAD set to it.
+    fn published_main(r: &TestRepo) {
+        r.commit("base");
+        r.add_origin();
+        r.push("main");
+        r.git(&["remote", "set-head", "origin", "main"]);
+    }
+
+    #[tokio::test]
+    async fn the_default_trunk_is_the_local_branch_tracking_origin_head() {
+        let r = TestRepo::new();
+        published_main(&r);
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref.as_deref(), Some("refs/heads/main"));
+    }
+
+    #[tokio::test]
+    async fn the_default_trunk_is_a_differently_named_local_branch_tracking_origin_head() {
+        let r = TestRepo::new();
+        published_main(&r);
+        r.git(&["branch", "-q", "-m", "main", "trunk"]);
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref.as_deref(), Some("refs/heads/trunk"));
+        // Two local branches tracking it: the one named like it wins.
+        r.git(&["branch", "-q", "--track", "main", "origin/main"]);
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref.as_deref(), Some("refs/heads/main"));
+    }
+
+    #[tokio::test]
+    async fn the_default_trunk_is_a_same_named_local_branch_without_upstream() {
+        let r = TestRepo::new();
+        published_main(&r);
+        r.git(&["branch", "-q", "--unset-upstream", "main"]);
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref.as_deref(), Some("refs/heads/main"));
+    }
+
+    #[tokio::test]
+    async fn the_default_trunk_is_the_remote_ref_without_a_local_counterpart() {
+        let r = TestRepo::new();
+        published_main(&r);
+        r.switch_new("feature");
+        r.git(&["branch", "-q", "-D", "main"]);
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!((g.pinned_ref.as_deref(), g.pinned_remote), (Some("refs/remotes/origin/main"), None), "the pin is T itself: no separate remote");
+    }
+
+    /// No local branch tracks T: the local branch named like it is the pin, whatever it tracks;
+    /// one that does track T wins over it.
+    #[tokio::test]
+    async fn a_same_named_local_branch_is_the_pin_whatever_its_upstream() {
+        let r = TestRepo::new();
+        published_main(&r);
+        r.git(&["update-ref", "refs/remotes/origin/other", "HEAD"]);
+        r.git(&["branch", "-q", "--set-upstream-to", "origin/other", "main"]);
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!((g.pinned_ref.as_deref(), g.pinned_remote.as_deref()), (Some("refs/heads/main"), Some("refs/remotes/origin/main")));
+        r.git(&["branch", "-q", "--track", "trunk", "origin/main"]);
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref.as_deref(), Some("refs/heads/trunk"), "tracking T comes first");
+    }
+
+    /// `pinned_remote`: the remote counterpart of a pinned local branch (the default pick's T, an
+    /// explicit pin's upstream); none when the pin is a remote ref or has no upstream.
+    #[tokio::test]
+    async fn the_pinned_remote_names_the_pinned_local_branchs_remote_counterpart() {
+        let r = TestRepo::new();
+        published_main(&r);
+        r.switch_new("hotfix");
+        r.commit("H");
+        r.push("hotfix");
+        r.switch_new("scratch");
+        let pin = |name: &str| BuildOptions { pinned_ref: Some(name.into()), ..Default::default() };
+        let remote_of = |g: GraphPayload| g.pinned_remote;
+        assert_eq!(remote_of(build(&r, BuildOptions::default()).await).as_deref(), Some("refs/remotes/origin/main"));
+        assert_eq!(remote_of(build(&r, pin("refs/heads/hotfix")).await).as_deref(), Some("refs/remotes/origin/hotfix"), "an explicit pin: its upstream");
+        assert_eq!(remote_of(build(&r, pin("refs/heads/scratch")).await), None, "no upstream");
+        assert_eq!(remote_of(build(&r, pin("refs/remotes/origin/hotfix")).await), None, "a remote pin");
+        assert_eq!(remote_of(build(&r, BuildOptions { no_pin: true, ..Default::default() }).await), None);
+    }
+
+    #[tokio::test]
+    async fn a_local_only_repo_pins_its_local_main() {
+        let r = TestRepo::new();
+        r.commit("base");
+        r.switch_new("hotfix");
+        r.commit("H");
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref.as_deref(), Some("refs/heads/main"));
+        r.git(&["branch", "-q", "-m", "main", "work"]);
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref, None, "no main, master, dev or develop: no trunk");
+    }
+
+    /// `origin` and `upstream`, both with a main; local `main` tracks `track`'s.
+    fn fork_layout(r: &TestRepo, track: &str) {
+        published_main(r);
+        let origin = r.root().join("origin.git");
+        r.git(&["remote", "add", "upstream", origin.to_str().unwrap()]);
+        r.git(&["update-ref", "refs/remotes/upstream/main", "HEAD"]);
+        r.git(&["branch", "-q", "--set-upstream-to", &format!("{track}/main"), "main"]);
+    }
+
+    #[tokio::test]
+    async fn without_forge_data_upstream_is_the_root_remote() {
+        let r = TestRepo::new();
+        fork_layout(&r, "upstream");
+        assert_eq!(build(&r, BuildOptions::default()).await.pinned_ref.as_deref(), Some("refs/heads/main"));
+        // main tracks the fork (origin): still the pin, as upstream/main's local counterpart.
+        r.git(&["branch", "-q", "--set-upstream-to", "origin/main", "main"]);
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!((g.pinned_ref.as_deref(), g.pinned_remote.as_deref()), (Some("refs/heads/main"), Some("refs/remotes/upstream/main")));
+    }
+
+    #[tokio::test]
+    async fn cached_fork_data_makes_the_parent_remote_the_root() {
+        let r = TestRepo::new();
+        fork_layout(&r, "origin");
+        // Reversed naming: upstream's project is a fork of origin's.
+        let fork_parents = HashMap::from([("upstream".to_string(), "origin".to_string())]);
+        let g = build(&r, BuildOptions { fork_parents: fork_parents.clone(), ..Default::default() }).await;
+        assert_eq!(g.pinned_ref.as_deref(), Some("refs/heads/main"));
+        // A parent that isn't one of the remotes changes nothing.
+        assert_eq!(g.pinned_remote.as_deref(), Some("refs/remotes/origin/main"));
+        // A parent that isn't one of the remotes changes nothing: upstream is the root.
+        let elsewhere = HashMap::from([("upstream".to_string(), "someone-else".to_string())]);
+        let g = build(&r, BuildOptions { fork_parents: elsewhere, ..Default::default() }).await;
+        assert_eq!(g.pinned_remote.as_deref(), Some("refs/remotes/upstream/main"));
+    }
+
+    #[tokio::test]
+    async fn an_explicit_remote_pin_stays_the_remote_ref() {
+        let r = TestRepo::new();
+        published_main(&r);
+        let g = build(&r, BuildOptions { pinned_ref: Some("refs/remotes/origin/main".into()), ..Default::default() }).await;
+        assert_eq!(g.pinned_ref.as_deref(), Some("refs/remotes/origin/main"));
+        let g = build(&r, BuildOptions { pinned_ref: Some("refs/heads/main".into()), no_pin: true, ..Default::default() }).await;
+        assert_eq!(g.pinned_ref, None);
+    }
+
     #[tokio::test]
     async fn missing_worktree_directory_is_skipped() {
         let r = TestRepo::new();
@@ -890,7 +1080,8 @@ mod tests {
         fixtures::wide(&r);
         let g = build(&r, BuildOptions::default()).await;
         assert_eq!(g.rows.len(), fixtures::WIDE_BRANCHES + 1);
-        assert_eq!(usize::from(g.max_lanes), fixtures::WIDE_BRANCHES);
+        assert_eq!(g.pinned_ref.as_deref(), Some("refs/heads/main"), "no remote: the local main");
+        assert_eq!(usize::from(g.max_lanes), fixtures::WIDE_BRANCHES + 1, "the trunk keeps lane 0");
     }
 
     /// K79: the dev merge is newer than the branches forked under it, so it locks its parents in
@@ -1001,8 +1192,8 @@ mod tests {
 
     #[tokio::test]
     async fn current_worktree_wip_is_row_0_above_a_newer_remote_tip() {
-        // origin/main is ahead of the checked-out main: the WIP is row 0 anyway, and not pinned
-        // (its HEAD isn't the pinned tip), so the trunk keeps lane 0.
+        // origin/main is ahead of the checked-out main: the WIP is row 0 anyway. The trunk is the
+        // local main, so the WIP rides its lane down to it and origin/main's newer O sits beside.
         let r = TestRepo::new();
         r.commit("base");
         r.add_origin();
@@ -1016,8 +1207,8 @@ mod tests {
         let g = build(&r, BuildOptions::default()).await;
         let summaries: Vec<&str> = g.rows.iter().map(|x| x.summary.as_str()).collect();
         assert_eq!(summaries, ["// WIP", "O", "M", "base"]);
-        assert_eq!(g.rows[1].lane, 0, "origin/main's tip is on the pinned lane");
-        assert_ne!(g.rows[0].lane, 0, "the WIP isn't on the trunk lane: its HEAD isn't the pinned tip");
+        assert_eq!((g.rows[0].lane, g.rows[2].lane), (0, 0), "the WIP and main's M are on the pinned lane");
+        assert_ne!(g.rows[1].lane, 0, "origin/main's newer tip is off the trunk");
         assert_dashed_line(&g, 0, 2);
     }
 
@@ -1254,6 +1445,7 @@ mod tests {
             rows: Vec<Row>,
             labels: Vec<RefLabel>,
             pinned_ref: Option<String>,
+            pinned_remote: Option<String>,
         }
         fn with_origin(r: &TestRepo) {
             r.commit("base");
@@ -1264,7 +1456,7 @@ mod tests {
             r.git(&["remote", "set-head", "origin", "main"]);
         }
         type Build = fn(&TestRepo);
-        let cases: [(&'static str, Build); 12] = [
+        let cases: [(&'static str, Build); 13] = [
             ("main behind origin/main, feature off origin/main", |r| {
                 with_origin(r);
                 r.commit("M");
@@ -1303,12 +1495,20 @@ mod tests {
                 r.switch("main");
                 r.git(&["branch", "-q", "-D", "tmp"]);
             }),
-            ("unpinned repo (no remote): hotfix off main's tip, main checked out", |r| {
+            ("local-only repo (no remote) pins main: hotfix off main's tip, main checked out", |r| {
                 r.commit("base");
                 r.commit("M");
                 r.switch_new("hotfix");
                 r.commit("H");
                 r.switch("main");
+            }),
+            ("unpinned repo (no remote, no main): hotfix off work's tip, work checked out", |r| {
+                r.commit("base");
+                r.git(&["branch", "-q", "-m", "main", "work"]);
+                r.commit("W");
+                r.switch_new("hotfix");
+                r.commit("H");
+                r.switch("work");
             }),
             ("feature/main off pinned main's tip", |r| {
                 with_origin(r);
@@ -1387,8 +1587,14 @@ mod tests {
             let r = TestRepo::new();
             make(&r);
             let g = build(&r, BuildOptions::default()).await;
-            let unpinned = name.starts_with("unpinned");
-            assert_eq!(g.pinned_ref.as_deref(), if unpinned { None } else { Some("refs/remotes/origin/main") }, "{name}: trunk pinning");
+            // The local main (in the fork workflow, upstream/main's counterpart though it
+            // tracks origin), but where there's no trunk at all.
+            let pin = if name.starts_with("unpinned") {
+                None
+            } else {
+                Some("refs/heads/main")
+            };
+            assert_eq!(g.pinned_ref.as_deref(), pin, "{name}: trunk pinning");
             let summary: HashMap<&str, &str> = g.rows.iter().map(|row| (row.id.as_str(), row.summary.as_str())).collect();
             let rows = g
                 .rows
@@ -1403,7 +1609,7 @@ mod tests {
                 .collect();
             // `checked_out` names a temp dir: left out, so the vectors stay byte-stable.
             let labels = g.labels.iter().cloned().map(|l| RefLabel { checked_out: None, ..l }).collect();
-            out.push(Case { name, rows, labels, pinned_ref: g.pinned_ref.clone() });
+            out.push(Case { name, rows, labels, pinned_ref: g.pinned_ref.clone(), pinned_remote: g.pinned_remote.clone() });
         }
         let json = serde_json::to_string_pretty(&serde_json::json!({
             "_comment": "Generated by gitbolt-core snapshot::tests::membership_vectors (real build_graph layouts). Regenerate: GITBOLT_UPDATE_TESTDATA=1 cargo test -p gitbolt-core membership_vectors",

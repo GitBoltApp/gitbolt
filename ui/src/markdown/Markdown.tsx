@@ -38,29 +38,29 @@ export class Boundary extends Component<{ text: string; className: string; child
 const oldKey = (old: MarkdownContext | undefined) => (old ? contextKey(old) : '');
 
 /** A small or cached body, rendered whole in the first paint. `old` (5C): a rendered diff's old
- * side, which its removed parts resolve against. */
-export function Whole({ tree, context, old, className }: { tree: Root; context: MarkdownContext; old?: MarkdownContext; className: string }) {
+ * side, which its removed parts resolve against; `split`: the diff side by side. */
+export function Whole({ tree, context, old, split = false, className }: { tree: Root; context: MarkdownContext; old?: MarkdownContext; split?: boolean; className: string }) {
   const ctxKey = contextKey(context);
   const was = oldKey(old);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the contexts' values
-  const body = useMemo(() => renderTree(tree, context, old ? { old } : undefined), [tree, ctxKey, was]);
+  const body = useMemo(() => renderTree(tree, context, old ? { old, split } : undefined), [tree, ctxKey, was, split]);
   return <div className={className}>{body}</div>;
 }
 
 /** One chunk of a large document: converted once, never re-rendered by the next chunk's arrival.
  * Until the browser lays it out, it holds a height estimated from its source length. */
-const Chunk = memo(function Chunk({ tree, context, old }: { tree: Root; context: MarkdownContext; old?: MarkdownContext }) {
+const Chunk = memo(function Chunk({ tree, context, old, split = false }: { tree: Root; context: MarkdownContext; old?: MarkdownContext; split?: boolean }) {
   const ctxKey = contextKey(context);
   const was = oldKey(old);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the contexts' values
-  const body = useMemo(() => renderTree(tree, context, old ? { old } : undefined), [tree, ctxKey, was]);
+  const body = useMemo(() => renderTree(tree, context, old ? { old, split } : undefined), [tree, ctxKey, was, split]);
   return <div className="md-chunk" style={{ containIntrinsicSize: `auto ${chunkHeightOf(tree)}px` }}>{body}</div>;
-}, (a, b) => a.tree === b.tree && contextKey(a.context) === contextKey(b.context) && oldKey(a.old) === oldKey(b.old));
+}, (a, b) => a.tree === b.tree && contextKey(a.context) === contextKey(b.context) && oldKey(a.old) === oldKey(b.old) && a.split === b.split);
 
 /** A large body (ruling 21) as `stream` brings it: one more chunk per idle callback. Its text (or
  * "Rendering…") holds the place until the first chunk; "Rendering…" follows the last rendered
  * chunk until the end. Shared by `<Markdown>` and (5C) `<MarkdownDiff>`. */
-export function StreamBody({ stream, text, context, old, className }: { stream: ChunkStream; text: string; context: MarkdownContext; old?: MarkdownContext; className: string }) {
+export function StreamBody({ stream, text, context, old, split, className }: { stream: ChunkStream; text: string; context: MarkdownContext; old?: MarkdownContext; split?: boolean; className: string }) {
   useSyncExternalStore(stream.subscribe, () => stream.version);
   const [count, setCount] = useState(0);
   const total = stream.chunks.length;
@@ -75,7 +75,7 @@ export function StreamBody({ stream, text, context, old, className }: { stream: 
   if (shown === 0) return text.length > RENDERING_NOTE_CHARS ? <div className={className}><p className="md-rendering">Rendering…</p></div> : <PlainBody text={text} className={className} />;
   return (
     <div className={className}>
-      {stream.chunks.slice(0, shown).map((c, i) => <Chunk key={i} tree={c} context={context} old={old} />)}
+      {stream.chunks.slice(0, shown).map((c, i) => <Chunk key={i} tree={c} context={context} old={old} split={split} />)}
       {(!stream.done || shown < total) && <p className="md-rendering">Rendering…</p>}
     </div>
   );

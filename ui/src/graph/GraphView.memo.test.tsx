@@ -172,3 +172,21 @@ describe('GraphView, hover crossings (F7)', () => {
     expect(renders.n - rowsBefore).toBe(0);
   });
 });
+
+describe('GraphView scrolling (the canvas follows on its own, band.ts)', () => {
+  it('re-renders the view only when the rows on screen change, not on every scroll event', () => {
+    const many: GraphPayload = { ...graph, rows: Array.from({ length: 300 }, (_, i) => row(i)) };
+    render(<GraphView graph={many} repoId="/repo" />);
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    const scroll = (y: number) => { grid.scrollTop = y; fireEvent.scroll(grid); };
+    // The first scroll flips the virtualizer's `isScrolling`: one render of its own.
+    scroll(2);
+    const before = views.n;
+    // 600 px viewport, 28 px rows: rows 0–21 on screen from 0 to 15 px.
+    for (const y of [4, 6, 8, 10, 12]) scroll(y);
+    expect(views.n - before).toBe(0);
+    // A row enters: the avatar window follows (one render).
+    scroll(5 * 28);
+    expect(views.n - before).toBeGreaterThan(0);
+  });
+});
