@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HoverTooltip } from './HoverTooltip';
+import { countSyntheticPointerEvents } from './pointerRest';
 
 describe('HoverTooltip', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -68,6 +69,49 @@ describe('HoverTooltip', () => {
     fireEvent.mouseLeave(screen.getByText('target'));
     fireEvent.mouseEnter(screen.getByText('target'));
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  });
+
+  // The File History flake: after a click (a blame group re-rendering under the pointer) or an Esc
+  // (a closing view revealing a toolbar button), Chromium's boundary events for the still pointer
+  // showed the new trigger's tooltip, which then took the next Esc meant for the app.
+  describe('a trigger that comes under a pointer resting since a press or a key', () => {
+    let restore: () => void;
+    beforeEach(() => { restore = countSyntheticPointerEvents(); });
+    afterEach(() => restore());
+    const at = { clientX: 40, clientY: 20 };
+
+    it('after a press: no tooltip until the pointer moves, so the next Esc is the app\'s', () => {
+      const { rerender } = render(<div><span>before</span></div>);
+      fireEvent.mouseMove(document.body, at);
+      fireEvent.mouseDown(screen.getByText('before'), at);
+      rerender(<div><HoverTooltip content="tip"><span>target</span></HoverTooltip></div>);
+      fireEvent.mouseOver(screen.getByText('target'), at);
+      fireEvent.mouseEnter(screen.getByText('target'), at);
+      fireEvent.mouseMove(screen.getByText('target'), at);
+      expect(screen.queryByRole('tooltip')).toBeNull();
+      expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true);
+      // Moved: shown.
+      fireEvent.mouseMove(screen.getByText('target'), { clientX: 41, clientY: 20 });
+      expect(screen.getByRole('tooltip')).toHaveTextContent('tip');
+    });
+
+    it('after a key (Esc closing a view over it): the same', () => {
+      const { rerender } = render(<div><span>view</span></div>);
+      fireEvent.mouseMove(document.body, at);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      rerender(<div><HoverTooltip content="tip"><span>target</span></HoverTooltip></div>);
+      fireEvent.mouseEnter(screen.getByText('target'), at);
+      expect(screen.queryByRole('tooltip')).toBeNull();
+      fireEvent.mouseMove(screen.getByText('target'), { clientX: 40, clientY: 22 });
+      expect(screen.getByRole('tooltip')).toHaveTextContent('tip');
+    });
+
+    it('a pointer that moved onto the trigger after the press shows it at once', () => {
+      render(<div><span>before</span><HoverTooltip content="tip"><span>target</span></HoverTooltip></div>);
+      fireEvent.mouseDown(screen.getByText('before'), at);
+      fireEvent.mouseEnter(screen.getByText('target'), { clientX: 90, clientY: 20 });
+      expect(screen.getByRole('tooltip')).toHaveTextContent('tip');
+    });
   });
 
   it('shows immediately by default (the app-wide no-delay rule)', () => {

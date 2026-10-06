@@ -1,6 +1,7 @@
 import { cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { registerKeys } from './keyRouter';
+import { pointerResting } from './pointerRest';
 import './tooltip.css';
 
 /** The plain Esc that dismisses a shown tooltip (`HoverTooltip`, `TooltipHost`). */
@@ -53,7 +54,7 @@ export interface HoverTooltipOptions {
   leftOf?: (trigger: HTMLElement) => Element | null;
 }
 
-type TriggerProps = { onMouseEnter(e: MouseEvent<HTMLElement>): void; onMouseLeave(e: MouseEvent<HTMLElement>): void; onMouseOver(e: MouseEvent<HTMLElement>): void; onMouseMove?(e: MouseEvent<HTMLElement>): void };
+type TriggerProps = { onMouseEnter(e: MouseEvent<HTMLElement>): void; onMouseLeave(e: MouseEvent<HTMLElement>): void; onMouseOver(e: MouseEvent<HTMLElement>): void; onMouseMove(e: MouseEvent<HTMLElement>): void };
 
 const GAP = 4;
 const EDGE = 8;
@@ -323,6 +324,9 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
 
   const enter = (e: MouseEvent<HTMLElement>) => {
     if (disabled) return;
+    // A trigger that came under a pointer resting since a press or key (`pointerRest.ts`) waits
+    // for the pointer to move (`onMouseMove` below). A focus (SignatureBadge's) always shows.
+    if (e.type.startsWith('mouse') && pointerResting()) return;
     inside.current = true;
     triggerEl.current = e.currentTarget;
     pointer.current = { x: e.clientX, y: e.clientY };
@@ -347,18 +351,19 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
       if (interactive && isInside(tipEl.current, e.relatedTarget)) return;
       hide();
     },
-  };
-  if (atPointer) {
-    // Tracked without re-rendering: the tooltip on screen is moved directly, from its cached size.
-    triggerProps.onMouseMove = (e) => {
+    onMouseMove(e) {
+      // The first move over a trigger whose enter waited for one (above).
+      if (!inside.current) enter(e);
+      if (!atPointer) return;
+      // Tracked without re-rendering: the tooltip on screen is moved directly, from its cached size.
       pointer.current = { x: e.clientX, y: e.clientY };
       const tip = tipEl.current;
       if (!tip) return;
       const { left, top } = pointerPosition(e.clientX, e.clientY, tipSize.current);
       tip.style.left = `${left}px`;
       tip.style.top = `${top}px`;
-    };
-  }
+    },
+  };
 
   const tooltip = shown
     ? createPortal(
@@ -388,7 +393,7 @@ export function HoverTooltip({ children, ...opts }: HoverTooltipOptions & { chil
         onMouseEnter: (e: MouseEvent<HTMLElement>) => { own.onMouseEnter?.(e); triggerProps.onMouseEnter(e); },
         onMouseLeave: (e: MouseEvent<HTMLElement>) => { own.onMouseLeave?.(e); triggerProps.onMouseLeave(e); },
         onMouseOver: (e: MouseEvent<HTMLElement>) => { own.onMouseOver?.(e); triggerProps.onMouseOver(e); },
-        ...(triggerProps.onMouseMove && { onMouseMove: (e: MouseEvent<HTMLElement>) => { own.onMouseMove?.(e); triggerProps.onMouseMove!(e); } }),
+        onMouseMove: (e: MouseEvent<HTMLElement>) => { own.onMouseMove?.(e); triggerProps.onMouseMove(e); },
       })}
       {tooltip}
     </>

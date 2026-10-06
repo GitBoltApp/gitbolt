@@ -178,6 +178,7 @@ function StackRow({ label, sha, first, onBranchHover, onContextMenu, onDoubleCli
     <span
       className="ref-stack-row"
       onMouseOver={triggerProps.onMouseOver}
+      onMouseMove={triggerProps.onMouseMove}
       onMouseEnter={(e) => {
         triggerProps.onMouseEnter(e);
         const refs = chipRefs(label);

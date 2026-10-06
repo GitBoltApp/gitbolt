@@ -15,6 +15,7 @@ const EXEMPT: Record<string, string> = {
   'ui/arm/origin.ts': 'arm origin focus',
   'ui/HoverTooltip.tsx': 'Esc dismisses a tooltip',
   'ui/TooltipHost.tsx': 'Esc dismisses a tooltip',
+  'ui/pointerRest.ts': 'any key marks the pointer resting, for hover tooltips',
   'ui/Toast.tsx': 'toast dismissal',
   'ui/Select.tsx': 'dropdown arrows / Esc',
   'ui/RefPicker.tsx': 'picker arrows / Enter / Esc',
