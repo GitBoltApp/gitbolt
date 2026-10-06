@@ -5,6 +5,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-06
+
 The first release, for Linux.
 
 ### Added
