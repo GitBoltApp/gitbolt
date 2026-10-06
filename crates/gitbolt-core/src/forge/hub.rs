@@ -526,14 +526,24 @@ impl ForgeHub {
         result
     }
 
-    /// The first avatar any of the active profile's accounts has for `email` (spec #4 §2
-    /// "Avatars": forge first). Failures are quiet: Gravatar, then initials, come next.
-    pub async fn avatar(&self, store: &Arc<SettingsStore>, email: &str) -> Option<AvatarPayload> {
+    /// The first avatar for `email` from the accounts on the repo's own forge hosts: an account
+    /// whose host is one of `remotes`' (`account_for`). The email never goes to the profile's
+    /// other accounts; without such an account no forge is asked. Failures are quiet: Gravatar,
+    /// then initials, come next.
+    pub async fn avatar(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], email: &str) -> Option<AvatarPayload> {
         if email.trim().is_empty() {
             return None;
         }
         let profile = store.active_profile();
-        for host in profile.forge_accounts.iter().map(|a| a.host.clone()) {
+        let mut hosts: Vec<String> = Vec::new();
+        for host in remotes.iter().filter_map(|r| r.host.as_deref()) {
+            if let Some(a) = account_for(&profile.forge_accounts, host)
+                && !hosts.contains(&a.host)
+            {
+                hosts.push(a.host.clone());
+            }
+        }
+        for host in hosts {
             let Ok(Some((_, provider))) = self.provider_for_host(store, &host).await else { continue };
             match provider.avatar_for_email(email).await {
                 Ok(Some(found)) => return Some(found),
@@ -1149,8 +1159,9 @@ mod tests {
         hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
         hub.reset();
         tokens.fail.store(true, Ordering::SeqCst);
+        let remotes = [RemotePayload { name: "origin".into(), host: Some(HOST.into()), path: Some("group/project".into()), host_kind: crate::remotes::HostKind::GitLab, main: false }];
         for _ in 0..5 {
-            assert!(hub.avatar(&store, "grace@example.com").await.is_none());
+            assert!(hub.avatar(&store, &remotes, "grace@example.com").await.is_none());
         }
         assert_eq!(tokens.reads(), 1, "one prompt, not one per avatar");
         let message = "Couldn't read the token for gitlab.example.com from the system keyring: the unlock prompt was dismissed";
@@ -1159,7 +1170,7 @@ mod tests {
         tokens.fail.store(false, Ordering::SeqCst);
         hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
         hub.providers.lock().unwrap().clear();
-        assert!(hub.avatar(&store, "grace@example.com").await.is_some());
+        assert!(hub.avatar(&store, &remotes, "grace@example.com").await.is_some());
         assert_eq!(tokens.reads(), 2);
         // So does removing it.
         hub.providers.lock().unwrap().clear();
@@ -1363,6 +1374,39 @@ mod tests {
         let two = [ForgeAccount { host: PORTED.into(), ..account("Ada", 1, "x", 0) }, ForgeAccount { host: "gitlab.example.com:9443".into(), ..account("Ada", 1, "x", 0) }];
         assert!(account_for(&two, HOST).is_none());
         assert_eq!(account_for(&two, PORTED).map(|a| a.host.as_str()), Some(PORTED));
+    }
+
+    /// A commit author's email goes only to the forge hosting the repo (an account on one of its
+    /// remotes' hosts), never to the profile's other accounts.
+    #[tokio::test]
+    async fn an_authors_email_goes_only_to_the_forge_hosting_the_repo() {
+        const OTHER: &str = "gitlab.other.example";
+        let png = crate::avatar::AvatarPayload { mime: "image/png".into(), base64: "Rk9SR0U=".into() };
+        let mut a = FakeProvider::new(ForgeKind::GitLab, HOST);
+        a.avatars.insert("grace@example.com".into(), png.clone());
+        let mut b = FakeProvider::new(ForgeKind::GitLab, OTHER);
+        b.avatars.insert("grace@example.com".into(), png.clone());
+        let conn = Arc::new(FakeConnector::default());
+        let (a, b) = (conn.add(TOKEN, a), conn.add(TOKEN2, b));
+        let hub = hub(conn.clone(), MemTokens::new(TokenStorage::Keyring));
+        let store = SettingsStore::in_memory();
+        hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
+        hub.add_account(&store, OTHER, ForgeKind::GitLab, Secret::new(TOKEN2)).await.unwrap();
+        let asked = |p: &FakeProvider| p.calls().iter().filter(|c| c.starts_with("avatar ")).count();
+
+        let on_a = [remote("origin", Some(HOST), Some("group/project")), remote("gh", Some("github.com"), Some("o/r"))];
+        assert_eq!(hub.avatar(&store, &on_a, "grace@example.com").await, Some(png.clone()));
+        assert_eq!((asked(&a), asked(&b)), (1, 0), "only the repo's own host");
+
+        let on_b = [remote("origin", Some(OTHER), Some("group/project"))];
+        assert_eq!(hub.avatar(&store, &on_b, "grace@example.com").await, Some(png));
+        assert_eq!((asked(&a), asked(&b)), (1, 1));
+
+        // No remote on a host with an account (or no forge host at all): no forge is asked.
+        for remotes in [vec![remote("origin", Some("github.com"), Some("o/r"))], vec![remote("local", None, None)], vec![]] {
+            assert_eq!(hub.avatar(&store, &remotes, "grace@example.com").await, None);
+        }
+        assert_eq!((asked(&a), asked(&b)), (1, 1), "nothing sent without the repo's own forge");
     }
 
     #[tokio::test]

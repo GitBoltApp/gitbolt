@@ -10,6 +10,10 @@ eq() { [ "$2" = "$3" ] || fail "$1: expected '$3', got '$2'"; }
 
 eq pkgver "$(python3 "$helper" pkgver '0.1.0+202610051325.ab4dbf9e')" '0.1.0.202610051325.ab4dbf9e'
 eq pkgver-plain "$(python3 "$helper" pkgver '0.2.0')" '0.2.0'
+# A Debian pre-release ('~', from fix-deb.sh) sorts before the release under vercmp only when the
+# word follows the number directly: 0.1.0.alpha.1 would be newer than 0.1.0 (test-version-order.sh).
+eq pkgver-pre "$(python3 "$helper" pkgver '0.1.0~alpha.1')" '0.1.0alpha.1'
+eq pkgver-pre-stamp "$(python3 "$helper" pkgver '0.1.0~rc.2+202610051325.ab4dbf9e')" '0.1.0rc.2.202610051325.ab4dbf9e'
 python3 "$helper" pkgver '1:0.1.0' 2>/dev/null && fail "an epoch ':' was accepted"
 python3 "$helper" pkgver '0.1.0-1' 2>/dev/null && fail "a '-' was accepted"
 eq stamp "$(python3 "$helper" stamp '0.1.0+202610051325.ab4dbf9e')" "$(date -u -d '2026-10-05 13:25' +%s)"
@@ -35,6 +39,11 @@ printf '#!/bin/sh\n' > "$pkg/usr/share/GitBolt/chrome-sandbox"
 chmod 4755 "$pkg/usr/share/GitBolt/chrome-sandbox"
 printf '[Desktop Entry]\n' > "$pkg/usr/share/applications/Git Bolt.desktop"
 ln -s ../share/GitBolt/gitbolt "$pkg/usr/bin/gitbolt"
+notices="LICENSE THIRD-PARTY-NOTICES-rust.txt THIRD-PARTY-NOTICES-ui.txt CEF-LICENSE.txt CHROMIUM-CREDITS.html.gz DICTIONARY-en-US-LICENSE.txt"
+mkdir -p "$pkg/usr/share/doc/gitbolt"
+for f in $notices; do printf 'notice %s\n' "$f" > "$pkg/usr/share/doc/gitbolt/$f"; done
+mkdir -p "$pkg/usr/share/GitBolt/dictionaries"
+printf 'BDic' > "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic"
 cat > "$pkg/DEBIAN/control" <<'EOT'
 Package: git-bolt
 Version: 0.1.0+202610051325.ab4dbf9e
@@ -52,9 +61,10 @@ zstd -dcq "$out" > "$work/p.tar"
 eq order "$(tar -tf "$work/p.tar" | head -3 | tr '\n' ' ')" '.PKGINFO .MTREE usr/ '
 tar -tvf "$work/p.tar" | grep -Eq '^-rwsr-xr-x root/root .* usr/share/GitBolt/chrome-sandbox$' || fail "chrome-sandbox lost root:root 4755"
 tar -tvf "$work/p.tar" | grep -Eq '^lrwxrwxrwx root/root .* usr/bin/gitbolt -> \.\./share/GitBolt/gitbolt$' || fail "lost the /usr/bin/gitbolt symlink"
+tar -tvf "$work/p.tar" | grep -Eq '^-rw-r--r-- root/root +4 .* usr/share/GitBolt/dictionaries/en-US-10-1\.bdic$' || fail "lost the dictionary"
 info=$(tar -xOf "$work/p.tar" .PKGINFO)
 for kv in 'pkgname = gitbolt' 'pkgver = 0.1.0.202610051325.ab4dbf9e-1' 'pkgdesc = A fast desktop Git client' \
-          'arch = x86_64' 'license = custom' "builddate = $(date -u -d '2026-10-05 13:25' +%s)" \
+          'arch = x86_64' 'license = MIT' "builddate = $(date -u -d '2026-10-05 13:25' +%s)" \
           'depend = gcc-libs' 'depend = git' 'depend = glibc' 'depend = gtk4'; do
   grep -qxF "$kv" <<<"$info" || fail ".PKGINFO lacks '$kv': $info"
 done
@@ -65,6 +75,27 @@ grep -Eq '^\./usr/share/GitBolt/chrome-sandbox time=[0-9]+\.0 mode=4755 size=10 
 grep -qxF "./usr/bin/gitbolt time=$(date -u -d '2026-10-05 13:25' +%s).0 mode=777 type=link link=../share/GitBolt/gitbolt" <<<"$mtree" || fail ".MTREE symlink line: $mtree"
 grep -Eq '^\./usr/share/applications/Git\\040Bolt\.desktop ' <<<"$mtree" || fail ".MTREE escaping: $mtree"
 grep -Eq '^\./usr time=[0-9]+\.0 mode=755 type=dir$' <<<"$mtree" || fail ".MTREE dir line: $mtree"
+# The license notices: the .deb's files, and Arch's /usr/share/licenses/gitbolt pointing at them.
+# (The listing is read once: `tar | grep -q` under pipefail fails when grep stops reading early.)
+listing=$(tar -tvf "$work/p.tar")
+for f in $notices; do
+  grep -Eq "^-rw-r--r-- root/root +[1-9][0-9]* .* usr/share/doc/gitbolt/$f\$" <<<"$listing" || fail "no usr/share/doc/gitbolt/$f"
+done
+grep -Eq '^lrwxrwxrwx root/root .* usr/share/licenses/gitbolt -> \.\./doc/gitbolt$' <<<"$listing" || fail "no usr/share/licenses/gitbolt symlink"
+grep -Eq '^\./usr/share/licenses/gitbolt time=[0-9]+\.0 mode=777 type=link link=\.\./doc/gitbolt$' <<<"$mtree" || fail ".MTREE licenses symlink: $mtree"
+# A .deb without them (or with an empty one) fails.
+: > "$pkg/usr/share/doc/gitbolt/CEF-LICENSE.txt"
+dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/n.deb" >/dev/null
+"$here/package-arch.sh" "$work/n.deb" "$work/out3" 2>/dev/null && fail "package-arch accepted an empty CEF-LICENSE.txt"
+rm "$pkg/usr/share/doc/gitbolt/CEF-LICENSE.txt"
+dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/n.deb" >/dev/null
+"$here/package-arch.sh" "$work/n.deb" "$work/out3" 2>/dev/null && fail "package-arch accepted a .deb without CEF-LICENSE.txt"
+printf 'notice\n' > "$pkg/usr/share/doc/gitbolt/CEF-LICENSE.txt"
+# Likewise without the spell-check dictionary.
+mv "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic" "$work/dict"
+dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/n.deb" >/dev/null
+"$here/package-arch.sh" "$work/n.deb" "$work/out3" 2>/dev/null && fail "package-arch accepted a .deb without the dictionary"
+mv "$work/dict" "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic"
 # An unknown dependency fails the whole build.
 sed -i 's/^Depends: .*/Depends: libgtk-4-1, libfoo9/' "$pkg/DEBIAN/control"
 dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/u.deb" >/dev/null

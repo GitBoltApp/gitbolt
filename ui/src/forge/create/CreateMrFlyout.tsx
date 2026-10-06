@@ -342,7 +342,7 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
           />
           <label className="create-mr-field">
             <span className="create-mr-label">Title{fromFirstCommit && <span className="create-mr-label-hint">from the first commit</span>}</span>
-            <input className="create-mr-title" aria-label="Title" value={draft.title} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => update({ ...draft, title: e.target.value })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
+            <input className="create-mr-title" aria-label="Title" value={draft.title} spellCheck autoComplete="off" autoFocus onChange={(e) => update({ ...draft, title: e.target.value })} onKeyDown={fieldKeys} onBlur={flushMrDrafts} />
           </label>
           {/* --- 5A T9: Write / Preview --- */}
           <div className="create-mr-field">
@@ -351,7 +351,7 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
               label="Description"
               rows={10}
               value={draft.description}
-              spellCheck={false}
+              spellCheck
               flavor={kind}
               context={{ kind: 'forge', tabId }}
               onChange={(v) => update({ ...draft, description: v })}

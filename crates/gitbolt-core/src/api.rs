@@ -2,7 +2,7 @@
 
 use crate::askpass::AskpassServer;
 use crate::avatar::{AvatarPayload, AvatarProvider};
-use crate::blob::{diff_contents, is_dotgit, safe_join, working_tree_encoding, Side};
+use crate::blob::{diff_contents_renamed, is_dotgit, safe_join, working_tree_encoding, Side};
 use crate::commit::{parse_commit, parse_oid, read_commit_message};
 use crate::details::{commit_details, read_commit, remotes};
 use crate::diff::{file_list, DiffSpec};
@@ -87,7 +87,17 @@ pub enum Request {
     /// The changed-file list for a commit, a compare, a worktree diff or WIP (spec §9.3, §9.4, §8.6).
     FileList { repo: u32, spec: DiffSpec },
     /// Both sides of one file diff, decoded for the viewer (spec §10.2, §10.4).
-    DiffContents { repo: u32, path: String, old: BlobSource, new: BlobSource, force: bool },
+    /// `oldPath`: a rename's source path (an image format change reads its old side as an image).
+    DiffContents {
+        repo: u32,
+        path: String,
+        old: BlobSource,
+        new: BlobSource,
+        force: bool,
+        #[serde(default)]
+        #[ts(optional)]
+        old_path: Option<String>,
+    },
     /// Both sides of a binary file as hex dumps, each capped at `hex::HEX_CAP` bytes (UX round 2,
     /// lane I): `HexDumpPayload`.
     HexDump { repo: u32, path: String, old: BlobSource, new: BlobSource },
@@ -100,8 +110,10 @@ pub enum Request {
     /// verdict for the process lifetime, an unknown or untrusted key briefly (spec §9.1).
     Signature { repo: u32, id: String },
     /// A cached avatar for an email, or `null` (the UI shows initials; spec §14.3).
-    /// `repo`: the tab asking. Its forge target, if any, is asked last who the email's commits
-    /// belong to (GitHub), then who has the commit author's `name` (`ForgeHub::author_avatar`).
+    /// `repo`: the tab asking. Only the accounts on its remotes' hosts are asked (first by email,
+    /// `ForgeHub::avatar`); without `repo`, no forge is. Its forge target, if any, is asked last who
+    /// the email's commits belong to (GitHub), then who has the commit author's `name`
+    /// (`ForgeHub::author_avatar`).
     Avatar {
         email: String,
         #[serde(default)]
@@ -2012,12 +2024,12 @@ impl Api {
                 };
                 to_json(file_list(&h.repo, &self.cli, &h.workdir, &spec, wt.as_deref()).await?)
             }
-            Request::DiffContents { repo, path, old, new, force } => {
+            Request::DiffContents { repo, path, old, new, force, old_path } => {
                 let h = self.handle(repo)?;
                 let old = self.resolve_side(&h, &path, old).await?;
                 let new = self.resolve_side(&h, &path, new).await?;
                 let (repo, p, o, n) = (h.repo.clone(), path.clone(), old.clone(), new.clone());
-                let mut c = blocking(move || diff_contents(&repo.to_thread_local(), &p, &o, &n, force)).await?;
+                let mut c = blocking(move || diff_contents_renamed(&repo.to_thread_local(), &p, old_path.as_deref(), &o, &n, force)).await?;
                 // A binary shows as a capped hex dump: no large-file prompt, whatever its size.
                 crate::hex::ungate_binary(&h.repo, &self.cli, &h.workdir, &path, &old, &new, &mut c).await?;
                 to_json(c)
@@ -2058,10 +2070,12 @@ impl Api {
             }
             Request::Avatar { email, repo, name } => {
                 // --- 4A T6: the forges first (spec #4 §2 "Avatars") ---
+                // Only the asking tab's own forge: the email never goes to an unrelated account.
                 let forge_avatars = self.store.state().settings.forge_avatars;
                 if forge_avatars
-                    && let Some(hub) = &self.forge
-                    && let Some(found) = hub.avatar(&self.store, &email).await
+                    && let (Some(hub), Some(repo)) = (&self.forge, repo)
+                    && let Ok(h) = self.handle(repo)
+                    && let Some(found) = hub.avatar(&self.store, &self.forge_remotes_of(&h), &email).await
                 {
                     return to_json(Some(found));
                 }
@@ -3080,6 +3094,33 @@ mod tests {
         let err = api().dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": dir.path()}}))).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::NotFound);
         assert!(err.message.starts_with("Not a git repository"));
+    }
+
+    /// git's ownership check (`safe.directory`) applies as it does in a terminal: a repository
+    /// owned by another user doesn't open, unless the user's own git config lists it as safe.
+    /// GitBolt never overrides it. (`GIT_TEST_ASSUME_DIFFERENT_OWNER` is git's own way to test
+    /// this without a second user.)
+    #[tokio::test]
+    async fn a_repo_owned_by_another_user_is_refused_as_git_refuses_it() {
+        let r = TestRepo::new();
+        r.commit("a");
+        let other_owner = |global: &str| {
+            let mut env = isolated_git_env();
+            env.retain(|(k, _)| k != "GIT_CONFIG_GLOBAL");
+            env.push(("GIT_CONFIG_GLOBAL".into(), global.into()));
+            env.push(("GIT_TEST_ASSUME_DIFFERENT_OWNER".into(), "1".into()));
+            Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(env), None)
+        };
+        let open = |api: Api| {
+            let path = r.path().to_path_buf();
+            async move { api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": path}}))).await }
+        };
+        let err = open(other_owner("/dev/null")).await.unwrap_err();
+        assert!(err.message.contains("dubious ownership"), "{}", err.message);
+        let dir = tempfile::tempdir().unwrap();
+        let global = dir.path().join("gitconfig");
+        std::fs::write(&global, format!("[safe]\n\tdirectory = {}\n", r.path().canonicalize().unwrap().display())).unwrap();
+        assert!(open(other_owner(global.to_str().unwrap())).await.is_ok(), "listed in the user's safe.directory");
     }
 
     #[tokio::test]
@@ -4517,10 +4558,27 @@ mod tests {
         const TOKEN: &str = "glpat-FAKE-test-token";
         let mut p = FakeProvider::new(ForgeKind::GitLab, "gitlab.example.com");
         p.avatars.insert("grace@example.com".into(), crate::avatar::AvatarPayload { mime: "image/png".into(), base64: "Rk9SR0U=".into() });
-        let api = api().with_avatars(Arc::new(FakeAvatars)).with_forge(FakeConnector::with(TOKEN, p), MemTokens::new(TokenStorage::Keyring));
+        let conn = Arc::new(FakeConnector::default());
+        let fake = conn.add(TOKEN, p);
+        let api = api().with_avatars(Arc::new(FakeAvatars)).with_forge(conn, MemTokens::new(TokenStorage::Keyring));
         api.dispatch(req(serde_json::json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": TOKEN}}))).await.unwrap();
-        let ask = |email: &'static str| api.dispatch(req(serde_json::json!({"method": "avatar", "params": {"email": email}})));
+        let r = TestRepo::new();
+        r.commit("a");
+        r.git(&["remote", "add", "origin", "https://gitlab.example.com/group/project.git"]);
+        let id = open(&api, &r).await as u32;
+        let elsewhere = TestRepo::new();
+        elsewhere.commit("a");
+        elsewhere.git(&["remote", "add", "origin", "https://gitlab.other.example/group/project.git"]);
+        let other = open(&api, &elsewhere).await as u32;
+        let asked = || fake.calls().iter().filter(|c| c.starts_with("avatar ")).count();
+        // Not the tab's own forge (or no tab): the email isn't sent to the account.
+        for params in [serde_json::json!({"email": "grace@example.com", "repo": other}), serde_json::json!({"email": "grace@example.com"})] {
+            assert!(api.dispatch(req(serde_json::json!({"method": "avatar", "params": params}))).await.unwrap().is_null(), "Gravatar has none");
+        }
+        assert_eq!(asked(), 0);
+        let ask = |email: &'static str| api.dispatch(req(serde_json::json!({"method": "avatar", "params": {"email": email, "repo": id}})));
         assert_eq!(ask("grace@example.com").await.unwrap()["base64"], "Rk9SR0U=", "the forge's first");
+        assert_eq!(asked(), 1);
         assert_eq!(ask("ada@example.com").await.unwrap()["base64"], "iVBO", "then Gravatar");
         api.dispatch(req(serde_json::json!({"method": "saveSettings", "params": {"settings": {"forgeAvatars": false}}}))).await.unwrap();
         assert!(ask("grace@example.com").await.unwrap().is_null(), "off: the forge isn't asked");

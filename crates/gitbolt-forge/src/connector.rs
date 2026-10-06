@@ -158,14 +158,15 @@ mod tests {
         let store = SettingsStore::in_memory();
         let user = ForgeUser { id: 1, username: "ada".into(), name: "Ada".into(), avatar_url: None, web_url: String::new(), email: None };
         store.set_forge_accounts("default", vec![ForgeAccount { host: HOST.into(), kind: ForgeKind::GitLab, user, storage: TokenStorage::Keyring, version: None, version_checked_at: now_secs, added_at: now_secs }]).unwrap();
-        assert!(hub.avatar(&store, "ada@example.com").await.is_none());
+        let remotes = [gitbolt_core::payload::RemotePayload { name: "origin".into(), host: Some(HOST.into()), path: Some("group/project".into()), host_kind: gitbolt_core::remotes::HostKind::GitLab, main: false }];
+        assert!(hub.avatar(&store, &remotes, "ada@example.com").await.is_none());
         let status = hub.accounts(&store)[0].status.clone();
         assert!(matches!(&status, AccountStatus::Unreachable { message } if message.starts_with("Couldn't reach gitlab.example.com")), "{status:?}");
         // The port answers now; within the cooldown nothing is sent to it.
         let s = TestServer::start_at(base.trim_start_matches("http://"), |_, _| Canned::json(200, "{}"));
         let started = std::time::Instant::now();
         for _ in 0..3 {
-            assert!(hub.avatar(&store, "ada@example.com").await.is_none());
+            assert!(hub.avatar(&store, &remotes, "ada@example.com").await.is_none());
         }
         assert!(started.elapsed() < std::time::Duration::from_secs(1));
         assert_eq!(s.hits(), 0);

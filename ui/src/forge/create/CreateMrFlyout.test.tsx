@@ -90,6 +90,7 @@ describe('the Create flyout (spec #4 §4 "4C")', () => {
     await show();
     expect(api.forgeCreateContext).toHaveBeenCalledWith(7, 'origin', 'origin', 'feature/login', 'main');
     expect([value('Title'), value('Description')]).toEqual(['Add login', 'Why it matters.\n\n## Checklist']);
+    expect(['Title', 'Description'].map((l) => screen.getByLabelText(l).getAttribute('spellcheck'))).toEqual(['true', 'true']);
     expect([on('Squash commits'), on('Delete the source branch')]).toEqual([true, true]);
     expect(createButton()).toBeTruthy();
     expect(screen.getByText('from the first commit')).toBeTruthy();

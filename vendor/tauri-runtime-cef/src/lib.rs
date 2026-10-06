@@ -8,6 +8,9 @@
 mod cef_impl;
 mod devtools;
 mod dialog;
+/// GitBolt patch: the spell-check dictionaries the application ships, copied where Chromium
+/// looks for them.
+mod dictionaries;
 /// The `Last Version` breadcrumb in the root cache path, and what a rollback to an older CEF
 /// does with the profile a newer one left there.
 mod downgrade;

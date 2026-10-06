@@ -1587,7 +1587,7 @@ test.describe('device-pixel precision at every zoom and density (K50, K57)', () 
     // column 2 px left of the boundary (the DOM connector) and of one 2 px right of it (the
     // canvas's), decoded in the page.
     const ink = await page.evaluate(async ({ png, x, rows, m }) => {
-      const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+      const img = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], { type: 'image/png' }));
       const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!;
       ctx.drawImage(img, 0, 0);
       const { data, width } = ctx.getImageData(0, 0, img.width, img.height);

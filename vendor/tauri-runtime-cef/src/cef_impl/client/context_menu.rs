@@ -114,6 +114,11 @@ const BROWSER_ONLY_COMMANDS: &[&CStr] = &[
   resources::IDC_CONTENT_CONTEXT_PROTOCOL_HANDLER_SETTINGS,
   // GitBolt patch (H19): an image's address is a `blob:` URL; Copy image stays.
   resources::IDC_CONTENT_CONTEXT_COPYIMAGELOCATION,
+  // GitBolt patch (spell check): "Use enhanced spell check" hands the text to Google's spelling
+  // service, and "Language settings" opens a `chrome://settings` tab. The suggestions and
+  // add-to-dictionary stay; the dictionary is the one the app bundles.
+  resources::IDC_CONTENT_CONTEXT_SPELLING_TOGGLE,
+  resources::IDC_CONTENT_CONTEXT_LANGUAGE_SETTINGS,
 ];
 
 /// Entries that open DevTools. Kept when the webview enables devtools, removed
@@ -377,6 +382,27 @@ mod tests {
       resources::IDC_CONTENT_CONTEXT_LENS_REGION_SEARCH,
     ] {
       assert!(BROWSER_ONLY_COMMANDS.contains(&name), "{name:?} is still offered");
+    }
+  }
+
+  /// GitBolt patch (spell check): the suggestions and the dictionary entries stay; "Use enhanced
+  /// spell check" (sends the text to Google's spelling service) and "Language settings" (a
+  /// `chrome://settings` page) go.
+  #[test]
+  fn spelling_suggestions_stay_and_googles_spelling_service_goes() {
+    for name in [
+      resources::IDC_CONTENT_CONTEXT_SPELLING_TOGGLE,
+      resources::IDC_CONTENT_CONTEXT_LANGUAGE_SETTINGS,
+    ] {
+      assert!(BROWSER_ONLY_COMMANDS.contains(&name), "{name:?} is still offered");
+    }
+    for name in [
+      resources::IDC_SPELLCHECK_SUGGESTION_0,
+      resources::IDC_SPELLCHECK_ADD_TO_DICTIONARY,
+      resources::IDC_SPELLCHECK_REMOVE_FROM_DICTIONARY,
+      resources::IDC_CHECK_SPELLING_WHILE_TYPING,
+    ] {
+      assert!(!BROWSER_ONLY_COMMANDS.contains(&name), "{name:?} dropped");
     }
   }
 

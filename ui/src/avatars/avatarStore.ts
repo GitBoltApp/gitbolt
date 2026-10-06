@@ -107,8 +107,10 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number, na
   const images = new Map<string, AvatarImage>();
   /** Queued or in flight, with the load that settles it. */
   const pending = new Map<string, Promise<AvatarImage | null>>();
-  /** Known to have no avatar (or its request failed): not asked again this session. */
+  /** Known to have no avatar (or its request failed) for the tab that asked: not asked again
+   * this session from that tab. Another repo's tab asks again: only its own forge is asked. */
   const none = new Set<string>();
+  const noneKey = (key: string, repo: number | undefined) => `${repo !== undefined && repo >= 0 ? repo : ''}\u0000${key}`;
   /** The tab that last asked for each key (an open repo's id). */
   const repos = new Map<string, number>();
   /** The name each key was last asked with (the backend's last look: a forge user by name). */
@@ -133,10 +135,10 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number, na
     version++;
     for (const l of listeners) l();
   };
-  const known = (key: string) => images.has(key) || none.has(key);
+  const known = (key: string, repo: number | undefined) => images.has(key) || none.has(noneKey(key, repo));
   // Follows the loader's promise for `key`. Keyed by identity: a dropped job's rejection lands a
   // microtask later, possibly after a new load for the same key has started.
-  const track = (key: string, p: Promise<AvatarImage | null>) => {
+  const track = (key: string, p: Promise<AvatarImage | null>, repo: number | undefined) => {
     if (pending.get(key) === p) return;
     pending.set(key, p);
     const settled = () => {
@@ -149,7 +151,7 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number, na
         // A result is kept even if a newer load for the key started meanwhile (never leaked).
         settled();
         if (!img) {
-          if (!images.has(key)) none.add(key);
+          if (!images.has(key)) none.add(noneKey(key, repo));
           return;
         }
         const prev = images.get(key);
@@ -166,7 +168,7 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number, na
       (e: unknown) => {
         if (!settled()) return;
         // Dropped before it started: forget it, so it's asked for again when it's back on screen.
-        if (!(e instanceof DroppedError)) none.add(key);
+        if (!(e instanceof DroppedError)) none.add(noneKey(key, repo));
       },
     );
   };
@@ -182,28 +184,28 @@ export function createAvatarStore(fetchAvatar: (email: string, repo?: number, na
     },
     request(email, repo, name) {
       const key = keyOf(email);
-      if (!key || known(key)) return;
+      if (!key || known(key, repo)) return;
       noteRepo(key, repo, name);
       // Already queued as a visible-rows prefetch: `get` promotes it, so it's never dropped.
-      track(key, loader.get(key));
+      track(key, loader.get(key), repo);
     },
     prefetchOne(email, repo, name) {
       const key = keyOf(email);
-      if (!key || known(key) || pending.has(key)) return;
+      if (!key || known(key, repo) || pending.has(key)) return;
       noteRepo(key, repo, name);
-      track(key, loader.get(key, 'prefetch'));
+      track(key, loader.get(key, 'prefetch'), repo);
     },
     requestVisible(emails, repo, byEmail) {
       const wanted = new Set<string>();
       for (const email of emails) {
         const k = keyOf(email);
-        if (!k || known(k)) continue;
+        if (!k || known(k, repo)) continue;
         wanted.add(k);
         noteRepo(k, repo, byEmail?.get(email));
       }
       const keys = [...wanted];
       loader.prefetch(keys);
-      for (const k of keys) track(k, loader.get(k, 'prefetch'));
+      for (const k of keys) track(k, loader.get(k, 'prefetch'), repo);
     },
     subscribe(listener) {
       listeners.add(listener);

@@ -276,7 +276,7 @@ test.describe('commit details', () => {
       // Ink rows (device px) of the badge's columns (anything off the background) and the hash's
       // (bright text), decoded in the page.
       const ink = await page.evaluate(async ({ png, cols }) => {
-        const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+        const img = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], { type: 'image/png' }));
         const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!;
         ctx.drawImage(img, 0, 0);
         const { data, width, height } = ctx.getImageData(0, 0, img.width, img.height);

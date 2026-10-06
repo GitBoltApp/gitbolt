@@ -491,6 +491,7 @@ pub struct Cef {
   certificate_errors: CertificateErrorPolicy,
   sandbox: SandboxPolicy,
   downgrade: DowngradePolicy,
+  bundled_dictionaries: Vec<PathBuf>,
   settings_callback: Option<Box<SettingsCallback>>,
 }
 
@@ -529,6 +530,7 @@ impl fmt::Debug for Cef {
       .field("certificate_errors", &self.certificate_errors)
       .field("sandbox", &self.sandbox)
       .field("downgrade", &self.downgrade)
+      .field("bundled_dictionaries", &self.bundled_dictionaries)
       .field("settings_callback", &self.settings_callback.is_some())
       .finish()
   }
@@ -1020,6 +1022,21 @@ impl Cef {
       "safebrowsing.enabled".to_string(),
       serde_json::Value::Bool(enabled),
     ));
+    self
+  }
+
+  /// A spell-check dictionary the application ships (GitBolt patch), in Chromium's own
+  /// `.bdic` format and named as Chromium names it (`en-US-10-1.bdic`).
+  ///
+  /// Chromium reads dictionaries from `Dictionaries/` in [`Self::root_cache_path`] and
+  /// downloads a missing one from Google. The runtime copies this file there before CEF
+  /// starts, when it is missing or differs, so spell check works without that download. Which
+  /// languages are checked is the `spellcheck.dictionaries` profile preference
+  /// ([`Self::profile_preference_value`]). A file that can't be read or copied is logged
+  /// and skipped.
+  #[must_use]
+  pub fn bundled_dictionary<P: Into<PathBuf>>(mut self, file: P) -> Self {
+    self.bundled_dictionaries.push(file.into());
     self
   }
 
@@ -2957,6 +2974,7 @@ impl<T: UserEvent> CefRuntime<T> {
       certificate_errors,
       sandbox: sandbox_policy,
       downgrade: downgrade_policy,
+      bundled_dictionaries,
       settings_callback,
       // Already applied, above, before the first CEF call.
       api_version: _,
@@ -3150,6 +3168,23 @@ impl<T: UserEvent> CefRuntime<T> {
     // becomes of such a profile, is the `downgrade` module; it must run before the first
     // CEF call that opens anything in the directory, which is `cef::initialize` below.
     crate::downgrade::prepare_root_cache_path(&cache_path, downgrade_policy);
+    // GitBolt patch: after the downgrade handling above (which may move the profile aside)
+    // and before `cef::initialize`, which starts the spell checker.
+    for dictionary in &bundled_dictionaries {
+      let dir = cache_path.join(crate::dictionaries::DIR);
+      match crate::dictionaries::install(dictionary, &dir) {
+        Ok(done) => log::debug!(
+          "spell-check dictionary {}: {done:?} in {}",
+          dictionary.display(),
+          dir.display()
+        ),
+        Err(e) => log::warn!(
+          "spell-check dictionary {} not installed in {}: {e}",
+          dictionary.display(),
+          dir.display()
+        ),
+      }
+    }
 
     // Force X11 usage on Linux.
     //
@@ -3734,6 +3769,23 @@ mod configuration_tests {
         .any(|(name, value)| name == "browser.enable_spellchecking"
           && value == &serde_json::json!(false))
     );
+  }
+
+  #[test]
+  fn bundled_dictionaries_are_kept_in_order() {
+    // GitBolt patch: copied into `<root cache path>/Dictionaries` at startup (dictionaries.rs).
+    assert!(Cef::default().bundled_dictionaries.is_empty());
+    let cef = Cef::default()
+      .bundled_dictionary("/opt/app/dictionaries/en-US-10-1.bdic")
+      .bundled_dictionary("/opt/app/dictionaries/fr-FR-3-0.bdic");
+    assert_eq!(
+      cef.bundled_dictionaries,
+      vec![
+        PathBuf::from("/opt/app/dictionaries/en-US-10-1.bdic"),
+        PathBuf::from("/opt/app/dictionaries/fr-FR-3-0.bdic")
+      ]
+    );
+    assert!(format!("{cef:?}").contains("en-US-10-1.bdic"));
   }
 
   #[test]

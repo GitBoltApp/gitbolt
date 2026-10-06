@@ -266,4 +266,29 @@ nothing. `cargo test -p tauri-runtime-cef`. The application-level wiring is exer
 `cargo build -p gitbolt-app` (the `.component_updates(false)` call in `main.rs` only compiles if
 the method still exists with this signature).
 
+## Spell-check dictionaries the application ships
+
+**Problem:** Chromium downloads its Hunspell dictionary (`en-US-10-1.bdic`) from
+`redirector.gvt1.com` into `Dictionaries/` in the user data directory. GitBolt's Chromium
+resolves no host name but `localhost`, so that download fails and text fields had no spell
+check.
+
+**Fix:** `Cef::bundled_dictionary(path)` (`src/runtime.rs`) records a `.bdic` file the
+application ships, and the runtime copies it into `<root cache path>/Dictionaries/` right after
+`prepare_root_cache_path` (so after a downgrade reset) and before `cef::initialize`, when it is
+missing or its content differs (`src/dictionaries.rs`, new: a temporary file renamed into place;
+an identical file is not rewritten). A file that can't be read or copied is logged and skipped.
+Which languages are checked stays a profile preference (`spellcheck.dictionaries`, set by
+`gitbolt-app`). The context menu also drops "Use enhanced spell check"
+(`IDC_CONTENT_CONTEXT_SPELLING_TOGGLE`, Google's spelling service) and "Language settings"
+(`IDC_CONTENT_CONTEXT_LANGUAGE_SETTINGS`, a `chrome://settings` tab); the suggestions and
+add-to-dictionary stay.
+
+Files: `src/dictionaries.rs` (new), `src/lib.rs` (`mod dictionaries;`), `src/runtime.rs` (the
+`bundled_dictionaries` field, its `Debug` entry, the builder method, the install loop),
+`src/cef_impl/client/context_menu.rs` (two names). Tests: `cargo test -p tauri-runtime-cef --lib
+dictionaries` (a missing, the same or a different dictionary; a missing bundled file),
+`configuration_tests::bundled_dictionaries_are_kept_in_order`, and
+`context_menu::tests::spelling_suggestions_stay_and_googles_spelling_service_goes`.
+
 No other files differ from the published 3.0.0-alpha.4 crate.

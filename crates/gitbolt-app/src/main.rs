@@ -15,6 +15,7 @@ use gitbolt_core::settings::SettingsStore;
 use gitbolt_core::shellenv::ShellEnv;
 use gitbolt_core::openers::{detect_system, spawn_detached_with, system_url_opener, ChildEnvHook, LaunchCommand, Launcher};
 use gitbolt_forge::gravatar::{Gravatar, DEFAULT_BASE_URL};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use tauri::{Emitter, WebviewWindowBuilder};
 use tauri_runtime_cef::Cef;
@@ -27,6 +28,12 @@ mod window_state;
 async fn api(state: tauri::State<'_, Arc<Api>>, req: Request) -> Result<serde_json::Value, GbError> {
     state.dispatch(req).await
 }
+
+// A release build of the app never contains the test-only API. `gitbolt-core`'s `testing`
+// feature is the harness's, but a `cargo build --workspace --release` would unify it into this
+// crate too: that build fails here instead of producing a binary with `/test/*` routes. Debug
+// workspace builds (clippy, tests) are unaffected, and `just package` builds this crate alone.
+const _: () = assert!(cfg!(debug_assertions) || !gitbolt_core::TESTING, "gitbolt-core's `testing` feature is on in a release build of gitbolt-app: build it alone (`cargo build -p gitbolt-app --release`, or `just package`)");
 
 /// The app's `Api`: links open in the default browser, "Open in…" launches the editors and file
 /// manager found on this machine (detached, argv only), and avatars come from Gravatar with a
@@ -137,6 +144,19 @@ fn bring_to_front<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     }
 }
 
+/// The spell-check dictionary: Chromium's own en-US one, under the name Chromium 152 looks for
+/// (docs/licensing.md has its source and license).
+const DICTIONARY: &str = "en-US-10-1.bdic";
+
+/// Where the dictionary is: `dictionaries/` beside the binary, where the packages install it
+/// (`/usr/share/GitBolt/dictionaries/`, tauri.conf.json), or, in a debug build, this crate's
+/// copy. None (a release build run from `target/`) leaves Chromium without one: no spell check.
+fn bundled_dictionary(exe_dir: Option<&Path>) -> Option<PathBuf> {
+    let beside = exe_dir.map(|dir| dir.join("dictionaries").join(DICTIONARY));
+    let ours = cfg!(debug_assertions).then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("dictionaries").join(DICTIONARY));
+    beside.into_iter().chain(ours).find(|path| path.is_file())
+}
+
 /// Every CEF app is also its own renderer/GPU/utility process: this attribute runs the helper
 /// side for any process Chromium launched with `--type=` and returns before the Tauri app is
 /// built (required by `tauri-runtime-cef`; see its `examples/cef/src-tauri/src/main.rs`).
@@ -144,7 +164,40 @@ fn bring_to_front<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
 fn cef_runtime() -> Cef {
     let cef = Cef::default()
         .profile_preference("settings.a11y.caretbrowsing.enabled", false)
-        .component_updates(false);
+        .component_updates(false)
+        // No Chromium requests to Google services (PRIVACY.md, "The embedded Chromium", lists
+        // what an idle run sent before these). The webview only loads the app's own bundle and
+        // never navigates, so none of them takes anything it uses.
+        .command_line_arg("--disable-background-networking", None::<String>)
+        .safe_browsing(false)
+        // No preconnects or DNS prefetches (they reached a local server on port 80 for
+        // `tauri.localhost`).
+        .profile_preference_value("net.network_prediction_options", 2)
+        .disable_features([
+            // The secure-time queries (clients2.google.com/time).
+            "NetworkTimeServiceQuerying",
+            // The Translate ranker's model download (www.gstatic.com).
+            "TranslateRankerQuery",
+            "TranslateRankerEnforcement",
+        ])
+        // Chromium itself resolves no host name but `localhost` (the dev server), so whatever
+        // else it would fetch on its own fails before any DNS query or connection: the spelling
+        // dictionary (redirector.gvt1.com), Google account sign-in (accounts.google.com), the
+        // omnibox's AI Mode check (www.google.com), which no preference turned off. The UI needs
+        // no network: its bundle and IPC are custom schemes, and every remote image, avatar and
+        // forge request goes through the Rust core, whose own network is untouched.
+        .command_line_arg("--host-resolver-rules", Some("MAP * ~NOTFOUND, EXCLUDE localhost"))
+        // Spell check, offline: English (US) only, from the dictionary the packages ship, which
+        // the runtime copies into the profile's `Dictionaries/` before Chromium would download
+        // it. "Enhanced" spell check (Google's spelling service) stays off.
+        .profile_preference("browser.enable_spellchecking", true)
+        .profile_preference_value("spellcheck.dictionaries", vec!["en-US"])
+        .profile_preference("spellcheck.use_spelling_service", false);
+    let exe = std::env::current_exe().ok();
+    let cef = match bundled_dictionary(exe.as_deref().and_then(Path::parent)) {
+        Some(dictionary) => cef.bundled_dictionary(dictionary),
+        None => cef,
+    };
     // Never run Chromium unsandboxed (spec §18). `Auto` drops the sandbox, with only a warning,
     // in an AppImage on a system with neither the setuid helper nor unprivileged user
     // namespaces; `Required` refuses to start there instead. This runtime can't sandbox Windows
@@ -398,6 +451,62 @@ mod tests {
         assert!(matches!(first, Ok(Claim::Primary(_))));
         drop(first);
         let _ = std::fs::remove_dir_all(&rt);
+    }
+
+    /// The embedded Chromium makes no requests to Google services of its own: what an idle run
+    /// sent (secure time, the Translate ranker, preconnects) is off, it resolves no host name but
+    /// `localhost` (which stops the spelling dictionary, account sign-in and AI Mode checks), and
+    /// component updates, background networking and Safe Browsing are off. The webview only
+    /// loads the app's own bundle.
+    #[test]
+    fn chromium_requests_to_google_services_are_off() {
+        let cef = format!("{:?}", cef_runtime());
+        for switch in ["\"--disable-component-update\", None", "\"--disable-background-networking\", None", "\"--host-resolver-rules\", Some(\"MAP * ~NOTFOUND, EXCLUDE localhost\")"] {
+            assert!(cef.contains(switch), "{switch} in {cef}");
+        }
+        for pref in ["(\"safebrowsing.enabled\", Bool(false))", "(\"net.network_prediction_options\", Number(2))"] {
+            assert!(cef.contains(pref), "{pref} in {cef}");
+        }
+        for feature in ["NetworkTimeServiceQuerying", "TranslateRankerQuery", "TranslateRankerEnforcement"] {
+            assert!(cef.contains(&format!("\"{feature}\"")), "{feature} in {cef}");
+        }
+    }
+
+    /// Spell check works offline: the bundled en-US dictionary goes where Chromium looks for it
+    /// (the runtime copies it before CEF starts), en-US is the language checked, and Chromium's
+    /// "enhanced" spell check, which sends the text to Google, stays off.
+    #[test]
+    fn spell_check_uses_the_bundled_english_dictionary() {
+        let cef = format!("{:?}", cef_runtime());
+        let ours = Path::new(env!("CARGO_MANIFEST_DIR")).join("dictionaries").join(DICTIONARY);
+        assert!(cef.contains(&format!("bundled_dictionaries: [{:?}]", ours)), "{ours:?} in {cef}");
+        for pref in ["(\"spellcheck.dictionaries\", Array [String(\"en-US\")])", "(\"browser.enable_spellchecking\", Bool(true))", "(\"spellcheck.use_spelling_service\", Bool(false))"] {
+            assert!(cef.contains(pref), "{pref} in {cef}");
+        }
+    }
+
+    /// The file Chromium 152 asks for (`spellcheck_common.cc`: en-US is version 10-1), in its
+    /// `.bdic` format.
+    #[test]
+    fn the_bundled_dictionary_is_chromiums_en_us_bdic() {
+        assert_eq!(DICTIONARY, "en-US-10-1.bdic");
+        let bytes = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("dictionaries").join(DICTIONARY)).unwrap();
+        assert_eq!(&bytes[..4], b"BDic");
+    }
+
+    /// The packages put it in `dictionaries/` beside the binary (tauri.conf.json); a debug build
+    /// falls back to this crate's copy, so `just dev` checks spelling too.
+    #[test]
+    fn the_dictionary_beside_the_binary_comes_first() {
+        let dir = std::env::temp_dir().join(format!("gitbolt-app-dictionary-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("dictionaries")).unwrap();
+        let ours = Path::new(env!("CARGO_MANIFEST_DIR")).join("dictionaries").join(DICTIONARY);
+        assert_eq!(bundled_dictionary(Some(&dir)), Some(ours.clone()), "none beside it: this crate's copy");
+        assert_eq!(bundled_dictionary(None), Some(ours));
+        std::fs::write(dir.join("dictionaries").join(DICTIONARY), b"BDic").unwrap();
+        assert_eq!(bundled_dictionary(Some(&dir)), Some(dir.join("dictionaries").join(DICTIONARY)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// I2 regression: `OpenUrl` must go through `child_env`, the same hook an opener launch

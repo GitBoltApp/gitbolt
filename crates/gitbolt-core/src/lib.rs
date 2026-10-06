@@ -50,3 +50,8 @@ pub mod write;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
+
+/// Whether this build has the test-only API (the `testing` feature: `/test/*` routes, fixture
+/// repositories). Only the harness turns it on, but a `cargo build --workspace` unifies it into
+/// every crate there, `gitbolt-app` included; the app refuses to compile a release build with it.
+pub const TESTING: bool = cfg!(feature = "testing");

@@ -7,7 +7,20 @@ import { harnessHttp } from './fixtures';
  * profiles and recorded launches (POST /test/reset; later also tabs and watchers), so tests
  * never see each other's state.
  */
-export const test = base.extend<{ resetHarness: void; isolatedContext: boolean; _combinedContextOptions: BrowserContextOptions }, { contextPool: Map<string, BrowserContext> }>({
+/** The console line each Content Security Policy violation logs (`reportCspViolations`). */
+const CSP_VIOLATION = '[csp-violation]';
+
+/** Every page of `context` logs each Content Security Policy violation to its console. The e2e
+ * build runs under the app's policy (vite.config.ts), so any request or script it blocks shows. */
+async function reportCspViolations(context: BrowserContext) {
+  await context.addInitScript((tag) => {
+    document.addEventListener('securitypolicyviolation', (e) => {
+      console.warn(`${tag} ${e.effectiveDirective} blocked ${e.blockedURI || '(inline)'} at ${e.sourceFile || '?'}:${e.lineNumber}`);
+    });
+  }, CSP_VIOLATION);
+}
+
+export const test = base.extend<{ resetHarness: void; isolatedContext: boolean; cspViolationsAllowed: boolean; cspGuard: void; _combinedContextOptions: BrowserContextOptions }, { contextPool: Map<string, BrowserContext> }>({
   resetHarness: [async ({ request }, use) => {
     const res = await request.post(`${harnessHttp}/test/reset`);
     expect(res.ok()).toBe(true);
@@ -31,6 +44,7 @@ export const test = base.extend<{ resetHarness: void; isolatedContext: boolean; 
   context: async ({ browser, contextPool, isolatedContext, _combinedContextOptions }, use) => {
     if (isolatedContext || process.env.GITBOLT_E2E_FRESH_CONTEXT) {
       const fresh = await browser.newContext(_combinedContextOptions);
+      await reportCspViolations(fresh);
       await use(fresh);
       await fresh.close();
       return;
@@ -39,6 +53,7 @@ export const test = base.extend<{ resetHarness: void; isolatedContext: boolean; 
     let context = contextPool.get(key);
     if (!context) {
       context = await browser.newContext(_combinedContextOptions);
+      await reportCspViolations(context);
       await context.addInitScript(() => {
         try {
           if (window !== window.top || location.protocol === 'about:' || sessionStorage.getItem('__gbE2eTab')) return;
@@ -54,6 +69,18 @@ export const test = base.extend<{ resetHarness: void; isolatedContext: boolean; 
     await use(context);
     await Promise.all(context.pages().map((p) => p.close()));
   },
+  // Every test fails on a Content Security Policy violation, unless it provokes one on purpose.
+  cspViolationsAllowed: [false, { option: true }],
+  cspGuard: [async ({ context, cspViolationsAllowed }, use) => {
+    const violations: string[] = [];
+    const seen = (m: import('@playwright/test').ConsoleMessage) => {
+      if (m.text().startsWith(CSP_VIOLATION)) violations.push(m.text());
+    };
+    context.on('console', seen);
+    await use();
+    context.off('console', seen);
+    if (!cspViolationsAllowed) expect(violations, 'Content Security Policy violations').toEqual([]);
+  }, { auto: true }],
 });
 
 /** `expect.poll`'s retry intervals unless a call names its own: Playwright's default backs off to

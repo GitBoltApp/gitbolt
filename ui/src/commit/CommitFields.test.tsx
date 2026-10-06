@@ -13,6 +13,11 @@ const summary = () => screen.getByRole('textbox', { name: 'Commit summary' }) as
 const description = () => screen.getByRole('textbox', { name: 'Commit description' }) as HTMLTextAreaElement;
 
 describe('the commit fields (spec #2 §8.1)', () => {
+  it('spell-checks the message (the bundled en-US dictionary)', () => {
+    render(<Harness />);
+    expect([summary().getAttribute('spellcheck'), description().getAttribute('spellcheck')]).toEqual(['true', 'true']);
+  });
+
   it('Enter or ↓ in the summary moves to the description, caret at its start', () => {
     render(<Harness />);
     summary().focus();

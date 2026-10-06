@@ -57,6 +57,25 @@ describe('avatar store', () => {
     expect(Object.fromEntries(fetch.mock.calls.map((c) => [c[0], c[1]]))).toEqual({ 'ada@example.com': 3, 'grace@example.com': 4, 'linus@example.com': undefined });
   });
 
+  it('a "no avatar" answer holds for the tab that asked: another repo asks again (only its own forge is asked)', async () => {
+    const fetch = vi.fn(async (_email: string, repo?: number) => (repo === 4 ? png : null));
+    const avatars = createAvatarStore(fetch);
+    avatars.request('ada@example.com', 3);
+    await flush();
+    await flush();
+    avatars.request('ada@example.com', 3);
+    avatars.requestVisible(['ada@example.com'], 3);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    avatars.request('ada@example.com', 4);
+    await flush();
+    await flush();
+    expect(fetch.mock.calls.map((c) => c[1])).toEqual([3, 4]);
+    expect(avatars.get('ada@example.com')).not.toBeNull();
+    // Found once: every tab shows it, nothing is asked again.
+    avatars.request('ada@example.com', 5);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("passes the person's name along (the backend's last look: a forge user by that name)", async () => {
     const fetch = vi.fn(async (_email: string, _repo?: number, _name?: string) => null);
     const avatars = createAvatarStore(fetch);

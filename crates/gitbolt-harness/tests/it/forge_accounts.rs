@@ -36,7 +36,7 @@ async fn an_account_added_through_the_api_maps_remotes_lists_forks_and_serves_av
     assert_eq!(forks["forks"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect::<Vec<_>>(), ["alice/project", "ada/project"]);
     let settings = call(&api, json!({"method": "forgeProjectSettings", "params": {"repo": id, "remote": "origin"}})).await.unwrap();
     assert_eq!(settings["squash"], "defaultOff");
-    let avatar = call(&api, json!({"method": "avatar", "params": {"email": "ada@example.com"}})).await.unwrap();
+    let avatar = call(&api, json!({"method": "avatar", "params": {"email": "ada@example.com", "repo": id}})).await.unwrap();
     assert_eq!(avatar["mime"], "image/png");
 
     let log = serde_json::to_string(&h.forge.requests()).unwrap();
@@ -103,7 +103,7 @@ async fn a_github_repos_commit_author_gets_the_linked_accounts_picture() {
     assert_eq!(avatar(Some(gh_id), LINKED_AUTHOR_EMAIL).await.unwrap()["mime"], "image/png");
     assert_eq!(author_lookups(&h), 1);
     assert!(!avatar(Some(gh_id), LINKED_AUTHOR_EMAIL).await.unwrap().is_null());
-    assert!(!avatar(None, LINKED_AUTHOR_EMAIL).await.unwrap().is_null(), "learned: any tab has it now");
+    assert!(avatar(None, LINKED_AUTHOR_EMAIL).await.unwrap().is_null(), "no tab: no forge is asked, not even its cache");
     assert!(avatar(Some(gh_id), UNLINKED_AUTHOR_EMAIL).await.unwrap().is_null());
     assert!(avatar(Some(gh_id), UNLINKED_AUTHOR_EMAIL).await.unwrap().is_null());
     assert_eq!(author_lookups(&h), 2, "each email once");
@@ -111,3 +111,31 @@ async fn a_github_repos_commit_author_gets_the_linked_accounts_picture() {
     assert!(!log.contains("search") && !log.contains(GITHUB_TOKEN));
 }
 // --- end GitHub commit-author avatars ---
+
+/// A commit author's email goes only to the forge hosting the tab's repo: a GitHub repo's author
+/// is never looked up on the profile's GitLab account, and a GitLab repo's never on GitHub.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_authors_email_never_reaches_a_forge_that_doesnt_host_the_repo() {
+    let h = Harness::for_tests().await;
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "github.com", "kind": "github", "token": GITHUB_TOKEN}})).await.unwrap();
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": GITLAB_TOKEN}})).await.unwrap();
+    let open = |r: &TestRepo| {
+        let path = r.path().to_path_buf();
+        let api = h.api.clone();
+        async move { call(&api, json!({"method": "openRepo", "params": {"path": path}})).await.unwrap()["id"].as_u64().unwrap() }
+    };
+    let gh = repo_with_origin("https://github.com/octo-org/widget.git");
+    let gl = repo_with_origin("https://gitlab.example.com/group/project.git");
+    let (gh_id, gl_id) = (open(&gh).await, open(&gl).await);
+    let email = "grace@example.com";
+    let mentions = |forge: &str| h.forge.requests().iter().filter(|r| r.forge == forge && (r.query.contains("grace") || r.path.contains("grace"))).count();
+
+    call(&h.api, json!({"method": "avatar", "params": {"email": email, "repo": gh_id, "name": "Grace Hopper"}})).await.unwrap();
+    assert_eq!(mentions("gitlab"), 0, "a GitHub repo's author never goes to GitLab");
+    assert!(mentions("github") > 0, "the repo's own forge is asked");
+
+    call(&h.api, json!({"method": "avatar", "params": {"email": "grace2@example.com", "repo": gl_id, "name": "Grace Two"}})).await.unwrap();
+    let github = h.forge.requests().iter().filter(|r| r.forge == "github" && r.query.contains("grace2")).count();
+    assert_eq!(github, 0, "a GitLab repo's author never goes to GitHub");
+    assert!(h.forge.requests().iter().any(|r| r.forge == "gitlab" && r.query.contains("grace2")), "the repo's own forge is asked");
+}

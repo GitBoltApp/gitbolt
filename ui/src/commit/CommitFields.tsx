@@ -59,7 +59,7 @@ export function CommitFields({ value, onChange, onSubmit, onEscape, disabled = f
           type="text"
           aria-label="Commit summary"
           placeholder="Summary"
-          spellCheck={false}
+          spellCheck
           autoComplete="off"
           autoFocus={autoFocus}
           disabled={disabled}
@@ -75,7 +75,7 @@ export function CommitFields({ value, onChange, onSubmit, onEscape, disabled = f
         className="commit-description"
         aria-label="Commit description"
         placeholder="Description"
-        spellCheck={false}
+        spellCheck
         disabled={disabled}
         value={value.description}
         onChange={(e) => onChange({ ...value, description: e.target.value })}

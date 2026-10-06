@@ -176,11 +176,13 @@ async fn the_graphs_author_avatar_comes_by_name_after_the_mr_list_or_a_search() 
     assert!(avatar(EMAIL, None).await.unwrap().is_null(), "no name: no name step");
     assert_eq!(avatar(EMAIL, Some(NAME)).await.unwrap()["mime"], "image/png");
     assert!(searches(&h.forge).is_empty(), "learned from the MR list");
-    // Asked again (any tab, with or without the name): no lookup by email or name again.
+    // Asked again (with or without the name): no lookup by email or name again. Outside a tab no
+    // forge is asked at all.
     let lookups = |f: &FakeForge| f.requests().iter().filter(|r| r.path == "/api/v4/avatar" || r.path == "/api/v4/users").count();
     let before = lookups(&h.forge);
     assert_eq!(avatar(EMAIL, Some(NAME)).await.unwrap()["mime"], "image/png");
-    assert_eq!(call(&h.api, json!({"method": "avatar", "params": {"email": EMAIL}})).await.unwrap()["mime"], "image/png");
+    assert_eq!(avatar(EMAIL, None).await.unwrap()["mime"], "image/png");
+    assert!(call(&h.api, json!({"method": "avatar", "params": {"email": EMAIL}})).await.unwrap().is_null());
     assert_eq!(lookups(&h.forge), before);
 
     // An author no MR names: one search by name.
