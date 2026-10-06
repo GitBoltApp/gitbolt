@@ -5,7 +5,7 @@ import { whenIdle } from './idle';
 import { chunkHeightOf } from './chunks';
 import { DEFAULT_MAX_BYTES, overBytes, RENDERING_NOTE_CHARS, SYNC_PARSE_CHARS } from './limits';
 import { parseMarkdown, peekParsed } from './parse';
-import { chunkStream } from './parseAsync';
+import { chunkStream, type ChunkStream } from './parseAsync';
 import { PlainBody } from './PlainBody';
 import { renderTree } from './render';
 import type { MarkdownContext, MarkdownProps, MdFlavor } from './types';
@@ -22,7 +22,7 @@ function Failed({ text, className }: { text: string; className: string }) {
 const FAILED = '\0failed';
 
 /** One body's error boundary: a throw shows that body as plain text; the next text tries again. */
-class Boundary extends Component<{ text: string; className: string; children: ReactNode }, { failedText: string | null }> {
+export class Boundary extends Component<{ text: string; className: string; children: ReactNode }, { failedText: string | null }> {
   state = { failedText: null as string | null };
   static getDerivedStateFromError() { return { failedText: FAILED }; }
   componentDidCatch(error: Error, _info: ErrorInfo) {
@@ -35,28 +35,32 @@ class Boundary extends Component<{ text: string; className: string; children: Re
   }
 }
 
-/** A small or cached body, rendered whole in the first paint. */
-function Whole({ tree, context, className }: { tree: Root; context: MarkdownContext; className: string }) {
+const oldKey = (old: MarkdownContext | undefined) => (old ? contextKey(old) : '');
+
+/** A small or cached body, rendered whole in the first paint. `old` (5C): a rendered diff's old
+ * side, which its removed parts resolve against. */
+export function Whole({ tree, context, old, className }: { tree: Root; context: MarkdownContext; old?: MarkdownContext; className: string }) {
   const ctxKey = contextKey(context);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the context's value
-  const body = useMemo(() => renderTree(tree, context), [tree, ctxKey]);
+  const was = oldKey(old);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the contexts' values
+  const body = useMemo(() => renderTree(tree, context, old ? { old } : undefined), [tree, ctxKey, was]);
   return <div className={className}>{body}</div>;
 }
 
 /** One chunk of a large document: converted once, never re-rendered by the next chunk's arrival.
  * Until the browser lays it out, it holds a height estimated from its source length. */
-const Chunk = memo(function Chunk({ tree, context }: { tree: Root; context: MarkdownContext }) {
+const Chunk = memo(function Chunk({ tree, context, old }: { tree: Root; context: MarkdownContext; old?: MarkdownContext }) {
   const ctxKey = contextKey(context);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the context's value
-  const body = useMemo(() => renderTree(tree, context), [tree, ctxKey]);
+  const was = oldKey(old);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the contexts' values
+  const body = useMemo(() => renderTree(tree, context, old ? { old } : undefined), [tree, ctxKey, was]);
   return <div className="md-chunk" style={{ containIntrinsicSize: `auto ${chunkHeightOf(tree)}px` }}>{body}</div>;
-}, (a, b) => a.tree === b.tree && contextKey(a.context) === contextKey(b.context));
+}, (a, b) => a.tree === b.tree && contextKey(a.context) === contextKey(b.context) && oldKey(a.old) === oldKey(b.old));
 
-/** A large body (ruling 21): parsed in the worker, then one more chunk per idle callback. Its
- * text (or "Rendering…") holds the place until the first chunk; "Rendering…" follows the last
- * rendered chunk until the end. */
-function Progressive({ text, flavor, context, className }: { text: string; flavor: MdFlavor; context: MarkdownContext; className: string }) {
-  const stream = useMemo(() => chunkStream(text, flavor), [text, flavor]);
+/** A large body (ruling 21) as `stream` brings it: one more chunk per idle callback. Its text (or
+ * "Rendering…") holds the place until the first chunk; "Rendering…" follows the last rendered
+ * chunk until the end. Shared by `<Markdown>` and (5C) `<MarkdownDiff>`. */
+export function StreamBody({ stream, text, context, old, className }: { stream: ChunkStream; text: string; context: MarkdownContext; old?: MarkdownContext; className: string }) {
   useSyncExternalStore(stream.subscribe, () => stream.version);
   const [count, setCount] = useState(0);
   const total = stream.chunks.length;
@@ -71,10 +75,15 @@ function Progressive({ text, flavor, context, className }: { text: string; flavo
   if (shown === 0) return text.length > RENDERING_NOTE_CHARS ? <div className={className}><p className="md-rendering">Rendering…</p></div> : <PlainBody text={text} className={className} />;
   return (
     <div className={className}>
-      {stream.chunks.slice(0, shown).map((c, i) => <Chunk key={i} tree={c} context={context} />)}
+      {stream.chunks.slice(0, shown).map((c, i) => <Chunk key={i} tree={c} context={context} old={old} />)}
       {(!stream.done || shown < total) && <p className="md-rendering">Rendering…</p>}
     </div>
   );
+}
+
+function Progressive({ text, flavor, context, className }: { text: string; flavor: MdFlavor; context: MarkdownContext; className: string }) {
+  const stream = useMemo(() => chunkStream(text, flavor), [text, flavor]);
+  return <StreamBody stream={stream} text={text} context={context} className={className} />;
 }
 
 function Rendered({ text, flavor, context, className }: { text: string; flavor: MdFlavor; context: MarkdownContext; className: string }) {

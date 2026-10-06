@@ -3,14 +3,25 @@ import type { ReactNode } from 'react';
 import { useRepoView, type DiffTarget } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useDiffPrefs, type DiffMode } from './diffPrefs';
+import { changeStepper } from './changeStepper';
 import { loadMonacoHost } from './monaco/load';
 
 const MODES: [DiffMode, string][] = [['hunk', 'Hunk'], ['inline', 'Inline'], ['split', 'Split']];
 /** The disabled Inline button's tooltip over a binary (lane K). */
 export const BINARY_MODE_TIP = 'A binary file always shows side by side: hex and text, old and new';
 
-/** Next / previous change in the diff editor (F7 / Shift+F7, the toolbar arrows). */
-export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().then((h) => h.goToChange(dir));
+/** 5C (R3): why the text-diff tools are off while the rendered Markdown diff shows. */
+export const RENDERED_MODE_TIP = 'The rendered diff shows changes in place: pick Source for Hunk, Inline or Split';
+export const RENDERED_WHITESPACE_TIP = "The rendered diff already ignores whitespace that doesn't show";
+export const RENDERED_WRAP_TIP = 'Rendered text always wraps';
+
+/** Next / previous change: the rendered Markdown diff's while it shows (5C, R3), else the diff
+ * editor's (F7 / Shift+F7, the toolbar arrows). */
+export const goToChange = (dir: 'next' | 'previous') => {
+  const step = changeStepper();
+  if (step) step(dir);
+  else void loadMonacoHost().then((h) => h.goToChange(dir));
+};
 
 /**
  * The diff toolbar (spec §10.1), laid out per H9: File View / Diff View centred; on
@@ -26,8 +37,9 @@ export const goToChange = (dir: 'next' | 'previous') => void loadMonacoHost().th
  * (the Inline button says why), and neither do whitespace or wrapping.
  * `markdown`: File View's `Source | Rendered` toggle for a Markdown file (spec #5 §3.3), first in
  * the right group (it grows leftward, so nothing after it moves).
+ * `rendered`: the rendered Markdown diff shows (5C): the view mode, whitespace and wrap stay in place, off, and say why.
  */
-export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, leading, staging, history, markdown }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode; markdown?: ReactNode }) {
+export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, rendered = false, leading, staging, history, markdown }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; rendered?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode; markdown?: ReactNode }) {
   const prefs = useDiffPrefs((s) => s.prefs);
   const setPrefs = useDiffPrefs((s) => s.set);
   const setView = useRepoView((s) => s.setView);
@@ -52,14 +64,14 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary
               <IconButton label="Next change" tip="Next change (F7)" disabled={!canStep} onClick={() => goToChange('next')}><ArrowDown size={14} /></IconButton>
             </div>
             <div className="segmented" role="group" aria-label="View mode">
-              {MODES.map(([m, label]) => binary
+              {MODES.map(([m, label]) => binary || rendered
                 // `aria-disabled`, so the tooltip still shows on hover.
-                ? <HoverTooltip key={m} content={BINARY_MODE_TIP} disabled={m !== 'inline'}><button type="button" aria-pressed={prefs.mode === m} aria-disabled="true">{label}</button></HoverTooltip>
+                ? <HoverTooltip key={m} content={binary ? BINARY_MODE_TIP : RENDERED_MODE_TIP} disabled={binary && m !== 'inline'}><button type="button" aria-pressed={prefs.mode === m} aria-disabled="true">{label}</button></HoverTooltip>
                 : <button key={m} type="button" aria-pressed={prefs.mode === m} disabled={!inDiff} onClick={() => setPrefs({ mode: m })}>{label}</button>)}
             </div>
             <div className="diff-toolbar-group" role="group" aria-label="Display">
-              <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff || binary} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>
-              <IconToggle label="Word wrap" tip="Word wrap" pressed={prefs.wordWrap} disabled={binary} onClick={() => setPrefs({ wordWrap: !prefs.wordWrap })}><WrapText size={14} /></IconToggle>
+              <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff || binary} blockedTip={rendered && !binary ? RENDERED_WHITESPACE_TIP : undefined} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>
+              <IconToggle label="Word wrap" tip="Word wrap" pressed={prefs.wordWrap} disabled={binary} blockedTip={rendered && !binary ? RENDERED_WRAP_TIP : undefined} onClick={() => setPrefs({ wordWrap: !prefs.wordWrap })}><WrapText size={14} /></IconToggle>
             </div>
           </>
         )}
@@ -77,11 +89,13 @@ function IconButton({ label, tip, disabled, onClick, children }: { label: string
   );
 }
 
-/** An icon-only toggle: its name is `label` (for screen readers) and `tip` (a hover tooltip). */
-function IconToggle({ label, tip, pressed, disabled, onClick, children }: { label: string; tip: string; pressed: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
+/** An icon-only toggle: its name is `label` (for screen readers) and `tip` (a hover tooltip).
+ * `blockedTip`: it doesn't apply now (5C); it stays in place, `aria-disabled`, saying why. */
+function IconToggle({ label, tip, pressed, disabled, blockedTip, onClick, children }: { label: string; tip: string; pressed: boolean; disabled?: boolean; blockedTip?: string; onClick: () => void; children: ReactNode }) {
+  const blocked = blockedTip !== undefined;
   return (
-    <HoverTooltip content={tip} disabled={disabled}>
-      <button type="button" className="icon-button toggle-icon" aria-label={label} aria-pressed={pressed} disabled={disabled} onClick={onClick}>{children}</button>
+    <HoverTooltip content={blocked ? blockedTip : tip} disabled={!blocked && disabled}>
+      <button type="button" className="icon-button toggle-icon" aria-label={label} aria-pressed={pressed} disabled={!blocked && disabled} aria-disabled={blocked ? 'true' : undefined} onClick={blocked ? undefined : onClick}>{children}</button>
     </HoverTooltip>
   );
 }

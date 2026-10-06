@@ -23,7 +23,7 @@ const style = (t: { color?: string; fontStyle?: number }): CSSProperties => ({
  * viewport, through the time-sliced queue; plain for an unknown language or a very long block;
  * Copy on hover, over the block. The text is there from the first paint; highlighting only
  * colours it. */
-export function MdCode({ code, lang }: MdCodeProps) {
+export function MdCode({ code, lang, marks }: MdCodeProps) {
   const theme = useTheme((s) => s.id);
   const box = useRef<HTMLDivElement>(null);
   const near = useNearViewport(box);
@@ -37,11 +37,18 @@ export function MdCode({ code, lang }: MdCodeProps) {
     job.result.then((t) => { if (live) setTokens(t); }, () => {});
     return () => { live = false; job.cancel(); };
   }, [code, lang, theme, near]);
-  const copy = () => { copyText(code).then(() => useToast.getState().show('Copied'), () => useToast.getState().show('Copy failed', { error: true })); };
+  // A changed block (5C) copies its new code: the lines that aren't removed.
+  const copied = marks === undefined ? code : code.split('\n').filter((_, i) => marks[i] !== '-').join('\n');
+  const copy = () => { copyText(copied).then(() => useToast.getState().show('Copied'), () => useToast.getState().show('Copy failed', { error: true })); };
+  const lineClass = (m: string | undefined) => (m === '+' ? 'md-code-line md-code-add' : m === '-' ? 'md-code-line md-code-del' : 'md-code-line');
+  const tokenLine = (line: CodeTokens['lines'][number]) => line.map((t, j) => <span key={j} style={style(t)}>{t.content}</span>);
+  const body = marks !== undefined
+    ? (tokens ? tokens.lines.map(tokenLine) : code.split('\n')).map((l, i) => <span key={i} className={lineClass(marks[i])}>{l}</span>)
+    : tokens ? tokens.lines.map((line, i) => <Fragment key={i}>{i > 0 && '\n'}{tokenLine(line)}</Fragment>) : code;
   return (
     <div className="md-code" ref={box}>
       <pre data-lang={lang ?? undefined}>
-        <code>{tokens ? tokens.lines.map((line, i) => <Fragment key={i}>{i > 0 && '\n'}{line.map((t, j) => <span key={j} style={style(t)}>{t.content}</span>)}</Fragment>) : code}</code>
+        <code>{body}</code>
       </pre>
       <HoverTooltip content="Copy">
         <button type="button" className="md-copy" aria-label="Copy code" onClick={(e) => { e.stopPropagation(); copy(); }}><Copy size={12} aria-hidden /></button>

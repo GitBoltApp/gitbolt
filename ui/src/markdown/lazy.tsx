@@ -50,3 +50,7 @@ export const preloadMarkdown = chunk.preload;
 /** The app warms the chunk when idle after the first repository tab shows: the first MR/PR view
  * or `.md` file renders at once, without a plain-text flash. Never part of startup itself. */
 export const preloadMarkdownWhenIdle = chunk.preloadWhenIdle;
+
+/** 5C: the rendered Markdown diff, loaded with the Markdown chunk (it brings jsdiff); the caller's
+ * `Suspense` shows meanwhile. */
+export const MarkdownDiff = lazy(() => import('./diff/MarkdownDiff').then((m) => ({ default: m.MarkdownDiff })));

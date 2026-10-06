@@ -12,7 +12,8 @@ const base = defaultSchema.attributes ?? {};
  * `language-*` on code, no accesskey/tabindex/style or form attributes, `id`/`name` prefixed `user-content-`, links
  * `http(s)`/`mailto`/relative, images also `data:` (narrowed to raster images by
  * `rehypeSafeUrls`), and these stripped with their contents. `data-gb-ref` on `span` carries a
- * reference through (render.tsx checks its nonce). */
+ * reference through, and `data-gb-diff`, `data-gb-lines` and `data-gb-note` (5C) a diff mark (render.tsx checks
+ * their nonce). */
 export const MD_SCHEMA: Schema = {
   ...defaultSchema,
   tagNames: [...new Set([...(defaultSchema.tagNames ?? []), 'details', 'summary', 'kbd', 'sub', 'sup', 'br', 'del', 'ins', 'picture', 'source'])],
@@ -20,9 +21,13 @@ export const MD_SCHEMA: Schema = {
   attributes: {
     ...Object.fromEntries(Object.entries(base).map(([tag, list]) => [tag, without(list, ['className'])])),
     '*': without(base['*'], ['className', 'accessKey', 'tabIndex', 'style', 'action', 'method', 'encType', 'accept', 'acceptCharset']),
-    code: [['className', /^language-[\w+#.-]+$/]],
+    code: [['className', /^language-[\w+#.-]+$/], 'dataGbLines'],
     source: ['srcSet', 'media', 'type'],
-    span: ['dataGbRef'],
+    // `data-gb-*` carry a reference or (5C) a diff mark through; the overrides check their nonce.
+    span: ['dataGbRef', 'dataGbDiff'],
+    div: [...without(base.div, ['className']), 'dataGbDiff', 'dataGbNote'],
+    li: [...without(base.li, ['className']), 'dataGbDiff', 'value'],
+    tr: [...without(base.tr, ['className']), 'dataGbDiff'],
   },
   protocols: { ...defaultSchema.protocols, href: ['http', 'https', 'mailto'], src: ['http', 'https', 'data'] },
   clobberPrefix: 'user-content-',

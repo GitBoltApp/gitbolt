@@ -19,7 +19,7 @@ export const chunkHeightOf = (tree: Root): number => Math.max(40, Math.round((tr
 const BLOCK_TAG = /<(\/?)(details|div|table|blockquote|section|picture|ul|ol|dl|p)\b[^>]*?(\/?)>/gi;
 
 /** The net count of block-level HTML tags a raw HTML node leaves open. */
-function htmlDepth(value: string): number {
+export function htmlDepth(value: string): number {
   let d = 0;
   for (const m of value.matchAll(BLOCK_TAG)) if (m[3] !== '/') d += m[1] ? -1 : 1;
   return d;

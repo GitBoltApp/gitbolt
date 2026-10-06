@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
+import { textKey } from '../util/textHash';
 
 /** Spec #5 §3.3: the extensions File View can show rendered. */
 export const MARKDOWN_EXTENSIONS = ['md', 'markdown', 'mdx'] as const;
@@ -37,4 +38,18 @@ export function useTooLargeToRender(navKey: string | null, text: string): boolea
   const big = useMemo(() => overRenderLimit(text), [text]);
   const slow = useSlowMarkdown((s) => !!s.slow[renderKey(navKey, text)]);
   return big || slow;
+}
+
+/** 5C: a rendered diff's identity for the slow list: its file, and both sides' contents (a
+ * hash, `textKey`: an edit that keeps the length is checked again). */
+export const diffRenderKey = (targetKey: string, old: string, neu: string) => `diff:${targetKey}|${textKey(old)}|${textKey(neu)}`;
+
+/** 5C (R14): whether Diff View shows this Markdown diff as Source with "Too large to render": a
+ * side over RENDER_MAX_BYTES, or a diff that took over PARSE_BUDGET_MS (or gave up) this session.
+ * `key`: its `diffRenderKey`, worked out once per text. */
+export function useDiffTooLarge(targetKey: string, old: string, neu: string): { tooLarge: boolean; key: string } {
+  const big = useMemo(() => overRenderLimit(old) || overRenderLimit(neu), [old, neu]);
+  const key = useMemo(() => diffRenderKey(targetKey, old, neu), [targetKey, old, neu]);
+  const slow = useSlowMarkdown((s) => !!s.slow[key]);
+  return { tooLarge: big || slow, key };
 }

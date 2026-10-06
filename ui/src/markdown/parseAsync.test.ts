@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { splitChunks } from './chunks';
-import { chunkStream, resetChunkStreams } from './parseAsync';
+import { diffChunks } from './diff/diffChunks';
+import { chunkStream, diffChunkStream, resetChunkStreams } from './parseAsync';
 import { parseMarkdown } from './parse';
 import type { MdFlavor } from './types';
 
@@ -8,19 +9,20 @@ const big = Array.from({ length: 30 }, (_, i) => `## Part ${i}\n\n${'word '.repe
 
 /** A worker that answers on the main thread, one message per chunk, each in its own task. */
 class FakeWorker {
-  static sent: Array<{ id: number; text: string; flavor: MdFlavor }> = [];
-  static fail: 'message' | 'crash' | 'hang' | null = null;
+  static sent: Array<{ id: number; kind?: 'diff'; old?: string; text: string; flavor: MdFlavor }> = [];
+  static fail: 'message' | 'crash' | 'hang' | 'tooLarge' | null = null;
   static made: FakeWorker[] = [];
   terminated = false;
   constructor() { FakeWorker.made.push(this); }
   onmessage: ((e: MessageEvent) => void) | null = null;
   onerror: ((e: Event) => void) | null = null;
-  postMessage(m: { id: number; text: string; flavor: MdFlavor }) {
+  postMessage(m: { id: number; kind?: 'diff'; old?: string; text: string; flavor: MdFlavor }) {
     FakeWorker.sent.push(m);
     if (FakeWorker.fail === 'crash') { setTimeout(() => this.onerror?.(new Event('error'))); return; }
     if (FakeWorker.fail === 'hang') return; // a parse that takes for ever
     if (FakeWorker.fail === 'message') { setTimeout(() => this.onmessage?.({ data: { id: m.id, error: 'boom' } } as MessageEvent)); return; }
-    const chunks = splitChunks(parseMarkdown(m.text, m.flavor));
+    if (FakeWorker.fail === 'tooLarge') { setTimeout(() => this.onmessage?.({ data: { id: m.id, error: 'too large', tooLarge: true } } as MessageEvent)); return; }
+    const chunks = m.kind === 'diff' ? diffChunks(m.old!, m.text, m.flavor)! : splitChunks(parseMarkdown(m.text, m.flavor));
     chunks.forEach((chunk, index) => setTimeout(() => this.onmessage?.({ data: { id: m.id, index, chunk, last: index === chunks.length - 1 } } as MessageEvent), index));
   }
   terminate() { this.terminated = true; }
@@ -95,5 +97,57 @@ describe('chunkStream (ruling 21)', () => {
     const none = chunkStream(big, 'gitlab');
     expect(none.done).toBe(false);
     await vi.waitFor(() => expect(none.done).toBe(true));
+  });
+});
+
+describe('diffChunkStream (5C)', () => {
+  const edited = big.replace('Part 3', 'Part three');
+
+  it('diffs two texts off the main thread, one stream per pair, with the change count on the first chunk', async () => {
+    vi.stubGlobal('Worker', FakeWorker);
+    const s = diffChunkStream(big, edited, 'github');
+    await vi.waitFor(() => expect(s.done).toBe(true));
+    expect(FakeWorker.sent.at(-1)).toMatchObject({ kind: 'diff', old: big, text: edited, flavor: 'github' });
+    expect(s.chunks.length).toBeGreaterThan(1);
+    expect(s.chunks[0]!.data?.gbChanges).toBe(1);
+    expect(diffChunkStream(big, edited, 'github')).toBe(s);
+    expect(chunkStream(edited, 'github')).not.toBe(s);
+    // Keyed by a hash of both texts: a same-length edit is another diff.
+    expect(diffChunkStream(big, edited.replace('three', 'THREE'), 'github')).not.toBe(s);
+  });
+
+  it('fails as too large when the alignment gives up', async () => {
+    vi.stubGlobal('Worker', FakeWorker);
+    FakeWorker.fail = 'tooLarge';
+    const s = diffChunkStream(big, edited, 'github');
+    await vi.waitFor(() => expect(s.done).toBe(true));
+    expect(s.failed).toBe(true);
+    expect(s.tooLarge).toBe(true);
+  });
+
+  it('without a worker, diffs in an idle callback on the main thread', async () => {
+    const s = diffChunkStream(big, edited, 'github');
+    await vi.waitFor(() => expect(s.done).toBe(true));
+    expect(s.failed).toBe(false);
+    expect(s.chunks[0]!.data?.gbChanges).toBe(1);
+  });
+
+  it('an abandoned diff terminates its worker like a parse; a diff queued behind it restarts on a fresh one, still a diff', async () => {
+    vi.stubGlobal('Worker', FakeWorker);
+    FakeWorker.fail = 'hang';
+    const s = diffChunkStream(big, edited, 'github');
+    const queued = diffChunkStream(big, `${edited}\n\nqueued`, 'github');
+    const keep = queued.subscribe(() => {});
+    s.subscribe(() => {})();
+    await vi.waitFor(() => expect(FakeWorker.made[0]!.terminated).toBe(true));
+    expect(s.failed).toBe(true);
+    expect(FakeWorker.made).toHaveLength(2);
+    expect(FakeWorker.sent.at(-1)).toMatchObject({ kind: 'diff', old: big, text: `${edited}\n\nqueued` });
+    FakeWorker.fail = null;
+    const next = diffChunkStream(big, edited, 'github');
+    expect(next).not.toBe(s);
+    await vi.waitFor(() => expect(next.done && !next.failed).toBe(true));
+    expect(next.chunks[0]!.data?.gbChanges).toBe(1);
+    keep();
   });
 });

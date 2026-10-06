@@ -52,4 +52,13 @@ describe('MdCode (spec #5 §3.1)', () => {
     expect(copy.copyText).toHaveBeenCalledWith('npm test');
     await waitFor(() => expect(useToast.getState().message).toBe('Copied'));
   });
+
+  it('marks a changed block’s lines (5C), and copies only the new ones', async () => {
+    shiki.highlightCode.mockResolvedValue(null);
+    const { container } = render(<MdCode code={'a = 1\na = 2\nend'} lang="py" marks="-+ " />);
+    const lines = [...container.querySelectorAll('.md-code-line')].map((l) => [l.textContent, l.className]);
+    expect(lines).toEqual([['a = 1', 'md-code-line md-code-del'], ['a = 2', 'md-code-line md-code-add'], ['end', 'md-code-line']]);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+    await waitFor(() => expect(copy.copyText).toHaveBeenCalledWith('a = 2\nend'));
+  });
 });

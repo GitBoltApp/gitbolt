@@ -40,4 +40,12 @@ describe('markdown.css (spec #5 §3.1)', () => {
     expect(rule('.md section[data-footnotes] > h2')).toMatch(/clip-path:\s*inset\(50%\)/);
     expect(rule('.md li:has(> input[type="checkbox"])')).toMatch(/list-style:\s*none/);
   });
+
+  it('marks diff blocks in the left margin without shifting the layout, and pairs diagrams (5C)', () => {
+    expect(rule('.md-diff-block::before')).toMatch(/position:\s*absolute/);
+    expect(rule('.md li[data-diff-mark]::before')).toMatch(/position:\s*absolute/);
+    expect(rule('.md .md-diff-del')).toMatch(/line-through/);
+    expect(rule('.md-diff-pair')).toMatch(/grid-template-columns:\s*1fr 1fr/);
+    expect(rule('.md-code-line')).toMatch(/min-width:\s*100%/);
+  });
 });

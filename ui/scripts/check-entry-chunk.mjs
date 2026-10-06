@@ -21,6 +21,7 @@ const MARKERS = [
   'tableDelimiter', // micromark's GFM table tokens (remark-gfm): the Markdown renderer stays lazy (spec #5 §3.1)
   'dataFootnoteBackref', // hast-util-sanitize's default schema (rehype-sanitize), minified
   'No diagram type detected matching given configuration', // mermaid's core (detectType's error): Mermaid loads on the first diagram (spec #5 §3.1)
+  'u{C0}-', // jsdiff's word tokenizer (the rendered Markdown diff, 5C): lazy
 ];
 
 const html = readFileSync(join(dist, 'index.html'), 'utf8');

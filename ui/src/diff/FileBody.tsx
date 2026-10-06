@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useRepoContext } from '../app/repoContext';
 import { forgeOf } from '../forge/mrStore';
 import { Markdown } from '../markdown/lazy';
@@ -9,7 +9,8 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { useDiffPrefs, type MarkdownView } from './diffPrefs';
 import { FileView } from './FileView';
 import type { MonacoHost } from './monaco/host';
-import { markSlow, PARSE_BUDGET_MS, PRECHECK_BYTES, renderKey, TOO_LARGE_TO_RENDER, useTooLargeToRender } from './markdownFiles';
+import { PRECHECK_BYTES, renderKey, TOO_LARGE_TO_RENDER, useTooLargeToRender } from './markdownFiles';
+import { useParseBudget } from './parseBudget';
 import { loadedHost } from './TextDiff';
 // --- 5B T6: relative links and images in File View's Markdown (registered with the renderer) ---
 import '../markdown/fileLinks';
@@ -71,41 +72,10 @@ export function FileBody({ identity, path, text, language, onShown, editable = f
   const wantsRendered = markdown !== null && picked === 'rendered';
   const tooLarge = useTooLargeToRender(navKey, shownText);
   const rendered = wantsRendered && !tooLarge;
-  // A long file is parsed once, off the main thread (5A's `chunkStream`), timed from the post to
-  // the last chunk, before it renders. The renderer asks `chunkStream` for the same text, so it
-  // reuses these chunks (no second parse). One not done within the budget goes on the slow list
-  // at the budget (a timer races the stream), as does one too large for the main thread (the
-  // worker died); a result that arrives after the file changed is dropped.
+  // §3.1: a long file is parsed once, off the main thread, timed once (`useParseBudget`).
   const key = renderKey(navKey, shownText);
   const needsCheck = rendered && shownText.length > PRECHECK_BYTES;
-  const [checked, setChecked] = useState<string | null>(null);
-  useEffect(() => {
-    if (!needsCheck || checked === key) return;
-    let live = true;
-    let unsub = () => {};
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    void import('../markdown/parseAsync').then(({ chunkStream }) => {
-      if (!live) return;
-      const t0 = performance.now();
-      const stream = chunkStream(shownText, flavor);
-      const finish = (late: boolean) => {
-        unsub(); // a stream left with no subscriber mid-parse is abandoned: its worker stops (parseAsync)
-        clearTimeout(timer);
-        if (!live) return;
-        if (late || stream.tooLarge || (!stream.failed && performance.now() - t0 > PARSE_BUDGET_MS)) markSlow(key);
-        setChecked(key);
-      };
-      if (stream.done) finish(false);
-      else {
-        unsub = stream.subscribe(() => { if (stream.done) finish(false); });
-        // Still parsing at the budget: Source now, not when the parse ends (a 1 MB file with
-        // thousands of lists parses for many seconds).
-        timer = setTimeout(() => finish(true), PARSE_BUDGET_MS);
-      }
-    });
-    return () => { live = false; unsub(); clearTimeout(timer); };
-  }, [needsCheck, checked, key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const waiting = needsCheck && checked !== key;
+  const waiting = useParseBudget(key, needsCheck, () => import('../markdown/parseAsync').then((m) => () => m.chunkStream(shownText, flavor)));
   const fileText = useRef(text);
   fileText.current = text;
   useEffect(() => {

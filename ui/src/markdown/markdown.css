@@ -68,3 +68,31 @@
 .md-plain { white-space: pre-wrap; }
 .md-plain-chunk { content-visibility: auto; contain-intrinsic-size: auto 400px; }
 .md-rendering, .md-error { margin: 0; color: var(--text-secondary); font-size: 11px; }
+
+/* 5C: the rendered diff (R1). Markers sit in the left margin, absolutely positioned (nothing
+   shifts); words carry their change; a changed diagram shows old and new side by side (R11). */
+.md-diff-block { position: relative; }
+.md-diff-block::before { content: ""; position: absolute; top: 0; bottom: 0; left: -12px; width: 3px; border-radius: 2px; background: var(--md-diff-mark); }
+.md-diff-added { --md-diff-mark: var(--status-added); }
+.md-diff-removed { --md-diff-mark: var(--status-deleted); }
+.md-diff-changed { --md-diff-mark: var(--status-modified); }
+.md-diff-block.md-diff-added, .md li.md-diff-added, .md tr.md-diff-added { background: var(--diff-inserted-line); }
+.md-diff-block.md-diff-removed, .md li.md-diff-removed, .md tr.md-diff-removed { background: var(--diff-removed-line); }
+.md li[data-diff-mark] { position: relative; }
+.md li[data-diff-mark]::before { content: ""; position: absolute; top: 0; bottom: 0; left: -1.75em; width: 3px; border-radius: 2px; background: var(--md-diff-mark); }
+.md tr[data-diff-mark] > :first-child { box-shadow: inset 3px 0 0 var(--md-diff-mark); }
+.md .md-diff-ins { background: var(--diff-inserted-text); color: inherit; text-decoration: none; border-radius: 2px; }
+.md .md-diff-del { background: var(--diff-removed-text); color: inherit; text-decoration: line-through; border-radius: 2px; }
+.md .md-diff-ins:has(> img), .md .md-diff-del:has(> img) { display: inline-block; max-width: calc(50% - 4px); vertical-align: top; background: none; }
+.md .md-diff-ins img { outline: 2px solid var(--status-added); }
+.md .md-diff-del img { outline: 2px solid var(--status-deleted); }
+.md-diff-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 10px; }
+.md-diff-pair > .md-diff-block { min-width: 0; background: none; }
+.md-diff-pair > .md-diff-block::before { content: none; }
+.md-diff-pair > .md-diff-removed .md-mermaid { border: 2px solid var(--status-deleted); border-radius: 6px; }
+.md-diff-pair > .md-diff-added .md-mermaid { border: 2px solid var(--status-added); border-radius: 6px; }
+.md-code-line { display: block; width: max-content; min-width: 100%; }
+.md-code-add { background: var(--diff-inserted-line); }
+.md-code-del { background: var(--diff-removed-line); }
+.md-diff-none { margin: 0 0 10px; color: var(--text-secondary); font-size: 11px; }
+.md .md-diff-note { margin: 0 0 4px; color: var(--text-secondary); font-size: 11px; font-style: italic; }

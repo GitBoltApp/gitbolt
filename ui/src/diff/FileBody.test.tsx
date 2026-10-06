@@ -6,7 +6,7 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
 import { setPendingScroll } from '../nav/scroll';
-import { createRepoViewStore, fileViewTarget, RepoViewContext, targetFor, useRepoView, worktreeViewTarget, type DiffTarget } from '../repo/store';
+import { createRepoViewStore, fileViewTarget, RepoViewContext, useRepoView, worktreeViewTarget, type DiffTarget } from '../repo/store';
 import { isMutableKey } from '../repo/services';
 import { fakeServices } from '../repo/testServices';
 import { useWorkingCopy } from './workingCopy';
@@ -30,6 +30,7 @@ vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('..
 vi.mock('../markdown/fileLinks', () => ({}));
 vi.mock('../markdown/lazy', () => ({
   Markdown: ({ text, context }: { text: string; context: { commit: string; path: string } }) => <div data-testid="md" data-commit={context.commit} data-path={context.path}>{text}</div>,
+  MarkdownDiff: () => <div data-testid="md-diff" />,
 }));
 
 // 5A's chunk stream, timed by File View: each stream "takes" `parse.cost` ms of the mocked clock
@@ -99,7 +100,6 @@ describe('File View of a Markdown file (spec #5 §3.3)', () => {
 
   it.each([
     ['a text file', fileViewTarget('a.txt', C, spec), contents(blob('a\n'))],
-    ['Diff View', targetFor({ path: 'README.md', oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false }, spec), contents(blob('# R\n'), { old: blob('# Q\n') })],
     ['a large file', fileViewTarget('big.md', C, spec), contents(blob(null), { tooLarge: true })],
     ['a binary file', fileViewTarget('odd.md', C, spec), contents(blob(null, true))],
   ])('shows no toggle for %s', async (_name, target, c) => {

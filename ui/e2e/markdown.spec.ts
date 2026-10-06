@@ -208,6 +208,12 @@ test.describe('Markdown and navigation history (spec #5 §7, 5B)', () => {
     // The big file's diff first, settled, so only File View's work is measured.
     await page.locator('[role="option"][data-path="big.md"]').click();
     await expect(page.getByTestId('diff-path')).toContainText('big.md');
+    // 5C: Diff View now renders big.md's diff (all added) or falls back to Source: let it
+    // settle, so only File View's work is measured.
+    const diff = page.getByTestId('markdown-diff');
+    const settled = diff.getByRole('heading', { name: 'Section 1', exact: true }).or(page.getByRole('note').filter({ hasText: 'Too large to render' }));
+    await expect(settled).toBeVisible({ timeout: 20_000 });
+    await expect(diff.getByText('Rendering…')).toHaveCount(0, { timeout: 20_000 });
     await page.waitForTimeout(1000);
     await page.evaluate(() => {
       const w = window as unknown as { __long: number[] };
@@ -221,5 +227,40 @@ test.describe('Markdown and navigation history (spec #5 §7, 5B)', () => {
     await page.waitForTimeout(500);
     const longest = await page.evaluate(() => Math.max(0, ...(window as unknown as { __long: number[] }).__long));
     if (!(await fellBack.isVisible())) expect(longest, 'longest main-thread task while File View rendered 1 MB of Markdown (ms)').toBeLessThanOrEqual(200);
+  });
+});
+
+// --- 5C: the rendered Markdown diff ---
+
+test.describe('the rendered Markdown diff (5C)', () => {
+  test('a commit that edits a .md shows its changes rendered: heading and words, an added item, code lines, diagrams side by side', async ({ page }) => {
+    const v1 = '# Setup guide\n\nRun the tool once to warm the cache.\n\n- install\n- configure\n\n```ts\nconst port = 8080;\n```\n\n```mermaid\ngraph TD\n  A-->B\n```\n';
+    const v2 = v1.replace('Setup', 'Install').replace('once', 'twice').replace('- configure\n', '- configure\n- verify\n').replace('8080', '9090').replace('A-->B', 'A-->C');
+    const repo = docsRepo({ 'guide.md': v1 }, 'Add guide');
+    writeFileSync(join(repo, 'guide.md'), v2);
+    git(repo, 'commit', '-qam', 'Edit guide');
+    await page.goto(openUrl(repo));
+    await page.getByRole('row').filter({ hasText: 'Edit guide' }).first().click();
+    await page.locator('[role="option"][data-path="guide.md"]').click();
+
+    // Rendered by default (R2): one column with the changes marked.
+    const md = page.getByTestId('markdown-diff');
+    await expect(page.getByRole('group', { name: 'Markdown view' }).getByRole('button', { name: 'Rendered' })).toHaveAttribute('aria-pressed', 'true');
+    const heading = md.getByRole('heading', { level: 1 });
+    await expect(heading.locator('del')).toHaveText('Setup');
+    await expect(heading.locator('ins')).toHaveText('Install');
+    await expect(md.locator('p del')).toHaveText('once');
+    await expect(md.locator('p ins')).toHaveText('twice');
+    await expect(md.locator('li[data-diff-mark="added"]')).toHaveText('verify');
+    await expect(md.locator('.md-code-del')).toHaveText('const port = 8080;');
+    await expect(md.locator('.md-code-add')).toHaveText('const port = 9090;');
+    await expect(md.locator('.md-diff-pair img[alt="Mermaid diagram"]')).toHaveCount(2, { timeout: 10_000 });
+    await expect(page.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-disabled', 'true');
+
+    // Source: the text diff and its view modes again.
+    await page.getByRole('group', { name: 'Markdown view' }).getByRole('button', { name: 'Source' }).click();
+    await expect(page.getByTestId('text-diff')).toBeVisible();
+    await expect(md).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Split' })).not.toHaveAttribute('aria-disabled', 'true');
   });
 });

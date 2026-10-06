@@ -12,6 +12,7 @@
     "@tanstack/react-virtual": "^3.14.13",
     "@tauri-apps/api": "3.0.0-alpha.2",
     "@tauri-apps/plugin-clipboard-manager": "3.0.0-alpha.1",
+    "diff": "8.0.4",
     "fuzzysort": "^4.0.2",
     "gemoji": "8.1.0",
     "github-slugger": "2.0.0",

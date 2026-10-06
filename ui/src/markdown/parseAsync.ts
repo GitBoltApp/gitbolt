@@ -1,7 +1,9 @@
 import type { Root } from 'mdast';
 import { HAS_SHORTCODE, loadEmoji } from '../forge/emoji';
 import { splitChunks } from './chunks';
+import { diffChunks } from './diff/diffChunks';
 import { whenIdle } from './idle';
+import { textKey } from '../util/textHash';
 import { SYNC_PARSE_CHARS } from './limits';
 import { parseMarkdown } from './parse';
 import type { ParseReply, ParseRequest } from './parse.worker';
@@ -13,7 +15,8 @@ export interface ChunkStream {
   readonly done: boolean;
   readonly failed: boolean;
   /** Failed because only the main thread was left to parse it, and it's too long for that (the
-   * worker died): the body shows as written, "Too large to render". */
+   * worker died), or (5C) a diff whose alignment gave up: the body shows as written, "Too large to
+   * render". */
   readonly tooLarge: boolean;
   /** Bumped on every change (a `useSyncExternalStore` snapshot). */
   readonly version: number;
@@ -27,11 +30,16 @@ class Stream implements ChunkStream {
   tooLarge = false;
   version = 0;
   private fns = new Set<() => void>();
+  readonly key: string;
   readonly text: string;
   readonly flavor: MdFlavor;
-  constructor(text: string, flavor: MdFlavor) {
+  /** A diff's old text (5C); `null` for a plain parse. */
+  readonly old: string | null;
+  constructor(key: string, text: string, flavor: MdFlavor, old: string | null = null) {
+    this.key = key;
     this.text = text;
     this.flavor = flavor;
+    this.old = old;
   }
   get watched(): boolean { return this.fns.size > 0; }
   /** The last subscriber leaving a parse still going abandons it, unless one comes back within
@@ -49,6 +57,11 @@ class Stream implements ChunkStream {
   fail(tooLarge = false) { this.failed = true; this.tooLarge = tooLarge; this.done = true; this.changed(); }
 }
 
+/** A stream's chunks, worked out on the main thread: a parse, or (5C) a diff. `null`: the diff's
+ * alignment gave up. */
+const chunksOf = (s: Stream): Root[] | null => (s.old === null ? splitChunks(parseMarkdown(s.text, s.flavor)) : diffChunks(s.old, s.text, s.flavor));
+const sourceChars = (s: Stream) => s.text.length + (s.old?.length ?? 0);
+
 /** Large texts are kept with their chunks: a poll or a reopened view renders without parsing. */
 const STREAMS_KEPT = 8;
 const streams = new Map<string, Stream>();
@@ -61,15 +74,17 @@ let nextId = 0;
  * died, a text over SYNC_PARSE_CHARS would freeze the app for its whole parse: it fails as too
  * large instead (shown as written). */
 function onMainThread(s: Stream): void {
-  if (workerDied && s.text.length > SYNC_PARSE_CHARS) {
+  if (workerDied && sourceChars(s) > SYNC_PARSE_CHARS) {
     s.fail(true);
     return;
   }
   whenIdle(() => {
     void (async () => {
       try {
-        if (HAS_SHORTCODE.test(s.text)) await loadEmoji().catch(() => {});
-        s.replace(splitChunks(parseMarkdown(s.text, s.flavor)));
+        if (HAS_SHORTCODE.test(s.text) || (s.old !== null && HAS_SHORTCODE.test(s.old))) await loadEmoji().catch(() => {});
+        const chunks = chunksOf(s);
+        if (chunks) s.replace(chunks);
+        else s.fail(true);
       } catch {
         s.fail();
       }
@@ -89,7 +104,7 @@ function theWorker(): Worker | null {
       const r = e.data;
       const s = inFlight.get(r.id);
       if (!s) return;
-      if ('error' in r) { inFlight.delete(r.id); s.fail(); return; }
+      if ('error' in r) { inFlight.delete(r.id); s.fail(r.tooLarge === true); return; }
       if (r.last) inFlight.delete(r.id);
       s.push([r.chunk], r.last);
     };
@@ -108,7 +123,7 @@ function theWorker(): Worker | null {
 function post(w: Worker, s: Stream): void {
   const id = ++nextId;
   inFlight.set(id, s);
-  w.postMessage({ id, text: s.text, flavor: s.flavor } satisfies ParseRequest);
+  w.postMessage((s.old === null ? { id, text: s.text, flavor: s.flavor } : { id, kind: 'diff', old: s.old, text: s.text, flavor: s.flavor }) satisfies ParseRequest);
 }
 
 /**
@@ -119,8 +134,7 @@ function post(w: Worker, s: Stream): void {
  */
 function abandon(s: Stream): void {
   if (s.done || s.watched) return;
-  const key = `${s.flavor}\0${s.text}`;
-  if (streams.get(key) === s) streams.delete(key);
+  if (streams.get(s.key) === s) streams.delete(s.key);
   const mine = [...inFlight].some(([, x]) => x === s);
   s.fail();
   if (!mine || !worker) return;
@@ -137,23 +151,36 @@ function abandon(s: Stream): void {
   }
 }
 
-/** `text`'s chunks, parsed off the main thread; one stream per text, kept for the session's
- * recent large documents. */
-export function chunkStream(text: string, flavor: MdFlavor): ChunkStream {
-  const key = `${flavor}\0${text}`;
+function streamFor(key: string, make: () => Stream): ChunkStream {
   const hit = streams.get(key);
   if (hit && !hit.failed) {
     streams.delete(key);
     streams.set(key, hit);
     return hit;
   }
-  const s = new Stream(text, flavor);
+  const s = make();
   streams.set(key, s);
   if (streams.size > STREAMS_KEPT) streams.delete(streams.keys().next().value!);
   const w = theWorker();
   if (w) post(w, s);
   else onMainThread(s);
   return s;
+}
+
+/** `text`'s chunks, parsed off the main thread; one stream per text, kept for the session's
+ * recent large documents. Streams are keyed by a hash of their texts (`textKey`), never the texts
+ * themselves: a key that concatenates them would copy megabytes. */
+export function chunkStream(text: string, flavor: MdFlavor): ChunkStream {
+  const key = `${flavor}\0${textKey(text)}`;
+  return streamFor(key, () => new Stream(key, text, flavor));
+}
+
+/** 5C: the rendered diff of `old` → `neu` as chunks (the first carries `gbChanges`), aligned and
+ * word-diffed off the main thread; one stream per pair, kept like a large document. A diff whose
+ * alignment gave up fails as `tooLarge`. */
+export function diffChunkStream(old: string, neu: string, flavor: MdFlavor): ChunkStream {
+  const key = `diff\0${flavor}\0${textKey(old)}\0${textKey(neu)}`;
+  return streamFor(key, () => new Stream(key, neu, flavor, old));
 }
 
 /** Tests. */

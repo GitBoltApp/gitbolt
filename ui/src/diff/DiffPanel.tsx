@@ -29,7 +29,10 @@ import type { FileCommit } from '../nav/history';
 import { fileCommitOf, filePlaceKey } from '../nav/repoPlaces';
 import { FileBody, MarkdownViewToggle } from './FileBody';
 import { FileView } from './FileView';
-import { isMarkdownPath, TOO_LARGE_TO_RENDER, useTooLargeToRender } from './markdownFiles';
+import { isMarkdownPath, TOO_LARGE_TO_RENDER, useDiffTooLarge, useTooLargeToRender } from './markdownFiles';
+import { DiffTextBody } from './DiffTextBody';
+import { oldCommitOf } from './markdownDiffSides';
+import { useMarkdownView } from './markdownOverride';
 import { firstChangedLine } from './firstChange';
 import { eolLabel, formatBytes } from './format';
 import { BinaryNote, fileSideOf, HexBody, HexView } from './hex';
@@ -229,6 +232,9 @@ function ImageBody({ target, contents: c, onSourceChange, onHex }: { target: Dif
 function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange, onHex, editable = false, onEdit, draft }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
   const { repoId } = useRepoContext();
   const selection = useRepoView((s) => s.selection);
+  // 5C: a Markdown file's diff, and the commit its old side's links and images resolve against (R9).
+  const mdDiff = target.view === 'diff' && isMarkdownPath(target.path);
+  const oldSide = useRepoView((s) => (mdDiff ? oldCommitOf(s, target) : null));
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
   const c = contents.data;
@@ -270,9 +276,15 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} <ArrowGlyph /> {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
         ? <FileBody identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} markdown={markdownOf(selection, target)} />
-        : <TextDiff identity={target.key} path={target.path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined} />}
-      {/* Spec #2 §7.3: hunk and line buttons on a WIP text diff. */}
-      {target.view === 'diff' && wip && <HunkActions target={target} />}
+        : (
+          <DiffTextBody
+            identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified} language={language}
+            onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined}
+            // Spec #2 §7.3: hunk and line buttons on a WIP text diff (in Source only, R8).
+            after={wip ? <HunkActions target={target} /> : null}
+            markdown={mdDiff ? { old: oldSide, new: fileCommitOf({ selection }, target) } : null}
+          />
+        )}
     </>
   );
 }
@@ -399,12 +411,18 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const loaded = contents.status === 'ready' ? contents.data : null;
   const selection = useRepoView((s) => s.selection);
   // Spec #5 §3.3: the toggle for a Markdown file's text in File View (not a large-file prompt, a
-  // hex view or an image).
-  // §3.1: the toggle says why Rendered can't be picked for a file too large to render.
+  // hex view or an image); §3.1: it says why Rendered can't be picked for a file too large.
   const tooLarge = useTooLargeToRender(filePlaceKey({ selection }, shown), loaded?.new?.text ?? loaded?.old?.text ?? '');
-  const markdownToggle = shown.view === 'file' && loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded) && markdownOf(selection, shown)
+  const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded);
+  // 5C: the same toggle for a Markdown file's text diff (R2); while Rendered, the toolbar's text-diff
+  // tools say why they're off (R3).
+  const mdDiff = shown.view === 'diff' && textBody && isMarkdownPath(shown.path);
+  const diffTooLarge = useDiffTooLarge(shown.key, mdDiff ? loaded?.old?.text ?? '' : '', mdDiff ? loaded?.new?.text ?? '' : '').tooLarge;
+  const mdPicked = useMarkdownView(mdDiff ? shown.path : null);
+  const renderedDiff = mdDiff && mdPicked === 'rendered' && !diffTooLarge;
+  const markdownToggle = shown.view === 'file' && textBody && markdownOf(selection, shown)
     ? <MarkdownViewToggle path={shown.path} forced={tooLarge ? TOO_LARGE_TO_RENDER : null} />
-    : null;
+    : mdDiff ? <MarkdownViewToggle path={shown.path} forced={diffTooLarge ? TOO_LARGE_TO_RENDER : null} /> : null;
   const openLine = useMemo(() => openInLine(loaded), [loaded]);
   // An SVG's Source toggle, per file: its text diff gets the text-diff controls (H26).
   const [sourceOf, setSourceOf] = useState<string | null>(null);
@@ -451,6 +469,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
         canStep={textDiff}
         textTools={!imageDiff || svgSource}
         binary={!!loaded && (isHex(shown, loaded) || hexImage)}
+        rendered={renderedDiff}
         leading={<OpenInButton target={shown} line={openLine} />}
         staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
         history={<HistoryButtons target={shown} binary={!!loaded && !!(loaded.old?.binary || loaded.new?.binary)} />}
