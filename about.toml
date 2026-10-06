@@ -1,0 +1,47 @@
+# cargo-about's configuration for the Rust notices (scripts/licenses.sh, `just licenses`).
+#
+# `accepted` is GitBolt's license allow-list, for the Rust crates and (read from this file by
+# ui/build/licenses.ts) the npm packages in the UI bundle alike. A dependency under any other
+# license fails the build, so a copyleft (GPL, LGPL, AGPL) or unknown license never ships
+# unnoticed: review it, then add it here or drop the dependency. For a choice ("MIT OR
+# Apache-2.0") the first accepted license in this list's order is used.
+accepted = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "0BSD",
+  "Zlib",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "OFL-1.1",
+  "CC0-1.0",
+  "BSL-1.0",
+  "Unlicense",
+  "CDLA-Permissive-2.0",
+]
+# The app's graph only: what gitbolt-app links on Linux, not dev-only, build-time or harness crates.
+targets = ["x86_64-unknown-linux-gnu"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+private = { ignore = true }
+# cargo-about's built-in clarification of rustls's license files.
+workarounds = ["rustls"]
+
+# ring 0.17 has no file matching its whole expression, so cargo-about scans its sources and lists
+# each file header; its two license files cover it (LICENSE explains which code uses which).
+[ring.clarify]
+license = "Apache-2.0 AND ISC"
+
+[[ring.clarify.files]]
+path = "LICENSE-other-bits"
+license = "ISC"
+checksum = "f025ccfb7dfb6bdfedc75ca0f67acc69e6fb4998143d834f7c2f38a29989680f"
+
+[[ring.clarify.files]]
+path = "LICENSE-BoringSSL"
+license = "Apache-2.0"
+checksum = "005fc765ddc5115da796cca915baa9557abae13ff35e0a47c47affc56f6c414d"

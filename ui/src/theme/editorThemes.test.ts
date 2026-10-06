@@ -1,11 +1,23 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { editorColors } from '../diff/monaco/theme';
-import { bindEditorTheme, currentEditorTheme, editorThemeRegistrations } from './editorThemes';
+import exceptions from '../../build/license-exceptions.json';
+import { bindEditorTheme, currentEditorTheme, editorThemeRegistrations, SHIKI_THEMES } from './editorThemes';
 import { useTheme } from './store';
-import { THEME_IDS, THEMES } from './themes';
+import { SHIKI_BUNDLED_THEMES, THEME_IDS, THEMES } from './themes';
 
 describe('editor themes', () => {
+  it("bundles only the Shiki themes GitBolt uses, never Shiki's whole registry or a dropped theme", () => {
+    expect(Object.keys(SHIKI_THEMES).sort()).toEqual([...SHIKI_BUNDLED_THEMES].sort());
+    const dropped = Object.keys(exceptions.dropped.themes);
+    expect(dropped).toContain('aurora-x');
+    for (const id of dropped) expect(Object.keys(SHIKI_THEMES)).not.toContain(id);
+    const src = readFileSync(join(process.cwd(), 'src/theme/editorThemes.ts'), 'utf8');
+    expect(src).not.toMatch(/from 'shiki\/themes'/);
+  });
+
   it('registers a theme for every ThemeDef, named as it names it, each with its own overlay', async () => {
     const regs = await Promise.all(editorThemeRegistrations());
     expect(regs.map((r) => r.name)).toEqual(THEME_IDS.map((id) => THEMES[id].editorTheme));

@@ -1,7 +1,9 @@
 // Shiki's language registry is part of the lazy diff chunk, not the startup chunk (spec §10.3):
 // only modules reached from diff/monaco/load.ts or a React.lazy diff panel may import this file.
 // `npm run build` fails if Shiki's registry shows up in the entry chunk (scripts/check-entry-chunk.mjs).
-import { bundledLanguagesInfo } from 'shiki/langs';
+// The registry is GitBolt's copy, without the grammars dropped for their licenses: a file in one
+// of those languages is plain text.
+import { bundledLanguagesInfo } from './shikiLanguages';
 
 /** The plan's name, but it's compared with `text.length`, i.e. UTF-16 code units, not bytes. */
 export const HIGHLIGHT_MAX_BYTES = 1_048_576;
@@ -20,6 +22,9 @@ const EXTENSIONS = table({
   svg: 'xml', xsd: 'xml', plist: 'xml', bash: 'shellscript', zsh: 'shellscript', ps1: 'powershell', kt: 'kotlin',
   kts: 'kotlin', rb: 'ruby', pl: 'perl', pm: 'perl', cs: 'csharp', ex: 'elixir', exs: 'elixir', erl: 'erlang',
   hs: 'haskell', ml: 'ocaml', tf: 'terraform', gql: 'graphql', cfg: 'ini', conf: 'ini', neon: 'yaml', markdown: 'markdown',
+  // Shader stages (GitBolt's glsl grammar's file types, less the ambiguous vs/fs/gs: fs is F#).
+  vert: 'glsl', frag: 'glsl', geom: 'glsl', tesc: 'glsl', tese: 'glsl', comp: 'glsl', vsh: 'glsl', fsh: 'glsl', gsh: 'glsl',
+  vshader: 'glsl', fshader: 'glsl', gshader: 'glsl',
 });
 
 const FILENAMES = table({
@@ -29,7 +34,7 @@ const FILENAMES = table({
 
 const SHEBANGS = table({
   bash: 'shellscript', sh: 'shellscript', zsh: 'shellscript', dash: 'shellscript', node: 'javascript', deno: 'typescript',
-  python: 'python', python3: 'python', php: 'php', ruby: 'ruby', perl: 'perl',
+  python: 'python', python3: 'python', php: 'php', ruby: 'ruby', perl: 'perl', tclsh: 'tcl',
 });
 
 /** Spec §10.3: by extension or file name (Shiki's registry plus the tables above), then by

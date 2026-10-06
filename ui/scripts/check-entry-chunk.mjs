@@ -13,8 +13,8 @@ const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 // minification (a property key or a string literal); all of them were checked against a build
 // that imported language.ts and host.ts eagerly.
 const MARKERS = [
-  'bundledLanguagesInfo', // shiki/langs registry, by name (unminified builds)
-  'Angular TypeScript', // shiki/langs registry (a language name in bundledLanguagesInfo), minified
+  'bundledLanguagesInfo', // the Shiki language registry (diff/shikiLanguages.ts), by name (unminified builds)
+  'Angular TypeScript', // the same registry (a language name in bundledLanguagesInfo), minified
   'createDiffEditor', // monaco-editor/editor/editor.api (a namespace property key)
   'ShikiError', // shiki/core
   'AGFzbQ', // shiki/wasm: the Oniguruma WASM inlined as base64 ("\0asm" magic)

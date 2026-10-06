@@ -2,14 +2,18 @@
 """Helpers for scripts/package-arch.sh (the Arch package built from the .deb, no makepkg).
 
 Subcommands (each prints to stdout; errors go to stderr with exit status 2):
-  pkgver <deb-version>          the Debian version as a pacman pkgver ('+' becomes '.')
+  pkgver <deb-version>          the Debian version as a pacman pkgver: '+' becomes '.', and the
+                                '~' goes (0.1.0~alpha.1 -> 0.1.0alpha.1). vercmp puts a leftover
+                                part that starts with a letter before the release, but one that
+                                starts with '.' after it: 0.1.0.alpha.1 would be newer than 0.1.0.
   stamp <deb-version>           the build stamp in the version (+YYYYMMDDHHMM.) as a UTC epoch
   depends <Depends-field>       the Arch dependencies, one per line, sorted and de-duplicated
   escape <path>                 a path in mtree's escaping (tests)
   mtree <dir> <epoch> <out.gz>  writes the gzip-compressed .MTREE for everything under <dir>
   size <dir>                    installed size in bytes (apparent size, as makepkg reports it)
   verify <src.tar> <pkg.tar>    the package's payload matches the .deb's data member: same
-                                paths, types, modes, sizes and link targets, every entry root:root
+                                paths, types, modes, sizes and link targets (plus ARCH_EXTRA),
+                                every entry root:root
 """
 import calendar
 import fnmatch
@@ -61,10 +65,10 @@ class Fail(Exception):
 
 
 def pkgver(debver):
-    v = debver.strip().replace("+", ".")
+    v = debver.strip().replace("+", ".").replace("~", "")
     if not v or re.search(r"[-:/\s]", v):
         raise Fail(f"can't map the .deb version {debver!r} to a pkgver (no '-', ':', '/' or spaces allowed)")
-    if not re.fullmatch(r"[A-Za-z0-9._~]+", v):
+    if not re.fullmatch(r"[A-Za-z0-9._]+", v):
         raise Fail(f"unexpected characters in the .deb version {debver!r}")
     return v
 
@@ -180,6 +184,11 @@ def entries(tarpath, skip_meta):
     return got
 
 
+# What package-arch.sh adds to the .deb's payload: Arch's license directory, a symlink to the
+# .deb's /usr/share/doc/gitbolt (and its parent directory, when the .deb has none).
+ARCH_EXTRA = {"usr/share/licenses": ("dir", 0o755, 0, ""), "usr/share/licenses/gitbolt": ("link", 0, 0, "../doc/gitbolt")}
+
+
 def verify(src, pkg):
     a = entries(src, False)
     b = entries(pkg, True)
@@ -188,7 +197,8 @@ def verify(src, pkg):
         if name not in b:
             problems.append(f"missing from the package: {name}")
         elif name not in a:
-            problems.append(f"not in the .deb: {name}")
+            if ARCH_EXTRA.get(name) != b[name][:4]:
+                problems.append(f"not in the .deb: {name}")
         elif a[name][:4] != b[name][:4]:
             problems.append(f"differs: {name}: .deb {a[name][:4]} vs package {b[name][:4]}")
     for name, e in b.items():

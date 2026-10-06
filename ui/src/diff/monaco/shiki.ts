@@ -1,8 +1,8 @@
 import { shikiToMonaco } from '@shikijs/monaco';
 import { createHighlighterCore } from 'shiki/core';
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma';
-import { bundledLanguages } from 'shiki/langs';
 import { currentEditorTheme, editorThemeRegistrations } from '../../theme/editorThemes';
+import { bundledLanguages } from '../shikiLanguages';
 import { memoizeUntilRejected } from './memo';
 import type { Monaco } from './setup';
 
@@ -41,7 +41,7 @@ export function ensureTheme(monaco: Monaco): Promise<void> {
 
 const languages = new Map<string, Promise<string>>();
 
-async function load(monaco: Monaco, lang: keyof typeof bundledLanguages): Promise<string> {
+async function load(monaco: Monaco, lang: string): Promise<string> {
   const h = await getHighlighter();
   await h.loadLanguage(bundledLanguages[lang]);
   const known = new Set(monaco.languages.getLanguages().map((l) => l.id));
@@ -54,12 +54,12 @@ async function load(monaco: Monaco, lang: keyof typeof bundledLanguages): Promis
 }
 
 /** Loads a language's grammar the first time a file of that language opens. Resolves to the
- * Monaco language id to use (`plaintext` for anything Shiki doesn't ship). */
+ * Monaco language id to use (`plaintext` for anything Shiki doesn't ship, or GitBolt dropped). */
 export function ensureLanguage(monaco: Monaco, lang: string): Promise<string> {
   if (!Object.hasOwn(bundledLanguages, lang)) return Promise.resolve('plaintext');
   let p = languages.get(lang);
   if (!p) {
-    p = load(monaco, lang as keyof typeof bundledLanguages);
+    p = load(monaco, lang);
     languages.set(lang, p);
     p.catch(() => languages.delete(lang));
   }
@@ -80,7 +80,7 @@ export async function ensureGrammar(lang: string): Promise<string | null> {
   const h = await getHighlighter();
   let p = grammars.get(id);
   if (!p) {
-    p = h.loadLanguage(bundledLanguages[id as keyof typeof bundledLanguages]).then(() => {});
+    p = h.loadLanguage(bundledLanguages[id]).then(() => {});
     grammars.set(id, p);
     p.catch(() => grammars.delete(id));
   }

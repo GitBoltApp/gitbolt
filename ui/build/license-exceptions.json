@@ -1,0 +1,232 @@
+{
+  "_comment": [
+    "Reviewed exceptions to the license allow-list in ../../about.toml (see docs/licensing.md).",
+    "packages: a license for a bundled npm package whose package.json declares none, read from its license file.",
+    "dropped: Shiki grammars and themes left out of the bundle for their licenses: copyleft, or '(none)' when upstream states no license anywhere. scripts/gen-shiki-languages.mjs leaves the grammars out of src/diff/shikiLanguages.ts. The build fails if one is bundled.",
+    "replaced: Shiki grammars whose upstream states no license, replaced by GitBolt's own file src/diff/grammars/<id>.json, converted from the permissively licensed grammar at 'source' (scripts/gen-shiki-languages.mjs imports it instead of Shiki's). Its text is build/grammar-licenses/<id>.txt. The build fails if Shiki's copy is bundled, or if a grammar file there has no entry, no text, or a license outside the allow-list and 'licenses'.",
+    "licenses: permissive licenses outside the allow-list that a grammar or theme below may be used under.",
+    "grammars/themes: the upstream license of each bundled Shiki grammar or theme that tm-grammars/tm-themes record outside the allow-list (no license, NOASSERTION), researched in the upstream repo at the commit tm-grammars pins. 'recorded' is what tm-grammars records; 'license' is the upstream's. Its text is build/grammar-licenses/<id>.txt, or tm-grammars' NOTICE when that has one. The build fails if 'recorded' no longer matches, if a new one appears, if a license is copyleft, or if upstream states none (replace or drop that grammar)."
+  ],
+  "packages": {
+    "khroma": {
+      "license": "MIT",
+      "reason": "package.json has no license field; its 'license' file is the MIT license"
+    }
+  },
+  "dropped": {
+    "grammars": {
+      "ada": "GPL-3.0",
+      "ahk2": "GNU",
+      "dax": "(none)",
+      "gnuplot": "GPL-3.0",
+      "nginx": "GPL-3.0",
+      "org": "GPL-3.0",
+      "racket": "GPL-3.0"
+    },
+    "themes": {
+      "aurora-x": "GPL-3.0"
+    }
+  },
+  "replaced": {
+    "grammars": {
+      "glsl": {
+        "license": "Unlicense",
+        "source": "https://github.com/euler0/sublime-glsl/blob/59a5f8a3120358657cefdc4b830b4a883ebfbf77/GLSL.tmLanguage",
+        "reason": "Shiki's glsl (polym0rph/GLSL.tmbundle) states no license. This is the grammar GitHub Linguist uses for GLSL (euler0/sublime-glsl, at the commit Linguist pins), converted from its plist to JSON with the language id set to glsl. Its LICENSE is the Unlicense, which Linguist records too."
+      },
+      "tcl": {
+        "license": "LicenseRef-TextMate-Bundle",
+        "source": "https://github.com/textmate/tcl.tmbundle/blob/f06f80144c01ff1e3836cef21cbac62f8e1c5df6/Syntaxes/Tcl.plist",
+        "reason": "Shiki's tcl (sleutho/tcl) states no license. This is TextMate's Tcl bundle grammar (the one GitHub Linguist uses, at the commit it pins), converted from its plist to JSON with the language id set to tcl. The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+      }
+    }
+  },
+  "licenses": {
+    "LicenseRef-TextMate-Bundle": "The TextMate bundles' license: \"Permission to copy, use, modify, sell and distribute this software is granted. This software is provided \"as is\" without express or implied warranty, and with no claim as to its suitability for any purpose.\" No conditions; GitHub Linguist records it as permissive.",
+    "BSD-2-Clause-Views": "BSD-2-Clause plus a sentence that the views in the software are its authors' own: no further conditions.",
+    "Apache-2.0 WITH LLVM-exception": "Apache-2.0 plus an exception that only waives conditions for code compiled into a binary."
+  },
+  "grammars": {
+    "abap": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/pvl/abap.tmbundle/blob/92e17e62a9449d2a6f87bfb30b4f920986c24018/README.md",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "apache": {
+      "recorded": "NOASSERTION",
+      "license": "BSD-2-Clause-Views",
+      "source": "https://github.com/colinta/ApacheConf.tmLanguage/blob/1fdb47b6fe2cea20cfedbc522bff3ff1ed656c07/LICENSE",
+      "reason": "LICENSE is BSD-2-Clause plus the \"views and conclusions\" sentence (SPDX BSD-2-Clause-Views), Copyright (c) 2012 Colin T.A. Gray."
+    },
+    "apex": {
+      "recorded": "NOASSERTION",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/forcedotcom/apex-tmLanguage/blob/611becc66c4553876ac6fd0287f57135581e2e59/LICENSE",
+      "reason": "LICENSE is BSD-3-Clause, Copyright (c) 2018 Salesforce.com, Inc.; package.json declares MIT, but the LICENSE file is the stricter of the two and is the one quoted."
+    },
+    "apl": {
+      "recorded": "(none)",
+      "license": "ISC OR MIT",
+      "source": "https://github.com/kimmolinna/vscode-apl-language/blob/13541242d9ffae225e89ebba23f9abaa4c60697e/package.json",
+      "reason": "No license file; package.json declares \"licenses\": ISC and MIT (author Gilgamesh Athoraya, Optima Systems; this repo is a fork of OptimaSystems/vscode-apl-language, which has no license file either)."
+    },
+    "applescript": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/textmate/applescript.tmbundle/blob/4947cad7494eba084c21cfe04689b4efce96700f/README.mdown",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "asciidoc": {
+      "recorded": "NOASSERTION",
+      "license": "MIT",
+      "source": "https://github.com/asciidoctor/asciidoctor-vscode/blob/09c406fcd67a300cfc1f49267c70cc97db978986/LICENSE",
+      "reason": "LICENSE is MIT (Copyright (c) 2016 João Pinto and the Asciidoctor Project; (c) 2015 Microsoft Corporation, whose Markdown extension it is based on)."
+    },
+    "cue": {
+      "recorded": "NOASSERTION",
+      "license": "MIT",
+      "source": "https://github.com/cue-lang/vscode-cue/blob/a9ee96a7e61fb8acd39f7403144d0b6f45652987/LICENSE",
+      "reason": "LICENSE is MIT (Original Work Copyright (c) 2019-2020 Andrew Hodges; Copyright (c) 2020 The CUE Authors)."
+    },
+    "dream-maker": {
+      "recorded": "(none)",
+      "license": "MIT",
+      "source": "https://github.com/gbasood/vscode-atomic-dreams/blob/22d2bf0325f65697ea542856280f66e9e098f4a2/README.md",
+      "reason": "The README calls it \"a straight port of Atomic Dreams\" (github.com/PJB3005/atomic-dreams, MIT, Copyright (c) 2016 Pieter-Jan Briers, Kyle J. Kemp); the port itself states no license."
+    },
+    "elixir": {
+      "recorded": "NOASSERTION",
+      "license": "Apache-2.0",
+      "source": "https://github.com/elixir-editors/elixir-tmbundle/blob/43c8cd957d5ac6e1abbd8730fc7a08c81a6e76c9/LICENSE",
+      "reason": "LICENSE is the Apache-2.0 header, Copyright 2012 Plataformatec."
+    },
+    "erb": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/textmate/ruby.tmbundle/blob/ecf0f1df23984bcff9b51552e35d9696cb0d9539/README.mdown",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "hurl": {
+      "recorded": "(none)",
+      "license": "MIT",
+      "source": "https://github.com/nikeee/language-hurl/blob/dec5d90bea8a13d21fd8365d5a0d2d35453653c1/package.json",
+      "reason": "No license file; package.json declares \"license\": \"MIT\" (author Niklas Mollenhauer). GitHub Linguist records it as MIT too."
+    },
+    "kusto": {
+      "recorded": "(none)",
+      "license": "Apache-2.0",
+      "source": "https://github.com/rosshamish/kuskus/blob/2a5d25aa9e1680b90e77b2477d710d11af8fcd88/kusto-syntax-highlighting/LICENSE",
+      "reason": "The grammar's directory has an Apache-2.0 LICENSE (Copyright 2016 Josef Sin); the repo root has none, which is why tm-grammars records nothing."
+    },
+    "llvm": {
+      "recorded": "NOASSERTION",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "source": "https://github.com/llvm/llvm-project/blob/c07bc2962c5f76ebcbd040c4e97fe5d129530087/LICENSE.TXT",
+      "reason": "The LLVM Project is under Apache-2.0 with LLVM Exceptions (the full text is in tm-grammars' NOTICE)."
+    },
+    "logo": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/textmate/logo.tmbundle/blob/3205e987ed2a2aa11accdd55a7d094832441f89c/README.mdown",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "luau": {
+      "recorded": "NOASSERTION",
+      "license": "MIT",
+      "source": "https://github.com/JohnnyMorganz/Luau.tmLanguage/blob/a50533f59f4369bbc742f867b90248f6c342ca17/LICENSE.md",
+      "reason": "LICENSE.md is MIT, Copyright (c) JohnnyMorganz."
+    },
+    "matlab": {
+      "recorded": "(none)",
+      "license": "BSD-2-Clause",
+      "source": "https://github.com/mathworks/MATLAB-Language-grammar/blob/69dbf20c1eb19efd629c0438a2a493e60617e8de/license.txt",
+      "reason": "license.txt is BSD-2-Clause, Copyright 2018 The MathWorks, Inc.; package.json declares BSD-2-Clause too."
+    },
+    "mipsasm": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/textmate/mips.tmbundle/blob/eb7601016a109bf912a48a1c21988f3c4a59fb3a/README.mdown",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "nim": {
+      "recorded": "NOASSERTION",
+      "license": "MIT",
+      "source": "https://github.com/pragmagic/vscode-nim/blob/0272a0544ddf147fde98f8a8f2b624b7dcb19eb3/LICENSE",
+      "reason": "LICENSE is MIT, Copyright (c) Xored Software Inc."
+    },
+    "nsis": {
+      "recorded": "NOASSERTION",
+      "license": "Apache-2.0",
+      "source": "https://github.com/idleberg/vscode-nsis/blob/9adaf15a501157c1d3b73730c08a7bcbb057f812/syntaxes/nsis-license.txt",
+      "reason": "The repo is MIT \"if not otherwise specified\", and syntaxes/nsis-license.txt specifies Apache-2.0 for nsis.tmLanguage (Copyright 2014 Sublime HQ Pty Ltd)."
+    },
+    "po": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/textmate/gettext.tmbundle/blob/08bb69558d82ada8d4f36b8869f871ce69014749/README.mdown",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "purescript": {
+      "recorded": "NOASSERTION",
+      "license": "MIT",
+      "source": "https://github.com/nwolverson/vscode-language-purescript/blob/b7641936190d6d8eb346660284dab3a5d1cc636f/LICENSE.md",
+      "reason": "LICENSE.md is MIT, Copyright (c) 2015 Nicholas Wolverson."
+    },
+    "rel": {
+      "recorded": "(none)",
+      "license": "MIT",
+      "source": "https://github.com/relationalai-oss/rel_vscode/blob/63dda4dee48c67b037357f47b562185484555ea9/README.md",
+      "reason": "No license file; the README states \"License: MIT\" (authors Mohammad Dashti and Amy Tabor, RelationalAI)."
+    },
+    "sass": {
+      "recorded": "NOASSERTION",
+      "license": "MIT",
+      "source": "https://github.com/TheRealSyler/vscode-sass-indented/blob/f0e50cfaca4b64a1d49f8d938f188d6fd0bcfb6f/LICENSE",
+      "reason": "LICENSE is MIT, Copyright (c) 2016-2019 Robin Bentley, 2019-present Leonard Grosoli."
+    },
+    "sparql": {
+      "recorded": "(none)",
+      "license": "Apache-2.0",
+      "source": "https://github.com/stardog-union/stardog-vsc/blob/a1963c610cde0eab23c44fc01ab36652565524de/stardog-rdf-grammars/LICENSE",
+      "reason": "The grammar's package directory has an Apache-2.0 LICENSE (Copyright 2017 Stardog Union); package.json declares Apache-2.0."
+    },
+    "ssh-config": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/textmate/ssh-config.tmbundle/blob/212a0000c50e0c877303b2c4fcead539d2af2670/README.mdown",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "toml": {
+      "recorded": "(none)",
+      "license": "LicenseRef-TextMate-Bundle",
+      "source": "https://github.com/textmate/toml.tmbundle/blob/e82b64c1e86396220786846201e9aa3f0a2d9ca2/README.mdown",
+      "reason": "The bundle README states the TextMate bundles' license for every file without its own; the grammar has none."
+    },
+    "ts-tags": {
+      "recorded": "(none)",
+      "license": "MIT",
+      "source": "https://github.com/shikijs/textmate-grammars-themes/blob/main/packages/tm-grammars/raw/ts-tags.json",
+      "reason": "Written by the tm-grammars project itself (a 10-line wrapper that includes TypeScript), so it has no upstream; tm-grammars is MIT (Copyright (c) 2021 Pine Wu, (c) 2023 Anthony Fu)."
+    },
+    "turtle": {
+      "recorded": "(none)",
+      "license": "Apache-2.0",
+      "source": "https://github.com/stardog-union/stardog-vsc/blob/3f1364b08bdbf4b4d77f123682db7d2b708b2f6e/stardog-rdf-grammars/LICENSE",
+      "reason": "Same package as sparql: Apache-2.0, Copyright 2017 Stardog Union."
+    },
+    "wolfram": {
+      "recorded": "NOASSERTION",
+      "license": "MIT",
+      "source": "https://github.com/WolframResearch/vscode-wolfram/blob/8b55fb1724d971a303120b3f5b981d654c308c59/LICENSE",
+      "reason": "LICENSE is MIT, Copyright 2021 Wolfram Research Inc."
+    },
+    "yaml": {
+      "recorded": "(none)",
+      "license": "MIT",
+      "source": "https://github.com/textmate/yaml.tmbundle/blob/e54ceae3b719506dba7e481a77cea4a8b576ae46/Syntaxes/YAML-license.txt",
+      "reason": "The bundle's exception: Syntaxes/YAML-license.txt accompanies YAML.tmLanguage and is MIT, Copyright (c) 2015 FichteFoll."
+    }
+  },
+  "themes": {}
+}

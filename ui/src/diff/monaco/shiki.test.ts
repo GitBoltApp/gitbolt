@@ -18,6 +18,10 @@ describe('Shiki highlighter', () => {
     await expect(ensureLanguage(monaco, 'php')).resolves.toBe('php');
     expect(createHighlighterCore).toHaveBeenCalledTimes(2);
     await expect(ensureLanguage(monaco, 'not-a-shiki-language')).resolves.toBe('plaintext');
+    // Dropped from the bundle for their licenses, or for stating none (build/license-exceptions.json): plain text, no error.
+    await expect(ensureLanguage(monaco, 'nginx')).resolves.toBe('plaintext');
+    await expect(ensureLanguage(monaco, 'ada')).resolves.toBe('plaintext');
+    await expect(ensureLanguage(monaco, 'dax')).resolves.toBe('plaintext');
   });
 
   it("creates the highlighter with every theme carrying its editor colours, so every theme definition has them", async () => {
@@ -45,5 +49,7 @@ describe('Shiki highlighter', () => {
     expect(h.loadLanguage).toHaveBeenCalledTimes(1);
     expect(codeToTokens).toHaveBeenLastCalledWith('const a', { lang: 'ts', theme: expect.any(String) });
     expect(await ensureGrammar('not-a-language')).toBeNull();
+    expect(await ensureGrammar('racket')).toBeNull();
+    expect(await ensureGrammar('org')).toBeNull();
   });
 });
