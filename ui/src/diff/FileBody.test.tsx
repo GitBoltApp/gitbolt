@@ -1,5 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useContext } from 'react';
+import { useAppState } from '../app/state';
+import { MdFontPx } from '../markdown/fontPx';
 import type { BlobPayload } from '../api/gen/BlobPayload';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
 import type { GraphPayload } from '../api/gen/GraphPayload';
@@ -29,7 +32,7 @@ vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('..
 // 5A's renderer is tested by 5A: here, what File View hands it.
 vi.mock('../markdown/fileLinks', () => ({}));
 vi.mock('../markdown/lazy', () => ({
-  Markdown: ({ text, context }: { text: string; context: { commit: string; path: string } }) => <div data-testid="md" data-commit={context.commit} data-path={context.path}>{text}</div>,
+  Markdown: ({ text, context }: { text: string; context: { commit: string; path: string } }) => <div data-testid="md" data-commit={context.commit} data-path={context.path} data-font-px={useContext(MdFontPx)}>{text}</div>,
   MarkdownDiff: () => <div data-testid="md-diff" />,
 }));
 
@@ -86,6 +89,22 @@ describe('File View of a Markdown file (spec #5 §3.3)', () => {
     await waitFor(() => expect(host.showFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'docs/guide.md' })));
     expect(screen.getByTestId('file-view')).not.toBeVisible();
     expect(host.detachFile).not.toHaveBeenCalled();
+  });
+
+  it("sizes the rendered text like the editor (editorFontSize), and both views take the text-size zoom", async () => {
+    const settings = useAppState.getState().settings;
+    useAppState.setState({ settings: { ...settings, editorFontSize: 16 } });
+    renderPanel(fileViewTarget('docs/guide.md', C, spec), async () => contents(blob('# Guide\n')));
+    await screen.findByTestId('md');
+    const pane = screen.getByTestId('markdown-file');
+    expect(pane.style.getPropertyValue('--md-font-size')).toBe('16px');
+    // Its chunks' placeholder heights are sized for it too (MdFontPx).
+    expect(screen.getByTestId('md')).toHaveAttribute('data-font-px', '16');
+    expect(pane).toHaveAttribute('data-font-zoom');
+    expect(screen.getByTestId('file-view').closest('[data-font-zoom]')).not.toBeNull();
+    act(() => useAppState.setState({ settings: { ...settings, editorFontSize: 40 } }));
+    expect(pane.style.getPropertyValue('--md-font-size')).toBe('32px');
+    act(() => useAppState.setState({ settings }));
   });
 
   it('Source shows the editor; the pick is app-wide and remembered', async () => {

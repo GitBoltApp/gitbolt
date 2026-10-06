@@ -1,7 +1,9 @@
 /* --image-frame-border (J11) is a theme token: the theme's --section-border (8% white) is all but
    invisible against the neutral viewport, so the frame uses a stronger white. */
 .image-diff { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.image-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); flex: none; }
+/* One row, never wrapped: when it runs short the size info (.image-meta) truncates first. */
+.image-toolbar { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--section-border); flex: none; min-width: 0; }
+.image-toolbar > * { flex-shrink: 0; }
 .image-toolbar .segmented > button, .image-toolbar .toggle { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
 .image-toolbar .toggle { border: 1px solid var(--section-border); border-radius: 4px; }
 .image-toolbar button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
@@ -42,6 +44,7 @@
 .checker-icon .checker-light { /* theme-ok */ fill: #cfcfcf; }
 /* K11: a bit more room between the zoom slider and the meta block (dims/size). */
 .image-meta { white-space: nowrap; margin-left: 6px; }
+.image-toolbar > .image-meta { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .image-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; user-select: none; }
 .swipe-clip { position: absolute; inset: 0; }
 .swipe-divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--blue); cursor: ew-resize; outline: none; }
@@ -68,6 +71,8 @@
    onion shares no part of this selector). */
 .image-stage.mode-side .image-viewport > .image-label { top: 8px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); font-size: 13px; padding: 2px 8px; }
 .onion-label { flex: none; color: var(--text-secondary); }
+/* Match sizes: a quieter, lower-case note after the old side's chip text. */
+.match-note { margin-left: 6px; text-transform: none; letter-spacing: 0; opacity: 0.75; }
 /* K23: a fixed width (sized for "16×", the widest value) so the slider doesn't shift when the
    digit count changes (e.g. 9× → 10×). */
 .amplify-value { flex: none; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 3ch; }

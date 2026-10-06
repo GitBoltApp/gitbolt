@@ -22,6 +22,17 @@ describe('image.css motion (J19)', () => {
   });
 });
 
+describe('image.css toolbar', () => {
+  it('never wraps: its items keep their size and the size info truncates first', () => {
+    expect(rule('.image-toolbar')).toMatch(/flex-wrap:\s*nowrap/);
+    expect(rule('.image-toolbar > *')).toMatch(/flex-shrink:\s*0/);
+    const meta = rule('.image-toolbar > .image-meta');
+    expect(meta).toMatch(/flex-shrink:\s*1/);
+    expect(meta).toMatch(/min-width:\s*0/);
+    expect(meta).toMatch(/text-overflow:\s*ellipsis/);
+  });
+});
+
 describe('image.css labels (K9)', () => {
   it("the Old/New (and Amplify) chips never block a drag or the swipe handle", () => {
     expect(rule('.image-label')).toMatch(/pointer-events:\s*none/);

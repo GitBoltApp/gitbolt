@@ -31,8 +31,9 @@ declare module 'mdast' {
   interface ListItemData { gbDiff?: DiffMark; gbValue?: number; gbOldValue?: number; gbOldChecked?: boolean | null }
   /** `gbEmpty`: the split view's placeholder for a row only the other side has. */
   interface TableRowData { gbDiff?: DiffMark; gbEmpty?: true }
-  /** A changed code block's merged lines (R10): one of ' ', '-', '+' per line. */
-  interface CodeData { gbLines?: string }
+  /** A changed code block's merged lines (R10): one of ' ', '-', '+' per line. `gbWords`: its
+   * paired lines' changed words (diff/words.ts `codeLines`). */
+  interface CodeData { gbLines?: string; gbWords?: string }
   /** The number of marked changes in a rendered diff (on its first chunk). */
   interface RootData { gbChanges?: number }
 }

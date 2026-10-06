@@ -227,7 +227,7 @@ export function worktreeViewTarget(path: string, worktree: string, spec: DiffSpe
   return { key: `${filesKey(spec)}|all|${path}`, path, oldPath: null, status: '', old: { kind: 'absent' }, new: { kind: 'worktree', worktree }, view: 'file' };
 }
 
-export const contentsRequest =(t: DiffTarget, force = false): ContentsRequest => ({ path: t.path, old: t.old, new: t.new, force });
+export const contentsRequest = (t: DiffTarget, force = false): ContentsRequest => ({ path: t.path, old: t.old, new: t.new, force, ...(t.oldPath ? { oldPath: t.oldPath } : {}) });
 
 export function selectedIndex(s: RepoViewState): number {
   switch (s.selection.kind) {

@@ -64,6 +64,11 @@
   --diff-inserted-line: rgba(92, 184, 92, 0.1);
   --diff-removed-line: rgba(217, 65, 61, 0.15);
   --diff-diagonal-fill: rgba(204, 204, 204, 0.2);
+  /* The rendered Markdown diff's own, brighter marks (themes.ts diffColors). */
+  --md-diff-ins-text: rgba(92, 184, 92, 0.3);
+  --md-diff-del-text: rgba(217, 65, 61, 0.3);
+  --md-diff-ins-block: rgba(92, 184, 92, 0.16);
+  --md-diff-del-block: rgba(217, 65, 61, 0.16);
   /* Text on a saturated fill: the blue buttons, the bell's badge, the check box, avatar initials. */
   --text-on-accent: #ffffff;
   /* Quiet button fills (the context menu's variant chips, dialog buttons, a tab's close hover). */

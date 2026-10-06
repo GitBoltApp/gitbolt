@@ -213,6 +213,29 @@ mod tests {
         assert_eq!(cached_names(&r), "", "both sides of the rename left the index");
     }
 
+    /// An image format change (shot.png → shot.webp) is one renamed row in either list (diff.rs):
+    /// its two halves stage together, and unstage together with the old path.
+    #[tokio::test]
+    async fn an_image_format_change_stages_and_unstages_as_one_row() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write_bytes("img/shot.png", b"\x89PNG\r\n\x1a\n\0png-bytes");
+        r.git(&["add", "img/shot.png"]);
+        r.git(&["commit", "-q", "-m", "png"]);
+        std::fs::remove_file(r.path().join("img/shot.png")).unwrap();
+        r.write_bytes("img/shot.webp", b"RIFF\0\0\0\0WEBP\0webp-bytes");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let rows = |list: &Value| list["files"].as_array().unwrap().iter().map(|f| format!("{} {} {}", f["status"].as_str().unwrap(), f["oldPath"].as_str().unwrap_or("-"), f["path"].as_str().unwrap())).collect::<Vec<_>>();
+        let res = stage(&api, id, &r, &["img/shot.webp", "img/shot.png"]).await.unwrap();
+        assert_eq!(cached_names(&r), "D\timg/shot.png\nA\timg/shot.webp", "git stages a delete and an add");
+        assert_eq!(rows(&res["wip"]["staged"]), ["R img/shot.png img/shot.webp"]);
+        assert!(rows(&res["wip"]["unstaged"]).is_empty());
+        let res = unstage(&api, id, &r, &["img/shot.webp"], &["img/shot.png"]).await.unwrap();
+        assert_eq!(cached_names(&r), "");
+        assert_eq!(rows(&res["wip"]["unstaged"]), ["R img/shot.png img/shot.webp"]);
+    }
+
     #[tokio::test]
     async fn stage_all_and_unstage_all() {
         let data = tempfile::tempdir().unwrap();

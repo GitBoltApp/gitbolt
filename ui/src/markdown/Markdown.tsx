@@ -1,8 +1,9 @@
 import type { Root } from 'mdast';
-import { Component, memo, useEffect, useMemo, useState, useSyncExternalStore, type ErrorInfo, type JSX, type ReactNode } from 'react';
+import { Component, memo, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ErrorInfo, type JSX, type ReactNode } from 'react';
 import { emojiReady, HAS_SHORTCODE, loadEmoji } from '../forge/emoji';
 import { whenIdle } from './idle';
 import { chunkHeightOf } from './chunks';
+import { MdFontPx } from './fontPx';
 import { DEFAULT_MAX_BYTES, overBytes, RENDERING_NOTE_CHARS, SYNC_PARSE_CHARS } from './limits';
 import { parseMarkdown, peekParsed } from './parse';
 import { chunkStream, type ChunkStream } from './parseAsync';
@@ -54,7 +55,8 @@ const Chunk = memo(function Chunk({ tree, context, old, split = false }: { tree:
   const was = oldKey(old);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the contexts' values
   const body = useMemo(() => renderTree(tree, context, old ? { old, split } : undefined), [tree, ctxKey, was, split]);
-  return <div className="md-chunk" style={{ containIntrinsicSize: `auto ${chunkHeightOf(tree)}px` }}>{body}</div>;
+  const fontPx = useContext(MdFontPx);
+  return <div className="md-chunk" style={{ containIntrinsicSize: `auto ${chunkHeightOf(tree, fontPx)}px` }}>{body}</div>;
 }, (a, b) => a.tree === b.tree && contextKey(a.context) === contextKey(b.context) && oldKey(a.old) === oldKey(b.old) && a.split === b.split);
 
 /** A large body (ruling 21) as `stream` brings it: one more chunk per idle callback. Its text (or

@@ -7,7 +7,7 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';
 import { confirmAction } from '../ui/ConfirmDialog';
 import type { WriteCtx } from '../write/client';
-import { discardPaths, stagePaths, unstageFiles } from './actions';
+import { discardPaths, pathsOf, stagePaths, unstageFiles } from './actions';
 import { COMMIT_QUEUED, useCommitting } from './store';
 import './stage.css';
 
@@ -60,14 +60,14 @@ export function RowActions({ ctx, which, files, name }: { ctx: WriteCtx; which: 
     const n = discardable.length;
     const arm = n === 1 ? `Click again to discard ${name}` : `Click again to discard ${n} files in ${name}`;
     if (await confirmAction({ title: `Discard ${name}?`, body: 'Its changes are removed. You can undo this.', confirmLabel: 'Discard', arm, danger: true })) {
-      await discardPaths(ctx, discardable.map((f) => f.path));
+      await discardPaths(ctx, pathsOf(discardable));
     }
   };
   return (
     <span ref={ref} className="row-actions" data-arm-cover="" data-arm-grow="left">
       {which === 'unstaged' && discardable.length > 0 && <ActionIcon label={`Discard ${name}`} tip={committing ? COMMIT_QUEUED : 'Discard changes'} icon={Trash2} danger disabled={committing} onClick={() => void discard()} />}
       {which === 'unstaged'
-        ? <ActionIcon label={`Stage ${name}`} tip={committing ? COMMIT_QUEUED : 'Stage'} icon={Plus} positive text="Stage File" disabled={committing} onClick={() => void stagePaths(ctx, files.map((f) => f.path))} />
+        ? <ActionIcon label={`Stage ${name}`} tip={committing ? COMMIT_QUEUED : 'Stage'} icon={Plus} positive text="Stage File" disabled={committing} onClick={() => void stagePaths(ctx, pathsOf(files))} />
         : <ActionIcon label={`Unstage ${name}`} tip={committing ? COMMIT_QUEUED : 'Unstage'} icon={Minus} danger text="Unstage File" disabled={committing} onClick={() => void unstageFiles(ctx, files)} />}
     </span>
   );

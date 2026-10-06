@@ -19,6 +19,11 @@ describe('markdown.css (spec #5 §3.1)', () => {
     expect(rule('.md')).toMatch(/max-width:\s*100%/);
   });
 
+  it("tints inline code inside a word mark over the code's own opaque ground", () => {
+    expect(rule('.md .md-diff-ins code')).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-ins-text\)/);
+    expect(rule('.md .md-diff-del code')).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-del-text\)/);
+  });
+
   it('fits images to the width and keeps their aspect ratio (no shift when they load)', () => {
     expect(rule('.md-img')).toMatch(/max-width:\s*100%/);
     expect(rule('.md-img')).toMatch(/height:\s*auto/);
@@ -47,5 +52,43 @@ describe('markdown.css (spec #5 §3.1)', () => {
     expect(rule('.md .md-diff-del')).toMatch(/line-through/);
     expect(rule('.md-diff-pair')).toMatch(/grid-template-columns:\s*1fr 1fr/);
     expect(rule('.md-code-line')).toMatch(/min-width:\s*100%/);
+  });
+
+  it("marks with the rendered diff's own, brighter colours, not the editor's", () => {
+    expect(rule('.md .md-diff-ins')).toMatch(/background:\s*var\(--md-diff-ins-text\)/);
+    expect(rule('.md .md-diff-del')).toMatch(/background:\s*var\(--md-diff-del-text\)/);
+    expect(rule('.md .md-diff-ins')).toMatch(/color:\s*var\(--text-selected\)/);
+    expect(rule('.md-code-add')).toMatch(/var\(--md-diff-ins-block\)/);
+    expect(rule('.md-code-del')).toMatch(/var\(--md-diff-del-block\)/);
+    expect(css).not.toMatch(/--diff-(inserted|removed)-/);
+  });
+
+  it("tints an added or removed code block over its own ground; a changed one's line marks span the block", () => {
+    const added = rule('.md :is(.md-diff-block.md-diff-added, li.md-diff-added) :is(pre, code:not(pre code))');
+    const removed = rule('.md :is(.md-diff-block.md-diff-removed, li.md-diff-removed) :is(pre, code:not(pre code))');
+    expect(added).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-ins-block\), var\(--md-diff-ins-block\)\)/);
+    expect(removed).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-del-block\), var\(--md-diff-del-block\)\)/);
+    // The pre's own padding is 10px a side: the line's ground reaches through it.
+    expect(rule('.md pre')).toMatch(/padding:\s*8px 10px/);
+    expect(rule('.md-code-line')).toMatch(/margin:\s*0 -10px;\s*padding:\s*0 10px/);
+  });
+
+  it("sizes File View's and the diff's rendered text like their editor; 12px elsewhere; code scales with it", () => {
+    expect(rule('.md')).toMatch(/font-size:\s*var\(--md-font-size, 12px\)/);
+    expect(rule('.md pre')).toMatch(/font:\s*0\.92em\/1\.45 var\(--font-mono\)/);
+  });
+
+  it("marks a changed code line's changed words with the word colours, over the line's tint", () => {
+    expect(rule('.md-code-word-add')).toMatch(/background:\s*var\(--md-diff-ins-text\)/);
+    expect(rule('.md-code-word-del')).toMatch(/background:\s*var\(--md-diff-del-text\)/);
+    expect(rule('.md-code-word-add')).not.toMatch(/color:/);
+  });
+
+  it("draws an item's bar in its list's gutter, left of the marker, at a block bar's x for that level", () => {
+    expect(rule('.md ul, .md ol')).toMatch(/padding-left:\s*var\(--md-list-indent\)/);
+    expect(rule('.md-diff-block::before')).toMatch(/left:\s*-12px/);
+    // The list's indent plus the block bar's 12px; a block directly in an item takes the same x.
+    expect(rule('.md li[data-diff-mark]::before, .md li > .md-diff-block::before')).toMatch(/left:\s*calc\(-1 \* var\(--md-list-indent\) - 12px\)/);
+    expect(rule('.md li[data-diff-mark]::before')).not.toMatch(/left:/);
   });
 });

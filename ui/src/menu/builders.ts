@@ -1,7 +1,7 @@
 import { Minus, Plus, Trash2 } from 'lucide-react';
 import type { FileChange } from '../api/gen/FileChange';
 import { activeStore, activeTab } from '../app/actions';
-import { discardPaths, stagePaths, unstageFiles } from '../stage/actions';
+import { discardPaths, pathsOf, stagePaths, unstageFiles } from '../stage/actions';
 import { COMMIT_QUEUED, stagingKey, useStaging } from '../stage/store';
 import { refTokenFromLabel } from '../details/messageLinks';
 import { branchUrl, commitUrl, fileUrl, repoUrl, type ProjectRemote } from '../forge/urls';
@@ -50,9 +50,9 @@ registerMenu<FileTarget, MenuEnv>({
       return [row({ id: 'file.unstage', label: 'Unstage', icon: Minus, tooltip: 'Move this file’s staged changes back to Unstaged', run: () => void unstageFiles(ctx, [change]), disabledReason: queued })];
     }
     return [
-      row({ id: 'file.stageFile', label: 'Stage', icon: Plus, tooltip: 'Stage this file’s changes', run: () => void stagePaths(ctx, [t.path]), disabledReason: queued }),
+      row({ id: 'file.stageFile', label: 'Stage', icon: Plus, tooltip: 'Stage this file’s changes', run: () => void stagePaths(ctx, pathsOf([{ path: t.path, oldPath: wip.oldPath }])), disabledReason: queued }),
       // A submodule's changes are discarded inside it.
-      ...(wip.submodule ? [] : [row({ id: 'file.discard', label: 'Discard changes', icon: Trash2, tooltip: 'Discard this file’s unstaged changes (you can undo this)', run: () => void discardPaths(ctx, [t.path]), disabledReason: queued })]),
+      ...(wip.submodule ? [] : [row({ id: 'file.discard', label: 'Discard changes', icon: Trash2, tooltip: 'Discard this file’s unstaged changes (you can undo this)', run: () => void discardPaths(ctx, pathsOf([{ path: t.path, oldPath: wip.oldPath }])), disabledReason: queued })]),
     ];
   },
 });

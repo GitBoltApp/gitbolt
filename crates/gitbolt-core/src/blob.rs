@@ -275,7 +275,15 @@ pub(crate) fn read_bounded(path: &Path, limit: u64) -> std::io::Result<Option<Ve
 }
 
 pub fn diff_contents(repo: &gix::Repository, path: &str, old: &Side, new: &Side, force: bool) -> Result<DiffContentsPayload, GbError> {
-    let image = is_image_path(path);
+    diff_contents_renamed(repo, path, None, old, new, force)
+}
+
+/// `diff_contents` for a rename from `old_path`. A raster image converted to an SVG (a format
+/// change, `shot.png` → `shot.svg`) is an image diff too, so its raster side carries its bytes;
+/// any other rename is read by its new path alone.
+pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Option<&str>, old: &Side, new: &Side, force: bool) -> Result<DiffContentsPayload, GbError> {
+    let to_svg = path.rsplit_once('.').is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("svg"));
+    let image = is_image_path(path) || (to_svg && old_path.is_some_and(is_image_path));
     let old = resolve(repo, path, old)?;
     let new = resolve(repo, path, new)?;
     let old_size = old.as_ref().map(|r| r.size(repo)).transpose()?;
@@ -385,6 +393,22 @@ mod tests {
         let (old, new) = (bin.old.unwrap(), bin.new.unwrap());
         assert!(old.binary && old.base64.is_none(), "only images carry bytes");
         assert_eq!((old.size, new.size), (9, 10));
+    }
+
+    /// A raster image converted to an SVG (a paired format change, diff.rs): the old side is a
+    /// raster image by its own path, so it carries its bytes for the image diff.
+    #[test]
+    fn a_format_change_reads_the_old_side_by_its_own_path() {
+        let (r, repo) = setup();
+        let (png, svg) = (object(&r, "HEAD^1:logo.png"), object(&r, "HEAD^1:icon.svg"));
+        let plain = diff_contents(&repo, "icon.svg", &png, &svg, false).unwrap();
+        assert!(!plain.image && plain.old.unwrap().base64.is_none());
+        let renamed = diff_contents_renamed(&repo, "icon.svg", Some("logo.png"), &png, &svg, false).unwrap();
+        assert!(renamed.image);
+        assert_eq!(&base64::engine::general_purpose::STANDARD.decode(renamed.old.unwrap().base64.unwrap()).unwrap()[..4], b"\x89PNG");
+        assert!(renamed.new.unwrap().text.unwrap().contains("<svg"), "the SVG side stays text");
+        let to_text = diff_contents_renamed(&repo, "notes.txt", Some("logo.png"), &png, &svg, false).unwrap();
+        assert!(!to_text.image, "an image renamed to anything but an image type isn't an image diff");
     }
 
     #[test]

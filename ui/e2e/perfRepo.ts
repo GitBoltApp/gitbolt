@@ -73,21 +73,23 @@ export function avatarPng(key: string, size = 80): string {
   let h = 0;
   for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const [r, g, b] = [h & 0xff, (h >> 8) & 0xff, (h >> 16) & 0xff];
-  const raw = Buffer.alloc(size * (1 + size * 3));
-  for (let y = 0; y < size; y++) {
-    const row = y * (1 + size * 3);
-    for (let x = 0; x < size; x++) {
-      const t = (x + y) / (2 * size);
-      raw[row + 1 + x * 3] = r * t;
-      raw[row + 2 + x * 3] = g * (1 - t);
-      raw[row + 3 + x * 3] = b;
-    }
+  return rgbPng(size, size, (x, y) => {
+    const t = (x + y) / (2 * size);
+    return [r * t, g * (1 - t), b];
+  }).toString('base64');
+}
+
+/** A generated `w`×`h` opaque RGB PNG, each pixel from `px`. */
+export function rgbPng(w: number, h: number, px: (x: number, y: number) => [number, number, number]): Buffer {
+  const raw = Buffer.alloc(h * (1 + w * 3));
+  for (let y = 0; y < h; y++) {
+    const row = y * (1 + w * 3);
+    for (let x = 0; x < w; x++) raw.set(px(x, y), row + 1 + x * 3);
   }
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 2; // RGB
-  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
-  return png.toString('base64');
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }

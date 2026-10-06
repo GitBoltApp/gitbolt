@@ -50,3 +50,18 @@ export function renameHighlight(oldPath: string, newPath: string): { old: Highli
   const parts = (p: string[]): HighlightParts => [p.slice(0, pre).join(''), p.slice(pre, p.length - suf).join(''), p.slice(p.length - suf).join('')];
   return { old: parts(a), new: parts(b) };
 }
+
+/** The image formats the image diff shows, by extension, as people name them. */
+const IMAGE_FORMATS: Record<string, string> = { png: 'PNG', jpg: 'JPEG', jpeg: 'JPEG', gif: 'GIF', webp: 'WebP', avif: 'AVIF', bmp: 'BMP', ico: 'ICO', svg: 'SVG' };
+const formatOf = (path: string) => {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? (IMAGE_FORMATS[name.slice(dot + 1).toLowerCase()] ?? null) : null;
+};
+
+/** An image converted to another format (`PNG → WebP`): a rename the file list pairs from a
+ * deleted and an added image (diff.rs, `pair_image_conversions`). `null` for anything else. */
+export function formatChange(oldPath: string, path: string): string | null {
+  const [from, to] = [formatOf(oldPath), formatOf(path)];
+  return from && to && from !== to ? `${from} → ${to}` : null;
+}

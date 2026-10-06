@@ -75,6 +75,37 @@ describe('themes', () => {
     expect(contrastRatio(c['count-blue'], c['panel-bg0']), 'sidebar counts').toBeGreaterThanOrEqual(3);
   });
 
+  it.each(THEME_IDS)("%s rendered Markdown diff marks are clearly visible and keep the text readable", (id) => {
+    const c = THEMES[id].colors;
+    const alphaOf = (v: string) => Number(v.match(/, ([\d.]+)\)$/)![1]);
+    /** `fg` (rgba) composited over the opaque `bg`, as #rrggbb. */
+    const over = (fg: string, bg: string) => {
+      const [r, g, b, a] = fg.match(/[\d.]+/g)!.map(Number) as [number, number, number, number];
+      const n = parseInt(bg.slice(1), 16);
+      return `#${[[r, (n >> 16) & 255], [g, (n >> 8) & 255], [b, n & 255]].map(([f, k]) => Math.round(f! * a + k! * (1 - a)).toString(16).padStart(2, '0')).join('')}`;
+    };
+    for (const t of ['md-diff-ins-text', 'md-diff-del-text'] as const) {
+      expect(alphaOf(c[t]), t).toBeGreaterThanOrEqual(0.3);
+      expect(alphaOf(c[t]), t).toBeLessThanOrEqual(0.35);
+    }
+    for (const t of ['md-diff-ins-block', 'md-diff-del-block'] as const) {
+      expect(alphaOf(c[t]), t).toBeGreaterThanOrEqual(0.14);
+      expect(alphaOf(c[t]), t).toBeLessThanOrEqual(0.18);
+    }
+    // Brighter than the editor's own diff colours, which stay as they are.
+    expect(alphaOf(c['md-diff-ins-text'])).toBeGreaterThan(alphaOf(c['diff-inserted-text']));
+    expect(alphaOf(c['md-diff-del-text'])).toBeGreaterThan(alphaOf(c['diff-removed-text']));
+    // On the pane (app-bg0): a whole block's text (text-normal) and a changed word's, which is
+    // text-selected (markdown.css), stay AA; a word in a table's striped row (panel-bg1) too.
+    // Words only mark changed blocks, which have no tint of their own.
+    const bg = c['app-bg0'];
+    for (const t of ['md-diff-ins-block', 'md-diff-del-block'] as const) expect(contrastRatio(c['text-normal'], over(c[t], bg)), t).toBeGreaterThanOrEqual(4.5);
+    for (const t of ['md-diff-ins-text', 'md-diff-del-text'] as const) {
+      expect(contrastRatio(c['text-selected'], over(c[t], bg)), t).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(c['text-selected'], over(c[t], c['panel-bg1'])), `${t} in a striped row`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it.each(THEME_IDS)('%s accents carry their text and totals', (id) => {
     const c = THEMES[id].colors;
     // Default Dark's own white on #4d88ff is 3.3:1, so 3:1 (WCAG's UI-component floor) is the bar.
@@ -131,6 +162,8 @@ describe('themes', () => {
         'diff-inserted-text': 'rgba(92, 184, 92, 0.12)', 'diff-removed-text': 'rgba(217, 65, 61, 0.2)',
         'diff-inserted-line': 'rgba(92, 184, 92, 0.1)', 'diff-removed-line': 'rgba(217, 65, 61, 0.15)',
         'diff-diagonal-fill': 'rgba(204, 204, 204, 0.2)',
+        'md-diff-ins-text': 'rgba(92, 184, 92, 0.3)', 'md-diff-del-text': 'rgba(217, 65, 61, 0.3)',
+        'md-diff-ins-block': 'rgba(92, 184, 92, 0.16)', 'md-diff-del-block': 'rgba(217, 65, 61, 0.16)',
         'forge-gitlab': '#e2432a', 'forge-github': '#6e5494', purple: '#a371f7',
         'switch-on': '#4d88ff', 'switch-off': 'rgba(255, 255, 255, 0.16)',
       },

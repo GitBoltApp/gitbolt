@@ -1,6 +1,8 @@
 /* Rendered Markdown (spec #5 §3.1): GitHub-like typography on the theme's tokens. Full width in the
-   MR/PR flyout; 5B caps File View's reading width. */
-.md { font-size: 12px; line-height: 1.55; color: var(--text-normal); overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+   MR/PR flyout; 5B caps File View's reading width. File View's and the diff's panes size it like
+   their editor (--md-font-size, the editorFontSize setting: diff/fontZoom.ts); elsewhere 12px.
+   Code, notes and the like scale with it (em). */
+.md { font-size: var(--md-font-size, 12px); line-height: 1.55; color: var(--text-normal); overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
 /* Wide blocks scroll inside themselves: a long code line never widens the panel around it. */
 .md pre, .md .md-code, .md .md-mermaid, .md details { max-width: 100%; min-width: 0; }
 .md > :first-child, .md > .md-chunk:first-child > :first-child { margin-top: 0; }
@@ -16,7 +18,8 @@
 .md h4 { font-size: 1em; }
 .md h5 { font-size: 0.9em; }
 .md h6 { font-size: 0.85em; color: var(--text-secondary); }
-.md ul, .md ol { padding-left: 2em; }
+.md { --md-list-indent: 2em; }
+.md ul, .md ol { padding-left: var(--md-list-indent); }
 .md li + li { margin-top: 2px; }
 .md li > ul, .md li > ol { margin: 2px 0 0; }
 .md li:has(> input[type="checkbox"]) { list-style: none; }
@@ -28,7 +31,7 @@
 .md th { font-weight: 600; }
 .md tr:nth-child(2n) { background: var(--panel-bg1); }
 .md code { padding: 0.15em 0.35em; border-radius: 4px; background: var(--app-bg0); font: 0.92em var(--font-mono); }
-.md pre { padding: 8px 10px; overflow-x: auto; border-radius: 6px; background: var(--app-bg0); font: 11px/1.45 var(--font-mono); white-space: pre; }
+.md pre { padding: 8px 10px; overflow-x: auto; border-radius: 6px; background: var(--app-bg0); font: 0.92em/1.45 var(--font-mono); white-space: pre; }
 .md pre code { padding: 0; background: none; font: inherit; }
 .md kbd { display: inline-block; padding: 1px 5px; font: 0.85em var(--font-mono); border: 1px solid var(--section-border); border-bottom-width: 2px; border-radius: 4px; background: var(--panel-bg1); }
 .md summary { cursor: pointer; }
@@ -76,13 +79,20 @@
 .md-diff-added { --md-diff-mark: var(--status-added); }
 .md-diff-removed { --md-diff-mark: var(--status-deleted); }
 .md-diff-changed { --md-diff-mark: var(--status-modified); }
-.md-diff-block.md-diff-added, .md li.md-diff-added, .md tr.md-diff-added { background: var(--diff-inserted-line); }
-.md-diff-block.md-diff-removed, .md li.md-diff-removed, .md tr.md-diff-removed { background: var(--diff-removed-line); }
+.md-diff-block.md-diff-added, .md li.md-diff-added, .md tr.md-diff-added { background: var(--md-diff-ins-block); }
+.md-diff-block.md-diff-removed, .md li.md-diff-removed, .md tr.md-diff-removed { background: var(--md-diff-del-block); }
 .md li[data-diff-mark] { position: relative; }
-.md li[data-diff-mark]::before { content: ""; position: absolute; top: 0; bottom: 0; left: -1.75em; width: 3px; border-radius: 2px; background: var(--md-diff-mark); }
+/* An item's bar sits in its list's gutter, left of the bullet or number: at a block bar's x for
+   the list's own level (the list's indent plus the block bar's 12px), so bars line up down the
+   page. A marked block directly in an item takes the same x, clear of the item's marker. */
+.md li[data-diff-mark]::before, .md li > .md-diff-block::before { left: calc(-1 * var(--md-list-indent) - 12px); }
+.md li[data-diff-mark]::before { content: ""; position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--md-diff-mark); }
 .md tr[data-diff-mark] > :first-child { box-shadow: inset 3px 0 0 var(--md-diff-mark); }
-.md .md-diff-ins { background: var(--diff-inserted-text); color: inherit; text-decoration: none; border-radius: 2px; }
-.md .md-diff-del { background: var(--diff-removed-text); color: inherit; text-decoration: line-through; border-radius: 2px; }
+/* Changed words: the rendered diff's own, brighter marks (themes.ts), their text a step brighter. */
+.md .md-diff-ins { background: var(--md-diff-ins-text); color: var(--text-selected); text-decoration: none; border-radius: 2px; }
+.md .md-diff-del { background: var(--md-diff-del-text); color: var(--text-selected); text-decoration: line-through; border-radius: 2px; }
+.md .md-diff-ins code { background-image: linear-gradient(var(--md-diff-ins-text), var(--md-diff-ins-text)); box-shadow: inset 0 0 0 1px var(--md-diff-ins-text); }
+.md .md-diff-del code { background-image: linear-gradient(var(--md-diff-del-text), var(--md-diff-del-text)); box-shadow: inset 0 0 0 1px var(--md-diff-del-text); }
 .md .md-diff-ins:has(> img), .md .md-diff-del:has(> img) { display: inline-block; max-width: calc(50% - 4px); vertical-align: top; background: none; }
 .md .md-diff-ins img { outline: 2px solid var(--status-added); }
 .md .md-diff-del img { outline: 2px solid var(--status-deleted); }
@@ -91,10 +101,18 @@
 .md-diff-pair > .md-diff-block::before { content: none; }
 .md-diff-pair > .md-diff-removed .md-mermaid { border: 2px solid var(--status-deleted); border-radius: 6px; }
 .md-diff-pair > .md-diff-added .md-mermaid { border: 2px solid var(--status-added); border-radius: 6px; }
-.md-code-line { display: block; width: max-content; min-width: 100%; }
-.md-code-add { background: var(--diff-inserted-line); }
-.md-code-del { background: var(--diff-removed-line); }
-.md .md-diff-note { margin: 0 0 4px; color: var(--text-secondary); font-size: 11px; font-style: italic; }
+/* An added or removed block's own grounds (code, inline code) would hide its tint: the tint is
+   layered over them, so code still looks like code. */
+.md :is(.md-diff-block.md-diff-added, li.md-diff-added) :is(pre, code:not(pre code)) { background-image: linear-gradient(var(--md-diff-ins-block), var(--md-diff-ins-block)); }
+.md :is(.md-diff-block.md-diff-removed, li.md-diff-removed) :is(pre, code:not(pre code)) { background-image: linear-gradient(var(--md-diff-del-block), var(--md-diff-del-block)); }
+/* A changed code block's line marks run the full width of the block, through its padding. */
+.md-code-line { display: block; width: max-content; min-width: 100%; margin: 0 -10px; padding: 0 10px; }
+.md-code-add { background: var(--md-diff-ins-block); }
+.md-code-del { background: var(--md-diff-del-block); }
+/* A changed line's changed words, over its tint (Monaco's inline diff); the code keeps its colours. */
+.md-code-word-add { background: var(--md-diff-ins-text); border-radius: 2px; }
+.md-code-word-del { background: var(--md-diff-del-text); border-radius: 2px; }
+.md .md-diff-note { margin: 0 0 4px; color: var(--text-secondary); font-size: 0.92em; font-style: italic; }
 
 /* 5C split view: one scroll, a grid row per aligned unit, the old side left and the new right.
    Both columns are the same width in every row, so the sides stay in step without syncing. The

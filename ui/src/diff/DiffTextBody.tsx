@@ -9,6 +9,8 @@ import type { DiffSides } from './markdownDiffSides';
 import { markSlow, PRECHECK_BYTES, TOO_LARGE_TO_RENDER, useDiffTooLarge } from './markdownFiles';
 import { MdDiffFrame } from './MdDiffRuler';
 import { useNarrowPane } from './narrowPane';
+import { MdFontPx } from '../markdown/fontPx';
+import { editorFontVar, useEditorFontPx } from './fontZoom';
 import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
 import type { HunkZoneRequest } from './monaco/host';
 import { useParseBudget } from './parseBudget';
@@ -93,6 +95,7 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   useEffect(() => (rendered ? setChangeStepper((dir) => { if (pane.current) stepChange(pane.current, dir); }) : undefined), [rendered]);
   // The diff mode applies (5C): Split shows it side by side, unless the pane is too narrow.
   const splitPicked = useDiffPrefs((s) => s.prefs.mode === 'split');
+  const fontPx = useEditorFontPx();
   const narrow = useNarrowPane(pane, rendered && splitPicked);
   const oldSide = markdown?.old ?? null;
   const newSide = markdown?.new ?? null;
@@ -105,18 +108,18 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   return (
     <>
       {isMd && picked === 'rendered' && tooLarge && <div role="note" className="diff-banner">{TOO_LARGE_TO_RENDER}</div>}
-      <div className="file-source" hidden={rendered}>
+      <div className="file-source" hidden={rendered} data-font-zoom="">
         <TextDiff identity={identity} path={path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={hunkZones} />
       </div>
       {!rendered && after}
       {isMd && (
         <MdDiffFrame pane={pane} active={rendered} split={splitPicked && !narrow}>
-          <div ref={pane} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1}>
+          <div ref={pane} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1} data-font-zoom="" style={editorFontVar(fontPx)}>
             {rendered && ctx && (waiting
               ? <div className="diff-message" aria-busy="true">Rendering…</div>
               : (
                 <Suspense fallback={<div className="diff-message" aria-busy="true">Loading…</div>}>
-                  <MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} split={splitPicked && !narrow} onTooLarge={onTooLarge} />
+                  <MdFontPx value={fontPx}><MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} split={splitPicked && !narrow} onTooLarge={onTooLarge} /></MdFontPx>
                 </Suspense>
               ))}
           </div>

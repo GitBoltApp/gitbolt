@@ -64,5 +64,7 @@ export interface MdLinkProps { ctx: MarkdownContext; href: string; id?: string; 
 export interface MdReferenceProps { ctx: MarkdownContext; node: MdReferenceNode }
 export interface MdImageProps { ctx: MarkdownContext; src: string; alt: string; width?: number; height?: number }
 /** `marks` (5C, R10): a changed block's merged lines, one of ' ' (kept), '-' (removed), '+' (added) per line. */
-export interface MdCodeProps { code: string; lang: string | null; marks?: string }
+/** `words` (5C): a changed block's changed words per line, one `;`-separated entry per line of
+ * `start-end` character ranges, `,` between them (diff/words.ts `codeLines`). */
+export interface MdCodeProps { code: string; lang: string | null; marks?: string; words?: string }
 export interface MdMermaidProps { source: string }

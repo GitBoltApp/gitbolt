@@ -719,6 +719,14 @@ describe('DiffPanel', () => {
       expect(host.showDiff).not.toHaveBeenCalled();
     });
 
+    it('a format change (shot.png → shot.svg) asks with its old path and shows each side as its own type', async () => {
+      const rename: FileChange = { ...change('img/shot.svg', 'R'), oldPath: 'img/shot.png' };
+      const { fetch } = renderPanel(targetFor(rename, spec), async () => contents(png(90), svg('<rect/>'), { image: true }));
+      await waitFor(() => expect(layers()).toEqual(['before', 'after']));
+      expect(JSON.parse(fetch.mock.calls[0][0])).toMatchObject({ path: 'img/shot.svg', oldPath: 'img/shot.png' });
+      expect((create.mock.calls as unknown as [Blob][]).map(([b]) => b.type)).toEqual(['image/png', 'image/svg+xml']);
+    });
+
     it('a binary SVG side has no image bytes, so it shows as hex', async () => {
       renderPanel(targetFor(change('odd.svg'), spec), async () => contents(svg('<rect/>'), sized({ binary: true, encoding: '', text: null, size: 12 })));
       expect(await screen.findByTestId('binary-summary')).toHaveTextContent('Binary · 10 bytes → 12 bytes');

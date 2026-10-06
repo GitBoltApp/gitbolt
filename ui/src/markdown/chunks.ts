@@ -1,5 +1,6 @@
 import type { Definition, FootnoteDefinition, Nodes, Root, RootContent } from 'mdast';
 import { visit } from 'unist-util-visit';
+import { MD_BASE_FONT_PX } from './fontPx';
 
 /** Source characters per chunk: one chunk's hast, sanitizing and React render fit well inside a
  * 200 ms task (ruling 21). */
@@ -13,8 +14,11 @@ declare module 'mdast' {
 /** Rendered height per source character, roughly (12px text at 1.55, File View's 880px measure,
  * block margins): a chunk not laid out yet holds about its height, so anchors drift less. */
 const PX_PER_CHAR = 0.18;
-/** A chunk's estimated height in px, from its source length (`gbChars`). */
-export const chunkHeightOf = (tree: Root): number => Math.max(40, Math.round((tree.data?.gbChars ?? CHUNK_CHARS) * PX_PER_CHAR));
+/** A chunk's estimated height in px, from its source length (`gbChars`), for text of `fontPx`
+ * (the pane's, `MdFontPx`): PX_PER_CHAR is 12px's, and a larger size scales it twice over, as
+ * each line is taller and holds fewer characters in the same measure. */
+export const chunkHeightOf = (tree: Root, fontPx = MD_BASE_FONT_PX): number =>
+  Math.max(40, Math.round((tree.data?.gbChars ?? CHUNK_CHARS) * PX_PER_CHAR * (fontPx / MD_BASE_FONT_PX) ** 2));
 
 const BLOCK_TAG = /<(\/?)(details|div|table|blockquote|section|picture|ul|ol|dl|p)\b[^>]*?(\/?)>/gi;
 

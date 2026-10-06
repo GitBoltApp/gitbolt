@@ -644,6 +644,23 @@ mod tests {
         assert_eq!(std::fs::read_to_string(r.path().join("dir/n2.txt")).unwrap(), "u2\n");
     }
 
+    /// An image format change's row (shot.png → shot.webp, diff.rs) discards both halves: the
+    /// old file comes back, the new one goes, and the journal undoes and redoes it.
+    #[tokio::test]
+    async fn discarding_an_image_format_change_round_trips() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write_bytes("img/shot.png", b"\x89PNG\r\n\x1a\n\0png-bytes");
+        r.git(&["add", "img/shot.png"]);
+        r.git(&["commit", "-q", "-m", "png"]);
+        std::fs::remove_file(r.path().join("img/shot.png")).unwrap();
+        r.write_bytes("img/shot.webp", b"RIFF\0\0\0\0WEBP\0webp-bytes");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        round_trip(&api, id, &r, json!({ "kind": "paths", "paths": ["img/shot.webp", "img/shot.png"] }), "discard 2 files").await;
+        assert_eq!(r.git(&["status", "--porcelain"]), "", "after the redo: the old image is back and the new one gone");
+    }
+
     #[tokio::test]
     async fn discarding_unstaged_round_trips_and_keeps_the_staged_half() {
         let data = tempfile::tempdir().unwrap();

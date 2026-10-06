@@ -47,6 +47,10 @@ export async function writeAndFollow(ctx: WriteCtx, send: () => Promise<WriteRes
   return ok === true;
 }
 
+/** The paths a row stands for: a rename's both. An unstaged one is an image format change
+ * (shot.png → shot.webp, diff.rs): a deleted file and an added one, staged or discarded together. */
+export const pathsOf = (files: readonly Pick<FileChange, 'path' | 'oldPath'>[]) => files.flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]));
+
 export const stagePaths = (ctx: WriteCtx, paths: string[]) => writeAndFollow(ctx, () => api.stage(ctx.repoId, ctx.worktree, paths), true);
 
 /** Renames unstage with both paths (§7.2). */

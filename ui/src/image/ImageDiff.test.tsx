@@ -432,3 +432,134 @@ describe('ImageDiff', () => {
     expect(revoke.mock.calls.map((c) => c[0])).toEqual(['blob:u1', 'blob:u2', 'blob:u3', 'blob:u4']);
   });
 });
+
+describe('ImageDiff: Match sizes', () => {
+  const matchToggle = () => screen.queryByRole('button', { name: 'Match sizes' });
+  const decoded = (text: string) => waitFor(() => expect(screen.getByTestId('image-dims')).toHaveTextContent(text));
+  const frames = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>('.image-frame')].map((f) => [f.style.width, f.style.height]);
+  const layers = (c: HTMLElement) => [...c.querySelectorAll<HTMLImageElement>('img.image-layer')].map((l) => [l.style.width, l.style.height]);
+
+  it('appears only when the sizes differ, next to the modes; on for a pure resize, off for another aspect ratio', async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const resized = render(<ImageDiff old={{ url: 'blob:3200x2000', size: 60 }} new={{ url: 'blob:1600x1000', size: 70 }} />);
+    await decoded('3200×2000 → 1600×1000');
+    expect(matchToggle()).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('group', { name: 'Image mode' }).nextElementSibling).toBe(matchToggle());
+    // A compact icon toggle, like the background swatches: no text, its meaning in the tooltip.
+    expect(matchToggle()).toHaveClass('icon-button');
+    expect(matchToggle()).toHaveTextContent(/^$/);
+    expect(matchToggle()!.querySelector('svg')).not.toBeNull();
+    fireEvent.mouseEnter(matchToggle()!);
+    expect(screen.getByRole('tooltip')).toHaveTextContent("Match sizes: show the old image scaled to the new one's size");
+    fireEvent.mouseLeave(matchToggle()!);
+    // The size info's full text is its tooltip (it truncates first when the toolbar runs short).
+    fireEvent.mouseEnter(screen.getByTestId('image-meta'));
+    expect(screen.getByRole('tooltip')).toHaveTextContent('3200×2000 → 1600×1000 · 60 B → 70 B');
+    fireEvent.mouseLeave(screen.getByTestId('image-meta'));
+    resized.unmount();
+    const cropped = render(<ImageDiff old={{ url: 'blob:4x4', size: 60 }} new={{ url: 'blob:6x4', size: 70 }} />);
+    await decoded('4×4 → 6×4');
+    expect(matchToggle()).toHaveAttribute('aria-pressed', 'false');
+    cropped.unmount();
+    const same = render(<ImageDiff old={{ url: 'blob:4x4', size: 60 }} new={{ url: 'blob:4x4', size: 70 }} />);
+    await decoded('4×4 → 4×4');
+    expect(matchToggle()).toBeNull();
+    same.unmount();
+    // Not decoded yet: no sizes to compare.
+    render(<ImageDiff old={{ url: 'blob:old', size: 60 }} new={{ url: 'blob:new', size: 70 }} />);
+    expect(matchToggle()).toBeNull();
+  });
+
+  it("while on, the old image is drawn at the new one's size in every mode; the labels keep the real sizes, the old side noting it's scaled", async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const { container } = render(<ImageDiff old={{ url: 'blob:3200x2000', size: 60 }} new={{ url: 'blob:1600x1000', size: 70 }} />);
+    await decoded('3200×2000 → 1600×1000');
+    // Side by side: both boxes the same size.
+    expect(frames(container)).toEqual([['1600px', '1000px'], ['1600px', '1000px']]);
+    expect(layers(container)).toEqual([['1600px', '1000px'], ['1600px', '1000px']]);
+    expect(screen.getByTestId('image-dims')).toHaveTextContent('3200×2000 → 1600×1000');
+    expect(screen.getAllByTestId('match-note').map((n) => n.textContent)).toEqual(['scaled to match']);
+    expect(screen.getByTestId('match-note').closest('.image-label')).toHaveTextContent(/^Old/);
+    // Swipe and onion skin overlay exactly.
+    for (const mode of ['Swipe', 'Onion skin']) {
+      fireEvent.click(screen.getByRole('button', { name: mode }));
+      expect(frames(container)).toEqual([['1600px', '1000px']]);
+      expect(layers(container)).toEqual([['1600px', '1000px'], ['1600px', '1000px']]);
+      expect(screen.getByTestId('match-note')).toBeInTheDocument();
+    }
+    // Off: each at its own size again, and no note.
+    fireEvent.click(matchToggle()!);
+    expect(matchToggle()).toHaveAttribute('aria-pressed', 'false');
+    expect(frames(container)).toEqual([['3200px', '2000px']]);
+    expect(layers(container)).toEqual([['3200px', '2000px'], ['1600px', '1000px']]);
+    expect(screen.queryByTestId('match-note')).toBeNull();
+  });
+
+  it("another aspect ratio, turned on: the old image fits inside the new one's box (contain), centred", async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const { container } = render(<ImageDiff old={{ url: 'blob:4x4', size: 60 }} new={{ url: 'blob:6x4', size: 70 }} />);
+    await decoded('4×4 → 6×4');
+    fireEvent.click(matchToggle()!);
+    fireEvent.click(screen.getByRole('button', { name: 'Swipe' }));
+    expect(layers(container)).toEqual([['4px', '4px'], ['6px', '4px']]);
+    // 1 px in from the left at 100% (centred in the 6 px box); zoomed ×4, 4 px: it scales with the view.
+    const tx = (el: HTMLElement) => Number(/translate\(([-\d.]+)px/.exec(el.style.transform)![1]);
+    const offset = () => { const [b, a] = container.querySelectorAll<HTMLImageElement>('img.image-layer'); return tx(b) - tx(a); };
+    expect(offset()).toBe(1);
+    fireEvent.change(screen.getByRole('slider', { name: 'Zoom' }), { target: { value: stepOf(4) } });
+    expect(offset()).toBe(4);
+    // The letterbox is the frame's background: one frame, the new image's box.
+    expect(frames(container)).toEqual([['24px', '16px']]);
+  });
+
+  it('Difference is computed at the common size, the old image placed in it; Amplify still repaints', async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const draw = vi.spyOn(await import('./difference'), 'drawDifference');
+    render(<ImageDiff old={{ url: 'blob:3200x2000', size: 60 }} new={{ url: 'blob:1600x1000', size: 70 }} />);
+    await decoded('3200×2000 → 1600×1000');
+    fireEvent.click(screen.getByRole('button', { name: 'Difference' }));
+    await waitFor(() => expect(draw).toHaveBeenCalled());
+    expect(draw.mock.calls.at(-1)!.slice(3)).toEqual([1600, 1000, 4, { x: 0, y: 0, w: 1600, h: 1000 }, { w: 1600, h: 1000 }]);
+    fireEvent.change(screen.getByRole('slider', { name: 'Amplify' }), { target: { value: '9' } });
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    expect(draw.mock.calls.at(-1)!.slice(3, 7)).toEqual([1600, 1000, 9, { x: 0, y: 0, w: 1600, h: 1000 }]);
+    // Off: the old image at its own size, the canvas the larger of the two.
+    fireEvent.click(matchToggle()!);
+    await waitFor(() => expect(draw.mock.calls.at(-1)![3]).toBe(3200));
+    expect(draw.mock.calls.at(-1)![6]).toEqual({ w: 3200, h: 2000 });
+  });
+
+  it('keeps the zoom when toggled', async () => {
+    vi.stubGlobal('Image', FakeImage);
+    render(<ImageDiff old={{ url: 'blob:30x20', size: 60 }} new={{ url: 'blob:15x10', size: 70 }} />);
+    await decoded('30×20 → 15×10');
+    fireEvent.change(screen.getByRole('slider', { name: 'Zoom' }), { target: { value: stepOf(4) } });
+    fireEvent.click(matchToggle()!);
+    expect(screen.getByTestId('zoom-label')).toHaveTextContent('400%');
+  });
+
+  it('remembers the pick per file for the session; another file opens at its own default', async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const props = { old: { url: 'blob:3200x2000', size: 60 }, new: { url: 'blob:1600x1000', size: 70 } };
+    const first = render(<ImageDiff fileKey="match|a.png" {...props} />);
+    await decoded('3200×2000 → 1600×1000');
+    fireEvent.click(matchToggle()!);
+    expect(matchToggle()).toHaveAttribute('aria-pressed', 'false');
+    first.unmount();
+    const again = render(<ImageDiff fileKey="match|a.png" {...props} />);
+    await decoded('3200×2000 → 1600×1000');
+    expect(matchToggle()).toHaveAttribute('aria-pressed', 'false');
+    again.unmount();
+    render(<ImageDiff fileKey="match|b.png" {...props} />);
+    await decoded('3200×2000 → 1600×1000');
+    expect(matchToggle()).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('an SVG matches by its rendered (intrinsic) size', async () => {
+    vi.stubGlobal('Image', FakeImage);
+    const { container } = render(<ImageDiff old={{ url: 'blob:150x150', size: 60, intrinsic: { w: 64, h: 32 } }} new={{ url: 'blob:150x150', size: 70, intrinsic: { w: 32, h: 16 } }} />);
+    await decoded('64×32 → 32×16');
+    expect(matchToggle()).toHaveAttribute('aria-pressed', 'true');
+    expect(layers(container)).toEqual([['32px', '16px'], ['32px', '16px']]);
+  });
+});

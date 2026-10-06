@@ -89,6 +89,30 @@ describe('the rendered Markdown diff overview ruler', () => {
     expect(fills).toContainEqual({ style: c.changed, rect: [0, 500, 30, 10] });
   });
 
+  it('Split: a table with 1 of 20 rows changed is one mark at that row, not the table', async () => {
+    const table = (side: string) => (
+      <div className={`md-split-cell md-split-${side}`}>
+        <table><tbody>
+          {Array.from({ length: 20 }, (_, i) => <tr key={i} data-top={i * 100} data-h={40} data-diff-mark={i === 12 ? 'changed' : undefined}><td>row {i}</td></tr>)}
+        </tbody></table>
+      </div>
+    );
+    function TableHarness() {
+      const p = useRef<HTMLDivElement>(null);
+      return (
+        <MdDiffFrame pane={p} active split>
+          <div ref={(el) => { p.current = el; if (el && !Object.hasOwn(el, 'scrollHeight')) Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => metrics.scrollHeight }); }} className="md-rendered md-diff-pane" data-testid="pane">
+            <div className="md-split-row md-split-changed" data-diff-mark="changed" data-top={0} data-h={2000}>{table('old')}{table('new')}</div>
+          </div>
+        </MdDiffFrame>
+      );
+    }
+    const { container } = render(<TableHarness />);
+    await waitFor(() => expect(ruler(container)).toHaveAttribute('data-marks', '1'));
+    // Row 12 at 1200 px of 2400: half way down the 600 px strip, 10 px tall (40 / 4).
+    expect(fills).toEqual([{ style: rulerColors(THEMES['default-dark']).changed, rect: [0, 300, 30, 10] }]);
+  });
+
   it('no changes: no strip, and the native scrollbar stays', async () => {
     const { container } = render(<Harness marks={[]} />);
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));

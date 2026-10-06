@@ -1,5 +1,6 @@
 import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MdFontPx } from './fontPx';
 import { Markdown } from './Markdown';
 import { clearParseCache } from './parse';
 import { resetChunkStreams } from './parseAsync';
@@ -31,6 +32,25 @@ describe('a long document (ruling 21)', () => {
       expect(ids).toHaveLength(30);
       expect(new Set(ids).size).toBe(30);
       expect(ids.slice(0, 2)).toEqual(['user-content-same', 'user-content-same-1']);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("sizes each chunk's placeholder for the pane's text size (MdFontPx)", async () => {
+    vi.useFakeTimers();
+    try {
+      const text = Array.from({ length: 30 }, () => `## Same\n\n${'word '.repeat(400)}`).join('\n\n');
+      const heights = async (px?: number) => {
+        clearParseCache(); resetChunkStreams();
+        const md = <Markdown flavor="github" context={ctx} text={text} />;
+        const { container, unmount } = render(px === undefined ? md : <MdFontPx value={px}>{md}</MdFontPx>);
+        await act(() => vi.advanceTimersToNextTimerAsync());
+        const h = parseFloat(container.querySelector<HTMLElement>('.md-chunk')!.style.containIntrinsicSize.replace('auto ', ''));
+        unmount();
+        return h;
+      };
+      const base = await heights();
+      expect(await heights(12)).toBe(base);
+      expect(await heights(24)).toBeCloseTo(base * 4, -1);
     } finally { vi.useRealTimers(); }
   });
 

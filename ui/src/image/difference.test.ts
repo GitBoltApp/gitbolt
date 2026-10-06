@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { brighten } from './difference';
+import { brighten, drawDifference } from './difference';
+
+describe('drawDifference', () => {
+  it('draws the old image where Match sizes places it, scaled with high-quality smoothing, before the difference blend', () => {
+    const calls: unknown[][] = [];
+    const ctx = {
+      fillStyle: '', globalCompositeOperation: 'source-over', imageSmoothingEnabled: false, imageSmoothingQuality: 'low',
+      fillRect: () => {},
+      drawImage: (...args: unknown[]) => calls.push([ctx.globalCompositeOperation, ctx.imageSmoothingEnabled, ctx.imageSmoothingQuality, ...args.slice(1)]),
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData: () => {},
+    };
+    const canvas = { width: 0, height: 0, getContext: () => ctx } as unknown as HTMLCanvasElement;
+    const a = {} as HTMLImageElement;
+    const b = {} as HTMLImageElement;
+    drawDifference(canvas, a, b, 6, 4, 4, { x: 1, y: 0, w: 4, h: 4 }, { w: 6, h: 4 });
+    expect([canvas.width, canvas.height]).toEqual([6, 4]);
+    expect(calls).toEqual([
+      ['source-over', true, 'high', 1, 0, 4, 4],
+      ['difference', true, 'high', 0, 0, 6, 4],
+    ]);
+  });
+});
 
 describe('difference blend', () => {
   it('brightens small differences and makes every pixel opaque', () => {

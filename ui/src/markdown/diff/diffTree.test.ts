@@ -42,12 +42,50 @@ describe('diffMarkdown (5C)', () => {
     expect(list.children.map((i) => [plainText(i), i.data?.gbDiff ?? null, i.data?.gbValue])).toEqual([['alpha', null, 1], ['beta', 'removed', 2], ['gamma', null, 2]]);
   });
 
+  describe('a changed list item pairs and word-diffs, its neighbours changed too', () => {
+    const list = (log: string, tail: string) => [
+      '- **Event feed:** every finished sync, newest first. Since 2B, the same panel is the Trace panel.',
+      `- **${log}:** \`~/.cache/demoapp/logs/app.log\` (7 days). A sync still running shows "Syncing <repo>… N%"${tail}.`,
+      '- **Test server:** `demoapp-test serve` exposes the test-only routes `/test/reset` and `/test/emit`.',
+      '',
+    ].join('\n');
+    const newList = list('Log files', ' with Cancel').replace('Since 2B, the same panel is the', 'The same panel is also the').replace('and `/test/emit`', '`/test/emit` and `/test/write`');
+
+    it('with a placeholder tag (`<repo>`) in it: the words around it diff (R13)', () => {
+      expect(summary(d(list('Log files (2B)', ''), newList).root)).toEqual([
+        'item:changed:Event feed: every finished sync, newest first. SinceThe 2B, the same panel is also the Trace panel.', 'del:Since', 'ins:The', 'del:2B, the ', 'ins:also ',
+        'item:changed:Log files (2B): ~/.cache/demoapp/logs/app.log (7 days). A sync still running shows "Syncing <repo>… N%" with Cancel.', 'del: (2B)', 'ins: with Cancel',
+        'item:changed:Test server: demoapp-test serve exposes the test-only routes /test/reset /test/emit and /test/emit/test/write.', 'ins:/test/emit ', 'del:/test/emit', 'ins:/test/write',
+      ]);
+    });
+
+    it('with a changed strong label', () => {
+      const r = d('- **Alpha:** one.\n- **Log files (2B):** written daily, kept 7 days.\n- **Gamma:** three.\n', '- **Alpha:** uno.\n- **Log files:** written daily, kept 7 days.\n- **Gamma:** tres.\n');
+      expect(summary(r.root)).toEqual([
+        'item:changed:Alpha: oneuno.', 'del:one', 'ins:uno',
+        'item:changed:Log files (2B): written daily, kept 7 days.', 'del: (2B)',
+        'item:changed:Gamma: threetres.', 'del:three', 'ins:tres',
+      ]);
+    });
+
+    it('with changed emphasis, inline code and links', () => {
+      const r = d('- see *old* `a()` at [docs](a.md) today\n- b\n', '- see *new* `b()` at [guide](a.md) today\n- c\n');
+      expect(summary(r.root)).toEqual(['item:changed:see oldnew a()b() at docsguide today', 'del:old', 'ins:new', 'del:a()', 'ins:b()', 'del:docs', 'ins:guide', 'item:removed:b', 'item:added:c']);
+    });
+  });
+
+  it('an item that grew a lot pairs: the added text shows as insertions', () => {
+    const r = d('1. Install it.\n2. Run the installer, then launch the app from the menu.\n', '1. Install it.\n2. Run the installer, then launch the app from the menu. The package name carries a build stamp, so the pattern matches only the new one.\n');
+    expect(summary(r.root)).toEqual(['item:changed:Run the installer, then launch the app from the menu. The package name carries a build stamp, so the pattern matches only the new one.', 'ins: The package name carries a build stamp, so the pattern matches only the new one.']);
+  });
+
   it('a ticked task counts as a changed item', () => {
     expect(summary(d('- [ ] run the tests\n', '- [x] run the tests\n').root)).toEqual(['item:changed:run the tests']);
   });
 
   it('a changed code block merges its lines (R10)', () => {
     expect(summary(d('```ts\nconst port = 8080;\n```\n', '```ts\nconst port = 9090;\n```\n').root)).toEqual(['changed:code', 'lines:-+']);
+    expect((d('```ts\nconst port = 8080;\n```\n', '```ts\nconst port = 9090;\n```\n').root.children[0] as DiffBlockNode).children[0]!.data).toMatchObject({ gbWords: '13-17;13-17' });
   });
 
   it('a changed diagram shows old and new side by side (R11)', () => {

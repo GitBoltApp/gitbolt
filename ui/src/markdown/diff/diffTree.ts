@@ -105,12 +105,12 @@ function changed(o: RootContent, n: RootContent, c: Ctx): RootContent[] {
     if (n.lang !== 'mermaid' && Math.max(was.value.length, n.value.length) > WORD_DIFF_MAX_CHARS) return replaced();
     c.changes++;
     if (n.lang === 'mermaid') return [{ type: 'diffPair', children: [block('removed', [was]), block('added', [n])] }];
-    const { value, marks } = codeLines(was.value, n.value, c.deadline);
+    const { value, marks, words } = codeLines(was.value, n.value, c.deadline);
     // Only the info string changed: no line shows it, so a note says what did.
     const note = /[+-]/.test(marks) ? undefined
       : (was.lang ?? null) !== (n.lang ?? null) ? `Language changed: ${was.lang ?? 'none'} → ${n.lang ?? 'none'}`
         : `Code block info changed: ${was.meta ?? 'none'} → ${n.meta ?? 'none'}`;
-    return [block('changed', [{ ...n, value, data: { ...n.data, gbLines: marks } }], note)];
+    return [block('changed', [{ ...n, value, data: { ...n.data, gbLines: marks, ...(words !== undefined ? { gbWords: words } : {}) } }], note)];
   }
   // A container whose content changed counts nothing itself and stays unmarked: the innermost
   // marked node counts once and carries the bar. A wholly added or removed container is one mark.

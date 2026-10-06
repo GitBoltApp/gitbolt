@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clearParseCache, parseMarkdown } from '../parse';
-import { alignUnits, blockKey, flowUnits, PAIR_SIMILARITY, similarity } from './blocks';
+import { alignUnits, blockKey, containment, flowUnits, PAIR_SIMILARITY, similarity } from './blocks';
 
 const units = (md: string) => { clearParseCache(); return flowUnits(parseMarkdown(md, 'github').children); };
 const ops = (a: string, b: string) => alignUnits(units(a), units(b))!.map((o) => o.op);
@@ -39,6 +39,19 @@ describe('alignUnits (5C: LCS on normalized block text)', () => {
     expect(ops('# Setup guide', '## Install guide')).toEqual(['changed']);
   });
 
+  it('pairs a block that grew a lot, or shrank a lot: the shorter one is mostly in the longer (containment)', () => {
+    const short = 'Run the installer, then launch the app from the menu.';
+    const long = 'Run the installer for your system, then launch the app from the menu. The package name carries a build stamp, and the packaging step deletes older packages first, so the pattern matches only the new one.';
+    expect(similarity(short, long)).toBeLessThan(PAIR_SIMILARITY);
+    expect(ops(short, long)).toEqual(['changed']);
+    expect(ops(long, short)).toEqual(['changed']);
+  });
+
+  it('a short block pairs by containment only past a minimum length', () => {
+    expect(ops('Build it.', 'Build it and publish the site to the staging host, then tell the team in the channel.')).toEqual(['removed', 'added']);
+    expect(ops('Alpha beta gamma.', 'Delta epsilon zeta eta theta iota kappa.')).toEqual(['removed', 'added']);
+  });
+
   it('does not pair unrelated paragraphs', () => {
     expect(ops('Alpha beta gamma delta.', 'Completely different words here.')).toEqual(['removed', 'added']);
   });
@@ -67,6 +80,15 @@ describe('alignUnits (5C: LCS on normalized block text)', () => {
 
   it('gives up past its time budget', () => {
     expect(alignUnits(units('One.'), units('Two.'), Date.now() - 1)).toBeNull();
+  });
+});
+
+describe('containment', () => {
+  it("is the common share of the shorter text, and 0 when the shorter one is too short to tell", () => {
+    expect(containment('one two three four five', 'one two three four five six seven eight nine ten')).toBe(1);
+    expect(containment('one two three four five six seven eight nine ten', 'one two three four five')).toBe(1);
+    expect(containment('a b', 'a b c d e f g h')).toBe(0);
+    expect(containment('alpha beta gamma delta', 'epsilon zeta eta theta iota')).toBeLessThan(0.3);
   });
 });
 

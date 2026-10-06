@@ -5,3 +5,5 @@
 .rename-common { color: var(--text-secondary); }
 .rename-changed { color: var(--text-selected); }
 .rename-arrow { justify-self: center; color: var(--text-secondary); font-size: 14px; line-height: 1.1; }
+/* An image converted to another format (shot.png → shot.webp): a quiet note under the paths. */
+.rename-format { margin-top: 3px; color: var(--text-secondary); font-size: 11px; }

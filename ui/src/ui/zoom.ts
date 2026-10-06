@@ -41,6 +41,11 @@ export function zoomDirection(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' 
   return null;
 }
 
+/** Marks a file's or a diff's body: there, the zoom keys and Ctrl+wheel change its text size
+ * instead (diff/fontZoom.ts), and the app zoom leaves them alone. */
+export const FONT_ZOOM_ATTR = 'data-font-zoom';
+export const inFontZoomPanel = (t: EventTarget | null): boolean => t instanceof Element && t.closest(`[${FONT_ZOOM_ATTR}]`) !== null;
+
 const load = (): number => {
   try {
     return parseZoom(globalThis.localStorage.getItem(ZOOM_STORAGE_KEY)) ?? 100;
@@ -101,7 +106,8 @@ export function installZoom(apply: (pct: number) => void = applyWebviewZoom): ()
   show(load());
   const onKeyDown = (e: KeyboardEvent) => {
     const dir = zoomDirection(e);
-    if (dir === null) return;
+    // Over a file's or a diff's body, the keys size its text (diff/fontZoom.ts).
+    if (dir === null || inFontZoomPanel(e.target)) return;
     e.preventDefault();
     setZoom(nextZoom(useZoom.getState().zoom, dir));
     return 'handled' as const;

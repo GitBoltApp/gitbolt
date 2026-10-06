@@ -27,6 +27,30 @@ describe('the rendered change stepper (5C, R3)', () => {
     expect(changeTargets(p).map((e) => e.getAttribute('data-diff-mark'))).toEqual(['added', 'removed', 'added', 'pair']);
   });
 
+  it("a split row holding a container (a table, a list) gives its marked rows or items: the new side's, and the old side's removed ones", () => {
+    const p = document.createElement('div');
+    p.innerHTML = `
+      <div class="md-split-row" data-diff-mark="changed">
+        <div class="md-split-cell"><table><tbody><tr><td>a</td></tr><tr data-diff-mark="changed" id="o1"><td>b</td></tr><tr data-diff-mark="removed" id="o2"><td>c</td></tr><tr class="md-split-empty-row"><td> </td></tr></tbody></table></div>
+        <div class="md-split-cell"><table><tbody><tr><td>a</td></tr><tr data-diff-mark="changed" id="n1"><td>B</td></tr><tr class="md-split-empty-row"><td> </td></tr><tr data-diff-mark="added" id="n3"><td>d</td></tr></tbody></table></div>
+      </div>
+      <div class="md-split-row" data-diff-mark="changed" id="para">
+        <div class="md-split-cell"><div data-diff-mark="changed">old words</div></div>
+        <div class="md-split-cell"><div data-diff-mark="changed">new words</div></div>
+      </div>
+      <div class="md-split-row" data-diff-mark="removed" id="gone">
+        <div class="md-split-cell"><div data-diff-mark="removed">gone</div></div>
+        <div class="md-split-cell md-split-empty"></div>
+      </div>`;
+    expect(changeTargets(p).map((e) => e.id)).toEqual(['n1', 'n3', 'o2', 'para', 'gone']);
+  });
+
+  it('steps by position even when targets come out of order (a split row: new side first)', () => {
+    const p = pane([['added', 300], ['removed', 40]]);
+    stepChange(p, 'next');
+    expect(p.scrollTop).toBe(40 - STEP_MARGIN);
+  });
+
   it('steps to the next change below the top edge, and the previous one above it', () => {
     const p = pane([[null, 0], ['added', 40], [null, 200], ['changed', 300]]);
     expect(stepChange(p, 'next')).toBe(true);

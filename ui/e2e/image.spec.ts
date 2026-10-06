@@ -1,7 +1,22 @@
 import { expect, test, type Page } from './test';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixtures, freshFixture, git, harnessHttp, openUrl } from './fixtures';
+import { rgbPng } from './perfRepo';
+
+/** A generated stand-in for a screenshot (never a real one): a title band, a sidebar, a gradient,
+ * grid lines and a disc, drawn in 0–1 coordinates so every size is the same picture. */
+function resizablePng(w: number, h: number): Buffer {
+  return rgbPng(w, h, (x, y) => {
+    const u = (x + 0.5) / w;
+    const v = (y + 0.5) / h;
+    if (v < 0.1) return [40, 44, 52];
+    if (u < 0.2) return [58, 64, 76];
+    if (Math.hypot((u - 0.62) * w, (v - 0.55) * h) < 0.25 * h) return [242, 93, 46];
+    if ((u * 16) % 1 < 0.05 || (v * 10) % 1 < 0.05) return [230, 230, 230];
+    return [30 + 120 * u, 80 + 100 * v, 160];
+  });
+}
 
 // The `details` fixture's "Rename guide and update assets" commit changes logo.png from a 4×4 red
 // PNG to a 6×4 blue one, and icon.svg from a rect to a circle (fixtures.rs).
@@ -518,11 +533,39 @@ test.describe('image diff', () => {
     }
   });
 
-  test('K81: an SVG with only a viewBox is drawn inside its box, at Fit and at 100% (intrinsic size = the viewBox)', async ({ page }) => {
+  test('K81: an SVG with only a viewBox is drawn inside its box, at Fit and at 100% (intrinsic size = the viewBox); Match sizes for a resized PNG', async ({ page }) => {
     const repo = freshFixture('details');
+    // A resized image: generated, the same picture at 640×400, then at 320×200.
+    writeFileSync(join(repo, 'shot.png'), resizablePng(640, 400));
+    git(repo, 'add', 'shot.png');
+    git(repo, 'commit', '-m', 'Add shot');
+    writeFileSync(join(repo, 'shot.png'), resizablePng(320, 200));
+    // A PNG converted to WebP (the format-change step at the end), both drawn by the browser
+    // before the page loads: 40×30 red, then 48×30 blue.
+    const [png, webp] = await page.evaluate(() => {
+      const draw = (w: number, h: number, color: string, type: string) => {
+        const c = document.createElement('canvas');
+        Object.assign(c, { width: w, height: h });
+        const g = c.getContext('2d')!;
+        g.fillStyle = color;
+        g.fillRect(0, 0, w, h);
+        return c.toDataURL(type);
+      };
+      return [draw(40, 30, '#d33', 'image/png'), draw(48, 30, '#36c', 'image/webp')];
+    });
+    expect(webp).toMatch(/^data:image\/webp;base64,/);
+    const bytes = (url: string) => Buffer.from(url.slice(url.indexOf(',') + 1), 'base64');
+    mkdirSync(join(repo, 'docs/images'), { recursive: true });
+    writeFileSync(join(repo, 'docs/images/screenshot.png'), bytes(png));
+    git(repo, 'add', 'docs/images/screenshot.png');
+    git(repo, 'commit', '-m', 'Add screenshot');
+    writeFileSync(join(repo, 'docs/images/screenshot.webp'), bytes(webp));
+    git(repo, 'rm', '-q', 'docs/images/screenshot.png');
+    git(repo, 'add', 'docs/images/screenshot.webp');
+    git(repo, 'commit', '-m', 'Screenshot as WebP');
     writeFileSync(join(repo, 'viewbox.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#15a0bf"/><circle cx="256" cy="256" r="200" fill="#f25d2e"/></svg>\n');
-    git(repo, 'add', 'viewbox.svg');
-    git(repo, 'commit', '-m', 'Add viewbox svg');
+    git(repo, 'add', 'viewbox.svg', 'shot.png');
+    git(repo, 'commit', '-m', 'Add viewbox svg, resize shot');
     await page.setViewportSize({ width: 1100, height: 520 }); // small enough that 512×512 needs Fit < 100%
     await page.goto(openUrl(repo));
     await page.getByRole('row').filter({ hasText: 'Add viewbox svg' }).click();
@@ -551,5 +594,30 @@ test.describe('image diff', () => {
     const full = await check(false);
     near(full.width, 512);
     near(full.height, 512);
+
+    await test.step('Match sizes: a resized PNG shows the toggle, on by default; in Swipe both images have the same box', async () => {
+      await open(page, 'shot.png');
+      await expect(d.getByTestId('image-dims')).toHaveText('640×400 → 320×200');
+      const toggle = d.getByRole('button', { name: 'Match sizes' });
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      await modeButton(page, 'Swipe').click();
+      await expect(d.getByTestId('match-note')).toHaveText('scaled to match');
+      const [before, after] = await Promise.all([d.locator('img.image-layer[alt="before"]').boundingBox(), d.locator('img.image-layer[alt="after"]').boundingBox()]);
+      near(before!.x, after!.x); near(before!.y, after!.y); near(before!.width, after!.width); near(before!.height, after!.height);
+      near(after!.width, 320); // 100%: the common size is the new image's
+    });
+
+    await test.step('a PNG converted to WebP is one renamed row, and the image diff compares the two', async () => {
+      await d.getByRole('button', { name: 'Close diff' }).click(); // its diff hides the graph
+      await page.getByRole('row').filter({ hasText: 'Screenshot as WebP' }).click();
+      await expect(page.getByTestId('file-counts')).toHaveAccessibleName('1 renamed');
+      await expect(fileRow(page, 'docs/images/screenshot.png')).toHaveCount(0);
+      await fileRow(page, 'docs/images/screenshot.webp').hover();
+      await expect(page.getByTestId('format-change')).toHaveText('Format changed: PNG → WebP');
+      await fileRow(page, 'docs/images/screenshot.webp').click();
+      await expect(d.getByTestId('diff-path')).toHaveText('docs/images/screenshot.png ⇒ screenshot.webp');
+      await expect(d.locator('img.image-layer')).toHaveCount(2);
+      await expect(d.getByTestId('image-dims')).toHaveText(/40×30\s*→\s*48×30/);
+    });
   });
 });

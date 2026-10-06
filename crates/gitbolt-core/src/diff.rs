@@ -303,7 +303,60 @@ fn resolved(worktree: Option<&Path>) -> Result<&Path, GbError> {
     worktree.ok_or_else(|| GbError::other("worktree diff requested without a validated worktree"))
 }
 
+/// The image types the image diff shows (`ui/src/image/sources.ts`'s `IMAGE_MIME`).
+const IMAGE_DIFF_EXTENSIONS: [&str; 9] = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "svg"];
+
+/// An image path without its extension (folder and stem). `None` for any other file, and for a
+/// name that's only an extension (`.png`).
+fn image_stem(path: &str) -> Option<&str> {
+    let (stem, ext) = path.rsplit_once('.')?;
+    let name = stem.rsplit_once('/').map_or(stem, |(_, n)| n);
+    (!name.is_empty() && IMAGE_DIFF_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())).then_some(stem)
+}
+
+/// A format change (`shot.png` deleted, `shot.webp` added) as one renamed row, so the image diff
+/// compares the two: git's rename detection is by content, and a re-encoded image shares none.
+/// Display only (nothing staged or committed changes), within one list: a WIP pair whose halves
+/// are in different stages stays two rows. Only an unambiguous pair: exactly one deleted and one
+/// added image with that folder and stem. The row keeps the deleted side's line count and the
+/// added side's (an SVG's), so the totals don't change.
+fn pair_image_conversions(mut files: Vec<FileChange>) -> Vec<FileChange> {
+    fn candidate<'a>(f: &'a FileChange, status: &str) -> Option<&'a str> {
+        if f.status == status && !f.submodule { image_stem(&f.path) } else { None }
+    }
+    let mut by_stem: HashMap<&str, (Vec<usize>, Vec<usize>)> = HashMap::new();
+    for (i, f) in files.iter().enumerate() {
+        if let Some(stem) = candidate(f, "D") {
+            by_stem.entry(stem).or_default().0.push(i);
+        } else if let Some(stem) = candidate(f, "A") {
+            by_stem.entry(stem).or_default().1.push(i);
+        }
+    }
+    let pairs: Vec<(usize, usize)> = by_stem
+        .into_values()
+        .filter_map(|(d, a)| match (&d[..], &a[..]) {
+            ([d], [a]) => Some((*d, *a)),
+            _ => None,
+        })
+        .collect();
+    if pairs.is_empty() {
+        return files;
+    }
+    let mut gone = HashSet::new();
+    for (d, a) in pairs {
+        let deleted = files[d].clone();
+        let added = &mut files[a];
+        added.status = "R".into();
+        added.old_path = Some(deleted.path);
+        added.old = deleted.old;
+        added.deletions = deleted.deletions;
+        gone.insert(d);
+    }
+    files.into_iter().enumerate().filter(|(i, _)| !gone.contains(i)).map(|(_, f)| f).collect()
+}
+
 fn totals(files: Vec<FileChange>) -> FileListPayload {
+    let files = pair_image_conversions(files);
     let added: u64 = files.iter().filter_map(|f| f.additions).map(u64::from).sum();
     let deleted: u64 = files.iter().filter_map(|f| f.deletions).map(u64::from).sum();
     let added = u32::try_from(added).unwrap_or(u32::MAX);
@@ -791,5 +844,138 @@ mod tests {
         r.commit("root");
         std::os::unix::fs::symlink(".git", r.path().join("linked")).unwrap();
         assert_eq!(resolve_submodule_head(r.path(), "linked"), BlobSource::Absent, "a symlinked path must not be opened, even if it points at .git");
+    }
+
+    // --- Image format changes (png → webp): one renamed row ---
+
+    fn change(path: &str, status: &str, oid: char) -> FileChange {
+        let blob = BlobSource::Object { oid: oid.to_string().repeat(40) };
+        let (old, new) = match status {
+            "D" => (blob, BlobSource::Absent),
+            "A" => (BlobSource::Absent, blob),
+            _ => (blob.clone(), blob),
+        };
+        FileChange { path: path.into(), old_path: None, status: status.into(), additions: None, deletions: None, old, new, submodule: false, conflict: None }
+    }
+
+    fn rows(files: &[FileChange]) -> Vec<(&str, Option<&str>, &str)> {
+        files.iter().map(|f| (f.path.as_str(), f.old_path.as_deref(), f.status.as_str())).collect()
+    }
+
+    #[test]
+    fn a_deleted_and_an_added_image_with_the_same_stem_pair_as_a_rename() {
+        let files = vec![change("docs/a.txt", "M", 'c'), change("docs/images/screenshot.png", "D", 'a'), change("docs/images/screenshot.webp", "A", 'b')];
+        let paired = pair_image_conversions(files);
+        assert_eq!(rows(&paired), vec![("docs/a.txt", None, "M"), ("docs/images/screenshot.webp", Some("docs/images/screenshot.png"), "R")]);
+        assert_eq!(paired[1].old, BlobSource::Object { oid: "a".repeat(40) }, "old: the deleted blob");
+        assert_eq!(paired[1].new, BlobSource::Object { oid: "b".repeat(40) }, "new: the added blob");
+    }
+
+    #[test]
+    fn every_image_type_the_image_diff_shows_pairs_in_any_case() {
+        for (from, to) in [("png", "webp"), ("JPG", "avif"), ("jpeg", "gif"), ("bmp", "ico"), ("svg", "png"), ("png", "SVG")] {
+            let paired = pair_image_conversions(vec![change(&format!("i.{to}"), "A", 'b'), change(&format!("i.{from}"), "D", 'a')]);
+            assert_eq!(rows(&paired), vec![(format!("i.{to}").as_str(), Some(format!("i.{from}").as_str()), "R")], "{from} → {to}");
+        }
+    }
+
+    #[test]
+    fn an_svg_side_keeps_its_line_count() {
+        let mut svg = change("logo.svg", "D", 'a');
+        svg.deletions = Some(12);
+        let paired = pair_image_conversions(vec![svg, change("logo.png", "A", 'b')]);
+        assert_eq!((paired[0].additions, paired[0].deletions), (None, Some(12)));
+        assert_eq!(totals(paired).deleted, 12, "the totals don't change");
+    }
+
+    #[test]
+    fn images_in_different_folders_or_with_other_stems_stay_apart() {
+        let apart = vec![change("a/shot.png", "D", 'a'), change("b/shot.webp", "A", 'b'), change("x.png", "D", 'c'), change("y.webp", "A", 'd')];
+        assert_eq!(pair_image_conversions(apart.clone()), apart);
+    }
+
+    #[test]
+    fn two_candidates_for_one_stem_stay_apart() {
+        let two_added = vec![change("i.png", "D", 'a'), change("i.webp", "A", 'b'), change("i.avif", "A", 'c')];
+        assert_eq!(pair_image_conversions(two_added.clone()), two_added);
+        let two_deleted = vec![change("i.png", "D", 'a'), change("i.jpg", "D", 'c'), change("i.webp", "A", 'b')];
+        assert_eq!(pair_image_conversions(two_deleted.clone()), two_deleted);
+    }
+
+    #[test]
+    fn non_images_and_other_statuses_stay_apart() {
+        let other = vec![
+            change("notes.txt", "D", 'a'),
+            change("notes.md", "A", 'b'),
+            change("pic.png", "D", 'c'),
+            change("pic.tiff", "A", 'd'),
+            change("m.png", "M", 'e'),
+            change("m.webp", "A", 'f'),
+            change(".png", "D", '1'),
+            change(".webp", "A", '2'),
+        ];
+        assert_eq!(pair_image_conversions(other.clone()), other);
+        let mut sub = vec![change("s.png", "D", 'a'), change("s.webp", "A", 'b')];
+        sub[0].submodule = true;
+        assert_eq!(pair_image_conversions(sub.clone()), sub, "a submodule is never an image");
+    }
+
+    fn png() -> Vec<u8> {
+        let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        b.extend([7u8; 64]);
+        b
+    }
+
+    fn webp() -> Vec<u8> {
+        let mut b = b"RIFF\x40\0\0\0WEBPVP8L".to_vec();
+        b.extend([3u8; 64]);
+        b
+    }
+
+    #[tokio::test]
+    async fn a_commit_converting_an_image_lists_one_renamed_row() {
+        let r = TestRepo::new();
+        r.write_bytes("docs/images/screenshot.png", &png());
+        r.git(&["add", "-A"]);
+        r.git(&["commit", "-q", "-m", "png"]);
+        std::fs::remove_file(r.path().join("docs/images/screenshot.png")).unwrap();
+        r.write_bytes("docs/images/screenshot.webp", &webp());
+        r.git(&["add", "-A"]);
+        r.git(&["commit", "-q", "-m", "webp"]);
+        let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
+        let id = r.git(&["rev-parse", "HEAD"]);
+        let list = file_list(&repo, &cli(), r.path(), &DiffSpec::Commit { id, parent: 0 }, None).await.unwrap();
+        assert_eq!(rows(&list.files), vec![("docs/images/screenshot.webp", Some("docs/images/screenshot.png"), "R")]);
+        assert_eq!(list.files[0].old, BlobSource::Object { oid: r.git(&["rev-parse", "HEAD^:docs/images/screenshot.png"]) });
+        assert_eq!(list.files[0].new, BlobSource::Object { oid: r.git(&["rev-parse", "HEAD:docs/images/screenshot.webp"]) });
+    }
+
+    #[tokio::test]
+    async fn wip_pairs_within_one_stage_only() {
+        let r = TestRepo::new();
+        r.write_bytes("a.png", &png());
+        r.write_bytes("b.png", &png());
+        r.git(&["add", "-A"]);
+        r.git(&["commit", "-q", "-m", "pngs"]);
+        let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
+        let wt = r.path().canonicalize().unwrap();
+        let name = wt.to_string_lossy().into_owned();
+        let wip = |staged| DiffSpec::Wip { worktree: name.clone(), staged };
+        let c = cli();
+        // a: both halves unstaged (a deleted tracked file and an untracked one): one row.
+        std::fs::remove_file(r.path().join("a.png")).unwrap();
+        r.write_bytes("a.webp", &webp());
+        // b: the deletion staged, the new file not: two rows, one in each list.
+        r.git(&["rm", "-q", "b.png"]);
+        r.write_bytes("b.webp", &webp());
+        let (staged, unstaged) = (file_list(&repo, &c, r.path(), &wip(true), Some(&wt)).await.unwrap(), file_list(&repo, &c, r.path(), &wip(false), Some(&wt)).await.unwrap());
+        assert_eq!(rows(&staged.files), vec![("b.png", None, "D")]);
+        assert_eq!(rows(&unstaged.files), vec![("a.webp", Some("a.png"), "R"), ("b.webp", None, "A")]);
+        assert_eq!(unstaged.files[0].new, BlobSource::Worktree { worktree: name.clone() });
+        // Staging a's two halves pairs them in the staged list instead.
+        r.git(&["add", "-A", "--", "a.png", "a.webp"]);
+        let (staged, unstaged) = (file_list(&repo, &c, r.path(), &wip(true), Some(&wt)).await.unwrap(), file_list(&repo, &c, r.path(), &wip(false), Some(&wt)).await.unwrap());
+        assert_eq!(rows(&staged.files), vec![("a.webp", Some("a.png"), "R"), ("b.png", None, "D")]);
+        assert_eq!(rows(&unstaged.files), vec![("b.webp", None, "A")]);
     }
 }

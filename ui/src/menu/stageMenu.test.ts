@@ -27,6 +27,13 @@ describe('the WIP file menu (spec #2 §7.1)', () => {
     expect(l).not.toContain('Discard changes');
   });
 
+  it('an unstaged image format change stages and discards both halves', () => {
+    const rows = buildMenu('file', target({ worktree: '/r', staged: false, oldPath: 'a.png', status: 'R' }), env);
+    for (const r of rows.slice(0, 2)) if (r.kind === 'action') r.run();
+    expect(stage).toHaveBeenLastCalledWith({ tabId: 't', repoId: 1, worktree: '/r' }, ['a.txt', 'a.png']);
+    expect(discard).toHaveBeenLastCalledWith({ tabId: 't', repoId: 1, worktree: '/r' }, ['a.txt', 'a.png']);
+  });
+
   it('runs on the row’s worktree', () => {
     const rows = buildMenu('file', target({ worktree: '/r', staged: false, oldPath: null, status: 'M' }), env);
     const first = rows[0];

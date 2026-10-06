@@ -14,15 +14,19 @@ export function brighten(data: Uint8ClampedArray, factor = 4): void {
  * differ. The default is 4×, matching the look of the old fixed ×4 brighten. Re-run whenever
  * `amplify` changes (cheap: two small `drawImage` calls), independent of the transform that
  * zooms/pans the canvas element — pixelated rendering and zoom/pan are untouched either way. */
-export function drawDifference(canvas: HTMLCanvasElement, a: HTMLImageElement | null, b: HTMLImageElement | null, w: number, h: number, amplify = 4, sizeA: { w: number; h: number } | null = null, sizeB: { w: number; h: number } | null = null): void {
+export function drawDifference(canvas: HTMLCanvasElement, a: HTMLImageElement | null, b: HTMLImageElement | null, w: number, h: number, amplify = 4, sizeA: { x?: number; y?: number; w: number; h: number } | null = null, sizeB: { w: number; h: number } | null = null): void {
   canvas.width = Math.max(1, w);
   canvas.height = Math.max(1, h);
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Match sizes scales the old image (`sizeA` with a place): smoothed well, or a downscale
+  // aliases into differences that aren't there.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   // An explicit size draws a viewBox-only SVG at its intrinsic size, not the browser's 150×150.
-  if (a) sizeA ? ctx.drawImage(a, 0, 0, sizeA.w, sizeA.h) : ctx.drawImage(a, 0, 0);
+  if (a) sizeA ? ctx.drawImage(a, sizeA.x ?? 0, sizeA.y ?? 0, sizeA.w, sizeA.h) : ctx.drawImage(a, 0, 0);
   ctx.globalCompositeOperation = 'difference';
   if (b) sizeB ? ctx.drawImage(b, 0, 0, sizeB.w, sizeB.h) : ctx.drawImage(b, 0, 0);
   ctx.globalCompositeOperation = 'source-over';

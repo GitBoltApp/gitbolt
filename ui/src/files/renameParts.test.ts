@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renameHighlight, renameParts } from './renameParts';
+import { formatChange, renameHighlight, renameParts } from './renameParts';
 
 describe('renameHighlight (J15)', () => {
   const split = (a: string, b: string) => {
@@ -94,5 +94,22 @@ describe('renameParts (H21)', () => {
   it('a file name that is also a directory name elsewhere is not a directory', () => {
     // "docs" is a file in the old path and a directory in the new one.
     expect(renameParts('docs', 'docs/readme')).toEqual({ common: '', old: 'docs', newDir: 'docs/', newName: 'readme' });
+  });
+});
+
+describe('formatChange (an image converted to another format)', () => {
+  it('names both image formats', () => {
+    expect(formatChange('docs/shot.png', 'docs/shot.webp')).toBe('PNG → WebP');
+    expect(formatChange('a.JPG', 'a.avif')).toBe('JPEG → AVIF');
+    expect(formatChange('icon.svg', 'icon.ico')).toBe('SVG → ICO');
+    expect(formatChange('x.gif', 'x.bmp')).toBe('GIF → BMP');
+  });
+
+  it('is null for the same format, a non-image side, or no extension', () => {
+    expect(formatChange('a.jpg', 'a.jpeg')).toBeNull();
+    expect(formatChange('a.png', 'b.png')).toBeNull();
+    expect(formatChange('a.png', 'a.txt')).toBeNull();
+    expect(formatChange('a.txt', 'a.png')).toBeNull();
+    expect(formatChange('Makefile', 'a.png')).toBeNull();
   });
 });

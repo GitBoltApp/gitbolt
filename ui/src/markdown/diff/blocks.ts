@@ -17,8 +17,14 @@ export type Op =
 
 /** How far apart, in one gap of removed and added units, two units may still pair. */
 export const PAIR_LOOKAHEAD = 8;
-/** Paragraphs, headings, list items and table rows pair when this share of their text is common. */
+/** Paragraphs, headings, list items and table rows pair when this share of their text is common
+ * (or by `containment`, below). */
 export const PAIR_SIMILARITY = 0.4;
+/** A block that grew or shrank a lot also pairs when this share of the shorter one's words is in
+ * the longer one, in order (`containment`)... */
+export const PAIR_CONTAINMENT = 0.65;
+/** ...if the shorter one has at least this many words: a two-word item is in too many others. */
+export const CONTAIN_MIN_WORDS = 4;
 /** Longer blocks never word-diff: they show as removed and added (R14). */
 export const WORD_DIFF_MAX_CHARS = 10_000;
 /** The whole rendered diff (alignment, pairing, word and line diffs) gives up after this long
@@ -125,12 +131,27 @@ export function similarity(a: string, b: string, deadline = Infinity): number {
   return common / max;
 }
 
+/** The share of the shorter text's words that the longer one has, in the same order (their
+ * longest common subsequence over the shorter one's word count, 0-1); 0 when the shorter one has
+ * fewer than CONTAIN_MIN_WORDS words, or past WORD_DIFF_MAX_CHARS. Throws `GaveUp` past
+ * `deadline`. */
+export function containment(a: string, b: string, deadline = Infinity): number {
+  if (Math.max(a.length, b.length) > WORD_DIFF_MAX_CHARS) return 0;
+  const wa = a.match(/\S+/g) ?? [];
+  const wb = b.match(/\S+/g) ?? [];
+  const shorter = Math.min(wa.length, wb.length);
+  if (shorter < CONTAIN_MIN_WORDS) return 0;
+  let common = 0;
+  for (const c of inTime(diffArrays(wa, wb, { timeout: left(deadline) }))) if (!c.added && !c.removed) common += c.count ?? c.value.length;
+  return common / shorter;
+}
+
 const ALWAYS = new Set(['ul', 'ol', 'blockquote', 'mermaid']);
 const BY_TEXT = new Set(['paragraph', 'heading', 'listItem', 'tableRow']);
 function canPair(a: Unit, b: Unit, deadline: number): boolean {
   if (a.kind !== b.kind || a.nodes.length !== 1 || b.nodes.length !== 1) return false;
   if (ALWAYS.has(a.kind) || a.kind.startsWith('code:') || a.kind.startsWith('table:')) return true;
-  return BY_TEXT.has(a.kind) && similarity(a.text, b.text, deadline) >= PAIR_SIMILARITY;
+  return BY_TEXT.has(a.kind) && (similarity(a.text, b.text, deadline) >= PAIR_SIMILARITY || containment(a.text, b.text, deadline) >= PAIR_CONTAINMENT);
 }
 
 /** One gap's removed and added units: each removed unit pairs with the first unpaired added one of

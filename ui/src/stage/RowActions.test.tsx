@@ -44,6 +44,15 @@ describe('row actions (spec #2 §7.1)', () => {
     expect(screen.getByRole('button', { name: 'Stage sub' })).toBeInTheDocument();
   });
 
+  it('an unstaged image format change (shot.png → shot.webp) stages and discards both halves', async () => {
+    const pair = f('img/shot.webp', 'img/shot.png');
+    render(<RowActions ctx={ctx} which="unstaged" files={[pair]} name="shot.webp" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stage shot.webp' }));
+    expect(stage).toHaveBeenCalledWith(ctx, ['img/shot.webp', 'img/shot.png']);
+    fireEvent.click(screen.getByRole('button', { name: 'Discard shot.webp' }));
+    await vi.waitFor(() => expect(discard).toHaveBeenCalledWith(ctx, ['img/shot.webp', 'img/shot.png']));
+  });
+
   it('a staged row unstages, renames with both paths', () => {
     const rename = f('new.txt', 'old.txt');
     render(<RowActions ctx={ctx} which="staged" files={[rename]} name="new.txt" />);

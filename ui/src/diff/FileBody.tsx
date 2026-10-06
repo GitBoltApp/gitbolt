@@ -14,6 +14,8 @@ import { useParseBudget } from './parseBudget';
 import { loadedHost } from './TextDiff';
 // --- 5B T6: relative links and images in File View's Markdown (registered with the renderer) ---
 import '../markdown/fileLinks';
+import { MdFontPx } from '../markdown/fontPx';
+import { editorFontVar, useEditorFontPx } from './fontZoom';
 import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
 // --- end 5B T6 ---
 
@@ -108,21 +110,22 @@ export function FileBody({ identity, path, text, language, onShown, editable = f
     h.restoreFileViewState(k.view);
   }, [rendered]); // eslint-disable-line react-hooks/exhaustive-deps
   useScrollPlace({ tabId, kind: 'file', key: navKey, el: () => pane.current, active: rendered, ready: rendered && !waiting, view: 'rendered', blocks: true });
+  const fontPx = useEditorFontPx();
   const commit = markdown?.commit ?? null;
   const context = useMemo<MarkdownContext | null>(() => (commit === null ? null : { kind: 'file', tabId, commit, path }), [tabId, commit, path]);
   return (
     <>
       {wantsRendered && tooLarge && <div role="note" className="diff-banner">{TOO_LARGE_TO_RENDER}</div>}
-      <div className="file-source" hidden={rendered}>
+      <div className="file-source" hidden={rendered} data-font-zoom="">
         <FileView identity={identity} path={path} text={text} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={navKey} />
       </div>
       {markdown && (
-        <div ref={pane} className="md-rendered" hidden={!rendered} data-testid="markdown-file" tabIndex={-1}>
+        <div ref={pane} className="md-rendered" hidden={!rendered} data-testid="markdown-file" tabIndex={-1} data-font-zoom="" style={editorFontVar(fontPx)}>
           {rendered && context && (waiting
             ? <div className="diff-message" aria-busy="true">Rendering…</div>
             : (
               <Suspense fallback={<div className="diff-message" aria-busy="true">Loading…</div>}>
-                <Markdown text={shownText} flavor={flavor} context={context} />
+                <MdFontPx value={fontPx}><Markdown text={shownText} flavor={flavor} context={context} /></MdFontPx>
               </Suspense>
             ))}
         </div>

@@ -22,4 +22,12 @@ describe('RenamePaths (J15)', () => {
     expect(marked(oldLine)).toBe('~a/~~x.ts~');
     expect(marked(newLine)).toBe('~a/~[b/]~x.ts~');
   });
+
+  it('an image format change says so under the paths; a plain rename or a same-format one does not', () => {
+    const { unmount } = render(<RenamePaths oldPath="docs/images/screenshot.png" path="docs/images/screenshot.webp" />);
+    expect(screen.getByTestId('format-change')).toHaveTextContent('Format changed: PNG → WebP');
+    unmount();
+    render(<RenamePaths oldPath="a/x.jpg" path="a/x.jpeg" />);
+    expect(screen.queryByTestId('format-change')).toBeNull();
+  });
 });

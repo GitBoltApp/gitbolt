@@ -49,7 +49,7 @@ export interface RepoServices {
 }
 
 export const filesKey = (spec: DiffSpec) => JSON.stringify(spec);
-export const contentKey = (r: ContentsRequest) => JSON.stringify({ path: r.path, old: r.old, new: r.new, force: r.force });
+export const contentKey = (r: ContentsRequest) => JSON.stringify({ path: r.path, old: r.old, new: r.new, force: r.force, ...(r.oldPath ? { oldPath: r.oldPath } : {}) });
 
 /** WIP and worktree reads change under us, so the `Loader`s never cache them (plan 1B deviation
  * 9); WIP lists are held by `WipLists` instead, only while a watcher keeps them current (K44).

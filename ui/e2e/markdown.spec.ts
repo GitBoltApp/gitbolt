@@ -256,7 +256,28 @@ test.describe('the rendered Markdown diff (5C)', () => {
     await expect(md.locator('li[data-diff-mark="added"]')).toHaveText('verify');
     await expect(md.locator('.md-code-del')).toHaveText('const port = 8080;');
     await expect(md.locator('.md-code-add')).toHaveText('const port = 9090;');
+    await expect(md.locator('.md-code-del .md-code-word-del')).toHaveText('8080');
+    await expect(md.locator('.md-code-add .md-code-word-add')).toHaveText('9090');
     await expect(md.locator('.md-diff-pair img[alt="Mermaid diagram"]')).toHaveCount(2, { timeout: 10_000 });
+
+    await test.step("an item's bar sits left of its bullet, lined up with the paragraphs' bars", async () => {
+      const barX = (el: Locator) => el.evaluate((e) => e.getBoundingClientRect().left + parseFloat(getComputedStyle(e, '::before').left));
+      const item = md.locator('li[data-diff-mark="added"]');
+      const itemBar = await barX(item);
+      expect(Math.abs(itemBar - (await barX(md.locator('.md-diff-block').filter({ hasText: 'Run the tool' }))))).toBeLessThan(1);
+      // The bullet (an outside marker) starts about 1.5em left of the item's text: the bar is clear of it.
+      const fontPx = await item.evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+      expect(itemBar + 3).toBeLessThan((await item.evaluate((e) => e.getBoundingClientRect().left)) - 1.5 * fontPx);
+    });
+
+    await test.step("a changed code block's line marks span the block, through its padding", async () => {
+      const span = await md.locator('.md-code-add').evaluate((line) => {
+        const pre = line.closest('pre')!.getBoundingClientRect();
+        const r = line.getBoundingClientRect();
+        return [r.left - pre.left, pre.right - r.right];
+      });
+      for (const gap of span) expect(Math.abs(gap)).toBeLessThan(1);
+    });
 
     await test.step('the overview ruler: a mark per change on its canvas, no native scrollbar; a click scrolls the pane there', async () => {
       const ruler = page.locator('.md-diff-ruler');
@@ -298,6 +319,24 @@ test.describe('the rendered Markdown diff (5C)', () => {
       // The mode persists app-wide: back to Inline for the specs after this one.
       await modes.getByRole('button', { name: 'Inline' }).click();
       await expect(md.locator('.md-split-row')).toHaveCount(0);
+    });
+
+    await test.step('Ctrl+wheel over the rendered pane sizes its text (the editor font size), not the app; Ctrl+0 resets it', async () => {
+      const size = () => md.locator('.md').first().evaluate((e) => getComputedStyle(e).fontSize);
+      await expect.poll(size).toBe('13px');
+      const box = (await md.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.keyboard.down('Control');
+      await page.mouse.wheel(0, -100);
+      await page.mouse.wheel(0, -100);
+      await page.keyboard.up('Control');
+      await expect.poll(size).toBe('15px');
+      await expect(page.getByText('Text size 15 px')).toBeVisible();
+      await expect(page.locator('html')).toHaveAttribute('data-zoom', '100');
+      await md.focus();
+      await page.keyboard.press('Control+0');
+      await expect.poll(size).toBe('13px');
+      await expect(page.locator('html')).toHaveAttribute('data-zoom', '100');
     });
 
     // Source: the text diff and its view modes again.

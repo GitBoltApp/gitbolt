@@ -45,6 +45,27 @@ describe('MdCode (spec #5 §3.1)', () => {
     expect(shiki.highlightCode).toHaveBeenCalledTimes(2);
   });
 
+  it("marks a changed line's changed words over its tint, keeping Shiki's colours", async () => {
+    shiki.highlightCode.mockResolvedValue({ lines: [
+      [{ content: 'const', color: '#569cd6' }, { content: ' port = 8080;', color: '#d4d4d4' }],
+      [{ content: 'const', color: '#569cd6' }, { content: ' port = 9090;', color: '#d4d4d4' }],
+    ] });
+    const { container } = render(<MdCode code={'const port = 8080;\nconst port = 9090;'} lang="ts" marks="-+" words="13-17;13-17" />);
+    // Plain at first (marked already), then in Shiki's colours.
+    expect(container.querySelector('.md-code-word-del')).toHaveTextContent('8080');
+    await waitFor(() => expect(container.querySelector('.md-code-del .md-code-word-del')).toHaveStyle({ color: '#d4d4d4' }));
+    expect(container.querySelector('.md-code-del .md-code-word-del')).toHaveTextContent('8080');
+    expect(container.querySelector('.md-code-add .md-code-word-add')).toHaveTextContent('9090');
+    expect(container.querySelector('.md-code-del')).toHaveTextContent('const port = 8080;');
+  });
+
+  it('marks changed words in plain code too, and ignores ranges past the line', () => {
+    shiki.highlightCode.mockResolvedValue(null);
+    const { container } = render(<MdCode code={'a = 1\na = 2\nkept'} lang={null} marks="-+ " words="4-5;4-5,9-99;" />);
+    expect([...container.querySelectorAll('.md-code-word-del, .md-code-word-add')].map((e) => e.textContent)).toEqual(['1', '2']);
+    expect(container.querySelector('code')).toHaveTextContent('a = 1a = 2kept');
+  });
+
   it('copies the code with the Copy button', async () => {
     shiki.highlightCode.mockResolvedValue(null);
     render(<MdCode code="npm test" lang="sh" />);

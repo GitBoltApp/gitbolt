@@ -88,6 +88,7 @@ export function toSafeHast(tree: Root): SafeHast {
       const pre = defaultHandlers.code(state, node);
       const inner = pre.children[0];
       if (node.data?.gbLines !== undefined && inner?.type === 'element') inner.properties.dataGbLines = tag(node.data.gbLines);
+      if (node.data?.gbWords !== undefined && inner?.type === 'element') inner.properties.dataGbWords = tag(node.data.gbWords);
       return pre;
     },
   };
@@ -119,6 +120,7 @@ export interface DiffRender { old: MarkdownContext; split?: boolean }
 const MARK_LABEL: Record<string, string> = { added: 'Added', removed: 'Removed', changed: 'Changed' };
 const isMark = (m: string) => Object.hasOwn(MARK_LABEL, m);
 const LINE_MARKS = /^[ +-]*$/;
+const WORD_MARKS = /^[\d,;-]*$/;
 
 /** A link, image or reference inside a removed part resolves on the old side (R7, R9). */
 function SidedLink(p: MdLinkProps) {
@@ -151,10 +153,12 @@ export function componentsFor(ctx: MarkdownContext, refs: MdReferenceNode[], non
       const lang = (Array.isArray(cls) ? cls : []).map(String).find((c) => c.startsWith('language-'))?.slice('language-'.length) ?? null;
       const text = code.children.map(textOf).join('').replace(/\n$/, '');
       const marks = markOf(code.properties.dataGbLines);
-      return lang === 'mermaid' ? <MdMermaid source={text} /> : <MdCode code={text} lang={lang} marks={marks !== null && LINE_MARKS.test(marks) ? marks : undefined} />;
+      const words = markOf(code.properties.dataGbWords);
+      const lineMarks = marks !== null && LINE_MARKS.test(marks) ? marks : undefined;
+      return lang === 'mermaid' ? <MdMermaid source={text} /> : <MdCode code={text} lang={lang} marks={lineMarks} words={lineMarks !== undefined && words !== null && WORD_MARKS.test(words) ? words : undefined} />;
     },
     code: ({ node: _node, children, ...rest }) => {
-      const { 'data-gb-lines': _lines, ...plain } = rest as Record<string, unknown>;
+      const { 'data-gb-lines': _lines, 'data-gb-words': _words, ...plain } = rest as Record<string, unknown>;
       return <code {...(plain as ComponentProps<'code'>)}>{children}</code>;
     },
     div: ({ node: _node, children, ...rest }) => {

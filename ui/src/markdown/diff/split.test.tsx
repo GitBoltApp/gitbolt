@@ -5,7 +5,7 @@ import type { FileMarkdownContext, MdCodeProps, MdImageProps, MdLinkProps } from
 // Which side's context each link and image gets; code and diagrams as their text and line marks.
 vi.mock('../MdLink', () => ({ MdLink: ({ ctx, href, children }: MdLinkProps) => <a data-commit={(ctx as { commit: string }).commit} data-href={href}>{children}</a> }));
 vi.mock('../MdImage', () => ({ MdImage: ({ ctx, src }: MdImageProps) => <img data-commit={(ctx as { commit: string }).commit} data-src={src} alt="" /> }));
-vi.mock('../MdCode', () => ({ MdCode: ({ code, marks }: MdCodeProps) => <pre data-testid="code" data-marks={marks ?? 'none'}>{code}</pre> }));
+vi.mock('../MdCode', () => ({ MdCode: ({ code, marks, words }: MdCodeProps) => <pre data-testid="code" data-marks={marks ?? 'none'} data-words={words ?? 'none'}>{code}</pre> }));
 vi.mock('../MdMermaid', () => ({ MdMermaid: ({ source }: { source: string }) => <pre data-testid="mermaid">{source}</pre> }));
 const { MarkdownDiff } = await import('./MarkdownDiff');
 const { resetChunkStreams } = await import('../parseAsync');
@@ -74,6 +74,9 @@ describe('the split rendered diff (5C)', () => {
     expect(oldCode).toHaveAttribute('data-marks', ' -');
     expect(newCode).toHaveTextContent('const a = 1; const port = 9090;');
     expect(newCode).toHaveAttribute('data-marks', ' +');
+    // Each side keeps its own lines' changed words.
+    expect(oldCode).toHaveAttribute('data-words', ';13-17');
+    expect(newCode).toHaveAttribute('data-words', ';13-17');
     const [oldChart, newChart] = cells(diagram!).map((x) => x.querySelectorAll('[data-testid="mermaid"]'));
     expect(oldChart).toHaveLength(1);
     expect(oldChart![0]).toHaveTextContent('A-->B');
@@ -99,6 +102,25 @@ describe('the split rendered diff (5C)', () => {
     expect(left.querySelectorAll('tbody tr')).toHaveLength(2);
     expect(left.querySelector('tbody tr:last-child')).toHaveClass('md-split-empty-row');
     expect(right.querySelector('tbody tr:last-child')).toHaveAttribute('data-diff-mark', 'added');
+  });
+
+  it('a table with 1 of 20 rows changed is one change, at that row (the ruler, the stops and the count agree)', async () => {
+    const { diffMarkdown } = await import('./diffTree');
+    const table = (n: number) => `| Step | Time |\n|---|---|\n${Array.from({ length: 20 }, (_, i) => `| step ${i} | ${i === 12 ? n : i} ms |`).join('\n')}\n`;
+    expect(diffMarkdown(table(99), table(100), 'github').changes).toBe(1);
+    clearParseCache();
+    const c = split(table(99), table(100));
+    const targets = changeTargets(c);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.tagName).toBe('TR');
+    expect(targets[0]).toHaveTextContent('step 12100 ms');
+    expect(targets[0]!.closest('.md-split-cell')).toHaveClass('md-split-new');
+  });
+
+  it("a changed item's nested items are the changes, not the item's whole row; a removed one counts on the old side", () => {
+    const c = split('- top\n  - kept\n  - nested changed one\n  - gone here\n', '- top\n  - kept\n  - nested changed two\n');
+    const targets = changeTargets(c);
+    expect(targets.map((t) => [t.tagName, t.dataset.diffMark, t.textContent])).toEqual([['LI', 'changed', 'nested changed two'], ['LI', 'removed', 'gone here']]);
   });
 
   it('Previous/Next change step through the changed rows', () => {

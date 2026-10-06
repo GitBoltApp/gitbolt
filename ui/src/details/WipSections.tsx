@@ -7,7 +7,7 @@ import { PathTreeToggle } from '../files/PathTreeToggle';
 import { useFileListPrefs } from '../files/fileListPrefs';
 import { filesKey } from '../repo/services';
 import type { FileSection } from '../repo/store';
-import { discardUnstaged, stageAll, stagePaths, unstageAll, useWipCtx } from '../stage/actions';
+import { discardUnstaged, pathsOf, stageAll, stagePaths, unstageAll, useWipCtx } from '../stage/actions';
 import { StagingUndoButtons } from '../stage/UndoButtons';
 import { ActionIcon, filesUnder, RowActions } from '../stage/RowActions';
 import { COMMIT_QUEUED, useCommitting } from '../stage/store';
@@ -53,7 +53,7 @@ function HeadActions({ ctx, which, files, guardConflicts }: { ctx: WriteCtx; whi
     <span className="wip-head-actions" onClick={(e) => e.stopPropagation()}>
       {which === 'unstaged' && !files.every((f) => f.submodule) && <ActionIcon label="Discard unstaged" tip={tip('Discard unstaged changes')} icon={Trash2} danger disabled={committing} onClick={() => void discardUnstaged(ctx)} />}
       {which === 'unstaged'
-        ? <ActionIcon label="Stage all" tip={tip('Stage all changes')} icon={ListPlus} positive text="Stage All Changes" shortText="Stage all" disabled={committing} onClick={() => void (guardConflicts ? stagePaths(ctx, files.map((f) => f.path)) : stageAll(ctx))} />
+        ? <ActionIcon label="Stage all" tip={tip('Stage all changes')} icon={ListPlus} positive text="Stage All Changes" shortText="Stage all" disabled={committing} onClick={() => void (guardConflicts ? stagePaths(ctx, pathsOf(files)) : stageAll(ctx))} />
         : <ActionIcon label="Unstage all" tip={tip('Unstage all changes')} icon={ListMinus} danger text="Unstage All Changes" shortText="Unstage all" disabled={committing} onClick={() => void unstageAll(ctx)} />}
     </span>
   );

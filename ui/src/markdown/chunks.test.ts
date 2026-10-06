@@ -27,6 +27,14 @@ describe('splitChunks (ruling 21)', () => {
     expect(chunkHeightOf({ type: 'root', children: [], data: { gbChars: 10 } })).toBe(40);
   });
 
+  it("scales the placeholder height with the text size: lines get taller and hold fewer characters", () => {
+    const tree = { type: 'root' as const, children: [], data: { gbChars: 10_000 } };
+    expect(chunkHeightOf(tree, 12)).toBe(1800);
+    expect(chunkHeightOf(tree, 13)).toBe(Math.round(10_000 * 0.18 * (13 / 12) ** 2));
+    expect(chunkHeightOf(tree, 24)).toBe(7200);
+    expect(chunkHeightOf(tree)).toBe(chunkHeightOf(tree, 12));
+  });
+
   it('never ends a chunk inside an open HTML block', () => {
     const md = `<details>\n<summary>More</summary>\n\n${'Inside. '.repeat(400)}\n\n${'Second. '.repeat(400)}\n\n</details>\n\nAfter.`;
     const chunks = splitChunks(parse(md), 1_000);

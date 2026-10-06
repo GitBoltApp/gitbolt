@@ -166,7 +166,8 @@ export function onEvent(h: EventHandler): () => void {
 const call = <T>(req: Request) => t().call(req) as Promise<T>;
 
 /** One `diffContents` request: the two sides the file list built, sent back unchanged. */
-export interface ContentsRequest { path: string; old: BlobSource; new: BlobSource; force: boolean }
+/** `oldPath`: a rename's source, which reads an image format change's old side as an image. */
+export interface ContentsRequest { path: string; old: BlobSource; new: BlobSource; force: boolean; oldPath?: string }
 /** One "Open in…" request: `path` relative to `worktree` (one of the repo's), at `line` (1-based). */
 export interface OpenInRequest { worktree: string; path: string; line: number | null; opener: string; source: BlobSource | null; fallback: BlobSource | null }
 
@@ -186,7 +187,7 @@ export const api = {
   commitDetails: (repo: number, id: string) => t().call({ method: 'commitDetails', params: { repo, id } }) as Promise<CommitDetailsPayload>,
   remotes: (repo: number) => t().call({ method: 'remotes', params: { repo } }) as Promise<RemotePayload[]>,
   fileList: (repo: number, spec: DiffSpec) => t().call({ method: 'fileList', params: { repo, spec } }) as Promise<FileListPayload>,
-  diffContents: (repo: number, r: ContentsRequest) => t().call({ method: 'diffContents', params: { repo, path: r.path, old: r.old, new: r.new, force: r.force } }) as Promise<DiffContentsPayload>,
+  diffContents: (repo: number, r: ContentsRequest) => t().call({ method: 'diffContents', params: { repo, path: r.path, old: r.old, new: r.new, force: r.force, ...(r.oldPath ? { oldPath: r.oldPath } : {}) } }) as Promise<DiffContentsPayload>,
   /** Both sides of a binary file as hex dumps, each capped (`HexDumpPayload.cap`). */
   hexDump: (repo: number, r: Omit<ContentsRequest, 'force'>) => t().call({ method: 'hexDump', params: { repo, path: r.path, old: r.old, new: r.new } }) as Promise<HexDumpPayload>,
   treeFiles: (repo: number, id: string) => t().call({ method: 'treeFiles', params: { repo, id } }) as Promise<string[]>,

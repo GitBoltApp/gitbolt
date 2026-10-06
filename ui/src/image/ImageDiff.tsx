@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { formatBytes } from '../diff/format';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { onResetDoubleClick } from '../ui/resetHandle';
@@ -6,11 +6,15 @@ import { IMAGE_BACKGROUNDS, useImageBackground } from './background';
 import { openContextMenu } from '../menu/menuStore';
 import { drawDifference } from './difference';
 import { imageMenuRows, type ImageSide } from './imageMenu';
+import { defaultMatch, matchedRect, rememberedMatch, rememberMatch, sizesDiffer, type Rect } from './matchSizes';
 import type { ImageSource } from './sources';
 import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
 import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import './image.css';
 import { ArrowGlyph } from '../ui/ArrowGlyph';
+import { Scaling } from 'lucide-react';
+
+const MATCH_TIP = "Match sizes: show the old image scaled to the new one's size";
 
 export type ImageMode = 'side' | 'swipe' | 'onion' | 'difference';
 interface Dim { w: number; h: number }
@@ -74,9 +78,10 @@ function CheckerIcon() {
  * The image diff (spec §10.4). `single`: an added or deleted image (Diff View), which shows only
  * the side it has, labelled, and no compare modes (H25). File View's one revision passes none.
  * `source` is shown instead of the image while its toggle (`sourceLabel`) is on: an SVG's text,
- * a raster image's hex dump.
+ * a raster image's hex dump. `fileKey`: the file's identity, under which its "Match sizes" pick is
+ * remembered for the session.
  */
-export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSourceChange, single = null }: { old: ImageSource | null; new: ImageSource | null; source?: ReactNode; sourceLabel?: string; onSourceChange?: (on: boolean) => void; single?: 'added' | 'deleted' | null }) {
+export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSourceChange, single = null, fileKey }: { old: ImageSource | null; new: ImageSource | null; source?: ReactNode; sourceLabel?: string; onSourceChange?: (on: boolean) => void; single?: 'added' | 'deleted' | null; fileKey?: string }) {
   const both = old !== null && neu !== null;
   const [mode, setModeState] = useState<ImageMode>('side');
   const background = useImageBackground((s) => s.background);
@@ -134,8 +139,23 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
   // without reloading them on every tick.
   const diffImgs = useRef<{ a: HTMLImageElement | null; b: HTMLImageElement | null } | null>(null);
   const activeMode: ImageMode = both ? mode : 'side';
-  const contentW = Math.max(oldImg.dim?.w ?? 0, newImg.dim?.w ?? 0);
-  const contentH = Math.max(oldImg.dim?.h ?? 0, newImg.dim?.h ?? 0);
+  // "Match sizes": two decoded sides of different sizes can have the old one drawn at the new one's
+  // size (or fitted inside it, centred, when the aspect ratios differ). On by default for a pure
+  // resize; the user's pick is remembered per file for the session.
+  const [matchPick, setMatchPick] = useState<boolean | undefined>(() => rememberedMatch(fileKey));
+  const canMatch = both && sizesDiffer(oldImg.dim, newImg.dim);
+  const matched = canMatch && (matchPick ?? defaultMatch(oldImg.dim, newImg.dim));
+  const setMatched = (on: boolean) => {
+    setMatchPick(on);
+    rememberMatch(fileKey, on);
+  };
+  /** Where the old image is drawn while matched, in the new image's pixels; null: its own size at 0,0. */
+  const oldRect = useMemo<Rect | null>(() => (matched && oldImg.dim && newImg.dim ? matchedRect(oldImg.dim, newImg.dim) : null), [matched, oldImg.dim, newImg.dim]);
+  const rawW = Math.max(oldImg.dim?.w ?? 0, newImg.dim?.w ?? 0);
+  const rawH = Math.max(oldImg.dim?.h ?? 0, newImg.dim?.h ?? 0);
+  // The common size every mode, and zoom and pan, work in: the new image's while matched.
+  const contentW = matched && newImg.dim ? newImg.dim.w : rawW;
+  const contentH = matched && newImg.dim ? newImg.dim.h : rawH;
 
   /** `start`: a new image, opened at the step's start view (100%: top left where it overflows). */
   const applyStep = (i: number, around?: { x: number; y: number }, start = false) => {
@@ -225,9 +245,18 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
   });
 
   // New or newly decoded images start at 100% (H23): scrollable where larger than the box.
+  // Keyed on the images' own sizes, not the matched size: toggling Match sizes keeps the zoom.
   useLayoutEffect(() => {
     applyStep(DEFAULT_STEP, undefined, true);
-  }, [contentW, contentH]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rawW, rawH]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Match sizes toggled: the same zoom, the view kept on the (new) common size, or refitted on Fit.
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box || contentW === 0) return;
+    if (fitModeRef.current) return applyFit();
+    setView((v) => clampView(v, contentW, contentH, box.clientWidth, box.clientHeight));
+  }, [matched]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Zoom and pan are shared by every mode (spec §10.4): a mode switch only re-centres.
   useLayoutEffect(() => {
@@ -272,10 +301,10 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
     void Promise.all([loadImage(old.url), loadImage(neu.url)]).then(([a, b]) => {
       if (!live) return;
       diffImgs.current = { a, b };
-      drawDifference(canvas, a, b, contentW, contentH, amplifyRef.current, oldImg.dim, newImg.dim);
+      drawDifference(canvas, a, b, contentW, contentH, amplifyRef.current, oldRect ?? oldImg.dim, newImg.dim);
     });
     return () => { live = false; };
-  }, [activeMode, old, neu, contentW, contentH, oldImg.dim, newImg.dim]);
+  }, [activeMode, old, neu, contentW, contentH, oldImg.dim, newImg.dim, oldRect]);
 
   // K10: the Amplify slider repaints from the already-loaded images — no reload, so dragging it
   // stays fast — via the same `drawDifference`, which keeps the canvas's zoom/pan transform and
@@ -287,9 +316,9 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
     if (activeMode !== 'difference' || !canvasRef.current || !diffImgs.current) return;
     const canvas = canvasRef.current;
     const { a, b } = diffImgs.current;
-    const raf = requestAnimationFrame(() => drawDifference(canvas, a, b, contentW, contentH, amplify, oldImg.dim, newImg.dim));
+    const raf = requestAnimationFrame(() => drawDifference(canvas, a, b, contentW, contentH, amplify, oldRect ?? oldImg.dim, newImg.dim));
     return () => cancelAnimationFrame(raf);
-  }, [amplify, activeMode, contentW, contentH, oldImg.dim, newImg.dim]);
+  }, [amplify, activeMode, contentW, contentH, oldImg.dim, newImg.dim, oldRect]);
 
   // J13: until every side has decoded (or failed), there's no size to place the images by, and a
   // later side's size moves the view again: they'd paint at the top left, then jump. Hidden until
@@ -347,9 +376,18 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
     return both && activeMode === 'side' && vp && vp === stageRef.current?.querySelectorAll('.image-viewport')[1] ? 'new' : 'old';
   };
   // The size is explicit: an SVG with only a viewBox lays out at the viewport's width otherwise,
-  // not at the size the frame and the zoom math use.
-  const img = (src: ImageSource, decoded: Decoded, label: string, style?: CSSProperties) =>
-    decoded.failed ? broken : <img className="image-layer" src={src.url} alt={label} draggable={false} style={{ ...layer, ...style, width: decoded.dim?.w, height: decoded.dim?.h }} />;
+  // not at the size the frame and the zoom math use. `at`: drawn there instead (Match sizes).
+  const img = (src: ImageSource, decoded: Decoded, label: string, style?: CSSProperties, at?: Rect | null) => {
+    if (decoded.failed) return broken;
+    const placed = at && { transform: `translate(${view.x + at.x * view.scale}px, ${view.y + at.y * view.scale}px) scale(${view.scale})` };
+    return <img className="image-layer" src={src.url} alt={label} draggable={false} style={{ ...layer, ...placed, ...style, width: at ? at.w : decoded.dim?.w, height: at ? at.h : decoded.dim?.h }} />;
+  };
+  /** The size info's full text, for its tooltip when the toolbar truncates it. */
+  const metaText = both
+    ? `${dims(oldImg)} → ${dims(newImg)} · ${formatBytes(old?.size)} → ${formatBytes(neu?.size)}`
+    : `${dims(old ? oldImg : newImg)} · ${formatBytes((old ?? neu)?.size)}${single ? ` (${single})` : ''}`;
+  /** The old side's label, noting while matched that it's drawn scaled (its real size is in the toolbar). */
+  const oldLabel = <>Old{matched && <span className="match-note" data-testid="match-note">scaled to match</span>}</>;
   /** An image's bounds on screen (J11): the background pick behind it only, and a 1 px border
    * around it, so the viewport's neutral grey shows how much room there is around the image. */
   const frame = (d: Dim | null, cls = bg) =>
@@ -382,6 +420,13 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
               <button key={m} type="button" aria-pressed={activeMode === m && !showSource} onClick={() => { setMode(m); setShowSource(false); }}>{label}</button>
             ))}
           </div>
+        )}
+        {canMatch && (
+          <HoverTooltip content={MATCH_TIP}>
+            <button type="button" className="icon-button match-sizes" aria-label="Match sizes" aria-pressed={matched} onClick={() => setMatched(!matched)}>
+              <Scaling size={14} aria-hidden="true" />
+            </button>
+          </HoverTooltip>
         )}
         {source && <button type="button" className="toggle" aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>{sourceLabel}</button>}
         <div className="image-zoom">
@@ -424,19 +469,22 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
             <button type="button" className="zoom-value" data-testid="zoom-label" onClick={startEditZoom}>{zoomPct}%</button>
           )}
         </div>
-        <span className="dim image-meta" data-testid="image-meta">
-          {both ? (
-            <>
-              <span data-testid="image-dims">{dims(oldImg)} <ArrowGlyph /> {dims(newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes(old?.size)} <ArrowGlyph /> {formatBytes(neu?.size)}</span>
-            </>
-          ) : (
-            // Only the side that exists (H25).
-            <>
-              <span data-testid="image-dims">{dims(old ? oldImg : newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes((old ?? neu)?.size)}</span>
-              {single && <> ({single})</>}
-            </>
-          )}
-        </span>
+        {/* Truncated first when the toolbar runs short (it never wraps): the full text is its tooltip. */}
+        <HoverTooltip content={metaText}>
+          <span className="dim image-meta" data-testid="image-meta">
+            {both ? (
+              <>
+                <span data-testid="image-dims">{dims(oldImg)} <ArrowGlyph /> {dims(newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes(old?.size)} <ArrowGlyph /> {formatBytes(neu?.size)}</span>
+              </>
+            ) : (
+              // Only the side that exists (H25).
+              <>
+                <span data-testid="image-dims">{dims(old ? oldImg : newImg)}</span> <span className="meta-sep">·</span> <span data-testid="image-size">{formatBytes((old ?? neu)?.size)}</span>
+                {single && <> ({single})</>}
+              </>
+            )}
+          </span>
+        </HoverTooltip>
         {/* The background behind transparent pixels (H30), at the far right. */}
         <div className="image-backgrounds" role="group" aria-label="Image background">
           {IMAGE_BACKGROUNDS.map((b) => (
@@ -458,7 +506,7 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
           {activeMode === 'side' && (
             <>
               {/* K9: subtle, non-interactive Old/New chips. */}
-              {old && <div ref={boxRef} className="image-viewport" {...pan}>{frame(oldImg.dim)}{img(old, oldImg, 'before')}{both && <span className="image-label label-bl">Old</span>}</div>}
+              {old && <div ref={boxRef} className="image-viewport" {...pan}>{frame(matched ? newImg.dim : oldImg.dim)}{img(old, oldImg, 'before', undefined, oldRect)}{both && <span className="image-label label-bl">{oldLabel}</span>}</div>}
               {/* K21: a 1 px divider between the two halves — out of flow (position: absolute), so
                   it never shifts either viewport's flexed width by even a sub-pixel. */}
               {both && <div className="side-divider" aria-hidden="true" />}
@@ -469,10 +517,10 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
             // K8: a mouse-down anywhere jumps the handle here and drags it (swipeDrag), not a pan.
             <div ref={boxRef} className="image-viewport" {...swipeDrag}>
               {frame(overlay)}
-              {img(old, oldImg, 'before')}
+              {img(old, oldImg, 'before', undefined, oldRect)}
               <div className="swipe-clip" style={{ clipPath: `inset(0 0 0 ${swipePct}%)` }}>{img(neu, newImg, 'after')}</div>
               {/* K9: fixed corner chips (not clipped with the image), clear of the handle. */}
-              <span className="image-label label-bl">Old</span>
+              <span className="image-label label-bl">{oldLabel}</span>
               <span className="image-label label-br">New</span>
               <div
                 role="slider"
@@ -504,11 +552,11 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
           {activeMode === 'onion' && old && neu && (
             <div ref={boxRef} className="image-viewport" {...pan}>
               {frame(overlay)}
-              {img(old, oldImg, 'before')}
+              {img(old, oldImg, 'before', undefined, oldRect)}
               {img(neu, newImg, 'after', { opacity: opacity / 100 })}
               {/* K9: Old/New at the two ends of the opacity slider. */}
               <div className="onion-control">
-                <span className="image-label onion-label">Old</span>
+                <span className="image-label onion-label">{oldLabel}</span>
                 <input className="onion-opacity" type="range" min={0} max={100} value={opacity} aria-label="Opacity" onPointerDown={(e) => e.stopPropagation()} onChange={(e) => setOpacity(Number(e.target.value))} />
                 <span className="image-label onion-label">New</span>
               </div>

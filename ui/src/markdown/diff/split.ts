@@ -47,7 +47,8 @@ function sided(n: Nodes, side: Side): Nodes[] {
       const drop = side === 'old' ? '+' : '-';
       const lines = n.value.split('\n');
       const keep = lines.map((_, i) => marks[i] !== drop);
-      const code: Code = { ...n, value: lines.filter((_, i) => keep[i]).join('\n'), data: { ...n.data, gbLines: [...marks].filter((_, i) => keep[i]).join('') } };
+      const words = n.data?.gbWords?.split(';').filter((_, i) => keep[i]).join(';');
+      const code: Code = { ...n, value: lines.filter((_, i) => keep[i]).join('\n'), data: { ...n.data, gbLines: [...marks].filter((_, i) => keep[i]).join(''), ...(words !== undefined ? { gbWords: words } : {}) } };
       return [code];
     }
     case 'heading': {

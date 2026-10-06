@@ -48,6 +48,10 @@ const DERIVED_TOKENS = [
   // changed text and whole lines in green and red, and the hatching past a side's end (Monaco's
   // own diagonal fill).
   'diff-inserted-text', 'diff-removed-text', 'diff-inserted-line', 'diff-removed-line', 'diff-diagonal-fill',
+  // The rendered Markdown diff's own, brighter marks (markdown.css): changed words, and whole
+  // added or removed blocks, items and code lines. Prose is quieter than code, so its marks are
+  // stronger than the editor's; Monaco keeps the diff-* ones.
+  'md-diff-ins-text', 'md-diff-del-text', 'md-diff-ins-block', 'md-diff-del-block',
   // Settings › Accounts' forge marks: the forges' own brand colours, the same in every theme.
   'forge-gitlab', 'forge-github',
   // The MR/PR view's merged state and mentions (forge/mrview): purple.
@@ -102,6 +106,13 @@ function diffColors(c: Pick<CoreColors, 'green' | 'red'>, light: boolean) {
     'diff-inserted-line': alpha(c.green, 0.1),
     'diff-removed-line': alpha(c.red, 0.15),
     'diff-diagonal-fill': light ? 'rgba(34, 34, 34, 0.2)' : 'rgba(204, 204, 204, 0.2)',
+    // The rendered Markdown diff, which has no line numbers or gutter to point at a change: its
+    // words at 30% (their text is text-selected), whole blocks at 16%, green and red alike. Past
+    // 30%, a bright green word (Nord's) in a table's striped row drops under 4.5:1.
+    'md-diff-ins-text': alpha(c.green, 0.3),
+    'md-diff-del-text': alpha(c.red, 0.3),
+    'md-diff-ins-block': alpha(c.green, 0.16),
+    'md-diff-del-block': alpha(c.red, 0.16),
   };
 }
 
@@ -184,6 +195,8 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'diff-inserted-text': 'rgba(92, 184, 92, 0.12)', 'diff-removed-text': 'rgba(217, 65, 61, 0.2)',
       'diff-inserted-line': 'rgba(92, 184, 92, 0.1)', 'diff-removed-line': 'rgba(217, 65, 61, 0.15)',
       'diff-diagonal-fill': 'rgba(204, 204, 204, 0.2)',
+      'md-diff-ins-text': 'rgba(92, 184, 92, 0.3)', 'md-diff-del-text': 'rgba(217, 65, 61, 0.3)',
+      'md-diff-ins-block': 'rgba(92, 184, 92, 0.16)', 'md-diff-del-block': 'rgba(217, 65, 61, 0.16)',
       'forge-gitlab': '#e2432a', 'forge-github': '#6e5494', purple: '#a371f7',
       'switch-on': '#4d88ff', 'switch-off': 'rgba(255, 255, 255, 0.16)',
     },

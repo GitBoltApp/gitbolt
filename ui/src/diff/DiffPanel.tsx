@@ -210,7 +210,7 @@ export const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge
  * Hex toggle shows its hex dump, as a binary file's (hex.tsx).
  */
 export function ImageBody({ target, contents: c, onSourceChange, onHex }: { target: DiffTarget; contents: DiffContentsPayload; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void }) {
-  const sources = useImageSources(c, target.path);
+  const sources = useImageSources(c, target.path, target.oldPath);
   if (!sources) return <div className="diff-message" aria-busy="true">Loading…</div>;
   const fileView = target.view === 'file';
   const original = c.old?.text ?? '';
@@ -222,9 +222,10 @@ export function ImageBody({ target, contents: c, onSourceChange, onHex }: { targ
     : <TextDiff path={target.path} original={original} modified={modified} language={language} />;
   const old = fileView && c.new ? null : sources.old;
   const neu = fileView && !c.new ? null : sources.new;
-  // One ImageDiff per file: every file opens at its own defaults (mode, zoom, Source off).
+  // One ImageDiff per file: every file opens at its own defaults (mode, zoom, Source off); only
+  // its Match sizes pick is remembered, by the same key, for the session.
   const single = fileView ? null : !c.old ? 'added' : !c.new ? 'deleted' : null;
-  return <ImageDiff key={target.key} old={old} new={neu} source={source} sourceLabel={svg ? 'Source' : 'Hex'} onSourceChange={onSourceChange} single={single} />;
+  return <ImageDiff key={target.key} fileKey={target.key} old={old} new={neu} source={source} sourceLabel={svg ? 'Source' : 'Hex'} onSourceChange={onSourceChange} single={single} />;
 }
 
 /** `banner`: whether the line-endings banner may show. Not while the header (and so the editor)
