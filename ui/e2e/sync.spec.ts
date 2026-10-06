@@ -49,39 +49,41 @@ test.describe('push (spec #2 §12.3, §12.4)', () => {
     await expect.poll(() => originGit(repo, 'rev-parse', 'main')).toBe(git(repo, 'rev-parse', 'main'));
   });
 
-  test('Push ▾ changes the upstream without pushing', async ({ page }) => {
-    const repo = freshFixture('sync');
-    await page.goto(openUrl(repo));
-    await page.getByRole('button', { name: 'Push options' }).click();
-    await page.getByRole('menuitem', { name: 'Other branch…' }).click();
-    // "Other branch…" is the RefPicker (spec #2 §12.3): a combobox over the remote branches.
-    const before = originGit(repo, 'rev-parse', 'main');
-    await expect(page.getByRole('combobox', { name: 'Upstream of main' })).toBeVisible();
-    await page.getByRole('listbox', { name: 'Upstream of main' }).getByRole('option', { name: 'origin/dev' }).click();
-    await expect.poll(() => git(repo, 'rev-parse', '--abbrev-ref', 'main@{upstream}')).toBe('origin/dev');
-    expect(originGit(repo, 'rev-parse', 'main')).toBe(before);
-  });
 });
 
 // --- 2D T19 ---
-test.describe('fetch and pull (spec #2 §12.1, §12.2)', () => {
-  test('the default picker sets the default without running; Pull fast-forwards', async ({ page }) => {
+test.describe('fetch and pull, and the push upstream (spec #2 §12.1-§12.3)', () => {
+  // One repo and page for both (each was a test of its own, paying for a page load): the pull
+  // first, on main's own upstream, then Push ▾ moves that upstream.
+  test('the default picker sets the default without running and Pull fast-forwards; Push ▾ changes the upstream without pushing', async ({ page }) => {
     const repo = freshFixture('sync');
     await page.goto(openUrl(repo));
-    await expect(page.getByRole('button', { name: 'Fetch', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Fetch options' }).click();
-    await expect(page.getByText('Select a default pull/fetch operation to execute when clicking this button')).toBeVisible();
-    await expect(page.getByRole('menuitemradio', { name: 'Fetch All' })).toHaveAttribute('aria-checked', 'true');
-    const before = git(repo, 'rev-parse', 'main');
-    await page.getByRole('menuitemradio', { name: 'Pull (fast-forward only)' }).click();
-    expect(git(repo, 'rev-parse', 'main')).toBe(before);
-    const pull = page.getByRole('button', { name: 'Pull', exact: true });
-    await pull.hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Pull origin/main into main (fast-forward only)');
-    await pull.click();
-    // The toast, not the pending marks (also role=status) the pull shows while it runs.
-    await expect(page.getByRole('status').filter({ hasText: 'Pulled 1 commit into main (fast-forward)' })).toBeVisible();
-    expect(git(repo, 'rev-parse', 'main')).toBe(git(repo, 'rev-parse', 'origin/main'));
+    await test.step('the default picker sets the default without running; Pull fast-forwards', async () => {
+      await expect(page.getByRole('button', { name: 'Fetch', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Fetch options' }).click();
+      await expect(page.getByText('Select a default pull/fetch operation to execute when clicking this button')).toBeVisible();
+      await expect(page.getByRole('menuitemradio', { name: 'Fetch All' })).toHaveAttribute('aria-checked', 'true');
+      const before = git(repo, 'rev-parse', 'main');
+      await page.getByRole('menuitemradio', { name: 'Pull (fast-forward only)' }).click();
+      expect(git(repo, 'rev-parse', 'main')).toBe(before);
+      const pull = page.getByRole('button', { name: 'Pull', exact: true });
+      await pull.hover();
+      await expect(page.getByRole('tooltip')).toHaveText('Pull origin/main into main (fast-forward only)');
+      await pull.click();
+      // The toast, not the pending marks (also role=status) the pull shows while it runs.
+      await expect(page.getByRole('status').filter({ hasText: 'Pulled 1 commit into main (fast-forward)' })).toBeVisible();
+      expect(git(repo, 'rev-parse', 'main')).toBe(git(repo, 'rev-parse', 'origin/main'));
+    });
+    await test.step('Push ▾ changes the upstream without pushing', async () => {
+      await page.getByRole('button', { name: 'Push options' }).click();
+      await page.getByRole('menuitem', { name: 'Other branch…' }).click();
+      // "Other branch…" is the RefPicker (spec #2 §12.3): a combobox over the remote branches.
+      const before = originGit(repo, 'rev-parse', 'main');
+      await expect(page.getByRole('combobox', { name: 'Upstream of main' })).toBeVisible();
+      await page.getByRole('listbox', { name: 'Upstream of main' }).getByRole('option', { name: 'origin/dev' }).click();
+      await expect.poll(() => git(repo, 'rev-parse', '--abbrev-ref', 'main@{upstream}')).toBe('origin/dev');
+      expect(originGit(repo, 'rev-parse', 'main')).toBe(before);
+    });
   });
 
   test('a diverged ff-only pull offers Rebase / Merge / Cancel', async ({ page }) => {

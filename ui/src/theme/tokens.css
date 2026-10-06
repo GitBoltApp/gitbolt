@@ -27,6 +27,7 @@
   --blue: #4d88ff;
   /* K62: sidebar row and strip icons, dimmer than the item text so they don't read as text. */
   --sidebar-icon: rgba(255, 255, 255, 0.45);
+  --avatar-backdrop: #e6e7ea;
   /* K55: the sidebar section counts, in bold light blue. */
   --count-blue: #6d9deb;
   --green: #5cb85c;

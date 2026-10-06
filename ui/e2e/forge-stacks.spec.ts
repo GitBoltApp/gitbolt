@@ -14,6 +14,9 @@ const chipMenu = async (page: Page, name: string, item: string) => {
 };
 
 test.describe('stacked MRs (spec #4 §4 4D, §7)', () => {
+  // The page's clock is installed (to skip the poller's focus gap): it belongs to the context.
+  test.use({ isolatedContext: true });
+
   test('create the stack MRs, then after the bottom merges retarget the next one and rebase the stack', async ({ page, request }) => {
     // HEAD is feature/c; feature/a → b → c are stacked on main, which moved on.
     const repo = freshFixture('stack');
@@ -32,6 +35,8 @@ test.describe('stacked MRs (spec #4 §4 4D, §7)', () => {
 
     // The account goes in through the harness before the page loads, so the poller resolves the project at once.
     await addForgeAccount(request, 'gitlab.example.com', 'gitlab', E2E_GITLAB_TOKEN);
+    // Real time keeps flowing; the clock only lets the test jump past the focus gap below.
+    await page.clock.install();
     await page.goto(openUrl(repo));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
 
@@ -48,7 +53,9 @@ test.describe('stacked MRs (spec #4 §4 4D, §7)', () => {
     const seed = await forgeSeed(request);
     (seed.gitlab.mergeRequests as Mr[])[0].state = 'merged';
     await setForgeSeed(request, seed);
-    // A11: 4B's poller polls on focus, but not within 10 s of a full poll (the create just did one).
+    // A11: 4B's poller polls on focus, but not within 10 s of a full poll (the create just did
+    // one): the clock jumps past that gap (FOCUS_GAP_MS) instead of the test waiting it out.
+    await page.clock.fastForward(10_000);
     await expect(async () => {
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await expect(page.getByText('!1 was merged.')).toBeVisible({ timeout: 1000 });

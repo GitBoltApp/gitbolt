@@ -16,6 +16,8 @@ export interface DrawOptions {
   metrics: Metrics;
   colors: readonly string[];
   nodeFill: string;
+  /** Behind an avatar picture (a transparent one shows it); the node fill when not given. */
+  avatarBackdrop?: string;
   /** The text colour on each `colors` entry (the theme's resolved `laneText`): a commit node's
    * initials on its avatar colour, as the `<Avatar>` component's. */
   laneText?: readonly string[];
@@ -362,10 +364,10 @@ function drawNode(ctx: CanvasRenderingContext2D, o: DrawOptions, row: RowPayload
   const bitmap = kind === 'commit' ? (o.avatar?.(row.authorEmail) ?? null) : null;
   // A commit without a picture is the author's initials avatar, as everywhere else (the
   // `<Avatar>` component): the person's palette colour, picked by the same `avatarLane`, inside
-  // the lane-coloured ring. The WIP node and the picture's backdrop keep the node fill.
+  // the lane-coloured ring. The WIP node keeps the node fill; a picture sits on the avatar backdrop.
   const lane = kind === 'commit' && !bitmap ? avatarLane(row.authorName, row.authorEmail, o.colors.length) : -1;
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = lane >= 0 ? o.colors[lane] : o.nodeFill;
+  ctx.fillStyle = lane >= 0 ? o.colors[lane] : bitmap ? (o.avatarBackdrop ?? o.nodeFill) : o.nodeFill;
   ctx.fill();
   ctx.strokeStyle = c;
   if (kind === 'wip') {

@@ -70,46 +70,45 @@ test.describe('checkout (spec #2 §9.3)', () => {
     await expect.poll(() => git(repo, 'rev-parse', 'feature/login')).toBe(mine);
   });
 
-  test('double-clicking a branch checked out in another worktree switches to that worktree, no toast', async ({ page }) => {
+  // One repo and page for both (each was a test of its own, paying for a page load): the second
+  // starts in wt-hotfix, where the first left it.
+  test('double-clicking a branch checked out in another worktree switches to that worktree; main\'s sidebar row switches back', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
-    await chip(page, 'hotfix').dblclick();
-    await expect(page.getByTestId('tb-repo')).toContainText('wt-hotfix');
-    await expect(page.getByText('hotfix is checked out in ../wt-hotfix.')).toHaveCount(0);
-    expect(head(repo)).toBe('main'); // nothing checked out
+    await test.step('double-clicking a branch checked out in another worktree switches to that worktree, no toast', async () => {
+      await chip(page, 'hotfix').dblclick();
+      await expect(page.getByTestId('tb-repo')).toContainText('wt-hotfix');
+      await expect(page.getByText('hotfix is checked out in ../wt-hotfix.')).toHaveCount(0);
+      expect(head(repo)).toBe('main'); // nothing checked out
+    });
+    await test.step("double-clicking main's sidebar row, checked out in the main worktree, switches back to it", async () => {
+      await expect(page.getByTestId('tb-repo')).toContainText('wt-hotfix');
+      await page.getByRole('treeitem', { name: 'main', exact: true }).first().dblclick();
+      await expect(page.getByTestId('tb-repo')).not.toContainText('wt-hotfix');
+      expect(head(repo)).toBe('main');
+    });
   });
 
-  test("double-clicking main's sidebar row, checked out in the main worktree, switches back to it", async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await chip(page, 'hotfix').dblclick();
-    await expect(page.getByTestId('tb-repo')).toContainText('wt-hotfix');
-    await page.getByRole('treeitem', { name: 'main', exact: true }).first().dblclick();
-    await expect(page.getByTestId('tb-repo')).not.toContainText('wt-hotfix');
-    expect(head(repo)).toBe('main');
-  });
-
-  test('the branch picker and the palette check out', async ({ page }) => {
+  // One repo and page for both (each was a test of its own, paying for a page load).
+  test('the branch picker and the palette check out; Checkout ▸ Detached HEAD', async ({ page }) => {
     const repo = freshFixture('basic');
     git(repo, 'stash', 'push', '-q', '-u', '-m', 'park');
     await page.goto(openUrl(repo));
-    await page.getByRole('button', { name: /^Branch: / }).click();
-    await page.getByRole('option', { name: 'feature/login' }).click();
-    await expect.poll(() => head(repo)).toBe('feature/login');
-    await page.keyboard.press('Control+P');
-    await page.keyboard.type('@main');
-    await page.keyboard.press('Shift+Enter');
-    await expect.poll(() => head(repo)).toBe('main');
-  });
-
-  test('Checkout ▸ Detached HEAD', async ({ page }) => {
-    const repo = freshFixture('basic');
-    git(repo, 'stash', 'push', '-q', '-u', '-m', 'park');
-    await page.goto(openUrl(repo));
-    await grid(page).getByRole('row', { name: /Fix typo/ }).click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Checkout' }).hover();
-    await page.getByRole('menuitem', { name: /^Detached HEAD at / }).click();
-    await expect.poll(() => { try { return head(repo); } catch { return 'detached'; } }).toBe('detached');
+    await test.step('the branch picker and the palette check out', async () => {
+      await page.getByRole('button', { name: /^Branch: / }).click();
+      await page.getByRole('option', { name: 'feature/login' }).click();
+      await expect.poll(() => head(repo)).toBe('feature/login');
+      await page.keyboard.press('Control+P');
+      await page.keyboard.type('@main');
+      await page.keyboard.press('Shift+Enter');
+      await expect.poll(() => head(repo)).toBe('main');
+    });
+    await test.step('Checkout ▸ Detached HEAD', async () => {
+      await grid(page).getByRole('row', { name: /Fix typo/ }).click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Checkout' }).hover();
+      await page.getByRole('menuitem', { name: /^Detached HEAD at / }).click();
+      await expect.poll(() => { try { return head(repo); } catch { return 'detached'; } }).toBe('detached');
+    });
   });
 });
 

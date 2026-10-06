@@ -48,7 +48,7 @@ export function GraphCanvas({ rows, scrollTop, width, height, left, metrics, lab
     if (!ctx) return;
     const first = Math.max(0, Math.floor(scrollTop / metrics.rowH));
     const last = Math.min(rows.length, Math.ceil((scrollTop + height) / metrics.rowH) + 1);
-    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: colors.graph, nodeFill: colors.nodeFill, laneText: colors.laneText, nodeText: colors.nodeText, stripColor: colors.collapseStrip, labeledRows, dpr, avatar, clipped, scrollX, selected, alsoSelected, headRow });
+    drawGraph(ctx, { rows, first, last, scrollTop, width, height, metrics, colors: colors.graph, nodeFill: colors.nodeFill, avatarBackdrop: colors.avatarBackdrop, laneText: colors.laneText, nodeText: colors.nodeText, stripColor: colors.collapseStrip, labeledRows, dpr, avatar, clipped, scrollX, selected, alsoSelected, headRow });
   }, [rows, scrollTop, width, height, metrics, labeledRows, dpr, avatar, avatarVersion, clipped, scrollX, selected, alsoSelected, headRow, colors]);
 
   // `data-strip`: no lane fits, the column is a strip of nodes (F11); for tests and e2e.

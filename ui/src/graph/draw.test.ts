@@ -283,6 +283,14 @@ describe('drawGraph', () => {
     expect(calls.filter((c) => c.startsWith('fillText(')).length).toBe(1);
   });
 
+  it('puts a picture on the avatar backdrop, so a transparent one in dark ink stays visible', () => {
+    const { ctx, calls } = recorder();
+    const rows = [{ ...row(0, 'commit', []), authorEmail: 'ada@example.com' }];
+    drawGraph(ctx, { rows, first: 0, last: 1, scrollTop: 0, width: 100, height: 25, metrics: { rowH: 25, laneW: 16, padX: 8 }, colors: ['#a'], nodeFill: '#000', avatarBackdrop: '#e6e7ea', labeledRows: new Set(), dpr: 1, avatar: () => ({}) as ImageBitmap });
+    const image = calls.findIndex((c) => c.startsWith('drawImage('));
+    expect(calls.slice(0, image).findLast((c) => c.startsWith('fillStyle='))).toBe('fillStyle=#e6e7ea');
+  });
+
   it("draws a commit without a picture as the author's initials avatar: the <Avatar> colour and text", () => {
     const colors = ['#c0', '#c1', '#c2', '#c3', '#c4', '#c5'];
     const laneText = ['#t0', '#t1', '#t2', '#t3', '#t4', '#t5'];

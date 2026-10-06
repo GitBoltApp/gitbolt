@@ -7,27 +7,28 @@ import { freshFixture, git, openUrl } from './fixtures';
 const row = (page: import('@playwright/test').Page) => page.getByRole('textbox', { name: 'Commit summary draft' }).first();
 
 test.describe('the WIP draft (spec #2 §8.2)', () => {
-  test('persists across a reload, unlimited, with the counter past 60 and its warning past 72', async ({ page }) => {
+  // One page for both (each was a test of its own, paying for a page load); the migration first,
+  // before the page holds a v2 draft of its own (saved again when the page unloads).
+  test('a v1 draft migrates into v2; the draft persists across a reload, unlimited, with the counter and its warning', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
-    await row(page).fill('A'.repeat(75));
-    await expect(page.getByTestId('wip-counter')).toHaveText('75');
-    await expect(page.getByTestId('wip-counter')).toHaveClass(/warn/);
-    await row(page).press('Enter');
-    await page.reload();
-    await expect(row(page)).toHaveValue('A'.repeat(75));
+    await test.step('a v1 draft migrates into v2', async () => {
+      await page.evaluate(([r]) => {
+        localStorage.removeItem('gitbolt.wipDraft.v2');
+        localStorage.setItem(`gitbolt.wipDraft.v1:${r}\u0000${r}`, 'Old v1 summary');
+      }, [repo]);
+      await page.reload();
+      await expect(row(page)).toHaveValue('Old v1 summary');
+      expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gitbolt.wipDraft.v1')))).toEqual([]);
+      await test.step('persists across a reload, unlimited, with the counter past 60 and its warning past 72', async () => {
+      await row(page).fill('A'.repeat(75));
+      await expect(page.getByTestId('wip-counter')).toHaveText('75');
+      await expect(page.getByTestId('wip-counter')).toHaveClass(/warn/);
+      await row(page).press('Enter');
+      await page.reload();
+      await expect(row(page)).toHaveValue('A'.repeat(75));
+    });
   });
-
-  test('a v1 draft migrates into v2', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await page.evaluate(([r]) => {
-      localStorage.removeItem('gitbolt.wipDraft.v2');
-      localStorage.setItem(`gitbolt.wipDraft.v1:${r}\u0000${r}`, 'Old v1 summary');
-    }, [repo]);
-    await page.reload();
-    await expect(row(page)).toHaveValue('Old v1 summary');
-    expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gitbolt.wipDraft.v1')))).toEqual([]);
   });
 });
 
@@ -55,10 +56,46 @@ test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
     if (budgetApplies()) expect(ms, 'commit → graph').toBeLessThan(300); // §16; the wave pass reports the best of 3 runs
   });
 
-  test('the row box and the commit box are one draft', async ({ page }) => {
-    await openWip(page);
-    await summary(page).fill('Typed below');
-    await expect(page.getByRole('textbox', { name: 'Commit summary draft' }).first()).toHaveValue('Typed below');
+  // One page for these (each was a test of its own, paying for a page load): none commits, so
+  // each starts from the same repo; each types its own draft.
+  test('the draft in the commit box: one with the row box, Enter and ↑, Amend puts it aside and back, a failed commit keeps it', async ({ page }) => {
+    const repo = await openWip(page);
+    await test.step('the row box and the commit box are one draft', async () => {
+      await summary(page).fill('Typed below');
+      await expect(page.getByRole('textbox', { name: 'Commit summary draft' }).first()).toHaveValue('Typed below');
+    });
+    await test.step('Enter moves to the description; ↑ comes back', async () => {
+      await summary(page).fill('Sum');
+      await summary(page).press('Enter');
+      await expect(description(page)).toBeFocused();
+      await page.keyboard.type('line 1');
+      await page.keyboard.press('ArrowUp');
+      await expect(summary(page)).toBeFocused();
+    });
+    await test.step('Amend: HEAD’s message, the draft put aside; clicking a commit keeps it; untick restores the draft', async () => {
+      await summary(page).fill('My draft');
+      await amend(page).click();
+      await expect(amend(page)).toBeChecked();
+      await expect(summary(page)).toHaveValue('Base');
+      await expect(button(page)).toHaveText('Amend previous commit');
+      await expect(page.getByRole('textbox', { name: 'Commit summary draft' }).first()).toHaveValue('My draft');
+      await summary(page).fill('Base, amended');
+      await page.getByRole('grid', { name: 'Commit graph' }).getByText('Base').click();
+      await selectWip(page);
+      await expect(summary(page)).toHaveValue('Base, amended');
+      await amend(page).click();
+      await expect(amend(page)).not.toBeChecked();
+      await expect(summary(page)).toHaveValue('My draft');
+    });
+    await test.step('a failed commit keeps the draft', async () => {
+      const hook = join(repo, '.git', 'hooks', 'pre-commit');
+      writeFileSync(hook, '#!/bin/sh\necho "lint failed" >&2\nexit 1\n');
+      chmodSync(hook, 0o755);
+      await summary(page).fill('Will fail');
+      await button(page).click();
+      await expect(page.getByRole('alert').or(page.getByRole('status')).filter({ hasText: 'pre-commit hook failed' })).toBeVisible();
+      await expect(summary(page)).toHaveValue('Will fail');
+    });
   });
 
   test('Stage all & commit when nothing is staged; disabled reasons', async ({ page }) => {
@@ -80,44 +117,6 @@ test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
     await expect(page.getByRole('grid', { name: 'Commit graph' }).getByRole('row').filter({ hasText: 'Everything' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('grid', { name: 'Commit graph' }).getByRole('row').filter({ hasText: '// WIP' })).toHaveCount(0);
     await expect(box(page)).toHaveCount(0);
-  });
-
-  test('Enter moves to the description; ↑ comes back', async ({ page }) => {
-    await openWip(page);
-    await summary(page).fill('Sum');
-    await summary(page).press('Enter');
-    await expect(description(page)).toBeFocused();
-    await page.keyboard.type('line 1');
-    await page.keyboard.press('ArrowUp');
-    await expect(summary(page)).toBeFocused();
-  });
-
-  test('a failed commit keeps the draft', async ({ page }) => {
-    const repo = await openWip(page);
-    const hook = join(repo, '.git', 'hooks', 'pre-commit');
-    writeFileSync(hook, '#!/bin/sh\necho "lint failed" >&2\nexit 1\n');
-    chmodSync(hook, 0o755);
-    await summary(page).fill('Will fail');
-    await button(page).click();
-    await expect(page.getByRole('alert').or(page.getByRole('status')).filter({ hasText: 'pre-commit hook failed' })).toBeVisible();
-    await expect(summary(page)).toHaveValue('Will fail');
-  });
-
-  test('Amend: HEAD’s message, the draft put aside; clicking a commit keeps it; untick restores the draft', async ({ page }) => {
-    await openWip(page);
-    await summary(page).fill('My draft');
-    await amend(page).click();
-    await expect(amend(page)).toBeChecked();
-    await expect(summary(page)).toHaveValue('Base');
-    await expect(button(page)).toHaveText('Amend previous commit');
-    await expect(page.getByRole('textbox', { name: 'Commit summary draft' }).first()).toHaveValue('My draft');
-    await summary(page).fill('Base, amended');
-    await page.getByRole('grid', { name: 'Commit graph' }).getByText('Base').click();
-    await selectWip(page);
-    await expect(summary(page)).toHaveValue('Base, amended');
-    await amend(page).click();
-    await expect(amend(page)).not.toBeChecked();
-    await expect(summary(page)).toHaveValue('My draft');
   });
 
   test('a CRLF HEAD message loads without blank lines on top of the description', async ({ page }) => {

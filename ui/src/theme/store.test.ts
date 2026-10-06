@@ -37,7 +37,7 @@ describe('useTheme', () => {
 
   it("resolves the canvas colors from the theme's tokens", () => {
     expect(resolveColors(THEMES.light)).toEqual({
-      nodeFill: THEMES.light.colors['node-fill'], nodeText: THEMES.light.colors['node-text'], collapseStrip: THEMES.light.colors['collapse-strip'], graph: [...THEMES.light.graph],
+      nodeFill: THEMES.light.colors['node-fill'], avatarBackdrop: THEMES.light.colors['avatar-backdrop'], nodeText: THEMES.light.colors['node-text'], collapseStrip: THEMES.light.colors['collapse-strip'], graph: [...THEMES.light.graph],
       laneText: expect.any(Array),
     });
   });

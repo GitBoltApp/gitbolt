@@ -1,4 +1,7 @@
 .avatar { position: relative; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; color: var(--text-on-accent); font-weight: 600; flex: none; line-height: 1; }
 .avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* A loaded picture sits on the avatar backdrop, as in the graph (not the initials' lane colour):
+   a light neutral, so a transparent picture in dark ink stays visible. */
+.avatar img:not([data-loading]) { background: var(--avatar-backdrop); }
 /* Over the initials, unseen, until it has loaded (a failed one is removed). */
 .avatar img[data-loading] { position: absolute; inset: 0; opacity: 0; }

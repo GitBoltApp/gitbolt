@@ -9,63 +9,90 @@ const undoButton = (page: Page) => page.getByRole('toolbar', { name: 'Repository
 const notes = (repo: string) => readFileSync(join(repo, 'notes.txt'), 'utf8');
 
 test.describe('UX round 2 G: editing a working-tree file in File View', () => {
-  test('a staged file: File View edits the working-tree file, Ctrl+S saves it, Undo restores it', async ({ page }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load and Monaco's
+  // start-up): each leaves notes.txt as it found it (undone, or saved back), and closes its file.
+  test('a staged file in File View: Ctrl+S saves and Undo restores, saves in a row are one Undo step, Ctrl+Z after a save; a read-only editor\'s message', async ({ page }) => {
     const repo = await openWip(page);
-    const before = notes(repo);
-    await fileRow(page, 'staged', 'notes.txt').click();
-    await page.getByRole('button', { name: 'File View' }).click();
-    // The working-tree file: its unstaged line 30 too, not just the staged version.
-    await expect(fileView(page)).toContainText('note 01', { timeout: 15_000 });
-    await fileView(page).click();
-    await page.keyboard.press('Control+Home');
-    await page.keyboard.type('X');
-    await expect(page.getByLabel('Unsaved changes')).toBeVisible();
-    await page.keyboard.press('Control+s');
-    await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
-    expect(notes(repo)).toBe(`X${before}`);
-    expect(notes(repo)).toContain('note 30 unstaged');
-    // Journaled: the toolbar's Undo puts the file back, and the File View shows it again.
-    await expect(undoButton(page)).toBeEnabled();
-    await undoButton(page).click();
-    await expect.poll(() => notes(repo)).toBe(before);
-    await expect(fileView(page)).not.toContainText('Xnote 01');
-  });
-
-  test('saves of one file in a row are one Undo step, back to before the first', async ({ page }) => {
-    const repo = await openWip(page);
-    const before = notes(repo);
-    await fileRow(page, 'staged', 'notes.txt').click();
-    await page.getByRole('button', { name: 'File View' }).click();
-    await expect(fileView(page)).toContainText('note 01', { timeout: 15_000 });
-    await fileView(page).click();
-    await page.keyboard.press('Control+Home');
-    for (const ch of ['A', 'B']) {
-      await page.keyboard.type(ch);
+    await test.step('a staged file: File View edits the working-tree file, Ctrl+S saves it, Undo restores it', async () => {
+      const before = notes(repo);
+      await fileRow(page, 'staged', 'notes.txt').click();
+      await page.getByRole('button', { name: 'File View' }).click();
+      // The working-tree file: its unstaged line 30 too, not just the staged version.
+      await expect(fileView(page)).toContainText('note 01', { timeout: 15_000 });
+      await fileView(page).click();
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.type('X');
+      await expect(page.getByLabel('Unsaved changes')).toBeVisible();
       await page.keyboard.press('Control+s');
       await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
-      await expect.poll(() => notes(repo).startsWith(ch === 'A' ? 'A' : 'AB')).toBe(true);
-    }
-    await undoButton(page).click();
-    await expect.poll(() => notes(repo)).toBe(before);
-  });
-
-  test('UX5 V: Ctrl+Z after a save undoes the typed edit in the editor', async ({ page }) => {
-    const repo = await openWip(page);
-    const before = notes(repo);
-    await fileRow(page, 'staged', 'notes.txt').click();
-    await page.getByRole('button', { name: 'File View' }).click();
-    await expect(fileView(page)).toContainText('note 01', { timeout: 15_000 });
-    await fileView(page).click();
-    await page.keyboard.press('Control+Home');
-    await page.keyboard.type('Q');
-    await page.keyboard.press('Control+s');
-    await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
-    await expect.poll(() => notes(repo)).toBe(`Q${before}`);
-    await page.keyboard.press('Control+z');
-    await expect(fileView(page)).not.toContainText('Qnote 01');
-    await expect(page.getByLabel('Unsaved changes')).toBeVisible();
-    await page.keyboard.press('Control+s');
-    await expect.poll(() => notes(repo)).toBe(before);
+      expect(notes(repo)).toBe(`X${before}`);
+      expect(notes(repo)).toContain('note 30 unstaged');
+      // Journaled: the toolbar's Undo puts the file back, and the File View shows it again.
+      await expect(undoButton(page)).toBeEnabled();
+      await undoButton(page).click();
+      await expect.poll(() => notes(repo)).toBe(before);
+      await expect(fileView(page)).not.toContainText('Xnote 01');
+    });
+    await test.step('saves of one file in a row are one Undo step, back to before the first', async () => {
+      // The file closed first (a click on its open row would close it, not open it).
+      await page.getByRole('region', { name: 'Diff' }).getByRole('button', { name: 'Close diff' }).click();
+      await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
+      const before = notes(repo);
+      await fileRow(page, 'staged', 'notes.txt').click();
+      await page.getByRole('button', { name: 'File View' }).click();
+      await expect(fileView(page)).toContainText('note 01', { timeout: 15_000 });
+      await fileView(page).click();
+      await page.keyboard.press('Control+Home');
+      for (const ch of ['A', 'B']) {
+        await page.keyboard.type(ch);
+        await page.keyboard.press('Control+s');
+        await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
+        await expect.poll(() => notes(repo).startsWith(ch === 'A' ? 'A' : 'AB')).toBe(true);
+      }
+      await undoButton(page).click();
+      await expect.poll(() => notes(repo)).toBe(before);
+    });
+    await test.step('UX5 V: Ctrl+Z after a save undoes the typed edit in the editor', async () => {
+      // The file closed first (a click on its open row would close it, not open it).
+      await page.getByRole('region', { name: 'Diff' }).getByRole('button', { name: 'Close diff' }).click();
+      await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
+      const before = notes(repo);
+      await fileRow(page, 'staged', 'notes.txt').click();
+      await page.getByRole('button', { name: 'File View' }).click();
+      await expect(fileView(page)).toContainText('note 01', { timeout: 15_000 });
+      await fileView(page).click();
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.type('Q');
+      await page.keyboard.press('Control+s');
+      await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
+      await expect.poll(() => notes(repo)).toBe(`Q${before}`);
+      await page.keyboard.press('Control+z');
+      await expect(fileView(page)).not.toContainText('Qnote 01');
+      await expect(page.getByLabel('Unsaved changes')).toBeVisible();
+      await page.keyboard.press('Control+s');
+      await expect.poll(() => notes(repo)).toBe(before);
+    });
+    await test.step("G.1: a read-only editor's message draws over the file bar, not under it", async () => {
+      // The file closed first (a click on its open row would close it, not open it), once the save
+      // before has settled (no unsaved edits for the close to ask about).
+      await expect(page.getByLabel('Unsaved changes')).toHaveCount(0);
+      await page.getByRole('region', { name: 'Diff' }).getByRole('button', { name: 'Close diff' }).click();
+      await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
+      // A staged file's Diff View is read-only.
+      await fileRow(page, 'staged', 'notes.txt').click();
+      const line = page.locator('.diff-panel .editor.modified .view-line', { hasText: 'note 03 staged' }).first();
+      await expect(line).toBeVisible({ timeout: 15_000 });
+      await line.click();
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.type('x');
+      const message = page.locator('.monaco-editor-overlaymessage');
+      await expect(message).toContainText('Cannot edit in read-only editor');
+      // In the overflow layer on <body>, and what's on screen at its centre is the message itself.
+      expect(await message.evaluate((el) => !!el.closest('.monaco-overflow-layer'))).toBe(true);
+      const box = (await message.boundingBox())!;
+      const hit = await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('.monaco-editor-overlaymessage'), [box.x + box.width / 2, box.y + box.height / 2]);
+      expect(hit).toBe(true);
+    });
   });
 
   test('View all files on the WIP opens an unchanged tracked file, editable (what a clean Edit stop needs)', async ({ page }) => {
@@ -86,21 +113,4 @@ test.describe('UX round 2 G: editing a working-tree file in File View', () => {
     expect(readFileSync(join(repo, 'clean.txt'), 'utf8')).toBe('edited clean 1\nclean 2\n');
   });
 
-  test("G.1: a read-only editor's message draws over the file bar, not under it", async ({ page }) => {
-    await openWip(page);
-    // A staged file's Diff View is read-only.
-    await fileRow(page, 'staged', 'notes.txt').click();
-    const line = page.locator('.diff-panel .editor.modified .view-line', { hasText: 'note 03 staged' }).first();
-    await expect(line).toBeVisible({ timeout: 15_000 });
-    await line.click();
-    await page.keyboard.press('Control+Home');
-    await page.keyboard.type('x');
-    const message = page.locator('.monaco-editor-overlaymessage');
-    await expect(message).toContainText('Cannot edit in read-only editor');
-    // In the overflow layer on <body>, and what's on screen at its centre is the message itself.
-    expect(await message.evaluate((el) => !!el.closest('.monaco-overflow-layer'))).toBe(true);
-    const box = (await message.boundingBox())!;
-    const hit = await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('.monaco-editor-overlaymessage'), [box.x + box.width / 2, box.y + box.height / 2]);
-    expect(hit).toBe(true);
-  });
 });

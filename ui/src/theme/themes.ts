@@ -31,7 +31,7 @@ const CORE_TOKENS = [
 const DERIVED_TOKENS = [
   'hover-row', 'selected-row', 'section-border', 'focus-outline',
   // graph/rowDim.ts's two levels; K62 sidebar icons.
-  'text-row-dimmed', 'text-row-dimmed-branch', 'sidebar-icon',
+  'text-row-dimmed', 'text-row-dimmed-branch', 'sidebar-icon', 'avatar-backdrop',
   // +/− totals (AA on panel-bg0) and the file-status colours (lane D).
   'stats-added-bright', 'stats-deleted-bright',
   'status-added', 'status-modified', 'status-deleted', 'status-renamed', 'status-conflicted',
@@ -119,6 +119,9 @@ function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
     'text-row-dimmed-branch': alpha(fg, 0.5),
     // A step below the secondary text, so the labels beside the icons stand out.
     'sidebar-icon': alpha(fg, light ? 0.5 : 0.45),
+    // Behind an avatar picture (graph nodes and the <Avatar> component alike): a light neutral on
+    // every theme, so a transparent picture drawn in dark ink stays visible.
+    'avatar-backdrop': '#e6e7ea',
     'stats-added-bright': c.green,
     'stats-deleted-bright': c.red,
     'status-added': c.green,
@@ -170,7 +173,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'conflict-ours': '#15a0bf', 'conflict-theirs': '#f2ca33', 'conflict-base': '#c517b6',
       'wip-input-bg': '#16181c', 'wip-input-border': '#282a2d', 'wip-input-placeholder': '#6e6f71',
       'hover-row': 'rgba(77, 136, 255, 0.1)', 'selected-row': 'rgba(77, 136, 255, 0.2)', 'section-border': 'rgba(255, 255, 255, 0.08)', 'focus-outline': 'rgba(77, 136, 255, 0.6)',
-      'text-row-dimmed': 'rgba(255, 255, 255, 0.2)', 'text-row-dimmed-branch': 'rgba(255, 255, 255, 0.5)', 'sidebar-icon': 'rgba(255, 255, 255, 0.45)',
+      'text-row-dimmed': 'rgba(255, 255, 255, 0.2)', 'text-row-dimmed-branch': 'rgba(255, 255, 255, 0.5)', 'sidebar-icon': 'rgba(255, 255, 255, 0.45)', 'avatar-backdrop': '#e6e7ea',
       'stats-added-bright': '#5cb85c', 'stats-deleted-bright': '#f0625d',
       'status-added': '#5cb85c', 'status-modified': '#de9b43', 'status-deleted': '#d9413d', 'status-renamed': '#4d88ff', 'status-conflicted': '#b56ee6',
       'scroll-thumb-bg': 'rgba(255, 255, 255, 0.15)', 'scroll-thumb-hover-bg': 'rgba(255, 255, 255, 0.25)',

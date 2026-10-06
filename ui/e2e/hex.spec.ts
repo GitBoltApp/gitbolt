@@ -42,86 +42,86 @@ async function open(page: Page, path: string) {
 }
 
 test.describe('the hex view', () => {
-  test('File View: hex | text; a selection in the hex pane is its bytes only, shown in the text pane too', async ({ page, browserName }) => {
+  // One page for both (each was a test of its own, paying for a page load and Monaco's start-up):
+  // data.bin opens in Diff View, then switches to File View.
+  test('a binary file: Diff View shows old and new side by side, coloured; File View shows hex | text, selections mirrored', async ({ page, browserName }) => {
     await page.goto(openUrl(fixtures.details));
     await page.getByRole('row').filter({ hasText: COMMIT }).click();
     await open(page, 'data.bin');
-    await diff(page).getByRole('button', { name: 'File View' }).click();
-    const hex = pane(page, 'file', 'hex');
-    const text = pane(page, 'file', 'text');
-    await expect(lines(hex)).toHaveText('42 49 4e 00 01 02 6e 65  77 21', { timeout: 15_000 });
-    await expect(lines(text)).toHaveText('BIN...new!');
-    // The offset is the hex pane's gutter; the text pane has none.
-    await expect(hex.locator(GUTTER)).toHaveText('00000000');
-    await expect(text.locator(GUTTER)).toHaveCount(0);
-    await expect(diff(page).getByTestId('binary-summary')).toHaveText('Binary · 10 bytes');
-    // At 1280×720 a side fits at 16 bytes a row; each pane is as wide as its rows, the room left
-    // over after the text pane, and nothing scrolls sideways.
-    await expect(diff(page).locator('.hex-view')).toHaveAttribute('data-row-bytes', '16');
-    expect(await sideways(page)).toBe(0);
-    expect((await text.boundingBox())!.width).toBeLessThan(200);
-    expect(await leftover(page)).toBeGreaterThan(100);
-    // A drag from the offset gutter across into the text pane: the hex pane's bytes, nothing else.
-    const gutter = (await hex.locator(GUTTER).boundingBox())!;
-    const textBox = (await text.boundingBox())!;
-    await page.mouse.move(gutter.x + 2, gutter.y + gutter.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(textBox.x + textBox.width - 20, gutter.y + gutter.height / 2, { steps: 8 });
-    await page.mouse.up();
-    await page.keyboard.press('Control+c');
-    // Clipboard reads are granted on Chromium only (playwright.config.ts).
-    if (browserName === 'chromium') await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^42 49 4e 00 01 02 6e 65 {2}77 21\n?$/);
-    // …and the same bytes show selected in the text pane.
-    await expect.poll(() => marked(text, 'hex-mirror')).toBe('BIN...new!');
-    // One byte, double-clicked: its character. A click elsewhere clears it.
-    const box = (await hex.locator('.view-line > span').first().boundingBox())!;
-    const charW = box.width / '42 49 4e 00 01 02 6e 65  77 21'.length;
-    await page.mouse.dblclick(box.x + charW * 7, box.y + box.height / 2);
-    await expect.poll(() => marked(text, 'hex-mirror')).toBe('N');
-    await text.locator('.view-line').first().click();
-    await expect(text.locator('.hex-mirror')).toHaveCount(0);
-    // And the other way: text selected, its bytes shown in the hex pane.
-    await page.keyboard.press('Control+a');
-    await expect.poll(() => marked(hex, 'hex-mirror')).toBe('42 49 4e 00 01 02 6e 65  77 21');
-  });
-
-  test('Diff View: old and new side by side, the changed bytes coloured in both panes of both sides', async ({ page }) => {
-    await page.goto(openUrl(fixtures.details));
-    await page.getByRole('row').filter({ hasText: COMMIT }).click();
-    await open(page, 'data.bin');
-    const d = diff(page);
-    await expect(d.getByTestId('binary-summary')).toHaveText('Binary · 9 bytes → 10 bytes');
-    // At 1280×720 two sides don't fit at 16 bytes a row: 8, the offsets following.
-    await expect(d.locator('.hex-view')).toHaveAttribute('data-row-bytes', '8', { timeout: 15_000 });
-    await expect.poll(() => rows(pane(page, 'old', 'hex'))).toEqual(['42 49 4e 00  01 02 6f 6c', '64']);
-    await expect.poll(() => rows(pane(page, 'new', 'hex'))).toEqual(['42 49 4e 00  01 02 6e 65', '77 21']);
-    await expect.poll(() => rows(pane(page, 'old', 'text'))).toEqual(['BIN...ol', 'd']);
-    await expect.poll(() => rows(pane(page, 'new', 'text'))).toEqual(['BIN...ne', 'w!']);
-    await expect(pane(page, 'new', 'hex').locator(GUTTER)).toHaveText(['00000000', '00000008']);
-    expect(await sideways(page)).toBe(0);
-    expect(await leftover(page)).toBeGreaterThanOrEqual(0);
-    // Byte i against byte i: "old" → "new", and "!" past the old side's end.
-    await expect.poll(() => marked(pane(page, 'old', 'hex'), 'hex-removed')).toBe('6f 6c64');
-    await expect.poll(() => marked(pane(page, 'new', 'hex'), 'hex-inserted')).toBe('6e 657721');
-    await expect.poll(() => marked(pane(page, 'old', 'text'), 'hex-removed')).toBe('old');
-    await expect.poll(() => marked(pane(page, 'new', 'text'), 'hex-inserted')).toBe('new!');
-    for (const kind of ['hex', 'text'] as const) {
-      await expect(pane(page, 'old', kind).locator('.hex-row-removed')).toHaveCount(2);
-      await expect(pane(page, 'new', kind).locator('.hex-row-inserted')).toHaveCount(2);
-    }
-    // No diff editor, and no view mode: a binary is always side by side (the Inline button says so).
-    await expect(d.getByTestId('text-diff')).toHaveCount(0);
-    await expect(d.getByRole('button', { name: 'Inline', exact: true })).toHaveAttribute('aria-disabled', 'true');
-    await d.getByRole('button', { name: 'Inline', exact: true }).hover();
-    await expect(page.getByText('A binary file always shows side by side')).toBeVisible();
-    await page.mouse.move(0, 0);
-    await expect(d.getByRole('button', { name: 'Next change' })).toBeEnabled();
-    // Wider, both sides fit at 16 bytes a row: laid out again, the colours following.
-    await page.setViewportSize({ width: 2000, height: 720 });
-    await expect(d.locator('.hex-view')).toHaveAttribute('data-row-bytes', '16');
-    await expect.poll(() => rows(pane(page, 'old', 'hex'))).toEqual(['42 49 4e 00 01 02 6f 6c  64']);
-    await expect.poll(() => marked(pane(page, 'new', 'hex'), 'hex-inserted')).toBe('6e 65  7721');
-    expect(await sideways(page)).toBe(0);
+    await test.step('Diff View: old and new side by side, the changed bytes coloured in both panes of both sides', async () => {
+      const d = diff(page);
+      await expect(d.getByTestId('binary-summary')).toHaveText('Binary · 9 bytes → 10 bytes');
+      // At 1280×720 two sides don't fit at 16 bytes a row: 8, the offsets following.
+      await expect(d.locator('.hex-view')).toHaveAttribute('data-row-bytes', '8', { timeout: 15_000 });
+      await expect.poll(() => rows(pane(page, 'old', 'hex'))).toEqual(['42 49 4e 00  01 02 6f 6c', '64']);
+      await expect.poll(() => rows(pane(page, 'new', 'hex'))).toEqual(['42 49 4e 00  01 02 6e 65', '77 21']);
+      await expect.poll(() => rows(pane(page, 'old', 'text'))).toEqual(['BIN...ol', 'd']);
+      await expect.poll(() => rows(pane(page, 'new', 'text'))).toEqual(['BIN...ne', 'w!']);
+      await expect(pane(page, 'new', 'hex').locator(GUTTER)).toHaveText(['00000000', '00000008']);
+      expect(await sideways(page)).toBe(0);
+      expect(await leftover(page)).toBeGreaterThanOrEqual(0);
+      // Byte i against byte i: "old" → "new", and "!" past the old side's end.
+      await expect.poll(() => marked(pane(page, 'old', 'hex'), 'hex-removed')).toBe('6f 6c64');
+      await expect.poll(() => marked(pane(page, 'new', 'hex'), 'hex-inserted')).toBe('6e 657721');
+      await expect.poll(() => marked(pane(page, 'old', 'text'), 'hex-removed')).toBe('old');
+      await expect.poll(() => marked(pane(page, 'new', 'text'), 'hex-inserted')).toBe('new!');
+      for (const kind of ['hex', 'text'] as const) {
+        await expect(pane(page, 'old', kind).locator('.hex-row-removed')).toHaveCount(2);
+        await expect(pane(page, 'new', kind).locator('.hex-row-inserted')).toHaveCount(2);
+      }
+      // No diff editor, and no view mode: a binary is always side by side (the Inline button says so).
+      await expect(d.getByTestId('text-diff')).toHaveCount(0);
+      await expect(d.getByRole('button', { name: 'Inline', exact: true })).toHaveAttribute('aria-disabled', 'true');
+      await d.getByRole('button', { name: 'Inline', exact: true }).hover();
+      await expect(page.getByText('A binary file always shows side by side')).toBeVisible();
+      await page.mouse.move(0, 0);
+      await expect(d.getByRole('button', { name: 'Next change' })).toBeEnabled();
+      // Wider, both sides fit at 16 bytes a row: laid out again, the colours following.
+      await page.setViewportSize({ width: 2000, height: 720 });
+      await expect(d.locator('.hex-view')).toHaveAttribute('data-row-bytes', '16');
+      await expect.poll(() => rows(pane(page, 'old', 'hex'))).toEqual(['42 49 4e 00 01 02 6f 6c  64']);
+      await expect.poll(() => marked(pane(page, 'new', 'hex'), 'hex-inserted')).toBe('6e 65  7721');
+      expect(await sideways(page)).toBe(0);
+    });
+    await test.step('File View: hex | text; a selection in the hex pane is its bytes only, shown in the text pane too', async () => {
+      await diff(page).getByRole('button', { name: 'File View' }).click();
+      const hex = pane(page, 'file', 'hex');
+      const text = pane(page, 'file', 'text');
+      await expect(lines(hex)).toHaveText('42 49 4e 00 01 02 6e 65  77 21', { timeout: 15_000 });
+      await expect(lines(text)).toHaveText('BIN...new!');
+      // The offset is the hex pane's gutter; the text pane has none.
+      await expect(hex.locator(GUTTER)).toHaveText('00000000');
+      await expect(text.locator(GUTTER)).toHaveCount(0);
+      await expect(diff(page).getByTestId('binary-summary')).toHaveText('Binary · 10 bytes');
+      // At 1280×720 a side fits at 16 bytes a row; each pane is as wide as its rows, the room left
+      // over after the text pane, and nothing scrolls sideways.
+      await expect(diff(page).locator('.hex-view')).toHaveAttribute('data-row-bytes', '16');
+      expect(await sideways(page)).toBe(0);
+      expect((await text.boundingBox())!.width).toBeLessThan(200);
+      expect(await leftover(page)).toBeGreaterThan(100);
+      // A drag from the offset gutter across into the text pane: the hex pane's bytes, nothing else.
+      const gutter = (await hex.locator(GUTTER).boundingBox())!;
+      const textBox = (await text.boundingBox())!;
+      await page.mouse.move(gutter.x + 2, gutter.y + gutter.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(textBox.x + textBox.width - 20, gutter.y + gutter.height / 2, { steps: 8 });
+      await page.mouse.up();
+      await page.keyboard.press('Control+c');
+      // Clipboard reads are granted on Chromium only (playwright.config.ts).
+      if (browserName === 'chromium') await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^42 49 4e 00 01 02 6e 65 {2}77 21\n?$/);
+      // …and the same bytes show selected in the text pane.
+      await expect.poll(() => marked(text, 'hex-mirror')).toBe('BIN...new!');
+      // One byte, double-clicked: its character. A click elsewhere clears it.
+      const box = (await hex.locator('.view-line > span').first().boundingBox())!;
+      const charW = box.width / '42 49 4e 00 01 02 6e 65  77 21'.length;
+      await page.mouse.dblclick(box.x + charW * 7, box.y + box.height / 2);
+      await expect.poll(() => marked(text, 'hex-mirror')).toBe('N');
+      await text.locator('.view-line').first().click();
+      await expect(text.locator('.hex-mirror')).toHaveCount(0);
+      // And the other way: text selected, its bytes shown in the hex pane.
+      await page.keyboard.press('Control+a');
+      await expect.poll(() => marked(hex, 'hex-mirror')).toBe('42 49 4e 00 01 02 6e 65  77 21');
+    });
   });
 
   test('the panes scroll together, row for row, and Next change steps through the changed rows', async ({ page }) => {

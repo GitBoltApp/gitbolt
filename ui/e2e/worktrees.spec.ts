@@ -49,35 +49,32 @@ test.describe('the active worktree (spec #2 §11.2)', () => {
     await expect(grid(page).locator('.wip-worktree', { hasText: 'wt-one' })).toBeVisible();
   });
 
-  test('the WIP row menu and the repo button switch, and Undo targets the active worktree', async ({ page }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load and a fixture).
+  test('the repo button switches worktrees and the sidebar marks the current one, Undo targets the active worktree; open in a new tab', async ({ page }) => {
     const repo = freshFixture('worktrees');
     await page.goto(openUrl(repo));
-    await repoButton(page).click();
-    await page.getByRole('menuitem', { name: /wt-two/ }).click();
-    await expect(repoButton(page)).toContainText('wt-two');
-    await expect(headChip(page)).toContainText('wt-two');
-    await expect(page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
-  });
-
-  test('a linked tab\'s sidebar marks its own current branch and worktree', async ({ page }) => {
-    const repo = freshFixture('worktrees');
-    await page.goto(openUrl(repo));
-    await repoButton(page).click();
-    await page.getByRole('menuitem', { name: /wt-one/ }).click();
-    await expect(sidebarRow(page, 'wt-one')).toHaveClass(/is-head/);
-    await expect(sidebarRow(page, 'repo')).not.toHaveClass(/is-head/);
-  });
-
-  test('open in a new tab shows the same repository on the other worktree at once', async ({ page }) => {
-    const repo = freshFixture('worktrees');
-    await page.goto(openUrl(repo));
-    await sidebarRow(page, 'wt-one').click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Open in a new tab' }).click();
-    await expect(page.getByRole('tab', { selected: true })).toBeVisible();
-    // wt-one's HEAD chip sits far down the graph (unrendered); the toolbar and row-0 WIP show it.
-    await expect(page.getByRole('button', { name: 'Branch: wt-one', exact: true })).toBeVisible();
-    await expect(grid(page).getByRole('row').first().locator('.wip-worktree')).toHaveText('wt-one');
-    await expect(page.getByRole('tab')).toHaveCount(2);
+    await test.step('a linked tab\'s sidebar marks its own current branch and worktree', async () => {
+      await repoButton(page).click();
+      await page.getByRole('menuitem', { name: /wt-one/ }).click();
+      await expect(sidebarRow(page, 'wt-one')).toHaveClass(/is-head/);
+      await expect(sidebarRow(page, 'repo')).not.toHaveClass(/is-head/);
+    });
+    await test.step('the WIP row menu and the repo button switch, and Undo targets the active worktree', async () => {
+      await repoButton(page).click();
+      await page.getByRole('menuitem', { name: /wt-two/ }).click();
+      await expect(repoButton(page)).toContainText('wt-two');
+      await expect(headChip(page)).toContainText('wt-two');
+      await expect(page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+    });
+    await test.step('open in a new tab shows the same repository on the other worktree at once', async () => {
+      await sidebarRow(page, 'wt-one').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Open in a new tab' }).click();
+      await expect(page.getByRole('tab', { selected: true })).toBeVisible();
+      // wt-one's HEAD chip sits far down the graph (unrendered); the toolbar and row-0 WIP show it.
+      await expect(page.getByRole('button', { name: 'Branch: wt-one', exact: true })).toBeVisible();
+      await expect(grid(page).getByRole('row').first().locator('.wip-worktree')).toHaveText('wt-one');
+      await expect(page.getByRole('tab')).toHaveCount(2);
+    });
   });
 });
 

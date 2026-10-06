@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
-import { confirmArmed, expect, test, type Locator, type Page } from './test';
+import { armedOverlay, confirmArmed, expect, test, type Locator, type Page } from './test';
 import { fileRow, section } from './wip';
 
 /** HEAD is feature/c; feature/a → b → c are stacked on main, which moved on (plan 3C T1). */
@@ -169,109 +169,155 @@ test.describe('interactive rebase (spec #3 §7)', () => {
     await expect.poll(() => git(repo, 'log', '--format=%s', 'main..feature/c').split('\n').filter((s) => !s.startsWith('Merge'))).toEqual(want);
   });
 
-  test('a chip\'s hover shows its full name in place, shifting nothing; chips that don\'t fit go behind +N (UX2 E.1, E.2)', async ({ page }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load): none starts
+  // the rebase, and each starts from a fresh plan (the editor cancelled and opened again).
+  test('the editor\'s chips: a hover shows the full name, +N; chips sharing a row, × and the chip menu; the action dropdown and Reword', async ({ page }) => {
     await openEditor(page);
-    const a3 = row(page, 'A3 Add tests');
-    const add = async (name: string) => {
+    await test.step('a chip\'s hover shows its full name in place, shifting nothing; chips that don\'t fit go behind +N (UX2 E.1, E.2)', async () => {
+      const a3 = row(page, 'A3 Add tests');
+      const add = async (name: string) => {
+        await a3.hover();
+        await a3.getByRole('button', { name: 'Add a branch here' }).click();
+        await page.getByRole('textbox', { name: 'New branch name' }).fill(name);
+        await page.keyboard.press('Enter');
+      };
+      await add('feature/a-with-a-long-name');
+      const long = a3.locator('.irebase-chip-wrap[data-branch="feature/a-with-a-long-name"]');
+      const name = long.locator('.irebase-chip');
+      const full = long.locator('.irebase-chip-expand');
+      // Truncated in the column; its name hovered, the full name over its neighbours.
+      expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+      await page.mouse.move(0, 0);
+      await expect(full).toBeHidden();
+      const cells = () => a3.evaluate((r) => [r.getBoundingClientRect().height, ...[...r.children].filter((c) => !c.classList.contains('irebase-drag-count')).map((c) => { const b = c.getBoundingClientRect(); return `${b.x},${b.y},${b.width}`; })]);
+      const chipBox = () => name.evaluate((el) => { const b = el.getBoundingClientRect(); return [b.x, b.width]; });
+      const was = await cells();
+      const chipWas = await chipBox();
+      await name.hover();
+      await expect(full).toBeVisible();
+      await expect(full).toHaveText('feature/a-with-a-long-name');
+      expect(await full.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(chipWas[1]);
+      expect(await full.evaluate((el) => Math.round(el.getBoundingClientRect().x))).toBe(Math.round(chipWas[0]));
+      expect(await cells()).toEqual(was);
+      expect(await chipBox()).toEqual(chipWas);
+      // The tooltip keeps the hint.
+      await expect(page.getByRole('tooltip')).toHaveText('Drag it to another commit to move it');
+      await page.mouse.move(0, 0);
+      await expect(full).toBeHidden();
+      // Its own × is the chip's (an added chip: × drops it).
+      await name.hover();
+      await full.locator('.irebase-chip-full-x').click();
+      await expect(long).toHaveCount(0);
+      await add('feature/a-with-a-long-name');
+      // Four chips: the ones that don't fit at a readable width go behind +N.
+      await add('stack/one');
+      await add('stack/two');
+      const shown = a3.locator('.irebase-chip-list > .irebase-chip-wrap');
+      await expect(shown).toHaveCount(2);
+      for (const el of await shown.locator('.irebase-chip').all()) expect(await el.evaluate((e) => e.getBoundingClientRect().width)).toBeGreaterThanOrEqual(40);
+      const more = a3.getByRole('button', { name: '2 more: stack/one, stack/two' });
+      await expect(more).toHaveText('+2');
+      await more.hover();
+      const all = a3.locator('.irebase-chips-all');
+      await expect(all).toBeVisible();
+      await expect(all.locator('.irebase-chip-full-name')).toHaveText(['feature/a', 'feature/a-with-a-long-name', 'stack/one', 'stack/two']);
+      // From the list: a hidden chip's × is reachable and its own.
+      const two = all.locator('[data-branch="stack/two"]');
+      await two.locator('.irebase-chip-full-x').click();
+      await expect(a3.getByRole('button', { name: '1 more: stack/one' })).toBeVisible();
+      // The pill's click: each hidden chip's menu.
+      await a3.getByRole('button', { name: '1 more: stack/one' }).click();
+      await page.getByRole('menu').getByRole('menuitem', { name: 'stack/one' }).click();
+      await page.getByRole('menuitem', { name: 'Delete branch' }).click();
+      await confirmArmed(page.getByRole('menuitem', { name: /^Click again to drop stack\/one/ }));
+      await expect(a3.locator('.irebase-chip-more')).toHaveCount(0);
+      await expect(shown).toHaveCount(2);
+    });
+    await test.step('chips sharing a row: each × is reachable and its own; the chip menu deletes (armed) and restores (UX R1.3, R1.5)', async () => {
+      // A fresh plan: the edited one discarded (Cancel arms in place), and the editor opened again
+      // from main's chip.
+      await page.getByTestId('irebase').getByRole('button', { name: 'Cancel' }).first().click();
+      await confirmArmed(armedOverlay(page, 'Click again to discard your rebase plan'));
+      await expect(page.getByTestId('irebase')).toBeHidden();
+      await page.getByRole('grid', { name: 'Commit graph' }).getByText('main', { exact: true }).first().click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Interactive rebase feature/c onto main' }).click();
+      await expect(page.getByTestId('irebase')).toBeVisible();
+      const a3 = row(page, 'A3 Add tests');
+      const x = (name: string) => a3.locator(`.irebase-chip-wrap[data-branch="${name}"] .irebase-chip-x`);
+      const deleted = (name: string) => a3.locator(`.irebase-chip-wrap[data-branch="${name}"]`);
+      // Two chips on a row, one with a long name.
       await a3.hover();
       await a3.getByRole('button', { name: 'Add a branch here' }).click();
-      await page.getByRole('textbox', { name: 'New branch name' }).fill(name);
+      await page.getByRole('textbox', { name: 'New branch name' }).fill('feature/a-with-a-long-name');
       await page.keyboard.press('Enter');
-    };
-    await add('feature/a-with-a-long-name');
-    const long = a3.locator('.irebase-chip-wrap[data-branch="feature/a-with-a-long-name"]');
-    const name = long.locator('.irebase-chip');
-    const full = long.locator('.irebase-chip-expand');
-    // Truncated in the column; its name hovered, the full name over its neighbours.
-    expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-    await page.mouse.move(0, 0);
-    await expect(full).toBeHidden();
-    const cells = () => a3.evaluate((r) => [r.getBoundingClientRect().height, ...[...r.children].filter((c) => !c.classList.contains('irebase-drag-count')).map((c) => { const b = c.getBoundingClientRect(); return `${b.x},${b.y},${b.width}`; })]);
-    const chipBox = () => name.evaluate((el) => { const b = el.getBoundingClientRect(); return [b.x, b.width]; });
-    const was = await cells();
-    const chipWas = await chipBox();
-    await name.hover();
-    await expect(full).toBeVisible();
-    await expect(full).toHaveText('feature/a-with-a-long-name');
-    expect(await full.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(chipWas[1]);
-    expect(await full.evaluate((el) => Math.round(el.getBoundingClientRect().x))).toBe(Math.round(chipWas[0]));
-    expect(await cells()).toEqual(was);
-    expect(await chipBox()).toEqual(chipWas);
-    // The tooltip keeps the hint.
-    await expect(page.getByRole('tooltip')).toHaveText('Drag it to another commit to move it');
-    await page.mouse.move(0, 0);
-    await expect(full).toBeHidden();
-    // Its own × is the chip's (an added chip: × drops it).
-    await name.hover();
-    await full.locator('.irebase-chip-full-x').click();
-    await expect(long).toHaveCount(0);
-    await add('feature/a-with-a-long-name');
-    // Four chips: the ones that don't fit at a readable width go behind +N.
-    await add('stack/one');
-    await add('stack/two');
-    const shown = a3.locator('.irebase-chip-list > .irebase-chip-wrap');
-    await expect(shown).toHaveCount(2);
-    for (const el of await shown.locator('.irebase-chip').all()) expect(await el.evaluate((e) => e.getBoundingClientRect().width)).toBeGreaterThanOrEqual(40);
-    const more = a3.getByRole('button', { name: '2 more: stack/one, stack/two' });
-    await expect(more).toHaveText('+2');
-    await more.hover();
-    const all = a3.locator('.irebase-chips-all');
-    await expect(all).toBeVisible();
-    await expect(all.locator('.irebase-chip-full-name')).toHaveText(['feature/a', 'feature/a-with-a-long-name', 'stack/one', 'stack/two']);
-    // From the list: a hidden chip's × is reachable and its own.
-    const two = all.locator('[data-branch="stack/two"]');
-    await two.locator('.irebase-chip-full-x').click();
-    await expect(a3.getByRole('button', { name: '1 more: stack/one' })).toBeVisible();
-    // The pill's click: each hidden chip's menu.
-    await a3.getByRole('button', { name: '1 more: stack/one' }).click();
-    await page.getByRole('menu').getByRole('menuitem', { name: 'stack/one' }).click();
-    await page.getByRole('menuitem', { name: 'Delete branch' }).click();
-    await confirmArmed(page.getByRole('menuitem', { name: /^Click again to drop stack\/one/ }));
-    await expect(a3.locator('.irebase-chip-more')).toHaveCount(0);
-    await expect(shown).toHaveCount(2);
+      await a3.hover();
+      for (const name of ['feature/a', 'feature/a-with-a-long-name']) expect(await reachable(x(name)), name).toBe(true);
+      await x('feature/a').click();
+      await expect(deleted('feature/a')).toHaveClass(/is-deleted/);
+      await x('feature/a-with-a-long-name').click();
+      await expect(deleted('feature/a-with-a-long-name')).toHaveCount(0);
+      await x('feature/a').click();
+      // A deleted chip folded onto another's row (its rows squashed into it): both still reachable.
+      await row(page, 'B2 Refine lexer').hover();
+      await row(page, 'B2 Refine lexer').getByRole('button', { name: 'Delete feature/b when the rebase completes' }).click();
+      for (const s of ['B2 Refine lexer', 'S1 Side work', 'B1 Add lexer']) {
+        await row(page, s).click();
+        await page.keyboard.press('s');
+      }
+      await expect(deleted('feature/b')).toHaveClass(/is-deleted/);
+      await a3.hover();
+      for (const name of ['feature/a', 'feature/b']) expect(await reachable(x(name)), name).toBe(true);
+      await x('feature/b').click();
+      await expect(deleted('feature/b')).not.toHaveClass(/is-deleted/);
+      await x('feature/a').click();
+      await expect(deleted('feature/a')).toHaveClass(/is-deleted/);
+      await expect(deleted('feature/b')).not.toHaveClass(/is-deleted/);
+      // The chip menu: Delete branch arms in place; Restore.
+      await deleted('feature/b').locator('.irebase-chip').click({ button: 'right' });
+      await page.getByRole('menu').getByRole('menuitem', { name: 'Delete branch' }).click();
+      await confirmArmed(page.getByRole('menu').getByRole('menuitem', { name: /^Click again to delete feature\/b/ }));
+      await expect(deleted('feature/b')).toHaveClass(/is-deleted/);
+      await deleted('feature/b').locator('.irebase-chip').click({ button: 'right' });
+      await page.getByRole('menu').getByRole('menuitem', { name: 'Restore' }).click();
+      await expect(deleted('feature/b')).not.toHaveClass(/is-deleted/);
+    });
+    await test.step('the action dropdown: rows in their colours, each explained on hover; Reword opens the message, Save and Cancel (UX4 Q.2–Q.4)', async () => {
+      // A fresh plan: the edited one discarded (Cancel arms in place), and the editor opened again
+      // from main's chip.
+      await page.getByTestId('irebase').getByRole('button', { name: 'Cancel' }).first().click();
+      await confirmArmed(armedOverlay(page, 'Click again to discard your rebase plan'));
+      await expect(page.getByTestId('irebase')).toBeHidden();
+      await page.getByRole('grid', { name: 'Commit graph' }).getByText('main', { exact: true }).first().click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Interactive rebase feature/c onto main' }).click();
+      await expect(page.getByTestId('irebase')).toBeVisible();
+      // By its oid: while editing, its subject is in the text box, not the row's text.
+      const c1 = page.getByTestId('irebase').locator(`[data-oid="${await row(page, 'C1 Edit notes again').getAttribute('data-oid')}"]`);
+      await c1.getByRole('button', { name: /^Action for / }).click();
+      const menu = page.getByTestId('context-menu');
+      const option = (name: string) => menu.getByRole('menuitem', { name, exact: true });
+      await expect(option('Pick')).toBeVisible();
+      const colour = (name: string) => option(name).evaluate((el) => getComputedStyle(el).color);
+      expect(await colour('Pick')).not.toBe(await colour('Drop'));
+      expect(await colour('Squash')).toBe(await colour('Reword'));
+      // Narrow: the longest label and the check, no wider than the closed button's column allows.
+      expect((await menu.boundingBox())!.width).toBeLessThan(140);
+      await option('Squash').hover();
+      await expect(page.getByRole('tooltip')).toHaveText('Fold into the commit below, combining both messages.');
+      await option('Reword').click();
+      const summary = c1.getByRole('textbox', { name: 'Commit summary' });
+      await expect(summary).toBeFocused();
+      expect(await summary.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd, el.value.length])).toEqual([19, 19, 19]);
+      expect((await c1.locator('.irebase-message-editor').boundingBox())!.width).toBeLessThanOrEqual(440);
+      await summary.fill('C1 Better words');
+      await c1.getByRole('button', { name: 'Cancel' }).click();
+      await expect(c1.locator('.irebase-summary')).toHaveText('C1 Edit notes again');
+      await c1.dblclick();
+      await c1.getByRole('textbox', { name: 'Commit summary' }).fill('C1 Better words');
+      await c1.getByRole('button', { name: 'Save' }).click();
+      await expect(c1.locator('.irebase-summary')).toHaveText('C1 Better words');
+    });
   });
 
-  test('chips sharing a row: each × is reachable and its own; the chip menu deletes (armed) and restores (UX R1.3, R1.5)', async ({ page }) => {
-    await openEditor(page);
-    const a3 = row(page, 'A3 Add tests');
-    const x = (name: string) => a3.locator(`.irebase-chip-wrap[data-branch="${name}"] .irebase-chip-x`);
-    const deleted = (name: string) => a3.locator(`.irebase-chip-wrap[data-branch="${name}"]`);
-    // Two chips on a row, one with a long name.
-    await a3.hover();
-    await a3.getByRole('button', { name: 'Add a branch here' }).click();
-    await page.getByRole('textbox', { name: 'New branch name' }).fill('feature/a-with-a-long-name');
-    await page.keyboard.press('Enter');
-    await a3.hover();
-    for (const name of ['feature/a', 'feature/a-with-a-long-name']) expect(await reachable(x(name)), name).toBe(true);
-    await x('feature/a').click();
-    await expect(deleted('feature/a')).toHaveClass(/is-deleted/);
-    await x('feature/a-with-a-long-name').click();
-    await expect(deleted('feature/a-with-a-long-name')).toHaveCount(0);
-    await x('feature/a').click();
-    // A deleted chip folded onto another's row (its rows squashed into it): both still reachable.
-    await row(page, 'B2 Refine lexer').hover();
-    await row(page, 'B2 Refine lexer').getByRole('button', { name: 'Delete feature/b when the rebase completes' }).click();
-    for (const s of ['B2 Refine lexer', 'S1 Side work', 'B1 Add lexer']) {
-      await row(page, s).click();
-      await page.keyboard.press('s');
-    }
-    await expect(deleted('feature/b')).toHaveClass(/is-deleted/);
-    await a3.hover();
-    for (const name of ['feature/a', 'feature/b']) expect(await reachable(x(name)), name).toBe(true);
-    await x('feature/b').click();
-    await expect(deleted('feature/b')).not.toHaveClass(/is-deleted/);
-    await x('feature/a').click();
-    await expect(deleted('feature/a')).toHaveClass(/is-deleted/);
-    await expect(deleted('feature/b')).not.toHaveClass(/is-deleted/);
-    // The chip menu: Delete branch arms in place; Restore.
-    await deleted('feature/b').locator('.irebase-chip').click({ button: 'right' });
-    await page.getByRole('menu').getByRole('menuitem', { name: 'Delete branch' }).click();
-    await confirmArmed(page.getByRole('menu').getByRole('menuitem', { name: /^Click again to delete feature\/b/ }));
-    await expect(deleted('feature/b')).toHaveClass(/is-deleted/);
-    await deleted('feature/b').locator('.irebase-chip').click({ button: 'right' });
-    await page.getByRole('menu').getByRole('menuitem', { name: 'Restore' }).click();
-    await expect(deleted('feature/b')).not.toHaveClass(/is-deleted/);
-  });
 
   // UX F (P0): the playground repos inherited `commit.gpgsign=true`. A signer that fails (here a
   // stand-in, in the fixture's own config) stops the rebase at its first pick: the stop says why,
@@ -316,35 +362,6 @@ test.describe('interactive rebase (spec #3 §7)', () => {
     expect(git(repo, 'log', '-1', '--format=%s', 'feature/c')).toBe('C2 Polish');
     expect(git(repo, 'merge-base', 'main', 'feature/c')).toBe(git(repo, 'rev-parse', 'main'));
     expect(git(repo, 'status', '--porcelain')).toBe('');
-  });
-
-  test('the action dropdown: rows in their colours, each explained on hover; Reword opens the message, Save and Cancel (UX4 Q.2–Q.4)', async ({ page }) => {
-    await openEditor(page);
-    // By its oid: while editing, its subject is in the text box, not the row's text.
-    const c1 = page.getByTestId('irebase').locator(`[data-oid="${await row(page, 'C1 Edit notes again').getAttribute('data-oid')}"]`);
-    await c1.getByRole('button', { name: /^Action for / }).click();
-    const menu = page.getByTestId('context-menu');
-    const option = (name: string) => menu.getByRole('menuitem', { name, exact: true });
-    await expect(option('Pick')).toBeVisible();
-    const colour = (name: string) => option(name).evaluate((el) => getComputedStyle(el).color);
-    expect(await colour('Pick')).not.toBe(await colour('Drop'));
-    expect(await colour('Squash')).toBe(await colour('Reword'));
-    // Narrow: the longest label and the check, no wider than the closed button's column allows.
-    expect((await menu.boundingBox())!.width).toBeLessThan(140);
-    await option('Squash').hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Fold into the commit below, combining both messages.');
-    await option('Reword').click();
-    const summary = c1.getByRole('textbox', { name: 'Commit summary' });
-    await expect(summary).toBeFocused();
-    expect(await summary.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd, el.value.length])).toEqual([19, 19, 19]);
-    expect((await c1.locator('.irebase-message-editor').boundingBox())!.width).toBeLessThanOrEqual(440);
-    await summary.fill('C1 Better words');
-    await c1.getByRole('button', { name: 'Cancel' }).click();
-    await expect(c1.locator('.irebase-summary')).toHaveText('C1 Edit notes again');
-    await c1.dblclick();
-    await c1.getByRole('textbox', { name: 'Commit summary' }).fill('C1 Better words');
-    await c1.getByRole('button', { name: 'Save' }).click();
-    await expect(c1.locator('.irebase-summary')).toHaveText('C1 Better words');
   });
 
   test('"Interactive rebase after this commit": the clicked commit is the base (UX4 Q.5)', async ({ page }) => {

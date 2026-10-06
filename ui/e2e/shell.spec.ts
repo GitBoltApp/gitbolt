@@ -30,15 +30,39 @@ async function emit(page: Page, event: object) {
 }
 
 test.describe('shell', () => {
-  test('restores open tabs after a reload', async ({ page }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load).
+  test('a refs-updated event refreshes in place, a repo-changed event updates the WIP row, and the open tabs come back after a reload', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
-    await expect(graph(page)).toBeVisible();
-    await page.evaluate(() => window.__gb!.flush());
-    await page.goto('/');
-    await expect(graph(page)).toBeVisible();
-    await expect(page.getByText("Merge branch 'feature/login'")).toBeVisible();
-    await expect(page.locator('.tab-page')).toHaveCount(1);
+    await test.step('a refs-updated event refreshes in place, keeping the selected commit selected', async () => {
+      const fix = row(page, 'Fix typo');
+      await fix.click();
+      await expect(fix).toHaveAttribute('aria-selected', 'true');
+      git(repo, 'switch', '-q', '-c', 'e2e-branch', 'main');
+      writeFileSync(join(repo, 'e2e.txt'), 'x\n');
+      git(repo, 'add', 'e2e.txt');
+      git(repo, 'commit', '-q', '-m', 'Commit from outside');
+      await emit(page, { type: 'refsUpdated', repo: await repoIdOf(page, repo) });
+      await expect(row(page, 'Commit from outside')).toBeVisible({ timeout: 5000 });
+      await expect(row(page, 'Fix typo')).toHaveAttribute('aria-selected', 'true');
+      // The details panel still shows it.
+      await expect(page.getByRole('complementary', { name: 'Commit details' })).toContainText('Fix typo');
+    });
+    await test.step('a repo-changed event updates the WIP row', async () => {
+      const mainWip = page.getByRole('row').filter({ hasText: '// WIP' }).filter({ hasNotText: 'wt-hotfix' });
+      await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified');
+      writeFileSync(join(repo, 'e2e-new-file.txt'), 'hello\n');
+      await emit(page, { type: 'repoChanged', repo: await repoIdOf(page, repo), kinds: ['worktree'], worktrees: [repo] });
+      await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified · 1 added', { timeout: 5000 });
+    });
+    await test.step('restores open tabs after a reload', async () => {
+      await expect(graph(page)).toBeVisible();
+      await page.evaluate(() => window.__gb!.flush());
+      await page.goto('/');
+      await expect(graph(page)).toBeVisible();
+      await expect(page.getByText("Merge branch 'feature/login'")).toBeVisible();
+      await expect(page.locator('.tab-page')).toHaveCount(1);
+    });
   });
 
   test('two repos open as two tabs: only the active one shows; Ctrl+Tab switches', async ({ page }) => {
@@ -57,32 +81,6 @@ test.describe('shell', () => {
     await expect(row(page, "Merge branch 'feature/login'")).toHaveCount(0);
   });
 
-  test('a refs-updated event refreshes in place, keeping the selected commit selected', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    const fix = row(page, 'Fix typo');
-    await fix.click();
-    await expect(fix).toHaveAttribute('aria-selected', 'true');
-    git(repo, 'switch', '-q', '-c', 'e2e-branch', 'main');
-    writeFileSync(join(repo, 'e2e.txt'), 'x\n');
-    git(repo, 'add', 'e2e.txt');
-    git(repo, 'commit', '-q', '-m', 'Commit from outside');
-    await emit(page, { type: 'refsUpdated', repo: await repoIdOf(page, repo) });
-    await expect(row(page, 'Commit from outside')).toBeVisible({ timeout: 5000 });
-    await expect(row(page, 'Fix typo')).toHaveAttribute('aria-selected', 'true');
-    // The details panel still shows it.
-    await expect(page.getByRole('complementary', { name: 'Commit details' })).toContainText('Fix typo');
-  });
-
-  test('a repo-changed event updates the WIP row', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    const mainWip = page.getByRole('row').filter({ hasText: '// WIP' }).filter({ hasNotText: 'wt-hotfix' });
-    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified');
-    writeFileSync(join(repo, 'e2e-new-file.txt'), 'hello\n');
-    await emit(page, { type: 'repoChanged', repo: await repoIdOf(page, repo), kinds: ['worktree'], worktrees: [repo] });
-    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified · 1 added', { timeout: 5000 });
-  });
 
   // Needs the watcher (plan 1C Task 6, lane W2-B): passes once it has merged.
   test('a file change in the worktree updates the WIP row live', async ({ page }) => {

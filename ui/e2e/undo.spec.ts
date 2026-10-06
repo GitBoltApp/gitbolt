@@ -30,53 +30,51 @@ test.describe('undo of a real commit (spec #2 §5.3, 2B)', () => {
 });
 
 test.describe('undo (spec #2 §5.5)', () => {
-  test('the toolbar undoes and redoes a commit; the toast offers Redo', async ({ page, request }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load), in an order
+  // where each starts from what it needs (nothing to undo yet for the first).
+  test('the toolbar undoes and redoes, the toast offers Redo; Ctrl+Z outside text fields; a push is a barrier', async ({ page, request }) => {
     const repo = freshFixture('basic');
     await open(page, repo);
-    await expect(undoButton(page)).toHaveAttribute('aria-disabled', 'true');
-    await undoButton(page).hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Nothing to undo');
-    expect((await testWrite(request, repo, commit('From the test'))).ok).toBeDefined();
-    await expect(graph(page).getByText('From the test')).toBeVisible();
-    await undoButton(page).hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Undo commit "From the test" (Ctrl+Z)');
-    await undoButton(page).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Undid commit "From the test"' })).toBeVisible();
-    await expect(graph(page).getByText('From the test')).toHaveCount(0);
-    await page.getByRole('status').getByRole('button', { name: 'Redo' }).click();
-    await expect(graph(page).getByText('From the test')).toBeVisible();
-  });
-
-  test('Ctrl+Z undoes outside text fields, and leaves a text box its own undo', async ({ page, request }) => {
-    const repo = freshFixture('basic');
-    await open(page, repo);
-    await testWrite(request, repo, commit('Keyboard undo'));
-    await expect(graph(page).getByText('Keyboard undo')).toBeVisible();
-    await page.keyboard.press('Control+f');
-    await page.keyboard.type('x');
-    await page.keyboard.press('Control+z');
-    await expect(graph(page).getByText('Keyboard undo')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await graph(page).focus();
-    await page.keyboard.press('Control+z');
-    await expect(graph(page).getByText('Keyboard undo')).toHaveCount(0);
-  });
-
-  test('a push is a barrier: Undo says why; a newer entry is still undoable', async ({ page, request }) => {
-    const repo = freshFixture('basic');
-    await open(page, repo);
-    await testWrite(request, repo, { op: 'barrier', label: 'push main to origin/main' });
-    await undoButton(page).hover();
-    await expect(page.getByRole('tooltip')).toHaveText("Push can't be undone");
-    await testWrite(request, repo, commit('After the push'));
-    // Enabled: no aria-disabled at all (the button sets it only when off).
-    await expect(undoButton(page)).not.toHaveAttribute('aria-disabled', 'true');
-    await undoButton(page).click();
-    await expect(graph(page).getByText('After the push')).toHaveCount(0);
-    // The pointer is still on the button after the click: leave and come back for a fresh hover.
-    await page.mouse.move(0, 0);
-    await undoButton(page).hover();
-    await expect(page.getByRole('tooltip')).toHaveText("Push can't be undone");
+    await test.step('the toolbar undoes and redoes a commit; the toast offers Redo', async () => {
+      await expect(undoButton(page)).toHaveAttribute('aria-disabled', 'true');
+      await undoButton(page).hover();
+      await expect(page.getByRole('tooltip')).toHaveText('Nothing to undo');
+      expect((await testWrite(request, repo, commit('From the test'))).ok).toBeDefined();
+      await expect(graph(page).getByText('From the test')).toBeVisible();
+      await undoButton(page).hover();
+      await expect(page.getByRole('tooltip')).toHaveText('Undo commit "From the test" (Ctrl+Z)');
+      await undoButton(page).click();
+      await expect(page.getByRole('status').filter({ hasText: 'Undid commit "From the test"' })).toBeVisible();
+      await expect(graph(page).getByText('From the test')).toHaveCount(0);
+      await page.getByRole('status').getByRole('button', { name: 'Redo' }).click();
+      await expect(graph(page).getByText('From the test')).toBeVisible();
+    });
+    await test.step('Ctrl+Z undoes outside text fields, and leaves a text box its own undo', async () => {
+      await testWrite(request, repo, commit('Keyboard undo'));
+      await expect(graph(page).getByText('Keyboard undo')).toBeVisible();
+      await page.keyboard.press('Control+f');
+      await page.keyboard.type('x');
+      await page.keyboard.press('Control+z');
+      await expect(graph(page).getByText('Keyboard undo')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await graph(page).focus();
+      await page.keyboard.press('Control+z');
+      await expect(graph(page).getByText('Keyboard undo')).toHaveCount(0);
+    });
+    await test.step('a push is a barrier: Undo says why; a newer entry is still undoable', async () => {
+      await testWrite(request, repo, { op: 'barrier', label: 'push main to origin/main' });
+      await undoButton(page).hover();
+      await expect(page.getByRole('tooltip')).toHaveText("Push can't be undone");
+      await testWrite(request, repo, commit('After the push'));
+      // Enabled: no aria-disabled at all (the button sets it only when off).
+      await expect(undoButton(page)).not.toHaveAttribute('aria-disabled', 'true');
+      await undoButton(page).click();
+      await expect(graph(page).getByText('After the push')).toHaveCount(0);
+      // The pointer is still on the button after the click: leave and come back for a fresh hover.
+      await page.mouse.move(0, 0);
+      await undoButton(page).hover();
+      await expect(page.getByRole('tooltip')).toHaveText("Push can't be undone");
+    });
   });
 
   test('undo of a commit lands within its budget (< 150 ms, best of 3, spec #2 §16)', { tag: '@budget' }, async ({ page, request }) => {

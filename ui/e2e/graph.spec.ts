@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './test';
-import type { Browser } from '@playwright/test';
+import type { BrowserContext } from '@playwright/test';
 import { devicePx } from '../src/graph/pixels';
 import { SHORT_SHA_LEN } from '../src/format/sha';
 import { allocateColumns, COLUMN_MIN, DEFAULT_COLUMN_PREFS, SHA_MAX } from '../src/graph/columns';
@@ -16,354 +16,356 @@ test.describe('commit graph', () => {
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
   });
 
-  test('renders every row of the basic fixture with labels and WIP rows', async ({ page }) => {
-    const rows = page.getByRole('row');
-    // In the graph: the sidebar lists the same branches, worktrees and tags.
-    const grid = page.getByRole('grid', { name: 'Commit graph' });
-    await expect(rows).toHaveCount(10);
-    await expect(grid.getByText("Merge branch 'feature/login'")).toBeVisible();
-    await expect(grid.getByText('// WIP')).toHaveCount(2);
-    await expect(grid.getByText('wt-hotfix')).toBeVisible();
-    // The open worktree's WIP is row 0 ("now"), though the stash and the hotfix are newer than
-    // its HEAD; wt-hotfix's docks right above its HEAD (K37).
-    const gridRows = grid.getByRole('row');
-    await expect(gridRows.nth(0)).toContainText('// WIP');
-    await expect(gridRows.nth(0)).not.toContainText('wt-hotfix');
-    await expect(gridRows.nth(2)).toContainText('wt-hotfix');
-    await expect(gridRows.nth(3)).toContainText('Hotfix: null check');
-    await expect(rows.nth(4).getByText('main', { exact: true })).toBeVisible();
-    await expect(grid.getByText('v1.0')).toBeVisible();
-    await expect(page).toHaveTitle('GitBolt — repo');
+  // Each `test.step` below was a test of its own, paying for a page load; they run in an order
+  // where each starts from what it needs.
+  test('the graph at rest: rows, rail, connectors, the checked-out branch; a SHA click copies', async ({ page, browserName }) => {
+    await test.step('renders every row of the basic fixture with labels and WIP rows', async () => {
+      const rows = page.getByRole('row');
+      // In the graph: the sidebar lists the same branches, worktrees and tags.
+      const grid = page.getByRole('grid', { name: 'Commit graph' });
+      await expect(rows).toHaveCount(10);
+      await expect(grid.getByText("Merge branch 'feature/login'")).toBeVisible();
+      await expect(grid.getByText('// WIP')).toHaveCount(2);
+      await expect(grid.getByText('wt-hotfix')).toBeVisible();
+      // The open worktree's WIP is row 0 ("now"), though the stash and the hotfix are newer than
+      // its HEAD; wt-hotfix's docks right above its HEAD (K37).
+      const gridRows = grid.getByRole('row');
+      await expect(gridRows.nth(0)).toContainText('// WIP');
+      await expect(gridRows.nth(0)).not.toContainText('wt-hotfix');
+      await expect(gridRows.nth(2)).toContainText('wt-hotfix');
+      await expect(gridRows.nth(3)).toContainText('Hotfix: null check');
+      await expect(rows.nth(4).getByText('main', { exact: true })).toBeVisible();
+      await expect(grid.getByText('v1.0')).toBeVisible();
+      await expect(page).toHaveTitle('GitBolt — repo');
+    });
+    await test.step('canvas paints an opaque lane-colored rail at its right edge on every row', async () => {
+      // Row 0 (the stash) and row 4 (main's merge, lane 0): sample the rail's last device pixel
+      // column at each row's center. It must be fully opaque and exactly the lane's color.
+      const samples = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [railW, rowH]: number[]) => {
+        const dpr = c.width / c.getBoundingClientRect().width;
+        const ctx = c.getContext('2d')!;
+        return [0, 1, 2, 3, 4].map((i) => {
+          const d = ctx.getImageData(c.width - Math.max(1, Math.round(railW * dpr)), Math.round((i * rowH + rowH / 2) * dpr), 1, 1).data;
+          return { a: d[3], hex: '#' + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('') };
+        });
+      }, [RAIL_W, METRICS.rowH]);
+      for (const s of samples) {
+        expect(s.a).toBe(255);
+        expect(GRAPH_COLORS).toContain(s.hex);
+      }
+      expect(samples[4].hex).toBe(GRAPH_COLORS[0]);
+    });
+    await test.step('the chip-to-node connector is the lane colour at 25%, on the canvas and in the DOM (F8)', async () => {
+      // hotfix's tip: labeled, not checked out (main is, J21). Sample the canvas connector at the
+      // left edge, on the row's centre line.
+      const row = page.getByRole('row').filter({ hasText: 'Hotfix: null check' });
+      const px = await connectorPixels(page, row);
+      expect(px.centre[3]).toBeGreaterThanOrEqual(56);
+      expect(px.centre[3]).toBeLessThanOrEqual(72);
+      // The lane colour, give or take the rounding of premultiplied alpha at 25%.
+      for (let i = 0; i < 3; i++) expect(Math.abs(px.centre[i] - px.lane[i]), `channel ${i}`).toBeLessThanOrEqual(4);
+      // One CSS px thick, a whole number of device pixels (draw.ts).
+      expect(px.thickness).toBe(await page.evaluate(() => Math.max(1, Math.round(window.devicePixelRatio))));
+      const connector = row.locator('.ref-connector');
+      expect(await connector.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.25');
+      expect((await connector.boundingBox())!.height).toBe(1);
+    });
+    await test.step("the checked-out branch: a bigger check, a chip always lit, a 2 px full-colour connector (J21)", async () => {
+      const rows = page.getByRole('row');
+      const head = rows.nth(4);
+      await expect(head.getByText('main', { exact: true })).toBeVisible();
+      const chip = head.locator('.ref-labels > .ref-label');
+      const style = () => chip.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
+      const other = page.getByRole('row').filter({ hasText: 'Hotfix: null check' }).locator('.ref-labels > .ref-label');
+      const otherStyle = () => other.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
+      // At rest (neither hovered nor selected), HEAD's chip already has the lit look: the one the
+      // other chip takes only when its row is hovered.
+      await page.mouse.move(5, 5);
+      const rest = await style();
+      const otherRest = await otherStyle();
+      expect(rest.color).toBe('rgb(255, 255, 255)');
+      expect(otherRest.color).not.toBe('rgb(255, 255, 255)');
+      await other.hover();
+      const otherLit = await otherStyle();
+      expect(otherLit.color).toBe('rgb(255, 255, 255)');
+      // Lit is 45% of the lane colour, rest 25%: HEAD's chip matches the lit ratio at rest.
+      expect(alphaOf(rest.bg)).toBeCloseTo(0.45, 2);
+      expect(alphaOf(otherRest.bg)).toBeCloseTo(0.25, 2);
+      // Selected elsewhere, hovered, selected itself: always the same.
+      await rows.nth(3).click();
+      await page.mouse.move(5, 5);
+      expect(await style()).toEqual(rest);
+      await head.hover();
+      expect(await style()).toEqual(rest);
+      await head.click();
+      await page.mouse.move(5, 5);
+      expect(await style()).toEqual(rest);
+      // The check: ~1.4x the 12 px icons. The laptop is an outline icon, one step up (14 px, K45)
+      // so it reads the same size as the filled brand marks.
+      const check = (await head.locator('[aria-label="HEAD"]').boundingBox())!;
+      expect(check.width).toBe(17);
+      expect(check.height).toBe(17);
+      expect((await head.locator('[aria-label="local"]').boundingBox())!.width).toBe(14);
+      // The connector, DOM and canvas: 2 px, the full lane colour.
+      const connector = head.locator('.ref-connector');
+      expect(await connector.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+      expect((await connector.boundingBox())!.height).toBe(2);
+      const px = await connectorPixels(page, head);
+      expect(px.centre[3]).toBe(255);
+      for (let i = 0; i < 3; i++) expect(Math.abs(px.centre[i] - px.lane[i]), `channel ${i}`).toBeLessThanOrEqual(1);
+      expect(px.thickness).toBe(await page.evaluate(() => Math.round(2 * window.devicePixelRatio)));
+      // The DOM line sits on the canvas line: same rows of pixels.
+      const conn = (await connector.boundingBox())!;
+      expect(Math.abs(conn.y + conn.height / 2 - px.centreY)).toBeLessThanOrEqual(0.5);
+    });
+    await test.step('clicking a SHA copies the full hash', async () => {
+      const sha = page.getByTestId('sha').first();
+      const short = (await sha.textContent())!;
+      await sha.click();
+      await expect(page.getByRole('status')).toHaveText('Copied');
+      if (browserName === 'chromium') {
+        const copied = await page.evaluate(() => navigator.clipboard.readText());
+        expect(copied).toHaveLength(40);
+        expect(copied.startsWith(short)).toBe(true);
+      }
+    });
   });
 
-  test('canvas paints an opaque lane-colored rail at its right edge on every row', async ({ page }) => {
-    // Row 0 (the stash) and row 4 (main's merge, lane 0): sample the rail's last device pixel
-    // column at each row's center. It must be fully opaque and exactly the lane's color.
-    const samples = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [railW, rowH]: number[]) => {
-      const dpr = c.width / c.getBoundingClientRect().width;
-      const ctx = c.getContext('2d')!;
-      return [0, 1, 2, 3, 4].map((i) => {
-        const d = ctx.getImageData(c.width - Math.max(1, Math.round(railW * dpr)), Math.round((i * rowH + rowH / 2) * dpr), 1, 1).data;
-        return { a: d[3], hex: '#' + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('') };
-      });
-    }, [RAIL_W, METRICS.rowH]);
-    for (const s of samples) {
-      expect(s.a).toBe(255);
-      expect(GRAPH_COLORS).toContain(s.hex);
-    }
-    expect(samples[4].hex).toBe(GRAPH_COLORS[0]);
+  test('selection: dimmed branch chips, the keyboard, multi-select, pointer cursors and inert chip space', async ({ page }) => {
+    await test.step('a hovered or selected commit below its branch tip shows a dimmed chip naming the branch (F7)', async () => {
+      const rows = page.getByRole('row');
+      const dim = (text: string) => rows.filter({ hasText: text }).locator('.ref-label-dim');
+      await expect(page.locator('.ref-label-dim')).toHaveCount(0);
+      await rows.filter({ hasText: 'Login form' }).locator('[data-col="message"]').hover();
+      await expect(dim('Login form')).toHaveText('feature/login');
+      expect(await dim('Login form').evaluate((el) => getComputedStyle(el).opacity)).toBe('0.5');
+      await rows.filter({ hasText: 'Fix typo' }).locator('[data-col="author"]').hover();
+      await expect(dim('Login form')).toHaveCount(0);
+      await expect(dim('Fix typo')).toHaveText('main');
+      // The tip of a branch has its own chip and gets none.
+      await rows.filter({ hasText: 'Login validation' }).locator('[data-col="author"]').hover();
+      await expect(page.locator('.ref-label-dim')).toHaveCount(0);
+      // Selected: stays while the pointer is elsewhere.
+      await rows.filter({ hasText: 'Initial commit' }).locator('[data-col="author"]').click();
+      await page.locator('.graph-header [data-col="message"]').hover();
+      await expect(dim('Initial commit')).toHaveText('main');
+      await expect(page.locator('.ref-label-dim')).toHaveCount(1);
+    });
+    await test.step('keyboard navigation moves the selection', async () => {
+      const rows = page.getByRole('row');
+      await rows.nth(0).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
+      await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await expect(rows.nth(2)).toHaveAttribute('aria-selected', 'true');
+      await page.keyboard.press('Home');
+      await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
+    });
+    await test.step('multi-select (K27): Shift+click and Shift+↑/↓ select a range from the anchor, Ctrl+click toggles rows, all highlighted', async () => {
+      const grid = page.getByRole('grid', { name: 'Commit graph' });
+      const rows = grid.getByRole('row');
+      const selected = grid.locator('[role="row"][aria-selected="true"]');
+      const indexes = async () => Promise.all((await selected.all()).map(async (r) => Number(await r.getAttribute('aria-rowindex')) - 1));
+      await rows.nth(3).click();
+      await rows.nth(6).click({ modifiers: ['Shift'] });
+      await expect(selected).toHaveCount(4);
+      expect(await indexes()).toEqual([3, 4, 5, 6]);
+      await expect(page.getByTestId('multi-count')).toHaveText('4 commits selected');
+      // Shift+↑ from the keyboard position (row 6) shrinks the range toward the anchor (row 3).
+      await page.keyboard.press('Shift+ArrowUp');
+      await page.keyboard.press('Shift+ArrowUp');
+      expect(await indexes()).toEqual([3, 4]);
+      await expect(page.getByTestId('compare-header')).toBeVisible();
+      // Past the anchor, the range turns around it.
+      await page.keyboard.press('Shift+ArrowUp');
+      await page.keyboard.press('Shift+ArrowUp');
+      await expect(selected).toHaveCount(2);
+      expect(await indexes()).toEqual([2, 3]);
+      // Ctrl+click adds rows, and removes a selected one.
+      await rows.nth(8).click({ modifiers: ['Control'] });
+      await expect(selected).toHaveCount(3);
+      await rows.nth(2).locator('[data-col="message"]').click({ modifiers: ['Control'], position: { x: 3, y: 3 } });
+      expect(await indexes()).toEqual([3, 8]);
+      // Shift+Ctrl+click adds a range from the anchor (row 8, Ctrl+clicked last).
+      await rows.nth(6).click({ modifiers: ['Control', 'Shift'] });
+      await expect(selected).toHaveCount(4);
+      expect(await indexes()).toEqual([3, 6, 7, 8]);
+      // A plain arrow goes back to a single selection.
+      await page.keyboard.press('ArrowDown');
+      await expect(selected).toHaveCount(1);
+      expect(await indexes()).toEqual([7]);
+    });
+    await test.step('pointer cursors on rows and chips; the chips column\'s empty space is inert (F5, F6)', async () => {
+      const rows = page.getByRole('row');
+      const cursor = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).cursor);
+      // The row with the real chip, not a hovered row showing the dimmed membership chip (F7).
+      const labeled = rows.filter({ has: page.locator('.ref-label:not(.ref-label-dim)', { hasText: 'feature/login' }) });
+      const plain = rows.filter({ hasText: 'Login form' });
+      expect(await cursor(plain.locator('[data-col="message"]'))).toBe('pointer');
+      expect(await cursor(plain.locator('[data-col="graph"]'))).toBe('pointer');
+      expect(await cursor(plain.locator('[data-col="labels"]'))).toBe('default');
+      expect(await cursor(labeled.locator('.ref-label').first())).toBe('pointer');
+      expect(await cursor(page.getByTestId('sha').first())).toBe('pointer');
+      expect(await cursor(page.getByRole('separator', { name: 'Resize Graph column' }))).toBe('col-resize');
+
+      await plain.locator('[data-col="author"]').click();
+      await expect(plain).toHaveAttribute('aria-selected', 'true');
+      // Empty chip-cell space, on a row without chips and beside a chip: nothing changes.
+      // (An empty labels cell is 0 px tall, so aim by the row's box.)
+      // Near the cell's right end: the hover gives this row its dimmed membership chip (F7) at the
+      // cell's start, and a press on that chip selects the row (J6), so x + 20 raced its render.
+      const typoRow = (await rows.filter({ hasText: 'Fix typo' }).boundingBox())!;
+      const labelsCol = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!;
+      await page.mouse.click(labelsCol.x + labelsCol.width - 6, typoRow.y + typoRow.height / 2);
+      const labeledRow = (await labeled.boundingBox())!;
+      const chipBox = (await labeled.locator('.ref-labels > .ref-label').boundingBox())!;
+      await page.mouse.click(chipBox.x + 2, labeledRow.y + 2);
+      await expect(plain).toHaveAttribute('aria-selected', 'true');
+      await expect(labeled).toHaveAttribute('aria-selected', 'false');
+      // The chip itself selects its row, and the graph cell of any row does too.
+      await labeled.locator('.ref-labels > .ref-label').click();
+      await expect(labeled).toHaveAttribute('aria-selected', 'true');
+      // On the node (the graph column's first lane; the cell itself is empty and 0 px tall).
+      const graphX = (await page.locator('.graph-header [data-col="graph"]').boundingBox())!.x;
+      await page.mouse.click(graphX + METRICS.padX, typoRow.y + typoRow.height / 2);
+      await expect(rows.filter({ hasText: 'Fix typo' })).toHaveAttribute('aria-selected', 'true');
+    });
   });
 
-  test('about 10px of margin separates the summary from the dimmed body', async ({ page }) => {
-    await page.goto(openUrl(fixtures.longLabels));
-    const summary = page.locator('.msg-summary', { hasText: 'Initial commit' });
-    const body = summary.locator('xpath=following-sibling::*[1]');
-    await expect(body).toHaveClass(/msg-body/);
-    const [s, b] = await Promise.all([summary.boundingBox(), body.boundingBox()]);
-    if (!s || !b) throw new Error('missing summary/body box');
-    expect(b.x - (s.x + s.width)).toBeGreaterThanOrEqual(9);
-    expect(b.x - (s.x + s.width)).toBeLessThanOrEqual(11);
+  test('chips: expanded over their icons with tooltips at once, the dimmed chip after a tag and on hover', async ({ page }) => {
+    await test.step('source-icon tooltips show at once, even when the pointer lands straight on the icon; the remote name stands out, the branch is dimmed (H12)', async () => {
+      const chip = page.locator('.ref-labels > .ref-label:not(.ref-label-dim)', { hasText: 'feature/login' });
+      const cloud = chip.locator(':scope > .ref-icon', { has: page.locator('[aria-label="remote origin"]') });
+      const box = (await cloud.boundingBox())!;
+      // One move, from outside the chip straight onto its cloud icon; then the pointer rests.
+      await page.mouse.move(box.x + box.width / 2, box.y - 40);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      const tip = page.getByRole('tooltip');
+      await expect(tip).toHaveText('origin → feature/login (Remote)', { timeout: 50 });
+      const colour = (sel: string) => tip.locator(sel).evaluate((el) => getComputedStyle(el).color);
+      const [remote, branch] = [await colour('.ref-tip-remote'), await colour('.ref-tip-branch')];
+      expect(remote).not.toBe(branch);
+      expect(alphaOf(remote)).toBeGreaterThan(alphaOf(branch));
+      // Still there once the chip has expanded under the resting pointer.
+      await page.waitForTimeout(300);
+      await expect(tip).toHaveText('origin → feature/login (Remote)');
+      await expect(tip).toHaveCount(1);
+    });
+    await test.step('a chip stays expanded over its forge (remote) icon, whose tooltip names the remote and branch (F4, F9, H12)', async () => {
+      // The pointer off the chips first: the previous step leaves a tooltip showing.
+      await page.locator('.graph-header [data-col="message"]').hover();
+      await expect(page.getByRole('tooltip')).toHaveCount(0);
+      // Not the dimmed membership chip (F7), which names feature/login too on a hovered row below it.
+      const chip = page.locator('.ref-labels > .ref-label:not(.ref-label-dim)', { hasText: 'feature/login' });
+      await chip.hover();
+      const full = page.locator('.ref-label-full');
+      await expect(full).toBeVisible();
+      await expect(page.getByRole('tooltip')).toHaveCount(0);
+      const cloud = full.locator('.ref-icon', { has: page.locator('[aria-label="remote origin"]') });
+      const box = (await cloud.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+      await expect(full).toBeVisible();
+      await expect(page.getByRole('tooltip')).toHaveText('origin → feature/login (Remote)');
+      const local = full.locator('.ref-icon', { has: page.locator('[aria-label="local"]') });
+      await local.hover();
+      await expect(page.getByRole('tooltip')).toHaveText('feature/login (Local)');
+    });
+    await test.step('a row with chips that aren\'t its branch\'s tip gets the dimmed chip after them, dropped whole when it doesn\'t fit (F7)', async () => {
+      // "Add readme" carries only the v1.0 tag; it's on main.
+      const row = page.getByRole('row').filter({ hasText: 'Add readme' });
+      const tagChip = row.locator('.ref-labels > .ref-label').first();
+      await expect(tagChip).toHaveText('v1.0');
+      const tagBefore = (await tagChip.boundingBox())!;
+      await row.locator('[data-col="message"]').hover();
+      const dim = row.locator('.ref-dim-slot .ref-label-dim');
+      await expect(dim).toHaveText('main');
+      const [slot, dimBox] = [(await row.locator('.ref-dim-slot').boundingBox())!, (await dim.boundingBox())!];
+      // On the slot's (only visible) line, after the tag chip; the tag chip didn't move or shrink.
+      expect(dimBox.y).toBeGreaterThanOrEqual(slot.y - 0.5);
+      expect(dimBox.x).toBeGreaterThan(tagBefore.x + tagBefore.width);
+      expect(await tagChip.boundingBox()).toEqual(tagBefore);
+      await expectConnectorMeetsCanvas(page, row);
+
+      // Narrow the Branch/Tag column to one step above its minimum (at the minimum itself the chips
+      // go icon-only, spec §8.4): the dimmed chip is dropped (wrapped onto the slot's hidden line),
+      // the tag chip keeps its full width, and the line to the node is intact.
+      const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+      await handle.focus();
+      for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
+      await page.keyboard.press('ArrowRight');
+      await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.labels + 8));
+      // Selected, so it stays shown without the pointer on the row.
+      await row.locator('[data-col="author"]').click();
+      await page.locator('.graph-header [data-col="message"]').hover();
+      await expect(dim).toHaveCount(1);
+      const narrowSlot = (await row.locator('.ref-dim-slot').boundingBox())!;
+      const narrowDim = (await dim.boundingBox())!;
+      expect(narrowDim.y).toBeGreaterThanOrEqual(narrowSlot.y + narrowSlot.height);
+      expect((await tagChip.boundingBox())!.width).toBeCloseTo(tagBefore.width, 1);
+      await expectConnectorMeetsCanvas(page, row);
+    });
+    await test.step('hovering the dimmed chip brightens it to the hovered chip look and expands its truncated name; a click selects its row (J6)', async () => {
+      // Narrowest Branch/Tag column: "feature/login" no longer fits.
+      const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+      await handle.focus();
+      for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
+      await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.labels));
+      const row = page.getByRole('row').filter({ hasText: 'Login form' });
+      const style = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => ({ opacity: getComputedStyle(el).opacity, bg: getComputedStyle(el).backgroundColor, cursor: getComputedStyle(el).cursor }));
+      await row.locator('[data-col="message"]').hover();
+      const dim = row.locator('.ref-labels > .ref-label-dim');
+      await expect(dim).toHaveText('feature/login');
+      expect(await dim.locator('.ref-name').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+      const rest = await style(dim);
+      expect(rest.opacity).toBe('0.5');
+      await expect(page.locator('.ref-label-full')).toHaveCount(0);
+      const restBox = (await dim.boundingBox())!;
+
+      await dim.hover();
+      const lit = await style(dim);
+      expect(lit.opacity).toBe('1');
+      // The same lit chip as a real chip on a hovered row (H3): 45% lane colour.
+      expect(alphaOf(lit.bg)).toBeCloseTo(0.45, 2);
+      expect(lit.cursor).toBe('pointer');
+      const full = dim.locator('.ref-label-full');
+      await expect(full).toBeVisible();
+      await expect(full).toHaveText('feature/login');
+      const fullBox = (await full.boundingBox())!;
+      expect(fullBox.x).toBeCloseTo(restBox.x, 0);
+      expect(fullBox.width).toBeGreaterThan(restBox.width);
+      // Fully shown: nothing of it is clipped (the Branch/Tag cell doesn't cut the copy).
+      expect(await full.locator('.ref-name-full').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+      await full.click();
+      await expect(row).toHaveAttribute('aria-selected', 'true');
+      // The pointer leaves: collapsed, and back to dimmed (still shown, the row being selected).
+      await page.locator('.graph-header [data-col="message"]').hover();
+      await expect(page.locator('.ref-label-full')).toHaveCount(0);
+      expect((await style(dim)).opacity).toBe('0.5');
+    });
   });
 
-  test('author, date and SHA are the same dimmed colour as the rest of the commit message (F10)', async ({ page }) => {
-    await page.goto(openUrl(fixtures.longLabels));
-    const row = page.getByRole('row').filter({ hasText: 'Initial commit' });
-    const color = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).color);
-    const body = await color(row.locator('.msg-body'));
-    expect(body).not.toBe(await color(row.locator('.msg-summary')));
-    expect(await color(row.locator('[data-col="author"]'))).toBe(body);
-    expect(await color(row.locator('[data-col="date"]'))).toBe(body);
-    expect(await color(row.getByTestId('sha'))).toBe(body);
-  });
-
-  test('the chip-to-node connector is the lane colour at 25%, on the canvas and in the DOM (F8)', async ({ page }) => {
-    // hotfix's tip: labeled, not checked out (main is, J21). Sample the canvas connector at the
-    // left edge, on the row's centre line.
-    const row = page.getByRole('row').filter({ hasText: 'Hotfix: null check' });
-    const px = await connectorPixels(page, row);
-    expect(px.centre[3]).toBeGreaterThanOrEqual(56);
-    expect(px.centre[3]).toBeLessThanOrEqual(72);
-    // The lane colour, give or take the rounding of premultiplied alpha at 25%.
-    for (let i = 0; i < 3; i++) expect(Math.abs(px.centre[i] - px.lane[i]), `channel ${i}`).toBeLessThanOrEqual(4);
-    // One CSS px thick, a whole number of device pixels (draw.ts).
-    expect(px.thickness).toBe(await page.evaluate(() => Math.max(1, Math.round(window.devicePixelRatio))));
-    const connector = row.locator('.ref-connector');
-    expect(await connector.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.25');
-    expect((await connector.boundingBox())!.height).toBe(1);
-  });
-
-  test("the checked-out branch: a bigger check, a chip always lit, a 2 px full-colour connector (J21)", async ({ page }) => {
-    const rows = page.getByRole('row');
-    const head = rows.nth(4);
-    await expect(head.getByText('main', { exact: true })).toBeVisible();
-    const chip = head.locator('.ref-labels > .ref-label');
-    const style = () => chip.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
-    const other = page.getByRole('row').filter({ hasText: 'Hotfix: null check' }).locator('.ref-labels > .ref-label');
-    const otherStyle = () => other.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
-    // At rest (neither hovered nor selected), HEAD's chip already has the lit look: the one the
-    // other chip takes only when its row is hovered.
-    await page.mouse.move(5, 5);
-    const rest = await style();
-    const otherRest = await otherStyle();
-    expect(rest.color).toBe('rgb(255, 255, 255)');
-    expect(otherRest.color).not.toBe('rgb(255, 255, 255)');
-    await other.hover();
-    const otherLit = await otherStyle();
-    expect(otherLit.color).toBe('rgb(255, 255, 255)');
-    // Lit is 45% of the lane colour, rest 25%: HEAD's chip matches the lit ratio at rest.
-    expect(alphaOf(rest.bg)).toBeCloseTo(0.45, 2);
-    expect(alphaOf(otherRest.bg)).toBeCloseTo(0.25, 2);
-    // Selected elsewhere, hovered, selected itself: always the same.
-    await rows.nth(3).click();
-    await page.mouse.move(5, 5);
-    expect(await style()).toEqual(rest);
-    await head.hover();
-    expect(await style()).toEqual(rest);
-    await head.click();
-    await page.mouse.move(5, 5);
-    expect(await style()).toEqual(rest);
-    // The check: ~1.4x the 12 px icons. The laptop is an outline icon, one step up (14 px, K45)
-    // so it reads the same size as the filled brand marks.
-    const check = (await head.locator('[aria-label="HEAD"]').boundingBox())!;
-    expect(check.width).toBe(17);
-    expect(check.height).toBe(17);
-    expect((await head.locator('[aria-label="local"]').boundingBox())!.width).toBe(14);
-    // The connector, DOM and canvas: 2 px, the full lane colour.
-    const connector = head.locator('.ref-connector');
-    expect(await connector.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
-    expect((await connector.boundingBox())!.height).toBe(2);
-    const px = await connectorPixels(page, head);
-    expect(px.centre[3]).toBe(255);
-    for (let i = 0; i < 3; i++) expect(Math.abs(px.centre[i] - px.lane[i]), `channel ${i}`).toBeLessThanOrEqual(1);
-    expect(px.thickness).toBe(await page.evaluate(() => Math.round(2 * window.devicePixelRatio)));
-    // The DOM line sits on the canvas line: same rows of pixels.
-    const conn = (await connector.boundingBox())!;
-    expect(Math.abs(conn.y + conn.height / 2 - px.centreY)).toBeLessThanOrEqual(0.5);
-  });
-
-  test('keyboard navigation moves the selection', async ({ page }) => {
-    const rows = page.getByRole('row');
-    await rows.nth(0).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
-    await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('ArrowDown');
-    await expect(rows.nth(2)).toHaveAttribute('aria-selected', 'true');
-    await page.keyboard.press('Home');
-    await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
-  });
-
-  test('multi-select (K27): Shift+click and Shift+↑/↓ select a range from the anchor, Ctrl+click toggles rows, all highlighted', async ({ page }) => {
-    const grid = page.getByRole('grid', { name: 'Commit graph' });
-    const rows = grid.getByRole('row');
-    const selected = grid.locator('[role="row"][aria-selected="true"]');
-    const indexes = async () => Promise.all((await selected.all()).map(async (r) => Number(await r.getAttribute('aria-rowindex')) - 1));
-    await rows.nth(3).click();
-    await rows.nth(6).click({ modifiers: ['Shift'] });
-    await expect(selected).toHaveCount(4);
-    expect(await indexes()).toEqual([3, 4, 5, 6]);
-    await expect(page.getByTestId('multi-count')).toHaveText('4 commits selected');
-    // Shift+↑ from the keyboard position (row 6) shrinks the range toward the anchor (row 3).
-    await page.keyboard.press('Shift+ArrowUp');
-    await page.keyboard.press('Shift+ArrowUp');
-    expect(await indexes()).toEqual([3, 4]);
-    await expect(page.getByTestId('compare-header')).toBeVisible();
-    // Past the anchor, the range turns around it.
-    await page.keyboard.press('Shift+ArrowUp');
-    await page.keyboard.press('Shift+ArrowUp');
-    await expect(selected).toHaveCount(2);
-    expect(await indexes()).toEqual([2, 3]);
-    // Ctrl+click adds rows, and removes a selected one.
-    await rows.nth(8).click({ modifiers: ['Control'] });
-    await expect(selected).toHaveCount(3);
-    await rows.nth(2).locator('[data-col="message"]').click({ modifiers: ['Control'], position: { x: 3, y: 3 } });
-    expect(await indexes()).toEqual([3, 8]);
-    // Shift+Ctrl+click adds a range from the anchor (row 8, Ctrl+clicked last).
-    await rows.nth(6).click({ modifiers: ['Control', 'Shift'] });
-    await expect(selected).toHaveCount(4);
-    expect(await indexes()).toEqual([3, 6, 7, 8]);
-    // A plain arrow goes back to a single selection.
-    await page.keyboard.press('ArrowDown');
-    await expect(selected).toHaveCount(1);
-    expect(await indexes()).toEqual([7]);
-  });
-
-  test('a chip stays expanded over its forge (remote) icon, whose tooltip names the remote and branch (F4, F9, H12)', async ({ page }) => {
-    // Not the dimmed membership chip (F7), which names feature/login too on a hovered row below it.
-    const chip = page.locator('.ref-labels > .ref-label:not(.ref-label-dim)', { hasText: 'feature/login' });
-    await chip.hover();
-    const full = page.locator('.ref-label-full');
-    await expect(full).toBeVisible();
-    await expect(page.getByRole('tooltip')).toHaveCount(0);
-    const cloud = full.locator('.ref-icon', { has: page.locator('[aria-label="remote origin"]') });
-    const box = (await cloud.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
-    await expect(full).toBeVisible();
-    await expect(page.getByRole('tooltip')).toHaveText('origin → feature/login (Remote)');
-    const local = full.locator('.ref-icon', { has: page.locator('[aria-label="local"]') });
-    await local.hover();
-    await expect(page.getByRole('tooltip')).toHaveText('feature/login (Local)');
-  });
-
-  test('source-icon tooltips show at once, even when the pointer lands straight on the icon; the remote name stands out, the branch is dimmed (H12)', async ({ page }) => {
-    const chip = page.locator('.ref-labels > .ref-label:not(.ref-label-dim)', { hasText: 'feature/login' });
-    const cloud = chip.locator(':scope > .ref-icon', { has: page.locator('[aria-label="remote origin"]') });
-    const box = (await cloud.boundingBox())!;
-    // One move, from outside the chip straight onto its cloud icon; then the pointer rests.
-    await page.mouse.move(box.x + box.width / 2, box.y - 40);
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    const tip = page.getByRole('tooltip');
-    await expect(tip).toHaveText('origin → feature/login (Remote)', { timeout: 50 });
-    const colour = (sel: string) => tip.locator(sel).evaluate((el) => getComputedStyle(el).color);
-    const [remote, branch] = [await colour('.ref-tip-remote'), await colour('.ref-tip-branch')];
-    expect(remote).not.toBe(branch);
-    expect(alphaOf(remote)).toBeGreaterThan(alphaOf(branch));
-    // Still there once the chip has expanded under the resting pointer.
-    await page.waitForTimeout(300);
-    await expect(tip).toHaveText('origin → feature/login (Remote)');
-    await expect(tip).toHaveCount(1);
-  });
-
-  test('pointer cursors on rows and chips; the chips column\'s empty space is inert (F5, F6)', async ({ page }) => {
-    const rows = page.getByRole('row');
-    const cursor = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).cursor);
-    // The row with the real chip, not a hovered row showing the dimmed membership chip (F7).
-    const labeled = rows.filter({ has: page.locator('.ref-label:not(.ref-label-dim)', { hasText: 'feature/login' }) });
-    const plain = rows.filter({ hasText: 'Login form' });
-    expect(await cursor(plain.locator('[data-col="message"]'))).toBe('pointer');
-    expect(await cursor(plain.locator('[data-col="graph"]'))).toBe('pointer');
-    expect(await cursor(plain.locator('[data-col="labels"]'))).toBe('default');
-    expect(await cursor(labeled.locator('.ref-label').first())).toBe('pointer');
-    expect(await cursor(page.getByTestId('sha').first())).toBe('pointer');
-    expect(await cursor(page.getByRole('separator', { name: 'Resize Graph column' }))).toBe('col-resize');
-
-    await plain.locator('[data-col="author"]').click();
-    await expect(plain).toHaveAttribute('aria-selected', 'true');
-    // Empty chip-cell space, on a row without chips and beside a chip: nothing changes.
-    // (An empty labels cell is 0 px tall, so aim by the row's box.)
-    // Near the cell's right end: the hover gives this row its dimmed membership chip (F7) at the
-    // cell's start, and a press on that chip selects the row (J6), so x + 20 raced its render.
-    const typoRow = (await rows.filter({ hasText: 'Fix typo' }).boundingBox())!;
-    const labelsCol = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!;
-    await page.mouse.click(labelsCol.x + labelsCol.width - 6, typoRow.y + typoRow.height / 2);
-    const labeledRow = (await labeled.boundingBox())!;
-    const chipBox = (await labeled.locator('.ref-labels > .ref-label').boundingBox())!;
-    await page.mouse.click(chipBox.x + 2, labeledRow.y + 2);
-    await expect(plain).toHaveAttribute('aria-selected', 'true');
-    await expect(labeled).toHaveAttribute('aria-selected', 'false');
-    // The chip itself selects its row, and the graph cell of any row does too.
-    await labeled.locator('.ref-labels > .ref-label').click();
-    await expect(labeled).toHaveAttribute('aria-selected', 'true');
-    // On the node (the graph column's first lane; the cell itself is empty and 0 px tall).
-    const graphX = (await page.locator('.graph-header [data-col="graph"]').boundingBox())!.x;
-    await page.mouse.click(graphX + METRICS.padX, typoRow.y + typoRow.height / 2);
-    await expect(rows.filter({ hasText: 'Fix typo' })).toHaveAttribute('aria-selected', 'true');
-  });
-
-  test('a hovered or selected commit below its branch tip shows a dimmed chip naming the branch (F7)', async ({ page }) => {
-    const rows = page.getByRole('row');
-    const dim = (text: string) => rows.filter({ hasText: text }).locator('.ref-label-dim');
-    await expect(page.locator('.ref-label-dim')).toHaveCount(0);
-    await rows.filter({ hasText: 'Login form' }).locator('[data-col="message"]').hover();
-    await expect(dim('Login form')).toHaveText('feature/login');
-    expect(await dim('Login form').evaluate((el) => getComputedStyle(el).opacity)).toBe('0.5');
-    await rows.filter({ hasText: 'Fix typo' }).locator('[data-col="author"]').hover();
-    await expect(dim('Login form')).toHaveCount(0);
-    await expect(dim('Fix typo')).toHaveText('main');
-    // The tip of a branch has its own chip and gets none.
-    await rows.filter({ hasText: 'Login validation' }).locator('[data-col="author"]').hover();
-    await expect(page.locator('.ref-label-dim')).toHaveCount(0);
-    // Selected: stays while the pointer is elsewhere.
-    await rows.filter({ hasText: 'Initial commit' }).locator('[data-col="author"]').click();
-    await page.locator('.graph-header [data-col="message"]').hover();
-    await expect(dim('Initial commit')).toHaveText('main');
-    await expect(page.locator('.ref-label-dim')).toHaveCount(1);
-  });
-
-  test('hovering the dimmed chip brightens it to the hovered chip look and expands its truncated name; a click selects its row (J6)', async ({ page }) => {
-    // Narrowest Branch/Tag column: "feature/login" no longer fits.
-    const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
-    await handle.focus();
-    for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
-    await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.labels));
-    const row = page.getByRole('row').filter({ hasText: 'Login form' });
-    const style = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => ({ opacity: getComputedStyle(el).opacity, bg: getComputedStyle(el).backgroundColor, cursor: getComputedStyle(el).cursor }));
-    await row.locator('[data-col="message"]').hover();
-    const dim = row.locator('.ref-labels > .ref-label-dim');
-    await expect(dim).toHaveText('feature/login');
-    expect(await dim.locator('.ref-name').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-    const rest = await style(dim);
-    expect(rest.opacity).toBe('0.5');
-    await expect(page.locator('.ref-label-full')).toHaveCount(0);
-    const restBox = (await dim.boundingBox())!;
-
-    await dim.hover();
-    const lit = await style(dim);
-    expect(lit.opacity).toBe('1');
-    // The same lit chip as a real chip on a hovered row (H3): 45% lane colour.
-    expect(alphaOf(lit.bg)).toBeCloseTo(0.45, 2);
-    expect(lit.cursor).toBe('pointer');
-    const full = dim.locator('.ref-label-full');
-    await expect(full).toBeVisible();
-    await expect(full).toHaveText('feature/login');
-    const fullBox = (await full.boundingBox())!;
-    expect(fullBox.x).toBeCloseTo(restBox.x, 0);
-    expect(fullBox.width).toBeGreaterThan(restBox.width);
-    // Fully shown: nothing of it is clipped (the Branch/Tag cell doesn't cut the copy).
-    expect(await full.locator('.ref-name-full').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-
-    await full.click();
-    await expect(row).toHaveAttribute('aria-selected', 'true');
-    // The pointer leaves: collapsed, and back to dimmed (still shown, the row being selected).
-    await page.locator('.graph-header [data-col="message"]').hover();
-    await expect(page.locator('.ref-label-full')).toHaveCount(0);
-    expect((await style(dim)).opacity).toBe('0.5');
-  });
-
-  test('a row with chips that aren\'t its branch\'s tip gets the dimmed chip after them, dropped whole when it doesn\'t fit (F7)', async ({ page }) => {
-    // "Add readme" carries only the v1.0 tag; it's on main.
-    const row = page.getByRole('row').filter({ hasText: 'Add readme' });
-    const tagChip = row.locator('.ref-labels > .ref-label').first();
-    await expect(tagChip).toHaveText('v1.0');
-    const tagBefore = (await tagChip.boundingBox())!;
-    await row.locator('[data-col="message"]').hover();
-    const dim = row.locator('.ref-dim-slot .ref-label-dim');
-    await expect(dim).toHaveText('main');
-    const [slot, dimBox] = [(await row.locator('.ref-dim-slot').boundingBox())!, (await dim.boundingBox())!];
-    // On the slot's (only visible) line, after the tag chip; the tag chip didn't move or shrink.
-    expect(dimBox.y).toBeGreaterThanOrEqual(slot.y - 0.5);
-    expect(dimBox.x).toBeGreaterThan(tagBefore.x + tagBefore.width);
-    expect(await tagChip.boundingBox()).toEqual(tagBefore);
-    await expectConnectorMeetsCanvas(page, row);
-
-    // Narrow the Branch/Tag column to one step above its minimum (at the minimum itself the chips
-    // go icon-only, spec §8.4): the dimmed chip is dropped (wrapped onto the slot's hidden line),
-    // the tag chip keeps its full width, and the line to the node is intact.
-    const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
-    await handle.focus();
-    for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
-    await page.keyboard.press('ArrowRight');
-    await expect(handle).toHaveAttribute('aria-valuenow', String(COLUMN_MIN.labels + 8));
-    // Selected, so it stays shown without the pointer on the row.
-    await row.locator('[data-col="author"]').click();
-    await page.locator('.graph-header [data-col="message"]').hover();
-    await expect(dim).toHaveCount(1);
-    const narrowSlot = (await row.locator('.ref-dim-slot').boundingBox())!;
-    const narrowDim = (await dim.boundingBox())!;
-    expect(narrowDim.y).toBeGreaterThanOrEqual(narrowSlot.y + narrowSlot.height);
-    expect((await tagChip.boundingBox())!.width).toBeCloseTo(tagBefore.width, 1);
-    await expectConnectorMeetsCanvas(page, row);
-  });
-
-  test('clicking a SHA copies the full hash', async ({ page, browserName }) => {
-    const sha = page.getByTestId('sha').first();
-    const short = (await sha.textContent())!;
-    await sha.click();
-    await expect(page.getByRole('status')).toHaveText('Copied');
-    if (browserName === 'chromium') {
-      const copied = await page.evaluate(() => navigator.clipboard.readText());
-      expect(copied).toHaveLength(40);
-      expect(copied.startsWith(short)).toBe(true);
-    }
+  test('the message cell: its margin and dimmed colours (long labels)', async ({ page }) => {
+    await test.step('about 10px of margin separates the summary from the dimmed body', async () => {
+      await page.goto(openUrl(fixtures.longLabels));
+      const summary = page.locator('.msg-summary', { hasText: 'Initial commit' });
+      const body = summary.locator('xpath=following-sibling::*[1]');
+      await expect(body).toHaveClass(/msg-body/);
+      const [s, b] = await Promise.all([summary.boundingBox(), body.boundingBox()]);
+      if (!s || !b) throw new Error('missing summary/body box');
+      expect(b.x - (s.x + s.width)).toBeGreaterThanOrEqual(9);
+      expect(b.x - (s.x + s.width)).toBeLessThanOrEqual(11);
+    });
+    await test.step('author, date and SHA are the same dimmed colour as the rest of the commit message (F10)', async () => {
+      await page.goto(openUrl(fixtures.longLabels));
+      const row = page.getByRole('row').filter({ hasText: 'Initial commit' });
+      const color = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).color);
+      const body = await color(row.locator('.msg-body'));
+      expect(body).not.toBe(await color(row.locator('.msg-summary')));
+      expect(await color(row.locator('[data-col="author"]'))).toBe(body);
+      expect(await color(row.locator('[data-col="date"]'))).toBe(body);
+      expect(await color(row.getByTestId('sha'))).toBe(body);
+    });
   });
 });
 
@@ -410,159 +412,158 @@ test.describe('hover polish', () => {
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
   });
 
-  test('hovering a truncated label chip floats it at full width over the graph, then collapses', async ({ page }) => {
-    const chip = page.locator('.ref-labels > .ref-label').first();
-    const connector = page.locator('.ref-connector').first();
-    const [chipBefore, connBefore] = await Promise.all([chip.boundingBox(), connector.boundingBox()]);
-    if (!chipBefore || !connBefore) throw new Error('missing chip/connector box');
-    const labelsW = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!.width;
+  // Each `test.step` below was a test of its own, paying for a page load.
+  test('hover: a truncated chip floats at full width, stays to its icon, stacks with +N; the message tooltip, at once and after a delay', async ({ page }) => {
+    await test.step('hovering a truncated label chip floats it at full width over the graph, then collapses', async () => {
+      const chip = page.locator('.ref-labels > .ref-label').first();
+      const connector = page.locator('.ref-connector').first();
+      const [chipBefore, connBefore] = await Promise.all([chip.boundingBox(), connector.boundingBox()]);
+      if (!chipBefore || !connBefore) throw new Error('missing chip/connector box');
+      const labelsW = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!.width;
 
-    await chip.hover();
-    const full = page.locator('.ref-stack-row').first();
-    await expect(full).toBeVisible();
-    const fullBox = (await full.boundingBox())!;
-    expect(fullBox.width).toBeGreaterThan(labelsW);
-    // Exactly over the resting chip.
-    expect(Math.abs(fullBox.x - chipBefore.x)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(fullBox.y - chipBefore.y)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(fullBox.height - chipBefore.height)).toBeLessThanOrEqual(0.5);
-    // Untruncated.
-    const name = full.locator('.ref-name-full');
-    await expect(name).toHaveText(/extremely-long-branch-name.*commit-graph-ui$/);
-    expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    // The row layout and the connector's resting geometry don't move.
-    expect(await chip.boundingBox()).toEqual(chipBefore);
-    expect(await connector.boundingBox()).toEqual(connBefore);
-    // It floats above the canvas. Both the copy and the canvas ignore the pointer, so for this
-    // check only they're made hit-testable: hit-testing follows paint order, so the point where
-    // the copy overlaps the canvas must hit the copy (it hits the canvas when a row transform
-    // traps the copy underneath).
-    const canvasX = (await page.getByTestId('graph-canvas').boundingBox())!.x;
-    const hit = await page.evaluate(([x, y]) => {
-      const els = [document.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!, document.querySelector<HTMLElement>('.graph-canvas-clip')!, document.querySelector<HTMLElement>('.ref-stack')!];
-      for (const el of els) el.style.pointerEvents = 'auto';
-      const el = document.elementFromPoint(x, y);
-      for (const e of els) e.style.pointerEvents = '';
-      return !!el?.closest('.ref-stack');
-    }, [canvasX + 10, fullBox.y + fullBox.height / 2]);
-    expect(hit).toBe(true);
-    // The branch name itself shows no tooltip (F9); only the source icons have one.
-    await expect(page.getByRole('tooltip')).toHaveCount(0);
+      await chip.hover();
+      const full = page.locator('.ref-stack-row').first();
+      await expect(full).toBeVisible();
+      const fullBox = (await full.boundingBox())!;
+      expect(fullBox.width).toBeGreaterThan(labelsW);
+      // Exactly over the resting chip.
+      expect(Math.abs(fullBox.x - chipBefore.x)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(fullBox.y - chipBefore.y)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(fullBox.height - chipBefore.height)).toBeLessThanOrEqual(0.5);
+      // Untruncated.
+      const name = full.locator('.ref-name-full');
+      await expect(name).toHaveText(/extremely-long-branch-name.*commit-graph-ui$/);
+      expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      // The row layout and the connector's resting geometry don't move.
+      expect(await chip.boundingBox()).toEqual(chipBefore);
+      expect(await connector.boundingBox()).toEqual(connBefore);
+      // It floats above the canvas. Both the copy and the canvas ignore the pointer, so for this
+      // check only they're made hit-testable: hit-testing follows paint order, so the point where
+      // the copy overlaps the canvas must hit the copy (it hits the canvas when a row transform
+      // traps the copy underneath).
+      const canvasX = (await page.getByTestId('graph-canvas').boundingBox())!.x;
+      const hit = await page.evaluate(([x, y]) => {
+        const els = [document.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!, document.querySelector<HTMLElement>('.graph-canvas-clip')!, document.querySelector<HTMLElement>('.ref-stack')!];
+        for (const el of els) el.style.pointerEvents = 'auto';
+        const el = document.elementFromPoint(x, y);
+        for (const e of els) e.style.pointerEvents = '';
+        return !!el?.closest('.ref-stack');
+      }, [canvasX + 10, fullBox.y + fullBox.height / 2]);
+      expect(hit).toBe(true);
+      // The branch name itself shows no tooltip (F9); only the source icons have one.
+      await expect(page.getByRole('tooltip')).toHaveCount(0);
 
-    await page.locator('.graph-header [data-col="message"]').hover();
-    await expect(full).toHaveCount(0);
-    await expectConnectorMeetsCanvas(page);
-  });
-
-  test('the expanded chip stays expanded all the way to its revealed icon, whose tooltip names the branch (F4, F9)', async ({ page }) => {
-    const chip = page.locator('.ref-labels > .ref-label').first();
-    await chip.hover();
-    const full = page.locator('.ref-stack-row').first();
-    await expect(full).toBeVisible();
-    const chipBox = (await chip.boundingBox())!;
-    const icon = full.locator('.ref-icon').last();
-    const iconBox = (await icon.boundingBox())!;
-    // The local icon is in the part of the copy that sticks out past the resting chip (and
-    // over the +N badge and the canvas).
-    expect(iconBox.x).toBeGreaterThan(chipBox.x + chipBox.width);
-    // Horizontally, at the chip's height, across the whole revealed part: never collapses.
-    const y = chipBox.y + chipBox.height / 2;
-    for (let x = chipBox.x + chipBox.width - 2; x <= iconBox.x + iconBox.width / 2; x += 12) {
-      await page.mouse.move(x, y);
-      await expect(full, `x=${x}`).toBeVisible();
-    }
-    await page.mouse.move(iconBox.x + iconBox.width / 2, y);
-    await expect(full).toBeVisible();
-    await expect(page.getByRole('tooltip')).toHaveText(/^feature\/this-is-an-extremely-long-branch-name.*commit-graph-ui \(Local\)$/);
-    // Leaving the stack's bounds (just below it) collapses it.
-    const fullBox = (await page.locator('.ref-stack').boundingBox())!;
-    await page.mouse.move(iconBox.x + iconBox.width / 2, fullBox.y + fullBox.height + 3);
-    await expect(full).toHaveCount(0);
-    await expectConnectorMeetsCanvas(page);
-  });
-
-  test('hovering the chip or the +N badge stacks one full chip per label, no gaps, as wide as the widest, over the graph (K77)', async ({ page }) => {
-    const chip = page.locator('.ref-labels > .ref-label').first();
-    const more = page.locator('.ref-more');
-    const [chipBox, moreBox] = [(await chip.boundingBox())!, (await more.boundingBox())!];
-    const stack = page.locator('.ref-stack');
-    const rows = stack.locator('.ref-stack-row');
-    // From the row below, straight up onto the badge, then onto the chip.
-    for (const target of [moreBox, chipBox]) {
-      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2 + 25);
-      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 4 });
-      await expect(stack).toHaveCount(1);
-      await expect(rows).toHaveCount(2);
-      await expect(rows.nth(0).locator('.ref-name-full')).toHaveText(/extremely-long-branch-name.*commit-graph-ui$/);
-      await expect(rows.nth(1).locator('.ref-name-full')).toHaveText('also-tagged-here');
-      const [r0, r1] = [(await rows.nth(0).boundingBox())!, (await rows.nth(1).boundingBox())!];
-      // First row exactly over the resting chip, the next directly below, all one width, wide
-      // enough to cover the chip and the badge.
-      expect(Math.abs(r0.x - chipBox.x)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(r0.y - chipBox.y)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(r1.y - (r0.y + r0.height))).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(r1.width - r0.width)).toBeLessThanOrEqual(0.5);
-      expect(r0.x + r0.width).toBeGreaterThanOrEqual(moreBox.x + moreBox.width - 0.5);
-      // The second row is painted above the next graph row and stays open under the pointer.
-      await page.mouse.move(r1.x + 20, r1.y + r1.height / 2);
-      await expect(rows).toHaveCount(2);
-      expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.ref-stack'), [r1.x + 20, r1.y + r1.height / 2])).toBe(true);
       await page.locator('.graph-header [data-col="message"]').hover();
-      await expect(stack).toHaveCount(0);
-    }
-  });
+      await expect(full).toHaveCount(0);
+      await expectConnectorMeetsCanvas(page);
+    });
+    await test.step('the expanded chip stays expanded all the way to its revealed icon, whose tooltip names the branch (F4, F9)', async () => {
+      const chip = page.locator('.ref-labels > .ref-label').first();
+      await chip.hover();
+      const full = page.locator('.ref-stack-row').first();
+      await expect(full).toBeVisible();
+      const chipBox = (await chip.boundingBox())!;
+      const icon = full.locator('.ref-icon').last();
+      const iconBox = (await icon.boundingBox())!;
+      // The local icon is in the part of the copy that sticks out past the resting chip (and
+      // over the +N badge and the canvas).
+      expect(iconBox.x).toBeGreaterThan(chipBox.x + chipBox.width);
+      // Horizontally, at the chip's height, across the whole revealed part: never collapses.
+      const y = chipBox.y + chipBox.height / 2;
+      for (let x = chipBox.x + chipBox.width - 2; x <= iconBox.x + iconBox.width / 2; x += 12) {
+        await page.mouse.move(x, y);
+        await expect(full, `x=${x}`).toBeVisible();
+      }
+      await page.mouse.move(iconBox.x + iconBox.width / 2, y);
+      await expect(full).toBeVisible();
+      await expect(page.getByRole('tooltip')).toHaveText(/^feature\/this-is-an-extremely-long-branch-name.*commit-graph-ui \(Local\)$/);
+      // Leaving the stack's bounds (just below it) collapses it.
+      const fullBox = (await page.locator('.ref-stack').boundingBox())!;
+      await page.mouse.move(iconBox.x + iconBox.width / 2, fullBox.y + fullBox.height + 3);
+      await expect(full).toHaveCount(0);
+      await expectConnectorMeetsCanvas(page);
+    });
+    await test.step('hovering the chip or the +N badge stacks one full chip per label, no gaps, as wide as the widest, over the graph (K77)', async () => {
+      const chip = page.locator('.ref-labels > .ref-label').first();
+      const more = page.locator('.ref-more');
+      const [chipBox, moreBox] = [(await chip.boundingBox())!, (await more.boundingBox())!];
+      const stack = page.locator('.ref-stack');
+      const rows = stack.locator('.ref-stack-row');
+      // From the row below, straight up onto the badge, then onto the chip.
+      for (const target of [moreBox, chipBox]) {
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2 + 25);
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 4 });
+        await expect(stack).toHaveCount(1);
+        await expect(rows).toHaveCount(2);
+        await expect(rows.nth(0).locator('.ref-name-full')).toHaveText(/extremely-long-branch-name.*commit-graph-ui$/);
+        await expect(rows.nth(1).locator('.ref-name-full')).toHaveText('also-tagged-here');
+        const [r0, r1] = [(await rows.nth(0).boundingBox())!, (await rows.nth(1).boundingBox())!];
+        // First row exactly over the resting chip, the next directly below, all one width, wide
+        // enough to cover the chip and the badge.
+        expect(Math.abs(r0.x - chipBox.x)).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(r0.y - chipBox.y)).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(r1.y - (r0.y + r0.height))).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(r1.width - r0.width)).toBeLessThanOrEqual(0.5);
+        expect(r0.x + r0.width).toBeGreaterThanOrEqual(moreBox.x + moreBox.width - 0.5);
+        // The second row is painted above the next graph row and stays open under the pointer.
+        await page.mouse.move(r1.x + 20, r1.y + r1.height / 2);
+        await expect(rows).toHaveCount(2);
+        expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.ref-stack'), [r1.x + 20, r1.y + r1.height / 2])).toBe(true);
+        await page.locator('.graph-header [data-col="message"]').hover();
+        await expect(stack).toHaveCount(0);
+      }
+    });
+    await test.step('the message tooltip sits right of the cursor, ignores the pointer, and is gone on the next row (F1)', async () => {
+      const cells = page.getByRole('row').locator('[data-col="message"]');
+      const second = (await cells.nth(1).boundingBox())!;
+      const x = second.x + 40, y = second.y + second.height / 2;
+      await page.mouse.move(x, y);
+      const tip = page.getByRole('tooltip');
+      await expect(tip.locator('.msg-tooltip-summary')).toHaveText('Initial commit');
+      const box = (await tip.boundingBox())!;
+      expect(box.x - x).toBeGreaterThanOrEqual(11);
+      expect(box.x - x).toBeLessThanOrEqual(13);
+      expect(Math.abs(box.y - y)).toBeLessThanOrEqual(1);
+      expect(await tip.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
+      // Hit-testing inside the tooltip finds the row beneath it, never the tooltip.
+      const hit = await page.evaluate(([hx, hy]) => !!document.elementFromPoint(hx, hy)?.closest('[role="tooltip"]'), [box.x + 5, box.y + 5]);
+      expect(hit).toBe(false);
+      // Follows the pointer along the message.
+      await page.mouse.move(x + 30, y);
+      await expect.poll(async () => Math.round((await tip.boundingBox())!.x - (x + 30))).toBe(12);
+      // Up onto the other row: gone right away (well before that row's own ~500 ms delay).
+      await page.mouse.move(x + 30, y - second.height, { steps: 2 });
+      await expect(tip).toHaveCount(0, { timeout: 300 });
+    });
+    await test.step('resting on a message cell loads and shows the full commit message after a delay', async () => {
+      // The graph payload carries no full bodies: the tooltip loads the message on demand.
+      const requests: string[] = [];
+      page.on('websocket', (ws) => ws.on('framesent', (f) => { if (typeof f.payload === 'string' && f.payload.includes('"commitMessage"')) requests.push(f.payload); }));
+      await page.reload();
+      await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+      const cell = page.getByRole('row').filter({ hasText: 'Initial commit' }).locator('[data-col="message"]');
+      await cell.hover();
+      const tip = page.getByRole('tooltip');
+      // Deliberately delayed (~500 ms): not there right away.
+      await expect(tip).toHaveCount(0);
+      await expect(tip).toBeVisible();
+      await expect(tip.locator('.msg-tooltip-summary')).toHaveText('Initial commit');
+      const body = await tip.locator('.msg-tooltip-body').evaluate((el) => (el as HTMLElement).innerText);
+      expect(body).toContain('A second paragraph,\nwrapped over two lines.');
+      expect(body.startsWith('With a body line\n')).toBe(true);
+      const box = (await tip.boundingBox())!;
+      expect(box.width).toBeLessThanOrEqual(600);
 
-  test('the message tooltip sits right of the cursor, ignores the pointer, and is gone on the next row (F1)', async ({ page }) => {
-    const cells = page.getByRole('row').locator('[data-col="message"]');
-    const second = (await cells.nth(1).boundingBox())!;
-    const x = second.x + 40, y = second.y + second.height / 2;
-    await page.mouse.move(x, y);
-    const tip = page.getByRole('tooltip');
-    await expect(tip.locator('.msg-tooltip-summary')).toHaveText('Initial commit');
-    const box = (await tip.boundingBox())!;
-    expect(box.x - x).toBeGreaterThanOrEqual(11);
-    expect(box.x - x).toBeLessThanOrEqual(13);
-    expect(Math.abs(box.y - y)).toBeLessThanOrEqual(1);
-    expect(await tip.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
-    // Hit-testing inside the tooltip finds the row beneath it, never the tooltip.
-    const hit = await page.evaluate(([hx, hy]) => !!document.elementFromPoint(hx, hy)?.closest('[role="tooltip"]'), [box.x + 5, box.y + 5]);
-    expect(hit).toBe(false);
-    // Follows the pointer along the message.
-    await page.mouse.move(x + 30, y);
-    await expect.poll(async () => Math.round((await tip.boundingBox())!.x - (x + 30))).toBe(12);
-    // Up onto the other row: gone right away (well before that row's own ~500 ms delay).
-    await page.mouse.move(x + 30, y - second.height, { steps: 2 });
-    await expect(tip).toHaveCount(0, { timeout: 300 });
-  });
+      expect(requests).toHaveLength(1);
 
-  test('resting on a message cell loads and shows the full commit message after a delay', async ({ page }) => {
-    // The graph payload carries no full bodies: the tooltip loads the message on demand.
-    const requests: string[] = [];
-    page.on('websocket', (ws) => ws.on('framesent', (f) => { if (typeof f.payload === 'string' && f.payload.includes('"commitMessage"')) requests.push(f.payload); }));
-    await page.reload();
-    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-    const cell = page.getByRole('row').filter({ hasText: 'Initial commit' }).locator('[data-col="message"]');
-    await cell.hover();
-    const tip = page.getByRole('tooltip');
-    // Deliberately delayed (~500 ms): not there right away.
-    await expect(tip).toHaveCount(0);
-    await expect(tip).toBeVisible();
-    await expect(tip.locator('.msg-tooltip-summary')).toHaveText('Initial commit');
-    const body = await tip.locator('.msg-tooltip-body').evaluate((el) => (el as HTMLElement).innerText);
-    expect(body).toContain('A second paragraph,\nwrapped over two lines.');
-    expect(body.startsWith('With a body line\n')).toBe(true);
-    const box = (await tip.boundingBox())!;
-    expect(box.width).toBeLessThanOrEqual(600);
+      await page.locator('.graph-header [data-col="message"]').hover();
+      await expect(tip).toHaveCount(0);
 
-    expect(requests).toHaveLength(1);
-
-    await page.locator('.graph-header [data-col="message"]').hover();
-    await expect(tip).toHaveCount(0);
-
-    // Cached per commit: resting on it again shows it without another request.
-    await cell.hover();
-    await expect(tip.locator('.msg-tooltip-body')).toContainText('wrapped over two lines.');
-    expect(requests).toHaveLength(1);
+      // Cached per commit: resting on it again shows it without another request.
+      await cell.hover();
+      await expect(tip.locator('.msg-tooltip-body')).toContainText('wrapped over two lines.');
+      expect(requests).toHaveLength(1);
+    });
   });
 });
 
@@ -613,185 +614,187 @@ test.describe('row and chip states (H3, H4, H5, H14)', () => {
   const bg = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
   const fg = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).color);
 
-  test('chips rest subdued (lane colour at 25%, normal text) and light up while their row is hovered or selected (H3)', async ({ page }) => {
-    const row = page.getByRole('row').filter({ has: page.locator('.ref-labels > .ref-label', { hasText: 'feature/login' }) });
-    const chip = row.locator('.ref-labels > .ref-label').first();
-    await page.locator('.graph-header [data-col="message"]').hover();
-    expect(alphaOf(await bg(chip))).toBeCloseTo(0.25, 2);
-    const rest = await fg(chip);
-    await row.locator('[data-col="message"]').hover();
-    expect(alphaOf(await bg(chip))).toBeCloseTo(0.45, 2);
-    expect(await fg(chip)).not.toBe(rest);
-    // Selected, with the pointer elsewhere: still lit.
-    await row.locator('[data-col="author"]').click();
-    await page.locator('.graph-header [data-col="message"]').hover();
-    expect(alphaOf(await bg(chip))).toBeCloseTo(0.45, 2);
-    // Another row's chip, neither hovered nor selected, rests. (Not main's: the checked-out
-    // branch's chip is always lit, J21.)
-    const other = page.getByRole('row').filter({ hasText: 'Hotfix: null check' }).locator('.ref-labels > .ref-label').first();
-    expect(alphaOf(await bg(other))).toBeCloseTo(0.25, 2);
-  });
-
-  test('the selected row: blue only behind the text columns, brighter author/date/SHA, a brighter graph band (H14)', async ({ page }) => {
-    const rows = page.getByRole('row');
-    const row = rows.filter({ hasText: 'Fix typo' });
-    const other = rows.filter({ hasText: 'Login form' });
-    const dimAuthor = await fg(row.locator('[data-col="author"]'));
-    await row.locator('[data-col="author"]').click();
-    await page.locator('.graph-header [data-col="message"]').hover();
-    await expect(row).toHaveAttribute('aria-selected', 'true');
-    expect(alphaOf(await bg(row))).toBe(0);
-    expect(alphaOf(await bg(row.locator('[data-col="labels"]')))).toBe(0);
-    expect(alphaOf(await bg(row.locator('[data-col="graph"]')))).toBe(0);
-    const rowBox = (await row.boundingBox())!;
-    for (const col of ['message', 'author', 'date', 'sha']) {
-      const cell = row.locator(`[data-col="${col}"]`);
-      expect(alphaOf(await bg(cell)), col).toBeCloseTo(0.2, 2);
-      // Full row height, so the four read as one band.
-      expect((await cell.boundingBox())!.height, col).toBeCloseTo(rowBox.height, 1);
-    }
-    expect(alphaOf(await bg(other.locator('[data-col="message"]')))).toBe(0);
-    // Brighter than the same cells unselected.
-    for (const loc of [row.locator('[data-col="author"]'), row.locator('[data-col="date"]'), row.getByTestId('sha')]) {
-      expect(alphaOf(await fg(loc))).toBeGreaterThan(alphaOf(dimAuthor));
-    }
-    expect(await fg(other.locator('[data-col="author"]'))).toBe(dimAuthor);
-    // The canvas band, just left of the rail, at each row's centre: the selected one is brighter.
-    const index = Number(await row.getAttribute('aria-rowindex')) - 1;
-    const otherIndex = Number(await other.getAttribute('aria-rowindex')) - 1;
-    const [sel, rest] = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, a, b, railW]: number[]) => {
-      const dpr = c.width / c.getBoundingClientRect().width;
-      const ctx = c.getContext('2d')!;
-      const x = c.width - Math.max(1, Math.round(railW * dpr)) - Math.round(2 * dpr);
-      return [a, b].map((i) => ctx.getImageData(x, Math.floor((i * rowH + rowH / 2) * dpr), 1, 1).data[3]);
-    }, [METRICS.rowH, index, otherIndex, RAIL_W]);
-    expect(sel).toBeGreaterThan(2 * rest);
-  });
-
-  test('the selected row\'s author, date and SHA show as bright as its summary, far brighter than on other rows (J7)', async ({ page }) => {
-    const rows = page.getByRole('row');
-    const row = rows.filter({ hasText: 'Fix typo' });
-    const other = rows.filter({ hasText: 'Login form' });
-    await row.locator('[data-col="author"]').click();
-    await page.locator('.graph-header [data-col="message"]').hover();
-    await expect(row).toHaveAttribute('aria-selected', 'true');
-    const summary = await shownLuminance(row.locator('.msg-summary'));
-    for (const [name, sel, rest] of [
-      ['author', row.locator('[data-col="author"]'), other.locator('[data-col="author"]')],
-      ['date', row.locator('[data-col="date"]'), other.locator('[data-col="date"]')],
-      ['sha', row.getByTestId('sha'), other.getByTestId('sha')],
-    ] as const) {
-      const [lit, dim] = [await shownLuminance(sel), await shownLuminance(rest)];
-      expect(lit, name).toBeCloseTo(summary, 3);
-      expect(lit, name).toBeGreaterThan(2.5 * dim);
-    }
-  });
-
-  test('double-clicking and dragging across the table selects rows, never text (J20)', async ({ page }) => {
-    const rows = page.getByRole('row');
-    const selectedText = () => page.evaluate(() => window.getSelection()?.toString() ?? '');
-    const msg = rows.filter({ hasText: 'Fix typo' }).locator('[data-col="message"]');
-    await msg.dblclick();
-    expect(await selectedText()).toBe('');
-    await expect(rows.filter({ hasText: 'Fix typo' })).toHaveAttribute('aria-selected', 'true');
-    // Drag from one row's message down across others, through author, date and SHA.
-    const from = (await msg.boundingBox())!;
-    const to = (await rows.filter({ hasText: 'Initial commit' }).getByTestId('sha').boundingBox())!;
-    await page.mouse.move(from.x + 5, from.y + from.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 10 });
-    await page.mouse.up();
-    expect(await selectedText()).toBe('');
-    // Across the column headers too.
-    const h1 = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!;
-    const h2 = (await page.locator('.graph-header [data-col="sha"]').boundingBox())!;
-    await page.mouse.move(h1.x + 2, h1.y + h1.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(h2.x + h2.width - 2, h2.y + h2.height / 2, { steps: 10 });
-    await page.mouse.up();
-    await page.locator('.graph-header [data-col="message"] .col-title').dblclick();
-    expect(await selectedText()).toBe('');
-    // Keyboard row selection is unaffected.
-    await page.getByRole('grid', { name: 'Commit graph' }).focus();
-    const before = Number(await page.locator('[role="row"][aria-selected="true"]').getAttribute('aria-rowindex'));
-    await page.keyboard.press('ArrowUp');
-    await expect(page.locator('[role="row"][aria-selected="true"]')).toHaveAttribute('aria-rowindex', String(before - 1));
-  });
-
-  test('no per-panel focus visuals: no outline, and the selection stays blue whichever panel has focus (H4)', async ({ page }) => {
-    const grid = page.getByRole('grid', { name: 'Commit graph' });
-    const row = page.getByRole('row').filter({ hasText: 'Fix typo' });
-    await row.locator('[data-col="author"]').click();
-    await expect(grid).toHaveAttribute('data-zone-focused', 'true');
-    const outline = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).outlineStyle);
-    expect(await outline(grid)).toBe('none');
-    const cell = row.locator('[data-col="message"]');
-    const blue = await bg(cell);
-    expect(alphaOf(blue)).toBeCloseTo(0.2, 2);
-    // Focus into the file list. (Not with →: since J2 it opens the first file, which hides the
-    // graph; ← below still goes back.)
-    await page.getByRole('listbox', { name: 'Changed files' }).focus();
-    await expect(grid).toHaveAttribute('data-zone-focused', 'false');
-    const files = page.locator('[data-focus-zone="files"]');
-    await expect(files).toHaveAttribute('data-zone-focused', 'true');
-    expect(await outline(files)).toBe('none');
-    expect(await bg(cell)).toBe(blue);
-    await page.keyboard.press('ArrowLeft');
-    await expect(grid).toHaveAttribute('data-zone-focused', 'true');
-    expect(await bg(cell)).toBe(blue);
-  });
-
-  test('every clickable thing in the table has the pointer cursor (H5)', async ({ page }) => {
-    const cursor = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).cursor);
-    const rows = page.getByRole('row');
-    for (const i of [0, 3, 4]) {
-      for (const col of i === 0 ? ['graph', 'message', 'sha'] : ['graph', 'message', 'author', 'date', 'sha']) expect(await cursor(rows.nth(i).locator(`[data-col="${col}"]`)), `${i} ${col}`).toBe('pointer');
-    }
-    const chip = page.locator('.ref-labels > .ref-label:not(.ref-label-dim)', { hasText: 'feature/login' });
-    expect(await cursor(chip)).toBe('pointer');
-    expect(await cursor(chip.locator('.ref-icon').first())).toBe('pointer');
-    await chip.hover();
-    const full = page.locator('.ref-label-full');
-    expect(await cursor(full)).toBe('pointer');
-    expect(await cursor(full.locator('.ref-icon').first())).toBe('pointer');
-    expect(await cursor(page.getByTestId('sha').first())).toBe('pointer');
-    await page.goto(openUrl(fixtures.longLabels));
-    expect(await cursor(page.locator('.ref-more'))).toBe('pointer');
+  // Each `test.step` below was a test of its own, paying for a page load.
+  test('row and chip states: lit chips, the selected row, no text selection, no focus outlines, pointer cursors', async ({ page }) => {
+    await test.step('chips rest subdued (lane colour at 25%, normal text) and light up while their row is hovered or selected (H3)', async () => {
+      const row = page.getByRole('row').filter({ has: page.locator('.ref-labels > .ref-label', { hasText: 'feature/login' }) });
+      const chip = row.locator('.ref-labels > .ref-label').first();
+      await page.locator('.graph-header [data-col="message"]').hover();
+      expect(alphaOf(await bg(chip))).toBeCloseTo(0.25, 2);
+      const rest = await fg(chip);
+      await row.locator('[data-col="message"]').hover();
+      expect(alphaOf(await bg(chip))).toBeCloseTo(0.45, 2);
+      expect(await fg(chip)).not.toBe(rest);
+      // Selected, with the pointer elsewhere: still lit.
+      await row.locator('[data-col="author"]').click();
+      await page.locator('.graph-header [data-col="message"]').hover();
+      expect(alphaOf(await bg(chip))).toBeCloseTo(0.45, 2);
+      // Another row's chip, neither hovered nor selected, rests. (Not main's: the checked-out
+      // branch's chip is always lit, J21.)
+      const other = page.getByRole('row').filter({ hasText: 'Hotfix: null check' }).locator('.ref-labels > .ref-label').first();
+      expect(alphaOf(await bg(other))).toBeCloseTo(0.25, 2);
+    });
+    await test.step('the selected row: blue only behind the text columns, brighter author/date/SHA, a brighter graph band (H14)', async () => {
+      const rows = page.getByRole('row');
+      const row = rows.filter({ hasText: 'Fix typo' });
+      const other = rows.filter({ hasText: 'Login form' });
+      const dimAuthor = await fg(row.locator('[data-col="author"]'));
+      await row.locator('[data-col="author"]').click();
+      await page.locator('.graph-header [data-col="message"]').hover();
+      await expect(row).toHaveAttribute('aria-selected', 'true');
+      expect(alphaOf(await bg(row))).toBe(0);
+      expect(alphaOf(await bg(row.locator('[data-col="labels"]')))).toBe(0);
+      expect(alphaOf(await bg(row.locator('[data-col="graph"]')))).toBe(0);
+      const rowBox = (await row.boundingBox())!;
+      for (const col of ['message', 'author', 'date', 'sha']) {
+        const cell = row.locator(`[data-col="${col}"]`);
+        expect(alphaOf(await bg(cell)), col).toBeCloseTo(0.2, 2);
+        // Full row height, so the four read as one band.
+        expect((await cell.boundingBox())!.height, col).toBeCloseTo(rowBox.height, 1);
+      }
+      expect(alphaOf(await bg(other.locator('[data-col="message"]')))).toBe(0);
+      // Brighter than the same cells unselected.
+      for (const loc of [row.locator('[data-col="author"]'), row.locator('[data-col="date"]'), row.getByTestId('sha')]) {
+        expect(alphaOf(await fg(loc))).toBeGreaterThan(alphaOf(dimAuthor));
+      }
+      expect(await fg(other.locator('[data-col="author"]'))).toBe(dimAuthor);
+      // The canvas band, just left of the rail, at each row's centre: the selected one is brighter.
+      const index = Number(await row.getAttribute('aria-rowindex')) - 1;
+      const otherIndex = Number(await other.getAttribute('aria-rowindex')) - 1;
+      const [sel, rest] = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, a, b, railW]: number[]) => {
+        const dpr = c.width / c.getBoundingClientRect().width;
+        const ctx = c.getContext('2d')!;
+        const x = c.width - Math.max(1, Math.round(railW * dpr)) - Math.round(2 * dpr);
+        return [a, b].map((i) => ctx.getImageData(x, Math.floor((i * rowH + rowH / 2) * dpr), 1, 1).data[3]);
+      }, [METRICS.rowH, index, otherIndex, RAIL_W]);
+      expect(sel).toBeGreaterThan(2 * rest);
+    });
+    await test.step('the selected row\'s author, date and SHA show as bright as its summary, far brighter than on other rows (J7)', async () => {
+      const rows = page.getByRole('row');
+      const row = rows.filter({ hasText: 'Fix typo' });
+      const other = rows.filter({ hasText: 'Login form' });
+      await row.locator('[data-col="author"]').click();
+      await page.locator('.graph-header [data-col="message"]').hover();
+      await expect(row).toHaveAttribute('aria-selected', 'true');
+      const summary = await shownLuminance(row.locator('.msg-summary'));
+      for (const [name, sel, rest] of [
+        ['author', row.locator('[data-col="author"]'), other.locator('[data-col="author"]')],
+        ['date', row.locator('[data-col="date"]'), other.locator('[data-col="date"]')],
+        ['sha', row.getByTestId('sha'), other.getByTestId('sha')],
+      ] as const) {
+        const [lit, dim] = [await shownLuminance(sel), await shownLuminance(rest)];
+        expect(lit, name).toBeCloseTo(summary, 3);
+        expect(lit, name).toBeGreaterThan(2.5 * dim);
+      }
+    });
+    await test.step('no per-panel focus visuals: no outline, and the selection stays blue whichever panel has focus (H4)', async () => {
+      const grid = page.getByRole('grid', { name: 'Commit graph' });
+      const row = page.getByRole('row').filter({ hasText: 'Fix typo' });
+      await row.locator('[data-col="author"]').click();
+      await expect(grid).toHaveAttribute('data-zone-focused', 'true');
+      const outline = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).outlineStyle);
+      expect(await outline(grid)).toBe('none');
+      const cell = row.locator('[data-col="message"]');
+      const blue = await bg(cell);
+      expect(alphaOf(blue)).toBeCloseTo(0.2, 2);
+      // Focus into the file list. (Not with →: since J2 it opens the first file, which hides the
+      // graph; ← below still goes back.)
+      await page.getByRole('listbox', { name: 'Changed files' }).focus();
+      await expect(grid).toHaveAttribute('data-zone-focused', 'false');
+      const files = page.locator('[data-focus-zone="files"]');
+      await expect(files).toHaveAttribute('data-zone-focused', 'true');
+      expect(await outline(files)).toBe('none');
+      expect(await bg(cell)).toBe(blue);
+      await page.keyboard.press('ArrowLeft');
+      await expect(grid).toHaveAttribute('data-zone-focused', 'true');
+      expect(await bg(cell)).toBe(blue);
+    });
+    await test.step('double-clicking and dragging across the table selects rows, never text (J20)', async () => {
+      const rows = page.getByRole('row');
+      const selectedText = () => page.evaluate(() => window.getSelection()?.toString() ?? '');
+      const msg = rows.filter({ hasText: 'Fix typo' }).locator('[data-col="message"]');
+      await msg.dblclick();
+      expect(await selectedText()).toBe('');
+      await expect(rows.filter({ hasText: 'Fix typo' })).toHaveAttribute('aria-selected', 'true');
+      // Drag from one row's message down across others, through author, date and SHA.
+      const from = (await msg.boundingBox())!;
+      const to = (await rows.filter({ hasText: 'Initial commit' }).getByTestId('sha').boundingBox())!;
+      await page.mouse.move(from.x + 5, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 10 });
+      await page.mouse.up();
+      expect(await selectedText()).toBe('');
+      // Across the column headers too.
+      const h1 = (await page.locator('.graph-header [data-col="labels"]').boundingBox())!;
+      const h2 = (await page.locator('.graph-header [data-col="sha"]').boundingBox())!;
+      await page.mouse.move(h1.x + 2, h1.y + h1.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(h2.x + h2.width - 2, h2.y + h2.height / 2, { steps: 10 });
+      await page.mouse.up();
+      await page.locator('.graph-header [data-col="message"] .col-title').dblclick();
+      expect(await selectedText()).toBe('');
+      // Keyboard row selection is unaffected.
+      await page.getByRole('grid', { name: 'Commit graph' }).focus();
+      const before = Number(await page.locator('[role="row"][aria-selected="true"]').getAttribute('aria-rowindex'));
+      await page.keyboard.press('ArrowUp');
+      await expect(page.locator('[role="row"][aria-selected="true"]')).toHaveAttribute('aria-rowindex', String(before - 1));
+    });
+    await test.step('every clickable thing in the table has the pointer cursor (H5)', async () => {
+      const cursor = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).cursor);
+      const rows = page.getByRole('row');
+      for (const i of [0, 3, 4]) {
+        for (const col of i === 0 ? ['graph', 'message', 'sha'] : ['graph', 'message', 'author', 'date', 'sha']) expect(await cursor(rows.nth(i).locator(`[data-col="${col}"]`)), `${i} ${col}`).toBe('pointer');
+      }
+      const chip = page.locator('.ref-labels > .ref-label:not(.ref-label-dim)', { hasText: 'feature/login' });
+      expect(await cursor(chip)).toBe('pointer');
+      expect(await cursor(chip.locator('.ref-icon').first())).toBe('pointer');
+      await chip.hover();
+      const full = page.locator('.ref-label-full');
+      expect(await cursor(full)).toBe('pointer');
+      expect(await cursor(full.locator('.ref-icon').first())).toBe('pointer');
+      expect(await cursor(page.getByTestId('sha').first())).toBe('pointer');
+      await page.goto(openUrl(fixtures.longLabels));
+      expect(await cursor(page.locator('.ref-more'))).toBe('pointer');
+    });
   });
 });
 
 test.describe('display density (H1)', () => {
-  for (const d of DENSITIES) {
-    test(`${d}: rows, chips and canvas share its metrics, and the connector stays continuous`, async ({ page }) => {
-      await page.addInitScript(([k, v]) => localStorage.setItem(k, v), [DENSITY_STORAGE_KEY, d]);
-      await page.goto(openUrl(fixtures.basic));
-      await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-      const m = DENSITY_METRICS[d];
-      const rows = page.getByRole('row');
-      expect((await rows.first().boundingBox())!.height).toBe(m.rowH);
-      // Row 4: main's merge (lane 0), labeled. Its chip is the density's height, centred in the
-      // row, and the DOM connector sits on the row's centre line, like the canvas's.
-      const row = (await rows.nth(4).boundingBox())!;
-      const chip = (await rows.nth(4).locator('.ref-labels > .ref-label').first().boundingBox())!;
-      expect(chip.height).toBeCloseTo(m.chipH, 1);
-      expect(Math.abs(chip.y + chip.height / 2 - (row.y + row.height / 2))).toBeLessThanOrEqual(0.5);
-      const conn = (await rows.nth(4).locator('.ref-connector').boundingBox())!;
-      expect(Math.abs(conn.y + conn.height / 2 - (row.y + row.height / 2))).toBeLessThanOrEqual(0.5);
-      await expectConnectorMeetsCanvas(page, rows.nth(4));
-      // The canvas: the connector left of the node on the centre line, and the row's band and
-      // rail inset by the density's bandInset (chip-high at standard). Sampled on the rail, at the
-      // canvas's last device pixel column: no lane line ever gets there.
-      const px = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, inset]: number[]) => {
-        const dpr = c.width / c.getBoundingClientRect().width;
-        const ctx = c.getContext('2d')!;
-        const a = (x: number, y: number) => ctx.getImageData(x, Math.floor(y * dpr), 1, 1).data[3];
-        return { connector: a(Math.round(2 * dpr), 4 * rowH + rowH / 2), bandIn: a(c.width - 1, 4 * rowH + inset + 0.5), bandOut: a(c.width - 1, 4 * rowH + inset - 1) };
-      }, [m.rowH, m.bandInset]);
-      expect(px.connector).toBeGreaterThan(0);
-      expect(px.bandIn).toBeGreaterThan(0);
-      expect(px.bandOut).toBe(0);
-    });
-  }
+  // One page for the three densities (each was a test of its own, paying for a page): each step
+  // loads the page again under its density (the init script added last sets it).
+  test('each density: rows, chips and canvas share its metrics, and the connector stays continuous', async ({ page }) => {
+    for (const d of DENSITIES) {
+      await test.step(`${d}: rows, chips and canvas share its metrics, and the connector stays continuous`, async () => {
+        await page.addInitScript(([k, v]) => localStorage.setItem(k, v), [DENSITY_STORAGE_KEY, d]);
+        await page.goto(openUrl(fixtures.basic));
+        await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+        const m = DENSITY_METRICS[d];
+        const rows = page.getByRole('row');
+        expect((await rows.first().boundingBox())!.height).toBe(m.rowH);
+        // Row 4: main's merge (lane 0), labeled. Its chip is the density's height, centred in the
+        // row, and the DOM connector sits on the row's centre line, like the canvas's.
+        const row = (await rows.nth(4).boundingBox())!;
+        const chip = (await rows.nth(4).locator('.ref-labels > .ref-label').first().boundingBox())!;
+        expect(chip.height).toBeCloseTo(m.chipH, 1);
+        expect(Math.abs(chip.y + chip.height / 2 - (row.y + row.height / 2))).toBeLessThanOrEqual(0.5);
+        const conn = (await rows.nth(4).locator('.ref-connector').boundingBox())!;
+        expect(Math.abs(conn.y + conn.height / 2 - (row.y + row.height / 2))).toBeLessThanOrEqual(0.5);
+        await expectConnectorMeetsCanvas(page, rows.nth(4));
+        // The canvas: the connector left of the node on the centre line, and the row's band and
+        // rail inset by the density's bandInset (chip-high at standard). Sampled on the rail, at the
+        // canvas's last device pixel column: no lane line ever gets there.
+        const px = await page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement, [rowH, inset]: number[]) => {
+          const dpr = c.width / c.getBoundingClientRect().width;
+          const ctx = c.getContext('2d')!;
+          const a = (x: number, y: number) => ctx.getImageData(x, Math.floor(y * dpr), 1, 1).data[3];
+          return { connector: a(Math.round(2 * dpr), 4 * rowH + rowH / 2), bandIn: a(c.width - 1, 4 * rowH + inset + 0.5), bandOut: a(c.width - 1, 4 * rowH + inset - 1) };
+        }, [m.rowH, m.bandInset]);
+        expect(px.connector).toBeGreaterThan(0);
+        expect(px.bandIn).toBeGreaterThan(0);
+        expect(px.bandOut).toBe(0);
+      });
+    }
+  });
 });
 
 /** Asserts the DOM label connector ends exactly where the canvas begins (the continuity rule). */
@@ -1346,80 +1349,80 @@ test.describe('branch-hover focus (J22)', () => {
   });
   const featureChip = (page: Page) => page.getByRole('row').filter({ hasText: 'Login validation' }).locator('.ref-labels > .ref-label');
 
-  test('resting 500 ms on a branch chip dims the text of every row outside that branch, graph and chips untouched; leaving restores it', async ({ page }) => {
-    const mainChip = page.getByRole('row').nth(4).locator('.ref-labels > .ref-label');
-    const chipLook = () => mainChip.evaluate((el) => `${getComputedStyle(el).backgroundColor} ${getComputedStyle(el).color} ${getComputedStyle(el).opacity}`);
-    await page.mouse.move(5, 5);
-    const canvas = await canvasHash(page);
-    const look = await chipLook();
-    expect(await noneDimmed(page)).toBe(true);
-    const t0 = Date.now();
-    await featureChip(page).hover();
-    // Not before 500 ms: poll from the hover on and note when the dimming first shows. A poll
-    // that is slow under load only moves that moment later, so (unlike a fixed wait with a "still
-    // early" guard) the bound can never be skipped or tripped by a loaded machine.
-    let firstDimAt = Infinity;
-    await expect.poll(async () => {
-      const dimmed = (await dimState(page)).filter(([, d]) => d === 'dim').length > 0;
-      if (dimmed) firstDimAt = Math.min(firstDimAt, Date.now() - t0);
-      return dimmed;
-    }, { intervals: [20] }).toBe(true);
-    expect(firstDimAt).toBeGreaterThanOrEqual(500);
-    const focused = Object.fromEntries(await dimState(page));
-    // feature/login's rows: its tip and the commit below it (its first-parent claims). The rest
-    // (main's history, the hotfix, the stash and the WIP rows) dim.
-    expect(focused['Login validation']).toBe('');
-    expect(focused['Login form']).toBe('');
-    for (const s of ["Merge branch 'feature/login'", 'Fix typo', 'Add readme', 'Initial commit', 'Hotfix: null check']) expect(focused[s], s).toBe('dim');
-    expect(Object.values(focused).filter((d) => d !== '' && d !== 'dim')).toEqual([]);
-    // Dimmed text settles at the branch-hover dimmed colour (lighter than the 20% filter/search
-    // dim, rowDim.ts's 'branch' level); the in-branch rows keep theirs; the graph canvas and the
-    // other chips don't change.
-    const dimmed = page.getByRole('row').filter({ hasText: 'Fix typo' });
-    await expect(dimmed.locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.5)');
-    await expect(dimmed.locator('[data-col="message"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.5)');
-    await expect(page.getByRole('row').filter({ hasText: 'Login form' }).locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.4)');
-    expect(await canvasHash(page)).toBe(canvas);
-    expect(await chipLook()).toBe(look);
-    // Leaving clears it at once (the colour then eases back).
-    await page.mouse.move(5, 5);
-    expect(await noneDimmed(page)).toBe(true);
-    await expect(dimmed.locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.4)');
-  });
-
-  test('a tag chip, or a pointer that leaves before 500 ms, focuses nothing', async ({ page }) => {
-    await page.getByRole('row').filter({ hasText: 'Add readme' }).locator('.ref-labels > .ref-label').hover();
-    // Past the 500 ms focus delay (a negative check: time has to pass).
-    await page.waitForTimeout(600);
-    expect(await noneDimmed(page)).toBe(true);
-    await featureChip(page).hover();
-    await page.waitForTimeout(150);
-    await page.mouse.move(5, 5);
-    await page.waitForTimeout(600);
-    expect(await noneDimmed(page)).toBe(true);
-  });
-
-  test('the row text eases its colour: 200 ms ease-in, dimming 500 ms ease-out, no delay; none under reduced motion', async ({ page }) => {
-    const cell = page.getByRole('row').filter({ hasText: 'Fix typo' }).locator('[data-col="author"]');
-    const timing = () => cell.evaluate((el) => { const s = getComputedStyle(el); return `${s.transitionProperty} ${s.transitionDuration} ${s.transitionTimingFunction} ${s.transitionDelay}`; });
-    expect(await timing()).toBe('color 0.2s ease-in 0s');
-    await featureChip(page).hover();
-    await expect(cell).toHaveClass(/row-dim/);
-    expect(await timing()).toBe('color 0.5s ease-out 0s');
-    await page.mouse.move(5, 5);
-    await expect(cell).not.toHaveClass(/row-dim/);
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    expect(await timing()).toBe('color 0s ease-in 0s');
-  });
-
-  test('double-clicking a column handle resets that column to its default width (K73)', async ({ page }) => {
-    const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
-    await handle.focus();
-    for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowLeft');
-    const narrowed = Number(await handle.getAttribute('aria-valuenow'));
-    expect(narrowed).toBeLessThan(DEFAULT_COLUMN_PREFS.labels);
-    await handle.dblclick();
-    await expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_COLUMN_PREFS.labels));
+  // Each `test.step` below was a test of its own, paying for a page load (the reduced-motion one last: the emulation stays).
+  test('branch-hover focus: dims after 500 ms, never for a tag or a short rest, eases its colour; a handle double-click resets', async ({ page }) => {
+    await test.step('resting 500 ms on a branch chip dims the text of every row outside that branch, graph and chips untouched; leaving restores it', async () => {
+      const mainChip = page.getByRole('row').nth(4).locator('.ref-labels > .ref-label');
+      const chipLook = () => mainChip.evaluate((el) => `${getComputedStyle(el).backgroundColor} ${getComputedStyle(el).color} ${getComputedStyle(el).opacity}`);
+      await page.mouse.move(5, 5);
+      const canvas = await canvasHash(page);
+      const look = await chipLook();
+      expect(await noneDimmed(page)).toBe(true);
+      const t0 = Date.now();
+      await featureChip(page).hover();
+      // Not before 500 ms: poll from the hover on and note when the dimming first shows. A poll
+      // that is slow under load only moves that moment later, so (unlike a fixed wait with a "still
+      // early" guard) the bound can never be skipped or tripped by a loaded machine.
+      let firstDimAt = Infinity;
+      await expect.poll(async () => {
+        const dimmed = (await dimState(page)).filter(([, d]) => d === 'dim').length > 0;
+        if (dimmed) firstDimAt = Math.min(firstDimAt, Date.now() - t0);
+        return dimmed;
+      }, { intervals: [20] }).toBe(true);
+      expect(firstDimAt).toBeGreaterThanOrEqual(500);
+      const focused = Object.fromEntries(await dimState(page));
+      // feature/login's rows: its tip and the commit below it (its first-parent claims). The rest
+      // (main's history, the hotfix, the stash and the WIP rows) dim.
+      expect(focused['Login validation']).toBe('');
+      expect(focused['Login form']).toBe('');
+      for (const s of ["Merge branch 'feature/login'", 'Fix typo', 'Add readme', 'Initial commit', 'Hotfix: null check']) expect(focused[s], s).toBe('dim');
+      expect(Object.values(focused).filter((d) => d !== '' && d !== 'dim')).toEqual([]);
+      // Dimmed text settles at the branch-hover dimmed colour (lighter than the 20% filter/search
+      // dim, rowDim.ts's 'branch' level); the in-branch rows keep theirs; the graph canvas and the
+      // other chips don't change.
+      const dimmed = page.getByRole('row').filter({ hasText: 'Fix typo' });
+      await expect(dimmed.locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.5)');
+      await expect(dimmed.locator('[data-col="message"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.5)');
+      await expect(page.getByRole('row').filter({ hasText: 'Login form' }).locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.4)');
+      expect(await canvasHash(page)).toBe(canvas);
+      expect(await chipLook()).toBe(look);
+      // Leaving clears it at once (the colour then eases back).
+      await page.mouse.move(5, 5);
+      expect(await noneDimmed(page)).toBe(true);
+      await expect(dimmed.locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.4)');
+    });
+    await test.step('a tag chip, or a pointer that leaves before 500 ms, focuses nothing', async () => {
+      await page.getByRole('row').filter({ hasText: 'Add readme' }).locator('.ref-labels > .ref-label').hover();
+      // Past the 500 ms focus delay (a negative check: time has to pass).
+      await page.waitForTimeout(600);
+      expect(await noneDimmed(page)).toBe(true);
+      await featureChip(page).hover();
+      await page.waitForTimeout(150);
+      await page.mouse.move(5, 5);
+      await page.waitForTimeout(600);
+      expect(await noneDimmed(page)).toBe(true);
+    });
+    await test.step('double-clicking a column handle resets that column to its default width (K73)', async () => {
+      const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+      await handle.focus();
+      for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowLeft');
+      const narrowed = Number(await handle.getAttribute('aria-valuenow'));
+      expect(narrowed).toBeLessThan(DEFAULT_COLUMN_PREFS.labels);
+      await handle.dblclick();
+      await expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_COLUMN_PREFS.labels));
+    });
+    await test.step('the row text eases its colour: 200 ms ease-in, dimming 500 ms ease-out, no delay; none under reduced motion', async () => {
+      const cell = page.getByRole('row').filter({ hasText: 'Fix typo' }).locator('[data-col="author"]');
+      const timing = () => cell.evaluate((el) => { const s = getComputedStyle(el); return `${s.transitionProperty} ${s.transitionDuration} ${s.transitionTimingFunction} ${s.transitionDelay}`; });
+      expect(await timing()).toBe('color 0.2s ease-in 0s');
+      await featureChip(page).hover();
+      await expect(cell).toHaveClass(/row-dim/);
+      expect(await timing()).toBe('color 0.5s ease-out 0s');
+      await page.mouse.move(5, 5);
+      await expect(cell).not.toHaveClass(/row-dim/);
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      expect(await timing()).toBe('color 0s ease-in 0s');
+    });
   });
 });
 
@@ -1430,8 +1433,9 @@ test.describe('branch-hover focus (J22)', () => {
 // and screenshots are both in device px.
 test.describe('device-pixel precision at every zoom and density (K50, K57)', () => {
   const ZOOMS = [1, 1.1, 1.2, 1.25];
-  const openAt = async (browser: Browser, zoom: number, density: string) => {
-    const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+  // A page per zoom and density, in the test's context (as fresh as a context of its own: the
+  // init script below runs after the context's, which empties localStorage on a page's first load).
+  const openAt = async (context: BrowserContext, zoom: number, density: string) => {
     const page = await context.newPage();
     await page.addInitScript(([k, v, z]) => {
       localStorage.setItem(k, v);
@@ -1443,7 +1447,7 @@ test.describe('device-pixel precision at every zoom and density (K50, K57)', () 
     // The canvas redrawn at the zoomed size: its backing store is its zoomed width in device px.
     await expect.poll(() => page.getByTestId('graph-canvas').evaluate((c: HTMLCanvasElement) => Math.abs(c.width - c.getBoundingClientRect().width))).toBeLessThan(1);
     await page.mouse.move(1, 1);
-    return { context, page };
+    return page;
   };
 
   /** K50: the WIP lane's dashes and gaps are all the same whole number of device px, row after row. */
@@ -1511,15 +1515,15 @@ test.describe('device-pixel precision at every zoom and density (K50, K57)', () 
   };
 
   // One page per zoom and density, both checks on it (they were two tests opening the same 12).
-  test('K50: the WIP lane\'s dashes and gaps are all the same whole number of device px, row after row; K57: a connector covers the same device rows on both sides of the Branch/Tag and Graph boundary', async ({ browser, browserName }) => {
+  test('K50: the WIP lane\'s dashes and gaps are all the same whole number of device px, row after row; K57: a connector covers the same device rows on both sides of the Branch/Tag and Graph boundary', async ({ context, browserName }) => {
     test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
     test.setTimeout(120_000);
     for (const zoom of ZOOMS) {
       for (const d of DENSITIES) {
-        const { context, page } = await openAt(browser, zoom, d);
+        const page = await openAt(context, zoom, d);
         await k50(page, zoom, d);
         await k57(page, zoom, d);
-        await context.close();
+        await page.close();
       }
     }
   });

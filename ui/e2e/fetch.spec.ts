@@ -100,57 +100,61 @@ test.describe('fetch', () => {
     await expect(page.getByText('Pushed for Fetch all')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('credential prompts go through the modal', async ({ page }) => {
-    const repo = freshFixture('basic');
-    git(repo, 'remote', 'set-url', 'origin', AUTH_URL);
-    await page.goto(openUrl(repo));
-    await fetchButton(page).click();
-    const dialog = authDialog(page);
-    await expect(dialog).toContainText(`Username for '${harnessHttp}'`);
-    await expect(statusBar(page)).toContainText('Waiting for authentication…');
-    // K30: the user's fetch shows on its button, never as "Fetching…" in the status bar.
-    await expect(fetchButton(page)).toHaveAttribute('aria-busy', 'true');
-    await expect(statusBar(page)).not.toContainText('Fetching');
-    await expect(dialog.getByLabel('Answer')).toBeFocused();
-    await dialog.getByLabel('Answer').fill('ada');
-    await dialog.getByRole('button', { name: 'OK' }).click();
-    await expect(dialog.getByLabel('Password')).toHaveAttribute('type', 'password');
-    await dialog.getByLabel('Password').fill('wrong');
-    await dialog.getByRole('button', { name: 'OK' }).click();
-    await expect(page.getByRole('status')).toContainText('Authentication failed', { timeout: 10_000 });
-    await expect(dialog).toHaveCount(0);
-  });
-
-  test('the auth modal owns the keyboard: Esc cancels the prompt, and the app behind sees nothing', async ({ page }) => {
+  // One repo (its origin asking for credentials) and page for these (each was a test of its own,
+  // paying for a page load), in an order where each starts from what it needs: the background
+  // fetch before any user fetch (which would put the next background one a minute off), and no
+  // toast before the steps that check there's none, so the one that ends with a toast comes last.
+  test('credential prompts: a background fetch never asks, the modal owns the keyboard and Esc cancels, Cancel in the status bar, a wrong password fails', async ({ page }) => {
     const repo = freshFixture('basic');
     git(repo, 'remote', 'set-url', 'origin', AUTH_URL);
     await page.goto(openUrl(repo));
     await expect(graph(page)).toBeVisible();
-    await fetchButton(page).click();
-    await expect(authDialog(page)).toBeVisible();
-    // Ctrl+W would close the tab; behind the modal it does nothing.
-    await page.keyboard.press('Control+w');
-    await expect(page.locator('.tab-page')).toHaveCount(1);
-    await page.keyboard.press('Escape');
-    await expect(authDialog(page)).toHaveCount(0);
-    await expect(statusBar(page)).not.toContainText('Fetching…', { timeout: 10_000 });
-    await expect(graph(page)).toBeVisible();
-    // A cancelled prompt is a cancel, not an error: no toast, nothing in the bell.
-    await expect(page.getByRole('status')).toHaveCount(0);
-    await expect(statusBar(page).getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
-  });
-
-  test('cancelling from the status bar kills the fetch quietly', async ({ page }) => {
-    const repo = freshFixture('basic');
-    git(repo, 'remote', 'set-url', 'origin', AUTH_URL);
-    await page.goto(openUrl(repo));
-    await fetchButton(page).click();
-    await expect(authDialog(page)).toBeVisible();
-    await statusBar(page).getByRole('button', { name: 'Cancel' }).click();
-    await expect(authDialog(page)).toBeHidden();
-    await expect(statusBar(page)).not.toContainText('Fetching…', { timeout: 5000 });
-    await expect(page.getByRole('status')).toHaveCount(0);
-    await expect(fetchButton(page)).toBeEnabled();
+    await test.step('background fetch never shows the auth modal', async () => {
+      await page.evaluate(() => window.__gb!.setSettings({ fetchIntervalSecs: 1 }));
+      await expect(statusBar(page)).toContainText('Fetch skipped: authentication required', { timeout: 10_000 });
+      await expect(authDialog(page)).toHaveCount(0);
+      // (This covers the first background fetch only: the interval is clamped to 60 s, so no second tick is waited for.)
+    });
+    await test.step('the auth modal owns the keyboard: Esc cancels the prompt, and the app behind sees nothing', async () => {
+      await fetchButton(page).click();
+      await expect(authDialog(page)).toBeVisible();
+      // Ctrl+W would close the tab; behind the modal it does nothing.
+      await page.keyboard.press('Control+w');
+      await expect(page.locator('.tab-page')).toHaveCount(1);
+      await page.keyboard.press('Escape');
+      await expect(authDialog(page)).toHaveCount(0);
+      await expect(statusBar(page)).not.toContainText('Fetching…', { timeout: 10_000 });
+      await expect(graph(page)).toBeVisible();
+      // A cancelled prompt is a cancel, not an error: no toast, nothing in the bell.
+      await expect(page.getByRole('status')).toHaveCount(0);
+      await expect(statusBar(page).getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
+    });
+    await test.step('cancelling from the status bar kills the fetch quietly', async () => {
+      await fetchButton(page).click();
+      await expect(authDialog(page)).toBeVisible();
+      await statusBar(page).getByRole('button', { name: 'Cancel' }).click();
+      await expect(authDialog(page)).toBeHidden();
+      await expect(statusBar(page)).not.toContainText('Fetching…', { timeout: 5000 });
+      await expect(page.getByRole('status')).toHaveCount(0);
+      await expect(fetchButton(page)).toBeEnabled();
+    });
+    await test.step('credential prompts go through the modal', async () => {
+      await fetchButton(page).click();
+      const dialog = authDialog(page);
+      await expect(dialog).toContainText(`Username for '${harnessHttp}'`);
+      await expect(statusBar(page)).toContainText('Waiting for authentication…');
+      // K30: the user's fetch shows on its button, never as "Fetching…" in the status bar.
+      await expect(fetchButton(page)).toHaveAttribute('aria-busy', 'true');
+      await expect(statusBar(page)).not.toContainText('Fetching');
+      await expect(dialog.getByLabel('Answer')).toBeFocused();
+      await dialog.getByLabel('Answer').fill('ada');
+      await dialog.getByRole('button', { name: 'OK' }).click();
+      await expect(dialog.getByLabel('Password')).toHaveAttribute('type', 'password');
+      await dialog.getByLabel('Password').fill('wrong');
+      await dialog.getByRole('button', { name: 'OK' }).click();
+      await expect(page.getByRole('status')).toContainText('Authentication failed', { timeout: 10_000 });
+      await expect(dialog).toHaveCount(0);
+    });
   });
 
   test("a failing user fetch shows git's message in a toast that links to the activity log (K96)", async ({ page }) => {
@@ -228,17 +232,6 @@ test.describe('fetch', () => {
     await expect(statusBar(page)).not.toContainText('Fetching', { timeout: 5000 });
     await expect(fetchButton(page)).toBeEnabled();
     await expect(page.getByRole('status')).toHaveCount(0);
-  });
-
-  test('background fetch never shows the auth modal', async ({ page }) => {
-    const repo = freshFixture('basic');
-    git(repo, 'remote', 'set-url', 'origin', AUTH_URL);
-    await page.goto(openUrl(repo));
-    await expect(graph(page)).toBeVisible();
-    await page.evaluate(() => window.__gb!.setSettings({ fetchIntervalSecs: 1 }));
-    await expect(statusBar(page)).toContainText('Fetch skipped: authentication required', { timeout: 10_000 });
-    await expect(authDialog(page)).toHaveCount(0);
-    // (This covers the first background fetch only: the interval is clamped to 60 s, so no second tick is waited for.)
   });
 
   test('background fetch runs on its own, and not while the window is minimized', async ({ page }) => {

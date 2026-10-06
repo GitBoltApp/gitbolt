@@ -4,19 +4,138 @@ import { expect, test } from './test';
 const openBoth = (a: string, b: string) => `/?repo=${encodeURIComponent(a)}&repo=${encodeURIComponent(b)}`;
 
 test.describe('tabs', () => {
-  test('only the active tab\'s repo is watched', async ({ page, request }) => {
-    const a = freshFixture('basic');
-    const b = freshFixture('long_labels');
-    await page.goto(openBoth(a, b));
-    const tabs = page.getByRole('tab');
-    await expect(tabs).toHaveCount(2);
-    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
-    const watched = async () => (await (await request.get(`${harnessHttp}/test/watched`)).json()) as number[];
-    await expect.poll(watched).toHaveLength(1);
-    const first = (await watched())[0];
-    await page.keyboard.press('Control+Tab');
-    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
-    await expect.poll(async () => { const w = await watched(); return w.length === 1 && w[0] !== first; }).toBe(true);
+  // Each `test.step` below was a test of its own, paying for a page load; they run in an order
+  // where each starts from what it needs.
+  test('one tab: the hamburger, About, the profile picker, renaming a tab (kept across a reload), profiles swap the tab set', async ({ page }) => {
+    await test.step('the hamburger lists only working actions, with shortcuts', async () => {
+      const a = freshFixture('basic');
+      await page.goto(`/?repo=${encodeURIComponent(a)}`);
+      await page.getByRole('button', { name: 'Menu' }).click();
+      await page.getByRole('menuitem', { name: 'File' }).hover();
+      await expect(page.getByRole('menuitem', { name: /Open repository…/ })).toContainText('Ctrl+O');
+      // Quit isn't offered in the e2e harness (not running in Tauri): no placeholder UI.
+      await expect(page.getByRole('menuitem', { name: 'Quit' })).toHaveCount(0);
+      // Esc closes the open submenu first, then the root menu (spec §7).
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('context-menu')).toBeHidden();
+    });
+    await test.step('the About dialog shows the app and git version', async () => {
+      await page.getByRole('button', { name: 'Menu' }).click();
+      await page.getByRole('menuitem', { name: 'Help' }).hover();
+      await page.getByRole('menuitem', { name: 'About GitBolt' }).click();
+      const dialog = page.getByRole('dialog', { name: 'About GitBolt' });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText('git');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+    });
+    await test.step('the profile picker toggles on a second click; Edit profile is offered', async () => {
+      const picker = page.getByRole('button', { name: /Profile: Default/ });
+      const menu = page.getByTestId('context-menu');
+      await picker.click();
+      await expect(page.getByRole('menuitem', { name: 'Edit profile…' })).toBeVisible();
+      await picker.click();
+      await expect(menu).toBeHidden();
+      await picker.click();
+      await expect(page.getByRole('menuitem', { name: 'Edit profile…' })).toBeVisible();
+      await page.getByRole('menuitem', { name: 'Edit profile…' }).click();
+      await expect(page.getByRole('dialog', { name: 'Edit profile' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Edit profile' })).toBeHidden();
+    });
+    await test.step('rename field: click inside, Shift+arrows, type, Enter', async () => {
+      const tab = page.getByRole('tab').first();
+      await tab.click({ button: 'right' });
+      await page.getByRole('menuitem', { name: /Rename/ }).click();
+      const input = page.getByLabel('Tab name');
+      await input.fill('Backend');
+      await input.click(); // a click inside keeps editing
+      await expect(input).toBeFocused();
+      await input.dblclick(); // selects a word, still editing
+      await expect(input).toBeFocused();
+      await input.press('End');
+      await page.keyboard.press('Shift+ArrowLeft');
+      await page.keyboard.press('Shift+ArrowLeft');
+      await expect(input).toBeFocused();
+      expect(await input.evaluate((el: HTMLInputElement) => el.value.slice(el.selectionStart!, el.selectionEnd!))).toBe('nd');
+      await page.keyboard.type('X');
+      await expect(input).toHaveValue('BackeX');
+      await page.keyboard.press('Enter');
+      await expect(tab).toContainText('BackeX');
+      await expect(page.getByLabel('Tab name')).toHaveCount(0);
+    });
+    await test.step('rename via the tab menu persists across reload', async () => {
+      const tab = page.getByRole('tab').first();
+      await tab.click({ button: 'right' });
+      await page.getByRole('menuitem', { name: /Rename/ }).click();
+      await page.getByLabel('Tab name').fill('Backend');
+      await page.keyboard.press('Enter');
+      await expect(tab).toContainText('Backend');
+      await page.evaluate(() => window.__gb!.flush());
+      await page.goto('/');
+      await expect(page.getByRole('tab').first()).toContainText('Backend');
+    });
+    await test.step('profiles swap the tab set', async () => {
+      await expect(page.getByRole('tab')).toHaveCount(1);
+      await page.getByRole('button', { name: /Profile: Default/ }).click();
+      await page.getByRole('menuitem', { name: 'New profile…' }).click();
+      await page.getByLabel('Profile name').fill('Work');
+      await page.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(page.getByRole('button', { name: /Profile: Work/ })).toBeVisible();
+      // The new profile has no tabs, so it shows its automatic Open tab.
+      await expect(page.getByRole('tab')).toHaveCount(1);
+      await expect(page.getByRole('tab').first()).toHaveText('Open repository');
+      await page.getByRole('button', { name: /Profile: Work/ }).click();
+      await page.getByRole('menuitem', { name: 'Default' }).click();
+      await expect(page.getByRole('tab')).toHaveCount(1);
+    });
+  });
+
+  test('two tabs: only the active one is watched; a drag reorders them; middle-click closes, Ctrl+Shift+T reopens, Ctrl+W closes', async ({ page, request }) => {
+    await test.step('only the active tab\'s repo is watched', async () => {
+      const a = freshFixture('basic');
+      const b = freshFixture('long_labels');
+      await page.goto(openBoth(a, b));
+      const tabs = page.getByRole('tab');
+      await expect(tabs).toHaveCount(2);
+      await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+      const watched = async () => (await (await request.get(`${harnessHttp}/test/watched`)).json()) as number[];
+      await expect.poll(watched).toHaveLength(1);
+      const first = (await watched())[0];
+      await page.keyboard.press('Control+Tab');
+      await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+      await expect.poll(async () => { const w = await watched(); return w.length === 1 && w[0] !== first; }).toBe(true);
+    });
+    await test.step('drag reorders tabs', async () => {
+      const tabs = page.getByRole('tab');
+      await expect(tabs).toHaveCount(2);
+      const [l0, l1] = [await tabs.nth(0).innerText(), await tabs.nth(1).innerText()];
+      const box0 = (await tabs.nth(0).boundingBox())!;
+      const box1 = (await tabs.nth(1).boundingBox())!;
+      await page.mouse.move(box0.x + box0.width / 2, box0.y + box0.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box0.x + box0.width / 2 + 10, box0.y + 5, { steps: 3 });
+      await page.mouse.move(box1.x + box1.width - 4, box1.y + 5, { steps: 5 });
+      // Mid-drag the other tab has slid left into the dragged tab's old slot; the order is unchanged.
+      await expect(tabs.nth(1)).toHaveCSS('transform', /^matrix\(1, 0, 0, 1, -\d/);
+      await expect(tabs.nth(0)).toHaveText(l0);
+      await page.mouse.up();
+      await expect(tabs.nth(0)).toHaveText(l1);
+      await expect(tabs.nth(1)).toHaveText(l0);
+    });
+    await test.step('middle-click closes, Ctrl+Shift+T reopens at the same place, Ctrl+W closes', async () => {
+      const tabs = page.getByRole('tab');
+      await expect(tabs).toHaveCount(2);
+      const firstLabel = await tabs.nth(0).innerText();
+      await tabs.nth(0).click({ button: 'middle' });
+      await expect(tabs).toHaveCount(1);
+      await page.keyboard.press('Control+Shift+T');
+      await expect(tabs).toHaveCount(2);
+      await expect(tabs.nth(0)).toHaveText(firstLabel);
+      await page.keyboard.press('Control+w');
+      await expect(tabs).toHaveCount(1);
+    });
   });
 
   test('a later launch\'s path (openRequested) opens in a new tab, or focuses the one showing it', async ({ page }) => {
@@ -52,139 +171,6 @@ test.describe('tabs', () => {
     await expect(tabs).toHaveCount(2);
   });
 
-  test('rename via the tab menu persists across reload', async ({ page }) => {
-    const a = freshFixture('basic');
-    await page.goto(`/?repo=${encodeURIComponent(a)}`);
-    const tab = page.getByRole('tab').first();
-    await tab.click({ button: 'right' });
-    await page.getByRole('menuitem', { name: /Rename/ }).click();
-    await page.getByLabel('Tab name').fill('Backend');
-    await page.keyboard.press('Enter');
-    await expect(tab).toContainText('Backend');
-    await page.evaluate(() => window.__gb!.flush());
-    await page.goto('/');
-    await expect(page.getByRole('tab').first()).toContainText('Backend');
-  });
-
-  test('rename field: click inside, Shift+arrows, type, Enter', async ({ page }) => {
-    const a = freshFixture('basic');
-    await page.goto(`/?repo=${encodeURIComponent(a)}`);
-    const tab = page.getByRole('tab').first();
-    await tab.click({ button: 'right' });
-    await page.getByRole('menuitem', { name: /Rename/ }).click();
-    const input = page.getByLabel('Tab name');
-    await input.fill('Backend');
-    await input.click(); // a click inside keeps editing
-    await expect(input).toBeFocused();
-    await input.dblclick(); // selects a word, still editing
-    await expect(input).toBeFocused();
-    await input.press('End');
-    await page.keyboard.press('Shift+ArrowLeft');
-    await page.keyboard.press('Shift+ArrowLeft');
-    await expect(input).toBeFocused();
-    expect(await input.evaluate((el: HTMLInputElement) => el.value.slice(el.selectionStart!, el.selectionEnd!))).toBe('nd');
-    await page.keyboard.type('X');
-    await expect(input).toHaveValue('BackeX');
-    await page.keyboard.press('Enter');
-    await expect(tab).toContainText('BackeX');
-    await expect(page.getByLabel('Tab name')).toHaveCount(0);
-  });
-
-  test('middle-click closes, Ctrl+Shift+T reopens at the same place, Ctrl+W closes', async ({ page }) => {
-    const a = freshFixture('basic');
-    const b = freshFixture('long_labels');
-    await page.goto(openBoth(a, b));
-    const tabs = page.getByRole('tab');
-    await expect(tabs).toHaveCount(2);
-    const firstLabel = await tabs.nth(0).innerText();
-    await tabs.nth(0).click({ button: 'middle' });
-    await expect(tabs).toHaveCount(1);
-    await page.keyboard.press('Control+Shift+T');
-    await expect(tabs).toHaveCount(2);
-    await expect(tabs.nth(0)).toHaveText(firstLabel);
-    await page.keyboard.press('Control+w');
-    await expect(tabs).toHaveCount(1);
-  });
-
-  test('drag reorders tabs', async ({ page }) => {
-    const a = freshFixture('basic');
-    const b = freshFixture('long_labels');
-    await page.goto(openBoth(a, b));
-    const tabs = page.getByRole('tab');
-    await expect(tabs).toHaveCount(2);
-    const [l0, l1] = [await tabs.nth(0).innerText(), await tabs.nth(1).innerText()];
-    const box0 = (await tabs.nth(0).boundingBox())!;
-    const box1 = (await tabs.nth(1).boundingBox())!;
-    await page.mouse.move(box0.x + box0.width / 2, box0.y + box0.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box0.x + box0.width / 2 + 10, box0.y + 5, { steps: 3 });
-    await page.mouse.move(box1.x + box1.width - 4, box1.y + 5, { steps: 5 });
-    // Mid-drag the other tab has slid left into the dragged tab's old slot; the order is unchanged.
-    await expect(tabs.nth(1)).toHaveCSS('transform', /^matrix\(1, 0, 0, 1, -\d/);
-    await expect(tabs.nth(0)).toHaveText(l0);
-    await page.mouse.up();
-    await expect(tabs.nth(0)).toHaveText(l1);
-    await expect(tabs.nth(1)).toHaveText(l0);
-  });
-
-  test('profiles swap the tab set', async ({ page }) => {
-    const a = freshFixture('basic');
-    await page.goto(`/?repo=${encodeURIComponent(a)}`);
-    await expect(page.getByRole('tab')).toHaveCount(1);
-    await page.getByRole('button', { name: /Profile: Default/ }).click();
-    await page.getByRole('menuitem', { name: 'New profile…' }).click();
-    await page.getByLabel('Profile name').fill('Work');
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.getByRole('button', { name: /Profile: Work/ })).toBeVisible();
-    // The new profile has no tabs, so it shows its automatic Open tab.
-    await expect(page.getByRole('tab')).toHaveCount(1);
-    await expect(page.getByRole('tab').first()).toHaveText('Open repository');
-    await page.getByRole('button', { name: /Profile: Work/ }).click();
-    await page.getByRole('menuitem', { name: 'Default' }).click();
-    await expect(page.getByRole('tab')).toHaveCount(1);
-  });
-
-  test('the profile picker toggles on a second click; Edit profile is offered', async ({ page }) => {
-    const a = freshFixture('basic');
-    await page.goto(`/?repo=${encodeURIComponent(a)}`);
-    const picker = page.getByRole('button', { name: /Profile: Default/ });
-    const menu = page.getByTestId('context-menu');
-    await picker.click();
-    await expect(page.getByRole('menuitem', { name: 'Edit profile…' })).toBeVisible();
-    await picker.click();
-    await expect(menu).toBeHidden();
-    await picker.click();
-    await expect(page.getByRole('menuitem', { name: 'Edit profile…' })).toBeVisible();
-    await page.getByRole('menuitem', { name: 'Edit profile…' }).click();
-    await expect(page.getByRole('dialog', { name: 'Edit profile' })).toBeVisible();
-  });
-
-  test('the hamburger lists only working actions, with shortcuts', async ({ page }) => {
-    const a = freshFixture('basic');
-    await page.goto(`/?repo=${encodeURIComponent(a)}`);
-    await page.getByRole('button', { name: 'Menu' }).click();
-    await page.getByRole('menuitem', { name: 'File' }).hover();
-    await expect(page.getByRole('menuitem', { name: /Open repository…/ })).toContainText('Ctrl+O');
-    // Quit isn't offered in the e2e harness (not running in Tauri): no placeholder UI.
-    await expect(page.getByRole('menuitem', { name: 'Quit' })).toHaveCount(0);
-    // Esc closes the open submenu first, then the root menu (spec §7).
-    await page.keyboard.press('Escape');
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('context-menu')).toBeHidden();
-  });
-
-  test('the About dialog shows the app and git version', async ({ page }) => {
-    const a = freshFixture('basic');
-    await page.goto(`/?repo=${encodeURIComponent(a)}`);
-    await page.getByRole('button', { name: 'Menu' }).click();
-    await page.getByRole('menuitem', { name: 'Help' }).hover();
-    await page.getByRole('menuitem', { name: 'About GitBolt' }).click();
-    const dialog = page.getByRole('dialog', { name: 'About GitBolt' });
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('git');
-    await page.keyboard.press('Escape');
-    await expect(dialog).toBeHidden();
-  });
 
   // Spec §17.3: switching to a loaded tab paints its cached snapshot in < 50 ms. Measured from the
   // click to two animation frames later (the frame that paints it); a sample only counts if the

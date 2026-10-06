@@ -6,24 +6,73 @@ const chip = (page: Page, name: string) => grid(page).locator('.ref-label', { ha
 const menu = (page: Page) => page.getByRole('menu');
 
 test.describe('branches (spec #2 §9.1, §9.2)', () => {
-  test('the toolbar Branch opens the inline name input on HEAD\'s row; Enter creates and checks out; undo removes it', async ({ page }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load), in an order
+  // where each starts from what it needs: nothing is left half-done, and the rename comes last.
+  test('the inline name input: Esc or leaving cancels, an invalid name is refused, Enter creates and undo removes it; Set upstream; rename keeps the reflog', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
-    await page.getByRole('button', { name: 'Branch', exact: true }).click();
-    // UX round 1: no dialog, an input in the Branch/Tag cell of HEAD's (selected) row.
-    const input = grid(page).getByRole('textbox', { name: 'Branch name' });
-    await expect(input).toBeFocused();
-    await expect(input).toHaveAttribute('placeholder', 'enter branch name');
-    await expect(grid(page).locator('[role="row"][aria-selected="true"]')).toContainText('main');
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await input.fill('topic/new');
-    await input.press('Enter');
-    await expect(input).toBeHidden();
-    await expect(chip(page, 'topic/new')).toBeVisible();
-    expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/topic/new');
-    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
-    await expect(chip(page, 'topic/new')).toBeHidden();
-    expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
+    await test.step('Esc, or leaving it empty, cancels the inline input', async () => {
+      await page.getByRole('button', { name: 'Branch', exact: true }).click();
+      const input = grid(page).getByRole('textbox', { name: 'Branch name' });
+      await input.fill('never');
+      await input.press('Escape');
+      await expect(input).toBeHidden();
+      await page.getByRole('button', { name: 'Branch', exact: true }).click();
+      await expect(input).toBeFocused();
+      await grid(page).getByRole('row').nth(3).locator('[data-col="date"]').click();
+      await expect(input).toBeHidden();
+      expect(git(repo, 'branch', '--list', 'never')).toBe('');
+    });
+    await test.step('an invalid name is refused inline, with its reason', async () => {
+      await page.getByRole('button', { name: 'Branch', exact: true }).click();
+      const input = grid(page).getByRole('textbox', { name: 'Branch name' });
+      await input.fill('a..b');
+      await expect(page.getByRole('alert')).toHaveText("A branch name can't contain ..");
+      await expect(input).toHaveAttribute('aria-invalid', 'true');
+      await input.press('Enter');
+      await expect(input).toBeVisible(); // nothing created: still editing
+      expect(git(repo, 'branch', '--list', 'a*')).toBe('');
+      await input.press('Escape');
+      await expect(input).toBeHidden();
+    });
+    await test.step('the toolbar Branch opens the inline name input on HEAD\'s row; Enter creates and checks out; undo removes it', async () => {
+      await page.getByRole('button', { name: 'Branch', exact: true }).click();
+      // UX round 1: no dialog, an input in the Branch/Tag cell of HEAD's (selected) row.
+      const input = grid(page).getByRole('textbox', { name: 'Branch name' });
+      await expect(input).toBeFocused();
+      await expect(input).toHaveAttribute('placeholder', 'enter branch name');
+      await expect(grid(page).locator('[role="row"][aria-selected="true"]')).toContainText('main');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await input.fill('topic/new');
+      await input.press('Enter');
+      await expect(input).toBeHidden();
+      await expect(chip(page, 'topic/new')).toBeVisible();
+      expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/topic/new');
+      await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(chip(page, 'topic/new')).toBeHidden();
+      expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
+    });
+    await test.step('Set upstream picks a remote branch, and None unsets it', async () => {
+      await chip(page, 'hotfix').click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Set upstream' }).click();
+      await page.getByRole('option', { name: 'origin/main' }).click();
+      // Until the write lands, git has no upstream to name (and exits non-zero).
+      const upstream = () => { try { return git(repo, 'rev-parse', '--abbrev-ref', 'hotfix@{upstream}'); } catch { return ''; } };
+      await expect.poll(upstream).toBe('origin/main');
+      await chip(page, 'hotfix').click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Set upstream' }).click();
+      await page.getByRole('option', { name: 'None' }).click();
+      await expect.poll(() => { try { return git(repo, 'config', 'branch.hotfix.merge'); } catch { return ''; } }).toBe('');
+    });
+    await test.step('rename keeps the reflog', async () => {
+      const log = git(repo, 'reflog', 'show', '--format=%H', 'feature/login');
+      await chip(page, 'feature/login').click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Rename feature/login' }).click();
+      await page.getByRole('textbox', { name: 'New name' }).fill('feature/signin');
+      await page.getByRole('button', { name: 'Rename' }).click();
+      await expect(chip(page, 'feature/signin')).toBeVisible();
+      expect(git(repo, 'reflog', 'show', '--format=%H', 'feature/signin').endsWith(log)).toBe(true);
+    });
   });
 
   test('Create branch here from a remote label tracks it; Ctrl+Enter creates without checking out', async ({ page }) => {
@@ -37,46 +86,6 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
     await input.press('Control+Enter');
     await expect.poll(() => { try { return git(repo, 'config', 'branch.login-copy.merge'); } catch { return ''; } }).toBe('refs/heads/feature/login');
     expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
-  });
-
-  test('Esc, or leaving it empty, cancels the inline input', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await page.getByRole('button', { name: 'Branch', exact: true }).click();
-    const input = grid(page).getByRole('textbox', { name: 'Branch name' });
-    await input.fill('never');
-    await input.press('Escape');
-    await expect(input).toBeHidden();
-    await page.getByRole('button', { name: 'Branch', exact: true }).click();
-    await expect(input).toBeFocused();
-    await grid(page).getByRole('row').nth(3).locator('[data-col="date"]').click();
-    await expect(input).toBeHidden();
-    expect(git(repo, 'branch', '--list', 'never')).toBe('');
-  });
-
-  test('an invalid name is refused inline, with its reason', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await page.getByRole('button', { name: 'Branch', exact: true }).click();
-    const input = grid(page).getByRole('textbox', { name: 'Branch name' });
-    await input.fill('a..b');
-    await expect(page.getByRole('alert')).toHaveText("A branch name can't contain ..");
-    await expect(input).toHaveAttribute('aria-invalid', 'true');
-    await input.press('Enter');
-    await expect(input).toBeVisible(); // nothing created: still editing
-    expect(git(repo, 'branch', '--list', 'a*')).toBe('');
-  });
-
-  test('rename keeps the reflog', async ({ page }) => {
-    const repo = freshFixture('basic');
-    const log = git(repo, 'reflog', 'show', '--format=%H', 'feature/login');
-    await page.goto(openUrl(repo));
-    await chip(page, 'feature/login').click({ button: 'right' });
-    await menu(page).getByRole('menuitem', { name: 'Rename feature/login' }).click();
-    await page.getByRole('textbox', { name: 'New name' }).fill('feature/signin');
-    await page.getByRole('button', { name: 'Rename' }).click();
-    await expect(chip(page, 'feature/signin')).toBeVisible();
-    expect(git(repo, 'reflog', 'show', '--format=%H', 'feature/signin').endsWith(log)).toBe(true);
   });
 
   test('Delete Local of a merged branch needs no confirmation; a branch checked out elsewhere has no Local', async ({ page }) => {
@@ -120,18 +129,4 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
     await expect(page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
 
-  test('Set upstream picks a remote branch, and None unsets it', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await chip(page, 'hotfix').click({ button: 'right' });
-    await menu(page).getByRole('menuitem', { name: 'Set upstream' }).click();
-    await page.getByRole('option', { name: 'origin/main' }).click();
-    // Until the write lands, git has no upstream to name (and exits non-zero).
-    const upstream = () => { try { return git(repo, 'rev-parse', '--abbrev-ref', 'hotfix@{upstream}'); } catch { return ''; } };
-    await expect.poll(upstream).toBe('origin/main');
-    await chip(page, 'hotfix').click({ button: 'right' });
-    await menu(page).getByRole('menuitem', { name: 'Set upstream' }).click();
-    await page.getByRole('option', { name: 'None' }).click();
-    await expect.poll(() => { try { return git(repo, 'config', 'branch.hotfix.merge'); } catch { return ''; } }).toBe('');
-  });
 });

@@ -3,7 +3,7 @@ import { COLOR_TOKENS, isThemeId, THEMES, type ThemeDef, type ThemeId } from './
 
 /** What the canvases draw with: the theme's node and shade colours and its lanes, the user's
  * overrides for this theme applied; and the initials colour for each lane (avatars). */
-export interface ResolvedColors { nodeFill: string; nodeText: string; collapseStrip: string; graph: string[]; laneText: string[] }
+export interface ResolvedColors { nodeFill: string; avatarBackdrop: string; nodeText: string; collapseStrip: string; graph: string[]; laneText: string[] }
 
 const HEX = /^#[0-9a-f]{6}$/i;
 export const isHexColor = (v: unknown): v is string => typeof v === 'string' && HEX.test(v);
@@ -17,7 +17,7 @@ export function resolveColors(def: ThemeDef, override?: readonly (string | null)
   // White or the theme's dark ink, whichever reads better on the lane (a pastel lane takes dark).
   const ink = def.kind === 'dark' ? def.colors['app-bg0'] : def.colors['text-selected'];
   const laneText = graph.map((c) => def.laneText ?? (contrastRatio('#ffffff', c) >= contrastRatio(ink, c) ? '#ffffff' : ink));
-  return { nodeFill: def.colors['node-fill'], nodeText: def.colors['node-text'], collapseStrip: def.colors['collapse-strip'], graph, laneText };
+  return { nodeFill: def.colors['node-fill'], avatarBackdrop: def.colors['avatar-backdrop'], nodeText: def.colors['node-text'], collapseStrip: def.colors['collapse-strip'], graph, laneText };
 }
 
 /** Writes the theme onto `root` as inline custom properties (which win over tokens.css). */

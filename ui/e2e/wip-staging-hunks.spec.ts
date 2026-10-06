@@ -33,89 +33,101 @@ async function revealLine(page: Page, text: string): Promise<Locator> {
 }
 
 test.describe('hunks and lines (spec #2 §7.3)', () => {
-  test("Hunk mode's header rows sit at the backend's hunks", async ({ page }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load and Monaco's
+  // start-up): each step's staging is undone after it (the file list's Undo staging, §7.6), and
+  // its file closed, so the next starts from the fixture as a test of its own did.
+  test('staging hunks and lines: Inline and Split, Hunk mode\'s rows, a file\'s only hunk, a selection and a deleted line, unstaging and discarding a hunk', async ({ page }) => {
     const repo = await openWip(page);
-    await fileRow(page, 'unstaged', 'src/app.txt').click();
-    await mode(page, 'Hunk').click();
-    await expect(zones(page)).toHaveCount(3);
-    await expect(zones(page).nth(1)).toContainText('@@ -17,7 +17,7 @@');
-    await hunkButton(zones(page).nth(1), 'Stage hunk').click();
-    await expect(fileRow(page, 'staged', 'src/app.txt')).toBeVisible();
-    await expect(fileRow(page, 'unstaged', 'src/app.txt')).toHaveAttribute('aria-selected', 'true');
-    await expect(zones(page)).toHaveCount(2);
-    expect(git(repo, 'diff', '--cached', '--', 'src/app.txt')).toContain('+app 20 changed');
-  });
-
-  // Both modes in one page (each was a test of its own, paying for a page and Monaco).
-  test("Inline and Split modes: no rows between lines; the gutter's + stages one line, the menu a hunk", async ({ page }) => {
-    const repo = await openWip(page);
-    const staged = () => git(repo, 'diff', '--cached', '--', 'src/app.txt');
-    for (const m of ['Inline', 'Split'] as const) {
+    await test.step("Inline and Split modes: no rows between lines; the gutter's + stages one line, the menu a hunk", async () => {
+      const staged = () => git(repo, 'diff', '--cached', '--', 'src/app.txt');
+      for (const m of ['Inline', 'Split'] as const) {
+        await fileRow(page, 'unstaged', 'src/app.txt').click();
+        await mode(page, m).click();
+        await (await revealLine(page, 'app 20 changed')).hover();
+        await expect(gutterButton(page)).toHaveAccessibleName('Stage this line');
+        await expect(zones(page)).toHaveCount(0);
+        await reshown(page, () => gutterButton(page).click());
+        await expect(fileRow(page, 'staged', 'src/app.txt')).toBeVisible();
+        expect(staged(), m).toContain('+app 20 changed');
+        expect(staged(), m).not.toContain('app 05');
+        // The right-click menu: the clicked line's hunk.
+        await (await revealLine(page, 'app 35 changed')).click({ button: 'right' });
+        await page.getByRole('menuitem', { name: 'Stage hunk' }).click();
+        await expect.poll(staged, { message: m }).toContain('+app 35 changed');
+        // Nothing staged again (the two steps undone), and the file closed (a click on the open
+        // file's row), so the next mode starts as this one did.
+        await undoStaging(page);
+        await expect.poll(staged).not.toContain('+app 35 changed');
+        await undoStaging(page);
+        await expect.poll(staged).toBe('');
+        await fileRow(page, 'unstaged', 'src/app.txt').click();
+        await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
+      }
+    });
+    await test.step("Hunk mode's header rows sit at the backend's hunks", async () => {
       await fileRow(page, 'unstaged', 'src/app.txt').click();
-      await mode(page, m).click();
-      await (await revealLine(page, 'app 20 changed')).hover();
-      await expect(gutterButton(page)).toHaveAccessibleName('Stage this line');
-      await expect(zones(page)).toHaveCount(0);
-      await reshown(page, () => gutterButton(page).click());
+      await mode(page, 'Hunk').click();
+      await expect(zones(page)).toHaveCount(3);
+      await expect(zones(page).nth(1)).toContainText('@@ -17,7 +17,7 @@');
+      await hunkButton(zones(page).nth(1), 'Stage hunk').click();
       await expect(fileRow(page, 'staged', 'src/app.txt')).toBeVisible();
-      expect(staged(), m).toContain('+app 20 changed');
-      expect(staged(), m).not.toContain('app 05');
-      // The right-click menu: the clicked line's hunk.
-      await (await revealLine(page, 'app 35 changed')).click({ button: 'right' });
-      await page.getByRole('menuitem', { name: 'Stage hunk' }).click();
-      await expect.poll(staged, { message: m }).toContain('+app 35 changed');
-      // Nothing staged again (the two steps undone), and the file closed (a click on the open
-      // file's row), so the next mode starts as this one did.
+      await expect(fileRow(page, 'unstaged', 'src/app.txt')).toHaveAttribute('aria-selected', 'true');
+      await expect(zones(page)).toHaveCount(2);
+      expect(git(repo, 'diff', '--cached', '--', 'src/app.txt')).toContain('+app 20 changed');
+      // Back to the fixture's staging (this step's writes undone), the file closed: as a fresh page.
       await undoStaging(page);
-      await expect.poll(staged).not.toContain('+app 35 changed');
-      await undoStaging(page);
-      await expect.poll(staged).toBe('');
-      await fileRow(page, 'unstaged', 'src/app.txt').click();
+      await expect.poll(() => git(repo, 'diff', '--cached', '--name-only')).toBe('notes.txt');
+      await page.getByRole('region', { name: 'Diff' }).getByRole('button', { name: 'Close diff' }).click();
       await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
-    }
-  });
-
-  test("staging a file's only hunk moves it out of Unstaged", async ({ page }) => {
-    const repo = await openWip(page);
-    await fileRow(page, 'unstaged', 'space name.txt').click();
-    await mode(page, 'Hunk').click();
-    await expect(zones(page)).toHaveCount(1);
-    await hunkButton(zones(page).first(), 'Stage hunk').click();
-    await expect(fileRow(page, 'staged', 'space name.txt')).toBeVisible();
-    await expect(fileRow(page, 'unstaged', 'space name.txt')).toHaveCount(0);
-    expect(git(repo, 'status', '--porcelain=v2', '--', 'space name.txt')).toMatch(/^1 M\. /);
-  });
-
-  test("a selection's right-click stages these lines; Inline's deleted line takes the gutter's +", async ({ page }) => {
-    const repo = await openWip(page);
-    await fileRow(page, 'unstaged', 'src/app.txt').click();
-    await mode(page, 'Inline').click();
-    const line = await revealLine(page, 'app 05 changed');
-    await line.click();
-    await page.keyboard.press('Home');
-    await page.keyboard.press('Shift+End');
-    await line.click({ button: 'right' });
-    await reshown(page, () => page.getByRole('menuitem', { name: 'Stage this line' }).click());
-    await expect(fileRow(page, 'staged', 'src/app.txt')).toBeVisible();
-    expect(git(repo, 'diff', '--cached', '--', 'src/app.txt')).toContain('+app 05 changed');
-    // The old line, drawn in a deleted-lines zone.
-    await modified(page).locator('.line-delete .view-line').filter({ hasText: 'app 20' }).hover();
-    await gutterButton(page).click();
-    await expect.poll(() => git(repo, 'diff', '--cached', '--', 'src/app.txt')).toContain('-app 20');
-  });
-
-  test('Unstage hunk on a staged diff; Discard hunk is undoable', async ({ page }) => {
-    const repo = await openWip(page);
-    await fileRow(page, 'staged', 'notes.txt').click();
-    await mode(page, 'Hunk').click();
-    await hunkButton(zones(page).first(), 'Unstage hunk').click();
-    await expect(fileRow(page, 'staged', 'notes.txt')).toHaveCount(0);
-    await fileRow(page, 'unstaged', 'src/app.txt').click();
-    await hunkButton(zones(page).first(), 'Discard hunk').click();
-    await expect(zones(page)).toHaveCount(2);
-    expect(git(repo, 'diff', '--', 'src/app.txt')).not.toContain('app 05 changed');
-    await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
-    await expect.poll(() => git(repo, 'diff', '--', 'src/app.txt')).toContain('app 05 changed');
+    });
+    await test.step("staging a file's only hunk moves it out of Unstaged", async () => {
+      await fileRow(page, 'unstaged', 'space name.txt').click();
+      await mode(page, 'Hunk').click();
+      await expect(zones(page)).toHaveCount(1);
+      await hunkButton(zones(page).first(), 'Stage hunk').click();
+      await expect(fileRow(page, 'staged', 'space name.txt')).toBeVisible();
+      await expect(fileRow(page, 'unstaged', 'space name.txt')).toHaveCount(0);
+      expect(git(repo, 'status', '--porcelain=v2', '--', 'space name.txt')).toMatch(/^1 M\. /);
+      // Back to the fixture's staging (this step's writes undone), the file closed: as a fresh page.
+      await undoStaging(page);
+      await expect.poll(() => git(repo, 'diff', '--cached', '--name-only')).toBe('notes.txt');
+      await page.getByRole('region', { name: 'Diff' }).getByRole('button', { name: 'Close diff' }).click();
+      await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
+    });
+    await test.step("a selection's right-click stages these lines; Inline's deleted line takes the gutter's +", async () => {
+      await fileRow(page, 'unstaged', 'src/app.txt').click();
+      await mode(page, 'Inline').click();
+      const line = await revealLine(page, 'app 05 changed');
+      await line.click();
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Shift+End');
+      await line.click({ button: 'right' });
+      await reshown(page, () => page.getByRole('menuitem', { name: 'Stage this line' }).click());
+      await expect(fileRow(page, 'staged', 'src/app.txt')).toBeVisible();
+      expect(git(repo, 'diff', '--cached', '--', 'src/app.txt')).toContain('+app 05 changed');
+      // The old line, drawn in a deleted-lines zone.
+      await modified(page).locator('.line-delete .view-line').filter({ hasText: 'app 20' }).hover();
+      await gutterButton(page).click();
+      await expect.poll(() => git(repo, 'diff', '--cached', '--', 'src/app.txt')).toContain('-app 20');
+      // Back to the fixture's staging (this step's writes undone), the file closed: as a fresh page.
+      await undoStaging(page);
+      await undoStaging(page);
+      await expect.poll(() => git(repo, 'diff', '--cached', '--name-only')).toBe('notes.txt');
+      await page.getByRole('region', { name: 'Diff' }).getByRole('button', { name: 'Close diff' }).click();
+      await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
+    });
+    await test.step('Unstage hunk on a staged diff; Discard hunk is undoable', async () => {
+      await fileRow(page, 'staged', 'notes.txt').click();
+      await mode(page, 'Hunk').click();
+      await hunkButton(zones(page).first(), 'Unstage hunk').click();
+      await expect(fileRow(page, 'staged', 'notes.txt')).toHaveCount(0);
+      await fileRow(page, 'unstaged', 'src/app.txt').click();
+      await hunkButton(zones(page).first(), 'Discard hunk').click();
+      await expect(zones(page)).toHaveCount(2);
+      expect(git(repo, 'diff', '--', 'src/app.txt')).not.toContain('app 05 changed');
+      await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect.poll(() => git(repo, 'diff', '--', 'src/app.txt')).toContain('app 05 changed');
+    });
   });
 
   test('a line selection stages just that line (< 150 ms, best of 3); hunk buttons wait for a save', { tag: '@budget' }, async ({ page }) => {
