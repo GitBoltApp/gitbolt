@@ -5,7 +5,7 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
-The first alpha, for Linux.
+The first release, for Linux.
 
 ### Added
 

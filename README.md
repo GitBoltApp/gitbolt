@@ -20,7 +20,7 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 
 ![GitBolt: the commit graph with four repository tabs and a selected commit's details](docs/images/screenshot.webp)
 
-> **Status:** alpha. Usable day to day, but expect rough edges.
+> **Status:** early (0.x). Usable day to day on Linux, but expect rough edges.
 
 ## Platforms
 
