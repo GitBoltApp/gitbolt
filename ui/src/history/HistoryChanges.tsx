@@ -13,7 +13,7 @@ import { formatBytes } from '../diff/format';
 import { HexBody, HexView } from '../diff/hex';
 import { hexOf } from '../diff/hexContents';
 import { highlightLanguage } from '../diff/language';
-import { isMarkdownPath, TOO_LARGE_TO_RENDER, useDiffTooLarge } from '../diff/markdownFiles';
+import { isMarkdownTarget, TOO_LARGE_TO_RENDER, useDiffTooLarge } from '../diff/markdownFiles';
 import { useMarkdownView } from '../diff/markdownOverride';
 import { filesKey, type RepoServices } from '../repo/services';
 import { useRepoView } from '../repo/store';
@@ -82,7 +82,7 @@ function ChangesBody({ target, views }: { target: ChangesTarget; views: ReactNod
   const contents = body.contents;
   const loaded = contents.status === 'ready' ? contents.data : null;
   const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded);
-  const mdDiff = textBody && isMarkdownPath(shown.path);
+  const mdDiff = textBody && isMarkdownTarget(shown);
   const diffTooLarge = useDiffTooLarge(shown.key, mdDiff ? loaded?.old?.text ?? '' : '', mdDiff ? loaded?.new?.text ?? '' : '').tooLarge;
   const picked = useMarkdownView(mdDiff ? shown.path : null);
   const rendered = mdDiff && picked === 'rendered' && !diffTooLarge;
@@ -138,7 +138,7 @@ function Body({ target, contents, forced, onLoadAnyway, onSourceChange }: { targ
     <DiffTextBody
       identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified}
       language={highlightLanguage(target.path, modified || original)}
-      markdown={isMarkdownPath(target.path) ? target.sides : null}
+      markdown={isMarkdownTarget(target) ? target.sides : null}
     />
   );
 }

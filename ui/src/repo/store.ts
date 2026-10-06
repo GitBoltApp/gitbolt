@@ -174,9 +174,31 @@ export interface RepoViewState {
    * (never, if it's cancelled). For what opens a file another way: spec #5's Back/Forward and
    * Markdown links ask once, not once per step. */
   leaveThen(go: () => void): void;
+  /**
+   * File History's sticky mode, this tab's (UX: sticky history): set while File History is open
+   * (`history/open.ts`), and cleared when it closes. Meanwhile a file opened from the right panel
+   * (a click, Up/Down, Enter, the step after a stage) opens in File History too, Blame or not as
+   * this says (`registerStickyOpener`). `null`: files open as usual.
+   */
+  stickyHistory: StickyHistory | null;
+  setStickyHistory(mode: StickyHistory | null): void;
 }
 
+/** File History's mode while it's sticky: Blame on (`true`) or History alone. */
+export interface StickyHistory { blame: boolean }
+
 export type RepoViewStore = StoreApi<RepoViewState>;
+
+/** What a file opened while a tab is sticky does (`history/feature.ts` registers it): it runs
+ * after `openFile` has made `target` the tab's open file. */
+type StickyOpener = (store: RepoViewStore, target: DiffTarget) => void;
+let stickyOpener: StickyOpener | null = null;
+
+/** Registers what `openFile` does while the tab's `stickyHistory` is set; returns its removal. */
+export function registerStickyOpener(fn: StickyOpener): () => void {
+  stickyOpener = fn;
+  return () => { if (stickyOpener === fn) stickyOpener = null; };
+}
 
 /** A section's files in display order, as diff targets. */
 export type FileOrder = (files: FileChange[], spec: DiffSpec) => DiffTarget[];
@@ -323,7 +345,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
     fn(...a);
   };
 
-  return createStore<RepoViewState>((rawSet, get) => {
+  return createStore<RepoViewState>((rawSet, get, storeApi) => {
     /** Every update also settles what the panel shows (`panelFor`), in the same update. */
     const set = (patch: Partial<RepoViewState> | ((s: RepoViewState) => Partial<RepoViewState>)) =>
       rawSet((st) => {
@@ -503,6 +525,13 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       focusRequest: 0,
       fileListCursor: null,
       filterKeep: null,
+      stickyHistory: null,
+
+      setStickyHistory(mode) {
+        const cur = get().stickyHistory;
+        if (cur === mode || (cur && mode && cur.blame === mode.blame)) return;
+        rawSet({ stickyHistory: mode });
+      },
 
       setFileListCursor(key) {
         if (get().fileListCursor !== key) set({ fileListCursor: key });
@@ -654,6 +683,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         // Worktree-side contents are never cached (plan 1B deviation 9): prefetching one would
         // be a read whose result is thrown away.
         services.contents.prefetch(neighbours.map((n) => contentKey(contentsRequest(n))).filter((k) => !isMutableKey(k)));
+        if (get().stickyHistory) stickyOpener?.(storeApi, target);
       },
 
       /** Opens the first file of the first non-empty section (a WIP row may have only staged

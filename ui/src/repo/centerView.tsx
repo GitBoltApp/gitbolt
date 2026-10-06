@@ -25,8 +25,10 @@ type View<P> = ComponentType<CenterViewProps<P>> | LazyExoticComponent<Component
  *   as the view is open, so nothing there can navigate away from it.
  * - `drivesSelection`: the view puts commits in the details panel (the tab's selection); closing
  *   it (or opening another view in its place) puts back the selection the graph had.
+ * - `onClose`: runs once the view has closed (`closeCenterView`) or another kind of view took its
+ *   place; not when a view of its own kind replaces it (File History ends its sticky mode here).
  */
-export interface CenterViewOptions { sidebar?: 'narrow' | 'hide'; drivesSelection?: boolean }
+export interface CenterViewOptions { sidebar?: 'narrow' | 'hide'; drivesSelection?: boolean; onClose?: (tabId: string) => void }
 
 /** `over`: the file open in the tab when the view opened (the store's `diff`), or `null`.
  * `restore`: the graph's selection to put back on close (`drivesSelection`). */
@@ -63,6 +65,16 @@ export function openCenterView<P>(tabId: string, kind: string, props: P): void {
   else if (prev?.restore) store?.getState().restoreSelection(prev.restore);
   const over = store?.getState().diff ?? null;
   useCenterViews.setState((s) => ({ byTab: { ...s.byTab, [tabId]: { kind, props, seq: ++seq, over, restore } } }));
+  if (prev && prev.kind !== kind) optionsOf(prev.kind).onClose?.(tabId);
+}
+
+/** Puts `tabId`'s open view back on top of the tab's open file, as it is (no fresh mount): the
+ * file it's now over is that one. */
+export function raiseCenterView(tabId: string): void {
+  const open = useCenterViews.getState().byTab[tabId];
+  const diff = tabStore(tabId)?.getState().diff ?? null;
+  if (!open || open.over === diff) return;
+  useCenterViews.setState((s) => ({ byTab: { ...s.byTab, [tabId]: { ...open, over: diff } } }));
 }
 
 export function closeCenterView(tabId: string): void {
@@ -74,6 +86,7 @@ export function closeCenterView(tabId: string): void {
     return { byTab };
   });
   if (open.restore) tabStore(tabId)?.getState().restoreSelection(open.restore);
+  optionsOf(open.kind).onClose?.(tabId);
 }
 
 /** The view open in `tabId`, if any (outside React). */

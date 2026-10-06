@@ -234,7 +234,9 @@ test.describe('Markdown and navigation history (spec #5 §7, 5B)', () => {
 
 test.describe('the rendered Markdown diff (5C)', () => {
   test('a commit that edits a .md shows its changes rendered: heading and words, an added item, code lines, diagrams side by side', async ({ page }) => {
-    const v1 = '# Setup guide\n\nRun the tool once to warm the cache.\n\n- install\n- configure\n\n```ts\nconst port = 8080;\n```\n\n```mermaid\ngraph TD\n  A-->B\n```\n';
+    const v1 = '# Setup guide\n\nRun the tool once to warm the cache.\n\n- install\n- configure\n\n```ts\nconst port = 8080;\n```\n\n```mermaid\ngraph TD\n  A-->B\n```\n'
+      // An unchanged appendix: the pane scrolls, for the overview ruler.
+      + Array.from({ length: 40 }, (_, i) => `\nAppendix paragraph ${i + 1} keeps the page long.\n`).join('');
     const v2 = v1.replace('Setup', 'Install').replace('once', 'twice').replace('- configure\n', '- configure\n- verify\n').replace('8080', '9090').replace('A-->B', 'A-->C');
     const repo = docsRepo({ 'guide.md': v1 }, 'Add guide');
     writeFileSync(join(repo, 'guide.md'), v2);
@@ -256,6 +258,36 @@ test.describe('the rendered Markdown diff (5C)', () => {
     await expect(md.locator('.md-code-add')).toHaveText('const port = 9090;');
     await expect(md.locator('.md-diff-pair img[alt="Mermaid diagram"]')).toHaveCount(2, { timeout: 10_000 });
 
+    await test.step('the overview ruler: a mark per change on its canvas, no native scrollbar; a click scrolls the pane there', async () => {
+      const ruler = page.locator('.md-diff-ruler');
+      await expect(ruler).toBeVisible();
+      await expect(ruler).toHaveAttribute('aria-hidden', 'true');
+      // The changes Previous/Next step through: the heading, the words, the item, the code, the diagrams.
+      await expect(ruler).toHaveAttribute('data-marks', '5');
+      const painted = await ruler.locator('canvas').evaluate((c: HTMLCanvasElement) => {
+        const d = c.getContext('2d')!.getImageData(Math.floor(c.width / 2), 0, 1, c.height).data;
+        let rows = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i]! > 100) rows++;
+        return rows;
+      });
+      expect(painted).toBeGreaterThan(0);
+      // No ground, as Monaco's transparent .diffOverview: the unmarked rows are clear.
+      const clear = await ruler.locator('canvas').evaluate((c: HTMLCanvasElement) => {
+        const d = c.getContext('2d')!.getImageData(Math.floor(c.width / 2), 0, 1, c.height).data;
+        let rows = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] === 0) rows++;
+        return rows;
+      });
+      expect(clear).toBeGreaterThan(0);
+      expect(await md.evaluate((el) => (el as HTMLElement).offsetWidth - el.clientWidth)).toBe(0);
+      expect(await md.evaluate((el) => el.scrollTop)).toBe(0);
+      const box = (await ruler.boundingBox())!;
+      await ruler.click({ position: { x: box.width / 2, y: box.height - 4 } });
+      await expect.poll(() => md.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      await ruler.click({ position: { x: box.width / 2, y: 2 } });
+      await expect.poll(() => md.evaluate((el) => el.scrollTop)).toBe(0);
+    });
+
     await test.step('Split: old words on the left, new ones on the right, in one aligned row; Inline again', async () => {
       const modes = page.getByRole('group', { name: 'View mode' });
       await modes.getByRole('button', { name: 'Split' }).click();
@@ -272,6 +304,7 @@ test.describe('the rendered Markdown diff (5C)', () => {
     await page.getByRole('group', { name: 'Markdown view' }).getByRole('button', { name: 'Source' }).click();
     await expect(page.getByTestId('text-diff')).toBeVisible();
     await expect(md).toBeHidden();
+    await expect(page.locator('.md-diff-ruler')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Split' })).not.toHaveAttribute('aria-disabled', 'true');
   });
 });

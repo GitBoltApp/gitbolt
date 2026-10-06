@@ -94,3 +94,15 @@
 .md-rendered > * { max-width: 880px; margin-inline: auto; }
 /* 5C: the split Markdown diff holds two reading columns. */
 .md-rendered > .md-diff-split { max-width: 1784px; }
+/* The rendered Markdown diff's box: the pane, with its overview ruler over the right edge
+   (MdDiffRuler.tsx), as wide as Monaco's diff overview, its slider the scrollbar thumb's colours.
+   While the ruler shows it replaces the pane's own scrollbar, as Monaco's does, and the text
+   keeps clear of it (24 px + the ruler's 30). */
+.md-diff-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.md-diff-frame[hidden], .md-diff-ruler[hidden], .md-diff-ruler-slider[hidden] { display: none; }
+.md-diff-ruled > .md-diff-pane { scrollbar-width: none; padding-right: 54px; }
+.md-diff-ruled > .md-diff-pane::-webkit-scrollbar { display: none; }
+.md-diff-ruler { position: absolute; top: 0; right: 0; bottom: 0; width: 30px; z-index: 1; }
+.md-diff-ruler > canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.md-diff-ruler-slider { position: absolute; top: 0; left: 0; width: 100%; background: var(--scroll-thumb-bg); will-change: transform; }
+.md-diff-ruler-slider:hover, .md-diff-ruler-slider.md-diff-ruler-active { background: var(--scroll-thumb-hover-bg); }

@@ -1,6 +1,8 @@
 import { ArrowDown, ArrowUp, Pilcrow, WrapText } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useRepoView, type DiffTarget } from '../repo/store';
+import { tabIdOf } from '../app/tabStores';
+import { endStickyHistory } from '../history/sticky';
+import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useDiffPrefs, type DiffMode } from './diffPrefs';
 import { changeStepper } from './changeStepper';
@@ -45,7 +47,13 @@ export const goToChange = (dir: 'next' | 'previous') => {
 export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, rendered = false, leading, staging, history, markdown, views }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; rendered?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode; markdown?: ReactNode; views?: ReactNode }) {
   const prefs = useDiffPrefs((s) => s.prefs);
   const setPrefs = useDiffPrefs((s) => s.set);
+  const store = useRepoViewStore();
   const setView = useRepoView((s) => s.setView);
+  // A view picked here is the user's: File History stops being sticky (UX), even for the pressed one.
+  const pick = (view: DiffTarget['view']) => {
+    endStickyHistory(tabIdOf(store));
+    setView(view);
+  };
   const inDiff = target.view === 'diff';
   // The rendered Markdown diff is Split or one column (Inline): a Hunk pick shows it as Inline.
   const mode: DiffMode = rendered && !binary && prefs.mode === 'hunk' ? 'inline' : prefs.mode;
@@ -56,8 +64,8 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary
       <div className="diff-toolbar-start">{leading}</div>
       {views ?? (
         <div className="segmented">
-          <button type="button" aria-pressed={!inDiff} onClick={() => setView('file')}>File View</button>
-          <button type="button" aria-pressed={inDiff} disabled={!canDiff} onClick={() => setView('diff')}>Diff View</button>
+          <button type="button" aria-pressed={!inDiff} onClick={() => pick('file')}>File View</button>
+          <button type="button" aria-pressed={inDiff} disabled={!canDiff} onClick={() => pick('diff')}>Diff View</button>
         </div>
       )}
       <div className="diff-toolbar-end">

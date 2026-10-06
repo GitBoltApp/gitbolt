@@ -5,7 +5,7 @@ import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { RowPayload } from '../api/gen/RowPayload';
 import { RepoContext } from '../app/repoContext';
 import { useTabViews } from '../app/tabStores';
-import { CenterViewHost, centerViewOf, closeCenterView, leaveFileView, openCenterView, registerCenterView, sidebarFor, type CenterViewProps } from './centerView';
+import { CenterViewHost, centerViewOf, closeCenterView, leaveFileView, openCenterView, raiseCenterView, registerCenterView, sidebarFor, type CenterViewProps } from './centerView';
 import { RepoView } from './RepoView';
 import { createRepoViewStore, fileViewTarget } from './store';
 import { fakeServices } from './testServices';
@@ -25,6 +25,8 @@ function Probe({ props, close }: CenterViewProps<{ title: string }>) {
 registerCenterView('probe', Probe);
 registerCenterView('crasher', () => { throw new Error('boom'); });
 registerCenterView('planner', Probe, { sidebar: 'hide', drivesSelection: true });
+const onClose = vi.fn();
+registerCenterView('closer', Probe, { onClose });
 afterEach(() => { closeCenterView('t1'); closeCenterView('t2'); });
 
 describe('the center view (spec #3 §4.1, §4.2: a view in the graph\'s place)', () => {
@@ -107,6 +109,31 @@ describe('the center view (spec #3 §4.1, §4.2: a view in the graph\'s place)',
     act(() => store.getState().openFile(fileViewTarget('src/b.txt', A, spec)));
     expect(screen.getByRole('region', { name: 'Diff' })).toHaveTextContent('src/b.txt');
     expect(document.querySelector('section[aria-label="Probe"]')).not.toBeVisible();
+    useTabViews.setState({ views: {} });
+  });
+
+  it('raiseCenterView puts the view back on top of the file opened over it, as it was (no fresh mount); onClose runs on close or another kind in its place', () => {
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    useTabViews.setState({ views: { t1: { repo: 1, services: store.getState().services, store } } });
+    render(
+      <RepoContext value={{ tabId: 't1', repoId: 1, path: '/r', worktree: '/r', info: null }}>
+        <RepoView repo={1} repoPath="/r" graph={graph} store={store} graphOverlay={<div data-testid="overlay" />} />
+      </RepoContext>,
+    );
+    act(() => openCenterView('t1', 'closer', { title: 'History' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Count 0' }));
+    act(() => store.getState().openFile(fileViewTarget('src/a.txt', A, { kind: 'commit', id: A, parent: 0 })));
+    expect(document.querySelector('section[aria-label="Probe"]')).not.toBeVisible();
+    act(() => raiseCenterView('t1'));
+    expect(screen.getByRole('button', { name: 'Count 1' })).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => openCenterView('t1', 'closer', { title: 'Again' }));
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => openCenterView('t1', 'probe', { title: 'Other' }));
+    expect(onClose).toHaveBeenCalledExactlyOnceWith('t1');
+    act(() => openCenterView('t1', 'closer', { title: 'Back' }));
+    act(() => closeCenterView('t1'));
+    expect(onClose).toHaveBeenCalledTimes(2);
     useTabViews.setState({ views: {} });
   });
 

@@ -12,6 +12,12 @@ export function isMarkdownPath(path: string): boolean {
   return dot > 0 && (MARKDOWN_EXTENSIONS as readonly string[]).includes(name.slice(dot + 1).toLowerCase());
 }
 
+/** Whether a diff of `t` is a Markdown diff: either side's path is Markdown, so a rename to or
+ * from a Markdown name (e.g. `Bug_Template.md` → `Bug_Template`) still renders. */
+export function isMarkdownTarget(t: { path: string; oldPath: string | null }): boolean {
+  return isMarkdownPath(t.path) || (t.oldPath !== null && isMarkdownPath(t.oldPath));
+}
+
 /** Spec #5 §3.1: File View renders Markdown up to this many UTF-8 bytes; above, Source. */
 export const RENDER_MAX_BYTES = 5 * 1024 * 1024;
 /** A parse taking longer than this falls back to Source. */

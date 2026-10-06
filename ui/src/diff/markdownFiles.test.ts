@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { diffRenderKey, isMarkdownPath, overRenderLimit, RENDER_MAX_BYTES } from './markdownFiles';
+import { diffRenderKey, isMarkdownPath, isMarkdownTarget, overRenderLimit, RENDER_MAX_BYTES } from './markdownFiles';
 
 describe('isMarkdownPath (spec #5 §3.3)', () => {
   it.each([
     ['README.md', true], ['docs/Guide.MD', true], ['notes.markdown', true], ['page.mdx', true],
     ['a.txt', false], ['md', false], ['.md', false], ['docs.md/file.txt', false], ['x.mdown', false],
   ])('%s → %s', (path, want) => expect(isMarkdownPath(path)).toBe(want));
+});
+
+describe('isMarkdownTarget: a diff renders when either side is Markdown', () => {
+  it.each([
+    [{ path: 'docs/Bug_Template', oldPath: 'docs/Bug_Template.md' }, true],
+    [{ path: 'notes.md', oldPath: 'notes.txt' }, true],
+    [{ path: 'README.md', oldPath: null }, true],
+    [{ path: 'notes.txt', oldPath: 'notes.cfg' }, false],
+    [{ path: 'notes.txt', oldPath: null }, false],
+  ])('%o → %s', (t, want) => expect(isMarkdownTarget(t)).toBe(want));
 });
 
 describe('overRenderLimit (spec #5 §3.1)', () => {

@@ -94,7 +94,6 @@
 .md-code-line { display: block; width: max-content; min-width: 100%; }
 .md-code-add { background: var(--diff-inserted-line); }
 .md-code-del { background: var(--diff-removed-line); }
-.md-diff-none { margin: 0 0 10px; color: var(--text-secondary); font-size: 11px; }
 .md .md-diff-note { margin: 0 0 4px; color: var(--text-secondary); font-size: 11px; font-style: italic; }
 
 /* 5C split view: one scroll, a grid row per aligned unit, the old side left and the new right.

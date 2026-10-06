@@ -23,6 +23,7 @@ import { projectRemote, type ProjectRemote } from '../forge/urls';
 import { isAncestorIn } from '../graph/ancestry';
 import { labelsByRowOf, membershipOf } from '../graph/graphIndex';
 import { loadOpeners, openersSnapshot, openVersion, openWith, parseListSpec, refreshOpeners, subscribeOpeners, worktreeOf, type OpenInTarget } from '../openIn/openers';
+import { endStickyHistory } from '../history/sticky';
 import { centerViewEditorFile, centerViewOf, centerViewOnTop } from '../repo/centerView';
 import type { RepoServices } from '../repo/services';
 import type { SideItem } from '../sidebar/model';
@@ -324,8 +325,9 @@ export function fileMenuEnv(store: RepoViewStore): MenuEnv {
       copy: (text) => { copyText(text).then(() => toast('Copied'), () => toast('Copy failed')); },
       openUrl: (url) => { api.openUrl(url).catch((e: unknown) => toast(errorMessage(e))); },
       openIn: (o, t) => openWith(s.repo, o, t),
-      openDiff: (t) => store.getState().openFile({ ...t, view: 'diff' }),
-      viewFile: (t) => store.getState().openFile({ ...t, view: 'file' }),
+      // View ▸ Diff / File name the view: File History stops being sticky (UX), as the toolbar's do.
+      openDiff: (t) => { endStickyHistory(tabId); store.getState().openFile({ ...t, view: 'diff' }); },
+      viewFile: (t) => { endStickyHistory(tabId); store.getState().openFile({ ...t, view: 'file' }); },
       compare: (from, to) => compare(store, from, to),
       copyMessage: (sha) => copyMessage(store, sha),
       showInGraph: (sha) => {

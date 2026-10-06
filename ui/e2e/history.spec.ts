@@ -18,6 +18,14 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
   git(repo, 'commit', '-qm', 'Add the guide');
   writeFileSync(join(repo, 'guide.md'), '# Setup guide\n\nRun the tool twice.\n');
   git(repo, 'commit', '-qam', 'Edit the guide');
+  // Two plain files changed in one commit, for sticky File History (the last step).
+  writeFileSync(join(repo, 'notes.txt'), 'Notes\n');
+  writeFileSync(join(repo, 'todo.txt'), 'Todo\n');
+  git(repo, 'add', 'notes.txt', 'todo.txt');
+  git(repo, 'commit', '-qm', 'Start the notes');
+  writeFileSync(join(repo, 'notes.txt'), 'Notes, kept\n');
+  writeFileSync(join(repo, 'todo.txt'), 'Todo, done\n');
+  git(repo, 'commit', '-qam', 'Edit the notes');
   await page.goto(openUrl(repo));
   await test.step('File History follows the rename, Blame groups the lines, a group selects its commit, Esc returns to the diff', async () => {
     const shaOf = (subject: string) => git(repo, 'log', '--format=%H', '-F', `--grep=${subject}`, '-1');
@@ -190,6 +198,37 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
     const md = view.getByTestId('markdown-diff');
     await expect(md.locator('p del')).toContainText('once');
     await expect(md.locator('p ins')).toContainText('twice');
+  });
+  // UX: File History is sticky. While it's open, a file picked in the right panel opens in it too.
+  await test.step('sticky: another file picked in Blame opens in Blame; once closed, a file opens its diff', async () => {
+    const view = page.getByRole('region', { name: 'File history' });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await graphRow(page, 'Edit the notes').click();
+    await fileRow(page, 'notes.txt').click();
+    const diff = page.getByRole('region', { name: 'Diff' });
+    await diff.getByRole('toolbar', { name: 'Diff options' }).getByRole('button', { name: 'Blame', exact: true }).click();
+    await expect(view.getByRole('heading', { name: 'File History: notes.txt' })).toBeVisible();
+    // The previous step left `File | Changes` on Changes, where Blame is off.
+    await view.getByRole('group', { name: 'History view' }).getByRole('button', { name: 'File' }).click();
+    await expect(view.getByTestId('blame-group')).toContainText('Edit the notes');
+
+    await fileRow(page, 'todo.txt').click();
+    await expect(view.getByRole('heading', { name: 'File History: todo.txt' })).toBeVisible();
+    await expect(view.getByRole('button', { name: 'Blame', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(view.getByTestId('blame-group')).toContainText('Edit the notes');
+    await expect(view.getByTestId('file-view')).toContainText('Todo, done');
+    // The keyboard stays in the file list: ↑ steps to the other file, still in Blame.
+    await page.keyboard.press('ArrowUp');
+    await expect(view.getByRole('heading', { name: 'File History: notes.txt' })).toBeVisible();
+    await expect(view.getByTestId('file-view')).toContainText('Notes, kept');
+
+    // Closed, the mode ends: a file picked opens its Diff View.
+    await view.getByRole('button', { name: 'Close file history' }).click();
+    await expect(view).toHaveCount(0);
+    await fileRow(page, 'todo.txt').click();
+    await expect(diff.getByTestId('diff-path')).toContainText('todo.txt');
+    await expect(view).toHaveCount(0);
   });
 });
 

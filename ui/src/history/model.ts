@@ -1,8 +1,10 @@
 import type { FileHistoryPage } from '../api/gen/FileHistoryPage';
 import type { FileHistoryRow } from '../api/gen/FileHistoryRow';
 
-/** What File History opens on (spec #3 §4.2): `rev` null is the worktree's HEAD (ruling 1). */
-export interface FileHistoryArgs { repoId: number; worktree: string; path: string; rev: string | null; blame: boolean }
+/** What File History opens on (spec #3 §4.2): `rev` null is the worktree's HEAD (ruling 1).
+ * `follow`: opened for a file picked in the right panel while File History was sticky (UX): the
+ * keyboard stays in that file list, so ↑/↓ go on stepping through its files. */
+export interface FileHistoryArgs { repoId: number; worktree: string; path: string; rev: string | null; blame: boolean; follow?: boolean }
 
 export interface HistoryState {
   args: FileHistoryArgs;

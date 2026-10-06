@@ -16,7 +16,9 @@ export type Place =
   | { kind: 'mr'; number: number; scrollTop: number }
   /** `block`: where a long rendered document was read (`scrollTop` is its fallback). */
   | { kind: 'file'; path: string; commit: FileCommit; view: PlaceView; scrollTop: number; block?: BlockPos }
-  | { kind: 'commit'; sha: string };
+  | { kind: 'commit'; sha: string }
+  /** File History (Blame on or off) of `path` from `rev` (null: `worktree`'s HEAD). */
+  | { kind: 'history'; path: string; rev: string | null; worktree: string; blame: boolean };
 export type PlaceKindName = Place['kind'];
 type PlaceOf<K extends PlaceKindName> = Extract<Place, { kind: K }>;
 
@@ -30,6 +32,7 @@ export function placeKey(p: Place): string {
     case 'mr': return `mr:${p.number}`;
     case 'file': return `file:${p.commit}:${p.path}`;
     case 'commit': return `commit:${p.sha}`;
+    case 'history': return `history:${p.worktree}:${p.rev ?? 'HEAD'}:${p.path}`;
   }
 }
 

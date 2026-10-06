@@ -5,6 +5,7 @@ import { markdownViewOf } from '../diff/markdownOverride';
 import { useDiffPrefs } from '../diff/diffPrefs';
 import { isMarkdownPath } from '../diff/markdownFiles';
 import { shortSha } from '../format/sha';
+import { endStickyHistory } from '../history/sticky';
 import { MR_FLYOUT } from '../forge/mrStore';
 import { contentKey } from '../repo/services';
 import { contentsRequest, fileViewTarget, openWorktree, targetFor, worktreeViewTarget, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
@@ -138,6 +139,8 @@ export async function openFileAt(tabId: string, path: string, commit: FileCommit
         st.selectCommitById(commit);
       }
     }
+    // A place in File View (a link's target, Back/Forward's): File History stops being sticky (UX).
+    endStickyHistory(tabId);
     const now = v.store.getState();
     now.openFile(listTarget(now, path) ?? probe);
   });
@@ -175,11 +178,12 @@ const offCommit = registerPlaceKind('commit', {
 
 /** A tab's store: a file opened in File View is a place (from anywhere: the file list, a menu,
  * the palette, a link). Opening another file of the same list while one is open in File View
- * (stepping through "View all files") replaces it. Graph selection and Diff View add none. */
+ * (stepping through "View all files") replaces it. Graph selection and Diff View add none, nor
+ * does a file opened while File History is sticky: its File History is the place. */
 function watch(tabId: string, store: RepoViewStore): () => void {
   return store.subscribe((s, prev) => {
     const d = s.diff;
-    if (!d || d.view !== 'file' || (prev.diff?.key === d.key && prev.diff.view === 'file')) return;
+    if (!d || d.view !== 'file' || s.stickyHistory || (prev.diff?.key === d.key && prev.diff.view === 'file')) return;
     const place = filePlaceOf(s, d);
     if (!place) return;
     const stepping = prev.diff?.view === 'file' && listOf(prev.diff) === listOf(d);

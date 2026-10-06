@@ -6,7 +6,7 @@ import type { FileMarkdownContext } from '../types';
 // Diagrams draw through a stub (MdMermaid's own tests cover Mermaid); code stays plain.
 vi.mock('../mermaid', () => ({ renderMermaid: async (s: string) => `<svg xmlns="http://www.w3.org/2000/svg"><text>${s.length}</text></svg>` }));
 vi.mock('../highlightQueue', () => ({ queueHighlight: () => ({ result: Promise.resolve(null), cancel: () => {} }) }));
-const { MarkdownDiff, NO_RENDERED_CHANGES } = await import('./MarkdownDiff');
+const { MarkdownDiff } = await import('./MarkdownDiff');
 const { resetChunkStreams } = await import('../parseAsync');
 const { clearParseCache } = await import('../parse');
 
@@ -31,14 +31,15 @@ describe('<MarkdownDiff> (5C)', () => {
     expect(screen.queryByRole('note')).toBeNull();
   });
 
-  it('says so when nothing changed in the rendered text (R5)', () => {
-    render(<MarkdownDiff old={'Some  text\nhere.\n'} new={'Some text here.\n'} flavor="github" context={NEW} oldContext={OLD} />);
-    expect(screen.getByRole('note')).toHaveTextContent(NO_RENDERED_CHANGES);
+  it('nothing changed in the rendered text: the document, unmarked, with no notice', () => {
+    const { container } = render(<MarkdownDiff old={'Some  text\nhere.\n'} new={'Some text here.\n'} flavor="github" context={NEW} oldContext={OLD} />);
+    expect(container).toHaveTextContent('Some text here.');
+    expect(container.querySelector('[data-diff-mark]')).toBeNull();
+    expect(screen.queryByRole('note')).toBeNull();
   });
 
-  it('an LF to CRLF change says only formatting changed, with nothing removed or added', () => {
+  it('an LF to CRLF change marks nothing removed or added', () => {
     const { container } = render(<MarkdownDiff old={v1} new={v1.replace(/\n/g, '\r\n')} flavor="github" context={NEW} oldContext={OLD} />);
-    expect(screen.getByRole('note')).toHaveTextContent(NO_RENDERED_CHANGES);
     expect(container.querySelector('[data-diff-mark]')).toBeNull();
   });
 
@@ -59,7 +60,6 @@ describe('<MarkdownDiff> (5C)', () => {
       const fn = c.querySelector('section[data-footnotes]')!;
       expect(fn.querySelector('[data-diff-mark="changed"] del')).toHaveTextContent('old');
       expect(fn.querySelector('[data-diff-mark="changed"] ins')).toHaveTextContent('new');
-      expect(screen.queryByText(NO_RENDERED_CHANGES)).toBeNull();
     });
 
     it('an added and a removed footnote are marked in the footnotes', () => {
@@ -68,14 +68,12 @@ describe('<MarkdownDiff> (5C)', () => {
       cleanup();
       c = show('Gone.[^n]\n\n[^n]: A note.\n', 'Other text.\n');
       expect(c.querySelector('section[data-footnotes] [data-diff-mark="removed"]')).toHaveTextContent('A note.');
-      expect(screen.queryByText(NO_RENDERED_CHANGES)).toBeNull();
     });
 
     it("a list's start number shows a marked list with a note", () => {
       const c = show('3. alpha\n4. beta\n', '5. alpha\n6. beta\n');
       expect(c.querySelector('[data-diff-mark="changed"] .md-diff-note')).toHaveTextContent('Start number changed');
       expect(c.querySelector('[data-diff-mark="changed"] ol')).toHaveAttribute('start', '5');
-      expect(screen.queryByText(NO_RENDERED_CHANGES)).toBeNull();
     });
 
     it("a link definition's changed URL marks its uses: the old link removed, the new one added", () => {
@@ -83,7 +81,6 @@ describe('<MarkdownDiff> (5C)', () => {
       // Links render without href (ruling 12): their targets are checked in diffTree.test.
       expect(c.querySelector('del a.md-link')).toHaveTextContent('the docs');
       expect(c.querySelector('ins a.md-link')).toHaveTextContent('the docs');
-      expect(screen.queryByText(NO_RENDERED_CHANGES)).toBeNull();
     });
 
     it("a document's own data-gb-note never shows as a note", () => {

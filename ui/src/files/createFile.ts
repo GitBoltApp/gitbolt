@@ -8,6 +8,7 @@ import { tabIdOf, tabStore } from '../app/tabStores';
 import { showSourceFor } from '../diff/markdownOverride';
 import { isMarkdownPath } from '../diff/markdownFiles';
 import { loadMonacoHost } from '../diff/monaco/load';
+import { endStickyHistory } from '../history/sticky';
 import type { MenuRow } from '../menu/types';
 import { openWorktree, targetFor, worktreeViewTarget, type DiffTarget, type RepoViewStore } from '../repo/store';
 import { promptText } from '../ui/PromptDialog';
@@ -96,6 +97,8 @@ export async function createFile(ctx: WriteCtx, path: string): Promise<boolean> 
   // (the default) would show an empty page with the editor hidden under it. Only this file shows
   // Source; the app-wide pick stays as it is.
   if (isMarkdownPath(path)) showSourceFor(path);
+  // Made to be typed into, in File View: File History stops being sticky (UX).
+  endStickyHistory(ctx.tabId);
   store.getState().openFile(target);
   void focusWhenShown(ctx.tabId, target.key);
   return true;

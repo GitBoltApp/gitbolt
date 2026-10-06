@@ -6,6 +6,7 @@ import type { FileHistoryPage } from '../api/gen/FileHistoryPage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
+import { useTabViews } from '../app/tabStores';
 import { centerViewEditorFile } from '../repo/centerView';
 import { useToast } from '../ui/toast';
 import { createRepoViewStore, RepoViewContext } from '../repo/store';
@@ -92,6 +93,21 @@ describe('File History (spec #3 §4.2)', () => {
     outside.remove();
   });
 
+  it('opened for a file picked while sticky (`follow`, UX), it leaves the keyboard in the file list it was picked in', async () => {
+    fileHistory.mockResolvedValue({ rows: [row('a1')], more: false });
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ contents }));
+    const files = document.createElement('div');
+    files.className = 'file-list';
+    const listbox = files.appendChild(document.createElement('ul'));
+    listbox.tabIndex = 0;
+    document.body.append(files);
+    listbox.focus();
+    render(<RepoViewContext value={store}><FileHistory tabId="t1" props={{ ...args, follow: true }} close={vi.fn()} /></RepoViewContext>);
+    await screen.findAllByRole('option');
+    expect(document.activeElement).toBe(listbox);
+    files.remove();
+  });
+
   it('Load more asks for the rows after those loaded', async () => {
     fileHistory.mockResolvedValueOnce({ rows: [row('a1')], more: true }).mockResolvedValueOnce({ rows: [row('b2')], more: false });
     view();
@@ -151,6 +167,20 @@ describe('File History (spec #3 §4.2)', () => {
     fireEvent.click(screen.getByTestId('blame-stub'), { altKey: true });
     expect(close).toHaveBeenCalled();
     expect(selectCommit).toHaveBeenCalledWith('t1', 'c3', { focus: true });
+  });
+
+  it('its Blame toggle sets the tab\'s sticky mode (UX): the next file opens as it was left', async () => {
+    fileHistory.mockResolvedValue({ rows: [row('a1')], more: false });
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ contents }));
+    useTabViews.setState({ views: { t1: { repo: 1, services: store.getState().services, store } } });
+    store.getState().setStickyHistory({ blame: false });
+    render(<RepoViewContext value={store}><FileHistory tabId="t1" props={args} close={vi.fn()} /></RepoViewContext>);
+    await screen.findAllByRole('option');
+    fireEvent.click(screen.getByRole('button', { name: 'Blame' }));
+    expect(store.getState().stickyHistory).toEqual({ blame: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Blame' }));
+    expect(store.getState().stickyHistory).toEqual({ blame: false });
+    useTabViews.setState({ views: {} });
   });
 
   it('a blame pick outside the file\'s history, or outside the loaded graph, says so', async () => {

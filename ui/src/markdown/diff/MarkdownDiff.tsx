@@ -9,8 +9,6 @@ import type { FileMarkdownContext, MdFlavor } from '../types';
 import { diffMarkdown } from './diffTree';
 import '../markdown.css';
 
-/** R5: shown above a diff in which nothing renders differently. */
-export const NO_RENDERED_CHANGES = 'Nothing changed in the rendered text: only whitespace or Markdown formatting. Source shows the edit.';
 
 export interface MarkdownDiffProps {
   /** The old text; `''` for an added file (R6). */
@@ -32,10 +30,6 @@ export interface MarkdownDiffProps {
   onTooLarge?: () => void;
 }
 
-function NoChanges() {
-  return <p role="note" className="md-diff-none">{NO_RENDERED_CHANGES}</p>;
-}
-
 type Inner = { old: string; neu: string; flavor: MdFlavor; context: FileMarkdownContext; oldContext: FileMarkdownContext; split: boolean; className: string; onTooLarge?: () => void };
 
 /** Calls `onTooLarge` once `tooLarge` holds. */
@@ -53,8 +47,7 @@ function Streamed({ old, neu, flavor, context, oldContext, split, className, onT
   useSyncExternalStore(stream.subscribe, () => stream.version);
   useTooLarge(stream.tooLarge, onTooLarge);
   if (stream.tooLarge && onTooLarge) return null;
-  const none = stream.done && !stream.failed && stream.chunks[0]?.data?.gbChanges === 0;
-  return <>{none && <NoChanges />}<StreamBody stream={stream} text={neu} context={context} old={oldContext} split={split} className={className} /></>;
+  return <StreamBody stream={stream} text={neu} context={context} old={oldContext} split={split} className={className} />;
 }
 
 function Rendered({ old, neu, flavor, context, oldContext, split, className, onTooLarge }: Inner) {
@@ -77,7 +70,7 @@ function Rendered({ old, neu, flavor, context, oldContext, split, className, onT
   if (!small) return <Streamed key={streamKey} old={old} neu={neu} flavor={flavor} context={context} oldContext={oldContext} split={split} className={className} onTooLarge={onTooLarge} />;
   if (!result) return <PlainBody text={neu} className={className} />;
   if (result.gaveUp) return onTooLarge ? null : <TooLarge text={neu} className={className} />;
-  return <>{result.changes === 0 && <NoChanges />}<Whole tree={result.root} context={context} old={oldContext} split={split} className={className} /></>;
+  return <Whole tree={result.root} context={context} old={oldContext} split={split} className={className} />;
 }
 
 /**

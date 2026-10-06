@@ -7,6 +7,7 @@ import { setChangeStepper, stepChange } from './changeStepper';
 import { useDiffPrefs } from './diffPrefs';
 import type { DiffSides } from './markdownDiffSides';
 import { markSlow, PRECHECK_BYTES, TOO_LARGE_TO_RENDER, useDiffTooLarge } from './markdownFiles';
+import { MdDiffFrame } from './MdDiffRuler';
 import { useNarrowPane } from './narrowPane';
 import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
 import type { HunkZoneRequest } from './monaco/host';
@@ -109,15 +110,17 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
       </div>
       {!rendered && after}
       {isMd && (
-        <div ref={pane} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1}>
-          {rendered && ctx && (waiting
-            ? <div className="diff-message" aria-busy="true">Rendering…</div>
-            : (
-              <Suspense fallback={<div className="diff-message" aria-busy="true">Loading…</div>}>
-                <MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} split={splitPicked && !narrow} onTooLarge={onTooLarge} />
-              </Suspense>
-            ))}
-        </div>
+        <MdDiffFrame pane={pane} active={rendered} split={splitPicked && !narrow}>
+          <div ref={pane} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1}>
+            {rendered && ctx && (waiting
+              ? <div className="diff-message" aria-busy="true">Rendering…</div>
+              : (
+                <Suspense fallback={<div className="diff-message" aria-busy="true">Loading…</div>}>
+                  <MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} split={splitPicked && !narrow} onTooLarge={onTooLarge} />
+                </Suspense>
+              ))}
+          </div>
+        </MdDiffFrame>
       )}
     </>
   );

@@ -8,6 +8,7 @@ import { copyText } from '../api/transport';
 import type { FileHistoryRow } from '../api/gen/FileHistoryRow';
 import type { DiffTarget } from '../repo/store';
 import { selectCommit } from '../app/graphNav';
+import { tabStore } from '../app/tabStores';
 import { Avatar } from '../avatars/Avatar';
 import { editorOwnsEscape, ESCAPE_OWNER_AREAS, useContents } from '../diff/DiffPanel';
 import { useDiffPrefs, type HistoryView } from '../diff/diffPrefs';
@@ -88,6 +89,11 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
     void store.getState().seek(sha).then((found) => { if (!found) useToast.getState().show(`${shortSha(sha)} isn't in this file's history`); });
   }, [close, store, tabId]);
   useEffect(() => { void store.getState().loadMore(); }, [store]);
+  // The tab's sticky mode (UX) follows the Blame toggle: the next file opens as this was left.
+  useEffect(() => store.subscribe((s, prev) => {
+    const tab = tabStore(tabId)?.getState();
+    if (s.blame !== prev.blame && tab?.stickyHistory) tab.setStickyHistory({ blame: s.blame });
+  }), [store, tabId]);
   useEffect(() => registerKeys('app', (e) => {
     if (e.key !== 'Escape' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing || e.defaultPrevented) return;
     if (ref.current?.checkVisibility?.() === false) return;
@@ -114,7 +120,7 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
         </div>
       </header>
       <div className="file-history-body">
-        <HistoryList store={store} path={props.path} />
+        <HistoryList store={store} path={props.path} follow={props.follow === true} />
         <PanelResizer className="fh-resizer" label="Resize commit list" grows="right" width={listW} defaultWidth={LIST_W.default} min={LIST_W.min} max={LIST_W.max} onChange={changeListW} onLive={liveColumns} />
         {/* Both views have Diff View's toolbar, the switch at its centre, so switching moves nothing. */}
         <div className="file-history-file">
@@ -141,15 +147,20 @@ function copySha(e: MouseEvent, sha: string) {
   copyText(sha).then(() => toast('Copied'), () => toast('Copy failed'));
 }
 
-function HistoryList({ store, path }: { store: StoreApi<HistoryStore>; path: string }) {
+function HistoryList({ store, path, follow }: { store: StoreApi<HistoryStore>; path: string; follow: boolean }) {
   const s = useStore(store);
   const end = historyEnd(s);
   const listRef = useRef<HTMLUListElement>(null);
   // The keyboard moves in with the view: from the diff toolbar's History (whose mousedown keeps
   // focus in the file list, where ↓ would open the next file over the view), a menu or the
   // palette. Effects re-run when the view shows again (`<Activity>`), so a file peeked over it
-  // closing hands the keyboard back here, not to the hidden graph.
-  useEffect(() => listRef.current?.focus({ preventScroll: true }), []);
+  // closing hands the keyboard back here, not to the hidden graph. Except a file picked while
+  // sticky (`follow`, UX): the keyboard stays in the file list it was picked in, so ↑/↓ go on
+  // stepping files.
+  useEffect(() => {
+    if (follow && document.activeElement?.closest('.file-list')) return;
+    listRef.current?.focus({ preventScroll: true });
+  }, [follow]);
   useEffect(() => {
     if (s.selected) listRef.current?.querySelector<HTMLElement>(`[data-sha="${s.selected}"]`)?.scrollIntoView?.({ block: 'nearest' });
   }, [s.selected]);

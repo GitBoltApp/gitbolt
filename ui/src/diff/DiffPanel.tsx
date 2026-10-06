@@ -29,7 +29,7 @@ import type { FileCommit } from '../nav/history';
 import { fileCommitOf, filePlaceKey } from '../nav/repoPlaces';
 import { FileBody, MarkdownViewToggle } from './FileBody';
 import { FileView } from './FileView';
-import { isMarkdownPath, TOO_LARGE_TO_RENDER, useDiffTooLarge, useTooLargeToRender } from './markdownFiles';
+import { isMarkdownPath, isMarkdownTarget, TOO_LARGE_TO_RENDER, useDiffTooLarge, useTooLargeToRender } from './markdownFiles';
 import { DiffTextBody } from './DiffTextBody';
 import { oldCommitOf } from './markdownDiffSides';
 import { useMarkdownView } from './markdownOverride';
@@ -233,7 +233,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
   const { repoId } = useRepoContext();
   const selection = useRepoView((s) => s.selection);
   // 5C: a Markdown file's diff, and the commit its old side's links and images resolve against (R9).
-  const mdDiff = target.view === 'diff' && isMarkdownPath(target.path);
+  const mdDiff = target.view === 'diff' && isMarkdownTarget(target);
   const oldSide = useRepoView((s) => (mdDiff ? oldCommitOf(s, target) : null));
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
@@ -316,7 +316,7 @@ export const editorOwnsEscape = () =>
 /** Targets inside the zone that use ← themselves. */
 const OWNS_ARROWS = '.monaco-host, .hex-view, input, textarea, select, [role="slider"]';
 /** Targets a click leaves alone: controls, and the editor (Monaco focuses itself). */
-const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .hex-view, .md-rendered';
+const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .hex-view, .md-rendered, .md-diff-ruler';
 
 /**
  * The center-panel takeover (spec §10.1). The graph stays mounted, hidden, underneath.
@@ -416,7 +416,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded);
   // 5C: the same toggle for a Markdown file's text diff (R2); while Rendered, the toolbar's text-diff
   // tools say why they're off (R3).
-  const mdDiff = shown.view === 'diff' && textBody && isMarkdownPath(shown.path);
+  const mdDiff = shown.view === 'diff' && textBody && isMarkdownTarget(shown);
   const diffTooLarge = useDiffTooLarge(shown.key, mdDiff ? loaded?.old?.text ?? '' : '', mdDiff ? loaded?.new?.text ?? '' : '').tooLarge;
   const mdPicked = useMarkdownView(mdDiff ? shown.path : null);
   const renderedDiff = mdDiff && mdPicked === 'rendered' && !diffTooLarge;
