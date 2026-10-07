@@ -31,6 +31,17 @@ describe('diffMarkdown (5C)', () => {
     expect(r.root.data?.gbChanges).toBe(2);
   });
 
+  it('a heading that lost words is one changed heading, its removed words marked', () => {
+    const r = d('## Windows (in progress)\n\nThe app builds.\n', '## Windows\n\nThe app builds.\n');
+    expect(summary(r.root)).toEqual(['changed:heading', 'del: (in progress)']);
+    expect(r.changes).toBe(1);
+  });
+
+  it('short list items pair by a shared word or a prefix, unrelated ones do not', () => {
+    expect(summary(d('- Install\n- Gamma steps\n', '- Installing\n- Delta stage\n').root))
+      .toEqual(['item:changed:InstallInstalling', 'del:Install', 'ins:Installing', 'item:removed:Gamma steps', 'item:added:Delta stage']);
+  });
+
   it('an added list item is marked in place, inside the one list', () => {
     const r = d('- install\n- configure\n', '- install\n- configure\n- verify\n');
     expect(summary(r.root)).toEqual(['item:added:verify']);
@@ -204,7 +215,8 @@ describe('diffMarkdown (5C)', () => {
       expect(summary(added.root)).toEqual(['changed:paragraph', 'ins:', 'added:paragraph']);
       expect(added.changes).toBe(2);
       const removed = d('Gone.[^n]\n\n[^n]: A note.\n', 'Other text.\n');
-      expect(summary(removed.root)).toEqual(['removed:paragraph', 'added:paragraph', 'removed:paragraph']);
+      // Two short paragraphs, the only pair: one changed paragraph, its reference removed.
+      expect(summary(removed.root)).toEqual(['changed:paragraph', 'del:Gone', 'ins:Other text', 'del:', 'removed:paragraph']);
       expect(notes(removed)).toHaveLength(1);
     });
 

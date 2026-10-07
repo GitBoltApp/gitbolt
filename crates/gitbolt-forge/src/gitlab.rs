@@ -1875,4 +1875,17 @@ mod tests {
         assert_eq!((open.resolvable, open.resolved, open.resolved_by), (true, false, None));
     }
     // --- end comment actions ---
+
+    #[test]
+    fn a_threads_own_system_note_stays_in_the_thread_in_order() {
+        // GitLab's "changed this line in version 2 of the diff" sits in the diff thread it's about.
+        let who = json!({"id": 8, "username": "grace", "name": "Grace"});
+        let d = json::discussion(&json!({"id": "d2", "individual_note": false, "notes": [
+            {"id": 1, "body": "Why?", "author": who, "created_at": "2026-10-04T09:00:00Z", "system": false, "resolvable": true, "resolved": false},
+            {"id": 2, "body": "changed this line in [version 2 of the diff](/g/p/-/merge_requests/12/diffs?diff_id=2)", "author": who, "created_at": "2026-10-04T19:00:00Z", "system": true, "resolvable": false},
+            {"id": 3, "body": "Fixed.", "author": who, "created_at": "2026-10-04T19:05:00Z", "system": false, "resolvable": true, "resolved": false},
+        ]})).unwrap();
+        assert_eq!(d.notes.iter().map(|n| (n.id.as_str(), n.system)).collect::<Vec<_>>(), [("1", false), ("2", true), ("3", false)]);
+        assert!(d.resolvable && !d.resolved);
+    }
 }

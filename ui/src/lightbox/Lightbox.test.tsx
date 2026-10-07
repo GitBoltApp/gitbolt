@@ -19,7 +19,7 @@ function setWindow(w: number, h: number) {
 }
 
 /** Opens the viewer on an image of `w`×`h` (jsdom decodes nothing: the size is set, then `load`). */
-function show(w: number, h: number, browserUrl: string | null = 'https://gitlab.example.com/group/project/uploads/0123abcd0123abcd/shot.png') {
+function show(w: number, h: number, browserUrl: string | null = 'https://gitlab.example.com/-/project/42/uploads/0123abcd0123abcd/shot.png') {
   act(() => openLightbox({ kind: 'image', url: URL_, alt: 'shot', browserUrl }));
   const img = screen.getByAltText('shot') as HTMLImageElement;
   Object.defineProperty(img, 'naturalWidth', { configurable: true, value: w });
@@ -161,7 +161,7 @@ describe('Lightbox: the image viewer', () => {
     expect(copy.copyImage).toHaveBeenCalledWith({ url: URL_, size: 0 });
     await vi.waitFor(() => expect(useToast.getState().message).toBe('Image copied'));
     fireEvent.click(screen.getByRole('button', { name: 'Open in browser' }));
-    expect(actions.openExternal).toHaveBeenCalledWith('https://gitlab.example.com/group/project/uploads/0123abcd0123abcd/shot.png');
+    expect(actions.openExternal).toHaveBeenCalledWith('https://gitlab.example.com/-/project/42/uploads/0123abcd0123abcd/shot.png');
     act(() => useLightbox.getState().close());
     show(400, 300, null);
     expect(screen.queryByRole('button', { name: 'Open in browser' })).toBeNull();

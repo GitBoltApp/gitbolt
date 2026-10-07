@@ -25,6 +25,9 @@ export const PAIR_SIMILARITY = 0.4;
 export const PAIR_CONTAINMENT = 0.65;
 /** ...if the shorter one has at least this many words: a two-word item is in too many others. */
 export const CONTAIN_MIN_WORDS = 4;
+/** A block of at most this many words is short: too few for `similarity` or `containment` to
+ * judge, so short blocks of one kind and level pair by `looselyAlike` instead. */
+export const SHORT_WORDS = 3;
 /** Longer blocks never word-diff: they show as removed and added (R14). */
 export const WORD_DIFF_MAX_CHARS = 10_000;
 /** The whole rendered diff (alignment, pairing, word and line diffs) gives up after this long
@@ -146,23 +149,49 @@ export function containment(a: string, b: string, deadline = Infinity): number {
   return common / shorter;
 }
 
+const words = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+const level = (u: Unit) => (u.nodes[0]!.type === 'heading' ? u.nodes[0].depth : 0);
+
+/** Two blocks of one text kind and level too short to judge by `similarity`: two headings when
+ * either has at most SHORT_WORDS words, or two other blocks that both do. */
+function short(a: Unit, b: Unit): boolean {
+  if (level(a) !== level(b)) return false;
+  const [x, y] = [words(a.text).length, words(b.text).length];
+  return (a.kind === 'heading' ? Math.min(x, y) : Math.max(x, y)) <= SHORT_WORDS;
+}
+
+/** The lower bar for short blocks: a word in common, or one's text starts the other's
+ * (`Windows (in progress)` → `Windows`, `Install` → `Installing`). */
+function looselyAlike(a: string, b: string): boolean {
+  const theirs = new Set(words(b));
+  if (words(a).some((w) => theirs.has(w))) return true;
+  const [x, y] = [squash(a).trim().toLowerCase(), squash(b).trim().toLowerCase()];
+  return x !== '' && y !== '' && (x.startsWith(y) || y.startsWith(x));
+}
+
 const ALWAYS = new Set(['ul', 'ol', 'blockquote', 'mermaid']);
 const BY_TEXT = new Set(['paragraph', 'heading', 'listItem', 'tableRow']);
-function canPair(a: Unit, b: Unit, deadline: number): boolean {
+/** Whether `a` and `b` pair as one changed block. `only`: they're the gap's only removed and only
+ * added unit, so two headings of one level, or two short blocks, pair whatever their text. */
+function canPair(a: Unit, b: Unit, only: boolean, deadline: number): boolean {
   if (a.kind !== b.kind || a.nodes.length !== 1 || b.nodes.length !== 1) return false;
   if (ALWAYS.has(a.kind) || a.kind.startsWith('code:') || a.kind.startsWith('table:')) return true;
-  return BY_TEXT.has(a.kind) && (similarity(a.text, b.text, deadline) >= PAIR_SIMILARITY || containment(a.text, b.text, deadline) >= PAIR_CONTAINMENT);
+  if (!BY_TEXT.has(a.kind)) return false;
+  if (only && level(a) === level(b) && (a.kind === 'heading' || short(a, b))) return true;
+  if (short(a, b) && looselyAlike(a.text, b.text)) return true;
+  return similarity(a.text, b.text, deadline) >= PAIR_SIMILARITY || containment(a.text, b.text, deadline) >= PAIR_CONTAINMENT;
 }
 
 /** One gap's removed and added units: each removed unit pairs with the first unpaired added one of
  * the same kind within PAIR_LOOKAHEAD (`canPair`), in order; the rest stay removed or added. */
 function pairGap(old: readonly Unit[], neu: readonly Unit[], deadline: number): Op[] {
   const ops: Op[] = [];
+  const only = old.length === 1 && neu.length === 1;
   let oi = 0;
   let nj = 0;
   for (let r = 0; r < old.length; r++) {
     let k = -1;
-    for (let c = nj; c < Math.min(neu.length, nj + PAIR_LOOKAHEAD); c++) if (canPair(old[r]!, neu[c]!, deadline)) { k = c; break; }
+    for (let c = nj; c < Math.min(neu.length, nj + PAIR_LOOKAHEAD); c++) if (canPair(old[r]!, neu[c]!, only, deadline)) { k = c; break; }
     if (k < 0) continue;
     for (; oi < r; oi++) ops.push({ op: 'removed', old: old[oi]! });
     for (; nj < k; nj++) ops.push({ op: 'added', new: neu[nj]! });

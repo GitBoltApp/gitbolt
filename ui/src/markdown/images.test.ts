@@ -14,7 +14,7 @@ beforeEach(() => { useForge.setState({ byTab: {} }); });
 describe('the image host policy (spec #5 §4.2)', () => {
   it('GitLab: the account host and project uploads load; other hosts wait for a click', () => {
     patchForge('t', { kind: 'gitlab', project: projectOf() });
-    expect(resolveImage(forge, '/uploads/0123abcd0123abcd/shot.png')).toEqual({ kind: 'forge', url: 'https://gitlab.example.com/group/project/uploads/0123abcd0123abcd/shot.png' });
+    expect(resolveImage(forge, '/uploads/0123abcd0123abcd/shot.png')).toEqual({ kind: 'forge', url: 'https://gitlab.example.com/-/project/42/uploads/0123abcd0123abcd/shot.png' });
     expect(resolveImage(forge, 'https://gitlab.example.com/group/project/-/raw/main/a.png')).toEqual({ kind: 'forge', url: 'https://gitlab.example.com/group/project/-/raw/main/a.png' });
     expect(resolveImage(forge, 'https://example.org/a.png')).toEqual({ kind: 'remote', url: 'https://example.org/a.png', host: 'example.org' });
   });
@@ -54,6 +54,6 @@ describe('the image host policy (spec #5 §4.2)', () => {
 
   it('plain http only on the forge’s own web origin (the harness)', () => {
     patchForge('t', { kind: 'gitlab', project: { ...projectOf(), webUrl: 'http://127.0.0.1:9/gitlab/group/project' } });
-    expect(resolveImage(forge, '/uploads/0123abcd0123abcd/a.png')).toEqual({ kind: 'forge', url: 'http://127.0.0.1:9/gitlab/group/project/uploads/0123abcd0123abcd/a.png' });
+    expect(resolveImage(forge, '/uploads/0123abcd0123abcd/a.png')).toEqual({ kind: 'forge', url: 'http://127.0.0.1:9/gitlab/-/project/42/uploads/0123abcd0123abcd/a.png' });
   });
 });

@@ -5,11 +5,25 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Reply and resolve** (or unresolve) beside Reply in a resolvable thread (Ctrl+Shift+Enter).
+
 ### Changed
 
 - **Push tags with branches** is on by default: a push also sends the annotated tags on the pushed
   commits that the remote lacks (`--follow-tags`), so a release's tag goes out with its commit.
   A settings file that already has it off keeps it off.
+
+### Fixed
+
+- In the rendered Markdown diff, an edited heading (`## Windows (in progress)` → `## Windows`) or
+  short block showed as removed and added; it now shows as one change, its words diffed.
+- A GitLab thread's own system note ("changed this line in version 3 of the diff") showed at the
+  bottom of the MR's timeline; it now shows inside its thread.
+- GitLab images that an older build had failed to load stayed missing for a day (its "not found" was
+  remembered); images are now asked for again. An upload's Open in browser uses GitLab's
+  `/-/project/<id>/uploads/…` address, the one GitLab 17 and later serve.
 
 ## [0.2.0] - 2026-10-07
 

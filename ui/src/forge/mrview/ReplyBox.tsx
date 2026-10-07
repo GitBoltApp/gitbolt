@@ -9,6 +9,7 @@ import { registerKeyHints } from '../../shortcuts/hints';
 import { mrRef } from '../labels';
 import { patchForge, useTabForgeField } from '../mrStore';
 import { clearDraft, draftKey, setDraft, useReplyDrafts } from './drafts';
+import { resolveThread } from './noteActions';
 import { forgeWrite } from './writes';
 
 /** The note in its discussion (a new one at the end), as the forge answered it. */
@@ -17,24 +18,30 @@ export function appendNote(list: ForgeDiscussion[], discussion: string | null, n
   return [...list, { id: `new-${note.id}`, notes: [note], resolvable: false, resolved: false }];
 }
 
-/** A comment (`discussion` null) or a reply in a discussion. Ctrl+Enter sends. */
-export function ReplyBox({ tabId, number, discussion, onDone }: { tabId: string; number: number; discussion: string | null; onDone?: () => void }) {
+/** A comment (`discussion` null) or a reply in a discussion. Ctrl+Enter sends. `toggle`: a
+ * resolvable thread's second button, Reply and resolve (or unresolve, when resolved; GitLab's
+ * "Comment & resolve thread"), Ctrl+Shift+Enter: the reply, then the thread's resolve (no forge
+ * does both in one request). */
+export function ReplyBox({ tabId, number, discussion, toggle, onDone }: { tabId: string; number: number; discussion: string | null; toggle?: 'resolve' | 'unresolve'; onDone?: () => void }) {
   const key = draftKey(tabId, number, discussion);
   const text = useReplyDrafts((s) => s.text[key] ?? '');
   const kind = useTabForgeField(tabId, 'kind');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'send' | 'toggle' | null>(null);
   const action = discussion ? 'Reply' : 'Comment';
   const ready = text.trim() !== '' && !busy;
-  const send = async () => {
+  const send = async (andToggle = false) => {
     if (!ready) return;
-    setBusy(true);
+    const flip = andToggle && discussion && toggle ? toggle : null;
+    setBusy(flip ? 'toggle' : 'send');
     const ref = mrRef(kind ?? 'gitlab', number);
     const out = await forgeWrite(tabId, discussion ? `Couldn't reply on ${ref}` : `Couldn't comment on ${ref}`, (repo) => api.forgeReply(repo, number, discussion, text));
-    setBusy(false);
+    setBusy(null);
     if (!out) return;
     if ((useReplyDrafts.getState().text[key] ?? '') === text) clearDraft(key);
     patchForge(tabId, (f) => ({ discussions: { ...f.discussions, [number]: appendNote(f.discussions[number] ?? [], discussion, out.value) } }));
     onDone?.();
+    // The reply is in; a refused resolve leaves it there and says so.
+    if (flip && discussion) await resolveThread(tabId, number, discussion, flip === 'resolve', `Replied, but couldn't ${flip} the thread`);
   };
   return (
     <form className="mr-reply" aria-label={action} onSubmit={(e) => { e.preventDefault(); void send(); }}>
@@ -49,14 +56,15 @@ export function ReplyBox({ tabId, number, discussion, onDone }: { tabId: string;
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
-            void send();
+            void send(e.shiftKey);
           }
         }}
       />
       {/* --- end 5A T9 --- */}
       <div className="mr-form-row">
         {onDone && <button type="button" className="mr-button" onClick={onDone}>Cancel</button>}
-        <button type="submit" className="mr-button primary" disabled={!ready}>{busy ? 'Sending…' : action}</button>
+        {discussion && toggle && <button type="button" className="mr-button" disabled={!ready} onClick={() => void send(true)}>{busy === 'toggle' ? 'Sending…' : `Reply and ${toggle}`}</button>}
+        <button type="submit" className="mr-button primary" disabled={!ready}>{busy === 'send' ? 'Sending…' : action}</button>
       </div>
     </form>
   );
@@ -69,10 +77,13 @@ export function ThreadReply({ tabId, kind, number, d }: { tabId: string; kind: F
   const [open, setOpen] = useState(false);
   if (kind === 'github' && !d.id.startsWith('thread-')) return null;
   if (!open && !hasDraft) return <div className="mr-thread-foot"><button type="button" className="mr-button" onClick={() => setOpen(true)}><CornerDownLeft size={12} aria-hidden /> Reply</button></div>;
-  return <div className="mr-thread-foot"><ReplyBox tabId={tabId} number={number} discussion={d.id} onDone={() => { clearDraft(draftKey(tabId, number, d.id)); setOpen(false); }} /></div>;
+  // Where the thread's Resolve is offered (a resolvable thread), so is Reply and resolve.
+  const toggle = d.resolvable ? (d.resolved ? 'unresolve' : 'resolve') : undefined;
+  return <div className="mr-thread-foot"><ReplyBox tabId={tabId} number={number} discussion={d.id} toggle={toggle} onDone={() => { clearDraft(draftKey(tabId, number, d.id)); setOpen(false); }} /></div>;
 }
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
   { id: 'key.mrReply', section: 'Merge request', label: 'Send the comment or reply', keys: ['Ctrl+Enter'], context: '(when writing a comment)', source: 'forge/mrview/ReplyBox.tsx' },
+  { id: 'key.mrReplyResolve', section: 'Merge request', label: 'Reply and resolve the thread (or unresolve it)', keys: ['Ctrl+Shift+Enter'], context: '(when replying in a resolvable thread)', source: 'forge/mrview/ReplyBox.tsx' },
 ]);

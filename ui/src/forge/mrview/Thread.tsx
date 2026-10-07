@@ -71,6 +71,19 @@ function SystemEvent({ n, kind, parts }: { n: { author: ForgeUser; createdAt: nu
   );
 }
 
+/** A thread's own system note ("changed this line in version 2 of the diff"), compact, among
+ * the thread's comments: the forge's icon, the actor, what happened (its links open the browser),
+ * a dim time. */
+function ThreadEvent({ n, webUrl }: { n: ForgeNote; webUrl: string }) {
+  const p = parseOnce(n, webUrl);
+  return (
+    <div className="mr-thread-sys" data-kind={p.kind} data-note={n.id}>
+      <Node kind={p.kind} />
+      <div className="mr-ev-line"><b className="mr-who">{n.author.name}</b> <NoteParts parts={p.parts} /><RelTime at={n.createdAt} /></div>
+    </div>
+  );
+}
+
 /** Bodies rendered in the first paint; the rest follow, a few per idle callback, so opening a
  * long MR/PR isn't one long task. */
 export const FIRST_BODIES = 20;
@@ -146,6 +159,8 @@ export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBo
   const notes = d.notes.filter((n) => !n.system);
   if (notes.length === 0) return null;
   const replies = notes.slice(1);
+  // After the first comment: the replies and the thread's own system notes, in the forge's order.
+  const rest = d.notes.filter((n) => n !== notes[0]);
   const open = replies.length === 0 || (chosen ?? !d.resolved);
   const pos = d.notes.find((n) => n.position)?.position ?? null;
   return (
@@ -159,7 +174,9 @@ export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBo
               ))
       } />
       {replies.length > 0 && <RepliesRow replies={replies} open={open} toggle={() => setFold(key, !open)} />}
-      {open && replies.map((n, i) => <Note key={n.id} tabId={tabId} kind={kind} mr={mr} d={d} n={n} first={false} deferred={firstBody + i + 1 >= rendered} />)}
+      {open && rest.map((n) => (n.system
+        ? <ThreadEvent key={n.id} n={n} webUrl={mr.webUrl} />
+        : <Note key={n.id} tabId={tabId} kind={kind} mr={mr} d={d} n={n} first={false} deferred={firstBody + replies.indexOf(n) + 1 >= rendered} />))}
       {/* --- 4B T13: reply in this thread --- */}
       {open && <ThreadReply tabId={tabId} kind={kind} number={mr.number} d={d} />}
       {/* --- end 4B T13 --- */}
@@ -186,11 +203,8 @@ export function entriesOf(discussions: ForgeDiscussion[], reviews: ForgeReview[]
   const out: Entry[] = [];
   for (const d of discussions) {
     if (d.notes.length > 0 && d.notes.every((n) => n.system)) d.notes.forEach((n) => out.push({ at: n.createdAt, key: `s${d.id}-${n.id}`, t: 'system', note: n }));
-    else if (d.notes.some((n) => !n.system)) {
-      out.push({ at: d.notes.find((n) => !n.system)!.createdAt, key: `d${d.id}`, t: 'thread', d });
-      // A forge note inside a human thread is still an event, at its own time.
-      d.notes.filter((n) => n.system).forEach((n) => out.push({ at: n.createdAt, key: `s${d.id}-${n.id}`, t: 'system', note: n }));
-    }
+    // A thread's own system notes ("changed this line…") show inside it, not on the timeline.
+    else if (d.notes.some((n) => !n.system)) out.push({ at: d.notes.find((n) => !n.system)!.createdAt, key: `d${d.id}`, t: 'thread', d });
   }
   for (const r of reviews) if (r.submittedAt !== null && REVIEW_WORDS[r.state]) out.push({ at: r.submittedAt, key: `r${r.user.username}-${r.submittedAt}-${r.state}`, t: 'review', r });
   return out.map((e, i) => [e, i] as const).sort(([a, i], [b, j]) => a.at - b.at || i - j).map(([e]) => e);

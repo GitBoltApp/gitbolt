@@ -16,6 +16,14 @@ describe('system notes as structured parts (never HTML)', () => {
     ]);
   });
 
+  it('"changed this line in version 2 of the diff": an edit, its link kept', () => {
+    const n = parse('changed this line in [version 2 of the diff](/Acme/shop/-/merge_requests/1203/diffs?diff_id=40918&start_sha=3e9f02d4#a1b2_10_12)');
+    expect(n).toEqual({ kind: 'edit', parts: [
+      { t: 'text', text: 'changed this line in ' },
+      { t: 'link', text: 'version 2 of the diff', url: 'https://gitlab.example.com/Acme/shop/-/merge_requests/1203/diffs?diff_id=40918&start_sha=3e9f02d4#a1b2_10_12' },
+    ] });
+  });
+
   it('a sha…sha range line and the Markdown bullet form', () => {
     const n = parse('added 15 commits\n\n* 7e2b41c9…d03f58aa - 14 commits from branch `dev`\n* b6c3e1f0 - Rebase onto dev\n\n[Compare with previous version](https://gitlab.example.com/x)');
     expect(n.kind).toBe('commits');

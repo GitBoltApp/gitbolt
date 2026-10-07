@@ -234,14 +234,15 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
       await confirmArmed(page.getByRole('menuitem', { name: /Click again to delete the comment/ }));
       await expect(activity).not.toContainText('Thanks, merging today.');
     });
-    await test.step('resolve a thread: its replies fold and the button turns green', async () => {
+    await test.step("the thread's own system note sits in it; Reply and resolve: its replies fold and the button turns green", async () => {
       const activity = view.getByRole('region', { name: 'Activity' });
       const diff = activity.getByRole('article').filter({ hasText: 'Why the second line?' });
+      await expect(diff.locator('.mr-thread-sys')).toContainText('Grace Hopper changed this line in version 2 of the diff');
+      await expect(activity.locator('.mr-timeline > .mr-system', { hasText: 'changed this line' })).toHaveCount(0);
       await diff.getByRole('button', { name: 'Reply', exact: true }).click();
       await diff.getByRole('textbox', { name: 'Reply' }).fill('It documents the setup.');
-      await diff.getByRole('button', { name: 'Reply', exact: true }).click();
-      await expect(diff).toContainText('It documents the setup.');
-      await diff.getByRole('button', { name: 'Resolve thread' }).click();
+      await diff.getByRole('button', { name: 'Reply and resolve' }).click();
+      await expect.poll(async () => (await mr12()).discussions.find((d) => d.id === 'd2')?.notes.at(-1)?.body).toBe('It documents the setup.');
       const resolved = diff.getByRole('button', { name: 'Unresolve thread' });
       await expect(resolved).toHaveAttribute('aria-pressed', 'true');
       await expect(resolved).toHaveClass(/\bon\b/);

@@ -181,6 +181,12 @@ button.mr-button.mr-merge-go.cancel { color: var(--text-normal); }
 .mr-replies-faces > * + * { margin-left: -6px; }
 .mr-replies-last .mr-when, .mr-ev-line .mr-when { margin-left: 6px; }
 /* --- end comment actions --- */
+/* A thread's own system note: a compact event row among its comments, its node inline. */
+.mr-thread-sys { display: flex; align-items: flex-start; gap: 8px; padding: 4px 12px; border-top: 1px solid var(--section-border); font-size: 12px; color: var(--text-secondary); min-width: 0; }
+.mr-thread-sys > .mr-node { position: static; flex: none; }
+.mr-thread-sys .mr-when { margin-left: 6px; }
+.mr-thread-sys del { color: var(--red); text-decoration: line-through; opacity: 0.85; }
+.mr-thread-sys ins { color: var(--green); text-decoration: none; }
 .mr-thread-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--section-border); }
 .mr-thread-foot .mr-reply { align-self: stretch; }
 .mr-new-comment { padding: 10px 12px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); }

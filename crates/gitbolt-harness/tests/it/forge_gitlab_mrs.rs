@@ -120,6 +120,9 @@ async fn reads_discussions_with_diff_note_snippets() {
     assert_eq!((pos.path.as_str(), pos.line, pos.old_path.as_deref()), ("README.md", Some(2), None));
     assert_eq!(pos.snippet.as_deref(), Some(" Readme\n+Second line"));
     assert!(ds[1].resolvable && !ds[1].resolved);
+    // The diff thread's own system note ("changed this line…") comes in the thread, after its comment.
+    assert_eq!(ds[1].notes.iter().map(|n| n.system).collect::<Vec<_>>(), [false, true]);
+    assert!(ds[1].notes[1].body.starts_with("changed this line in [version 2 of the diff]("));
     assert!(ds[2].notes[0].system);
     let diffs = |f: &FakeForge| f.requests().iter().filter(|r| r.path.ends_with("/diffs")).count();
     assert_eq!(diffs(&f), 1);
@@ -223,7 +226,7 @@ async fn replies_in_a_thread_and_starts_a_new_one() {
     assert_eq!((n.author.username.as_str(), n.body.as_str()), ("ada", "To document the setup."));
     p.reply(&g, 12, &NewNote { discussion: None, body: "Thanks!".into() }).await.unwrap();
     let ds = p.discussions(&g, 12).await.unwrap().value;
-    assert_eq!(ds[1].notes.len(), 2);
+    assert_eq!(ds[1].notes.last().unwrap().body, "To document the setup.");
     assert_eq!(ds.last().unwrap().notes[0].body, "Thanks!");
     assert!(f.requests().iter().any(|r| r.method == "POST" && r.path == "/api/v4/projects/42/merge_requests/12/discussions/d2/notes"));
 }
@@ -552,7 +555,7 @@ async fn the_review_composer_comments_approves_and_requests_changes() {
     assert!(!p.review(&g, 12, &review(ReviewEvent::Comment, "A note")).await.unwrap().fallback);
     assert_eq!(notes(&f).last().map(String::as_str), Some("A note"));
     p.review(&g, 12, &review(ReviewEvent::Approve, "")).await.unwrap();
-    assert_eq!((seeded(&f, 12).approved_by, notes(&f).len()), (vec!["ada".to_string()], 4), "no message: no note");
+    assert_eq!((seeded(&f, 12).approved_by, notes(&f).len()), (vec!["ada".to_string()], 5), "no message: no note");
     let out = p.review(&g, 12, &review(ReviewEvent::RequestChanges, "Rename it")).await.unwrap();
     let s = seeded(&f, 12);
     assert_eq!((out.fallback, s.changes_requested_by, s.approved_by), (false, vec!["ada".to_string()], vec![]), "the reviewer state, and the approval withdrawn");

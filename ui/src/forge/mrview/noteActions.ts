@@ -114,12 +114,13 @@ export async function deleteNote(tabId: string, number: number, discussion: stri
 const setResolved = (tabId: string, number: number, discussion: string, resolved: boolean, resolvedBy: string | null) =>
   patchThreads(tabId, number, (l) => l.map((d) => (d.id === discussion ? { ...d, resolved, resolvedBy: resolvedBy ?? undefined } : d)));
 
-/** Resolves a thread, or unresolves it: shown at once, put back (with the forge's reason) if refused. */
-export async function resolveThread(tabId: string, number: number, discussion: string, resolved: boolean): Promise<boolean> {
+/** Resolves a thread, or unresolves it: shown at once, put back (with the forge's reason, after
+ * `failure`) if refused. */
+export async function resolveThread(tabId: string, number: number, discussion: string, resolved: boolean, failure?: string): Promise<boolean> {
   const d = forgeOf(tabId).discussions[number]?.find((x) => x.id === discussion);
   if (!d) return false;
   setResolved(tabId, number, discussion, resolved, resolved ? (forgeOf(tabId).me ?? null) : null);
-  const out = await forgeWrite(tabId, resolved ? "Couldn't resolve the thread" : "Couldn't unresolve the thread", (repo) => api.forgeResolve(repo, number, discussion, resolved));
+  const out = await forgeWrite(tabId, failure ?? (resolved ? "Couldn't resolve the thread" : "Couldn't unresolve the thread"), (repo) => api.forgeResolve(repo, number, discussion, resolved));
   if (out) setResolved(tabId, number, discussion, out.value.resolved, out.value.resolvedBy);
   else setResolved(tabId, number, discussion, d.resolved, d.resolvedBy ?? null);
   return out !== null;

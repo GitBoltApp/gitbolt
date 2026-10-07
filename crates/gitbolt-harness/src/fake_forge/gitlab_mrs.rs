@@ -154,7 +154,17 @@ pub fn default_mrs() -> Vec<FakeMergeRequest> {
             labels: vec!["backend".into()],
             discussions: vec![
                 FakeDiscussion { id: "d1".into(), notes: vec![note(101, "grace", "Looks good overall.", "2026-10-04T09:00:00Z")], resolvable: false, resolved: false, resolved_by: None },
-                FakeDiscussion { id: "d2".into(), notes: vec![FakeNote { position: Some(readme), ..note(102, "grace", "Why the second line?", "2026-10-04T09:05:00Z") }], resolvable: true, resolved: false, resolved_by: None },
+                FakeDiscussion {
+                    id: "d2".into(),
+                    notes: vec![
+                        FakeNote { position: Some(readme), ..note(102, "grace", "Why the second line?", "2026-10-04T09:05:00Z") },
+                        // The thread's own system note, later than the thread's neighbours.
+                        FakeNote { system: true, ..note(104, "grace", "changed this line in [version 2 of the diff](/gitlab/group/project/-/merge_requests/12/diffs?diff_id=2#note_104)", "2026-10-04T09:20:00Z") },
+                    ],
+                    resolvable: true,
+                    resolved: false,
+                    resolved_by: None,
+                },
                 FakeDiscussion { id: "d3".into(), notes: vec![FakeNote { system: true, ..note(103, "grace", "added 1 commit", "2026-10-04T09:10:00Z") }], resolvable: false, resolved: false, resolved_by: None },
             ],
             diffs: vec![FakeDiff { old_path: "README.md".into(), new_path: "README.md".into(), diff: "@@ -1,1 +1,2 @@\n Readme\n+Second line\n".into() }],

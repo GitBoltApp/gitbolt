@@ -52,6 +52,42 @@ describe('alignUnits (5C: LCS on normalized block text)', () => {
     expect(ops('Alpha beta gamma.', 'Delta epsilon zeta eta theta iota kappa.')).toEqual(['removed', 'added']);
   });
 
+  describe('an edited heading or short block pairs with one of its kind and level', () => {
+    it('a heading that lost words: one changed heading', () => {
+      expect(ops('## Windows (in progress)\n\nText.', '## Windows\n\nText.')).toEqual(['changed', 'same']);
+    });
+
+    it('a renamed one-word heading, the only pair in its run', () => {
+      expect(ops('## Setup\n\nText.', '## Install\n\nText.')).toEqual(['changed', 'same']);
+    });
+
+    it('two adjacent edited headings pair one to one', () => {
+      expect(ops('## Windows (in progress)\n\n## Linux (beta)\n\nText.', '## Windows\n\n## Linux\n\nText.')).toEqual(['changed', 'changed', 'same']);
+    });
+
+    it('in a longer run, short blocks pair by a shared word or a prefix', () => {
+      expect(ops('## Windows (in progress)\n\nOld words here entirely.\n\nText.', '## Windows\n\nNew prose, nothing alike.\n\nText.'))
+        .toEqual(['changed', 'removed', 'added', 'same']);
+      expect(ops('## Install\n\n## Beta\n\nText.', '## Installing\n\n## Gamma\n\nText.')).toEqual(['changed', 'removed', 'added', 'same']);
+    });
+
+    it('a short paragraph, the only pair in its run; a longer heading too', () => {
+      expect(ops('Coming soon.', 'Done.')).toEqual(['changed']);
+      expect(ops('## Installing from a release package\n\nText.', '## Contributing to this project\n\nText.')).toEqual(['changed', 'same']);
+    });
+
+    it('a long heading pairs by the lower bar only if one side is short', () => {
+      expect(ops('## Windows support (in progress)\n\nOld prose here.\n\nText.', '## Windows\n\nNew words entirely.\n\nText.')).toEqual(['changed', 'removed', 'added', 'same']);
+      expect(ops('## Notes on the build steps\n\nOld prose here.\n\nText.', '## Rules for the release flow\n\nNew words entirely.\n\nText.')).toEqual(['removed', 'removed', 'added', 'added', 'same']);
+    });
+
+    it('never pairs different kinds or heading levels by these rules', () => {
+      expect(ops('## Windows (in progress)\n\nText.', 'Windows\n\nText.')).toEqual(['removed', 'added', 'same']);
+      expect(ops('## Setup\n\nText.', '### Install\n\nText.')).toEqual(['removed', 'added', 'same']);
+      expect(ops('## Windows (in progress)\n\nText.', '### Windows\n\nText.')).toEqual(['removed', 'added', 'same']);
+    });
+  });
+
   it('does not pair unrelated paragraphs', () => {
     expect(ops('Alpha beta gamma delta.', 'Completely different words here.')).toEqual(['removed', 'added']);
   });

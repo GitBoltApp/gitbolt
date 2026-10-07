@@ -48,7 +48,9 @@ export function resolveImage(ctx: MarkdownContext, src: string): ImageSource {
     const path = resolveRepoPath(ctx.path, hash < 0 ? src : src.slice(0, hash));
     return path ? { kind: 'repo', path, commit: ctx.commit } : { kind: 'none' };
   }
-  if (project && f.kind === 'gitlab' && /^\/?uploads\//.test(s)) return { kind: 'forge', url: `${project.webUrl.replace(/\/+$/, '')}/${s.replace(/^\//, '')}` };
+  // A GitLab upload, by the project's id: `<root>/-/project/<id>/uploads/…` (GitLab 17+ serves
+  // only that one to a browser; the core reads either through the API).
+  if (project && f.kind === 'gitlab' && /^\/?uploads\//.test(s)) return { kind: 'forge', url: `${gitlabRoot(project)}/-/project/${project.id}/${s.replace(/^\//, '')}` };
   return { kind: 'none' };
 }
 
@@ -110,4 +112,12 @@ export function resetImageSession(): void {
   allowed.clear();
   refreshedAt.clear();
   shownSigned.clear();
+}
+
+/** GitLab's root (`https://host`, or `https://host/gitlab` under a relative URL root): the
+ * project's web address less its own path. */
+function gitlabRoot(project: Pick<ForgeProject, 'webUrl' | 'path'>): string {
+  const web = project.webUrl.replace(/\/+$/, '');
+  const own = `/${project.path}`;
+  return web.toLowerCase().endsWith(own.toLowerCase()) ? web.slice(0, -own.length) : (parse(web)?.origin ?? web);
 }

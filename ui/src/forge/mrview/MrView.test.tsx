@@ -234,19 +234,51 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(order).toEqual(['thread', 'commits', 'mention', 'merged']);
   });
 
-  it('keeps the tab bar while loading, and shows a forge note inside a human thread as an event', () => {
+  it('keeps the tab bar while loading', () => {
     patchForge('t', { discussions: {} });
-    const { unmount } = show();
+    show();
     expect(screen.getAllByRole('tab').filter((t) => !t.classList.contains('md-field-tab'))).toHaveLength(3);
     expect(screen.getByRole('status', { name: 'Loading the discussion' })).toBeTruthy();
-    unmount();
-    patchForge('t', { discussions: { 12: [{ id: 'm', resolvable: false, resolved: false, notes: [
-      { id: '1', author: grace, body: 'hello', createdAt: 1_791_100_000, system: false, position: null },
-      { id: '2', author: grace, body: 'approved this merge request', createdAt: 1_791_100_500, system: true, position: null },
-    ] }] } });
+  });
+
+  it("shows a thread's own system note inside the thread, in order, not on the timeline", () => {
+    const changed = 'changed this line in [version 2 of the diff](/group/project/-/merge_requests/12/diffs?diff_id=2#note_2)';
+    const diff: ForgeDiscussion = { ...threads[1]!, resolved: false, notes: [
+      threads[1]!.notes[0]!,
+      { id: '2', author: grace, body: changed, createdAt: 1_791_136_000, system: true, position: null },
+      { id: '3', author: user('Ada Lovelace'), body: 'Fixed it.', createdAt: 1_791_136_100, system: false, position: null },
+    ] };
+    patchForge('t', { discussions: { 12: [diff, threads[2]!] } });
     show();
-    expect(document.querySelector('.mr-system[data-kind="approved"]')).not.toBeNull();
-    expect(screen.getAllByRole('article')).toHaveLength(1);
+    const article = screen.getByRole('article');
+    const row = article.querySelector('.mr-thread-sys');
+    expect(row).toHaveTextContent('Grace Hopper changed this line in version 2 of the diff');
+    expect(row?.querySelector('.mr-node')).not.toBeNull();
+    expect(row?.querySelector('time, .mr-when')).not.toBeNull();
+    // In order among the thread's comments.
+    const order = [...article.querySelectorAll('.mr-note, .mr-thread-sys')].map((e) => (e.classList.contains('mr-thread-sys') ? 'sys' : e.getAttribute('data-note')));
+    expect(order).toEqual(['102', 'sys', '3']);
+    // Not a standalone event: the timeline is the thread, then the later "added 1 commit".
+    const events = [...document.querySelectorAll('.mr-timeline > .mr-ev')].map((e) => (e.classList.contains('mr-thread-ev') ? 'thread' : e.textContent));
+    expect(events).toEqual(['thread', expect.stringContaining('added 1 commit')]);
+    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'version 2 of the diff' }));
+    expect(api.openUrl).toHaveBeenCalledWith('https://gitlab.example.com/group/project/-/merge_requests/12/diffs?diff_id=2#note_2');
+  });
+
+  it("a folded thread folds its system notes with its replies, and counts only the replies", () => {
+    const d: ForgeDiscussion = { ...threads[1]!, resolved: true, notes: [
+      threads[1]!.notes[0]!,
+      { id: '2', author: grace, body: 'changed this line in version 2 of the diff', createdAt: 1_791_136_000, system: true, position: null },
+      { id: '3', author: user('Ada Lovelace'), body: 'Fixed it.', createdAt: 1_791_136_100, system: false, position: null },
+    ] };
+    patchForge('t', { discussions: { 12: [d] } });
+    show();
+    const article = screen.getByRole('article');
+    expect(within(article).getByRole('button', { name: '1 reply' })).toHaveAttribute('aria-expanded', 'false');
+    expect(article.querySelector('.mr-thread-sys')).toBeNull();
+    expect(article).toHaveTextContent('Last reply by Ada Lovelace');
+    fireEvent.click(within(article).getByRole('button', { name: '1 reply' }));
+    expect(article.querySelector('.mr-thread-sys')).not.toBeNull();
   });
 
   it('Reply opens the reply box in the thread', () => {

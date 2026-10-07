@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
-const api = vi.hoisted(() => ({ forgeReply: vi.fn() }));
+const api = vi.hoisted(() => ({ forgeReply: vi.fn(), forgeResolve: vi.fn() }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e) }));
 vi.mock('../usePolling', () => ({ notifyForgeWrite: vi.fn() }));
 vi.mock('./openNote', () => ({ openNoteFile: vi.fn() }));
@@ -83,6 +83,79 @@ describe('replying in the MR/PR view (spec #4 §4 "4B")', () => {
     unmount();
     render(<Discussion tabId="t" kind="github" mr={mrOf(12)} d={thread('issue-41')} />);
     expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
+  });
+
+  describe('Reply and resolve', () => {
+    const resolvable = (resolved: boolean): ForgeDiscussion => ({ ...thread('d1'), resolvable: true, resolved });
+    const open = (d: ForgeDiscussion, kind: 'gitlab' | 'github' = 'gitlab') => {
+      patchForge('t', { kind, discussions: { 12: [d] } });
+      render(<Discussion tabId="t" kind={kind} mr={mrOf(12)} d={d} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Reply' }), { target: { value: 'Done' } });
+    };
+    const stored = () => forgeOf('t').discussions[12]![0]!;
+
+    it('an unresolved thread: replies, then resolves it', async () => {
+      api.forgeReply.mockResolvedValue(note('Done'));
+      api.forgeResolve.mockResolvedValue({ resolved: true, resolvedBy: 'Ada Lovelace' });
+      open(resolvable(false));
+      fireEvent.click(screen.getByRole('button', { name: 'Reply and resolve' }));
+      await waitFor(() => expect(stored().resolved).toBe(true));
+      expect(stored().notes.map((n) => n.body)).toEqual(['Why?', 'Done']);
+      expect(api.forgeReply).toHaveBeenCalledWith(4, 12, 'd1', 'Done');
+      expect(api.forgeResolve).toHaveBeenCalledWith(4, 12, 'd1', true);
+      expect(api.forgeReply.mock.invocationCallOrder[0]).toBeLessThan(api.forgeResolve.mock.invocationCallOrder[0]!);
+    });
+
+    it('a resolved thread: Reply and unresolve (GitHub review threads too)', async () => {
+      api.forgeReply.mockResolvedValue(note('Done'));
+      api.forgeResolve.mockResolvedValue({ resolved: false, resolvedBy: null });
+      open({ ...resolvable(true), id: 'thread-PRRT_1' }, 'github');
+      expect(screen.queryByRole('button', { name: 'Reply and resolve' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Reply and unresolve' }));
+      await waitFor(() => expect(stored().resolved).toBe(false));
+      expect(api.forgeResolve).toHaveBeenCalledWith(4, 12, 'thread-PRRT_1', false);
+    });
+
+    it('Ctrl+Shift+Enter replies and resolves; Ctrl+Enter only replies', async () => {
+      api.forgeReply.mockResolvedValue(note('Done'));
+      api.forgeResolve.mockResolvedValue({ resolved: true, resolvedBy: 'Ada Lovelace' });
+      open(resolvable(false));
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'Reply' }), { key: 'Enter', ctrlKey: true, shiftKey: true });
+      await waitFor(() => expect(api.forgeResolve).toHaveBeenCalledWith(4, 12, 'd1', true));
+      cleanup();
+      vi.clearAllMocks();
+      api.forgeReply.mockResolvedValue(note('Done'));
+      open(resolvable(false));
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'Reply' }), { key: 'Enter', ctrlKey: true });
+      await waitFor(() => expect(api.forgeReply).toHaveBeenCalled());
+      await waitFor(() => expect(stored().notes).toHaveLength(2));
+      expect(api.forgeResolve).not.toHaveBeenCalled();
+    });
+
+    it('only where resolving is allowed: a thread that is not resolvable has just Reply', () => {
+      open(thread('d1'));
+      expect(screen.queryByRole('button', { name: /^Reply and/ })).toBeNull();
+    });
+
+    it('the resolve refused: the reply stays, the thread as it was, and a toast says so', async () => {
+      api.forgeReply.mockResolvedValue(note('Done'));
+      api.forgeResolve.mockRejectedValueOnce({ message: 'HTTP 403' });
+      open(resolvable(false));
+      fireEvent.click(screen.getByRole('button', { name: 'Reply and resolve' }));
+      await waitFor(() => expect(useToast.getState().message).toBe("Replied, but couldn't resolve the thread: HTTP 403"));
+      expect(stored().resolved).toBe(false);
+      expect(stored().notes.map((n) => n.body)).toEqual(['Why?', 'Done']);
+    });
+
+    it('the reply refused: nothing is resolved', async () => {
+      api.forgeReply.mockRejectedValueOnce({ message: 'HTTP 500' });
+      open(resolvable(false));
+      fireEvent.click(screen.getByRole('button', { name: 'Reply and resolve' }));
+      await waitFor(() => expect(useToast.getState().message).toBe("Couldn't reply on !12: HTTP 500"));
+      expect(api.forgeResolve).not.toHaveBeenCalled();
+      expect(screen.getByRole('textbox', { name: 'Reply' })).toHaveValue('Done');
+    });
   });
 
   it('previews the comment rendered before sending (spec #5 §3.2)', () => {

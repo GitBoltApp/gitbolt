@@ -14,7 +14,7 @@ const { useRuntime } = await import('../app/runtime');
 const { useLightbox } = await import('../lightbox/store');
 
 const forge = { kind: 'forge', tabId: 't' } as const;
-const UPLOADS = 'https://gitlab.example.com/group/project/uploads/0123abcd0123abcd';
+const UPLOADS = 'https://gitlab.example.com/-/project/42/uploads/0123abcd0123abcd';
 const MP4 = { kind: 'found', mime: 'video/mp4', base64: btoa('\0\0\0 ftypisom....avc1') } as const;
 const WEBM = { kind: 'found', mime: 'video/webm', base64: btoa('\x1aE\xdf\xa3webm') } as const;
 

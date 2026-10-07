@@ -32,11 +32,11 @@ describe('Markdown videos', () => {
 
   it('loads once per address through the core, as an object URL, and answers why it did not', async () => {
     api.forgeVideo.mockResolvedValueOnce({ kind: 'found', mime: 'video/mp4', base64: btoa('\0\0\0 ftypisomavc1') });
-    const a = await loadForgeVideo(4, 'https://gitlab.example.com/group/project/uploads/0123abcd/screen.mp4', false);
+    const a = await loadForgeVideo(4, 'https://gitlab.example.com/-/project/42/uploads/0123abcd/screen.mp4', false);
     expect(a).toEqual({ kind: 'found', url: 'blob:video-1', mime: 'video/mp4', codec: 'H.264' });
-    expect(await loadForgeVideo(4, 'https://gitlab.example.com/group/project/uploads/0123abcd/screen.mp4', false)).toBe(a);
+    expect(await loadForgeVideo(4, 'https://gitlab.example.com/-/project/42/uploads/0123abcd/screen.mp4', false)).toBe(a);
     expect(api.forgeVideo).toHaveBeenCalledOnce();
     api.forgeVideo.mockResolvedValueOnce({ kind: 'missing', reason: 'larger than 100 MB' });
-    expect(await loadForgeVideo(4, 'https://gitlab.example.com/group/project/uploads/0123abcd/big.mp4', false)).toEqual({ kind: 'missing', reason: 'larger than 100 MB' });
+    expect(await loadForgeVideo(4, 'https://gitlab.example.com/-/project/42/uploads/0123abcd/big.mp4', false)).toEqual({ kind: 'missing', reason: 'larger than 100 MB' });
   });
 });

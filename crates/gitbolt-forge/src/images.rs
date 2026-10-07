@@ -64,8 +64,8 @@ fn is_secret(s: &str) -> bool {
 /// GitLab: `url` under the account's web host with a clean shape. A project upload
 /// (`<web>/<project>/uploads/<secret>/<file>` or `<web>/-/project/<id>/uploads/<secret>/<file>`)
 /// is read through the API (`GET /projects/:id/uploads/:secret/:filename`, `api_url` builds it),
-/// falling back to `url` itself on a 404 (a GitLab before 17.4 has no such route); any other
-/// address on the web host is fetched as it is.
+/// falling back on a 404 to `<web>/<project>/uploads/…`, the only address a GitLab before 17.4
+/// (which has no such route) serves; any other address on the web host is fetched as it is.
 pub fn gitlab_route(url: &str, web: &str, project: &ForgeProject, api_url: impl Fn(&str) -> String) -> Option<ImageRoute> {
     let url = url.trim();
     let web = web.trim_end_matches('/');
@@ -84,11 +84,16 @@ pub fn gitlab_route(url: &str, web: &str, project: &ForgeProject, api_url: impl 
         None
     };
     let (target, fallback) = match rest.and_then(|r| r.split_once('/')) {
-        Some((secret, file)) if is_secret(secret) && !file.is_empty() && !file.contains('/') => (api_url(&format!("/projects/{}/uploads/{secret}/{file}", project.id)), Some(url.to_string())),
+        Some((secret, file)) if is_secret(secret) && !file.is_empty() && !file.contains('/') => (api_url(&format!("/projects/{}/uploads/{secret}/{file}", project.id)), Some(format!("{web}/{}/uploads/{secret}/{file}", project.path))),
         _ => (url.to_string(), None),
     };
     Some(ImageRoute { url: target, cache_key: url.to_string(), fallback, signed: false })
 }
+
+/// Part of every image's cache key. Bump it when a fetch change can turn a remembered miss into a
+/// hit (2: GitLab's octet-stream uploads are recognised by their bytes), so misses cached by older
+/// builds aren't served for the rest of their day.
+const IMAGE_CACHE_VERSION: u32 = 2;
 
 fn found(p: gitbolt_core::avatar::AvatarPayload) -> ForgeImage {
     ForgeImage::Found { mime: p.mime, base64: p.base64 }
@@ -106,7 +111,7 @@ fn not_an_image(content_type: &str) -> ForgeImage {
 /// `route` through the host's disk cache (found 7 days, missing 1 day; `Expired`, `Ask`, a refusal
 /// and a sign-in page are never cached) and `get_image_within`.
 pub async fn fetch(http: &HttpClient, cache: Option<&DiskAvatarCache>, route: &ImageRoute, own_origin: &str, allowed: &(dyn Fn(&str) -> bool + Sync)) -> Result<ForgeImage, GbError> {
-    let key = format!("img:{}", route.cache_key);
+    let key = format!("img{IMAGE_CACHE_VERSION}:{}", route.cache_key);
     if let Some(c) = cache {
         match c.lookup_exact(&key) {
             Lookup::Found(p) => return Ok(found(p)),
@@ -282,7 +287,9 @@ mod tests {
         assert_eq!(r.fallback.as_deref(), Some(up.as_str()), "a GitLab before 17.4 serves it at its web address");
         assert!(!r.signed);
         let by_id = format!("https://gitlab.example.com/-/project/42/uploads/{SECRET}/a.png");
-        assert_eq!(gitlab_route(&by_id, web, &p, api).unwrap().url, format!("https://gitlab.example.com/api/v4/projects/42/uploads/{SECRET}/a.png"));
+        let r = gitlab_route(&by_id, web, &p, api).unwrap();
+        assert_eq!(r.url, format!("https://gitlab.example.com/api/v4/projects/42/uploads/{SECRET}/a.png"));
+        assert_eq!(r.fallback, Some(format!("https://gitlab.example.com/group/project/uploads/{SECRET}/a.png")), "before 17.4, only the project path's address exists");
         let upper = format!("https://gitlab.example.com/Group/Project/uploads/{SECRET}/a.png");
         assert!(gitlab_route(&upper, web, &p, api).unwrap().url.contains("/api/v4/projects/42/uploads/"), "GitLab paths ignore case");
         let raw = "https://gitlab.example.com/group/project/-/raw/main/a.png";
@@ -313,6 +320,21 @@ mod tests {
         assert_eq!(s.hits(), 2);
     }
     // --- end 5A T3 ---
+
+    /// A miss remembered by an older fetch (one that refused GitLab's octet-stream uploads) isn't
+    /// served by a newer one: the cache key carries `IMAGE_CACHE_VERSION`.
+    #[tokio::test]
+    async fn a_miss_cached_by_an_older_version_is_fetched_again() {
+        let s = TestServer::start(|_, _| Canned { status: 200, headers: vec![("Content-Type".into(), "application/octet-stream".into())], body: b"\x89PNG\r\n\x1a\nq".to_vec() });
+        let http = HttpClient::new(ClientConfig { host: "gitlab.example.com".into(), api_base: format!("{}/api/v4", s.base), token: None, headers: vec![], timeout: Duration::from_secs(5) });
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DiskAvatarCache::new(dir.path().join("gitlab.example.com"));
+        let url = format!("{}/group/project/uploads/0123456789abcdef0123456789abcdef/a.png", s.base);
+        cache.store_missing_exact(&format!("img:{url}"));
+        let route = ImageRoute { url: url.clone(), cache_key: url, fallback: None, signed: false };
+        assert!(matches!(fetch(&http, Some(&cache), &route, "", &|_: &str| true).await.unwrap(), ForgeImage::Found { .. }));
+        assert_eq!(s.hits(), 1);
+    }
 
     const WEBM: &[u8] = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01webm";
 

@@ -69,7 +69,7 @@ export function classify(text: string): SystemKind {
   const t = text.trim().toLowerCase();
   if (/^added \d+ commits?/.test(t)) return 'commits';
   if (/^changed title/.test(t)) return 'title';
-  if (/^(changed|edited|updated) the description/.test(t) || /^description (changed|edited)/.test(t)) return 'edit';
+  if (/^(changed|edited|updated) the description/.test(t) || /^description (changed|edited)/.test(t) || /^changed this line\b/.test(t)) return 'edit';
   if (/^mentioned in/.test(t)) return 'mention';
   if (/^unapproved/.test(t) || /^requested changes/.test(t) || /^(removed|revoked) (their |an? )?approval/.test(t)) return 'unapproved';
   if (/^approved/.test(t)) return 'approved';

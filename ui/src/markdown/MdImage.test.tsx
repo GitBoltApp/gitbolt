@@ -34,7 +34,7 @@ describe('MdImage (spec #5 §4.2)', () => {
     expect(box.style.width).toBe('200px');
     answer(PNG);
     await waitFor(() => expect(screen.getByRole('img', { name: 'shot' })).toHaveAttribute('src', 'data:image/png;base64,iVBORw=='));
-    expect(api.forgeImage).toHaveBeenCalledWith(4, 'https://gitlab.example.com/group/project/uploads/0123abcd0123abcd/a.png', false);
+    expect(api.forgeImage).toHaveBeenCalledWith(4, 'https://gitlab.example.com/-/project/42/uploads/0123abcd0123abcd/a.png', false);
   });
 
   it('asks before loading from another host, then keeps it loaded for the session', async () => {
@@ -123,7 +123,7 @@ describe('MdImage (spec #5 §4.2)', () => {
   });
 
   describe('a click opens the image viewer', () => {
-    const UPLOAD = 'https://gitlab.example.com/group/project/uploads/0123abcd0123abcd/a.png';
+    const UPLOAD = 'https://gitlab.example.com/-/project/42/uploads/0123abcd0123abcd/a.png';
     const shown = async (ui = <MdImage ctx={forge} src="/uploads/0123abcd0123abcd/a.png" alt="shot" />) => {
       api.forgeImage.mockResolvedValue(PNG);
       render(ui);
