@@ -51,7 +51,7 @@ pub fn wt(r: &TestRepo) -> String {
 }
 
 pub fn wt_at(p: &Path) -> String {
-    p.canonicalize().expect("canonical").display().to_string()
+    crate::platform::fs::canonicalize(p).expect("canonical").display().to_string()
 }
 
 /// One request as JSON (`{"method": …, "params": …}`).

@@ -90,10 +90,10 @@ pub struct HarnessOptions {
 /// `gitbolt-harness fixture` and `TestRepo::mark_fixture` write. Paths are canonical, so a
 /// symlink out of the root doesn't count.
 pub fn fixture_guard(root: PathBuf) -> WriteGuard {
-    let root = root.canonicalize().unwrap_or(root);
+    let root = gitbolt_core::platform::fs::canonicalize(&root).unwrap_or(root);
     Arc::new(move |common_dir: &std::path::Path| {
         let refused = || GbError::new(GbErrorKind::InvalidInput, FIXTURE_ONLY);
-        let dir = common_dir.canonicalize().map_err(|_| refused())?;
+        let dir = gitbolt_core::platform::fs::canonicalize(common_dir).map_err(|_| refused())?;
         // Strictly below the root: a stray marker in the root itself (e.g. /tmp) must not
         // authorise every repository under it (T4 review).
         let marked = dir.starts_with(&root) && dir.ancestors().take_while(|a| a.starts_with(&root) && *a != root.as_path()).any(|a| a.join(FIXTURE_MARKER).is_file());
@@ -157,10 +157,11 @@ impl Picks {
 /// the `gitbolt-harness` that cargo built next to it, one folder up.
 fn harness_exe() -> PathBuf {
     let me = std::env::current_exe().expect("current exe");
-    if me.file_name().is_some_and(|n| n == "gitbolt-harness") {
+    let name = format!("gitbolt-harness{}", std::env::consts::EXE_SUFFIX);
+    if me.file_name().is_some_and(|n| *n == *name) {
         return me;
     }
-    me.ancestors().skip(1).take(2).map(|d| d.join("gitbolt-harness")).find(|p| p.is_file()).unwrap_or(me)
+    me.ancestors().skip(1).take(2).map(|d| d.join(&name)).find(|p| p.is_file()).unwrap_or(me)
 }
 
 /// The real providers, pointed at the fake forge; no other host is reachable.
@@ -570,10 +571,14 @@ mod tests {
         outside.mark_fixture();
         assert!(guard(&outside.path().join(".git")).is_err(), "a marker outside the root doesn't count");
 
-        // A symlink inside the root that points out of it doesn't count either.
-        let link = root.path().join("link");
-        std::os::unix::fs::symlink(outside.root(), &link).unwrap();
-        assert!(guard(&link.join("repo/.git")).is_err());
+        // A symlink inside the root that points out of it doesn't count either. (Unix: a folder
+        // symlink; Windows needs privileges for one.)
+        #[cfg(unix)]
+        {
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(outside.root(), &link).unwrap();
+            assert!(guard(&link.join("repo/.git")).is_err());
+        }
         assert!(!root.path().join(FIXTURE_MARKER).exists());
 
         // A stray marker in the root itself doesn't authorise everything under it.
@@ -588,7 +593,7 @@ mod tests {
         let c = plain.commit("c");
         let id = h.api.dispatch(Request::OpenRepo { path: plain.path().display().to_string() }).await.unwrap()["id"].as_u64().unwrap() as u32;
         let intent = || gitbolt_core::write::test_intents::TestIntent::MoveRef { name: "refs/heads/x".into(), to: Some(c.clone()) };
-        let wt = plain.path().canonicalize().unwrap().display().to_string();
+        let wt = gitbolt_core::platform::fs::canonicalize(plain.path()).unwrap().display().to_string();
         let err = h.api.dispatch(Request::TestWrite { repo: id, worktree: wt.clone(), expect: Default::default(), intent: intent() }).await.unwrap_err();
         assert_eq!(err.message, gitbolt_core::api::FIXTURE_ONLY);
         plain.mark_fixture();
@@ -604,7 +609,7 @@ mod tests {
         let c = r.commit("c");
         r.mark_fixture();
         let id = h.api.dispatch(Request::OpenRepo { path: r.path().display().to_string() }).await.unwrap()["id"].as_u64().unwrap() as u32;
-        let wt = r.path().canonicalize().unwrap().display().to_string();
+        let wt = gitbolt_core::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
         let intent = gitbolt_core::write::test_intents::TestIntent::MoveRef { name: "refs/heads/x".into(), to: Some(c) };
         let res = h.api.dispatch(Request::TestWrite { repo: id, worktree: wt.clone(), expect: Default::default(), intent }).await.unwrap();
         assert!(res["journal"]["undo"].is_object());

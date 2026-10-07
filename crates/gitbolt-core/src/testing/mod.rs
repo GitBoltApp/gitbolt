@@ -91,14 +91,15 @@ pub struct GpgHome {
 
 impl GpgHome {
     pub fn new() -> Self {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::Builder::new().prefix("gpg").tempdir_in("/tmp").expect("gpg tempdir");
+        // `/tmp` keeps the socket path short on Unix; Windows has no `/tmp` (nor that limit).
+        let base = if cfg!(unix) { PathBuf::from("/tmp") } else { std::env::temp_dir() };
+        let dir = tempfile::Builder::new().prefix("gpg").tempdir_in(base).expect("gpg tempdir");
         let home = dir.path().join("home");
         std::fs::create_dir(&home).expect("gpg home");
-        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).expect("chmod gpg home");
+        crate::platform::fs::set_mode(&home, 0o700).expect("chmod gpg home");
         let program = dir.path().join("gpg.sh");
-        std::fs::write(&program, format!("#!/bin/sh\nexec gpg --homedir {} \"$@\"\n", home.display())).expect("gpg wrapper");
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).expect("chmod gpg wrapper");
+        std::fs::write(&program, format!("#!/bin/sh\nexec gpg --homedir {} \"$@\"\n", crate::platform::fs::to_git_path(&home))).expect("gpg wrapper");
+        crate::platform::fs::set_mode(&program, 0o755).expect("chmod gpg wrapper");
         Self { dir, program }
     }
 
@@ -294,22 +295,20 @@ pub const FIXTURE_MARKER: &str = ".gitbolt-fixture";
 impl TestRepo {
     /// An executable `.git/hooks/<name>` running `script` (give it its own `#!/bin/sh` line).
     pub fn hook(&self, name: &str, script: &str) -> &Self {
-        use std::os::unix::fs::PermissionsExt;
         let p = self.path.join(".git/hooks").join(name);
         std::fs::create_dir_all(p.parent().expect("hooks dir")).expect("create hooks dir");
         std::fs::write(&p, script).expect("write hook");
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("chmod hook");
+        crate::platform::fs::set_mode(&p, 0o755).expect("chmod hook");
         self
     }
 
     /// A hook in the bare origin (`add_origin`): a server-side script (`pre-receive`,
     /// `post-receive`) whose output reaches the pusher as `remote:` lines (spec #2 §12.4).
     pub fn origin_hook(&self, name: &str, script: &str) -> &Self {
-        use std::os::unix::fs::PermissionsExt;
         let p = self.root.join("origin.git/hooks").join(name);
         std::fs::create_dir_all(p.parent().expect("hooks dir")).expect("create hooks dir");
         std::fs::write(&p, script).expect("write hook");
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("chmod hook");
+        crate::platform::fs::set_mode(&p, 0o755).expect("chmod hook");
         self
     }
 
@@ -346,7 +345,6 @@ impl TestRepo {
     /// `<root>/sign-count`, then runs `ssh-keygen`. `false` (with the reason printed) when this
     /// machine can't sign. TestRepo's own commits stay unsigned (`-c commit.gpgsign=false`).
     pub fn signing_ssh(&self) -> bool {
-        use std::os::unix::fs::PermissionsExt;
         if let Some(why) = ssh_signing_unavailable() {
             eprintln!("skipping SSH signing: {why}");
             return false;
@@ -359,8 +357,8 @@ impl TestRepo {
         std::fs::write(&allowed, format!("ada@example.com {public}")).expect("allowed signers");
         let wrapper = self.root.join("count-sign");
         let counter = self.root.join("sign-count");
-        std::fs::write(&wrapper, format!("#!/bin/sh\ncase \"$*\" in *\"-Y sign\"*) echo sign >> '{}';; esac\nexec ssh-keygen \"$@\"\n", counter.display())).expect("wrapper");
-        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).expect("chmod wrapper");
+        std::fs::write(&wrapper, format!("#!/bin/sh\ncase \"$*\" in *\"-Y sign\"*) echo sign >> '{}';; esac\nexec ssh-keygen \"$@\"\n", crate::platform::fs::to_git_path(&counter))).expect("wrapper");
+        crate::platform::fs::set_mode(&wrapper, 0o755).expect("chmod wrapper");
         for (k, v) in [
             ("gpg.format", "ssh".to_string()),
             ("commit.gpgsign", "true".to_string()),
@@ -499,12 +497,13 @@ mod tests {
         let r = TestRepo::new();
         r.commit("base");
         let marker = r.root().join("hook-ran");
-        r.hook("post-commit", &format!("#!/bin/sh\ntouch {}\n", marker.display()));
+        r.hook("post-commit", &format!("#!/bin/sh\ntouch {}\n", crate::platform::fs::to_git_path(&marker)));
         // TestRepo's own git runs no hooks (core.hooksPath=/dev/null); plain git does.
         std::process::Command::new("git").current_dir(r.path()).envs(isolated_git_env()).args(["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "x"]).status().unwrap();
         assert!(marker.exists());
     }
 
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[test]
     fn signing_ssh_signs_only_commits_that_ask_and_counts_them() {
         let r = TestRepo::new();

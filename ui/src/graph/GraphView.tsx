@@ -20,7 +20,7 @@ import { useContextTarget } from '../menu/contextTarget';
 import { isEditableTarget } from '../ui/keys';
 import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';
 import { hideTooltip, showTooltip } from '../ui/tooltipStore';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { ColumnResizer } from './ColumnResizer';
 import './columnMenu';
 import type { ColumnTarget } from './columnMenu';

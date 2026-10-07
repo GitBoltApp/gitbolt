@@ -558,6 +558,7 @@ mod tests {
         assert!(stash[0].summary.contains("Experiment"));
     }
 
+    #[cfg(unix)] // file names Windows forbids (*, ?, :, newlines)
     #[tokio::test]
     async fn older_history_path_search_takes_glob_characters_literally() {
         let r = TestRepo::new();

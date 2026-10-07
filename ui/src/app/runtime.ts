@@ -12,7 +12,7 @@ import { dropForge } from '../forge/mrStore';
 import { closeFlyout } from '../ui/flyout/flyout';
 import { dropTabView, feedTabView } from './tabStores';
 import { withActiveSidebar } from '../worktrees/active';
-import { openRepoTab, setTabRepo, touchRecent } from './tabs';
+import { basename, openRepoTab, setTabRepo, touchRecent } from './tabs';
 
 /** One tab's loaded repo (not persisted: the profile holds only the tab's path). */
 export interface TabRuntime {
@@ -40,8 +40,6 @@ const EMPTY: TabRuntime = { status: 'loading', error: null, repo: null, graph: n
 
 /** The worktree a tab acts on: its active one, else (not open yet) its repository's path. */
 export const worktreeOf = (rt: Pick<TabRuntime, 'repo' | 'worktree'> | undefined): string | null => rt?.worktree ?? rt?.repo?.path ?? null;
-
-const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
 interface RuntimeState {
   tabs: Record<string, TabRuntime>;

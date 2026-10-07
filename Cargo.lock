@@ -2038,7 +2038,6 @@ dependencies = [
 name = "gitbolt-app"
 version = "0.2.0"
 dependencies = [
- "dirs 7.0.0",
  "gitbolt-core",
  "gitbolt-forge",
  "glib",
@@ -2059,6 +2058,7 @@ version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
+ "dunce",
  "encoding_rs",
  "futures-util",
  "gix",
@@ -2077,6 +2077,8 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ts-rs",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
  "zbus",
 ]
 

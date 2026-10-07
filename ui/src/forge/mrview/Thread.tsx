@@ -9,7 +9,7 @@ import type { ForgeUser } from '../../api/gen/ForgeUser';
 import { ForgeAvatar } from '../../avatars/Avatar';
 import { EmojiText } from '../emoji';
 import { useForge } from '../mrStore';
-import { changeableThread, foldKey, notePermalink, setFold, useThreadFolds } from './noteActions';
+import { changeableThread, foldKey, notePermalink, setFold, useThreadFolds } from './noteActionsStore';
 import { linkMenu, linkMenuAt, NoteActions, NoteEditor, ReactionPills, ResolveButton } from './NoteActions';
 import { RelTime } from './RelTime';
 // --- 5A T10 ---

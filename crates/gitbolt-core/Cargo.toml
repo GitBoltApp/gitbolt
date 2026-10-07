@@ -20,7 +20,6 @@ tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 regex.workspace = true
-nix.workspace = true
 sha2.workspace = true
 ts-rs.workspace = true
 tempfile.workspace = true
@@ -33,6 +32,31 @@ notify.workspace = true
 insta.workspace = true
 # `#[tokio::test(start_paused = true)]` for the settings debounce test.
 tokio = { workspace = true, features = ["test-util"] }
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+# The platform module's Windows side (src/platform/): job objects, file ids, named pipes.
+[target.'cfg(windows)'.dependencies]
+dunce.workspace = true
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+# The shell's COM dialogs (folder picker) and calls (Open With, URLs): src/openers/win32.rs.
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus.workspace = true

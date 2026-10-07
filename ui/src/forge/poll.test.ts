@@ -144,6 +144,9 @@ describe('pollForge (spec #4 §3.4)', () => {
     expect((await pollForge('t', 'timer')).serverIntervalMs).toBe(600_000);
     expect(forgeOf('t').limitedUntil).toBe(1_000_600_000);
     expect(staleText(forgeOf('t'), 1_000_000_000)).toMatch(/^Rate limited until \d{1,2}:\d{2}[^.]*\. Last updated/);
+    // A time that ends in a full stop (en-CA's "8:56 a.m.") doesn't get a second one.
+    vi.spyOn(Date.prototype, 'toLocaleTimeString').mockReturnValue('8:56 a.m.');
+    expect(staleText(forgeOf('t'), 1_000_000_000)).toBe('Rate limited until 8:56 a.m. Last updated just now');
   });
 });
 

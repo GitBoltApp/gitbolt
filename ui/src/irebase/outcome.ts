@@ -1,5 +1,5 @@
 import type { IntegrateOutcome } from '../api/gen/IntegrateOutcome';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 // --- 3C T13: what a rebase's Start, Continue or Abort tells afterwards (3C fix rounds 1 and 2) ---
 

@@ -1,0 +1,3 @@
+# LF everywhere, whatever core.autocrlf says (git for Windows sets it to true): the sources,
+# fixtures and test data (testdata/*.json, insta snapshots) are compared byte for byte.
+* text=auto eol=lf

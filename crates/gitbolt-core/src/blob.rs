@@ -135,11 +135,11 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, GbError> {
     let bad = || GbError::new(GbErrorKind::InvalidInput, format!("path is outside the worktree: {rel:?}"));
     check_relative(rel)?;
     let (dir, name) = rel.rsplit_once('/').unwrap_or(("", rel));
-    let root_real = root.canonicalize()?;
+    let root_real = crate::platform::fs::canonicalize(root)?;
     let parent_real = if dir.is_empty() {
         root_real.clone()
     } else {
-        root_real.join(dir).canonicalize().map_err(|_| GbError::new(GbErrorKind::NotFound, format!("{rel} not found in the worktree")))?
+        crate::platform::fs::canonicalize(root_real.join(dir)).map_err(|_| GbError::new(GbErrorKind::NotFound, format!("{rel} not found in the worktree")))?
     };
     let inside = parent_real.strip_prefix(&root_real).map_err(|_| bad())?;
     if !inside.components().all(|c| matches!(c, Component::Normal(n) if !is_dotgit(&n.to_string_lossy()))) {
@@ -553,11 +553,10 @@ mod tests {
         assert_eq!(c.old.unwrap().text, Some(format!("Subproject commit {a}\n")));
     }
 
-    #[cfg(unix)]
     #[test]
     fn worktree_side_reads_files_and_rejects_escapes() {
         let (r, repo) = setup();
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let wt = |enc: Option<&str>| Side::Worktree { root: root.clone(), encoding: enc.map(str::to_string), converts: false };
         let manual = diff_contents(&repo, "docs/manual.txt", &Side::Absent, &wt(None), false).unwrap();
         assert!(manual.new.unwrap().text.unwrap().contains("Step four (unstaged)."));
@@ -567,13 +566,17 @@ mod tests {
             let err = diff_contents(&repo, bad, &Side::Absent, &wt(None), false).unwrap_err();
             assert_eq!(err.kind, GbErrorKind::InvalidInput, "{bad:?}");
         }
-        std::os::unix::fs::symlink(r.root(), r.path().join("escape")).unwrap();
-        let err = diff_contents(&repo, "escape/outside.txt", &Side::Absent, &wt(None), false).unwrap_err();
-        assert_eq!(err.kind, GbErrorKind::InvalidInput, "a symlinked directory must not lead outside");
+        // Symlinks: Unix only (Windows needs privileges for them).
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(r.root(), r.path().join("escape")).unwrap();
+            let err = diff_contents(&repo, "escape/outside.txt", &Side::Absent, &wt(None), false).unwrap_err();
+            assert_eq!(err.kind, GbErrorKind::InvalidInput, "a symlinked directory must not lead outside");
 
-        std::os::unix::fs::symlink("docs/manual.txt", r.path().join("link.txt")).unwrap();
-        let link = diff_contents(&repo, "link.txt", &Side::Absent, &wt(None), false).unwrap().new.unwrap();
-        assert_eq!(link.text.as_deref(), Some("docs/manual.txt"), "a symlink shows its target, as git stores it");
+            std::os::unix::fs::symlink("docs/manual.txt", r.path().join("link.txt")).unwrap();
+            let link = diff_contents(&repo, "link.txt", &Side::Absent, &wt(None), false).unwrap().new.unwrap();
+            assert_eq!(link.text.as_deref(), Some("docs/manual.txt"), "a symlink shows its target, as git stores it");
+        }
 
         let bytes: Vec<u8> = "hi\n".encode_utf16().flat_map(u16::to_le_bytes).collect();
         std::fs::write(r.path().join("w16.txt"), bytes).unwrap();
@@ -581,17 +584,21 @@ mod tests {
         assert_eq!((w.text.as_deref(), w.encoding.as_str()), (Some("hi\n"), "UTF-16LE"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn safe_join_rejects_git_dir_aliases_and_malformed_paths() {
         let (r, repo) = setup();
-        let root = r.path().canonicalize().unwrap();
-        std::os::unix::fs::symlink(".git", r.path().join("x")).unwrap();
-        let wt = Side::Worktree { root: root.clone(), encoding: None, converts: false };
-        let err = diff_contents(&repo, "x/config", &Side::Absent, &wt, false).unwrap_err();
-        assert_eq!(err.kind, GbErrorKind::InvalidInput, "a symlink to .git must not expose it");
-        let err = safe_join(&root, "x/config").unwrap_err();
-        assert_eq!(err.kind, GbErrorKind::InvalidInput, "nor through safe_join directly");
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
+        // Symlinks: Unix only (Windows needs privileges for them).
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(".git", r.path().join("x")).unwrap();
+            let wt = Side::Worktree { root: root.clone(), encoding: None, converts: false };
+            let err = diff_contents(&repo, "x/config", &Side::Absent, &wt, false).unwrap_err();
+            assert_eq!(err.kind, GbErrorKind::InvalidInput, "a symlink to .git must not expose it");
+            let err = safe_join(&root, "x/config").unwrap_err();
+            assert_eq!(err.kind, GbErrorKind::InvalidInput, "nor through safe_join directly");
+        }
+        let _ = &repo;
         for bad in [
             ".GIT/config",
             ".Git/HEAD",
@@ -612,8 +619,17 @@ mod tests {
             let err = safe_join(&root, bad).unwrap_err();
             assert_eq!(err.kind, GbErrorKind::InvalidInput, "{bad:?}");
         }
-        std::os::unix::fs::symlink("docs", r.path().join("d")).unwrap();
-        assert_eq!(safe_join(&root, "d/manual.txt").unwrap(), root.join("docs/manual.txt"), "the returned path walks real directories");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("docs", r.path().join("d")).unwrap();
+            assert_eq!(safe_join(&root, "d/manual.txt").unwrap(), root.join("docs/manual.txt"), "the returned path walks real directories");
+        }
+        // Windows spellings: a backslash `..`, a drive, a drive-relative path.
+        for bad in ["docs\\..\\..\\outside.txt", "C:\\x", "C:x"] {
+            if cfg!(windows) {
+                assert_eq!(safe_join(&root, bad).unwrap_err().kind, GbErrorKind::InvalidInput, "{bad:?}");
+            }
+        }
         assert_eq!(safe_join(&root, ".gitignore-like.txt").unwrap(), root.join(".gitignore-like.txt"), "only .git itself is special");
     }
 
@@ -716,6 +732,7 @@ mod tests {
 
         /// A clean filter (`filter=`) runs as `git add` would run it. Its text isn't the file's
         /// any more, so the side is marked `filtered` (read-only).
+        #[cfg(unix)] // gix runs the filter driver without git's sh and sed on PATH (phase 2)
         #[tokio::test]
         async fn a_clean_filter_runs_and_marks_the_side_filtered() {
             let r = repo();
@@ -766,7 +783,7 @@ mod tests {
     #[test]
     fn forced_reads_have_a_hard_ceiling() {
         let (r, repo) = setup();
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let huge = std::fs::File::create(r.path().join("huge.txt")).unwrap();
         huge.set_len(MAX_FORCED_BYTES + 1).unwrap(); // sparse: no bytes are written
         let wt = Side::Worktree { root, encoding: None, converts: false };

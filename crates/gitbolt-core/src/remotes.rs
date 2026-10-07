@@ -21,6 +21,13 @@ pub struct RemoteUrl {
     pub path: String,
 }
 
+/// git for Windows reads `C:…` (a drive) and a path with `\` as local paths, never `host:path`
+/// (`has_dos_drive_prefix`); elsewhere `c:path` is host `c`.
+pub(crate) fn is_local_on_windows(url: &str) -> bool {
+    let b = url.as_bytes();
+    cfg!(windows) && ((b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':') || url.split(':').next().is_some_and(|l| l.contains('\\')))
+}
+
 pub fn parse_remote_url(url: &str) -> Option<RemoteUrl> {
     let url = url.trim();
     let (host_part, path) = if let Some((scheme, rest)) = url.split_once("://") {
@@ -32,7 +39,7 @@ pub fn parse_remote_url(url: &str) -> Option<RemoteUrl> {
         (host.split(':').next()?.to_string(), path)
     } else {
         // scp-like: [user@]host:path — but not a local path
-        if url.starts_with('/') || url.starts_with('.') {
+        if url.starts_with('/') || url.starts_with('.') || is_local_on_windows(url) {
             return None;
         }
         let (left, path) = url.split_once(':')?;
@@ -105,6 +112,20 @@ mod tests {
         assert_eq!(p("https://user:tok@github.com/o/r/"), Some(("github.com".into(), "o/r".into())));
         assert_eq!(p("/tmp/origin.git"), None);
         assert_eq!(p("file:///tmp/origin.git"), None);
+    }
+
+    /// A drive letter is a local path on Windows, as git for Windows reads it; elsewhere git
+    /// reads `c:path` as scp-like host `c`.
+    #[test]
+    fn a_drive_letter_is_a_local_path_on_windows_only() {
+        let drive = p("C:/Users/ada/origin.git");
+        let backslash = p(r"C:\Users\ada\origin.git");
+        if cfg!(windows) {
+            assert_eq!((drive, backslash), (None, None));
+        } else {
+            assert_eq!(drive, Some(("c".into(), "Users/ada/origin".into())));
+        }
+        assert_eq!(p("git@github.com:owner/repo.git"), Some(("github.com".into(), "owner/repo".into())), "a host is still a host");
     }
 
     #[test]

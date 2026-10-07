@@ -9,7 +9,7 @@ vi.mock('../app/tabStores', () => ({ tabView: () => undefined, tabStore: () => u
 
 const { historyRows, movedText, ownsUndo, touchedText, undo, undoFromHistory } = await import('./feature');
 const { applyJournalEvent, journalKey, useJournal } = await import('./store');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 
 const ctx = { tabId: 't', repoId: 4, worktree: '/r' };
 const top = { entry: 7, label: 'commit "Fix x"', kind: 'commit' as const };

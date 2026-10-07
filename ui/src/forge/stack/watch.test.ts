@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { LocalBranch } from '../../api/gen/LocalBranch';
 import { useRuntime } from '../../app/runtime';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { promptFor, resetPrompted } from './watch';
 
 const retargetAndRebase = vi.fn();

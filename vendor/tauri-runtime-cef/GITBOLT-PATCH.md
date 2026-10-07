@@ -310,3 +310,23 @@ No other files differ from the published 3.0.0-alpha.5 crate (its `Cargo.lock` i
 that only blocks name resolution and can't redirect traffic, which is what the warning is about.
 **Fix:** a value made only of `MAP * ~NOTFOUND` and `EXCLUDE …` rules is logged at debug instead;
 any other rule (a real redirect) still warns. Test: `resolver_rules_that_only_block_are_not_a_redirect`.
+
+## The Windows sandbox, through CEF's bootstrap
+
+Upstream passes CEF a null sandbox broker, so Windows always ran unsandboxed: CEF answers a
+null broker by setting `no_sandbox` itself. Since Chromium M138 only CEF's prebuilt
+`bootstrap.exe` / `bootstrapc.exe` can make the broker; renamed `app.exe`, they load `app.dll`
+and call its `RunWinMain` / `RunConsoleMain` with it.
+
+**Fix:** `set_windows_sandbox_info(ptr)` (Windows only, `src/sandbox.rs`, re-exported from
+`src/lib.rs`) stores the bootstrap's pointer, and the runtime passes it to its four
+`cef::execute_process` / `cef::initialize` calls (`src/runtime.rs`: `run_cef_helper_process`, the
+helper branch and the browser's `execute_process`, and `initialize`); null elsewhere, so Linux
+and macOS are unchanged. `windows_sandbox_unavailable()` is now "Windows and no broker", so
+`SandboxPolicy::Auto` keeps the sandbox under the bootstrap and still warns for a plain `.exe`.
+`gitbolt-app` exports the two entry points (`crates/gitbolt-app/src/lib.rs`).
+
+Checked on Windows 11 with CEF 152.0.6, the app as `gitbolt_app.dll` under `bootstrapc.exe`:
+no process has `--no-sandbox`; the renderers and the storage service run at Untrusted
+integrity with restricted tokens and the GPU process at Low (all Medium and unrestricted as a
+plain `.exe`). Test: `the_windows_broker_is_reported_as_unavailable_only_on_windows`.

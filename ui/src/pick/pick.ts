@@ -4,7 +4,7 @@ import type { SequenceOutcome } from '../api/gen/SequenceOutcome';
 import { shortSha } from '../format/sha';
 import type { CommitRef } from '../repo/store';
 import { revealRestored } from '../stash/reveal';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 
 const files = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;

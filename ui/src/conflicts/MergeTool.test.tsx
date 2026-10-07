@@ -36,7 +36,7 @@ vi.mock('./resolve', () => ({ resolveFile: (...a: unknown[]) => resolve(...a) })
 
 import { MergeTool, SWITCH_WAIT_MS, useShownConflict } from './MergeTool';
 import { draftKey, useMergeDrafts } from './mergeDrafts';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 // Every conflict line carries its own terminator (the 2D EOL ruling).
 const payload = {

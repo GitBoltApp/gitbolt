@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { copyText } from '../api/transport';
 import { useMenu } from '../menu/menuStore';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import type { ActivityEntry } from './ops';
 
 /** The Debug modal's tabs (R9): the activity log, the backend's git command log and request log,

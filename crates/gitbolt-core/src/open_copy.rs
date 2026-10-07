@@ -43,7 +43,7 @@ pub fn write_copy(cache: &Path, key: &str, rel: &str, bytes: &[u8]) -> Result<Pa
     }
     write_read_only(&dest, bytes)?;
     // The copy's root dates the copy for `clean` (a nested file doesn't touch its mtime).
-    let _ = std::fs::File::open(&root).and_then(|d| d.set_modified(std::time::SystemTime::now()));
+    let _ = crate::platform::fs::set_modified(&root, std::time::SystemTime::now());
     Ok(dest)
 }
 
@@ -81,6 +81,10 @@ fn write_read_only(dest: &Path, bytes: &[u8]) -> Result<(), GbError> {
     let dir = dest.parent().expect("write_copy always gives a path with a parent");
     let tmp = dir.join(format!(".{}-{}", std::process::id(), next_seq()));
     write_new_read_only(&tmp, bytes)?;
+    if cfg!(windows) {
+        // Windows won't rename over a read-only file: the earlier copy is made writable first.
+        let _ = crate::platform::fs::set_mode(dest, 0o644);
+    }
     std::fs::rename(&tmp, dest)?;
     Ok(())
 }
@@ -144,29 +148,28 @@ pub fn clean(cache: &Path, max_age: Duration) -> usize {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     use std::time::SystemTime;
 
     fn mode(p: &Path) -> u32 {
-        std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777
+        crate::platform::fs::mode(&std::fs::symlink_metadata(p).unwrap()) & 0o777
     }
 
     #[test]
     fn a_copy_keeps_its_path_and_bytes_and_is_read_only() {
         let tmp = tempfile::tempdir().unwrap();
         let p = write_copy(tmp.path(), "0123456789ab", "src/deep/app.php", b"<?php\n").unwrap();
-        assert_eq!(p, tmp.path().canonicalize().unwrap().join("0123456789ab/src/deep/app.php"));
+        assert_eq!(p, crate::platform::fs::canonicalize(tmp.path()).unwrap().join("0123456789ab/src/deep/app.php"));
         // Fix round 2: every folder of a copy is private to the user.
         for dir in ["0123456789ab", "0123456789ab/src", "0123456789ab/src/deep"] {
             assert_eq!(mode(&tmp.path().join(dir)), 0o700, "{dir}");
         }
         assert_eq!(std::fs::read(&p).unwrap(), b"<?php\n");
-        assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o444);
+        assert_eq!(crate::platform::fs::mode(&std::fs::metadata(&p).unwrap()) & 0o777, 0o444);
         // Written again (another open): replaced, still read-only.
         let again = write_copy(tmp.path(), "0123456789ab", "src/deep/app.php", b"<?php // v2\n").unwrap();
         assert_eq!(again, p);
         assert_eq!(std::fs::read(&p).unwrap(), b"<?php // v2\n");
-        assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o444);
+        assert_eq!(crate::platform::fs::mode(&std::fs::metadata(&p).unwrap()) & 0o777, 0o444);
     }
 
     /// Minor #7: two (here, many) concurrent opens of the same old file used to race
@@ -224,7 +227,7 @@ mod tests {
         let cache = tmp.path().join("gitbolt/open");
         std::fs::create_dir_all(cache.join("abcdef/src")).unwrap();
         for d in [cache.clone(), cache.join("abcdef"), cache.join("abcdef/src")] {
-            std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::platform::fs::set_mode(&d, 0o755).unwrap();
         }
         write_copy(&cache, "abcdef", "src/a.txt", b"a").unwrap();
         for d in [cache.clone(), cache.join("abcdef"), cache.join("abcdef/src")] {
@@ -233,6 +236,7 @@ mod tests {
         assert_eq!(mode(&cache.join("abcdef/src/a.txt")), 0o444);
     }
 
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[test]
     fn a_path_or_key_that_would_escape_the_cache_is_refused_before_anything_is_written() {
         let tmp = tempfile::tempdir().unwrap();
@@ -266,7 +270,7 @@ mod tests {
         write_copy(tmp.path(), "aaaaaa", "old/file.txt", b"old").unwrap();
         write_copy(tmp.path(), "bbbbbb", "new.txt", b"new").unwrap();
         let week_ago = SystemTime::now() - MAX_AGE - Duration::from_secs(60);
-        std::fs::File::open(tmp.path().join("aaaaaa")).unwrap().set_modified(week_ago).unwrap();
+        crate::platform::fs::set_modified(tmp.path().join("aaaaaa"), week_ago).unwrap();
         assert_eq!(clean(tmp.path(), MAX_AGE), 1);
         assert!(!tmp.path().join("aaaaaa").exists());
         assert!(tmp.path().join("bbbbbb/new.txt").exists());

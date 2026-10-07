@@ -579,7 +579,7 @@ mod tests {
     #[tokio::test]
     async fn wip_lists_staged_unstaged_and_untracked() {
         let (r, repo) = setup();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let staged = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name.clone(), staged: true }, Some(&wt)).await.unwrap();
         assert_eq!(staged.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), vec!["src/app.php"]);
@@ -598,7 +598,7 @@ mod tests {
     async fn wip_lists_reuse_the_given_untracked_counts() {
         let (r, repo) = setup();
         r.write("fresh.txt", "a\nb\nc\n");
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let entries = status(&cli(), &wt).await.unwrap();
         let reuse = HashMap::from([("notes.txt".to_string(), Some(99))]);
         let (_, unstaged) = wip_lists(&repo, &cli(), &wt, entries, &reuse).await.unwrap();
@@ -610,7 +610,7 @@ mod tests {
     #[tokio::test]
     async fn commit_against_worktree_mixes_index_and_worktree_sides() {
         let (r, repo) = setup();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let root = r.git(&["rev-list", "--max-parents=0", "HEAD"]);
         let list = file_list(&repo, &cli(), r.path(), &DiffSpec::Worktree { from: root, worktree: name.clone() }, Some(&wt)).await.unwrap();
@@ -625,7 +625,7 @@ mod tests {
     /// Bumps a file's mtime, without touching its content, far enough into the future to defeat
     /// racy-git's same-second heuristic (see `status.rs`'s `status_does_not_rewrite_the_index`).
     fn bump_mtime(path: &Path) {
-        let f = std::fs::File::open(path).unwrap();
+        let f = std::fs::File::options().write(true).open(path).unwrap();
         let modified = f.metadata().unwrap().modified().unwrap();
         f.set_modified(modified + std::time::Duration::from_secs(120)).unwrap();
     }
@@ -640,7 +640,7 @@ mod tests {
         r.write("f.txt", "hello\n");
         r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
         let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let root = r.git(&["rev-parse", "HEAD"]);
 
@@ -670,7 +670,7 @@ mod tests {
         r.write("f.txt", "hello\n");
         r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
         let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let root = r.git(&["rev-parse", "HEAD"]);
 
@@ -694,7 +694,7 @@ mod tests {
         r.write_bytes("f.bin", b"\x00\x01\x02binary data\x00");
         r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
         let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let root = r.git(&["rev-parse", "HEAD"]);
 
@@ -723,7 +723,7 @@ mod tests {
         r.write_bytes("f.bin", b"\x00\x01\x02binary data\x00");
         r.commit_all_as("c", "Ada Lovelace", "ada@example.com");
         let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let root = r.git(&["rev-parse", "HEAD"]);
 
@@ -772,7 +772,7 @@ mod tests {
         let stage2 = r.git(&["rev-parse", ":2:conflict.txt"]);
 
         let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let list = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name.clone(), staged: false }, Some(&wt)).await.unwrap();
         let matches: Vec<&FileChange> = list.files.iter().filter(|f| f.path == "conflict.txt").collect();
@@ -791,7 +791,7 @@ mod tests {
         let r = TestRepo::new();
         crate::testing::fixtures::wip_conflict(&r);
         let repo = gix::ThreadSafeRepository::open(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.display().to_string();
         let list = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name, staged: false }, Some(&wt)).await.unwrap();
         let c = list.files.iter().find(|f| f.path == "c.txt").unwrap();
@@ -817,7 +817,7 @@ mod tests {
         let oid2 = commit_in(&sub_dir, "sub two"); // advances the checkout past the index's record
 
         let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let list = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name, staged: false }, Some(&wt)).await.unwrap();
         let f = list.files.iter().find(|f| f.path == "vendor/lib").unwrap();
@@ -958,7 +958,7 @@ mod tests {
         r.git(&["add", "-A"]);
         r.git(&["commit", "-q", "-m", "pngs"]);
         let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let name = wt.to_string_lossy().into_owned();
         let wip = |staged| DiffSpec::Wip { worktree: name.clone(), staged };
         let c = cli();

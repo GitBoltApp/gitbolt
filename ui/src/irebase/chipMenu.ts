@@ -3,7 +3,7 @@ import { copyText } from '../api/transport';
 import { ICONS } from '../menu/icons';
 import type { MenuRow } from '../menu/types';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { chipChange, deleteChip, revertChip } from './model';
 import { editState, sessionOf } from './session';
 

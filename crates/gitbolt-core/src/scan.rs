@@ -103,7 +103,7 @@ mod tests {
         std::fs::create_dir_all(root.path().join(".hidden/repo/.git")).unwrap(); // hidden dirs are skipped
         let found = scan_repos(root.path());
         let names: Vec<&str> = found.iter().map(|r| r.path.as_str()).collect();
-        assert!(names.iter().any(|p| p.ends_with("alpha/repo")), "{names:?}");
+        assert!(names.iter().any(|p| Path::new(p).ends_with("alpha/repo")), "{names:?}");
         assert!(!names.iter().any(|p| p.contains("group/beta")), "{names:?}");
         assert!(!names.iter().any(|p| p.contains(".hidden")), "{names:?}");
         assert!(found.iter().all(|r| r.branch.as_deref() == Some("main")));
@@ -132,7 +132,7 @@ mod tests {
         TestRepo::init_at(&root.path().join("alpha/repo/vendor"));
         let found = scan_repos(root.path());
         assert_eq!(found.len(), 1);
-        assert!(found[0].path.ends_with("alpha/repo"));
+        assert!(Path::new(&found[0].path).ends_with("alpha/repo"), "{found:?}");
     }
 
     #[test]

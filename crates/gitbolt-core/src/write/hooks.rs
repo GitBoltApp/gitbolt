@@ -97,7 +97,6 @@ mod tests {
     use crate::log::CommandLog;
     use crate::testing::{isolated_git_env, TestRepo};
     use crate::write::WriteToken;
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Arc;
 
     const TRACE: &str = r#"{"event":"version","sid":"s1","evt":"4"}
@@ -124,7 +123,7 @@ mod tests {
         let p = r.path().join(".git/hooks").join(name);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, script).unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&p, 0o755).unwrap();
     }
 
     #[tokio::test]

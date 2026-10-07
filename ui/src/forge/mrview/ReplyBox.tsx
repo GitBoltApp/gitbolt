@@ -9,7 +9,7 @@ import { registerKeyHints } from '../../shortcuts/hints';
 import { mrRef } from '../labels';
 import { patchForge, useTabForgeField } from '../mrStore';
 import { clearDraft, draftKey, setDraft, useReplyDrafts } from './drafts';
-import { resolveThread } from './noteActions';
+import { resolveThread } from './noteActionsStore';
 import { forgeWrite } from './writes';
 
 /** The note in its discussion (a new one at the end), as the forge answered it. */

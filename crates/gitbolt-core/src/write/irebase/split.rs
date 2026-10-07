@@ -767,10 +767,8 @@ pub(crate) fn put_back(root: &std::path::Path, gone: &[Leftover]) {
     for l in gone {
         let file = root.join(&l.path);
         let res = repo.find_object(l.blob).map_err(|e| e.to_string()).and_then(|o| std::fs::write(&file, &o.data).map_err(|e| e.to_string()));
-        #[cfg(unix)]
         let res = res.and_then(|_| {
-            use std::os::unix::fs::PermissionsExt;
-            if l.executable { std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string()) } else { Ok(()) }
+            if l.executable { crate::platform::fs::set_mode(&file, 0o755).map_err(|e| e.to_string()) } else { Ok(()) }
         });
         if let Err(e) = res {
             tracing::warn!(target: "gitbolt_core::write", "putting {} back after a failed abort: {e}", file.display());
@@ -1299,6 +1297,7 @@ mod tests {
     }
 
     /// Fix round 1 (3): a changed path that isn't UTF-8 keeps everything, as before UX N.
+    #[cfg(unix)] // non-UTF-8 file names exist only on Unix
     #[tokio::test]
     async fn a_non_utf8_path_keeps_everything() {
         use std::os::unix::ffi::OsStrExt;
@@ -1317,10 +1316,9 @@ mod tests {
     /// lost reads with the index's mode, as `git stash` reads it: nothing new.
     #[tokio::test]
     async fn file_mode_false_doesnt_flip_a_mode_into_work() {
-        use std::os::unix::fs::PermissionsExt;
         let (_d, r, api, id) = fresh().await;
         r.write("script.sh", "#!/bin/sh\n");
-        std::fs::set_permissions(r.path().join("script.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("script.sh"), 0o755).unwrap();
         r.git(&["add", "script.sh"]);
         r.git(&["commit", "-q", "-m", "C3 Add script"]);
         assert_eq!(r.git(&["status", "--porcelain"]), "", "clean: no autostash");
@@ -1331,7 +1329,7 @@ mod tests {
         assert_eq!(start(&api, id, &r, &p, rows, stay(&p)).await.unwrap()["outcome"]["status"], "stopped");
         assert_eq!(r.git(&["status", "--porcelain"]), "A  script.sh");
         r.git(&["config", "core.fileMode", "false"]);
-        std::fs::set_permissions(r.path().join("script.sh"), std::fs::Permissions::from_mode(0o644)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("script.sh"), 0o644).unwrap();
         let res = abort(&api, id, &r).await.unwrap();
         kept_nothing(&r, &res, &before, "fileMode false");
     }

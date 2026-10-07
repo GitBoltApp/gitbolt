@@ -12,14 +12,15 @@ use gitbolt_core::forge::{AccountKey, TokenStorage, TokenStore, KEYRING_SERVICE}
 use gitbolt_core::redact::{redact, Secret};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use gitbolt_core::platform::fs as pfs;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// The directory's owner must be us: a directory someone else owns could swap files under us.
-fn check_owner(dir: &Path, dir_uid: u32, euid: u32) -> Result<(), GbError> {
-    if dir_uid != euid {
+/// (Windows: see `gitbolt_core::platform::fs::owned_by_me`.)
+fn check_owner(dir: &Path, owned_by_me: bool) -> Result<(), GbError> {
+    if !owned_by_me {
         return Err(GbError::other(format!("{} isn't owned by you, so tokens won't be kept in it", dir.display())));
     }
     Ok(())
@@ -32,11 +33,11 @@ fn io_err(verb: &str, path: &Path, e: std::io::Error) -> GbError {
 /// The token file's directory: created 0700, owned by us, and tightened to 0700 if it's looser.
 fn private_dir(dir: &Path) -> Result<(), GbError> {
     let fail = |e| io_err("prepare", dir, e);
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(fail)?;
+    pfs::private_dir_builder(std::fs::DirBuilder::new().recursive(true)).create(dir).map_err(fail)?;
     let meta = std::fs::metadata(dir).map_err(fail)?;
-    check_owner(dir, meta.uid(), nix::unistd::geteuid().as_raw())?;
-    if meta.permissions().mode() & 0o777 != 0o700 {
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(fail)?;
+    check_owner(dir, pfs::owned_by_me(&meta))?;
+    if pfs::mode(&meta) & 0o777 != 0o700 {
+        pfs::set_mode(dir, 0o700).map_err(fail)?;
     }
     Ok(())
 }
@@ -132,8 +133,8 @@ impl FileTokenStore {
         }
         let bytes = std::fs::read(&self.path).map_err(fail)?;
         // An older or hand-made copy readable by others is tightened before use.
-        if std::fs::metadata(&self.path).map_err(fail)?.permissions().mode() & 0o077 != 0 {
-            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600)).map_err(fail)?;
+        if pfs::mode(&std::fs::metadata(&self.path).map_err(fail)?) & 0o077 != 0 {
+            pfs::set_mode(&self.path, 0o600).map_err(fail)?;
         }
         serde_json::from_slice(&bytes).map_err(|_| GbError::other(format!("{} isn't a token file that can be read", self.path.display())))
     }
@@ -142,12 +143,12 @@ impl FileTokenStore {
     fn write(&self, dir: &Path, file: &TokenFile) -> Result<(), GbError> {
         let fail = |e| io_err("write", &self.path, e);
         let json = serde_json::to_vec(file).map_err(|e| GbError::other(format!("token file: {e}")))?;
-        let mut tmp = tempfile::Builder::new().prefix(".forge-tokens.").suffix(".tmp").permissions(std::fs::Permissions::from_mode(0o600)).tempfile_in(dir).map_err(fail)?;
+        let mut tmp = pfs::private_temp(tempfile::Builder::new().prefix(".forge-tokens.").suffix(".tmp")).tempfile_in(dir).map_err(fail)?;
         tmp.write_all(&json).map_err(fail)?;
         tmp.as_file().sync_all().map_err(fail)?;
         tmp.persist(&self.path).map_err(|e| fail(e.error))?;
         // The rename itself must survive a crash.
-        std::fs::File::open(dir).and_then(|d| d.sync_all()).map_err(fail)
+        pfs::sync_dir(dir).map_err(fail)
     }
 
     fn update(&self, f: impl FnOnce(&mut TokenFile)) -> Result<(), GbError> {
@@ -156,11 +157,12 @@ impl FileTokenStore {
         private_dir(dir)?;
         // Another process (a second app instance) is held off by a sidecar flock.
         let lock_path = self.path.with_extension("lock");
-        let lock_file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).mode(0o600)
-            // A planted symlink (or a FIFO, which would block the open) is refused, never followed.
-            .custom_flags((nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK).bits())
+        // A planted symlink (or a FIFO, which would block the open) is refused, never followed.
+        let lock_file = pfs::no_follow(pfs::private_file(std::fs::OpenOptions::new().create(true).truncate(false).write(true)))
             .open(&lock_path).map_err(|e| io_err("open", &lock_path, e))?;
-        let _flock = nix::fcntl::Flock::lock(lock_file, nix::fcntl::FlockArg::LockExclusive).map_err(|(_, e)| io_err("lock", &lock_path, e.into()))?;
+        // `flock` (`LockFileEx` on Windows), released when the file closes.
+        lock_file.lock().map_err(|e| io_err("lock", &lock_path, e))?;
+        let _flock = lock_file;
         let mut file = self.read()?;
         file.version = 1;
         f(&mut file);
@@ -286,7 +288,6 @@ impl TokenStore for SystemTokenStore {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Arc;
 
     const TOKEN: &str = "glpat-FAKE-test-token";
@@ -296,7 +297,16 @@ mod tests {
     }
 
     fn mode(p: &std::path::Path) -> u32 {
-        std::fs::metadata(p).unwrap().permissions().mode() & 0o777
+        gitbolt_core::platform::fs::mode(&std::fs::metadata(p).unwrap()) & 0o777
+    }
+
+    /// The mode, on Unix (Windows has none: the file is private by the profile's ACL).
+    macro_rules! assert_mode {
+        ($p:expr, $m:expr $(, $msg:expr)?) => {
+            if cfg!(unix) {
+                assert_eq!(mode($p), $m $(, $msg)?);
+            }
+        };
     }
 
     /// A Secret Service in memory, or none at all (`up: false`).
@@ -335,8 +345,8 @@ mod tests {
         let store = FileTokenStore::new(path.clone());
         assert_eq!(store.put(&key("gitlab.example.com"), &Secret::new(TOKEN)).unwrap(), TokenStorage::File);
         assert_eq!(store.get(&key("gitlab.example.com"), TokenStorage::File).unwrap().map(|s| s.expose().to_string()).as_deref(), Some(TOKEN));
-        assert_eq!(mode(&path), 0o600);
-        assert_eq!(mode(path.parent().unwrap()), 0o700);
+        assert_mode!(&path, 0o600);
+        assert_mode!(path.parent().unwrap(), 0o700);
         let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(json["tokens"]["default/gitlab.example.com"], TOKEN);
         let mut leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name()).collect();
@@ -351,9 +361,9 @@ mod tests {
         let store = FileTokenStore::new(path.clone());
         store.put(&key("a.example.com"), &Secret::new("one")).unwrap();
         store.put(&key("b.example.com"), &Secret::new("two")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        gitbolt_core::platform::fs::set_mode(&path, 0o644).unwrap();
         assert!(store.get(&key("a.example.com"), TokenStorage::File).unwrap().is_some());
-        assert_eq!(mode(&path), 0o600, "reading tightens it");
+        assert_mode!(&path, 0o600, "reading tightens it");
         store.delete(&key("a.example.com")).unwrap();
         assert!(store.get(&key("a.example.com"), TokenStorage::File).unwrap().is_none());
         assert_eq!(store.get(&key("b.example.com"), TokenStorage::File).unwrap().unwrap().expose(), "two");
@@ -377,8 +387,8 @@ mod tests {
         let path = tmp.path().join("gitbolt").join("forge-tokens");
         let store = SystemTokenStore::new(Some(Box::new(FakeKeyring::default())), FileTokenStore::new(path.clone()));
         assert_eq!(store.put(&key("gitlab.example.com"), &Secret::new(TOKEN)).unwrap(), TokenStorage::File);
-        assert_eq!(mode(&path), 0o600);
-        assert_eq!(mode(path.parent().unwrap()), 0o700);
+        assert_mode!(&path, 0o600);
+        assert_mode!(path.parent().unwrap(), 0o700);
         assert_eq!(store.get(&key("gitlab.example.com"), TokenStorage::File).unwrap().unwrap().expose(), TOKEN);
         // No keyring backend at all (a build or platform without one): the same.
         let bare = SystemTokenStore::new(None, FileTokenStore::new(tmp.path().join("other")));
@@ -475,15 +485,16 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("d");
         std::fs::create_dir(&dir).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+        gitbolt_core::platform::fs::set_mode(&dir, 0o777).unwrap();
         let path = dir.join("forge-tokens");
         FileTokenStore::new(path.clone()).put(&key("h"), &Secret::new("x")).unwrap();
-        assert_eq!(mode(&dir), 0o700);
-        assert_eq!(mode(&path), 0o600);
-        assert!(check_owner(&dir, 0, 1000).is_err());
-        assert!(check_owner(&dir, 1000, 1000).is_ok());
+        assert_mode!(&dir, 0o700);
+        assert_mode!(&path, 0o600);
+        assert!(check_owner(&dir, false).is_err());
+        assert!(check_owner(&dir, true).is_ok());
     }
 
+    #[cfg(unix)] // symlinks (Windows: privileges)
     #[test]
     fn a_planted_symlink_is_never_followed() {
         let tmp = tempfile::tempdir().unwrap();
@@ -523,6 +534,7 @@ mod tests {
         absent.delete(&key("h")).unwrap();
     }
 
+    #[cfg(unix)] // symlinks (Windows: privileges)
     #[test]
     fn a_failed_file_cleanup_after_a_keyring_save_still_reports_the_keyring() {
         let tmp = tempfile::tempdir().unwrap();

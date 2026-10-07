@@ -14,7 +14,7 @@ import { useFocusZone } from '../repo/focus';
 import { useRepoView, useRepoViewStore, type DiffTarget } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useKeys } from '../ui/keyRouter';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import type { WriteCtx } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { ariaChecked, CHECK_GLYPH } from './checkBox';

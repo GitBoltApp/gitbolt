@@ -33,7 +33,7 @@ pub fn parse_worktree_list(out: &[u8]) -> Vec<Worktree> {
                 if let Some(wt) = cur.take() {
                     list.push(wt);
                 }
-                cur = Some(Worktree { path: PathBuf::from(value), head: None, branch: None, is_main: list.is_empty(), bare: false, prunable: false, locked: false });
+                cur = Some(Worktree { path: crate::platform::fs::from_git_path(value), head: None, branch: None, is_main: list.is_empty(), bare: false, prunable: false, locked: false });
             }
             "HEAD" => if let Some(wt) = cur.as_mut() { wt.head = ObjectId::from_hex(value.as_bytes()).ok().filter(|id| !id.is_null()) },
             "branch" => if let Some(wt) = cur.as_mut() { wt.branch = Some(value.to_string()) },
@@ -68,7 +68,7 @@ pub async fn list_worktrees(cwd: &Path) -> Result<Vec<Worktree>, GbError> {
 /// its branch (the symbolic ref it ends at) and the commit, `None` while unborn. `locked`:
 /// a `locked` file; `prunable`: not locked, and its checkout's `.git` is gone.
 pub fn read_worktrees(repo: &gix::Repository) -> Result<Vec<Worktree>, GbError> {
-    let common = repo.common_dir().canonicalize().map_err(|e| GbError::new(crate::error::GbErrorKind::Io, format!("{}: {e}", repo.common_dir().display())))?;
+    let common = crate::platform::fs::canonicalize(repo.common_dir()).map_err(|e| GbError::new(crate::error::GbErrorKind::Io, format!("{}: {e}", repo.common_dir().display())))?;
     // The repository's own config file, read now (the handle's snapshot is from its opening).
     let config = gix::config::File::from_path_no_includes(common.join("config"), gix::config::Source::Local).ok();
     let bare = config.as_ref().and_then(|c| c.boolean("core.bare").ok().flatten()).unwrap_or(false);
@@ -87,8 +87,9 @@ pub fn read_worktrees(repo: &gix::Repository) -> Result<Vec<Worktree>, GbError> 
                 continue;
             }
             let dot_git = if Path::new(dot_git).is_absolute() { PathBuf::from(dot_git) } else { forgiving_realpath(&dir.join(dot_git)) };
-            let path = match dot_git.to_str().and_then(|s| s.strip_suffix("/.git")) {
-                Some(p) => PathBuf::from(p),
+            // (Windows: a relative one resolved above is spelled with `\`.)
+            let path = match dot_git.to_str().and_then(|s| s.strip_suffix("/.git").or_else(|| s.strip_suffix("\\.git").filter(|_| cfg!(windows)))) {
+                Some(p) => crate::platform::fs::from_git_path(p),
                 None => dot_git.clone(),
             };
             let locked = dir.join("locked").symlink_metadata().is_ok();
@@ -116,7 +117,7 @@ fn forgiving_realpath(p: &Path) -> PathBuf {
     let mut rest = Vec::new();
     let mut cur = p.to_path_buf();
     loop {
-        if let Ok(c) = cur.canonicalize() {
+        if let Ok(c) = crate::platform::fs::canonicalize(&cur) {
             return rest.iter().rev().fold(c, |acc: PathBuf, part: &std::ffi::OsString| acc.join(part));
         }
         match (cur.file_name().map(|n| n.to_os_string()), cur.parent()) {

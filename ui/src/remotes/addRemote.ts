@@ -3,7 +3,7 @@ import type { ForgeProject } from '../api/gen/ForgeProject';
 import { runFetch } from '../app/fetchSchedule';
 import { useRuntime } from '../app/runtime';
 import { forkCloneUrl, freeRemoteName } from '../forge/remoteUrl';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { remoteIsProject } from './match';

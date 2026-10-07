@@ -3,8 +3,8 @@
 This is a map of how GitBolt is put together, for anyone about to change it. It describes what
 the code does today; when the two disagree, the code wins, and this file should be fixed.
 
-GitBolt is a Linux desktop app: a Rust backend that does all the git work, a React UI that draws
-it, and Tauri 3 on its Chromium (CEF) runtime holding the two together.
+GitBolt is a desktop app for Linux and Windows: a Rust backend that does all the git work, a
+React UI that draws it, and Tauri 3 on its Chromium (CEF) runtime holding the two together.
 
 ```
 ┌──────────────────────── gitbolt (one process tree) ────────────────────────┐
@@ -41,7 +41,9 @@ accounts, the cache). Core never speaks HTTP; it defines traits that the other c
 (`tokens.rs`), avatar and Markdown-image fetching, and Gravatar (`gravatar.rs`). It depends on core,
 never the other way round.
 
-**`gitbolt-app`** is the desktop binary (`gitbolt`). `src/main.rs` builds the `Api` with the real
+**`gitbolt-app`** is the desktop binary (`gitbolt`). Its code is a library (`src/lib.rs`, whose
+`run` is the binary's `main` and, on Windows, the DLL entry point CEF's sandbox bootstrap calls). It
+builds the `Api` with the real
 implementations (system openers, the folder-picker portal, Gravatar, the forge connector and the
 keyring token store), starts the CEF runtime with a required sandbox, registers a single Tauri
 command, forwards the event bus to the webview, and handles startup and shutdown (askpass mode,

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const openUrl = vi.hoisted(() => vi.fn(async (_url: string): Promise<null> => null));
 vi.mock('../api/client', () => ({ api: { openUrl }, errorMessage: (e: { message: string }) => e.message }));
 
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { fakeServices } from '../repo/testServices';
 import { Message, useProjectRemote } from './Message';
 import type { ProjectRemote } from './messageLinks';

@@ -8,7 +8,7 @@ import type { TabSlotProps } from '../app/slots';
 import { toastActionError } from '../debug/errorToast';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { journalKey, loadJournal, useJournal } from '../undo/store';
 import type { WriteCtx } from '../write/client';
 import { writeErrorContext } from '../write/indexLock';

@@ -8,20 +8,25 @@
 //! must be this user (`SO_PEERCRED`), and every request must carry the session's 32-hex token
 //! (compared in constant time). A request for an op that isn't running, or for op `0` (a git
 //! command outside any network op), is denied without reaching the UI.
+//!
+//! Windows: the "socket" is a named pipe private to this user, whose client's token user is
+//! checked ([`crate::platform::ipc`]). Git for Windows runs `GIT_ASKPASS` the same way (Git
+//! Credential Manager, when configured, prompts in its own window first), and OpenSSH for
+//! Windows honours `SSH_ASKPASS` with `SSH_ASKPASS_REQUIRE=force`.
 
 use crate::error::{GbError, GbErrorKind};
 use crate::events::{AppEvent, EventBus};
 use crate::ops::{OpId, OpRegistry};
+use crate::platform::ipc;
 use crate::random::random_hex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::oneshot;
 
 pub const ENV_SOCKET: &str = "GITBOLT_ASKPASS_SOCKET";
@@ -65,12 +70,11 @@ pub fn run_client_from_env() -> Option<i32> {
 /// app isn't there), which git and ssh read as "no credentials".
 fn client(socket: &Path, token: &str, op: u64, prompt: &str, out: &mut dyn Write) -> i32 {
     let run = || -> std::io::Result<Option<String>> {
-        let mut stream = std::os::unix::net::UnixStream::connect(socket)?;
+        let mut stream = ipc::connect(socket)?;
         let req = serde_json::to_string(&ClientRequest { token: token.into(), op, prompt: prompt.into() })?;
         stream.write_all(req.as_bytes())?;
         stream.write_all(b"\n")?;
-        let mut line = String::new();
-        std::io::BufReader::new(stream).read_line(&mut line)?;
+        let line = stream.read_line_within(None)?;
         let reply: ServerReply = serde_json::from_str(line.trim()).unwrap_or_default();
         Ok(reply.answer.filter(|_| !reply.cancel))
     };
@@ -83,11 +87,6 @@ fn client(socket: &Path, token: &str, op: u64, prompt: &str, out: &mut dyn Write
     }
 }
 
-/// A connection is answered only when its peer (`SO_PEERCRED`) is known to be `own`, this user.
-fn peer_allowed(peer_uid: Option<u32>, own: u32) -> bool {
-    peer_uid == Some(own)
-}
-
 /// Constant-time equality (the token must not leak through timing).
 fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
@@ -97,8 +96,6 @@ pub struct AskpassServer {
     path: PathBuf,
     pub(crate) token: String,
     exe: PathBuf,
-    /// The socket's owner (this user): the only peer uid accepted.
-    uid: u32,
     next_prompt: AtomicU64,
     pending: Mutex<HashMap<u64, oneshot::Sender<Option<String>>>>,
     ops: Arc<OpRegistry>,
@@ -107,21 +104,18 @@ pub struct AskpassServer {
 }
 
 impl AskpassServer {
-    /// Binds `dir/gitbolt-askpass-<pid>-<rand>.sock` (mode `0600`) and starts answering it.
-    /// `exe` is the binary git runs as askpass (this one, in `run_client_from_env` mode).
+    /// Binds `dir/gitbolt-askpass-<pid>-<rand>.sock` (mode `0600`; on Windows the pipe of that
+    /// name) and starts answering it. `exe` is the binary git runs as askpass (this one, in
+    /// `run_client_from_env` mode).
     pub async fn start(dir: &Path, exe: PathBuf, ops: Arc<OpRegistry>, bus: EventBus) -> std::io::Result<Arc<Self>> {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         std::fs::create_dir_all(dir)?;
-        let path = dir.join(format!("gitbolt-askpass-{}-{}.sock", std::process::id(), random_hex(4)));
-        let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path)?;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-        let uid = std::fs::metadata(&path)?.uid();
+        let path = ipc::endpoint(dir, &format!("gitbolt-askpass-{}-{}.sock", std::process::id(), random_hex(4)));
+        ipc::remove(&path);
+        let mut listener = ipc::Listener::bind(&path)?.into_async()?;
         let server = Arc::new(Self {
             path,
             token: random_hex(16),
             exe,
-            uid,
             next_prompt: AtomicU64::new(1),
             pending: Mutex::new(HashMap::new()),
             ops,
@@ -132,7 +126,7 @@ impl AskpassServer {
         let task = tokio::spawn(async move {
             loop {
                 let stream = match listener.accept().await {
-                    Ok((stream, _)) => stream,
+                    Ok(stream) => stream,
                     Err(e) => {
                         // EMFILE and friends: back off rather than spin; the listener stays up.
                         tracing::warn!("askpass accept failed: {e}");
@@ -193,11 +187,11 @@ impl AskpassServer {
         if let Some(task) = self.accept_task().take() {
             task.abort();
         }
-        let _ = std::fs::remove_file(&self.path);
+        ipc::remove(&self.path);
     }
 
-    async fn handle(&self, stream: UnixStream) {
-        if !peer_allowed(stream.peer_cred().ok().map(|c| c.uid()), self.uid) {
+    async fn handle(&self, stream: ipc::Stream) {
+        if !stream.from_this_user() {
             tracing::warn!("askpass: refused a connection from another user");
             return;
         }
@@ -306,8 +300,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn socket_is_private_and_env_names_it() {
         let (_d, s, _ops, _bus) = server().await;
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(s.socket_path()).unwrap().permissions().mode() & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            assert_eq!(crate::platform::fs::mode(&std::fs::metadata(s.socket_path()).unwrap()) & 0o777, 0o600);
+        }
         let name = s.socket_path().file_name().unwrap().to_string_lossy().into_owned();
         assert!(name.starts_with(&format!("gitbolt-askpass-{}-", std::process::id())) && name.ends_with(".sock"), "{name}");
         let env = s.env_for(Some(7));
@@ -388,14 +384,6 @@ mod tests {
         assert!(op.prompt_cancelled(), "the op knows the user cancelled, so it reports cancelled");
     }
 
-    #[test]
-    fn only_this_users_peers_are_accepted() {
-        assert!(peer_allowed(Some(1000), 1000));
-        assert!(!peer_allowed(Some(1001), 1000), "another user");
-        assert!(!peer_allowed(Some(0), 1000), "even root");
-        assert!(!peer_allowed(None, 1000), "unknown credentials");
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn cancelling_the_op_cancels_its_prompt() {
         let (_d, s, ops, bus) = server().await;
@@ -421,7 +409,7 @@ mod tests {
         let req = serde_json::json!({"token": s.token, "op": op.id, "prompt": "Password: "}).to_string();
         let path = s.socket_path().to_path_buf();
         let mut stream = tokio::task::spawn_blocking(move || {
-            let mut st = std::os::unix::net::UnixStream::connect(&path).unwrap();
+            let mut st = ipc::connect(&path).unwrap();
             st.write_all(format!("{req}\n").as_bytes()).unwrap();
             st
         })
@@ -439,9 +427,13 @@ mod tests {
     async fn closing_removes_the_socket() {
         let (_d, s, _ops, _bus) = server().await;
         let path = s.socket_path().to_path_buf();
+        // (A Windows pipe has no file; looking it up would connect to it.)
+        #[cfg(unix)]
         assert!(path.exists());
         s.close();
+        #[cfg(unix)]
         assert!(!path.exists());
+        let _ = path;
         assert_eq!(ask(&s, &s.token.clone(), 1, "Password: ").await, 1, "nothing answers any more");
     }
 }

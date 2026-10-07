@@ -9,10 +9,13 @@
 //! the session's values of what the app changed for itself (`GDK_BACKEND`, ...) are what the
 //! shell sees and what the capture returns. `PRIVATE_ENV` is also dropped from the result, in
 //! case the user's shell setup exports one itself.
+//!
+//! Windows has no login shell to ask: an app started from the Start menu already has the user's
+//! environment, so nothing is captured and git inherits the process environment.
 
 use crate::openers::{ChildEnvHook, PRIVATE_ENV};
+use crate::platform::process::{own_session, Group};
 use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -50,7 +53,9 @@ impl ShellEnv {
     }
 
     fn login_shell(hook: Option<ChildEnvHook>) -> Arc<Self> {
-        Arc::new(Self { shell: std::env::var_os("SHELL").map(PathBuf::from), timeout: CAPTURE_TIMEOUT, hook, cell: OnceCell::new() })
+        // Windows: no capture (see the module docs), even with a `SHELL` from Git Bash or MSYS.
+        let shell = if cfg!(unix) { std::env::var_os("SHELL").map(PathBuf::from) } else { None };
+        Arc::new(Self { shell, timeout: CAPTURE_TIMEOUT, hook, cell: OnceCell::new() })
     }
 
     pub fn with_shell(shell: PathBuf, timeout: Duration) -> Arc<Self> {
@@ -108,10 +113,7 @@ async fn capture(shell: &Path, timeout: Duration, hook: Option<&ChildEnvHook>) -
     // background group of a terminal's session (a dev run), `-i` would make it touch the tty and
     // stop on SIGTTIN/SIGTTOU until the timeout. As a session leader its pgid is its pid, so
     // `killpg` below still reaches everything it started.
-    // SAFETY: `setsid` is async-signal-safe and the closure touches nothing else.
-    unsafe {
-        cmd.pre_exec(|| nix::unistd::setsid().map(drop).map_err(std::io::Error::from));
-    }
+    own_session(cmd.as_std_mut());
     let mut child = match spawn(&mut cmd).await {
         Ok(c) => c,
         Err(e) => {
@@ -119,7 +121,7 @@ async fn capture(shell: &Path, timeout: Duration, hook: Option<&ChildEnvHook>) -
             return None;
         }
     };
-    let pid = child.id();
+    let group = Group::of(&child);
     let buf = Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut stdout = child.stdout.take().expect("stdout is piped");
     let mut reader = {
@@ -147,9 +149,7 @@ async fn capture(shell: &Path, timeout: Duration, hook: Option<&ChildEnvHook>) -
             None
         }
         Err(_) => {
-            if let Some(pid) = pid {
-                let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGKILL);
-            }
+            group.kill();
             tracing::warn!("login shell environment capture timed out after {timeout:?}");
             None
         }
@@ -183,7 +183,7 @@ pub fn parse_env_output(out: &[u8]) -> Option<Vec<(OsString, OsString)>> {
             if eq == 0 || SKIP.contains(&&entry[..eq]) {
                 return None;
             }
-            Some((OsString::from_vec(entry[..eq].to_vec()), OsString::from_vec(entry[eq + 1..].to_vec())))
+            Some((crate::platform::osstr::from_vec(entry[..eq].to_vec()), crate::platform::osstr::from_vec(entry[eq + 1..].to_vec())))
         })
         .collect();
     (!vars.is_empty()).then_some(vars)
@@ -192,13 +192,23 @@ pub fn parse_env_output(out: &[u8]) -> Option<Vec<(OsString, OsString)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)] // a #!/bin/sh fake shell
     fn fake_shell(dir: &Path, body: &str) -> PathBuf {
         let p = dir.join("fake-shell");
         std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&p, 0o755).unwrap();
         p
+    }
+
+    /// Windows: the login-shell environment is the process's own; nothing is captured, even
+    /// with a `SHELL` set (Git Bash, MSYS).
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_captures_no_login_shell() {
+        let env = ShellEnv::from_login_shell();
+        assert!(env.get().await.is_none());
+        assert!(env.captured().is_none());
     }
 
     fn get<'a>(vars: &'a [(OsString, OsString)], k: &str) -> Option<&'a OsString> {
@@ -216,6 +226,7 @@ mod tests {
         assert!(parse_env_output(b"no marker at all").is_none());
     }
 
+    #[cfg(unix)] // a #!/bin/sh fake shell
     #[tokio::test]
     async fn captures_from_a_shell() {
         let dir = tempfile::tempdir().unwrap();
@@ -230,6 +241,7 @@ mod tests {
         assert!(ShellEnv::with_shell("/nonexistent/shell".into(), Duration::from_secs(1)).captured().is_none());
     }
 
+    #[cfg(unix)] // a #!/bin/sh fake shell
     #[tokio::test]
     async fn a_hanging_shell_times_out_to_none() {
         let dir = tempfile::tempdir().unwrap();
@@ -247,6 +259,7 @@ mod tests {
     /// The capture shell inherits the app's own environment, so it starts like any other child
     /// (`openers::launch_command`): the app's hook runs on it (the session's `GDK_BACKEND` and
     /// `IBUS_ENABLE_SYNC_MODE` back, not CEF's), and what it prints is what git and editors get.
+    #[cfg(unix)] // a #!/bin/sh fake shell
     #[tokio::test]
     async fn the_capture_shell_starts_through_the_child_env_hook() {
         let dir = tempfile::tempdir().unwrap();
@@ -262,6 +275,7 @@ mod tests {
     /// I2: GitBolt's own variables (`openers::PRIVATE_ENV`) never come back through the captured
     /// env, even if the user's shell setup exports them itself: the captured env is what editors
     /// start with, after `launch_command` has already stripped them.
+    #[cfg(unix)] // a #!/bin/sh fake shell
     #[tokio::test]
     async fn private_app_env_is_dropped_from_the_capture() {
         let dir = tempfile::tempdir().unwrap();
@@ -276,6 +290,7 @@ mod tests {
     /// (or SIGTTOU) when it touches the tty and stops, and every git command waits the full
     /// timeout. CI has no controlling tty to reproduce that stop, so this checks the mechanism:
     /// the shell's session id is its own pid (`/proc/<pid>/stat` field 6).
+    #[cfg(unix)] // a #!/bin/sh fake shell
     #[tokio::test]
     async fn the_capture_shell_leads_its_own_session() {
         let dir = tempfile::tempdir().unwrap();
@@ -289,6 +304,7 @@ mod tests {
 
     /// A background job the rc files started that keeps the shell's stdout open doesn't stall
     /// the capture: once the shell exits, its output is read with a short grace.
+    #[cfg(unix)] // a #!/bin/sh fake shell
     #[tokio::test]
     async fn a_background_job_holding_stdout_does_not_stall_the_capture() {
         let dir = tempfile::tempdir().unwrap();
@@ -300,13 +316,14 @@ mod tests {
     }
 
     /// Concurrent callers share the one capture.
+    #[cfg(unix)] // a #!/bin/sh fake shell
     #[tokio::test]
     async fn concurrent_callers_wait_for_the_one_capture() {
         let dir = tempfile::tempdir().unwrap();
         let count = dir.path().join("runs");
         let shell = fake_shell(
             dir.path(),
-            &format!("echo x >> '{}'\nsleep 0.2\nprintf '%s\\n' __GITBOLT_ENV_START__\nprintf 'GB_X=y\\0'", count.display()),
+            &format!("echo x >> '{}'\nsleep 0.2\nprintf '%s\\n' __GITBOLT_ENV_START__\nprintf 'GB_X=y\\0'", crate::platform::fs::to_git_path(&count)),
         );
         let env = ShellEnv::with_shell(shell, Duration::from_secs(2));
         let (a, b) = tokio::join!(env.get(), env.get());

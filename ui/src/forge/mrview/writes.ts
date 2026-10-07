@@ -6,7 +6,7 @@ import type { GbError } from '../../api/gen/GbError';
 import type { MrEdit } from '../../api/gen/MrEdit';
 import { mrRef } from '../labels';
 import { useRuntime } from '../../app/runtime';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { forgeOf, noteForgeWritten, patchForge } from '../mrStore';
 import { learnLimit, type PeopleRole } from '../peopleLimits';
 import { notifyForgeWrite } from '../usePolling';

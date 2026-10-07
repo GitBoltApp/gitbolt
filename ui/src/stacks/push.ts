@@ -10,7 +10,7 @@ import type { MenuRow } from '../menu/types';
 import { branchOf, defaultRemote, nothingToPush, pushBranch, rewroteSincePush } from '../sync/push';
 import { serverActions } from '../sync/serverOutput';
 import { currentOrigin } from '../ui/arm/origin';
-import { useToast, type ToastAction } from '../ui/toast';
+import { useToast, type ToastAction } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 import type { Stack } from './detect';
 import { joinNames } from './text';

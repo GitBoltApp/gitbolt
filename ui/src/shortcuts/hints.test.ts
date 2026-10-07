@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SRC = join(__dirname, '..');
@@ -68,7 +68,7 @@ describe('key hints', () => {
     const covered = new Set(declaredSources());
     const missing = walk(SRC)
       .filter((f) => HANDLER.test(readFileSync(f, 'utf8')))
-      .map((f) => relative(SRC, f))
+      .map((f) => relative(SRC, f).split(sep).join('/')) // EXEMPT and the hint sources use `/`, on Windows too
       .filter((f) => !covered.has(f) && !(f in EXEMPT));
     expect(missing, 'add a registerKeyHints entry with this source, or exempt it in hints.test.ts').toEqual([]);
   });

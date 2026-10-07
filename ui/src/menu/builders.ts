@@ -1,3 +1,4 @@
+import { joinPath } from '../app/osPath';
 import { Minus, Plus, Trash2 } from 'lucide-react';
 import type { FileChange } from '../api/gen/FileChange';
 import { activeStore, activeTab } from '../app/actions';
@@ -23,7 +24,7 @@ const forgeName = (f: ProjectRemote) => (f.hostKind === 'gitlab' ? 'GitLab' : 'G
 
 /** `Copy path | Rel | Abs |`, for a file or a folder. */
 function copyPath(id: string, path: string, root: string, env: MenuEnv): MenuRow {
-  const abs = `${root}/${path}`;
+  const abs = joinPath(root, path);
   return row({
     id, label: 'Copy path', icon: ICONS.copy, tooltip: `Copy "${path}"`, run: () => env.act.copy(path),
     variants: [
@@ -272,7 +273,7 @@ registerMenu<MonacoTarget, MenuEnv>({
       id: 'monaco.copyLocation', label: 'Copy location', icon: ICONS.copy, tooltip: `Copy "${monacoLocation(t)}"`, run: () => env.act.copy(monacoLocation(t)),
       variants: [
         { id: 'rel', label: monacoLocation(t), tooltip: 'Copy the repository-relative location', run: () => env.act.copy(monacoLocation(t)) },
-        { id: 'abs', label: 'Abs', tooltip: 'Copy the absolute path with the line', run: () => env.act.copy(`${t.openIn.worktree}/${monacoLocation(t)}`) },
+        { id: 'abs', label: 'Abs', tooltip: 'Copy the absolute path with the line', run: () => env.act.copy(joinPath(t.openIn.worktree, monacoLocation(t))) },
       ],
     }),
   ],

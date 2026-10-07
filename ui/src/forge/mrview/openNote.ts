@@ -8,7 +8,7 @@ import { tabStore } from '../../app/tabStores';
 import { endStickyHistory } from '../../history/sticky';
 import { filesKey } from '../../repo/services';
 import { targetFor } from '../../repo/store';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { mrName } from '../labels';
 import { forgeOf } from '../mrStore';
 import { noteLine } from './noteLine';

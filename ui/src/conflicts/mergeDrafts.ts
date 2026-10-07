@@ -8,7 +8,7 @@ import type { Eol } from '../api/gen/Eol';
 import type { GbError } from '../api/gen/GbError';
 import { registerUnsaved, type UnsavedWork } from '../diff/workingCopy';
 import { chooseAction, confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { leaveResolved } from './leaveResolved';
 import { anyPicked, buildOutput, eolText, unpickedCount, type Picks, type Segment } from './model';
 import { resolveFile } from './resolve';

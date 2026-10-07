@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import { useRuntime } from '../../app/runtime';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { CreateStackDialog, openCreateStack } from './CreateStackDialog';
 
 const createMr = vi.fn();

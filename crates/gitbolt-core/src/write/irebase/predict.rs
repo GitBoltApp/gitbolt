@@ -349,7 +349,7 @@ mod tests {
         std::fs::create_dir_all(tmp.join("predict-stale/objects")).unwrap();
         std::fs::create_dir_all(tmp.join("predict-fresh/objects")).unwrap();
         let old = std::time::SystemTime::now() - STALE - std::time::Duration::from_secs(60);
-        std::fs::File::open(tmp.join("predict-stale")).unwrap().set_modified(old).unwrap();
+        crate::platform::fs::set_modified(tmp.join("predict-stale"), old).unwrap();
         let p = plan(&api, id, &r).await;
         let pred = predict_rows(&api, id, &r, &picks(&p)).await;
         assert_eq!(pred.off, None);

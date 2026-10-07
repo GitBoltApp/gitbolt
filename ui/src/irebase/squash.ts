@@ -1,6 +1,6 @@
 import { api } from '../api/client';
 import { toGbError } from '../errors/describe';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { currentOrigin } from '../ui/arm/origin';
 import { holdOrigin } from '../ui/arm/store';
 import { MENU_HOLD_MS, runWrite } from '../write/client';

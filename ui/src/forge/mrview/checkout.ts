@@ -7,7 +7,7 @@ import { useRuntime } from '../../app/runtime';
 import { checkoutLocal, checkoutRemote } from '../../branches/checkout';
 import { addForkRemote } from '../../remotes/addRemote';
 import { hostName } from '../../remotes/match';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { openCreateWorktree } from '../../worktrees/CreateWorktreeDialog';
 import { forgeOf } from '../mrStore';
 import { ownerOf } from '../mrText';

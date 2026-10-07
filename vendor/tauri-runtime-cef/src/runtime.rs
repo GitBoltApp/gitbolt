@@ -144,15 +144,15 @@ pub enum SecretStorage {
 ///
 /// Defaults to [`SandboxPolicy::Auto`], which keeps the sandbox wherever the runtime can.
 ///
-/// # Windows does not have a sandbox here yet
+/// # Windows needs the bootstrap host
 ///
-/// **Whatever this policy says, a Windows build currently runs unsandboxed.** CEF wants a
-/// sandbox broker pointer that, since Chromium M138, only a binary built with Chromium's
-/// own toolchain can create; CEF supplies prebuilt `bootstrap.exe` hosts for that, and
-/// they load the application as a DLL, which a Tauri application is not. Given a null
-/// broker CEF sets `no_sandbox` itself, so there is no configuration here that changes
-/// the outcome — only whether the runtime warns about it ([`Self::Auto`]) or refuses to
-/// start ([`Self::Required`]).
+/// **Whatever this policy says, a plain Windows executable runs unsandboxed.** CEF wants
+/// a sandbox broker pointer that, since Chromium M138, only a binary built with
+/// Chromium's own toolchain can create; CEF supplies prebuilt `bootstrap.exe` hosts for
+/// that, and they load the application as a DLL. GitBolt patch: a DLL entry point that
+/// passes the bootstrap's pointer to [`crate::set_windows_sandbox_info`] gets the sandbox.
+/// Without it CEF sets `no_sandbox` itself, so this policy only decides whether the
+/// runtime warns about it ([`Self::Auto`]) or refuses to start ([`Self::Required`]).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SandboxPolicy {
@@ -2638,7 +2638,7 @@ pub fn run_cef_helper_process() {
   let _ = cef::execute_process(
     Some(args.as_main_args()),
     Some(&mut app),
-    std::ptr::null_mut(),
+    crate::sandbox::windows_sandbox_info(),
   );
 }
 
@@ -2940,7 +2940,7 @@ impl<T: UserEvent> CefRuntime<T> {
       let ret = cef::execute_process(
         Some(args.as_main_args()),
         Some(&mut helper_app),
-        std::ptr::null_mut(),
+        crate::sandbox::windows_sandbox_info(),
       );
       // A subprocess finished its work; exit with its exit code instead of
       // falling through to browser runtime initialization.
@@ -3295,7 +3295,7 @@ impl<T: UserEvent> CefRuntime<T> {
     let ret = cef::execute_process(
       Some(args.as_main_args()),
       Some(&mut app),
-      std::ptr::null_mut(),
+      crate::sandbox::windows_sandbox_info(),
     );
     assert_eq!(
       ret, -1,
@@ -3386,7 +3386,7 @@ impl<T: UserEvent> CefRuntime<T> {
       Some(args.as_main_args()),
       Some(&settings),
       Some(&mut app),
-      std::ptr::null_mut(),
+      crate::sandbox::windows_sandbox_info(),
     ) != 1
     {
       return Err(Error::WebviewRuntimeNotInstalled);

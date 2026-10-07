@@ -2,7 +2,7 @@ import { mrRef } from '../forge/labels';
 import { forgeOf, knownMr, MR_FLYOUT, type MrViewArgs } from '../forge/mrStore';
 import { loadMrDetail, openMrView } from '../forge/poll';
 import { closeFlyout, flyoutOf } from '../ui/flyout/flyout';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { placeKey, registerPlaceKind } from './history';
 import { scrollOf, setPendingScroll } from './scroll';
 

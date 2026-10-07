@@ -9,7 +9,7 @@ vi.mock('../history/open', () => ({ openFileHistory }));
 const show = vi.fn();
 
 const { useRuntime } = await import('../app/runtime');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 const { refEntries, fileEntries } = await import('./sources');
 
 describe('refEntries', () => {

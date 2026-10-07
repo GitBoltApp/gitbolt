@@ -6,7 +6,7 @@ import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
 import { journalKey, useJournal } from '../undo/store';
 import { COMMIT_QUEUED, stagingKey, useStaging } from '../stage/store';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import type { WriteCtx } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { isMergeDirty, MERGE_SAVE_FIRST } from './mergeDrafts';

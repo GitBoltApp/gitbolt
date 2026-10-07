@@ -375,10 +375,16 @@ pub fn settled(kind: SignatureKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::CommandLog;
-    use crate::testing::{isolated_git_env, GpgHome, TestRepo};
+    use crate::testing::TestRepo;
+    #[cfg(unix)] // used by Unix-only tests
+    use crate::{
+        log::CommandLog,
+        testing::{isolated_git_env, GpgHome},
+    };
+    #[cfg(unix)]
     use std::sync::Arc;
 
+    #[cfg(unix)] // helper of Unix-only tests
     fn cli() -> GitCli {
         GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env())
     }
@@ -403,6 +409,7 @@ mod tests {
     /// Spec §17.1: signature status with a test GPG key. One commit signed by a throwaway key is
     /// read three ways: by the keyring that made it (the key is ultimately trusted: verified), by
     /// one that holds only its public half (untrusted: unverified) and by an empty one (unknown).
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn gpg_signatures_are_verified_by_git() {
         if let Some(reason) = crate::testing::gpg_signing_unavailable() {
@@ -451,6 +458,7 @@ mod tests {
     /// F11: the throwaway repo's own config carries `gpg.format`/`user.signingkey`, never
     /// `-c user.signingkey=...` on the command line, and the user's global git config is never
     /// touched (`isolated_git_env` already points `GIT_CONFIG_GLOBAL` at `/dev/null`).
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn ssh_signatures_are_verified_by_git() {
         if let Some(reason) = crate::testing::ssh_signing_unavailable() {
@@ -529,15 +537,17 @@ mod tests {
 
     /// A signing key for `uid` made in `home` at a fixed past time, expiring after `expire`; and a
     /// `gpg.program` wrapper that signs (and verifies) as of a little later.
+    #[cfg(unix)] // helper of Unix-only tests
     fn past_key(home: &GpgHome, uid: &str, expire: &str) -> PathBuf {
         let made = home.gpg(&["--faked-system-time", "20200101T000000!", "--quick-generate-key", uid, "ed25519", "sign", expire]);
         assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
         let wrapper = home.home().parent().unwrap().join("gpg-past.sh");
-        std::fs::write(&wrapper, format!("#!/bin/sh\nexec gpg --homedir {} --faked-system-time 20200601T000000! \"$@\"\n", home.home().display())).unwrap();
-        std::fs::set_permissions(&wrapper, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::write(&wrapper, format!("#!/bin/sh\nexec gpg --homedir {} --faked-system-time 20200601T000000! \"$@\"\n", crate::platform::fs::to_git_path(home.home()))).unwrap();
+        crate::platform::fs::set_mode(&wrapper, 0o755).unwrap();
         wrapper
     }
 
+    #[cfg(unix)] // helper of Unix-only tests
     fn commit_object(r: &TestRepo, raw: &[u8]) -> ObjectId {
         let mut child = std::process::Command::new("git")
             .args(["hash-object", "-t", "commit", "-w", "--stdin"])
@@ -555,6 +565,7 @@ mod tests {
     /// The direct `gpg --verify` gives git's verdict, signer, key, fingerprint and trust: a good
     /// signature (ultimate trust), an untrusted key, an unknown key, a tampered payload, an expired
     /// key. And it is one gpg run, not git.
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn direct_gpg_verification_matches_git() {
         if let Some(reason) = crate::testing::gpg_signing_unavailable() {
@@ -600,8 +611,8 @@ mod tests {
         std::fs::write(marginal.home().join("trust.txt"), format!("{fpr}:4:\n")).unwrap();
         assert!(marginal.gpg(&["--import-ownertrust", marginal.home().join("trust.txt").to_str().unwrap()]).status.success());
         let direct_trust = marginal.home().parent().unwrap().join("gpg-direct.sh");
-        std::fs::write(&direct_trust, format!("#!/bin/sh\nexec gpg --homedir {} --trust-model direct \"$@\"\n", marginal.home().display())).unwrap();
-        std::fs::set_permissions(&direct_trust, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::write(&direct_trust, format!("#!/bin/sh\nexec gpg --homedir {} --trust-model direct \"$@\"\n", crate::platform::fs::to_git_path(marginal.home()))).unwrap();
+        crate::platform::fs::set_mode(&direct_trust, 0o755).unwrap();
 
         let cli = cli();
         let cases = [(&maker.program, good, SignatureKind::Verified), (&reader.program, good, SignatureKind::Unverified), (&direct_trust, good, SignatureKind::Verified), (&stranger.program, good, SignatureKind::UnknownKey), (&maker.program, tampered, SignatureKind::Bad), (&old.program, expired, SignatureKind::Expired)];
@@ -650,15 +661,17 @@ mod tests {
         assert_eq!(c.get(&key(1), &stamp).unwrap().kind, SignatureKind::Bad);
     }
 
+    #[cfg(unix)] // helper of Unix-only tests
     fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
         let path = dir.join(name);
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&path, 0o755).unwrap();
         path
     }
 
     /// A commit carrying an OpenPGP-armored gpgsig header (not a real signature: the stub
     /// programs below never read it).
+    #[cfg(unix)] // helper of Unix-only tests
     fn pgp_signed_commit(r: &TestRepo) -> ObjectId {
         let raw = r.git(&["cat-file", "commit", "HEAD"]);
         let (head, msg) = raw.split_once("\n\n").unwrap();
@@ -668,6 +681,7 @@ mod tests {
 
     /// A gpg that hangs is given up on after the timeout: "gpg didn't answer", an unknown key
     /// (asked again later), and never a second try through git (which would hang on it too).
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn a_hanging_gpg_gives_up_without_asking_git() {
         let r = TestRepo::new();
@@ -723,7 +737,7 @@ mod tests {
         let profile = r.root().join("profile.config");
         let nested = r.root().join("nested.config");
         std::fs::write(&nested, "[gpg]\n\tprogram = /opt/profile-nested\n").unwrap();
-        std::fs::write(&profile, format!("[include]\n\tpath = {}\n", nested.display())).unwrap();
+        std::fs::write(&profile, format!("[include]\n\tpath = {}\n", crate::platform::fs::to_git_path(&nested))).unwrap();
         assert_eq!(program(Some(&profile)), PathBuf::from("/opt/profile-nested"), "the profile include (and its includes) last");
     }
 

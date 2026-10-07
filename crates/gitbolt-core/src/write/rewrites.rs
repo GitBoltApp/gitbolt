@@ -21,7 +21,6 @@ use crate::write::refs::read_ref;
 use crate::write::sync::{push_target, PushTarget};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
@@ -79,7 +78,7 @@ pub(crate) struct RewriteStore {
 impl RewriteStore {
     /// `common_dir`: the repository's common git dir (canonicalized here).
     pub(crate) fn new(data_dir: &Path, common_dir: &Path) -> Self {
-        let common = common_dir.canonicalize().unwrap_or_else(|_| common_dir.to_path_buf());
+        let common = crate::platform::fs::canonicalize(common_dir).unwrap_or_else(|_| common_dir.to_path_buf());
         let name = &crate::journal::JournalStore::hex(&Sha256::digest(common.as_os_str().as_encoded_bytes()))[..16];
         let dir = data_dir.join("rewrites");
         Self { path: dir.join(format!("{name}.json")), lock: dir.join(format!("{name}.lock")), dir }
@@ -107,15 +106,14 @@ impl RewriteStore {
         Ok(out)
     }
 
-    fn locked(&self) -> Result<nix::fcntl::Flock<std::fs::File>, GbError> {
+    fn locked(&self) -> Result<std::fs::File, GbError> {
         let data = self.dir.parent().ok_or_else(|| GbError::other("rewrites dir has no parent"))?;
         if let Some(parent) = data.parent() {
             std::fs::create_dir_all(parent)?;
         }
         crate::paths::private_dir(data)?;
         crate::paths::private_dir(&self.dir)?;
-        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(&self.lock)?;
-        nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive).map_err(|(_, e)| GbError::from(std::io::Error::from(e)))
+        crate::journal::lock_exclusive(&self.lock)
     }
 }
 

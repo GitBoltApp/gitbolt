@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GitBolt's MSI (WiX v5): per machine, into Program Files\GitBolt, for managed deployment.
+     scripts/package-windows.ps1 builds it from the staged folder (the "stage" bind path) and
+     defines Version (numeric, X.Y.Z.0), DisplayVersion, Publisher and Icon.
+
+     Windows Installer compares only a version's first three fields, so every build of one X.Y.Z
+     (its pre-releases, the release and local builds) has the same ProductVersion;
+     AllowSameVersionUpgrades lets each replace whichever is installed, and the upgrade removes
+     the old version before installing the new one. An older X.Y.Z is refused.
+     Settings and repositories' data in %APPDATA% and %LOCALAPPDATA% stay on uninstall. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Never change UpgradeCode: it's what makes a new version replace an installed one. -->
+  <Package Name="GitBolt" Manufacturer="$(var.Publisher)" Version="$(var.Version)"
+           UpgradeCode="7003EA59-7995-4744-BA0C-D01FB85D7BBA" Scope="perMachine" Language="1033">
+    <SummaryInformation Description="GitBolt $(var.DisplayVersion)" />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of GitBolt is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="GitBolt.ico" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="GitBolt.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="GitBolt" />
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="App" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="OpenInGitBolt" />
+    </Feature>
+
+    <ComponentGroup Id="App" Directory="INSTALLFOLDER">
+      <Files Include="!(bindpath.stage)\**" />
+    </ComponentGroup>
+
+    <!-- The Start menu shortcut. Windows Installer wants a shortcut's component keyed by a
+         registry value under HKCU (ICE43, ICE57), even in a per-machine package. -->
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Shortcut Name="GitBolt" Target="[INSTALLFOLDER]GitBolt.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RegistryValue Root="HKCU" Key="Software\GitBolt" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- "Open in GitBolt" on a folder, and on a folder's background, in File Explorer (Windows 11
+         lists it under "Show more options"). The app opens the folder it's given. -->
+    <Component Id="OpenInGitBolt" Directory="INSTALLFOLDER">
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\shell\GitBolt">
+        <RegistryValue Value="Open in GitBolt" Type="string" KeyPath="yes" />
+        <RegistryValue Name="Icon" Value="&quot;[INSTALLFOLDER]GitBolt.exe&quot;,0" Type="string" />
+        <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]GitBolt.exe&quot; &quot;%V&quot;" Type="string" />
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\Background\shell\GitBolt">
+        <RegistryValue Value="Open in GitBolt" Type="string" />
+        <RegistryValue Name="Icon" Value="&quot;[INSTALLFOLDER]GitBolt.exe&quot;,0" Type="string" />
+        <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]GitBolt.exe&quot; &quot;%V&quot;" Type="string" />
+      </RegistryKey>
+    </Component>
+  </Package>
+</Wix>

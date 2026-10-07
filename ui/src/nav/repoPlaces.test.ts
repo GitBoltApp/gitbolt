@@ -13,7 +13,7 @@ import { MR_FLYOUT } from '../forge/mrStore';
 import { createRepoViewStore, fileViewTarget, targetFor, type RepoViewStore } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { closeFlyout, flyoutOf, openFlyout, registerFlyout } from '../ui/flyout/flyout';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { historyOf, navBack, placeKey, recordPlace, useNavHistory } from './history';
 import { fileCommitOf } from './repoPlaces';
 import { noteScroll, registerScrollSource, takePendingScroll } from './scroll';

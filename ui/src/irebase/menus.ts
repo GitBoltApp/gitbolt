@@ -3,7 +3,7 @@ import { useRuntime } from '../app/runtime';
 import { tabStore } from '../app/tabStores';
 import type { CommitTarget, MenuEnv, SelectionTarget } from '../menu/menuEnv';
 import type { MenuRow } from '../menu/types';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { writeCtx } from '../write/ctx';
 import { openRebaseEditor } from './open';
 import { squashSelection } from './squash';

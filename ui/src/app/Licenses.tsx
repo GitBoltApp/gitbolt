@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { osKind } from './osPath';
 import './licenses.css';
 
 /** The notices the production build puts in dist/licenses/ (ui/build/licenses.ts), by file name. */
@@ -63,10 +64,17 @@ export default function Licenses() {
             </li>
           ))}
         </ul>
-        <p className="licenses-note">
-          Chromium&apos;s own credits are installed with the package, gzipped (view them with `zcat` or extract them to open in a browser):
-          <code>/usr/share/doc/gitbolt/CHROMIUM-CREDITS.html.gz</code>
-        </p>
+        {osKind() === 'windows' ? (
+          <p className="licenses-note">
+            Chromium&apos;s own credits are installed with GitBolt, gzipped (extract them to open in a browser), in its install folder:
+            <code>licenses\CHROMIUM-CREDITS.html.gz</code>
+          </p>
+        ) : (
+          <p className="licenses-note">
+            Chromium&apos;s own credits are installed with the package, gzipped (view them with `zcat` or extract them to open in a browser):
+            <code>/usr/share/doc/gitbolt/CHROMIUM-CREDITS.html.gz</code>
+          </p>
+        )}
       </div>
       <pre className="licenses-text" tabIndex={0} aria-label={current ?? 'License text'} aria-busy={text === null}>{text ?? ''}</pre>
     </div>

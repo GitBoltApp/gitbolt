@@ -1,6 +1,6 @@
 import { api } from '../api/client';
 import { shortSha } from '../format/sha';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /**

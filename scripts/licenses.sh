@@ -11,7 +11,9 @@
 #   LICENSE                       GitBolt's license
 #   DICTIONARY-en-US-LICENSE.txt  the spell-check dictionary's source and license (SCOWL), a copy
 #                                 of crates/gitbolt-app/dictionaries/en-US-LICENSE.txt
-# `just package` runs this before building; docs/licensing.md describes the whole flow.
+# `just package` runs this before building, and scripts/package-windows.ps1 in Git for Windows'
+# bash (the Windows graph and CEF build, with Python as $PYTHON); docs/licensing.md describes the
+# whole flow.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
@@ -20,18 +22,25 @@ fail() { echo "licenses: $*" >&2; exit 1; }
 command -v cargo-about >/dev/null ||
   fail "cargo-about isn't installed: cargo install cargo-about --version 0.9.2 --locked --features cli"
 mkdir -p "$out"
+python=${PYTHON:-python3}
+# The graph and the CEF build of the platform the package is for: about.toml's targets (Linux),
+# or Windows' in Git for Windows' bash.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*) target=(--target x86_64-pc-windows-msvc) cef_platform=windows_x86_64 ;;
+  *) target=() cef_platform=linux_x86_64 ;;
+esac
 
 # Rust. --locked: the notices describe exactly what Cargo.lock builds.
-cargo about generate --format json --locked --fail -c "$root/about.toml" \
+cargo about generate --format json --locked --fail -c "$root/about.toml" ${target[@]+"${target[@]}"} \
   -m "$root/crates/gitbolt-app/Cargo.toml" -o "$out/about.json"
-python3 "$here/notices.py" rust "$out/about.json" "$out/THIRD-PARTY-NOTICES-rust.txt"
+"$python" "$here/notices.py" rust "$out/about.json" "$out/THIRD-PARTY-NOTICES-rust.txt"
 rm "$out/about.json"
 
 # CEF and Chromium: the distribution `cargo tauri` builds against. It sets CEF_PATH to
 # $CEF_PATH or ~/.cache/tauri-cef, and cef-dll-sys unpacks CEF <version> into <that>/<version>/.
-ver=$(python3 "$here/notices.py" cef-version "$root/Cargo.lock")
+ver=$("$python" "$here/notices.py" cef-version "$root/Cargo.lock")
 base=${CEF_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/tauri-cef}
-cef_dir=$base/$ver/cef_linux_x86_64
+cef_dir=$base/$ver/cef_$cef_platform
 [ -f "$base/CREDITS.html" ] && [ ! -d "$base/$ver" ] && cef_dir=$base # CEF_PATH = an unpacked distribution
 if [ ! -f "$cef_dir/CREDITS.html" ]; then
   # A first build on this machine: download CEF the way the app build does (cef-dll-sys's build
@@ -39,7 +48,7 @@ if [ ! -f "$cef_dir/CREDITS.html" ]; then
   echo "licenses: CEF $ver isn't in $base yet; downloading it through cef-dll-sys's build" >&2
   (cd "$root" && CEF_PATH=$base cargo build --release --locked -p cef-dll-sys)
 fi
-python3 "$here/notices.py" cef "$cef_dir" "$out"
+"$python" "$here/notices.py" cef "$cef_dir" "$out"
 
 cp "$root/LICENSE" "$out/LICENSE"
 cp "$root/crates/gitbolt-app/dictionaries/en-US-LICENSE.txt" "$out/DICTIONARY-en-US-LICENSE.txt"

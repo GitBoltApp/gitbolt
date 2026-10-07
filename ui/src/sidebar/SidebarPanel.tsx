@@ -15,7 +15,7 @@ import { openContextMenu, type MenuEventLike } from '../menu/menuStore';
 import { useContextTarget } from '../menu/contextTarget';
 import { useRepoViewStore } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { HoverCard } from './HoverCard';
 import { HEADER_H, ROW_H, rowIndent } from './layout';
 import { sectionKey, type FlatRow, type Panel, type SideItem } from './model';

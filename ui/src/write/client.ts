@@ -4,7 +4,7 @@ import { useRuntime } from '../app/runtime';
 import { tabView } from '../app/tabStores';
 import { toastActionError } from '../debug/errorToast';
 import { toGbError } from '../errors/describe';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { holdOrigin } from '../ui/arm/store';
 import { confirmAction, type ConfirmRequest } from '../ui/ConfirmDialog';

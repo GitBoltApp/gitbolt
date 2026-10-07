@@ -4,7 +4,7 @@ import { api, errorMessage } from '../api/client';
 import { effectiveKind } from '../forge/urls';
 import type { RepoServices } from '../repo/services';
 import { useAppState } from '../app/state';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { mergeRequestButtons, projectRemote, tokenizeMessage, type MessageToken, type ProjectRemote } from './messageLinks';
 import './header.css';
 

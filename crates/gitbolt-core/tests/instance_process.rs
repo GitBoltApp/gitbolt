@@ -73,7 +73,9 @@ async fn a_second_process_forwards_its_path_and_exits_0() {
     let code = tokio::task::spawn_blocking(move || wait(&mut spawn_helper(&rtp, &cfgp, ""))).await.unwrap();
     assert_eq!(code, 0, "forwarded, then exited 0");
     let got = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await.unwrap().unwrap();
-    assert_eq!(got.as_deref(), Some("/from/child"));
+    // As the child made it absolute (`C:\from\child` on Windows).
+    let want = std::path::absolute("/from/child").unwrap();
+    assert_eq!(got.as_deref(), Some(want.to_str().unwrap()));
 
     // Another config dir is another instance: that launch becomes its own first instance.
     let (rtp, other) = (rt.path().to_path_buf(), rt.path().join("elsewhere/gitbolt"));
@@ -91,6 +93,8 @@ fn a_killed_instances_socket_is_taken_over() {
     child.kill().unwrap();
     child.wait().unwrap();
     let (_, socket) = instance_paths(rt.path(), &cfg);
+    // (A Windows pipe goes with its process: nothing is left behind there.)
+    #[cfg(unix)]
     assert!(socket.exists(), "SIGKILL leaves the socket file behind");
     let Claim::Primary(p) = claim(rt.path(), &cfg, None) else { panic!("the stale socket wasn't taken over") };
     assert_eq!(p.socket_path(), socket);

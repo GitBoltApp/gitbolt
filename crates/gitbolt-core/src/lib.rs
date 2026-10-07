@@ -30,6 +30,7 @@ pub mod ops;
 pub mod openers;
 pub mod paths;
 pub mod payload;
+pub mod platform;
 pub mod random;
 pub mod redact;
 pub mod reflog;

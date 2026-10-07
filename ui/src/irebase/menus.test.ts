@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommitTarget, MenuEnv, SelectionTarget } from '../menu/menuEnv';
 import type { MenuRow } from '../menu/types';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { fromHereRows, ontoRows, paletteRebase, paletteUsable, selectionFromHereRows, squashRows } from './menus';
 
 const open = vi.hoisted(() => vi.fn(async () => true));

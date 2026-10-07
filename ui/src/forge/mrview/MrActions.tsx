@@ -12,7 +12,7 @@ import type { ReviewEvent } from '../../api/gen/ReviewEvent';
 import { currentOrigin } from '../../ui/arm/origin';
 import { confirmAction } from '../../ui/ConfirmDialog';
 import { HoverTooltip } from '../../ui/HoverTooltip';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { registerKeyHints } from '../../shortcuts/hints';
 import { forgeName, mrRef } from '../labels';
 import { useForge } from '../mrStore';

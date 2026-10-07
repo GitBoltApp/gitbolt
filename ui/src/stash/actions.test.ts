@@ -6,7 +6,7 @@ vi.mock('../debug/errorToast', () => ({ toastActionError: () => {} }));
 import { api } from '../api/client';
 import { useRuntime } from '../app/runtime';
 import { readWipDraft, writeWipDraft } from '../commit/draft';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { applyStash, dropStash, stashPushFor } from './actions';
 
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };

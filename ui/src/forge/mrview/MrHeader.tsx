@@ -5,7 +5,7 @@ import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
 import { useState, type ReactNode } from 'react';
 import { ForgeAvatar } from '../../avatars/Avatar';
 import { RelTime } from './RelTime';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { MrStateChip, PipelineIcon } from '../MrIcons';
 import { ownerOf, pipelineWord, reviewText } from '../mrText';
 import { useTabForgeField } from '../mrStore';

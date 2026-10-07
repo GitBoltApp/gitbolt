@@ -1058,7 +1058,7 @@ describe('MonacoHost', () => {
 
   it('a click on a deleted line (Inline, Hunk) copies it, Shift+click the whole deleted block; with a toast', async () => {
     const { host, state } = await fresh();
-    const { useToast } = await import('../../ui/toast');
+    const { useToast } = await import('../../ui/toastStore');
     host.attachDiff(document.createElement('div'));
     // Line 3 changed (its old text shows in a zone after line 2); lines 6-8 deleted (a zone after
     // line 5). Line 6 is wrapped: two rendered segments.

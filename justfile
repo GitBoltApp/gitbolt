@@ -1,4 +1,6 @@
 set shell := ["bash", "-cu"]
+# Only `package-windows` is meant for Windows; PowerShell there, never WSL's bash.
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 default: test
 
@@ -145,6 +147,13 @@ licenses:
 # mapped through the table in scripts/arch-pkg.py. `just package` already runs it.
 package-arch:
     scripts/package-arch.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/arch
+
+# On Windows: the NSIS per-user installer and the per-machine MSI, from one release build, in
+# target\release\bundle\windows\ (scripts/package-windows.ps1 has the steps and requirements).
+# CEF's bootstrap.exe runs as GitBolt.exe and loads gitbolt-app built as GitBolt.dll, which
+# gives Chromium its sandbox. Versions as in `just package`; GITBOLT_SIGN_COMMAND signs.
+package-windows:
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 
 # Installs that package in a throwaway archlinux:latest container and checks it (needs Docker and
 # the network, so `just package` doesn't run it): dependencies, pacman -Qkk, the setuid

@@ -7,7 +7,7 @@ vi.mock('../usePolling', () => polling);
 const { forgeWrite, putDescription, putMr } = await import('./writes');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { detailOf, mrOf, user } = await import('../testMrs');
 
 beforeEach(() => {

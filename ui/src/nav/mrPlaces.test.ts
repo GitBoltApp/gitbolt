@@ -8,7 +8,7 @@ const { historyOf, navBack, placeKey, recordPlace, useNavHistory } = await impor
 const { noteScroll, takePendingScroll } = await import('./scroll');
 const { MR_FLYOUT, patchForge, useForge } = await import('../forge/mrStore');
 const { closeFlyout, flyoutOf, openFlyout, registerFlyout } = await import('../ui/flyout/flyout');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 const { detailOf, mrOf } = await import('../forge/testMrs');
 
 registerFlyout(MR_FLYOUT, () => null);

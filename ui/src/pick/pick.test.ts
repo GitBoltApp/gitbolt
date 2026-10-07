@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { shortSha } from '../format/sha';
 import type { CommitRef } from '../repo/store';
 import { revealRestored } from '../stash/reveal';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { sequenceToast, startSequence } from './pick';
 
 vi.mock('../stash/reveal', () => ({ revealRestored: vi.fn(() => Promise.resolve()) }));

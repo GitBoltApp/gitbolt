@@ -1001,7 +1001,7 @@ mod tests {
     }
 
     fn wt(p: &Path) -> String {
-        p.canonicalize().unwrap().display().to_string()
+        crate::platform::fs::canonicalize(p).unwrap().display().to_string()
     }
 
     async fn rebase(api: &Api, id: u32, r: &Path, target: &str, update_refs: Option<bool>) -> Result<serde_json::Value, crate::error::GbError> {
@@ -1148,8 +1148,8 @@ mod tests {
         assert_eq!(res["outcome"]["status"], "aborted");
         assert_eq!(r.git(&["rev-parse", "feature"]), tip);
         assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n");
-        let git_dir = r.path().join(".git").canonicalize().unwrap();
-        assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &r.path().canonicalize().unwrap()).load().unwrap().undo.is_empty());
+        let git_dir = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+        assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &crate::platform::fs::canonicalize(r.path()).unwrap()).load().unwrap().undo.is_empty());
 
         rebase(&api, id, r.path(), "main", None).await.unwrap();
         let res = control(&api, id, r.path(), RebaseAction::Skip).await;
@@ -1170,8 +1170,8 @@ mod tests {
         r.git(&["reset", "-q", "--hard", "main"]);
         let res = api.dispatch(Request::SettlePaused { repo: id, worktree: wt(r.path()) }).await.unwrap();
         assert!(res["journal"]["paused"].is_null());
-        let git_dir = r.path().join(".git").canonicalize().unwrap();
-        assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &r.path().canonicalize().unwrap()).load().unwrap().undo.is_empty(), "not recorded as a rebase");
+        let git_dir = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+        assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &crate::platform::fs::canonicalize(r.path()).unwrap()).load().unwrap().undo.is_empty(), "not recorded as a rebase");
         assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n");
     }
 
@@ -1232,6 +1232,7 @@ mod tests {
     }
 
     /// §17.1 "Signing": rebased commits come out signed by the user's own setup.
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn rebased_commits_are_signed() {
         let r = TestRepo::new();
@@ -1247,8 +1248,8 @@ mod tests {
     }
 
     fn journal(data: &Path, r: &TestRepo) -> crate::journal::Journal {
-        let git_dir = r.path().join(".git").canonicalize().unwrap();
-        crate::journal::JournalStore::new(data, &git_dir, &r.path().canonicalize().unwrap()).load().unwrap()
+        let git_dir = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+        crate::journal::JournalStore::new(data, &git_dir, &crate::platform::fs::canonicalize(r.path()).unwrap()).load().unwrap()
     }
 
     /// Review I1 (scenario s4): another worktree commits on its branch while the rebase is
@@ -1684,10 +1685,9 @@ mod signing_tests {
         }
 
         fn set(&self, r: &TestRepo, body: &str) {
-            use std::os::unix::fs::PermissionsExt;
             let p = self.dir.path().join(format!("gpg-{}", body.len()));
             std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::platform::fs::set_mode(&p, 0o755).unwrap();
             r.git(&["config", "gpg.program", p.to_str().unwrap()]);
         }
 

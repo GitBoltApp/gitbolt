@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppState } from '../app/state';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { installZoom, useZoom } from '../ui/zoom';
 import { editorFontVar, installFontZoom, nextEditorFont, useEditorFontPx } from './fontZoom';
 

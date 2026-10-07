@@ -1566,7 +1566,7 @@ impl Api {
     /// per process, at the repository's first open (`recover_journals`), so a write never takes
     /// another instance's in-flight entry for a crashed one.
     pub(crate) fn journal(&self, root: &Path) -> Result<crate::journal::JournalStore, GbError> {
-        let git_dir = gix::open(root).map_err(crate::error::gix_err)?.git_dir().canonicalize()?;
+        let git_dir = crate::platform::fs::canonicalize(gix::open(root).map_err(crate::error::gix_err)?.git_dir())?;
         Ok(crate::journal::JournalStore::new(&self.data_dir, &git_dir, root))
     }
 
@@ -1597,7 +1597,7 @@ impl Api {
         }
         // Git dir → worktree root, deduped.
         let mut worktrees: std::collections::BTreeMap<PathBuf, PathBuf> = std::collections::BTreeMap::new();
-        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let canonical = |p: &Path| crate::platform::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
         // The main worktree: gix lists only the linked ones. Its git dir is the common dir.
         let main_root = gix::open(common_dir).ok().and_then(|m| m.workdir().map(Path::to_path_buf)).or_else(|| common_dir.file_name().is_some_and(|n| n == ".git").then(|| common_dir.parent().map(Path::to_path_buf)).flatten());
         if let Some(main_root) = main_root {
@@ -2072,7 +2072,7 @@ impl Api {
                 // Checked against the build's own `git worktree list` (`build_graph_with_text`),
                 // so a switch's relayout runs one git process, not two.
                 let active = match active {
-                    Some(a) => Some(Path::new(&a).canonicalize().map_err(|_| GbError::new(GbErrorKind::InvalidInput, format!("{a} is not a worktree of this repository")))?),
+                    Some(a) => Some(crate::platform::fs::canonicalize(Path::new(&a)).map_err(|_| GbError::new(GbErrorKind::InvalidInput, format!("{a} is not a worktree of this repository")))?),
                     None => None,
                 };
                 // The watcher keeps the worktree shown responsive (the others throttled).
@@ -2144,7 +2144,7 @@ impl Api {
                             let _computing = h.wip.list_read(Path::new(worktree)).await;
                             match h.wip.fresh_lists(Path::new(worktree)) {
                                 Some(l) => l,
-                                None => crate::watch::read_and_keep_lists(&h.repo, &self.cli, &h.wip, &Path::new(worktree).canonicalize()?).await?,
+                                None => crate::watch::read_and_keep_lists(&h.repo, &self.cli, &h.wip, &crate::platform::fs::canonicalize(Path::new(worktree))?).await?,
                             }
                         }
                     };
@@ -2313,6 +2313,9 @@ impl Api {
                         None => find(&self.openers(true).await?).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("no opener {opener:?} on this machine")))?,
                     }
                 };
+                // A file manager that can show the file selected (File Explorer) gets the file
+                // while it's in the working tree; the others, or a file that's gone, its folder.
+                let reveal = (o.kind == OpenerKind::FileManager).then(|| worktree_file(&root, &path).ok().filter(|f| f.is_file()).and_then(|f| o.reveal_command(&f))).flatten();
                 let target = match o.kind {
                     OpenerKind::FileManager => folder_target(&root, &path)?,
                     OpenerKind::Editor | OpenerKind::Chooser => self.open_in_file(&h, &root, &path, source, fallback).await?,
@@ -2322,14 +2325,15 @@ impl Api {
                     // launcher reads once captured; wait for the capture (bounded, and at most once).
                     let _ = self.cli.child_env().await;
                 }
-                let cmd = o.command(&target, line);
+                let cmd = reveal.unwrap_or_else(|| o.command(&target, line));
                 blocking(move || launcher(&cmd)).await?;
                 to_json(())
             }
             Request::OpenUrl { url } => {
                 validate_web_url(&url)?;
-                let opener = self.url_opener.as_ref().ok_or_else(|| GbError::other("opening links isn't available here"))?;
-                opener(&url)?;
+                let opener = self.url_opener.clone().ok_or_else(|| GbError::other("opening links isn't available here"))?;
+                // Off the runtime's workers: Windows's waits for the shell to start the handler.
+                blocking(move || opener(&url)).await?;
                 to_json(())
             }
             Request::LoadState => {
@@ -2981,11 +2985,11 @@ impl Api {
             .map_err(|_| GbError::new(GbErrorKind::NotFound, format!("Not a git repository: {path}")))?;
         let opened = repo
             .work_dir()
-            .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
+            .map(|p| crate::platform::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()))
             .ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "Bare repositories are not supported"))?;
         let common_dir = {
             let local = repo.to_thread_local();
-            local.common_dir().canonicalize().unwrap_or_else(|_| local.common_dir().to_path_buf())
+            crate::platform::fs::canonicalize(local.common_dir()).unwrap_or_else(|_| local.common_dir().to_path_buf())
         };
         // One handle per repository (spec #2 §11.2, 2C Deviation 2): whichever worktree opens,
         // it's the handle of its common dir, and the summary names the worktree opened.
@@ -2997,7 +3001,7 @@ impl Api {
         // The handle lives in the main worktree; a bare main keeps the one opened. Read with git
         // itself (once per open, not per refresh): its ownership check (`safe.directory`) refuses
         // a repository owned by another user exactly as in a terminal.
-        let main = crate::worktree::list_worktrees_cli(&self.cli, &opened).await?.into_iter().find(|w| w.is_main && !w.bare && w.path.is_dir()).map(|w| w.path.canonicalize().unwrap_or(w.path));
+        let main = crate::worktree::list_worktrees_cli(&self.cli, &opened).await?.into_iter().find(|w| w.is_main && !w.bare && w.path.is_dir()).map(|w| crate::platform::fs::canonicalize(&w.path).unwrap_or(w.path));
         let workdir = main.unwrap_or_else(|| opened.clone());
         let repo = if workdir == opened { repo } else { gix::ThreadSafeRepository::open_opts(&workdir, open_options()).map_err(crate::error::gix_err)? };
         let name = workdir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| workdir.display().to_string());
@@ -3044,9 +3048,9 @@ impl Api {
     /// point GitBolt at an arbitrary directory.
     pub(crate) async fn worktree_dir(&self, h: &RepoHandle, worktree: &str) -> Result<PathBuf, GbError> {
         let invalid = || GbError::new(GbErrorKind::InvalidInput, format!("{worktree} is not a worktree of this repository"));
-        let wanted = Path::new(worktree).canonicalize().map_err(|_| invalid())?;
+        let wanted = crate::platform::fs::canonicalize(Path::new(worktree)).map_err(|_| invalid())?;
         // --- 2D T9 review P1: the main worktree needs no `worktree list` ---
-        if h.workdir.canonicalize().is_ok_and(|w| w == wanted) {
+        if crate::platform::fs::canonicalize(&h.workdir).is_ok_and(|w| w == wanted) {
             return Ok(wanted);
         }
         // --- end 2D T9 ---
@@ -3054,7 +3058,7 @@ impl Api {
             .await?
             .into_iter()
             .filter(|w| !w.bare && !w.prunable)
-            .map(|w| w.path.canonicalize().unwrap_or(w.path))
+            .map(|w| crate::platform::fs::canonicalize(&w.path).unwrap_or(w.path))
             .find(|p| *p == wanted)
             .ok_or_else(invalid)
     }
@@ -3090,7 +3094,7 @@ impl Api {
 fn worktree_file(root: &Path, path: &str) -> Result<PathBuf, GbError> {
     let escaped = || GbError::new(GbErrorKind::InvalidInput, format!("{path} points outside the worktree"));
     let joined = safe_join(root, path)?;
-    let real = joined.canonicalize().map_err(|_| GbError::new(GbErrorKind::NotFound, format!("{path} isn't in the working tree")))?;
+    let real = crate::platform::fs::canonicalize(&joined).map_err(|_| GbError::new(GbErrorKind::NotFound, format!("{path} isn't in the working tree")))?;
     let inside = real.strip_prefix(root).map_err(|_| escaped())?;
     if !inside.components().all(|c| matches!(c, Component::Normal(n) if !is_dotgit(&n.to_string_lossy()))) {
         return Err(escaped());
@@ -3104,7 +3108,7 @@ fn folder_target(root: &Path, path: &str) -> Result<PathBuf, GbError> {
     crate::blob::check_relative(path)?;
     let mut dir = root.join(path);
     while dir.pop() && dir.starts_with(root) {
-        if let Ok(real) = dir.canonicalize()
+        if let Ok(real) = crate::platform::fs::canonicalize(&dir)
             && real.is_dir()
             && real.starts_with(root)
         {
@@ -3302,6 +3306,7 @@ mod tests {
     /// owned by another user doesn't open, unless the user's own git config lists it as safe.
     /// GitBolt never overrides it. (`GIT_TEST_ASSUME_DIFFERENT_OWNER` is git's own way to test
     /// this without a second user.)
+    #[cfg(unix)] // file ownership by uid (safe.directory)
     #[tokio::test]
     async fn a_repo_owned_by_another_user_is_refused_as_git_refuses_it() {
         let r = TestRepo::new();
@@ -3321,7 +3326,7 @@ mod tests {
         assert!(err.message.contains("dubious ownership"), "{}", err.message);
         let dir = tempfile::tempdir().unwrap();
         let global = dir.path().join("gitconfig");
-        std::fs::write(&global, format!("[safe]\n\tdirectory = {}\n", r.path().canonicalize().unwrap().display())).unwrap();
+        std::fs::write(&global, format!("[safe]\n\tdirectory = {}\n", crate::platform::fs::canonicalize(r.path()).unwrap().display())).unwrap();
         assert!(open(other_owner(global.to_str().unwrap())).await.is_ok(), "listed in the user's safe.directory");
     }
 
@@ -3548,9 +3553,11 @@ mod tests {
             sink.lock().unwrap().push(start.map(Path::to_path_buf));
             Some(PathBuf::from("/picked/here"))
         }));
-        let picked = api.dispatch(req(serde_json::json!({"method": "pickFolder", "params": {"start": "/start"}}))).await.unwrap();
+        // An absolute start, as this OS spells one (`/start` isn't one on Windows).
+        let start = if cfg!(windows) { r"C:\start" } else { "/start" };
+        let picked = api.dispatch(req(serde_json::json!({"method": "pickFolder", "params": {"start": start}}))).await.unwrap();
         assert_eq!(picked, "/picked/here");
-        assert_eq!(*asked.lock().unwrap(), [Some(PathBuf::from("/start"))]);
+        assert_eq!(*asked.lock().unwrap(), [Some(PathBuf::from(start))]);
 
         let home = tempfile::tempdir().unwrap();
         let api = api.with_home(Some(home.path().to_path_buf()));
@@ -3581,13 +3588,14 @@ mod tests {
         assert!(api.dispatch(scan(serde_json::json!([]))).await.unwrap().as_array().unwrap().is_empty());
     }
 
+    #[cfg(unix)] // /bin/echo and /bin/sh as editors
     #[tokio::test]
     async fn the_custom_editor_template_opens_through_the_launcher() {
         let r = TestRepo::new();
         fixtures::details(&r);
         let (api, launches) = with_openers(api());
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let open_custom = |line: Option<u32>| req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "src/app.php", "line": line, "opener": "custom"}}));
         assert_eq!(api.dispatch(open_custom(None)).await.unwrap_err().kind, GbErrorKind::InvalidInput, "no custom command set");
         let mut p = api.store().active_profile();
@@ -3748,6 +3756,7 @@ mod tests {
     }
 
     /// An OpenPGP signature costs one gpg run (no git), and asking again runs nothing.
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn a_gpg_signature_is_checked_by_one_gpg_run_then_cached() {
         if let Some(reason) = crate::testing::gpg_signing_unavailable() {
@@ -3784,6 +3793,7 @@ mod tests {
     /// verify with what's configured right now": it is reused briefly, but never past a config
     /// change; a `verified` verdict, once git can actually check it, is definitive and is served
     /// from the cache.
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn signature_cache_drops_unknown_key_on_a_config_change_and_keeps_a_verified_result() {
         if let Some(reason) = crate::testing::ssh_signing_unavailable() {
@@ -3866,6 +3876,7 @@ mod tests {
         assert!(flag.0.load(std::sync::atomic::Ordering::SeqCst));
     }
 
+    #[cfg(unix)] // /bin/echo and /bin/sh as editors
     #[tokio::test]
     async fn editor_templates_are_validated_with_the_guards_message() {
         let api = api();
@@ -4002,8 +4013,8 @@ mod tests {
         fixtures::details(&r);
         let (api, launches) = with_openers(api());
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
-        let file = wt.join("src/app.php");
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
+        let file = wt.join("src").join("app.php"); // (native separators, as safe_join gives)
         let open_in = |path: &str, line: Option<u32>, opener: &str| req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": path, "line": line, "opener": opener}}));
         assert!(api.dispatch(open_in("src/app.php", Some(12), "vscode")).await.unwrap().is_null());
         api.dispatch(open_in("src/app.php", Some(3), "jetbrains-phpstorm")).await.unwrap();
@@ -4019,6 +4030,37 @@ mod tests {
         ]);
     }
 
+    /// File Explorer (Windows) shows the file itself, selected; once it's gone, its folder.
+    #[tokio::test]
+    async fn a_file_manager_that_selects_files_gets_the_file_while_it_exists() {
+        use crate::openers::ArgStyle;
+        let r = TestRepo::new();
+        fixtures::details(&r);
+        let launches: Launches = Arc::default();
+        let sink = launches.clone();
+        let api = api().with_openers(
+            Arc::new(|| vec![Opener::new("file-manager", "File Explorer", OpenerKind::FileManager, "/fake/explorer.exe", ArgStyle::ExplorerSelect)]),
+            Arc::new(move |c: &crate::openers::LaunchCommand| {
+                sink.lock().unwrap().push(c.clone());
+                Ok(())
+            }),
+        );
+        let id = open(&api, &r).await;
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
+        let open_in = |path: &str| req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": path, "line": null, "opener": "file-manager"}}));
+        api.dispatch(open_in("src/app.php")).await.unwrap();
+        api.dispatch(open_in("src/gone.php")).await.unwrap();
+        api.dispatch(open_in("src")).await.unwrap();
+        let got: Vec<Vec<String>> = launches.lock().unwrap().iter().map(argv).collect();
+        let src = wt.join("src").to_string_lossy().into_owned();
+        assert_eq!(got, [
+            vec!["/fake/explorer.exe".to_string(), "/select,".into(), wt.join("src").join("app.php").to_string_lossy().into_owned()],
+            vec!["/fake/explorer.exe".to_string(), src.clone()],
+            vec!["/fake/explorer.exe".to_string(), wt.to_string_lossy().into_owned()],
+        ]);
+    }
+
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn open_in_rejects_unknown_openers_escaping_paths_foreign_worktrees_and_missing_files() {
         let r = TestRepo::new();
@@ -4065,13 +4107,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_file_at_an_old_commit_opens_as_a_read_only_copy_at_the_line() {
-        use std::os::unix::fs::PermissionsExt;
         let r = TestRepo::new();
         fixtures::details(&r);
         let cache = tempfile::tempdir().unwrap();
         let (api, launches) = with_openers(api().with_open_cache(cache.path().to_path_buf()));
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let open_in = |path: &str, line: Option<u32>, opener: &str, source: serde_json::Value| {
             req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": path, "line": line, "opener": opener, "source": source}}))
         };
@@ -4079,9 +4120,9 @@ mod tests {
         let old = r.git(&["rev-parse", "HEAD^1^1:src/app.php"]);
         api.dispatch(open_in("src/app.php", Some(7), "jetbrains-phpstorm", serde_json::json!({"kind": "object", "oid": old}))).await.unwrap();
         let copy = launched_file(&launches);
-        assert_eq!(copy, cache.path().canonicalize().unwrap().join(&old[..12]).join("src/app.php"));
+        assert_eq!(copy, crate::platform::fs::canonicalize(cache.path()).unwrap().join(&old[..12]).join("src/app.php"));
         assert_eq!(std::fs::read_to_string(&copy).unwrap().trim_end(), r.git(&["show", "HEAD^1^1:src/app.php"]).trim_end());
-        assert_eq!(std::fs::metadata(&copy).unwrap().permissions().mode() & 0o777, 0o444);
+        assert_eq!(crate::platform::fs::mode(&std::fs::metadata(&copy).unwrap()) & 0o777, 0o444);
         assert_eq!(launches.lock().unwrap().last().unwrap().args[..2], [std::ffi::OsString::from("--line"), std::ffi::OsString::from("7")], "the line is the shown version's");
         // The file at a commit (View all files).
         let head = r.git(&["rev-parse", "HEAD"]);
@@ -4115,7 +4156,7 @@ mod tests {
         let cache = tempfile::tempdir().unwrap();
         let (api, launches) = with_openers(api().with_open_cache(cache.path().to_path_buf()));
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let old = r.git(&["rev-parse", "HEAD^1^1:src/app.php"]);
         for (path, source, want) in [
             ("src/app.php", serde_json::json!({"kind": "object", "oid": old}), wt.join("src")),
@@ -4143,7 +4184,7 @@ mod tests {
         let list = api.dispatch(req(serde_json::json!({"method": "listOpeners"}))).await.unwrap();
         assert_eq!(list.as_array().unwrap().last().unwrap(), &serde_json::json!({"id": "other", "name": "Other…", "kind": "chooser"}));
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let other = |path: &str| req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": path, "line": 3, "opener": "other"}}));
         api.dispatch(other("src/app.php")).await.unwrap();
         assert_eq!(*chosen.lock().unwrap(), [wt.join("src/app.php")]);
@@ -4181,7 +4222,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1, "cached within the refresh interval");
         // Zed was installed since: opening in it re-detects instead of refusing.
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         api.dispatch(req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "src/app.php", "line": null, "opener": "zed"}}))).await.unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         // Past the interval, a listing answers from the cache at once and re-detects behind it
@@ -4229,7 +4270,7 @@ mod tests {
         tokio::time::timeout(quick, api.dispatch(list())).await.expect("listing waited on the re-detection").unwrap();
         wait_until(|| calls.load(Ordering::SeqCst) == 2).await;
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let open_in = req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "src/app.php", "line": null, "opener": "vscode"}}));
         tokio::time::timeout(quick, api.dispatch(open_in)).await.expect("opening waited on the re-detection").unwrap();
         tokio::time::timeout(quick, api.dispatch(list())).await.expect("a second listing waited").unwrap();
@@ -4246,7 +4287,7 @@ mod tests {
         let cache = tempfile::tempdir().unwrap();
         let (api, launches) = with_openers(api().with_open_cache(cache.path().to_path_buf()));
         let id = open(&api, &r).await;
-        let wt = r.path().canonicalize().unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
         let staged = r.git(&["rev-parse", ":src/app.php"]);
         let open_in = |fallback: serde_json::Value| {
             req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "src/app.php", "line": 2, "opener": "vscode", "source": {"kind": "worktree", "worktree": wt}, "fallback": fallback}}))
@@ -4256,7 +4297,7 @@ mod tests {
         std::fs::remove_file(wt.join("src/app.php")).unwrap();
         api.dispatch(open_in(serde_json::json!({"kind": "object", "oid": staged}))).await.unwrap();
         let copy = launched_file(&launches).to_string_lossy().trim_end_matches(":2").to_string();
-        assert!(copy.starts_with(&cache.path().canonicalize().unwrap().to_string_lossy().into_owned()), "{copy}");
+        assert!(copy.starts_with(&crate::platform::fs::canonicalize(cache.path()).unwrap().to_string_lossy().into_owned()), "{copy}");
         assert!(std::fs::read_to_string(&copy).unwrap().ends_with("// staged tweak\n"));
         // No fallback: the missing file is an error, as before.
         assert_eq!(api.dispatch(open_in(serde_json::Value::Null)).await.unwrap_err().kind, GbErrorKind::NotFound);
@@ -4292,10 +4333,10 @@ mod tests {
         let first = api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": linked}}))).await.unwrap();
         let main = open(&api, &r).await;
         assert_eq!(first["id"].as_u64().unwrap(), main, "one handle, whichever worktree opened first");
-        assert_eq!(first["path"].as_str().unwrap(), r.path().canonicalize().unwrap().display().to_string(), "the handle's path is the main worktree");
-        assert_eq!(first["worktree"].as_str().unwrap(), linked.canonicalize().unwrap().display().to_string(), "and the summary names the one opened");
+        assert_eq!(first["path"].as_str().unwrap(), crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string(), "the handle's path is the main worktree");
+        assert_eq!(first["worktree"].as_str().unwrap(), crate::platform::fs::canonicalize(&linked).unwrap().display().to_string(), "and the summary names the one opened");
         let again = api.dispatch(req(serde_json::json!({"method": "openRepo", "params": {"path": r.path()}}))).await.unwrap();
-        assert_eq!(again["worktree"].as_str().unwrap(), r.path().canonicalize().unwrap().display().to_string());
+        assert_eq!(again["worktree"].as_str().unwrap(), crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string());
         // The queue is the repository's, and its one id hears about it (queueChanged per open id).
         let h = api.handle(main as u32).unwrap();
         let mut rx = api.subscribe();
@@ -4317,8 +4358,8 @@ mod tests {
         fixtures::basic(&r);
         let api = api();
         let id = open(&api, &r).await;
-        let linked = r.root().join("wt-hotfix").canonicalize().unwrap().display().to_string();
-        let main = r.path().canonicalize().unwrap().display().to_string();
+        let linked = crate::platform::fs::canonicalize(r.root().join("wt-hotfix")).unwrap().display().to_string();
+        let main = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
         let g = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "active": linked}}))).await.unwrap();
         assert_eq!(g["head"]["branch"], "refs/heads/hotfix");
         assert_eq!(g["openWorktree"].as_str(), Some(linked.as_str()));
@@ -4351,7 +4392,7 @@ mod tests {
         let id = open(&api, &r).await;
         let s = api.dispatch(req(serde_json::json!({"method": "sidebar", "params": {"repo": id}}))).await.unwrap();
         let local = |n: &str| s["locals"].as_array().unwrap().iter().find(|b| b["name"] == n).unwrap().clone();
-        assert_eq!(local("main")["checkedOut"].as_str(), Some(r.path().canonicalize().unwrap().display().to_string().as_str()));
+        assert_eq!(local("main")["checkedOut"].as_str(), Some(crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string().as_str()));
         assert!(local("hotfix")["checkedOut"].as_str().unwrap().ends_with("wt-hotfix"));
         let wt = s["worktrees"].as_array().unwrap().iter().find(|w| w["isMain"] == false).unwrap().clone();
         assert_eq!(wt["locked"], true);
@@ -4370,7 +4411,7 @@ mod tests {
         api.dispatch(graph(None)).await.unwrap();
         let walks = crate::snapshot::walks(&h.walk);
         assert_eq!(walks, 1);
-        let linked = r.root().join("wt-hotfix").canonicalize().unwrap().display().to_string();
+        let linked = crate::platform::fs::canonicalize(r.root().join("wt-hotfix")).unwrap().display().to_string();
         api.dispatch(graph(Some(linked))).await.unwrap();
         assert_eq!(crate::snapshot::walks(&h.walk), walks, "the switch's relayout didn't walk");
         r.commit("moves main");
@@ -4451,7 +4492,7 @@ mod tests {
     fn read_samples(id: u32, r: &TestRepo) -> Vec<serde_json::Value> {
         let login = r.git(&["rev-parse", "feature/login"]);
         let head = r.git(&["rev-parse", "HEAD"]);
-        let wt = r.path().canonicalize().unwrap().display().to_string();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
         let root = r.root().display().to_string();
         use serde_json::json;
         vec![
@@ -4648,7 +4689,7 @@ mod tests {
     /// hide in `WRITE_METHODS`.
     fn write_samples(id: u32, r: &TestRepo) -> Vec<serde_json::Value> {
         use serde_json::json;
-        let wt = r.path().canonicalize().unwrap().display().to_string();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
         vec![
             json!({"method": "fetch", "params": {"repo": id, "background": false}}),
             // --- 4A T7 ---

@@ -19,7 +19,7 @@ import { flyoutOf, type FlyoutProps } from '../../ui/flyout/flyout';
 import { RefPicker } from '../../ui/RefPicker';
 import { Select } from '../../ui/Select';
 import { Switch } from '../../ui/Switch';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { writeCtx } from '../../write/ctx';
 import { forgeName, mrLongNoun } from '../labels';
 import { forgeOf } from '../mrStore';

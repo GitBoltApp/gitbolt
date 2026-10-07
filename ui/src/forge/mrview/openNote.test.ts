@@ -17,7 +17,7 @@ const { openNoteFile } = await import('./openNote');
 const { noteLine, noteWhere } = await import('./noteLine');
 const { patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { mrOf } = await import('../testMrs');
 
 const B = 'b'.repeat(40);

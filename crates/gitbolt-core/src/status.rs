@@ -122,6 +122,7 @@ mod tests {
         super::super::git::GitCli::new(Arc::new(CommandLog::new(10))).with_env(isolated_git_env())
     }
 
+    #[cfg(unix)] // file names Windows forbids (*, ?, :, newlines)
     #[tokio::test]
     async fn parses_weird_paths_and_renames() {
         let r = TestRepo::new();
@@ -191,7 +192,7 @@ mod tests {
         // find the content unchanged, and still rewrite `.git/index` with the refreshed stat
         // info (a write GitBolt must never make).
         let tracked = r.path().join("file_0.txt");
-        let f = std::fs::File::open(&tracked).unwrap();
+        let f = std::fs::File::options().write(true).open(&tracked).unwrap();
         f.set_modified(before_mtime + std::time::Duration::from_secs(120)).unwrap();
 
         super::status(&cli(), r.path()).await.unwrap();

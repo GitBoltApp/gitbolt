@@ -523,7 +523,7 @@ async fn write_text(cx: &WriteCx<'_>, path: &str, text: &str, base: Option<&str>
     if !meta.file_type().is_file() {
         return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path} isn't a regular file: resolve it in your editor")));
     }
-    if std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o200 == 0 {
+    if crate::platform::fs::mode(&meta) & 0o200 == 0 {
         return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path} is read-only: make it writable first")));
     }
     let bytes = std::fs::read(&file)?;
@@ -734,14 +734,14 @@ mod tests {
             r.switch("feature/x");
             assert!(r.try_git(&["rebase", "main"]).is_err());
         } else {
-            let wt = r.path().canonicalize().unwrap().display().to_string();
+            let wt = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
             crate::write::test_intents::run(&api, id, &wt, Default::default(), crate::write::test_intents::TestIntent::MergeStop { target: "feature/x".into() }).await.unwrap();
         }
         (r, api, id, data)
     }
 
     async fn file(api: &Api, id: u32, r: &TestRepo, path: &str) -> serde_json::Value {
-        api.dispatch(Request::ConflictFile { repo: id, worktree: r.path().canonicalize().unwrap().display().to_string(), path: path.into() }).await.unwrap()
+        api.dispatch(Request::ConflictFile { repo: id, worktree: crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string(), path: path.into() }).await.unwrap()
     }
 
     #[tokio::test]
@@ -1027,7 +1027,7 @@ mod tests {
 
     // --- 2D T15 ---
     async fn resolve_in(api: &Api, id: u32, wt: &std::path::Path, path: &str, resolution: Resolution, confirm_markers: bool, confirm_discard: bool) -> Result<serde_json::Value, GbError> {
-        let worktree = wt.canonicalize().unwrap().display().to_string();
+        let worktree = crate::platform::fs::canonicalize(wt).unwrap().display().to_string();
         let f = api.dispatch(Request::ConflictFile { repo: id, worktree: worktree.clone(), path: path.into() }).await.unwrap();
         let base = f["base"].as_str().map(str::to_string);
         api.dispatch(Request::ResolveFile { repo: id, worktree, path: path.into(), resolution, base, confirm_markers: Some(confirm_markers), confirm_discard: Some(confirm_discard) }).await
@@ -1052,7 +1052,7 @@ mod tests {
         assert_eq!(std::fs::read(r.path().join("a.txt")).unwrap(), b"resolved\n");
         assert_eq!(std::fs::read(r.path().join("logo.bin")).unwrap(), vec![0, 7, 7, 7, 0, 9]);
         assert!(!r.path().join("gone.txt").exists());
-        let res = api.dispatch(Request::Commit { repo: id, worktree: r.path().canonicalize().unwrap().display().to_string(), summary: "Merge feature/x".into(), description: String::new(), amend: false, stage_all: false, expect: Default::default() }).await.unwrap();
+        let res = api.dispatch(Request::Commit { repo: id, worktree: crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string(), summary: "Merge feature/x".into(), description: String::new(), amend: false, stage_all: false, expect: Default::default() }).await.unwrap();
         assert_eq!(res["journal"]["undo"]["label"], "merge feature/x into main", "the commit is absorbed into the merge");
         assert_eq!(r.git(&["rev-list", "--count", "--merges", "-1", "HEAD"]), "1");
     }
@@ -1137,7 +1137,7 @@ mod tests {
     #[tokio::test]
     async fn a_stale_base_is_refused() {
         let (r, api, id, _data) = setup(false).await;
-        let req = Request::ResolveFile { repo: id, worktree: r.path().canonicalize().unwrap().display().to_string(), path: "a.txt".into(), resolution: Resolution::Text { text: "x\n".into() }, base: Some("0".repeat(40)), confirm_markers: None, confirm_discard: None };
+        let req = Request::ResolveFile { repo: id, worktree: crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string(), path: "a.txt".into(), resolution: Resolution::Text { text: "x\n".into() }, base: Some("0".repeat(40)), confirm_markers: None, confirm_discard: None };
         assert_eq!(api.dispatch(req).await.unwrap_err().kind, GbErrorKind::Stale);
         assert!(unmerged(&r).contains(&"a.txt".to_string()), "nothing written");
     }
@@ -1150,7 +1150,7 @@ mod tests {
         let err = resolve(&api, id, &r, "a.txt", Resolution::Text { text: "x\n".into() }, false).await.unwrap_err();
         assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::InvalidInput, "a.txt is binary: resolve it in your editor"));
         r.write("a.txt", "text\n");
-        std::fs::set_permissions(r.path().join("a.txt"), std::os::unix::fs::PermissionsExt::from_mode(0o444)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("a.txt"), 0o444).unwrap();
         let err = resolve(&api, id, &r, "a.txt", Resolution::Text { text: "x\n".into() }, false).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::InvalidInput);
         assert_eq!(std::fs::read(r.path().join("a.txt")).unwrap(), b"text\n");
@@ -1226,7 +1226,7 @@ mod tests {
         resolve_in(&api, id, r.path(), "a.txt", Resolution::Current, false, true).await.unwrap();
         assert!(std::fs::read_to_string(r.path().join("a.txt")).unwrap().contains("current three"));
         // A file changed since the caller read it, markers or not.
-        let wt = r.path().canonicalize().unwrap().display().to_string();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
         let req = Request::ResolveFile { repo: id, worktree: wt, path: "logo.bin".into(), resolution: Resolution::Incoming, base: Some("0".repeat(40)), confirm_markers: None, confirm_discard: None };
         let err = api.dispatch(req).await.unwrap_err();
         assert!(matches!(err.detail, Some(crate::error::ErrorDetail::DiscardEdits { .. })), "{err:?}");

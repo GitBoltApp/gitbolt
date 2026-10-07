@@ -660,14 +660,14 @@ mod tests {
         assert_eq!(read(&r, "other.log"), "untouched\n");
     }
 
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test(flavor = "multi_thread")]
     async fn hard_undo_brings_back_an_exec_bit_change() {
-        use std::os::unix::fs::PermissionsExt;
         let r = repo();
         // `chmod +x`, as the umask left it (git checks files out the same way).
-        let mode = std::fs::metadata(r.path().join("a.txt")).unwrap().permissions().mode();
-        std::fs::set_permissions(r.path().join("a.txt"), std::fs::Permissions::from_mode(mode | 0o111)).unwrap();
-        hard_round_trip(&r, 1, |r| assert_eq!(std::fs::metadata(r.path().join("a.txt")).unwrap().permissions().mode() & 0o111, 0o111)).await;
+        let mode = crate::platform::fs::mode(&std::fs::metadata(r.path().join("a.txt")).unwrap());
+        crate::platform::fs::set_mode(r.path().join("a.txt"), mode | 0o111).unwrap();
+        hard_round_trip(&r, 1, |r| assert_eq!(crate::platform::fs::mode(&std::fs::metadata(r.path().join("a.txt")).unwrap()) & 0o111, 0o111)).await;
     }
 
     /// I1: what was staged after a mixed reset, outside P, stays staged through its undo.
@@ -853,7 +853,6 @@ mod tests {
     /// the repository is as the reset left it, and the entry can still be undone.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_hard_undo_whose_restore_fails_rolls_back() {
-        use std::os::unix::fs::PermissionsExt;
         let r = two_commits(&[("dir/f.txt", "f1\n"), ("a.txt", "a1\n")], |r| {
             r.write("a.txt", "a2\n");
             r.git(&["add", "a.txt"]);
@@ -865,10 +864,10 @@ mod tests {
         let after = RepoState::capture(&r);
         // The restore writes dir/f.txt back; a read-only dir makes it fail after the CAS.
         let dir = r.path().join("dir");
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        crate::platform::fs::set_mode(&dir, 0o555).unwrap();
         let writable = std::fs::write(dir.join("probe"), "").is_ok();
         let res = if writable { None } else { Some(undo_top(&env.api, id, &r, false).await) };
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&dir, 0o755).unwrap();
         let Some(res) = res else {
             // Running as root: permissions don't stop the restore; nothing to test here.
             return;

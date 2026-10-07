@@ -32,22 +32,23 @@
 //!
 //! # The Windows case
 //!
-//! **Windows currently runs unsandboxed, whatever the policy says.** Chromium's Windows
-//! sandbox is brokered by the executable rather than by the library: CEF wants a
+//! **A plain Windows executable runs unsandboxed, whatever the policy says.** Chromium's
+//! Windows sandbox is brokered by the executable rather than by the library: CEF wants a
 //! `sandbox_info` pointer from `cef_sandbox_info_create()` passed into both
 //! `CefExecuteProcess` and `CefInitialize`, and when it gets a null one it sets
 //! `CefSettings.no_sandbox` itself and appends `--no-sandbox`
-//! (`libcef/browser/main_runner.cc`). This runtime passes null.
+//! (`libcef/browser/main_runner.cc`).
 //!
-//! Fixing that is a packaging change, not a code change: since Chromium M138 the sandbox
-//! entry point can only be linked by a binary built with Chromium's own toolchain, so CEF
-//! ships prebuilt `bootstrap.exe` / `bootstrapc.exe` hosts that load the application as a
-//! DLL exporting `RunWinMain` or `RunConsoleMain` and hand it the pointer. A Tauri
-//! application is built as an executable, so until it can be built and bundled as a
-//! bootstrap-hosted DLL there is nothing to pass.
+//! Since Chromium M138 that entry point can only be linked by a binary built with
+//! Chromium's own toolchain, so CEF ships prebuilt `bootstrap.exe` / `bootstrapc.exe`
+//! hosts that load the application as a DLL exporting `RunWinMain` or `RunConsoleMain`
+//! (named like the renamed host: `app.exe` loads `app.dll`) and hand it the pointer.
+//! GitBolt patch: such an entry point passes it to [`set_windows_sandbox_info`] before
+//! anything else, and the runtime hands it to every `CefExecuteProcess` and
+//! `CefInitialize` call, so the renderer, GPU and utility processes run sandboxed.
 //!
-//! Until then the honest thing is to say so: [`windows_sandbox_unavailable`] reports the
-//! gap so [`SandboxPolicy::Auto`] logs it like any other lost sandbox, and
+//! Without a pointer, the honest thing is to say so: [`windows_sandbox_unavailable`]
+//! reports the gap so [`SandboxPolicy::Auto`] logs it like any other lost sandbox, and
 //! [`SandboxPolicy::Required`] fails loudly instead of quietly returning a promise the
 //! platform cannot keep.
 //!
@@ -61,10 +62,40 @@ use crate::runtime::SandboxPolicy;
 
 /// Whether this platform can actually sandbox, given how the runtime initializes CEF.
 ///
-/// Windows cannot yet: see the module docs. Kept as a function of a `cfg` rather than a
-/// `cfg` at every use site so the decision table stays testable on one platform.
-pub(crate) const fn windows_sandbox_unavailable() -> bool {
-  cfg!(windows)
+/// Windows can only when the application runs as a DLL under CEF's bootstrap, which hands
+/// it the broker ([`set_windows_sandbox_info`]); see the module docs. Kept as a function
+/// rather than a `cfg` at every use site so the decision table stays testable on one
+/// platform.
+pub(crate) fn windows_sandbox_unavailable() -> bool {
+  cfg!(windows) && windows_sandbox_info().is_null()
+}
+
+/// GitBolt patch: the sandbox broker `bootstrap.exe` passed to the application DLL's
+/// `RunWinMain`/`RunConsoleMain`, or null.
+#[cfg(windows)]
+static WINDOWS_SANDBOX_INFO: std::sync::atomic::AtomicPtr<u8> =
+  std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+/// GitBolt patch: hands the runtime the sandbox broker CEF's `bootstrap.exe` gave the
+/// application DLL's entry point, so every `CefExecuteProcess` and `CefInitialize` gets it
+/// and the processes run sandboxed. Call it first in `RunWinMain`/`RunConsoleMain`, before
+/// the CEF entry point runs.
+///
+/// # Safety
+///
+/// `info` must be the `sandbox_info` pointer the bootstrap passed in (or null), which
+/// stays valid for the life of the process.
+#[cfg(windows)]
+pub unsafe fn set_windows_sandbox_info(info: *mut std::ffi::c_void) {
+  WINDOWS_SANDBOX_INFO.store(info.cast(), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The broker for `CefExecuteProcess` and `CefInitialize`: null unless the bootstrap gave one.
+pub(crate) fn windows_sandbox_info() -> *mut u8 {
+  #[cfg(windows)]
+  return WINDOWS_SANDBOX_INFO.load(std::sync::atomic::Ordering::SeqCst);
+  #[cfg(not(windows))]
+  std::ptr::null_mut()
 }
 
 /// Why the sandbox is being turned off.
@@ -96,9 +127,9 @@ impl SandboxDisableReason {
          (/proc/sys/user/max_user_namespaces is 0)"
       }
       Self::WindowsBrokerUnavailable => {
-        "the Windows sandbox needs a broker this runtime cannot supply: CEF requires the \
-         application to be hosted by its bootstrap executable as a DLL, and a Tauri \
-         application is built as an executable"
+        "the Windows sandbox needs the broker CEF's bootstrap executable makes: run the \
+         application as a DLL hosted by bootstrap.exe, whose entry point passes it to \
+         set_windows_sandbox_info (this process is a plain executable)"
       }
     }
   }
@@ -489,12 +520,25 @@ mod tests {
     );
   }
 
-  /// The runtime hands CEF a null Windows sandbox broker, and CEF answers that by
-  /// dropping the sandbox itself. Asserted on every platform so the constant cannot drift
-  /// away from what `resolve_sandbox_decision` passes.
+  /// Without a bootstrap the runtime hands CEF a null Windows sandbox broker, and CEF
+  /// answers that by dropping the sandbox itself. Asserted on every platform so the answer
+  /// cannot drift away from what `resolve_sandbox_decision` passes. Once the bootstrap's
+  /// broker is set (one test, as it is process-wide), the sandbox is available and CEF
+  /// gets that pointer.
   #[test]
   fn the_windows_broker_is_reported_as_unavailable_only_on_windows() {
     assert_eq!(windows_sandbox_unavailable(), cfg!(windows));
+    assert!(windows_sandbox_info().is_null());
+    #[cfg(windows)]
+    {
+      let mut broker = 0u8;
+      // SAFETY: a stand-in pointer, never handed to CEF; reset before the test ends.
+      unsafe { set_windows_sandbox_info((&raw mut broker).cast()) };
+      assert!(!windows_sandbox_unavailable());
+      assert_eq!(windows_sandbox_info(), &raw mut broker);
+      unsafe { set_windows_sandbox_info(std::ptr::null_mut()) };
+      assert!(windows_sandbox_unavailable());
+    }
   }
 
   #[cfg(any(

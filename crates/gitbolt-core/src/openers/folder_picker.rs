@@ -2,7 +2,8 @@
 //! xdg-desktop-portal's `org.freedesktop.portal.FileChooser.OpenFile{directory: true}`, over the
 //! same session-bus connection the "Other…" chooser uses (`chooser::linux::shared_bus`). Unlike
 //! `OpenURI.OpenFile`, this call's result matters (the folder the user picked), so the request has
-//! to be followed through the portal's `Request`/`Response` round trip.
+//! to be followed through the portal's `Request`/`Response` round trip. On Windows it's the
+//! shell's folder dialog (`IFileOpenDialog`, `win32.rs`).
 
 use super::chooser::PortalError;
 use std::path::{Path, PathBuf};
@@ -25,20 +26,33 @@ pub fn pick_folder(start: Option<&Path>, portal: impl FnOnce(Option<&Path>) -> R
 pub type FolderPicker = Arc<dyn Fn(Option<&Path>) -> Option<PathBuf> + Send + Sync>;
 
 /// This OS's folder picker, or `None` where there's none yet (spec §4). `parent_window` supplies
-/// the portal's `parent_window` token (`x11:<xid>`, computed by the app from its own window) fresh
-/// on every call, since the app's window may not exist yet the first time this is used.
+/// the dialog's parent, computed by the app from its own window fresh on every call, since the
+/// window may not exist yet the first time this is used: the portal's `parent_window` token
+/// (`x11:<xid>`) on Linux, `win32:<hwnd in hex>` on Windows (`win32_parent`), or `""` for none.
 pub fn system_folder_picker(parent_window: impl Fn() -> String + Send + Sync + 'static) -> Option<FolderPicker> {
     #[cfg(target_os = "linux")]
     return Some(Arc::new(move |start: Option<&Path>| pick_folder(start, |s| linux::portal_pick_folder(s, parent_window()))));
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    return Some(Arc::new(move |start: Option<&Path>| {
+        pick_folder(start, |s| super::win32::pick_folder(s, win32_parent(&parent_window())).map_err(|e| PortalError::Failed(e.message)))
+    }));
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = parent_window;
         None
     }
 }
 
+/// The window handle in a `win32:<hex>` parent token; `None` for no parent (`""`, or anything
+/// else).
+#[cfg(any(windows, test))]
+fn win32_parent(token: &str) -> Option<isize> {
+    token.strip_prefix("win32:").and_then(|h| usize::from_str_radix(h, 16).ok()).map(|h| h as isize).filter(|h| *h != 0)
+}
+
 /// `file://…` (with `localhost` or no authority), percent-decoded. `None` for anything else the
 /// portal could in principle return (it never has in practice, but a picker is user input).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     let rest = rest.strip_prefix("localhost").unwrap_or(rest);
@@ -47,6 +61,7 @@ fn uri_to_path(uri: &str) -> Option<PathBuf> {
 
 /// `%XX` escapes decoded to raw bytes (then read back as UTF-8, lossily: a real portal URI is
 /// already valid UTF-8 percent-encoded, so this only matters for malformed input).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -189,6 +204,16 @@ mod tests {
         assert_eq!(pick_folder(None, |_| Ok(None)), None, "the user cancelled");
         assert_eq!(pick_folder(None, |_| Err(PortalError::Failed("no bus".into()))), None, "no portal: R2, not an error");
         assert_eq!(pick_folder(None, |_| Err(PortalError::TimedOut)), None);
+    }
+
+    #[test]
+    fn a_win32_parent_token_is_the_window_handle_in_hex() {
+        assert_eq!(win32_parent("win32:1a2b"), Some(0x1a2b));
+        assert_eq!(win32_parent("win32:ffffffff80001234"), Some(0xffffffff80001234_u64 as isize), "a handle is pointer-sized");
+        assert_eq!(win32_parent(""), None);
+        assert_eq!(win32_parent("win32:0"), None);
+        assert_eq!(win32_parent("win32:zz"), None);
+        assert_eq!(win32_parent("x11:1a2b"), None);
     }
 
     #[test]

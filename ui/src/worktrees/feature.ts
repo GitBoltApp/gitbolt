@@ -4,7 +4,7 @@ import { tabIdOf } from '../app/tabStores';
 import { registerGraphDoubleClick } from '../graph/rowActions';
 import { useRuntime } from '../app/runtime';
 import { registerSidebarDoubleClick, registerSidebarHeaderAction } from '../sidebar/itemActions';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { openRepoMenu } from '../toolbar/RepoButton';
 import { activeWorktreeOf, setActiveWorktree } from './active';
 import { offCreateWorktreeDialog, openCreateWorktree } from './CreateWorktreeDialog';

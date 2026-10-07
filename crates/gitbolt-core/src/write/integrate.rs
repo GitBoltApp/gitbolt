@@ -461,11 +461,11 @@ pub(crate) fn merge_result(repo: &gix::Repository, ours: ObjectId, theirs: Objec
 pub(crate) async fn preview(api: &Api, repo: u32, worktree: &str, kind: IntegrateKind, target: String) -> Result<IntegratePreviewPayload, GbError> {
     let h = api.handle(repo)?;
     let root = api.worktree_dir(&h, worktree).await?;
-    let here = root.canonicalize().unwrap_or_else(|_| root.clone());
+    let here = crate::platform::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
     let elsewhere: HashMap<String, String> = crate::worktree::list_worktrees(&root)
         .await?
         .into_iter()
-        .filter(|w| w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != here)
+        .filter(|w| crate::platform::fs::canonicalize(&w.path).unwrap_or_else(|_| w.path.clone()) != here)
         .filter_map(|w| Some((w.branch?, w.path.display().to_string())))
         .collect();
     let (rt, tn) = (root.clone(), target.clone());
@@ -510,7 +510,7 @@ pub(crate) mod tests {
     }
 
     fn wt(p: &Path) -> String {
-        p.canonicalize().unwrap().display().to_string()
+        crate::platform::fs::canonicalize(p).unwrap().display().to_string()
     }
 
     async fn merge(api: &Api, id: u32, r: &Path, target: &str) -> Result<serde_json::Value, GbError> {
@@ -574,8 +574,8 @@ pub(crate) mod tests {
         assert_eq!(res["outcome"]["status"], "aborted");
         assert!(res["journal"]["paused"].is_null());
         assert_eq!(r.git(&["rev-parse", "HEAD"]), before);
-        let git_dir = r.path().join(".git").canonicalize().unwrap();
-        assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &r.path().canonicalize().unwrap()).load().unwrap().undo.is_empty());
+        let git_dir = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+        assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &crate::platform::fs::canonicalize(r.path()).unwrap()).load().unwrap().undo.is_empty());
     }
 
     #[tokio::test]
@@ -640,7 +640,7 @@ pub(crate) mod tests {
         let id = open(&api, s.path()).await;
         let p = preview(&api, id, s.path(), IntegrateKind::Rebase, "main").await;
         assert_eq!(p["stacked"][0]["name"], "feature/a");
-        assert_eq!(p["stacked"][0]["worktree"].as_str().map(|w| std::path::Path::new(w).canonicalize().unwrap()), Some(elsewhere.canonicalize().unwrap()));
+        assert_eq!(p["stacked"][0]["worktree"].as_str().map(|w| crate::platform::fs::canonicalize(std::path::Path::new(w)).unwrap()), Some(crate::platform::fs::canonicalize(&elsewhere).unwrap()));
         assert_eq!(p["stacked"][1], serde_json::json!({"name": "feature/b", "worktree": null}));
         assert_eq!(p["updateRefsDefault"], true);
         s.git(&["config", "rebase.updateRefs", "false"]);
@@ -671,7 +671,7 @@ pub(crate) mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let predict = |rule: AutostashRule| {
             let spec = AutostashSpec { rule, target: Some(up), op: "merge up".into(), target_name: Some("up".into()) };
-            let (api, root, tmp) = (&api, r.path().canonicalize().unwrap(), tmp.path().to_path_buf());
+            let (api, root, tmp) = (&api, crate::platform::fs::canonicalize(r.path()).unwrap(), tmp.path().to_path_buf());
             async move { crate::journal::autostash::plan(api, &root, &tmp, &spec).await.unwrap().expect("a stash").conflicts }
         };
         assert_eq!(predict(AutostashRule::Merged).await, vec!["up.txt".to_string()]);

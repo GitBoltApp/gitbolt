@@ -6,7 +6,7 @@ const confirm = vi.hoisted(() => ({ answer: true, asked: [] as unknown[] }));
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async (req: unknown) => { confirm.asked.push(req); return confirm.answer; }) }));
 
 const { removeStaleLock, writeErrorContext, lockLabel } = await import('./indexLock');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 
 const LOCK = { path: '/r/.git/index.lock', mtimeMs: 5, ino: 6, dev: 7 };
 

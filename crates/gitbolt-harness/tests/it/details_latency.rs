@@ -87,7 +87,7 @@ async fn details_latency() {
     let tmp = tempfile::tempdir().unwrap();
     let gnupg = tmp.path().join("gnupg");
     std::fs::create_dir_all(&gnupg).unwrap();
-    std::fs::set_permissions(&gnupg, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    gitbolt_core::platform::fs::set_mode(&gnupg, 0o700).unwrap();
     let mut env = isolated_git_env();
     env.push(("GNUPGHOME".into(), gnupg.clone().into()));
 

@@ -2,7 +2,7 @@ import { copyText } from '../api/transport';
 import { ICONS } from '../menu/icons';
 import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { hasFileLinkHandler, openExternal, openLinkTarget } from './actions';
 import { browserUrlFor, linkTooltip } from './links';
 import type { LinkMenuTarget } from './types';

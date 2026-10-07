@@ -83,7 +83,7 @@ describe('integrate (spec #2 §13.1)', () => {
     vi.spyOn(api, 'integratePreview').mockResolvedValue(preview({}));
     const why = 'The rebase stopped: gpg failed to sign the data: gpg: signing failed: No pinentry';
     vi.spyOn(api, 'integrate').mockResolvedValue(ok({ status: 'stopped', kind: 'rebase', files: 0, warning: why }) as never);
-    const { useToast } = await import('../ui/toast');
+    const { useToast } = await import('../ui/toastStore');
     useToast.getState().dismiss();
     await startIntegrate(ctx, 'rebase', 'main', 'feature/c');
     expect(useToast.getState()).toMatchObject({ message: why, tone: 'warning' });

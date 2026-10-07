@@ -274,6 +274,7 @@ mod tests {
     }
 
     /// Review I2: a file replaced by a symlink is a delete section and an add section.
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn a_typechange_is_refused() {
         let r = repo();
@@ -291,6 +292,7 @@ mod tests {
     }
 
     /// Review I3: a symlink's target and a submodule's commit are whole-file changes only.
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn symlinks_and_submodules_are_refused() {
         let r = repo();

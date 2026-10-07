@@ -12,12 +12,12 @@ const transport = vi.hoisted(() => ({ copyText: vi.fn(async () => {}) }));
 vi.mock('../../api/transport', async (orig) => ({ ...(await orig<object>()), ...transport }));
 
 const { Discussion } = await import('./Thread');
-const { notePermalink, toggled, withNote, useThreadFolds } = await import('./noteActions');
+const { notePermalink, toggled, withNote, useThreadFolds } = await import('./noteActionsStore');
 const { fullDate } = await import('./RelTime');
 const { formatDate } = await import('../../format/date');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { useMenu } = await import('../../menu/menuStore');
 const { ContextMenu } = await import('../../menu/ContextMenu');
 const { ArmLayer } = await import('../../ui/arm/ArmLayer');

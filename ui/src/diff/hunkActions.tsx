@@ -12,7 +12,7 @@ import type { DiffTarget } from '../repo/store';
 import { discardPatch, stagePatch } from '../stage/actions';
 import { COMMIT_QUEUED, useCommitting } from '../stage/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { LineActionBar } from './LineActionBar';
 import type { DiffSelection, EditorContextMenuEvent } from './monaco/host';
 import { provideStagingRows } from './stagingMenu';

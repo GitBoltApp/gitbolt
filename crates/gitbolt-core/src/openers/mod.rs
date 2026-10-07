@@ -9,8 +9,10 @@
 //!
 //! Detection (feedback H32) is per OS behind `detect_system`: on Linux, every XDG desktop entry
 //! that is a text editor or IDE (`desktop.rs`), supplemented by JetBrains Toolbox scripts and
-//! `PATH`, plus the file manager; "Other…" is the system's Open With chooser (`chooser.rs`).
-//! macOS and Windows plug in at the same seams later (spec §4).
+//! `PATH`, plus the file manager; "Other…" is the system's Open With chooser (`chooser.rs`). On
+//! Windows, launchers on `PATH` (with `PATHEXT`) and in their install folders, the JetBrains
+//! Toolbox, and File Explorer (`win_detect.rs`); the shell's own dialogs and URL handler are in
+//! `win32.rs`. macOS plugs in at the same seams later (spec §4).
 
 use crate::error::{GbError, GbErrorKind};
 use crate::links::UrlOpener;
@@ -24,6 +26,10 @@ pub mod chooser;
 #[cfg(unix)]
 mod desktop;
 pub mod folder_picker;
+#[cfg(windows)]
+mod win32;
+#[cfg(any(windows, test))]
+mod win_detect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +80,8 @@ pub enum LineArgs {
     JetBrains,
     /// Sublime Text, Zed: `<file>:<line>`.
     PathColonLine,
+    /// Notepad++: `-n<line> <file>`.
+    NotepadPlusPlus,
 }
 
 /// How an opener takes a file and a line.
@@ -85,6 +93,12 @@ pub enum ArgStyle {
     JetBrains,
     /// `program <file>:<line>`.
     PathColonLine,
+    /// `program -n<line> <file>` (Notepad++).
+    NotepadPlusPlus,
+    /// File Explorer: `explorer <folder>`, and `explorer /select, <file>` to show a file
+    /// (`Opener::reveal_command`). Explorer reads its own command line, not by the usual rules, so
+    /// `launch_command` passes its arguments verbatim (`explorer_args`).
+    ExplorerSelect,
     /// A desktop entry's `Exec` arguments, with the file (or folder) at its field code. No line.
     Exec(Vec<ExecArg>),
     /// A known IDE's desktop entry: its `Exec` arguments, the file's place taking the line form.
@@ -147,6 +161,8 @@ impl Opener {
             ArgStyle::VsCode => (&only_file, Some(LineArgs::VsCode)),
             ArgStyle::JetBrains => (&only_file, Some(LineArgs::JetBrains)),
             ArgStyle::PathColonLine => (&only_file, Some(LineArgs::PathColonLine)),
+            ArgStyle::NotepadPlusPlus => (&only_file, Some(LineArgs::NotepadPlusPlus)),
+            ArgStyle::ExplorerSelect => (&only_file, None),
             ArgStyle::Exec(parts) => (parts, None),
             ArgStyle::ExecWithLine(parts, l) => (parts, Some(*l)),
             ArgStyle::Template { .. } => unreachable!("handled by the early return above"),
@@ -160,6 +176,7 @@ impl Opener {
                     (Some(LineArgs::VsCode), Some(n)) => args.extend([os("-g"), at_line(&file, n)]),
                     (Some(LineArgs::JetBrains), Some(n)) => args.extend([os("--line"), os(&n.to_string()), file.clone()]),
                     (Some(LineArgs::PathColonLine), Some(n)) => args.push(at_line(&file, n)),
+                    (Some(LineArgs::NotepadPlusPlus), Some(n)) => args.extend([os(&format!("-n{n}")), file.clone()]),
                     _ => args.push(file.clone()),
                 },
                 // Flatpak's `@@u … @@` forwarding (minor #4): no line form, and never a bare path.
@@ -167,6 +184,12 @@ impl Opener {
             }
         }
         LaunchCommand { program: self.program.clone(), args }
+    }
+
+    /// The argv that shows `file` selected in its folder, for a file manager that can (File
+    /// Explorer); `None` for the others, which open the folder (`command`).
+    pub fn reveal_command(&self, file: &Path) -> Option<LaunchCommand> {
+        (self.style == ArgStyle::ExplorerSelect).then(|| LaunchCommand { program: self.program.clone(), args: vec![os("/select,"), file.as_os_str().to_owned()] })
     }
 }
 
@@ -251,7 +274,9 @@ fn has_file_code(t: &str) -> bool {
 /// and backslash escapes (a permissive shell-like quoting — this is the user's own command line,
 /// not a desktop entry's `%`-code `Exec` syntax). Each word keeps its `{file}`/`{line}`/`{repo}`
 /// placeholders literally; `Opener::command` substitutes them per open, never through a shell.
+/// On Windows a backslash is the path separator, so it's always literal there.
 fn tokenize_template(template: &str) -> Result<Vec<String>, GbError> {
+    let escapes = !cfg!(windows);
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut in_word = false;
@@ -266,7 +291,7 @@ fn tokenize_template(template: &str) -> Result<Vec<String>, GbError> {
                         closed = true;
                         break;
                     }
-                    if d == '\\' && c == '"' {
+                    if escapes && d == '\\' && c == '"' {
                         if let Some(e) = chars.next() {
                             cur.push(e);
                         }
@@ -278,7 +303,7 @@ fn tokenize_template(template: &str) -> Result<Vec<String>, GbError> {
                     return Err(GbError::new(GbErrorKind::InvalidInput, "unterminated quote in the editor command"));
                 }
             }
-            '\\' => {
+            '\\' if escapes => {
                 in_word = true;
                 if let Some(e) = chars.next() {
                     cur.push(e);
@@ -336,6 +361,9 @@ pub fn template_opener(id: impl Into<String>, name: impl Into<String>, template:
         return Err(GbError::new(GbErrorKind::InvalidInput, "empty editor command"));
     }
     let program_word = words.remove(0);
+    if COMMAND_LINE_PROGRAMS.contains(&program_base(&program_word).as_str()) && words.iter().any(|w| TEMPLATE_PLACEHOLDERS.iter().any(|p| w.contains(p))) {
+        return Err(GbError::new(GbErrorKind::InvalidInput, "cmd and Windows PowerShell read their arguments as a command, so they can't take {file}, {line} or {repo}"));
+    }
     if is_shell_program(&program_word) && shell_c_script_has_placeholder(&words) {
         return Err(GbError::new(
             GbErrorKind::InvalidInput,
@@ -354,9 +382,27 @@ const SHELL_PROGRAMS: &[&str] = &[
     "php", "lua", "tclsh", "pwsh", "osascript",
 ];
 
-fn is_shell_program(word: &str) -> bool {
+/// Windows: programs that join their remaining arguments into one command line and run it
+/// (`cmd /c`, Windows PowerShell's default `-Command`), so every argument is code. Never Unix.
+#[cfg(windows)]
+const COMMAND_LINE_PROGRAMS: &[&str] = &["cmd", "powershell"];
+#[cfg(not(windows))]
+const COMMAND_LINE_PROGRAMS: &[&str] = &[];
+
+/// `word`'s program name: its file name, and on Windows lowercased, without a runnable
+/// extension (`C:\Tools\Bash.EXE` is `bash`).
+fn program_base(word: &str) -> String {
     let base = word.rsplit(['/', '\\']).next().unwrap_or(word);
-    SHELL_PROGRAMS.contains(&base) || base.starts_with("python")
+    if !cfg!(windows) {
+        return base.to_string();
+    }
+    let lower = base.to_ascii_lowercase();
+    [".exe", ".com", ".cmd", ".bat"].iter().find_map(|e| lower.strip_suffix(e)).map_or_else(|| lower.clone(), str::to_string)
+}
+
+fn is_shell_program(word: &str) -> bool {
+    let base = program_base(word);
+    SHELL_PROGRAMS.contains(&base.as_str()) || base.starts_with("python")
 }
 
 const TEMPLATE_PLACEHOLDERS: [&str; 3] = ["{file}", "{line}", "{repo}"];
@@ -365,6 +411,14 @@ const TEMPLATE_PLACEHOLDERS: [&str; 3] = ["{file}", "{line}", "{repo}"];
 /// cluster holding `c`/`e`/`E`/`r` (`-c`, `-lc`, `-ec`, `-e`, `-r` for php) or a long form
 /// (`--command`, `--eval`, `--exec`, `--execute`, with or without `=value`).
 fn is_code_flag(word: &str) -> bool {
+    // Windows: PowerShell's flags are case-insensitive (`-Command`).
+    let lower;
+    let word = if cfg!(windows) {
+        lower = word.to_ascii_lowercase();
+        lower.as_str()
+    } else {
+        word
+    };
     if let Some(long) = word.strip_prefix("--") {
         let name = long.split('=').next().unwrap_or(long);
         return matches!(name, "command" | "eval" | "exec" | "execute");
@@ -460,8 +514,7 @@ fn query_default(xdg_mime: &Path, mime: &str) -> Option<String> {
 
 #[cfg(unix)]
 fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    std::fs::metadata(p).is_ok_and(|m| m.is_file() && crate::platform::fs::mode(&m) & 0o111 != 0)
 }
 
 #[cfg(not(unix))]
@@ -473,14 +526,18 @@ fn find_in_path(path: &[PathBuf], name: &str) -> Option<PathBuf> {
     path.iter().map(|d| d.join(name)).find(|p| is_executable(p))
 }
 
-/// A desktop entry's program: an absolute executable, or a bare name found on `PATH`.
+/// A desktop entry's program: an absolute executable, or a bare name found on `PATH` (Windows:
+/// with `PATHEXT`, and `\` separates a path too).
 fn resolve_program(env: &DetectEnv, program: &str) -> Option<PathBuf> {
-    if program.contains('/') {
+    let separators: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+    if program.contains(separators) {
         let p = PathBuf::from(program);
-        (p.is_absolute() && is_executable(&p)).then_some(p)
-    } else {
-        find_in_path(&env.path, program)
+        return (p.is_absolute() && is_executable(&p)).then_some(p);
     }
+    #[cfg(windows)]
+    return win_detect::find_program(&env.path, &win_detect::runnable_exts(&std::env::var("PATHEXT").unwrap_or_default()), program);
+    #[cfg(not(windows))]
+    find_in_path(&env.path, program)
 }
 
 /// IntelliJ-platform IDEs, by launcher name (Toolbox script, `<name>` or `<name>.sh` on `PATH`,
@@ -547,11 +604,13 @@ pub fn detect(env: &DetectEnv) -> Vec<Opener> {
 }
 
 /// This OS's openers (the seam other OSes plug into; spec §4). Linux: XDG desktop entries,
-/// Toolbox scripts and `PATH`.
+/// Toolbox scripts and `PATH`. Windows: `PATH`, install folders, the Toolbox, File Explorer.
 pub fn detect_system() -> Vec<Opener> {
     #[cfg(target_os = "linux")]
     return detect(&DetectEnv::from_system());
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    return win_detect::detect(&win_detect::WinEnv::from_system());
+    #[cfg(not(any(target_os = "linux", windows)))]
     return Vec::new();
 }
 
@@ -569,7 +628,14 @@ pub fn system_url_opener(hook: ChildEnvHook) -> Option<UrlOpener> {
         let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|d| d.is_absolute()).collect()).unwrap_or_default();
         url_opener_using(&path, hook)
     }
-    #[cfg(not(target_os = "linux"))]
+    // Windows: the shell's `open` verb (`ShellExecuteW`), which starts the default browser or
+    // mail app itself, so `hook` has no command to adjust.
+    #[cfg(windows)]
+    {
+        let _ = hook;
+        Some(Arc::new(win32::open_url))
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = hook;
         None
@@ -600,14 +666,48 @@ pub type ChildEnvHook = Arc<dyn Fn(&mut std::process::Command) + Send + Sync>;
 pub fn launch_command(cmd: &LaunchCommand, hook: &dyn Fn(&mut std::process::Command)) -> std::process::Command {
     use std::process::{Command, Stdio};
     let mut c = Command::new(&cmd.program);
-    c.args(&cmd.args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut c, 0);
+    #[cfg(windows)]
+    if is_explorer(&cmd.program) {
+        use std::os::windows::process::CommandExt;
+        for a in explorer_args(&cmd.args) {
+            c.raw_arg(a);
+        }
+    } else {
+        c.args(&cmd.args);
+    }
+    #[cfg(not(windows))]
+    c.args(&cmd.args);
+    c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    crate::platform::process::own_group(&mut c);
     for var in PRIVATE_ENV {
         c.env_remove(var);
     }
     hook(&mut c);
     c
+}
+
+/// Whether `program` is File Explorer, which parses its own command line (`explorer_args`).
+#[cfg(windows)]
+fn is_explorer(program: &Path) -> bool {
+    program.file_name().is_some_and(|n| n.eq_ignore_ascii_case("explorer.exe"))
+}
+
+/// Explorer's arguments, as its command line holds them: a switch (`/select,`) as it is, and a
+/// path always in double quotes, which a Windows path can't contain. The usual quoting would
+/// leave a path without spaces bare, and Explorer splits a bare one at its commas.
+#[cfg(any(windows, test))]
+fn explorer_args(args: &[OsString]) -> Vec<OsString> {
+    args.iter()
+        .map(|a| {
+            if a.to_string_lossy().starts_with('/') {
+                return a.clone();
+            }
+            let mut q = OsString::from("\"");
+            q.push(a);
+            q.push("\"");
+            q
+        })
+        .collect()
 }
 
 /// `spawn_detached_with` and no environment hook.
@@ -673,7 +773,6 @@ fn percent_encode_file_uri(bytes: &[u8]) -> OsString {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn lit(s: &str) -> ExecArg {
         ExecArg::Literal(s.into())
@@ -731,6 +830,7 @@ pub(super) mod tests {
     /// Fix round 1, item 9: a non-UTF-8 file name's exact bytes must reach the URI, not the
     /// U+FFFD replacement `to_string_lossy()` would substitute (which would point at the wrong
     /// path entirely).
+    #[cfg(unix)] // non-UTF-8 file names exist only on Unix
     #[test]
     fn file_uri_preserves_non_utf8_bytes_exactly() {
         use std::os::unix::ffi::OsStringExt;
@@ -743,12 +843,12 @@ pub(super) mod tests {
     #[test]
     fn a_custom_template_substitutes_file_line_and_repo() {
         let tmp = tempfile::tempdir().unwrap();
-        executable(&tmp.path().join("bin/zz"));
+        let zz = executable(&tmp.path().join("bin/zz"));
         let env = DetectEnv { path: vec![tmp.path().join("bin")], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
         let o = template_opener("custom", "Custom", r#"zz --repo="{repo}" "{file}:{line}""#, tmp.path().join("work/repo"), &env).unwrap();
-        assert_eq!(o.program(), tmp.path().join("bin/zz"));
+        assert_eq!(o.program(), zz);
         let c = o.command(Path::new("/w/a b.php"), Some(9));
-        assert_eq!(c.program, tmp.path().join("bin/zz"));
+        assert_eq!(c.program, zz);
         assert_eq!(args(&c), [format!("--repo={}", tmp.path().join("work/repo").display()), "/w/a b.php:9".into()]);
         // No line: the template's `{line}` becomes `1`, like opening at the top of the file.
         assert_eq!(args(&o.command(Path::new("/w/a b.php"), None)).last().unwrap(), "/w/a b.php:1");
@@ -829,21 +929,64 @@ pub(super) mod tests {
         template_opener("custom", "Custom", r#"python3 -c 'import sys; print(sys.argv[1])' {file}"#, "/repo", &env).unwrap();
     }
 
+    /// Windows: a bare name is found with `PATHEXT` (`code` is `code.cmd`), never as an
+    /// extensionless file, which Windows can't start; a path names its file exactly.
+    #[cfg(windows)]
+    #[test]
+    fn a_custom_template_finds_its_program_with_pathext() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("code"), "").unwrap();
+        let env = DetectEnv { path: vec![bin.clone()], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
+        assert_eq!(template_opener("custom", "Custom", "code -g {file}:{line}", "/repo", &env).unwrap_err().kind, GbErrorKind::NotFound);
+        std::fs::write(bin.join("code.cmd"), "").unwrap();
+        assert_eq!(template_opener("custom", "Custom", "code -g {file}:{line}", "/repo", &env).unwrap().program(), bin.join("code.cmd"));
+        let full = format!(r#""{}" {{file}}"#, bin.join("code.cmd").display());
+        assert_eq!(template_opener("custom", "Custom", &full, "/repo", &env).unwrap().program(), bin.join("code.cmd"));
+    }
+
+    /// Windows: `cmd` and Windows PowerShell read their remaining arguments as one command line,
+    /// so a placeholder anywhere is code there; other shells are recognized with their extension
+    /// (`bash.exe`) and PowerShell's flags in any case (`-Command`).
+    #[cfg(windows)]
+    #[test]
+    fn windows_command_interpreters_never_take_a_placeholder() {
+        let tmp = tempfile::tempdir().unwrap();
+        for name in ["cmd", "powershell", "pwsh", "bash"] {
+            executable(&tmp.path().join(name));
+        }
+        let env = DetectEnv { path: vec![tmp.path().to_path_buf()], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
+        for template in [r#"cmd /c start "" {file}"#, "CMD.EXE /k notepad {file}", "powershell {file}", "powershell.exe -File x.ps1 {file}", "pwsh -Command {file}", r#"bash.exe -c "vim {file}""#] {
+            let err = template_opener("custom", "Custom", template, "/repo", &env).expect_err(template);
+            assert_eq!(err.kind, GbErrorKind::InvalidInput, "{template}");
+        }
+        template_opener("custom", "Custom", "pwsh -File x.ps1 {file}", "/repo", &env).unwrap();
+        template_opener("custom", "Custom", "cmd /c notepad.exe", "/repo", &env).unwrap();
+    }
+
     #[test]
     fn tokenize_template_handles_quotes_and_escapes() {
         assert_eq!(tokenize_template(r#"code --goto "{file}:{line}""#).unwrap(), vec!["code", "--goto", "{file}:{line}"]);
+        #[cfg(unix)]
         assert_eq!(tokenize_template(r"ed \{literal\}").unwrap(), vec!["ed", "{literal}"]);
+        #[cfg(windows)]
+        assert_eq!(tokenize_template(r#""C:\Program Files\Ed\ed.exe" C:\x\{file}"#).unwrap(), vec![r"C:\Program Files\Ed\ed.exe", r"C:\x\{file}"]);
         assert_eq!(tokenize_template("'single word' plain").unwrap(), vec!["single word", "plain"]);
         assert_eq!(tokenize_template("").unwrap(), Vec::<String>::new());
     }
 
-    pub(super) fn executable(path: &Path) {
+    /// A fake program at `path` (Windows: `path.exe`, so `PATHEXT` finds it); returns its path.
+    pub(super) fn executable(path: &Path) -> PathBuf {
+        let path = if cfg!(windows) { path.with_extension("exe") } else { path.to_path_buf() };
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(&path, "#!/bin/sh\n").unwrap();
+        crate::platform::fs::set_mode(&path, 0o755).unwrap();
+        path
     }
 
     /// Writes `dir/applications/<id>` (`id` may hold a subdirectory).
+    #[cfg(unix)] // helper of Unix-only tests
     pub(super) fn desktop(dir: &Path, id: &str, body: &str) {
         let path = dir.join("applications").join(id);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -885,6 +1028,7 @@ pub(super) mod tests {
         assert_eq!(parse_exec("ed --level=100%%"), Some(("ed".into(), vec![lit("--level=100%"), ExecArg::File])));
     }
 
+    #[cfg(unix)] // xdg-open, touch and sh scripts as the launched programs
     #[test]
     fn toolbox_scripts_and_path_supplement_the_desktop_entries_and_the_file_manager_comes_last() {
         let tmp = tempfile::tempdir().unwrap();
@@ -918,6 +1062,7 @@ pub(super) mod tests {
         assert_eq!(args(&found[3].command(Path::new("/r/src"), Some(3))), ["--new-window", "/r/src"]);
     }
 
+    #[cfg(unix)] // xdg-open, Unix's fallback (Windows detects with `win_detect`)
     #[test]
     fn xdg_open_is_the_fallback_file_manager() {
         let tmp = tempfile::tempdir().unwrap();
@@ -941,6 +1086,7 @@ pub(super) mod tests {
     /// `ChildEnvHook` as an opener or the chooser's `xdg-open` fallback — not bypass it the way
     /// `tauri_plugin_opener::open_url` used to, leaking `GDK_BACKEND=x11`,
     /// `IBUS_ENABLE_SYNC_MODE` and `CHROME_DEVEL_SANDBOX` into the browser.
+    #[cfg(unix)] // xdg-open, touch and sh scripts as the launched programs
     #[test]
     fn system_url_opener_launches_xdg_open_with_the_url_and_the_hooks_environment() {
         let tmp = tempfile::tempdir().unwrap();
@@ -948,7 +1094,7 @@ pub(super) mod tests {
         let out = bin.join("out");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("xdg-open"), format!("#!/bin/sh\nprintf '%s|%s' \"$1\" \"${{GDK_BACKEND-unset}}\" > '{}'\n", out.display())).unwrap();
-        std::fs::set_permissions(bin.join("xdg-open"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(bin.join("xdg-open"), 0o755).unwrap();
         let hook: ChildEnvHook = Arc::new(|c: &mut std::process::Command| {
             c.env("GDK_BACKEND", "wayland");
         });
@@ -999,6 +1145,39 @@ pub(super) mod tests {
         assert_eq!(plain.get_envs().count(), PRIVATE_ENV.len());
     }
 
+    /// Windows: a `.cmd` launcher (`code.cmd`, a Toolbox script) runs through cmd.exe, and std
+    /// escapes each argument for it, so a path full of cmd syntax reaches the script as one
+    /// argument, and passing it on with `%*` (as `code.cmd` does) runs nothing.
+    #[cfg(windows)]
+    #[test]
+    fn a_cmd_launcher_gets_each_argument_whole_and_runs_nothing_in_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let script = tmp.path().join("fake editor.cmd");
+        let out = tmp.path().join("out.txt");
+        std::fs::write(&script, "@echo off\r\n>\"%~dp0out.txt\" echo(%*\r\n").unwrap();
+        let hostile = tmp.path().join("a&type nul>pwned.txt&b %PATH% ^(x) !y!.php");
+        spawn_detached(&LaunchCommand { program: script, args: vec!["-g".into(), at_line(hostile.as_os_str(), 3)] }).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut got = String::new();
+        while std::time::Instant::now() < deadline {
+            got = std::fs::read_to_string(&out).unwrap_or_default();
+            if got.ends_with('\n') {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(got.trim_end(), format!("-g \"{}:3\"", hostile.display()));
+        assert!(!tmp.path().join("pwned.txt").exists(), "nothing in the argument ran");
+    }
+
+    /// Explorer splits a bare argument at its commas, so a path is always quoted, a switch never.
+    #[test]
+    fn explorer_gets_its_paths_quoted_and_its_switch_bare() {
+        let quoted = |a: &[&str]| explorer_args(&a.iter().map(OsString::from).collect::<Vec<_>>()).into_iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        assert_eq!(quoted(&["/select,", r"C:\r\a,b\c.txt"]), ["/select,", r#""C:\r\a,b\c.txt""#]);
+        assert_eq!(quoted(&[r"C:\r\my src"]), [r#""C:\r\my src""#]);
+    }
+
     #[test]
     fn nothing_found_is_an_empty_list() {
         let env = DetectEnv { path: vec![], home: None, data_dirs: vec![], mime_default: Box::new(|_| None), self_exe: None };
@@ -1007,6 +1186,7 @@ pub(super) mod tests {
 
     /// Runs `touch` (not an application) to prove the argv reaches the program unchanged: a
     /// file name full of shell syntax is created literally, since no shell is involved.
+    #[cfg(unix)] // xdg-open, touch and sh scripts as the launched programs
     #[test]
     fn spawn_detached_passes_argv_without_a_shell() {
         let tmp = tempfile::tempdir().unwrap();

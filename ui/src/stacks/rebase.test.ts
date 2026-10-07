@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import type { PlanRow } from '../api/gen/PlanRow';
 import type { RebasePlanPayload } from '../api/gen/RebasePlanPayload';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import type { Stack } from './detect';
 import { rebaseConfirm, rebaseStack, rebaseStackRow, stackPlan } from './rebase';
 

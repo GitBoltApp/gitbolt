@@ -285,6 +285,7 @@ mod tests {
     }
 
     /// Review Focus 2: pathspecs are literal, so a glob never widens.
+    #[cfg(unix)] // file names Windows forbids (*, ?, :, newlines)
     #[tokio::test]
     async fn awkward_paths_stage_and_unstage_literally() {
         let data = tempfile::tempdir().unwrap();

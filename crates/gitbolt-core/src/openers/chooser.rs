@@ -1,7 +1,8 @@
 //! "Other…" (feedback H32): the system's Open With chooser for one file. On Linux it's
 //! xdg-desktop-portal's `org.freedesktop.portal.OpenURI.OpenFile` with `ask: true`, which takes
-//! the file as a read-only descriptor; without the portal, `xdg-open` (logged). Other OSes plug
-//! into `system_chooser` later (spec §4).
+//! the file as a read-only descriptor; without the portal, `xdg-open` (logged). On Windows it's
+//! the shell's own Open With dialog (`win32.rs`). macOS plugs into `system_chooser` later
+//! (spec §4).
 
 use crate::error::GbError;
 use std::path::Path;
@@ -84,6 +85,7 @@ pub(crate) fn shared<T: Clone + Send + 'static>(slot: &std::sync::Mutex<Option<T
 /// flight — so, unlike a timed-out call (`open_with`'s minor #3 rule), it's safe, and more useful,
 /// to treat it as an ordinary failure: the caller falls back to `xdg-open` instead of silently
 /// doing nothing (fix round 1, item 3).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn connect_timeout_is_a_failure<T>(r: Result<T, PortalError>) -> Result<T, PortalError> {
     r.map_err(|e| match e {
         PortalError::TimedOut => PortalError::Failed("the session bus didn't answer in time".into()),
@@ -123,7 +125,13 @@ pub(crate) fn with_timeout<T: Send + 'static>(call: impl FnOnce() -> Result<T, P
 pub fn system_chooser(hook: super::ChildEnvHook) -> Option<Chooser> {
     #[cfg(target_os = "linux")]
     return Some(Arc::new(move |f: &Path| open_with(f, linux::portal_open_file, |f| linux::xdg_open(f, &*hook))));
-    #[cfg(not(target_os = "linux"))]
+    // The shell starts the chosen program, so `hook` has no command to adjust.
+    #[cfg(windows)]
+    {
+        let _ = hook;
+        Some(Arc::new(super::win32::open_with_dialog))
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = hook;
         None

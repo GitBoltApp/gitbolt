@@ -429,12 +429,14 @@ mod tests {
     }
 
     /// The index entry's mode of `path` (`100644`, `100755`).
+    #[cfg(unix)] // helper of Unix-only tests
     fn index_mode(r: &TestRepo, path: &str) -> String {
         r.git(&["ls-files", "-s", "--", path]).split(' ').next().unwrap_or_default().to_string()
     }
 
     /// Review I1: a mode change is the file's, never a hunk's. Staging one hunk leaves a pending
     /// `chmod +x` unstaged; unstaging one leaves a staged mode staged.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn a_hunk_never_carries_the_file_mode() {
         let data = tempfile::tempdir().unwrap();
@@ -444,7 +446,7 @@ mod tests {
         r.git(&["add", "m"]);
         r.git(&["commit", "-q", "-m", "m"]);
         let path = r.path().join("m");
-        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&path, 0o755).unwrap();
         r.write("m", &twelve.replace("\n2\n", "\nTWO\n").replace("\n11\n", "\nELEVEN\n"));
         let api = api(data.path());
         let id = open(&api, &r).await;
@@ -484,6 +486,7 @@ mod tests {
     }
 
     /// Review I3's repro: a `-` line of a retargeted symlink would stage an empty target.
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn a_symlink_line_selection_is_refused() {
         let data = tempfile::tempdir().unwrap();

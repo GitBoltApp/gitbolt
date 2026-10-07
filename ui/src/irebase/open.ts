@@ -4,7 +4,7 @@ import { useAppState } from '../app/state';
 import { activateTab } from '../app/tabs';
 import { toGbError } from '../errors/describe';
 import { centerViewOf, openCenterView } from '../repo/centerView';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { writeCtx } from '../write/ctx';
 import { laneColors } from './colors';
 import { dirty, fromPlan } from './model';

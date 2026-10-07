@@ -3,7 +3,7 @@ import type { CreateMr } from '../../api/gen/CreateMr';
 import type { CreatePart } from '../../api/gen/CreatePart';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { PartFailure } from '../../api/gen/PartFailure';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { mrNoun, mrRef } from '../labels';
 
 /** A created MR/PR, with what the Retry needs (the same request, its target remote). */

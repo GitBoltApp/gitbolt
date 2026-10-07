@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useActivityUi } from '../app/activityLog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { serverActions, showServerResult } from './serverOutput';
 
 describe('server output toasts (spec #2 §12.4)', () => {

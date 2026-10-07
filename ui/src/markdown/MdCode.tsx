@@ -4,7 +4,7 @@ import { copyText } from '../api/transport';
 import type { CodeTokens } from '../diff/monaco/shiki';
 import { useTheme } from '../theme/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { queueHighlight } from './highlightQueue';
 import { useNearViewport } from './nearViewport';
 import { MdContextOverride } from './sideContext';

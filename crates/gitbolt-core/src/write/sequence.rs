@@ -880,14 +880,13 @@ mod tests {
     /// sequencer, and says so; the next pick isn't blocked.
     #[tokio::test]
     async fn a_failure_part_way_drops_the_sequencer_and_keeps_what_went_in() {
-        use std::os::unix::fs::PermissionsExt;
         let data = tempfile::tempdir().unwrap();
         let (r, oids) = three_on_feature();
         let before = r.git(&["rev-parse", "main"]);
         let hook = r.path().join(".git/hooks/post-commit");
         std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
         std::fs::write(&hook, "#!/bin/sh\n[ -e f2.txt ] || echo hook > f2.txt\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&hook, 0o755).unwrap();
         let api = api(data.path());
         let id = open(&api, &r).await;
         let e = call(&api, "cherryPick", req(id, &r, &newest_first(&oids[..2]), false)).await.unwrap_err();

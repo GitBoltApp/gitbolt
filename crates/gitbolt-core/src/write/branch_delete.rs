@@ -104,7 +104,7 @@ impl WriteIntent for DeleteBranch {
         // Review Focus 1: never a branch some worktree has checked out.
         let worktrees = crate::worktree::list_worktrees(pre.root).await?;
         if let Some(w) = worktrees.iter().find(|w| w.branch.as_deref() == Some(self.full().as_str())) {
-            let here = w.path.canonicalize().unwrap_or(w.path.clone()) == pre.root;
+            let here = crate::platform::fs::canonicalize(&w.path).unwrap_or(w.path.clone()) == pre.root;
             if here {
                 return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} is checked out", self.branch)));
             }

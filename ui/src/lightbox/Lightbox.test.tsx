@@ -9,7 +9,7 @@ vi.mock('../image/copyImage', () => copy);
 const { Lightbox } = await import('./Lightbox');
 const { openLightbox, useLightbox } = await import('./store');
 const { registerKeys } = await import('../ui/keyRouter');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 
 const URL_ = 'data:image/png;base64,iVBORw==';
 

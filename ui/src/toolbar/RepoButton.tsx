@@ -1,4 +1,5 @@
 import { Check, FolderGit2, SquarePlus } from 'lucide-react';
+import { basename } from '../app/osPath';
 import { useRepoContext } from '../app/repoContext';
 import { useRuntime } from '../app/runtime';
 import { openMenuAt } from '../menu/menuStore';
@@ -7,7 +8,7 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { openWorktreeTab, setActiveWorktree } from '../worktrees/active';
 import { worktreeDisplay } from '../worktrees/paths';
 
-const nameOf = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+
 
 function rows(tabId: string): MenuRow[] {
   const rt = useRuntime.getState().tabs[tabId];
@@ -37,7 +38,7 @@ export function RepoButton() {
   const sub = useRuntime((s) => {
     const rt = s.tabs[tabId];
     const main = rt?.graph?.worktrees.find((w) => w.isMain)?.path;
-    return rt?.worktree && main && rt.worktree !== main ? nameOf(rt.worktree) : null;
+    return rt?.worktree && main && rt.worktree !== main ? basename(rt.worktree) : null;
   });
   return (
     <HoverTooltip content="Worktrees of this repository">

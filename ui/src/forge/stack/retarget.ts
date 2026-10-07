@@ -10,7 +10,7 @@ import { pushStack } from '../../stacks/push';
 import { rebaseStack } from '../../stacks/rebase';
 import { joinNames } from '../../stacks/text';
 import { currentOrigin, type Origin } from '../../ui/arm/origin';
-import { useToast, type ToastOptions } from '../../ui/toast';
+import { useToast, type ToastOptions } from '../../ui/toastStore';
 import type { WriteCtx } from '../../write/client';
 import { mrRef } from '../labels';
 import { noteForgeWritten } from '../mrStore';

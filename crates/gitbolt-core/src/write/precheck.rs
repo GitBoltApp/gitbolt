@@ -6,6 +6,7 @@
 
 use crate::error::{gix_err, GbError};
 use crate::git::{GitCli, GitInvocation};
+use crate::platform::osstr;
 use crate::status::{parse_porcelain_v2, status_raw, EntryKind};
 use gix::bstr::{BStr, BString, ByteSlice};
 use gix::ObjectId;
@@ -262,8 +263,7 @@ pub(crate) async fn changed_since(cli: &GitCli, root: &Path, snap: &crate::journ
                 have_file[i] = gix::objs::compute_hash(hash_kind, gix::objs::Kind::Blob, &target).ok().map(|id| (id, EntryKind::Link));
             }
             Ok(m) if m.is_file() => {
-                use std::os::unix::fs::PermissionsExt;
-                regular.push((i, if m.permissions().mode() & 0o111 != 0 { EntryKind::BlobExecutable } else { EntryKind::Blob }));
+                regular.push((i, if crate::platform::fs::mode(&m) & 0o111 != 0 { EntryKind::BlobExecutable } else { EntryKind::Blob }));
             }
             _ => {}
         }
@@ -363,24 +363,22 @@ pub(crate) fn gitlinks(index: &gix::index::File, diff: &TreeDiff) -> BTreeSet<BS
     out
 }
 
-/// `root/rel`, the bytes as they are (unix paths aren't UTF-8).
+/// `root/rel`, the bytes as they are (unix paths aren't UTF-8; see [`crate::platform::osstr`]).
 pub(crate) fn full_path(root: &Path, rel: &[u8]) -> PathBuf {
-    use std::os::unix::ffi::OsStrExt;
-    root.join(std::ffi::OsStr::from_bytes(rel))
+    root.join(osstr::from_bytes(rel))
 }
 
 /// Whether `rel` is a directory on disk, with no symlink on the way (a leading symlink, or one
 /// at the path, isn't one: git unlinks a symlink, it never writes through it). One lstat on the
 /// common path (a file, or nothing, at `rel`); the components are walked only for a directory.
 pub(crate) fn dir_on_disk(root: &Path, rel: &[u8]) -> bool {
-    use std::os::unix::ffi::OsStrExt;
     if !full_path(root, rel).symlink_metadata().is_ok_and(|m| m.is_dir()) {
         return false;
     }
     let mut at = root.to_path_buf();
     let parts: Vec<&[u8]> = rel.split(|b| *b == b'/').collect();
     for part in &parts[..parts.len().saturating_sub(1)] {
-        at.push(std::ffi::OsStr::from_bytes(part));
+        at.push(osstr::from_bytes(part));
         if at.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
             return false;
         }
@@ -392,7 +390,6 @@ pub(crate) fn dir_on_disk(root: &Path, rel: &[u8]) -> bool {
 /// entry of any kind, valid or not; the shallowest first. The walk follows no symlink and
 /// doesn't enter a directory once its `.git` is found.
 pub(crate) fn dot_git_within(root: &Path, rel: &[u8]) -> Option<BString> {
-    use std::os::unix::ffi::OsStrExt;
     let mut pending: Vec<BString> = vec![rel.into()];
     while let Some(dir) = pending.pop() {
         let full = full_path(root, &dir);
@@ -406,7 +403,7 @@ pub(crate) fn dot_git_within(root: &Path, rel: &[u8]) -> Option<BString> {
             .map(|e| {
                 let mut p = dir.clone();
                 p.push(b'/');
-                p.extend_from_slice(e.file_name().as_bytes());
+                p.extend_from_slice(e.file_name().as_encoded_bytes());
                 p
             })
             .collect();
@@ -490,8 +487,7 @@ pub(crate) async fn others_under(cli: &GitCli, root: &Path, dirs: &[BString]) ->
     }
     // `ls-files` takes no `--pathspec-from-file`: the directories (few: each is one git would
     // delete) go on argv, as the bytes they are.
-    use std::os::unix::ffi::OsStrExt;
-    let args = ["ls-files", "-z", "--others", "--"].map(OsString::from).into_iter().chain(dirs.iter().map(|d| std::ffi::OsStr::from_bytes(d).to_os_string()));
+    let args = ["ls-files", "-z", "--others", "--"].map(OsString::from).into_iter().chain(dirs.iter().map(|d| osstr::from_bytes(d).into_owned()));
     let out = cli.run(GitInvocation::new(root, args).env("GIT_LITERAL_PATHSPECS", "1")).await?;
     for f in out.stdout.split(|b| *b == 0).filter(|s| !s.is_empty()) {
         let f = String::from_utf8_lossy(f).into_owned();
@@ -831,24 +827,29 @@ mod tests {
         assert!(scan.repos.is_empty() && scan.dirs == [BString::from("d")], "{scan:?}");
         assert!(!repo_at(r.path(), "d"));
         // N3: a symlink at the path to a folder holding a repository: git replaces the link.
-        std::fs::remove_dir_all(r.path().join("d")).unwrap();
-        let elsewhere = r.root().join("elsewhere");
-        std::fs::create_dir_all(elsewhere.join(".git")).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, r.path().join("d")).unwrap();
-        let scan = check("d");
-        assert!(scan.repos.is_empty() && scan.dirs.is_empty(), "{scan:?}");
-        assert!(!repo_at(r.path(), "d"));
-        // A symlink on the way: `lib` -> a folder with a repository at `sm`.
-        std::fs::remove_dir_all(r.path().join("lib")).unwrap();
-        std::fs::create_dir_all(elsewhere.join("sm/.git")).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, r.path().join("lib")).unwrap();
-        let scan = check("lib/sm");
-        assert!(scan.repos.is_empty() && scan.dirs.is_empty(), "{scan:?}");
-        assert!(!dir_on_disk(r.path(), b"lib/sm"));
+        // (Unix only: folder symlinks.)
+        #[cfg(unix)]
+        {
+            std::fs::remove_dir_all(r.path().join("d")).unwrap();
+            let elsewhere = r.root().join("elsewhere");
+            std::fs::create_dir_all(elsewhere.join(".git")).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, r.path().join("d")).unwrap();
+            let scan = check("d");
+            assert!(scan.repos.is_empty() && scan.dirs.is_empty(), "{scan:?}");
+            assert!(!repo_at(r.path(), "d"));
+            // A symlink on the way: `lib` -> a folder with a repository at `sm`.
+            std::fs::remove_dir_all(r.path().join("lib")).unwrap();
+            std::fs::create_dir_all(elsewhere.join("sm/.git")).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, r.path().join("lib")).unwrap();
+            let scan = check("lib/sm");
+            assert!(scan.repos.is_empty() && scan.dirs.is_empty(), "{scan:?}");
+            assert!(!dir_on_disk(r.path(), b"lib/sm"));
+        }
     }
 
     /// Safety review M4: a directory whose name isn't UTF-8 reaches the disk check as its bytes,
     /// so a repository in it is found (a lossy name would have missed the path).
+    #[cfg(unix)] // non-UTF-8 file names exist only on Unix
     #[test]
     fn a_non_utf8_directory_name_is_checked_as_bytes() {
         use std::os::unix::ffi::OsStrExt;

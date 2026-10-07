@@ -25,7 +25,7 @@ async fn open(api: &Api, path: &Path) -> u32 {
 }
 
 async fn write(api: &Api, id: u32, wt: &Path, expect: Expect, intent: TestIntent) -> Result<serde_json::Value, GbError> {
-    test_intents::run(api, id, &wt.canonicalize().unwrap().display().to_string(), expect, intent).await
+    test_intents::run(api, id, &crate::platform::fs::canonicalize(wt).unwrap().display().to_string(), expect, intent).await
 }
 
 fn expect_ref(name: &str, oid: Option<&str>) -> Expect {
@@ -51,8 +51,8 @@ fn repo() -> (TestRepo, String, String) {
 }
 
 fn journal(data: &Path, r: &TestRepo) -> crate::journal::Journal {
-    let git_dir = r.path().join(".git").canonicalize().unwrap();
-    JournalStore::new(data, &git_dir, &r.path().canonicalize().unwrap()).load().unwrap()
+    let git_dir = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+    JournalStore::new(data, &git_dir, &crate::platform::fs::canonicalize(r.path()).unwrap()).load().unwrap()
 }
 
 #[tokio::test]
@@ -150,7 +150,7 @@ async fn a_crash_mid_write_leaves_a_pending_entry_that_becomes_a_recovery_banner
     let api = Arc::new(api);
     let id = open(&api, r.path()).await;
     let a2 = api.clone();
-    let wt = r.path().canonicalize().unwrap().display().to_string();
+    let wt = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
     let task = tokio::spawn(async move { test_intents::run(&a2, id, &wt, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await });
     let deadline = Instant::now() + Duration::from_secs(5);
     while !journal(data.path(), &r).undo.iter().any(|e| e.before.is_some()) {
@@ -178,8 +178,8 @@ async fn a_write_never_recovers_pending_entries() {
     let (api, data) = api();
     let id = open(&api, r.path()).await;
     // Another instance's write, in flight: its pending entry is in the journal.
-    let root = r.path().canonicalize().unwrap();
-    let store = JournalStore::new(data.path(), &r.path().join(".git").canonicalize().unwrap(), &root);
+    let root = crate::platform::fs::canonicalize(r.path()).unwrap();
+    let store = JournalStore::new(data.path(), &crate::platform::fs::canonicalize(r.path().join(".git")).unwrap(), &root);
     let theirs = store
         .update(|j| j.begin(crate::journal::NewEntry { label: "theirs".into(), kind: OpKind::Commit, head_before: Default::default(), undo: crate::journal::UndoKind::MoveRefs }, 1))
         .unwrap();
@@ -189,6 +189,7 @@ async fn a_write_never_recovers_pending_entries() {
     assert!(j.recovery.is_empty());
 }
 
+#[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
 #[tokio::test]
 async fn a_snapshot_or_a_ref_edit_never_signs_but_a_commit_does() {
     let (r, c1, _) = repo();
@@ -304,7 +305,7 @@ async fn a_test_write_needs_a_write_guard() {
     let (r, c1, _) = repo();
     let (api, _data) = api();
     let id = open(&api, r.path()).await;
-    let wt = r.path().canonicalize().unwrap().display().to_string();
+    let wt = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
     let err = api.dispatch(Request::TestWrite { repo: id, worktree: wt, expect: Expect::default(), intent: TestIntent::MoveRef { name: "refs/heads/z".into(), to: Some(c1) } }).await.unwrap_err();
     assert_eq!(err.kind, GbErrorKind::InvalidInput);
     assert!(r.try_git(&["rev-parse", "--verify", "-q", "refs/heads/z"]).is_err(), "nothing moved");
@@ -330,7 +331,7 @@ async fn a_merge_in_progress_refuses_a_write_but_a_bisect_doesnt() {
 
 /// A pending entry with a snapshot, as a crashed (or running) write leaves it.
 fn leave_pending(data: &Path, git_dir: &Path, root: &Path, label: &str, commit: &str, owner: Option<crate::journal::Owner>) -> u64 {
-    JournalStore::new(data, &git_dir.canonicalize().unwrap(), &root.canonicalize().unwrap())
+    JournalStore::new(data, &crate::platform::fs::canonicalize(git_dir).unwrap(), &crate::platform::fs::canonicalize(root).unwrap())
         .update(|j| {
             let id = j.begin(crate::journal::NewEntry { label: label.into(), kind: OpKind::Discard, head_before: Default::default(), undo: crate::journal::UndoKind::Restore }, (crate::journal::system_clock())());
             let e = j.entry_mut(id).unwrap();
@@ -409,11 +410,11 @@ async fn a_write_in_a_linked_worktree_uses_that_worktrees_journal_and_lists() {
     r.git(&["config", "user.email", "ada@example.com"]);
     let (api, data) = api();
     let id = open(&api, r.path()).await;
-    let wt = r.root().join("wt-hotfix").canonicalize().unwrap();
+    let wt = crate::platform::fs::canonicalize(r.root().join("wt-hotfix")).unwrap();
     let res = write(&api, id, &wt, Expect::default(), TestIntent::Commit { message: "In the worktree".into(), allow_empty: true }).await.unwrap();
     assert_eq!(res["wip"]["worktree"], wt.display().to_string());
     assert!(res["wip"]["unstaged"]["files"].as_array().unwrap().iter().any(|f| f["path"] == "file_0.txt"), "the linked worktree's own dirty file");
-    let wt_git_dir = r.path().join(".git/worktrees/wt-hotfix").canonicalize().unwrap();
+    let wt_git_dir = crate::platform::fs::canonicalize(r.path().join(".git/worktrees/wt-hotfix")).unwrap();
     let wt_journal = JournalStore::new(data.path(), &wt_git_dir, &wt).load().unwrap();
     assert_eq!(wt_journal.undo.len(), 1);
     assert_eq!(wt_journal.undo[0].refs[0].name, "refs/heads/hotfix");
@@ -622,7 +623,7 @@ fn conflicting() -> (TestRepo, String) {
 }
 
 async fn settle(api: &Api, id: u32, wt: &Path) -> serde_json::Value {
-    api.dispatch(Request::SettlePaused { repo: id, worktree: wt.canonicalize().unwrap().display().to_string() }).await.unwrap()
+    api.dispatch(Request::SettlePaused { repo: id, worktree: crate::platform::fs::canonicalize(wt).unwrap().display().to_string() }).await.unwrap()
 }
 
 /// §13.2: a merge that stops on conflicts keeps its entry and autostash waiting, and the Commit
@@ -688,7 +689,7 @@ async fn a_paused_entry_survives_a_restart_and_completes() {
     }
     let api = new_api();
     let id = open(&api, r.path()).await;
-    let state = api.dispatch(Request::JournalState { repo: id, worktree: r.path().canonicalize().unwrap().display().to_string() }).await.unwrap();
+    let state = api.dispatch(Request::JournalState { repo: id, worktree: crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string() }).await.unwrap();
     assert!(state["banners"].as_array().unwrap().is_empty(), "no \"GitBolt stopped during\" banner: {state}");
     assert_eq!(state["paused"]["kind"], "merge");
     r.write("c.txt", "resolved\n");
@@ -714,7 +715,7 @@ async fn an_outside_abort_settles_before_the_next_write_runs() {
     assert_eq!(err.kind, GbErrorKind::Stale, "{err:?}");
     assert_eq!(r.git(&["rev-parse", "HEAD"]), main_tip, "the commit didn't run");
     assert_eq!(std::fs::read_to_string(r.path().join("d.txt")).unwrap(), "dirty\n", "restored before the commit, on main");
-    let state = api.dispatch(Request::JournalState { repo: id, worktree: r.path().canonicalize().unwrap().display().to_string() }).await.unwrap();
+    let state = api.dispatch(Request::JournalState { repo: id, worktree: crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string() }).await.unwrap();
     assert!(state["paused"].is_null());
     write(&api, id, r.path(), Expect::default(), TestIntent::Commit { message: "after".into(), allow_empty: true }).await.unwrap();
     let j = journal(data.path(), &r);

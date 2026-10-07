@@ -13,7 +13,7 @@ import { basename, closeOthers, closeTab, closeToRight } from '../app/tabs';
 import { ICONS } from '../menu/icons';
 import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 /** Which tab's rename input shows (`TabBar`'s double-click / the tab menu's Rename). */
 export const useTabUi = create<{ renaming: string | null; startRename(id: string): void; stopRename(): void }>((set) => ({

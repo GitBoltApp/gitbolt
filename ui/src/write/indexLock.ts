@@ -1,7 +1,7 @@
 import { api } from '../api/client';
 import type { ErrorContext, IndexLockId } from '../errors/describe';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 /** The lock's path inside the repository (`.git/index.lock`, `.git/worktrees/x/index.lock`). */
 export const lockLabel = (path: string): string => {

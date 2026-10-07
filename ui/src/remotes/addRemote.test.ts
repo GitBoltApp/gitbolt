@@ -6,7 +6,7 @@ const runFetch = vi.hoisted(() => vi.fn(async () => {}));
 const toast = vi.hoisted(() => vi.fn());
 vi.mock('../api/client', () => ({ api }));
 vi.mock('../app/fetchSchedule', () => ({ runFetch }));
-vi.mock('../ui/toast', () => ({ useToast: { getState: () => ({ show: toast }) } }));
+vi.mock('../ui/toastStore', () => ({ useToast: { getState: () => ({ show: toast }) } }));
 vi.mock('../write/ctx', () => ({ writeCtx: (tabId: string) => ({ tabId, repoId: 7, worktree: '/r/shop' }) }));
 vi.mock('../write/client', () => ({
   runWrite: vi.fn(async (_ctx: unknown, send: () => Promise<{ outcome: unknown }>, opts: { onSuccess?: (o: unknown) => void } = {}) => {

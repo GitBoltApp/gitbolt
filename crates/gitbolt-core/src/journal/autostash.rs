@@ -714,7 +714,7 @@ mod tests {
     }
 
     fn wt(r: &TestRepo) -> String {
-        r.path().canonicalize().unwrap().display().to_string()
+        crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string()
     }
 
     async fn switch(api: &Api, id: u32, r: &TestRepo, branch: &str, autostash: bool) -> Result<serde_json::Value, GbError> {
@@ -892,7 +892,7 @@ mod tests {
         let res = test_intents::run(&api, id, &wt(&r), Expect::default(), TestIntent::Discard { paths: vec!["a.txt".into()] }).await.unwrap();
         let entry = res["journal"]["undo"]["entry"].as_u64().unwrap();
         // As if GitBolt had stopped mid-operation: the entry waits in recovery.
-        api.journal(&r.path().canonicalize().unwrap()).unwrap().update(|j| {
+        api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap().update(|j| {
             let e = j.undo.pop().unwrap();
             j.recovery.push(e);
         }).unwrap();
@@ -915,22 +915,22 @@ mod tests {
     /// Review I3: git stored the stash, then failed cleaning the worktree. The stash is
     /// recorded, restored where it can be, and kept with a banner; the failed write leaves no
     /// journal entry (m10).
+    #[cfg(unix)] // a read-only folder (Windows ignores the read-only bit on folders)
     #[tokio::test]
     async fn a_push_that_fails_after_git_stored_the_stash_is_kept() {
-        if nix::unistd::Uid::effective().is_root() {
+        if crate::platform::fs::is_root() {
             return;
         }
-        use std::os::unix::fs::PermissionsExt;
         let data = tempfile::tempdir().unwrap();
         let r = repo();
         r.write("d.txt", &lines(20, &[(1, "mine")]));
         r.write("ro/u.txt", "untracked in a read-only dir\n");
         let ro = r.path().join("ro");
-        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o555)).unwrap();
+        crate::platform::fs::set_mode(&ro, 0o555).unwrap();
         let api = api(data.path());
         let id = open(&api, &r).await;
         let res = switch(&api, id, &r, "other", false).await;
-        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&ro, 0o755).unwrap();
         assert!(res.is_err(), "{res:?}");
         assert_eq!(stashes(&r), "On main: autostash before checkout other", "git stored it");
         let state = api.dispatch(Request::JournalState { repo: id, worktree: wt(&r) }).await.unwrap();
@@ -1045,7 +1045,7 @@ mod tests {
         let r = repo();
         let dead = crate::journal::Owner { pid: 1, start: 0, instance: u64::MAX };
         let record = |message: &str| KeptStash { id: 0, oid: None, stash_before: None, message: message.into(), label: "checkout other".into(), target: Some("other".into()), reason: KeptReason::Pending, created_ms: 1, owner: Some(dead.clone()) };
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let (found, gone) = {
             let first = api(data.path());
             let store = first.journal(&root).unwrap();
@@ -1077,7 +1077,7 @@ mod tests {
         r.git(&["merge", "-q", "-m", "slow too", "main"]);
         r.switch("main");
         let smudge = match marker {
-            Some(m) => format!("sh -c 'if [ -f {} ]; then sleep 30; fi; cat'", m.display()),
+            Some(m) => format!("sh -c 'if [ -f {} ]; then sleep 30; fi; cat'", crate::platform::fs::to_git_path(m)),
             None => "sh -c 'sleep 30; cat'".to_string(),
         };
         r.git(&["config", "filter.slow.smudge", &smudge]);
@@ -1126,7 +1126,7 @@ mod tests {
         let r = repo();
         let marker = r.root().join("restore-hangs");
         slow_filter(&r, Some(&marker));
-        r.hook("post-checkout", &format!("#!/bin/sh\ntouch {}\n", marker.display()));
+        r.hook("post-checkout", &format!("#!/bin/sh\ntouch {}\n", crate::platform::fs::to_git_path(&marker)));
         r.write("d.txt", &lines(20, &[(1, "mine")]));
         r.write("s.slow", "slow, edited\n");
         let api = api(data.path()).with_autostash_timeout(std::time::Duration::from_secs(2));
@@ -1149,7 +1149,7 @@ mod tests {
         let id = open(&api, &r).await;
         let owner = api.owner().unwrap();
         let entry = api
-            .journal(&r.path().canonicalize().unwrap())
+            .journal(&crate::platform::fs::canonicalize(r.path()).unwrap())
             .unwrap()
             .update(|j| j.keep(KeptStash { id: 0, oid: Some("a".repeat(40)), stash_before: None, message: "autostash before checkout x".into(), label: "checkout x".into(), target: None, reason: KeptReason::Pending, created_ms: 1, owner: Some(owner) }))
             .unwrap();
@@ -1178,6 +1178,7 @@ mod tests {
         assert!(lines.contains(&"post-checkout ran".to_string()), "{lines:?}");
     }
 
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn the_autostash_plumbing_never_signs() {
         let data = tempfile::tempdir().unwrap();

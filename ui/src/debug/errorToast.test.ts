@@ -6,7 +6,7 @@ vi.mock('../api/client', () => ({ api: {}, errorMessage: String, onEvent: () => 
 vi.mock('../api/transport', () => ({ copyText, inTauri: () => false }));
 
 const { toastActionError } = await import('./errorToast');
-const { useToast, LONG_TOAST_MS } = await import('../ui/toast');
+const { useToast, LONG_TOAST_MS } = await import('../ui/toastStore');
 const { useActivityUi } = await import('../app/activityLog');
 
 const gb = (kind: string, commandId: number | null = null, message = 'm') => ({ kind, message, commandId, stderr: 'fatal: x' });

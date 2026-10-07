@@ -19,11 +19,14 @@ tauri.workspace = true
 tauri-runtime-cef.workspace = true
 tauri-plugin-clipboard-manager.workspace = true
 tauri-plugin-opener.workspace = true
-dirs.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 glib.workspace = true
+raw-window-handle.workspace = true
+
+# The folder dialog's owner window (`portal_parent`).
+[target.'cfg(windows)'.dependencies]
 raw-window-handle.workspace = true

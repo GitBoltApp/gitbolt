@@ -9,7 +9,7 @@ import type { RowPayload } from '../api/gen/RowPayload';
 import { copyText } from '../api/transport';
 import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { useFileListPrefs } from '../files/fileListPrefs';
 import { RepoView, RIGHT_PANEL } from './RepoView';
 import type { RepoServices } from './services';

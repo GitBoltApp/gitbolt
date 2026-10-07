@@ -7,7 +7,7 @@ import { registerAppSlot } from '../../app/slots';
 import { registerKeyHints } from '../../shortcuts/hints';
 import type { Stack } from '../../stacks/detect';
 import { useKeys } from '../../ui/keyRouter';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { writeCtx } from '../../write/ctx';
 import { mrNoun, mrRef } from '../labels';
 import { baseBranch, createSummary, memberPlans, runCreateStack, submitLabel, type MemberPlan } from './create';

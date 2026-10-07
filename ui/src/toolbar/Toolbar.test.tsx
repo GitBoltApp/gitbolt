@@ -18,7 +18,7 @@ const { EMPTY_PROFILE, useAppState } = await import('../app/state');
 const { useOps } = await import('../app/ops');
 const useQueueModule = await import('../queue/store');
 const { useMenu } = await import('../menu/menuStore');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 
 const branch = (name: string, target: string, over: Partial<LocalBranch> = {}): LocalBranch => ({
   name, fullName: `refs/heads/${name}`, target, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: false, worktree: null, checkedOut: null, pushTarget: null, pushBehind: null, rewritten: null, ...over,

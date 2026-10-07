@@ -145,7 +145,7 @@ accounts) it fetched a spell-check dictionary (`redirector.gvt1.com`), checked f
 account (`accounts.google.com/ListAccounts`), asked whether "AI Mode" is available
 (`www.google.com/async/folae`), queried the time (`clients2.google.com/time`) and downloaded a
 Translate model (`www.gstatic.com`). GitBolt now turns all of that off
-(`cef_runtime` in `crates/gitbolt-app/src/main.rs`):
+(`cef_runtime` in `crates/gitbolt-app/src/lib.rs`):
 
 - Chromium resolves no host name except `localhost` (`--host-resolver-rules`), so whatever it
   would fetch by itself fails inside Chromium before any DNS query or connection. It still

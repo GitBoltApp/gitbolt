@@ -279,11 +279,11 @@ impl PullIntent {
 /// `branch` checked out in a worktree other than `root`: its path.
 async fn checked_out_elsewhere(root: &std::path::Path, branch: &str) -> Result<Option<std::path::PathBuf>, GbError> {
     let full = format!("refs/heads/{branch}");
-    let here = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let here = crate::platform::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     Ok(crate::worktree::list_worktrees(root)
         .await?
         .into_iter()
-        .find(|w| w.branch.as_deref() == Some(full.as_str()) && w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != here)
+        .find(|w| w.branch.as_deref() == Some(full.as_str()) && crate::platform::fs::canonicalize(&w.path).unwrap_or_else(|_| w.path.clone()) != here)
         .map(|w| w.path))
 }
 
@@ -510,7 +510,7 @@ mod tests {
     }
 
     fn wt(p: &Path) -> String {
-        p.canonicalize().unwrap().display().to_string()
+        crate::platform::fs::canonicalize(p).unwrap().display().to_string()
     }
 
     fn push(id: u32, r: &TestRepo, branch: &str) -> Request {
@@ -662,7 +662,7 @@ mod tests {
         r.switch("dev");
         r.commit("more");
         let go = r.root().join("go");
-        r.hook("pre-push", &format!("#!/bin/sh\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n", go.display()));
+        r.hook("pre-push", &format!("#!/bin/sh\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n", crate::platform::fs::to_git_path(&go)));
         r.write("file_0.txt", "dirty\n");
         let (api, _data) = api();
         let id = open(&api, r.path()).await;
@@ -937,8 +937,8 @@ mod tests {
                 PullMode::FfOnly => {
                     assert_eq!(res["outcome"]["result"], serde_json::json!({"status": "diverged", "ahead": 1, "behind": 1, "conflicts": 0}));
                     assert_eq!(r.git(&["rev-parse", "diverged"]), tip);
-                    let git_dir = r.path().join(".git").canonicalize().unwrap();
-                    assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &r.path().canonicalize().unwrap()).load().unwrap().undo.is_empty());
+                    let git_dir = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+                    assert!(crate::journal::JournalStore::new(data.path(), &git_dir, &crate::platform::fs::canonicalize(r.path()).unwrap()).load().unwrap().undo.is_empty());
                 }
                 PullMode::FfOrMerge => {
                     assert_eq!(res["outcome"]["result"]["status"], "merged");
@@ -1015,8 +1015,8 @@ mod tests {
             let id = open(&api, r.path()).await;
             let res = api.dispatch(pull(id, &r, None, mode)).await.unwrap();
             assert_eq!(res["outcome"]["result"], serde_json::json!({"status": "stopped", "kind": kind, "files": 1}));
-            let git_dir = r.path().join(".git").canonicalize().unwrap();
-            let journal = crate::journal::JournalStore::new(data.path(), &git_dir, &r.path().canonicalize().unwrap()).load().unwrap();
+            let git_dir = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+            let journal = crate::journal::JournalStore::new(data.path(), &git_dir, &crate::platform::fs::canonicalize(r.path()).unwrap()).load().unwrap();
             let paused = journal.paused().and_then(|e| e.paused.clone()).expect("paused");
             assert_eq!(paused.target, "origin/diverged");
         }

@@ -13,7 +13,7 @@ import { useRepoView } from '../repo/store';
 import { useWipCtx } from '../stage/actions';
 import { stagingKey, useCommitting, useStaging, useStagingBusy } from '../stage/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';

@@ -16,7 +16,7 @@ vi.mock('../../app/graphNav', () => nav);
 const { checkoutMr, checkoutMrInWorktree, checkoutState, worktreeBlocked } = await import('./checkout');
 const { patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { mrOf, projectOf } = await import('../testMrs');
 
 const DEV = 'd'.repeat(40);

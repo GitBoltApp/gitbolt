@@ -497,6 +497,7 @@ mod tests {
 
     /// §17.1 signing: commit, amend and a message edit are signed by git; GitBolt's own commits
     /// (snapshots) never call the signer.
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn commits_and_amends_are_signed_and_snapshots_never_are() {
         let data = tempfile::tempdir().unwrap();
@@ -520,6 +521,7 @@ mod tests {
         assert_eq!(r.sign_count(), 3, "snapshots never sign");
     }
 
+    #[cfg(unix)] // signing: the test's gpg/ssh-keygen wrappers are sh scripts (Windows signing is phase 2)
     #[tokio::test]
     async fn gpg_signs_commits() {
         let data = tempfile::tempdir().unwrap();

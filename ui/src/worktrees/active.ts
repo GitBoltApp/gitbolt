@@ -7,7 +7,7 @@ import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { feedTabView, tabView } from '../app/tabStores';
 import { loadJournal } from '../undo/store';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { worktreeDisplay } from './paths';
 import { openRepoTab, tabWorktree } from '../app/tabs';
 

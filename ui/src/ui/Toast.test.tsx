@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { registerKeys } from './keyRouter';
 import { Toast } from './Toast';
-import { useToast } from './toast';
+import { useToast } from './toastStore';
 
 describe('Toast', () => {
   afterEach(() => act(() => useToast.getState().dismiss()));

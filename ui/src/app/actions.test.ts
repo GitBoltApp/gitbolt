@@ -51,7 +51,7 @@ describe('action registry', () => {
   it('every run goes to the action log; a failure toasts with its context action and Details (R11, R12)', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { useActionLog } = await import('../debug/actionLog');
-    const { useToast } = await import('../ui/toast');
+    const { useToast } = await import('../ui/toastStore');
     useActionLog.getState().clear();
     const retry = vi.fn();
     offs.push(registerActions([

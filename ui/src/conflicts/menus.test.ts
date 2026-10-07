@@ -8,7 +8,7 @@ vi.mock('../write/ctx', () => ({ writeCtx: (tabId: string, worktree?: string) =>
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async () => true), chooseAction: vi.fn(async () => null) }));
 
 import { buildMenu } from '../menu/registry';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { draftKey, MERGE_SAVE_FIRST, useMergeDrafts, type MergeDraft } from './mergeDrafts';
 import './menus';
 

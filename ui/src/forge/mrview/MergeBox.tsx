@@ -13,7 +13,7 @@ import type { MenuRow } from '../../menu/types';
 import { confirmAction } from '../../ui/ConfirmDialog';
 import { HoverTooltip } from '../../ui/HoverTooltip';
 import { Switch } from '../../ui/Switch';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { forgeName, mrRef } from '../labels';
 import { useForge } from '../mrStore';
 import { branchesText, pipelineText } from '../mrText';

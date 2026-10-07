@@ -1,7 +1,7 @@
 import { api } from '../api/client';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 
 export interface TagDeletePlan { tag: string; local: boolean; remote: string | null }

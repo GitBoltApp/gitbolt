@@ -811,7 +811,7 @@ mod tests {
             r.write("a.txt", "kept\n");
             r.git(&["stash", "push", "-q", "-m", "autostash before checkout x"]);
             let oid = top(&r);
-            let root = r.path().canonicalize().unwrap();
+            let root = crate::platform::fs::canonicalize(r.path()).unwrap();
             let store = env.api.journal(&root).unwrap();
             let record = KeptStash { id: 0, oid: Some(oid.clone()), stash_before: None, message: "autostash before checkout x".into(), label: "checkout x".into(), target: Some("x".into()), reason: KeptReason::Refused, created_ms: 0, owner: None };
             store.update(|j| j.keep(record.clone())).unwrap();
@@ -864,7 +864,7 @@ mod tests {
         dirty(&r);
         // The 3rd refs/stash transaction (push, drop, store) is refused.
         let count = r.path().join(".git/stash-tx");
-        r.hook("reference-transaction", &format!("#!/bin/sh\n[ \"$1\" = prepared ] || exit 0\ngrep -q ' refs/stash$' || exit 0\nn=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}\n[ $n -ne 3 ]\n", c = count.display()));
+        r.hook("reference-transaction", &format!("#!/bin/sh\n[ \"$1\" = prepared ] || exit 0\ngrep -q ' refs/stash$' || exit 0\nn=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}\n[ $n -ne 3 ]\n", c = crate::platform::fs::to_git_path(&count)));
         let id = open(&env.api, &r).await;
         let out = send(&env.api, json!({"method": "stashPush", "params": {"repo": id, "worktree": wt(&r), "message": "Fix x\n\nbody"}})).await.unwrap();
         assert_eq!(out["outcome"]["status"], "stashed");
@@ -897,7 +897,7 @@ mod tests {
         r.write("b.txt", "kept\n");
         r.git(&["stash", "push", "-q", "-m", "kept"]);
         let kept = top(&r);
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let dead = Owner { pid: 1, start: 0, instance: u64::MAX };
         let now = first.now();
         first
@@ -1043,7 +1043,7 @@ mod tests {
         // refs/stash transactions: push 1, drop 2, store 3; undo's drop 4; redo's push 5, drop 6,
         // store 7 (refused).
         let count = r.path().join(".git/stash-tx");
-        r.hook("reference-transaction", &format!("#!/bin/sh\n[ \"$1\" = prepared ] || exit 0\ngrep -q ' refs/stash$' || exit 0\nn=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}\n[ $n -ne 7 ]\n", c = count.display()));
+        r.hook("reference-transaction", &format!("#!/bin/sh\n[ \"$1\" = prepared ] || exit 0\ngrep -q ' refs/stash$' || exit 0\nn=$(cat {c} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {c}\n[ $n -ne 7 ]\n", c = crate::platform::fs::to_git_path(&count)));
         let id = open(&env.api, &r).await;
         let out = send(&env.api, json!({"method": "stashPush", "params": {"repo": id, "worktree": wt(&r), "message": "Fix x\n\nbody"}})).await.unwrap();
         assert_eq!(out["outcome"]["status"], "stashed");
@@ -1060,7 +1060,7 @@ mod tests {
         assert_eq!(b.len(), 1, "{b:?}");
         let again = b[0]["stash"].as_str().unwrap().to_string();
         assert_eq!(b[0]["kind"], "recovery");
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let entry = env.api.journal(&root).unwrap().load().unwrap().undo_top().cloned().unwrap();
         assert_eq!(entry.stashes[0].oid, again, "the entry records the redo's oid");
         send(&env.api, json!({"method": "applyKeptStash", "params": {"repo": id, "worktree": wt(&r), "entry": b[0]["entry"]}})).await.unwrap();

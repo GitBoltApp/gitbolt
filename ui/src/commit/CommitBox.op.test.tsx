@@ -360,7 +360,7 @@ describe('the commit box in an operation', () => {
     await show();
     fireEvent.click(screen.getByRole('button', { name: 'Continue rebase' }));
     await waitFor(() => expect(h.rebaseControl).toHaveBeenCalledWith(1, '/r', 'continue'));
-    const { useToast } = await import('../ui/toast');
+    const { useToast } = await import('../ui/toastStore');
     await waitFor(() => expect(useToast.getState()).toMatchObject({ message: "feature/a wasn't deleted: it changed during the rebase", tone: 'warning' }));
     h.rebaseControl.mockImplementationOnce(async () => ({ status: 'aborted', stash: 's'.repeat(40), branch: 'feature/x-rebase-work' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Abort rebase' })).not.toHaveAttribute('aria-disabled', 'true'));

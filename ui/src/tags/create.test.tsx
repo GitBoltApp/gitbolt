@@ -8,7 +8,7 @@ import { useRowEditors } from '../graph/rowEditor';
 import { createRepoViewStore } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import * as prompt from '../ui/PromptDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { createTagAt } from './create';
 
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };

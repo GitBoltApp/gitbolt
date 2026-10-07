@@ -5,7 +5,7 @@ import { useOps } from '../app/ops';
 import { openMenuAt } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 const BELL_ROWS = 20;
 const BELL_LABEL = 80;

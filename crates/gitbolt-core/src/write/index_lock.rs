@@ -6,7 +6,7 @@
 
 use crate::api::Api;
 use crate::error::{GbError, GbErrorKind};
-use std::os::unix::fs::MetadataExt;
+use crate::platform::fs::FileId;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -65,7 +65,7 @@ pub(crate) async fn remove_index_lock(api: &Api, repo: u32, path: &str, mtime_ms
     if lock.file_name().is_none_or(|n| n != "index.lock") {
         return Err(not_ours());
     }
-    let dir = match lock.parent().map(|p| p.canonicalize()) {
+    let dir = match lock.parent().map(crate::platform::fs::canonicalize) {
         Some(Ok(d)) => d,
         // The directory is gone, so is the lock.
         Some(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -73,7 +73,7 @@ pub(crate) async fn remove_index_lock(api: &Api, repo: u32, path: &str, mtime_ms
     };
     // Both sides canonical, so a symlinked repository path compares equal. The main worktree's
     // git dir is the common dir; a linked one's is `<common>/worktrees/<name>`.
-    let common = h.common_dir.canonicalize().unwrap_or_else(|_| h.common_dir.clone());
+    let common = crate::platform::fs::canonicalize(&h.common_dir).unwrap_or_else(|_| h.common_dir.clone());
     let ours = dir == common || dir.parent() == Some(common.join("worktrees").as_path());
     if !ours {
         return Err(not_ours());
@@ -87,7 +87,7 @@ pub(crate) async fn remove_index_lock(api: &Api, repo: u32, path: &str, mtime_ms
         Err(e) => return Err(e.into()),
     };
     let now = meta.modified()?.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(-1);
-    if !meta.is_file() || now != mtime_ms || meta.ino() != ino || meta.dev() != dev {
+    if !meta.is_file() || now != mtime_ms || FileId::of_path(&lock).ok() != Some(FileId { dev, ino }) {
         return Err(GbError::stale("index.lock changed since the error; it wasn't removed"));
     }
     let (probe_lock, probe_common) = (lock.clone(), common.clone());
@@ -112,7 +112,8 @@ mod tests {
     /// The lock's (mtime, ino, dev), as the error carries them.
     fn seen(p: &Path) -> (i64, u64, u64) {
         let m = std::fs::metadata(p).unwrap();
-        (m.modified().unwrap().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64, m.ino(), m.dev())
+        let FileId { dev, ino } = FileId::of_path(p).unwrap();
+        (m.modified().unwrap().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64, ino, dev)
     }
 
     fn new_api() -> Api {
@@ -178,10 +179,11 @@ mod tests {
         assert!(lock.exists());
     }
 
+    #[cfg(unix)] // finds lock holders through /proc
     #[tokio::test]
     async fn a_process_holding_the_lock_open_blocks_removal() {
         let (_r, api, id, lock) = setup().await;
-        let mut child = std::process::Command::new("sh").arg("-c").arg(format!("exec 3<'{}'; exec sleep 30", lock.display())).spawn().unwrap();
+        let mut child = std::process::Command::new("sh").arg("-c").arg(format!("exec 3<'{}'; exec sleep 30", crate::platform::fs::to_git_path(&lock))).spawn().unwrap();
         let holds = |pid: u32| std::fs::read_dir(format!("/proc/{pid}/fd")).map(|d| d.flatten().any(|f| std::fs::read_link(f.path()).is_ok_and(|t| t == lock))).unwrap_or(false);
         for _ in 0..200 {
             if holds(child.id()) {
@@ -200,6 +202,7 @@ mod tests {
         remove(&api, id, &lock).await.unwrap();
     }
 
+    #[cfg(unix)] // a folder symlink
     #[tokio::test]
     async fn a_symlinked_repository_path_works() {
         let (r, _api, _id, lock) = setup().await;

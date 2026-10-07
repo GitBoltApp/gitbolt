@@ -138,7 +138,7 @@ impl WriteIntent for WorktreeAdd {
         for k in [ChangeKind::Head, ChangeKind::Refs, ChangeKind::Config] {
             cx.touch(k);
         }
-        Ok(WorktreeAdded { path: self.path.canonicalize().unwrap_or_else(|_| self.path.clone()).display().to_string() })
+        Ok(WorktreeAdded { path: crate::platform::fs::canonicalize(&self.path).unwrap_or_else(|_| self.path.clone()).display().to_string() })
     }
 }
 
@@ -161,7 +161,7 @@ impl WriteIntent for WorktreeRemove {
     }
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
         let list = crate::worktree::list_worktrees(pre.root).await?;
-        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let canonical = |p: &Path| crate::platform::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
         let Some(w) = list.iter().find(|w| canonical(&w.path) == canonical(&self.path)) else {
             return Err(GbError::new(GbErrorKind::NotFound, "That isn't a worktree of this repository"));
         };
@@ -199,7 +199,7 @@ pub(crate) async fn remove_cwd(root: &Path) -> Result<PathBuf, GbError> {
 /// `SuggestWorktreePath` (a read): the folder the create dialog proposes.
 pub(crate) async fn suggest(root: &Path, branch: &str) -> Result<String, GbError> {
     let main = main_root(root).await?;
-    let main = main.canonicalize().unwrap_or(main);
+    let main = crate::platform::fs::canonicalize(&main).unwrap_or(main);
     Ok(suggest_worktree_path(&main, branch, Path::exists).display().to_string())
 }
 
@@ -254,7 +254,7 @@ mod tests {
         let head = r.git(&["rev-parse", "HEAD"]);
         let (a, b, c) = (r.root().join("repo-topic"), r.root().join("repo-new"), r.root().join("repo-remote-only"));
         let out = send(&env.api, add(id, &r, &a, json!({"kind": "existing", "name": "topic"}))).await.unwrap();
-        assert_eq!(out["outcome"]["path"].as_str(), Some(a.canonicalize().unwrap().display().to_string().as_str()));
+        assert_eq!(out["outcome"]["path"].as_str(), Some(crate::platform::fs::canonicalize(&a).unwrap().display().to_string().as_str()));
         send(&env.api, add(id, &r, &b, json!({"kind": "new", "name": "made/here", "at": head}))).await.unwrap();
         send(&env.api, add(id, &r, &c, json!({"kind": "remote", "remote": "origin", "branch": "remote-only", "name": "remote-only"}))).await.unwrap();
         assert_eq!(r.git_in(&a, &["symbolic-ref", "HEAD"]), "refs/heads/topic");
@@ -347,6 +347,6 @@ mod tests {
         let id = open(&env.api, &r).await;
         std::fs::create_dir_all(r.root().join("repo-feature-x")).unwrap();
         let v = send(&env.api, json!({"method": "suggestWorktreePath", "params": {"repo": id, "branch": "feature/x"}})).await.unwrap();
-        assert_eq!(v.as_str(), Some(r.root().canonicalize().unwrap().join("repo-feature-x-2").display().to_string().as_str()));
+        assert_eq!(v.as_str(), Some(crate::platform::fs::canonicalize(r.root()).unwrap().join("repo-feature-x-2").display().to_string().as_str()));
     }
 }

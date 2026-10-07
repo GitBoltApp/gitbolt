@@ -258,6 +258,7 @@ mod tests {
         assert_eq!(first_commit(&cli(), r.path(), "main", &bases).await.unwrap(), None, "nothing since the target");
     }
 
+    #[cfg(unix)] // a 1 MB message on git's command line (Windows caps one at 32K)
     #[tokio::test]
     async fn a_giant_first_commit_message_is_read_capped() {
         let r = TestRepo::new();
@@ -269,6 +270,7 @@ mod tests {
         assert!(first.body.len() < MAX_READ_BYTES as usize, "{}", first.body.len());
     }
 
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn local_templates_read_the_targets_committed_tree_not_the_working_directory() {
         let r = TestRepo::new();

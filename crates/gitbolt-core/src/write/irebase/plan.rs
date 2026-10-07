@@ -186,11 +186,11 @@ pub(crate) async fn read_range(cli: &GitCli, root: &Path, branch: &str, base: &s
     let lag = format!("{head}..{base_oid}");
     let behind = cli.run(GitInvocation::new(root, ["rev-list", "--count", lag.as_str(), "--"])).await?;
     let behind: u32 = String::from_utf8_lossy(&behind.stdout).trim().parse().unwrap_or(0);
-    let canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canon = crate::platform::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let elsewhere: BTreeMap<String, String> = crate::worktree::list_worktrees(root)
         .await?
         .into_iter()
-        .filter(|w| w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != canon)
+        .filter(|w| crate::platform::fs::canonicalize(&w.path).unwrap_or_else(|_| w.path.clone()) != canon)
         .filter_map(|w| Some((short_ref(&w.branch?).to_string(), w.path.display().to_string())))
         .collect();
     // Chips: each branch with a tip in range sits on its row, or (a merge commit) on the newest

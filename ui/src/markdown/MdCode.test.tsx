@@ -12,7 +12,7 @@ vi.mock('../api/transport', async (orig) => ({ ...(await orig<typeof import('../
 
 const { MdCode } = await import('./MdCode');
 const { useTheme } = await import('../theme/store');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 
 beforeEach(() => { vi.clearAllMocks(); useToast.getState().dismiss(); });
 

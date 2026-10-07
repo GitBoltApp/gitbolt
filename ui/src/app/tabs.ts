@@ -1,5 +1,6 @@
 import type { Profile } from '../api/gen/Profile';
 import type { TabState } from '../api/gen/TabState';
+import { basename } from './osPath';
 
 /** Pure helpers over a profile's tab set (spec §6.2) and recent repos (§13). */
 
@@ -9,7 +10,7 @@ export const MAX_RECENT = 50;
 export const newTabId = (): string =>
   globalThis.crypto?.randomUUID?.() ?? `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-export const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
+export { basename };
 
 /** What a tab shows: the alias, else the repo's name (a linked worktree's folder name, as
  * before 2C shared one handle between them), else the folder name. */

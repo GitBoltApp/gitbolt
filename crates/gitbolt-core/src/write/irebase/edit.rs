@@ -235,11 +235,11 @@ pub(crate) mod test_hook {
     static CANCEL: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
     pub(crate) fn cancel_at(root: &Path) {
-        CANCEL.lock().unwrap().push(root.canonicalize().unwrap());
+        CANCEL.lock().unwrap().push(crate::platform::fs::canonicalize(root).unwrap());
     }
 
     pub(crate) fn cancels(root: &Path) -> bool {
-        let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let root = crate::platform::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         let mut list = CANCEL.lock().unwrap();
         let hit = list.iter().position(|p| *p == root);
         hit.map(|i| list.remove(i)).is_some()

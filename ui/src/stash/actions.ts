@@ -2,7 +2,7 @@ import { api } from '../api/client';
 import { useRuntime } from '../app/runtime';
 import { clearWipDraft, draftMessage, readWipDraft } from '../commit/draft';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 import { revealRestored, stashPaths } from './reveal';
 

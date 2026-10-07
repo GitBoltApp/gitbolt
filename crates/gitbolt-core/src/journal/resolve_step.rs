@@ -8,7 +8,6 @@ use crate::error::{gix_err, GbError, GbErrorKind};
 use crate::write::WriteCx;
 use gix::bstr::ByteSlice;
 use std::io::Write as _;
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
 /// One index entry of the path: `mode` as git prints it (octal), its blob or commit, its stage.
@@ -107,7 +106,7 @@ fn place(root: &Path, path: &str) -> Result<Place, GbError> {
         at.push(part);
         match std::fs::symlink_metadata(&at) {
             Ok(m) if m.file_type().is_dir() => {}
-            Ok(_) => return Ok(Place::InTheWay(at.strip_prefix(root).unwrap_or(&at).display().to_string())),
+            Ok(_) => return Ok(Place::InTheWay(crate::platform::fs::to_git_path(at.strip_prefix(root).unwrap_or(&at)))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Place::Missing),
             Err(e) => return Err(e.into()),
         }
@@ -145,9 +144,9 @@ fn read_disk(kind: gix::hash::Kind, root: &Path, path: &str) -> Result<Disk, GbE
     let ft = meta.file_type();
     if ft.is_symlink() {
         let target = std::fs::read_link(&file)?;
-        Ok(Disk::Link { blob: hash_bytes(kind, target.as_os_str().as_bytes())? })
+        Ok(Disk::Link { blob: hash_bytes(kind, target.as_os_str().as_encoded_bytes())? })
     } else if ft.is_file() {
-        let mode = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o7777;
+        let mode = crate::platform::fs::mode(&meta) & 0o7777;
         Ok(Disk::File { blob: hash_file(kind, &file)?, mode })
     } else {
         Ok(Disk::Other)
@@ -172,7 +171,7 @@ pub(crate) async fn capture(cx: &WriteCx<'_>, path: &str) -> Result<PathState, G
     let state = read(&r, &p).await?;
     let inv = match (&state.disk, place(&r, &p)?) {
         (Disk::File { .. }, Place::At(file)) => cx.git(["hash-object".into(), "-w".into(), "--no-filters".into(), "--".into(), file.into_os_string()]),
-        (Disk::Link { .. }, Place::At(file)) => cx.git(["hash-object", "-w", "--no-filters", "--stdin"]).stdin(std::fs::read_link(&file)?.as_os_str().as_bytes().to_vec()),
+        (Disk::Link { .. }, Place::At(file)) => cx.git(["hash-object", "-w", "--no-filters", "--stdin"]).stdin(std::fs::read_link(&file)?.into_os_string().into_encoded_bytes()),
         _ => return Ok(state),
     };
     let out = cx.api.cli.run(inv).await?;
@@ -228,7 +227,7 @@ fn make_parents(root: &Path, path: &str) -> Result<PathBuf, GbError> {
         at.push(part);
         match std::fs::symlink_metadata(&at) {
             Ok(m) if m.file_type().is_dir() => {}
-            Ok(_) => return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} is in the way of {path}", at.strip_prefix(root).unwrap_or(&at).display()))),
+            Ok(_) => return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} is in the way of {path}", crate::platform::fs::to_git_path(at.strip_prefix(root).unwrap_or(&at))))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir(&at)?,
             Err(e) => return Err(e.into()),
         }
@@ -274,7 +273,7 @@ pub(crate) fn write_disk(kind: gix::hash::Kind, root: &Path, path: &str, to: &Re
             let mut tmp = builder().tempfile_in(&dir)?;
             tmp.write_all(bytes)?;
             tmp.as_file().sync_all()?;
-            std::fs::set_permissions(tmp.path(), std::os::unix::fs::PermissionsExt::from_mode(*mode))?;
+            crate::platform::fs::set_mode(tmp.path(), *mode)?;
             if !read_disk(kind, root, path)?.same(over) {
                 return Err(changed());
             }
@@ -282,7 +281,7 @@ pub(crate) fn write_disk(kind: gix::hash::Kind, root: &Path, path: &str, to: &Re
             tmp.persist(&file).map_err(|e| GbError::from(e.error))?;
         }
         Ready::Link { target } => {
-            let tmp = builder().make_in(&dir, |p| std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(target), p))?;
+            let tmp = builder().make_in(&dir, |p| crate::platform::fs::symlink(&crate::platform::osstr::from_bytes(target), p))?;
             if !read_disk(kind, root, path)?.same(over) {
                 return Err(changed());
             }

@@ -4,7 +4,7 @@ import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { LocalBranch } from '../../api/gen/LocalBranch';
 import { useRuntime } from '../../app/runtime';
 import { writeEpoch } from '../mrStore';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import type { AfterMerge, StackEnv } from './chain';
 import { branchOf } from '../../sync/push';
 import { afterMergeBlocked, afterMergeLabel, afterMergeRow, rebaseBase, retargetAndRebase } from './retarget';

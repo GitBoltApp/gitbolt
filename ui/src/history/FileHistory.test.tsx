@@ -8,7 +8,7 @@ import { Loader } from '../data/loader';
 import { Lru } from '../data/lru';
 import { useTabViews } from '../app/tabStores';
 import { centerViewEditorFile } from '../repo/centerView';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { createRepoViewStore, RepoViewContext } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { row } from './testRows';

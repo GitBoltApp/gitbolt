@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Profile } from '../api/gen/Profile';
 import { EMPTY_PROFILE } from './state';
-import { closeOthers, closeTab, closeToRight, cycleTab, MAX_CLOSED, MAX_RECENT, moveTab, openBlankTab, openRepoTab, renameTab, reopenClosed, setTabRepo, tabLabel, touchRecent } from './tabs';
+import { basename, closeOthers, closeTab, closeToRight, cycleTab, MAX_CLOSED, MAX_RECENT, moveTab, openBlankTab, openRepoTab, renameTab, reopenClosed, setTabRepo, tabLabel, touchRecent } from './tabs';
 
 const withTabs = (...paths: string[]): Profile => {
   let p: Profile = { ...EMPTY_PROFILE, id: 'default' };
@@ -143,5 +143,20 @@ describe('tabs of one repository on different worktrees (spec #2 §11.2)', () =>
     const closed = closeTab(p, 'x');
     expect(closed.closedTabs.at(-1)).toMatchObject({ path: '/r-x' });
     expect(reopenClosed(closed, 'n')!.profile.tabs[0]).toMatchObject({ path: '/r-x', worktree: null });
+  });
+});
+
+describe('basename', () => {
+  it('names a folder from a Unix path, where a backslash is part of a name', () => {
+    expect(basename('/home/dev/repos/app')).toBe('app');
+    expect(basename('/home/dev/repos/app/')).toBe('app');
+    expect(basename('/home/dev/a\\b')).toBe('a\\b');
+  });
+
+  it('names a folder from a Windows path, either separator', () => {
+    expect(basename('C:\\Users\\dev\\repos\\app')).toBe('app');
+    expect(basename('C:\\Users\\dev\\repos\\app\\')).toBe('app');
+    expect(basename('C:/Users/dev/repos/app')).toBe('app');
+    expect(basename('\\\\server\\share\\app')).toBe('app');
   });
 });

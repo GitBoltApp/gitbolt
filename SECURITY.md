@@ -21,9 +21,16 @@ current code; each point names where to look.
 
 ### Chromium sandbox
 
-- The UI runs in Chromium's multi-process sandbox. On Linux GitBolt asks the CEF runtime for
-  `SandboxPolicy::Required` (`crates/gitbolt-app/src/main.rs`): if Chromium can't sandbox its
+- The UI runs in Chromium's multi-process sandbox. GitBolt asks the CEF runtime for
+  `SandboxPolicy::Required` (`crates/gitbolt-app/src/lib.rs`): if Chromium can't sandbox its
   processes, GitBolt refuses to start instead of running unsandboxed.
+- On Windows, Chromium sandboxes only when GitBolt runs as a DLL under CEF's `bootstrap.exe`,
+  which makes the sandbox broker (`RunWinMain` in `crates/gitbolt-app/src/lib.rs`,
+  `vendor/tauri-runtime-cef/GITBOLT-PATCH.md`). The installers ship exactly that: `GitBolt.exe`
+  is the bootstrap, from the same CEF build as the one linked, and `GitBolt.dll` the app
+  (`scripts/package-windows.ps1` checks the versions match). A release build without the broker
+  refuses to start. A debug build stays on `Auto`: a plain `gitbolt.exe`, as `cargo build` makes
+  it, runs unsandboxed and logs a warning.
 - The `.deb` and Arch packages ship Chromium's `chrome-sandbox` helper owned by root with the
   setuid bit (mode 4755). The packaging checks fail the build otherwise (`scripts/check-deb.sh`,
   `scripts/package-arch.sh`). For development builds, see [docs/dev-setup.md](docs/dev-setup.md).
@@ -101,7 +108,7 @@ untrusted text (`ui/src/markdown/`).
 - Mermaid diagrams render with `securityLevel: 'strict'` and are shown as an SVG image, in which
   scripts don't run.
 - **A Content Security Policy is the second layer.** The UI reaches the Rust core through a
-  single IPC command (`crates/gitbolt-app/src/main.rs`), so a script that ran in the page would
+  single IPC command (`crates/gitbolt-app/src/lib.rs`), so a script that ran in the page would
   have the UI's full powers. The policy (`app.security.csp` in `crates/gitbolt-app/tauri.conf.json`)
   keeps one from running even if it got past the sanitizer:
   - `default-src 'self'`: nothing loads from outside the app's bundle;
@@ -160,7 +167,7 @@ That is a trust boundary.
   harness turns it on. The packaged app is built from `crates/gitbolt-app` alone, which doesn't.
   A `cargo build --workspace` would unify the feature into `gitbolt-app` as well, so a release
   build of `gitbolt-app` with it on fails to compile (a constant assertion in
-  `crates/gitbolt-app/src/main.rs`). Debug workspace builds, used for tests and lints, are
+  `crates/gitbolt-app/src/lib.rs`). Debug workspace builds, used for tests and lints, are
   unaffected.
 - The UI's test hooks (`window.__gb` and the minimized-window override) are compiled only into
   development and e2e builds. The WebSocket transport is used only when the page isn't running

@@ -141,7 +141,7 @@ async fn elsewhere(pre: &Pre<'_>, full: &str) -> Result<Option<String>, GbError>
     let main = worktrees.iter().find(|w| w.is_main).map(|w| w.path.clone()).unwrap_or_else(|| pre.h.workdir.clone());
     Ok(worktrees
         .iter()
-        .find(|w| w.branch.as_deref() == Some(full) && w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != pre.root)
+        .find(|w| w.branch.as_deref() == Some(full) && crate::platform::fs::canonicalize(&w.path).unwrap_or_else(|_| w.path.clone()) != pre.root)
         .map(|w| display_worktree(&main, &w.path)))
 }
 
@@ -421,7 +421,6 @@ fn prune_empty(root: &Path, mut dir: Option<&Path>) {
 /// `hash-object --stdin-paths` without `-w`, a repair step so a Stop ends a hung filter); a
 /// symlink hashes its target.
 async fn worktree_ids(cx: &mut WriteCx<'_>, rows: &[Touched], hash_kind: gix::hash::Kind) -> Result<Vec<Found>, GbError> {
-    use std::os::unix::fs::PermissionsExt;
     let mut found = vec![Found::Unknown; rows.len()];
     let mut regular: Vec<(usize, EntryKind)> = Vec::new();
     for (i, row) in rows.iter().enumerate() {
@@ -435,7 +434,7 @@ async fn worktree_ids(cx: &mut WriteCx<'_>, rows: &[Touched], hash_kind: gix::ha
             },
             Ok(m) if m.is_dir() => Found::Dir,
             Ok(m) if m.is_file() && !row.path.contains('\n') => {
-                regular.push((i, if m.permissions().mode() & 0o111 != 0 { EntryKind::BlobExecutable } else { EntryKind::Blob }));
+                regular.push((i, if crate::platform::fs::mode(&m) & 0o111 != 0 { EntryKind::BlobExecutable } else { EntryKind::Blob }));
                 Found::Unknown
             }
             Ok(_) => Found::Unknown,
@@ -979,6 +978,7 @@ mod tests {
     /// through a smudge filter, and `new/added.txt` is added. The filter takes a second per file
     /// while `<root>/slow` exists, and thirty while `<root>/hang` does. The user's changes: `a.txt`
     /// (the target touches it: autostashed) and `mine.txt` (it doesn't).
+    #[cfg(unix)] // helper of Unix-only tests
     fn slow_repo() -> TestRepo {
         let r = TestRepo::new();
         identity(&r);
@@ -1009,13 +1009,14 @@ mod tests {
         // FIFO for writing returns), and a filter left without a writer is the hang. No sleeps.
         let gate = r.root().join("gate");
         assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
-        r.git(&["config", "filter.slow.smudge", &format!("sh -c 'if [ -p {g} ]; then read _ < {g}; fi; cat'", g = gate.display())]);
+        r.git(&["config", "filter.slow.smudge", &format!("sh -c 'if [ -p {g} ]; then read _ < {g}; fi; cat'", g = crate::platform::fs::to_git_path(&gate))]);
         r.write("a.txt", &lines("a", "a1 mine", "a5", "a9"));
         r.write("mine.txt", "mine, edited\n");
         r
     }
 
     /// The next event, skipping what a busy bus dropped (`Lagged`).
+    #[cfg(unix)] // helper of Unix-only tests
     async fn next_event(rx: &mut tokio::sync::broadcast::Receiver<crate::events::AppEvent>) -> crate::events::AppEvent {
         loop {
             match rx.recv().await {
@@ -1027,6 +1028,7 @@ mod tests {
     }
 
     /// The checkout's op, once it started.
+    #[cfg(unix)] // helper of Unix-only tests
     async fn checkout_op(rx: &mut tokio::sync::broadcast::Receiver<crate::events::AppEvent>) -> u64 {
         loop {
             if let crate::events::AppEvent::OpStarted { op, kind: crate::events::OpKind::Checkout, .. } = next_event(rx).await {
@@ -1038,6 +1040,7 @@ mod tests {
     /// Blocks until a filter is reading the gate: git is in the middle of the switch (`d` was
     /// replaced before the first `*.slow` file). Returns the gate's writer: dropping it releases
     /// that filter (`read` gets EOF and `cat` runs).
+    #[cfg(unix)] // helper of Unix-only tests
     async fn mid_switch(r: &TestRepo) -> std::fs::File {
         let gate = r.root().join("gate");
         tokio::task::spawn_blocking(move || std::fs::OpenOptions::new().write(true).open(gate)).await.unwrap().unwrap()
@@ -1047,6 +1050,7 @@ mod tests {
     /// it: the files git had switched go back to HEAD's (the mode-only `b.sh` too, and `d/b.txt`
     /// under the file `d` that replaced its folder: re-review M3), then the autostash (the change
     /// the target touches) comes back, and the change it doesn't touch was never moved. No entry.
+    #[cfg(unix)] // a FIFO (mkfifo) gates the filter
     #[tokio::test(flavor = "multi_thread")]
     async fn a_cancel_mid_checkout_puts_the_tree_back() {
         let env = WriteEnv::new();
@@ -1068,10 +1072,7 @@ mod tests {
         assert_eq!(res.unwrap_err().kind, GbErrorKind::Cancelled);
         assert_eq!(r.git(&["symbolic-ref", "HEAD"]), "refs/heads/main");
         assert_eq!(std::fs::read_to_string(r.path().join("d/b.txt")).unwrap(), "in d\n");
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(r.path().join("b.sh")).unwrap().permissions().mode() & 0o111, 0, "b.sh's mode went back");
-        }
+        assert_eq!(crate::platform::fs::mode(&std::fs::metadata(r.path().join("b.sh")).unwrap()) & 0o111, 0, "b.sh's mode went back");
         assert_eq!(r.git(&["status", "--porcelain", "--", "b.sh", "d"]), "", "no mode or D/F leftovers");
         assert_eq!(RepoState::capture(&r), before, "the tree the user left, their changes included");
         assert!(journal_state(&env, id, &r).await["undo"].is_null(), "nothing changed: no entry");
@@ -1079,6 +1080,7 @@ mod tests {
 
     /// 2C final I2: create branch + Check out cancelled mid-switch puts the tree back the same
     /// way: HEAD stays on main and the files, the user's changes included, are as they were.
+    #[cfg(unix)] // a FIFO (mkfifo) gates the filter
     #[tokio::test(flavor = "multi_thread")]
     async fn a_cancel_mid_create_and_checkout_puts_the_tree_back() {
         let env = WriteEnv::new();
@@ -1110,6 +1112,7 @@ mod tests {
     /// Re-review I1: a smudge filter that hangs while the files go back doesn't hold the write:
     /// a Stop ends the repair ("Restoring files…" is announced), the error says so, and the entry
     /// is kept, blocked with the reason.
+    #[cfg(unix)] // a FIFO (mkfifo) gates the filter
     #[tokio::test(flavor = "multi_thread")]
     async fn a_stop_ends_a_hung_put_back() {
         use crate::events::{AppEvent, StashStep};

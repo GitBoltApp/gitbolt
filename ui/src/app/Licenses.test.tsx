@@ -77,6 +77,19 @@ describe('About > Open source licenses', () => {
     expect(screen.getByText('Version 1.2.3')).toBeTruthy();
   });
 
+  it("on Windows, gives the credits' place in the install folder", async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+    try {
+      render(<About />);
+      act(() => useAbout.getState().setOpen(true));
+      fireEvent.click(screen.getByRole('button', { name: 'Open source licenses' }));
+      expect(await screen.findByText('licenses\\CHROMIUM-CREDITS.html.gz')).toBeTruthy();
+      expect(screen.queryByText(/\/usr\/share\/doc/)).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('says so when the build has no notices (a dev build)', async () => {
     vi.stubGlobal('fetch', mockFetch(null));
     render(<About />);

@@ -172,14 +172,13 @@ mod tests {
     #[tokio::test]
     async fn a_rejected_push_puts_the_servers_reasons_first() {
         use crate::testing::{isolated_git_env, TestRepo};
-        use std::os::unix::fs::PermissionsExt;
         let r = TestRepo::new();
         r.commit("one");
         r.add_origin();
         r.push("main");
         let hook = r.root().join("origin.git/hooks/pre-receive");
         std::fs::write(&hook, "#!/bin/sh\necho 'Branch main is protected'\necho 'Ask a maintainer'\nexit 1\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(&hook, 0o755).unwrap();
         r.commit("two");
         let api = crate::api::Api::new(crate::git::GitCli::new(std::sync::Arc::new(crate::log::CommandLog::new(10))).with_env(isolated_git_env()), None);
         let mut res = api.cli.run(crate::git::GitInvocation::new(r.path(), ["push", "--progress", "origin", "main"])).await;

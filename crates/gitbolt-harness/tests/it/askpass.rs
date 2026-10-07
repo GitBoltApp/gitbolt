@@ -192,8 +192,12 @@ async fn an_ssh_passphrase_prompt_reaches_the_modal_without_a_display() {
     let r = gitbolt_core::testing::TestRepo::new();
     gitbolt_core::testing::fixtures::basic(&r);
     let origin = r.root().join("origin.git");
-    r.git(&["remote", "set-url", "origin", &format!("ssh://fake{}", origin.display())]);
-    r.git(&["config", "core.sshCommand", &format!("{}/../../scripts/fake-ssh --passphrase testpass", env!("CARGO_MANIFEST_DIR"))]);
+    // `ssh://fake/<path>` with `/` separators (`/C:/…` on Windows), and the script's path as sh reads it.
+    let origin_path = gitbolt_core::platform::fs::to_git_path(&origin);
+    let sep = if origin_path.starts_with('/') { "" } else { "/" };
+    r.git(&["remote", "set-url", "origin", &format!("ssh://fake{sep}{origin_path}")]);
+    let fake_ssh = gitbolt_core::platform::fs::to_git_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fake-ssh"));
+    r.git(&["config", "core.sshCommand", &format!("{fake_ssh} --passphrase testpass")]);
     r.git(&["config", "ssh.variant", "simple"]);
     r.git_in(&origin, &["branch", "over-ssh", "main"]);
     let opened = api.dispatch(serde_json::from_value(serde_json::json!({"method": "openRepo", "params": {"path": r.path()}})).unwrap()).await.unwrap();
@@ -247,7 +251,7 @@ async fn for_tests_prompts_through_the_harness_binary() {
     tokio::spawn(serve(listener, harness));
     let env = api.askpass().unwrap().env_for(None);
     let exe = &env.iter().find(|(k, _)| k == "GIT_ASKPASS").unwrap().1;
-    assert_eq!(std::path::Path::new(exe).file_name().unwrap(), "gitbolt-harness", "{exe:?}");
+    assert_eq!(std::path::Path::new(exe).file_stem().unwrap(), "gitbolt-harness", "{exe:?}");
     let op = api.ops().begin(OpKind::Fetch, None, true);
     let mut rx = api.subscribe();
     let server = api.askpass().unwrap().clone();

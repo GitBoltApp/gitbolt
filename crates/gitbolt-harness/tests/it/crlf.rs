@@ -38,7 +38,7 @@ async fn an_autocrlf_file_lists_diffs_and_stages_as_its_one_edited_line() {
     let r = TestRepo::new();
     fixtures::wip_crlf(&r);
     r.mark_fixture();
-    let wt = r.path().canonicalize().unwrap().display().to_string();
+    let wt = gitbolt_core::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
     let mut ws = connect().await;
     let repo = call(&mut ws, 1, "openRepo", json!({ "path": r.path() })).await["id"].clone();
     let unstaged = call(&mut ws, 2, "fileList", json!({ "repo": repo, "spec": { "kind": "wip", "worktree": wt, "staged": false } })).await;

@@ -35,7 +35,7 @@ pub(crate) async fn open_at(api: &Api, dir: &Path) -> u32 {
 
 /// The worktree as requests name it (canonical).
 pub(crate) fn wt(dir: &Path) -> String {
-    dir.canonicalize().unwrap().display().to_string()
+    crate::platform::fs::canonicalize(dir).unwrap().display().to_string()
 }
 
 /// One request, written as the UI sends it, so the serde names are pinned too.

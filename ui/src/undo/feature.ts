@@ -13,7 +13,7 @@ import { useQueuedKind } from '../queue/store';
 import { registerToolbarButton, type ButtonView } from '../toolbar/registry';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 import { journalKey, useJournal } from './store';
 

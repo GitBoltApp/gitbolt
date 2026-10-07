@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { GbError } from '../api/gen/GbError';
 import type { MrHead } from '../api/gen/MrHead';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { showServerResult } from '../sync/serverOutput';
 import { openActivityLog } from './activityLog';
 import { useOps } from './ops';

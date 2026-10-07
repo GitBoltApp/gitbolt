@@ -7,7 +7,7 @@ import { centered, clampView, fitScale, nextStepIndex, pixelated, wheelAccumulat
 import { openExternal } from '../markdown/actions';
 import { registerKeyHints } from '../shortcuts/hints';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { useLightbox, type LightboxItem } from './store';
 import './lightbox.css';
 

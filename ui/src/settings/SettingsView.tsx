@@ -1,3 +1,4 @@
+import { examplePath } from '../app/osPath';
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -213,7 +214,7 @@ function SettingsDialog() {
                 <h3>{s === 'Accounts' ? `Forge accounts · ${profile.name} profile` : s}{s === 'Profile' ? ` (${profile.name})` : s === 'Repository' ? ` (${rt?.repo?.name})` : ''}</h3>
                 {s === 'General' && <>
                   <Row id="reposFolder">
-                    <TextField id="reposFolder" value={profile.reposFolder ?? ''} placeholder="/home/you/repos" onCommit={(v) => updateProfile((p) => ({ ...p, reposFolder: v || null }))} />
+                    <TextField id="reposFolder" value={profile.reposFolder ?? ''} placeholder={examplePath('repos')} onCommit={(v) => updateProfile((p) => ({ ...p, reposFolder: v || null }))} />
                     <button type="button" onClick={async () => { const d = await api.pickFolder(profile.reposFolder); if (d) updateProfile((p) => ({ ...p, reposFolder: d })); }}>Choose…</button>
                   </Row>
                   <Row id="dateFormat" group>
@@ -252,7 +253,7 @@ function SettingsDialog() {
                 </>}
                 {s === 'Profile' && (
                   <Row id="extraGitconfig">
-                    <TextField id="extraGitconfig" value={profile.extraGitconfig ?? ''} placeholder="/home/you/.gitconfig-work" onCommit={(v) => updateProfile((p) => ({ ...p, extraGitconfig: v || null }))} />
+                    <TextField id="extraGitconfig" value={profile.extraGitconfig ?? ''} placeholder={examplePath('.gitconfig-work')} onCommit={(v) => updateProfile((p) => ({ ...p, extraGitconfig: v || null }))} />
                   </Row>
                 )}
                 {s === 'Accounts' && <AccountsSection />}

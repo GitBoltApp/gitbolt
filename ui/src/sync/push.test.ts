@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import type { LocalBranch } from '../api/gen/LocalBranch';
 import { useRuntime } from '../app/runtime';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { afterPushActions, forceText, nothingToPush, openPushUpstream, pushBranch, pushHooks, pushLabel, pushTooltip } from './push';
 
 const confirm = vi.fn(async () => true);

@@ -1,6 +1,6 @@
 import type { RemoteSummary } from '../api/gen/RemoteSummary';
 import { openActivityEntry } from '../app/activityLog';
-import { useToast, type ToastAction } from '../ui/toast';
+import { useToast, type ToastAction } from '../ui/toastStore';
 
 /** The toast's "Server output (N lines)" link (spec #2 §12.4), when N (Info + Warning) > 0. */
 export function serverActions(server: RemoteSummary, op: number): ToastAction[] {

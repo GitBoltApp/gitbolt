@@ -5,7 +5,7 @@ import { shortSha } from '../format/sha';
 import { useColumnPrefs } from '../graph/columns';
 import { closeRowEditor, openRowEditor, type RowEditor } from '../graph/rowEditor';
 import { promptText } from '../ui/PromptDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 import { TagNameInput } from './TagNameInput';
 import { tagCreateError } from './tagName';

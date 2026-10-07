@@ -14,7 +14,6 @@ use gix::bstr::{BString, ByteSlice};
 use gix::ObjectId;
 use std::collections::BTreeSet;
 use std::ffi::OsString;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -322,7 +321,7 @@ pub(crate) async fn create(cx: &SnapshotCx<'_>, label: &str, paths: &[String], u
     args.extend(["-m", message.as_str()]);
     let w = cx.text(cx.git(args)).await?;
     // --- 2B T4: permission bits ---
-    let modes = paths.iter().filter_map(|p| cx.root.join(p).symlink_metadata().ok().filter(|m| m.is_file()).map(|m| (p.clone(), m.permissions().mode() & 0o7777))).collect();
+    let modes = paths.iter().filter_map(|p| cx.root.join(p).symlink_metadata().ok().filter(|m| m.is_file()).map(|m| (p.clone(), crate::platform::fs::mode(&m) & 0o7777))).collect();
     Ok(Snapshot { commit: w, paths: paths.to_vec(), untracked: untracked.to_vec(), modes })
     // --- end 2B T4 ---
 }
@@ -335,7 +334,7 @@ fn reapply_modes(root: &Path, snap: &Snapshot, paths: &BTreeSet<String>) {
         let Some(mode) = snap.modes.get(p) else { continue };
         let full = root.join(p);
         if full.symlink_metadata().is_ok_and(|m| m.is_file())
-            && let Err(e) = std::fs::set_permissions(&full, std::fs::Permissions::from_mode(*mode))
+            && let Err(e) = crate::platform::fs::set_mode(&full, *mode)
         {
             tracing::warn!(target: "gitbolt_core::write", "restoring {p}'s permissions: {e}");
         }
@@ -617,12 +616,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_snapshot_never_calls_the_signer() {
-        use std::os::unix::fs::PermissionsExt;
         let r = dirty_repo();
         let counter = r.path().join("gpg-count");
         let fake = r.path().join("fake-gpg");
-        std::fs::write(&fake, format!("#!/bin/sh\necho sign >> '{}'\nexit 1\n", counter.display())).unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(&fake, format!("#!/bin/sh\necho sign >> '{}'\nexit 1\n", crate::platform::fs::to_git_path(&counter))).unwrap();
+        crate::platform::fs::set_mode(&fake, 0o755).unwrap();
         for (k, v) in [("gpg.format", "openpgp"), ("commit.gpgsign", "true"), ("user.signingkey", "ABCDEF"), ("gpg.program", fake.to_str().unwrap())] {
             r.git(&["config", k, v]);
         }
@@ -679,6 +677,7 @@ mod tests {
     }
 
     /// Review Focus 3: pathspecs are literal and NUL-separated, never argv.
+    #[cfg(unix)] // file names Windows forbids (*, ?, :, newlines)
     #[tokio::test]
     async fn awkward_paths_round_trip() {
         let r = TestRepo::new();
@@ -841,9 +840,9 @@ mod tests {
     // --- 2B T4 ---
     /// Review M5: a path whose metadata can't be read (permission denied) fails the snapshot;
     /// only "not found" and "not a directory" mean no file.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn an_unreadable_path_fails_the_snapshot() {
-        use std::os::unix::fs::PermissionsExt;
         let r = TestRepo::new();
         r.write("locked/f.txt", "f\n");
         r.git(&["add", "."]);
@@ -851,24 +850,24 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (cli, token) = (cli(), WriteToken::for_tests());
         let cx = SnapshotCx { cli: &cli, token: &token, root: r.path(), tmp: tmp.path() };
-        std::fs::set_permissions(r.path().join("locked"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("locked"), 0o000).unwrap();
         let res = create(&cx, "x", &strings(&["locked/f.txt"]), &[]).await;
-        std::fs::set_permissions(r.path().join("locked"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("locked"), 0o755).unwrap();
         assert!(res.is_err(), "{res:?}");
     }
 
     /// Review I2: permission bits come back exactly, under `core.fileMode=false` too.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn permission_bits_round_trip() {
-        use std::os::unix::fs::PermissionsExt;
         let r = TestRepo::new();
         r.git(&["config", "core.fileMode", "false"]);
         r.write("t.sh", "tracked\n");
         r.git(&["add", "."]);
         r.git(&["commit", "-q", "-m", "base"]);
         r.write("u.txt", "untracked secret\n");
-        let mode = |p: &str| std::fs::metadata(r.path().join(p)).unwrap().permissions().mode() & 0o7777;
-        let set = |p: &str, m: u32| std::fs::set_permissions(r.path().join(p), std::fs::Permissions::from_mode(m)).unwrap();
+        let mode = |p: &str| crate::platform::fs::mode(&std::fs::metadata(r.path().join(p)).unwrap()) & 0o7777;
+        let set = |p: &str, m: u32| crate::platform::fs::set_mode(r.path().join(p), m).unwrap();
         set("t.sh", 0o750);
         set("u.txt", 0o600);
         let tmp = tempfile::tempdir().unwrap();

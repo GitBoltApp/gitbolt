@@ -23,6 +23,14 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2.5"
 regex = "1.13"
 nix = { version = "0.31", features = ["signal", "process", "user", "fs"] }
+# Windows system calls (core's platform module: job objects, file ids, named-pipe security).
+# Already in the tree through tokio and others; same version.
+windows-sys = "0.61"
+# COM interfaces (the shell's folder dialog), which windows-sys doesn't have. In the tree on
+# Windows through Tauri; same version.
+windows = "0.62"
+# Canonical paths without the `\\?\` prefix on Windows (git and users read them). In the tree.
+dunce = "1.0.5"
 ts-rs = "12.0.1"
 # Forge tokens in the Secret Service (spec #4 §2; core spec §14.3). v1 feature: zbus Secret Service on Linux.
 keyring = "4.2"

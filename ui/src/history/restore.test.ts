@@ -5,7 +5,7 @@ vi.mock('../api/client', () => ({ api: { restoreFile: restoreFileApi }, errorMes
 const runWrite = vi.hoisted(() => vi.fn(async (_ctx: unknown, send: (c: boolean, a: { discard: boolean }) => Promise<{ outcome: unknown }>) => (await send(false, { discard: false })).outcome));
 vi.mock('../write/client', () => ({ runWrite }));
 const show = vi.hoisted(() => vi.fn());
-vi.mock('../ui/toast', () => ({ useToast: { getState: () => ({ show }) } }));
+vi.mock('../ui/toastStore', () => ({ useToast: { getState: () => ({ show }) } }));
 
 const { restoreFile } = await import('./restore');
 const ctx = { tabId: 't1', repoId: 3, worktree: '/r' };

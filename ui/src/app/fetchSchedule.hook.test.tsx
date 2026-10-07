@@ -15,7 +15,7 @@ const { runFetch, useFetchScheduler } = await import('./fetchSchedule');
 const { useRuntime } = await import('./runtime');
 const { useAppState, DEFAULT_SETTINGS } = await import('./state');
 const { useOps } = await import('./ops');
-const { LONG_TOAST_MS, useToast } = await import('../ui/toast');
+const { LONG_TOAST_MS, useToast } = await import('../ui/toastStore');
 
 const repo = { id: 4, path: '/r', name: 'r', worktree: '/r' };
 const rt = () => useRuntime.getState().tabs.t!;

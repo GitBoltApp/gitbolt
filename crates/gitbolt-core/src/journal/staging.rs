@@ -528,9 +528,8 @@ mod tests {
 
     /// The path's index entries (`ls-files -s`, every stage), and its file's bytes and mode.
     fn path_state(r: &TestRepo, path: &str) -> (String, Option<(Vec<u8>, u32)>) {
-        use std::os::unix::fs::PermissionsExt;
         let file = r.path().join(path);
-        let disk = std::fs::symlink_metadata(&file).ok().map(|m| (std::fs::read(&file).unwrap(), m.permissions().mode() & 0o7777));
+        let disk = std::fs::symlink_metadata(&file).ok().map(|m| (std::fs::read(&file).unwrap(), crate::platform::fs::mode(&m) & 0o7777));
         (r.git(&["ls-files", "-s", "--", path]), disk)
     }
 
@@ -542,9 +541,8 @@ mod tests {
     /// for byte; Redo puts the resolution back as it was.
     #[tokio::test]
     async fn take_incoming_then_undo_restores_the_conflict_byte_exact() {
-        use std::os::unix::fs::PermissionsExt;
         let (r, api, id, _data) = merging().await;
-        std::fs::set_permissions(r.path().join("a.txt"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("a.txt"), 0o755).unwrap();
         let conflicted = path_state(&r, "a.txt");
         assert_eq!(conflicted.0.lines().count(), 3, "{}", conflicted.0);
         assert!(String::from_utf8_lossy(&conflicted.1.as_ref().unwrap().0).contains("<<<<<<<"));
@@ -644,16 +642,16 @@ mod tests {
 
     /// Review 1: the file can't be written (a read-only folder): the undo fails before the index
     /// is touched, both stay as they were, and the step stays for a retry.
+    #[cfg(unix)] // permission bits (a read-only folder, an unreadable file)
     #[tokio::test]
     async fn a_failed_file_write_leaves_the_index_and_the_file_as_they_were() {
-        use std::os::unix::fs::PermissionsExt;
         let (r, api, id, _data) = merging().await;
         let conflicted = path_state(&r, "a.txt");
         resolve(&api, id, &r, "a.txt", json!({ "kind": "incoming" })).await.unwrap();
         let resolved = path_state(&r, "a.txt");
-        std::fs::set_permissions(r.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        crate::platform::fs::set_mode(r.path(), 0o555).unwrap();
         let res = staging(&api, "stagingUndo", id, &r).await;
-        std::fs::set_permissions(r.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(r.path(), 0o755).unwrap();
         assert!(res.is_err(), "{res:?}");
         assert_eq!(path_state(&r, "a.txt"), resolved, "index and file untouched");
         staging(&api, "stagingUndo", id, &r).await.unwrap();
@@ -673,11 +671,11 @@ mod tests {
     }
 
     /// Review 3: a file that can't be kept (unreadable) is still resolved, just not undoable.
+    #[cfg(unix)] // permission bits (a read-only folder, an unreadable file)
     #[tokio::test]
     async fn a_resolution_goes_ahead_when_its_file_cant_be_kept() {
-        use std::os::unix::fs::PermissionsExt;
         let (r, api, id, _data) = merging().await;
-        std::fs::set_permissions(r.path().join("gone.txt"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("gone.txt"), 0o000).unwrap();
         let res = call(&api, "resolveFile", json!({ "repo": id, "worktree": wt(r.path()), "path": "gone.txt", "resolution": { "kind": "delete" }, "confirmDiscard": true })).await.unwrap();
         assert!(res["staging"]["undo"].is_null(), "{res}");
         assert!(!unmerged(&r).lines().any(|l| l == "gone.txt"));
@@ -685,6 +683,7 @@ mod tests {
     }
 
     /// Review 4: a symlink conflict: the link comes back (made under a temp name, renamed over).
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn a_symlink_resolution_is_undone() {
         let r = TestRepo::new();
@@ -719,6 +718,7 @@ mod tests {
 
     /// Review 6: a folder on the way became a symlink: what's beyond it isn't the path, so the
     /// redo (a removal) is refused and the file over there stays.
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn a_symlinked_folder_on_the_way_is_never_followed() {
         let r = TestRepo::new();

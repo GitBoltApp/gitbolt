@@ -13,7 +13,7 @@ import { renderHook } from '@testing-library/react';
 import { closeCenterView, openCenterView, registerCenterView, useCenterViewEditorFile, type CenterViewEditorFile } from '../repo/centerView';
 import { createRepoViewStore, fileViewTarget, targetFor } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { commitTargetOf, compare, primaryBranchOf, copyMessage, fileMenuEnv, fileTargetOf, folderTargetOf, monacoMenu, monacoTargetFor, monacoTargetOf, rootOfSpec, sidebarItemMenu, sidebarRemoteMenu, splitRemoteRef, upstreamOf, type FileTarget, type MenuEnv } from './menuEnv';
 import { buildMenu } from './registry';
 

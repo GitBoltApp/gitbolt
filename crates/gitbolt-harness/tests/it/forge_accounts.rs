@@ -7,7 +7,6 @@ use gitbolt_core::testing::TestRepo;
 use gitbolt_harness::fake_forge::*;
 use gitbolt_harness::Harness;
 use serde_json::{json, Value};
-use std::os::unix::fs::PermissionsExt;
 
 async fn call(api: &Api, v: Value) -> Result<Value, GbError> {
     let req: Request = serde_json::from_value(v).unwrap();
@@ -23,7 +22,10 @@ async fn an_account_added_through_the_api_maps_remotes_lists_forks_and_serves_av
     assert_eq!(added["account"]["storage"], "file");
     assert_eq!(added["account"]["version"], "18.9.1-ee");
     let file = h.tokens_path();
-    assert_eq!(std::fs::metadata(file).unwrap().permissions().mode() & 0o777, 0o600);
+    if cfg!(unix) {
+        // (Windows: private by the profile's ACL.)
+        assert_eq!(gitbolt_core::platform::fs::mode(&std::fs::metadata(file).unwrap()) & 0o777, 0o600);
+    }
 
     let r = TestRepo::new();
     r.commit("a");

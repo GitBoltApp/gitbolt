@@ -2,6 +2,8 @@
 
 use crate::error::{classify_stderr, GbError, GbErrorKind};
 use crate::log::{truncate_utf8, CommandLog, CommandLogEntry, STDERR_LOG_LIMIT};
+use crate::platform::fs::FileId;
+use crate::platform::process::Group;
 use crate::redact::redact;
 use crate::shellenv::{EnvVars, ShellEnv};
 use std::ffi::OsString;
@@ -354,18 +356,11 @@ impl GitCli {
 
         // Its own process group (cancel kills git's children too). A detached command gets its
         // own session instead, whose group it leads (`setsid` fails in a group leader, so it's
-        // one or the other).
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            if inv.detach {
-                // SAFETY: `setsid` is async-signal-safe and the closure touches nothing else.
-                unsafe {
-                    cmd.as_std_mut().pre_exec(|| nix::unistd::setsid().map(drop).map_err(std::io::Error::from));
-                }
-            } else {
-                cmd.as_std_mut().process_group(0);
-            }
+        // one or the other). Windows: no console window; a job object holds the group.
+        if inv.detach {
+            crate::platform::process::own_session(cmd.as_std_mut());
+        } else {
+            crate::platform::process::own_group(cmd.as_std_mut());
         }
 
         let mut child = match cmd.spawn() {
@@ -386,10 +381,10 @@ impl GitCli {
             }
         };
 
-        let pid = child.id();
+        let group = Group::of(&child);
         // If this future is dropped before the end (an app quit, an aborted task), the group
         // still stops: SIGTERM then SIGKILL for a write, SIGKILL for a read.
-        let mut drop_stop = DropStop { pid, grace: inv.term_grace, armed: true };
+        let mut drop_stop = DropStop { group: group.clone(), grace: inv.term_grace, armed: true };
         let stdin_task = match (input, child.stdin.take()) {
             (Some(bytes), Some(mut pipe)) => Some(tokio::spawn(async move {
                 use tokio::io::AsyncWriteExt;
@@ -431,7 +426,7 @@ impl GitCli {
             _ = async { match inv.timeout { Some(d) => tokio::time::sleep(d).await, None => std::future::pending().await } } => Outcome::TimedOut(inv.timeout.unwrap_or_default()),
         };
         if !matches!(outcome, Outcome::Done(_)) {
-            stop_group(pid, &mut child, inv.term_grace).await;
+            stop_group(&group, &mut child, inv.term_grace).await;
         }
         if let Some(t) = stdin_task {
             t.abort();
@@ -446,7 +441,7 @@ impl GitCli {
         if !pipes_closed {
             out_task.abort();
             err_task.abort();
-            kill_group(pid);
+            group.kill();
         }
         drop_stop.armed = false;
         let stdout_bytes = stdout_bytes.ok().and_then(Result::ok).unwrap_or_default();
@@ -508,26 +503,11 @@ fn wait_failed(id: u64, e: &std::io::Error) -> GbError {
     GbError { command_id: Some(id), ..GbError::new(GbErrorKind::Io, redact(&format!("git failed: {e}"))) }
 }
 
-/// SIGKILLs the child's process group (the child leads its own group). Accepted risk (1C review
-/// M7): if the leader was already reaped, its pid could in theory be reused and `killpg` would hit
-/// a stranger's group. The window is tiny (we kill on timeout/cancel while the child is still
-/// ours, before `wait` reaps it, and a zombie leader keeps its pid and group alive), so no extra
-/// guard is added.
-fn signal_group(pid: Option<u32>, signal: nix::sys::signal::Signal) {
-    if let Some(pid) = pid {
-        let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid as i32), signal);
-    }
-}
-
-fn kill_group(pid: Option<u32>) {
-    signal_group(pid, nix::sys::signal::Signal::SIGKILL);
-}
-
 /// Stops the process group of a run whose future was dropped unfinished. A write gets SIGTERM,
 /// then SIGKILL after its grace, from a detached thread (the runtime may be going away); a read
-/// gets SIGKILL at once.
+/// gets SIGKILL at once. (The group: see [`crate::platform::process`].)
 struct DropStop {
-    pid: Option<u32>,
+    group: Group,
     grace: Option<Duration>,
     armed: bool,
 }
@@ -537,32 +517,32 @@ impl Drop for DropStop {
         if !self.armed {
             return;
         }
-        let pid = self.pid;
         match self.grace {
             Some(grace) => {
-                signal_group(pid, nix::sys::signal::Signal::SIGTERM);
+                self.group.terminate();
+                let group = self.group.clone();
                 let _ = std::thread::Builder::new().name("git-drop-stop".into()).spawn(move || {
                     std::thread::sleep(grace);
-                    kill_group(pid);
+                    group.kill();
                 });
             }
-            None => kill_group(pid),
+            None => self.group.kill(),
         }
     }
 }
 
 /// Stops a cancelled or timed-out command's process group. A read is killed at once; a write
 /// gets SIGTERM, so git removes its `.lock` files, then SIGKILL after `grace` (spec #2 §3.3).
-async fn stop_group(pid: Option<u32>, child: &mut tokio::process::Child, grace: Option<Duration>) {
+async fn stop_group(group: &Group, child: &mut tokio::process::Child, grace: Option<Duration>) {
     if let Some(grace) = grace {
-        signal_group(pid, nix::sys::signal::Signal::SIGTERM);
+        group.terminate();
         if tokio::time::timeout(grace, child.wait()).await.is_ok() {
             // The leader is gone, but a TERM-ignoring straggler in its group could still hold a lock.
-            kill_group(pid);
+            group.kill();
             return;
         }
     }
-    kill_group(pid);
+    group.kill();
     let _ = child.wait().await;
 }
 
@@ -709,10 +689,10 @@ fn index_lock_detail(stderr: &str) -> Option<crate::error::ErrorDetail> {
     if !path.ends_with("/index.lock") {
         return None;
     }
-    use std::os::unix::fs::MetadataExt;
     let meta = std::fs::metadata(path).ok()?;
     let mtime_ms = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
-    Some(crate::error::ErrorDetail::IndexLock { path: path.into(), mtime_ms, ino: meta.ino(), dev: meta.dev() })
+    let FileId { dev, ino } = FileId::of_path(Path::new(path)).ok()?;
+    Some(crate::error::ErrorDetail::IndexLock { path: path.into(), mtime_ms, ino, dev })
 }
 
 #[cfg(test)]
@@ -868,7 +848,7 @@ mod tests {
         assert_ne!(sid(cli().run(GitInvocation::new(r.path(), ["-c", alias, "sid"]).detach_terminal()).await.unwrap()), own);
 
         let marker = r.root().join("marker-detached");
-        let slow = format!("alias.slow=!sleep 1 && touch {}", marker.display());
+        let slow = format!("alias.slow=!sleep 1 && touch {}", crate::platform::fs::to_git_path(&marker));
         let token = CancellationToken::new();
         let t2 = token.clone();
         tokio::spawn(async move {
@@ -885,7 +865,7 @@ mod tests {
     async fn cancel_kills_the_whole_process_group() {
         let r = TestRepo::new();
         let marker = r.root().join("marker");
-        let alias = format!("alias.slow=!sleep 1 && touch {}", marker.display());
+        let alias = format!("alias.slow=!sleep 1 && touch {}", crate::platform::fs::to_git_path(&marker));
         let token = CancellationToken::new();
         let t2 = token.clone();
         tokio::spawn(async move {
@@ -1041,6 +1021,7 @@ mod tests {
         assert!(other.run(GitInvocation::new(r.path(), ["config", "gitbolt.probe"])).await.is_err());
     }
 
+    #[cfg(unix)] // MSYS sh rewrites HOME to a POSIX path
     #[tokio::test]
     async fn captured_shell_env_replaces_the_process_env() {
         let r = TestRepo::new();
@@ -1112,7 +1093,7 @@ mod tests {
     async fn a_grandchild_holding_stdout_fails_the_run_after_the_grace() {
         let r = TestRepo::new();
         let marker = r.root().join("straggler-survived");
-        let alias = format!("alias.bg=!printf partial; (sleep 4; touch '{}') &", marker.display());
+        let alias = format!("alias.bg=!printf partial; (sleep 4; touch '{}') &", crate::platform::fs::to_git_path(&marker));
         let started = Instant::now();
         let err = cli().run(GitInvocation::new(r.path(), ["-c", alias.as_str(), "bg"])).await.unwrap_err();
         assert!(started.elapsed() < Duration::from_millis(3500), "{:?}", started.elapsed());
@@ -1181,11 +1162,13 @@ mod tests {
     }
 
     /// A cancelled write gets SIGTERM first, so git can remove its own `.lock` files (§3.3).
+    /// Unix only, like the next two: Windows has no SIGTERM (a stop kills the job at once).
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_cancelled_write_gets_sigterm_first() {
         let r = TestRepo::new();
         let marker = r.root().join("got-term");
-        let alias = format!("alias.slow=!trap 'touch {}; exit 143' TERM; sleep 5 & wait", marker.display());
+        let alias = format!("alias.slow=!trap 'touch {}; exit 143' TERM; sleep 5 & wait", crate::platform::fs::to_git_path(&marker));
         let token = CancellationToken::new();
         let t2 = token.clone();
         tokio::spawn(async move {
@@ -1200,11 +1183,12 @@ mod tests {
     }
 
     /// One that ignores SIGTERM is killed anyway, after the grace.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_write_that_ignores_sigterm_is_killed_after_the_grace() {
         let r = TestRepo::new();
         let marker = r.root().join("survived");
-        let alias = format!("alias.stubborn=!trap '' TERM; sleep 4; touch {}", marker.display());
+        let alias = format!("alias.stubborn=!trap '' TERM; sleep 4; touch {}", crate::platform::fs::to_git_path(&marker));
         let token = CancellationToken::new();
         let t2 = token.clone();
         tokio::spawn(async move {
@@ -1222,13 +1206,14 @@ mod tests {
 
     /// A write whose future is dropped mid-run (an app quit, an aborted task) still stops its
     /// whole group: SIGTERM first (git removes its locks), then SIGKILL after the grace.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_dropped_write_gets_sigterm_then_sigkill() {
         let r = TestRepo::new();
         let termed = r.root().join("got-term");
         let survived = r.root().join("survived");
-        let polite = format!("alias.slow=!trap 'touch {}; exit 143' TERM; sleep 5 & wait", termed.display());
-        let stubborn = format!("alias.stubborn=!trap '' TERM; sleep 4; touch {}", survived.display());
+        let polite = format!("alias.slow=!trap 'touch {}; exit 143' TERM; sleep 5 & wait", crate::platform::fs::to_git_path(&termed));
+        let stubborn = format!("alias.stubborn=!trap '' TERM; sleep 4; touch {}", crate::platform::fs::to_git_path(&survived));
         let cli = cli();
         let a = cli.run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", polite.as_str(), "slow"]));
         let b = cli.run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["-c", stubborn.as_str(), "stubborn"]));
@@ -1278,10 +1263,8 @@ mod tests {
         let mtime = 1_700_000_000_123_i64;
         match err.detail {
             Some(crate::error::ErrorDetail::IndexLock { path, mtime_ms, ino, dev }) => {
-                use std::os::unix::fs::MetadataExt;
-                let m = std::fs::metadata(&lock).unwrap();
-                assert_eq!((ino, dev), (m.ino(), m.dev()));
-                assert_eq!(std::path::Path::new(&*path).canonicalize().unwrap(), lock.canonicalize().unwrap());
+                assert_eq!(FileId { dev, ino }, FileId::of_path(&lock).unwrap());
+                assert_eq!(crate::platform::fs::canonicalize(std::path::Path::new(&*path)).unwrap(), crate::platform::fs::canonicalize(&lock).unwrap());
                 assert_eq!(mtime_ms, mtime);
             }
             other => panic!("{other:?}"),

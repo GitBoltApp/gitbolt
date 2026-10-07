@@ -21,20 +21,41 @@ export interface Growth {
   ratio: number;
 }
 
+/** The CPU clock's step, in ms: microseconds on Linux, but a 15.6 ms tick on Windows, where a
+ * sub-millisecond job timed alone reads 0 (or a whole tick). Busy-waits one tick to measure it. */
+function clockStepMs(): number {
+  const used = (t0: NodeJS.CpuUsage) => { const d = process.cpuUsage(t0); return d.user + d.system; };
+  let t0 = process.cpuUsage();
+  while (used(t0) === 0); // to the next tick
+  t0 = process.cpuUsage();
+  let us = 0;
+  while ((us = used(t0)) === 0);
+  return us / 1000;
+}
+let step: number | undefined;
+
 /** How a job's cost grows from size `n` to `factor`·n. `prepare(size)` builds the input (not
  * timed) and returns the timed work; it's called afresh for every run, so caches keyed on the
- * input don't carry over. One untimed warm-up run (the JIT, the regex engine), then one run at n
- * sets how many runs make one sample (at least `minMs` at n), so a sub-millisecond job isn't all
- * noise. Then `rounds` interleaved samples; each size keeps its fastest. */
+ * input don't carry over. One untimed warm-up run (the JIT, the regex engine), then `rounds`
+ * interleaved samples, each size keeping its fastest. A sample's runs are timed together; while
+ * the fastest at n lasts under `minMs` (or 5 steps of a coarse CPU clock), the samples are taken
+ * again with more runs, so a sub-millisecond job isn't all noise. */
 export function growth(prepare: (size: number) => () => void, n: number, { factor = 4, rounds = 2, minMs = 10 } = {}): Growth {
+  step ??= clockStepMs();
+  const floor = Math.max(minMs, 5 * step);
+  const sample = (size: number, reps: number) => {
+    const jobs = Array.from({ length: reps }, () => prepare(size));
+    return cpuMs(() => { for (const job of jobs) job(); });
+  };
   prepare(n)();
-  const reps = Math.min(1000, Math.ceil(minMs / Math.max(cpuMs(prepare(n)), 0.01)));
-  const sample = (size: number) => { let ms = 0; for (let k = 0; k < reps; k++) ms += cpuMs(prepare(size)); return ms; };
-  let small = Infinity;
-  let large = Infinity;
-  for (let r = 0; r < rounds; r++) {
-    small = Math.min(small, sample(n));
-    large = Math.min(large, sample(n * factor));
+  for (let reps = 1; ; ) {
+    let small = Infinity;
+    let large = Infinity;
+    for (let r = 0; r < rounds; r++) {
+      small = Math.min(small, sample(n, reps));
+      large = Math.min(large, sample(n * factor, reps));
+    }
+    if (small >= floor || reps >= 4096) return { small, large, ratio: large / Math.max(small, 0.001) };
+    reps = Math.min(4096, reps * Math.max(2, Math.ceil(floor / Math.max(small, step))));
   }
-  return { small, large, ratio: large / Math.max(small, 0.001) };
 }

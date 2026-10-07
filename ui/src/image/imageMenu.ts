@@ -1,7 +1,7 @@
 import { errorMessage } from '../api/client';
 import { ICONS } from '../menu/icons';
 import type { MenuRow } from '../menu/types';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { copyImage } from './copyImage';
 import type { ImageSource } from './sources';
 

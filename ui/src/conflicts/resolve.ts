@@ -3,7 +3,7 @@ import type { GbError } from '../api/gen/GbError';
 import type { Resolution } from '../api/gen/Resolution';
 import type { SubmoduleBehind } from '../api/gen/SubmoduleBehind';
 import { shortSha } from '../format/sha';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /** After a submodule side was taken: the submodule is still checked out elsewhere, and a

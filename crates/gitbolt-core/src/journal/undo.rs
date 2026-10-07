@@ -883,12 +883,12 @@ impl UndoIntent {
         }
         let branches: Vec<&RefMove> = e.refs.iter().filter(|m| m.name.starts_with("refs/heads/")).collect();
         if !branches.is_empty() {
-            let here = pre.root.canonicalize().unwrap_or_else(|_| pre.root.to_path_buf());
+            let here = crate::platform::fs::canonicalize(pre.root).unwrap_or_else(|_| pre.root.to_path_buf());
             let trees = crate::worktree::list_worktrees(pre.root).await?;
             for m in branches {
                 let name = short_ref(&m.name);
                 for w in trees.iter().filter(|w| w.branch.as_deref() == Some(m.name.as_str())) {
-                    if w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != here {
+                    if crate::platform::fs::canonicalize(&w.path).unwrap_or_else(|_| w.path.clone()) != here {
                         return Err(GbError::new(GbErrorKind::InvalidInput, format!("{name} is checked out in {}", w.path.display())));
                     }
                     if m.old.is_none() {
@@ -966,7 +966,7 @@ mod tests {
     }
 
     fn wt(r: &TestRepo) -> String {
-        r.path().canonicalize().unwrap().display().to_string()
+        crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string()
     }
 
     fn expect_ref(name: &str, oid: Option<&str>) -> Expect {
@@ -1027,7 +1027,7 @@ mod tests {
         r.write("a.txt", "new\n");
         r.git(&["add", "a.txt"]);
         let count = r.root().join("post-commit-count");
-        r.hook("post-commit", &format!("#!/bin/sh\necho x >> {}\n", count.display()));
+        r.hook("post-commit", &format!("#!/bin/sh\necho x >> {}\n", crate::platform::fs::to_git_path(&count)));
         let api = api(data.path());
         let id = open(&api, &r).await;
         round_trip(&api, id, &r, Expect::default(), TestIntent::Commit { message: "Add a".into(), allow_empty: false }).await;
@@ -1162,16 +1162,16 @@ mod tests {
     }
 
     /// Review m1: a mode change made since counts as a change.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn a_mode_change_since_a_discard_asks_first() {
-        use std::os::unix::fs::PermissionsExt;
         let data = tempfile::tempdir().unwrap();
         let r = repo();
         r.write("file_0.txt", "dirty\n");
         let api = api(data.path());
         let id = open(&api, &r).await;
         let entry = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
-        std::fs::set_permissions(r.path().join("file_0.txt"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("file_0.txt"), 0o755).unwrap();
         let err = undo(&api, id, &r, entry, None).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::Conflict);
     }
@@ -1668,11 +1668,11 @@ mod tests {
         r.write("file_0.txt", "second\n");
         op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
         assert_eq!(history(&api, id, &r).await[1]["blocked"], "A later action changed file_0.txt");
-        let (state, file) = (RepoState::capture(&r), std::fs::read(api.journal(&r.path().canonicalize().unwrap()).unwrap().path()).unwrap());
+        let (state, file) = (RepoState::capture(&r), std::fs::read(api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap().path()).unwrap());
         let err = undo_entry(&api, id, &r, first).await.unwrap_err();
         assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::InvalidInput, "A later action changed file_0.txt"));
         assert_eq!(RepoState::capture(&r), state, "nothing changed");
-        assert_eq!(std::fs::read(api.journal(&r.path().canonicalize().unwrap()).unwrap().path()).unwrap(), file, "the journal is untouched");
+        assert_eq!(std::fs::read(api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap().path()).unwrap(), file, "the journal is untouched");
     }
 
     /// The CAS at run time: a path the entry restores changed since (outside GitBolt), though
@@ -1690,7 +1690,7 @@ mod tests {
         r.write("file_0.txt", "edited outside\n");
         let s = history(&api, id, &r).await;
         assert!(s[1]["blocked"].is_null(), "the journal can't see it: {s}");
-        let jpath = api.journal(&r.path().canonicalize().unwrap()).unwrap().path().to_path_buf();
+        let jpath = api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap().path().to_path_buf();
         let (state, file) = (RepoState::capture(&r), std::fs::read(&jpath).unwrap());
         let err = undo_entry(&api, id, &r, a).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::Stale);
@@ -1815,7 +1815,7 @@ mod tests {
         let api = api(data.path()).with_clock(Arc::new(move || clock.load(Ordering::SeqCst)));
         let id = open(&api, &r).await;
         let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["file_0.txt".into()] }).await;
-        let store = api.journal(&r.path().canonicalize().unwrap()).unwrap();
+        let store = api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap();
         let original = store.load().unwrap().undo[0].clone();
         let day = 24 * 60 * 60 * 1000;
         let undone_at = 1_000 + 13 * day;
@@ -1855,13 +1855,13 @@ mod tests {
         let discard = op(&api, id, &r, Expect::default(), TestIntent::Discard { paths: vec!["t.lock".into()] }).await;
         op(&api, id, &r, expect_ref("refs/heads/y", None), TestIntent::MoveRef { name: "refs/heads/y".into(), to: Some(r.git(&["rev-parse", "HEAD"])) }).await;
         let lock = r.path().join(".git/index.lock");
-        r.git(&["config", "filter.locker.smudge", &format!("sh -c 'touch {}; cat'", lock.display())]);
+        r.git(&["config", "filter.locker.smudge", &format!("sh -c 'touch {}; cat'", crate::platform::fs::to_git_path(&lock))]);
         r.git(&["config", "filter.locker.clean", "cat"]);
         assert!(undo_entry(&api, id, &r, discard).await.is_err(), "update-index meets the lock");
         assert!(lock.exists());
         std::fs::remove_file(&lock).unwrap();
         assert_eq!(read(&r, "t.lock"), "dirty\n", "the worktree step ran");
-        let j = api.journal(&r.path().canonicalize().unwrap()).unwrap().load().unwrap();
+        let j = api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap().load().unwrap();
         let n = j.undo.iter().find(|e| e.label == "undo discard t.lock").expect("the new entry stays");
         assert_eq!(n.state, crate::journal::EntryState::Done);
         assert!(n.before.is_some(), "its before: P as it was");
@@ -1871,6 +1871,7 @@ mod tests {
 
     /// Review 1: a Stop while the autostash is restored, after the restore ran: the write fails,
     /// and the new entry (in the undone one's place) stays.
+    #[cfg(unix)] // the filter reads /proc/$PPID/cmdline
     #[tokio::test]
     async fn a_stop_restoring_the_autostash_keeps_the_new_entry() {
         let data = tempfile::tempdir().unwrap();
@@ -1888,7 +1889,7 @@ mod tests {
         // The restore of `notes` makes t.slow stat-dirty; the stash apply's index refresh then
         // cleans it, and its clean filter hangs when `git stash apply` runs it, until the Stop.
         let t_slow = r.path().join("t.slow");
-        r.git(&["config", "filter.toucher.smudge", &format!("touch -d 2001-01-01 {}; cat", t_slow.display())]);
+        r.git(&["config", "filter.toucher.smudge", &format!("touch -d 2001-01-01 {}; cat", crate::platform::fs::to_git_path(&t_slow))]);
         r.git(&["config", "filter.toucher.clean", "cat"]);
         r.git(&["config", "filter.slow.clean", "case \"$(tr '\\0' ' ' < /proc/$PPID/cmdline)\" in *\"stash apply\"*) sleep 30;; esac; cat"]);
         r.git(&["config", "filter.slow.smudge", "cat"]);
@@ -1910,7 +1911,7 @@ mod tests {
         let err = res.unwrap_err();
         assert!(err.message.starts_with("Stopped restoring your changes"), "{}", err.message);
         assert_eq!(read(&r, "notes"), "my notes\n", "the restore ran");
-        let j = api.journal(&r.path().canonicalize().unwrap()).unwrap().load().unwrap();
+        let j = api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap().load().unwrap();
         assert!(j.undo.iter().any(|e| e.label == "undo discard notes" && e.before.is_some()), "the new entry stays: {:?}", j.undo.iter().map(|e| &e.label).collect::<Vec<_>>());
         assert!(!j.undo.iter().any(|e| e.id == discard), "in the undone entry's place");
         assert!(r.git(&["stash", "list", "--format=%gs"]).contains("autostash before undo discard notes"), "the stash is kept");
@@ -1938,9 +1939,9 @@ mod tests {
         // Hashing b.flt (after a.txt, in P's order) "autosaves" a.txt: the plan's check has read
         // a.txt by then; the check before the restore hasn't.
         let a = r.path().join("a.txt");
-        r.git(&["config", "filter.autosave.clean", &format!("sh -c 'printf autosaved > {}; cat'", a.display())]);
+        r.git(&["config", "filter.autosave.clean", &format!("sh -c 'printf autosaved > {}; cat'", crate::platform::fs::to_git_path(&a))]);
         r.git(&["config", "filter.autosave.smudge", "cat"]);
-        let jfile = api.journal(&r.path().canonicalize().unwrap()).unwrap();
+        let jfile = api.journal(&crate::platform::fs::canonicalize(r.path()).unwrap()).unwrap();
         let err = undo_entry(&api, id, &r, discard).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::Stale);
         assert_eq!(err.message, "a.txt changed since discard 2 files; it can't be undone out of order");

@@ -89,9 +89,15 @@ export function chooseLicense(expr: string, accepted: string[]): string[] | null
   return [...new Set(alts[0])];
 }
 
+/** A module id as a `/`-separated path (an id on Windows may have `\`), without the virtual-module
+ *  `\0` or a query. */
+function modulePath(id: string): string {
+  return id.replace(/^\0/, '').replace(/[?#].*$/, '').replace(/\\/g, '/');
+}
+
 /** The node_modules package a bundled module belongs to, or null (our own code, virtual modules). */
 export function packageDirOf(id: string): { dir: string; name: string } | null {
-  const path = id.replace(/^\0/, '').replace(/[?#].*$/, '').replace(/\\/g, '/');
+  const path = modulePath(id);
   const at = path.lastIndexOf('/node_modules/');
   if (at < 0) return null;
   const rest = path.slice(at + '/node_modules/'.length).split('/');
@@ -250,16 +256,17 @@ export function buildUiNotices(opts: {
   const themeIds = new Set<string>();
   const ownGrammarIds = new Set<string>();
   for (const id of opts.moduleIds) {
-    const own = OWN_GRAMMAR.exec(id.replace(/^\0/, '').replace(/[?#].*$/, '').replace(/\\/g, '/'));
+    const path = modulePath(id);
+    const own = OWN_GRAMMAR.exec(path);
     if (own) ownGrammarIds.add(own[1]);
     // The bundler's own helpers are virtual modules: \0vite/preload-helper.js, \0rolldown/runtime.js.
     const helper = /^\0(vite|rolldown)\//.exec(id);
     const p = helper && opts.root ? { dir: join(opts.root, 'node_modules', helper[1]), name: helper[1] } : packageDirOf(id);
     if (!p) continue;
     pkgs.set(p.dir, p.name);
-    const file = id.replace(/[?#].*$/, '').split('/').pop()!.replace(/\.mjs$/, '');
-    if (p.name === '@shikijs/langs' && /\/dist\/[^/]+\.mjs/.test(id) && file !== 'index') grammarIds.add(file);
-    if (p.name === '@shikijs/themes' && /\/dist\/[^/]+\.mjs/.test(id) && file !== 'index') themeIds.add(file);
+    const file = path.split('/').pop()!.replace(/\.mjs$/, '');
+    if (p.name === '@shikijs/langs' && /\/dist\/[^/]+\.mjs/.test(path) && file !== 'index') grammarIds.add(file);
+    if (p.name === '@shikijs/themes' && /\/dist\/[^/]+\.mjs/.test(path) && file !== 'index') themeIds.add(file);
   }
 
   const groups = new Map<string, Group>();
@@ -441,7 +448,7 @@ function checkGrammarVersion(root: string, ids: Iterable<string>): string[] {
   for (const id of ids) {
     const p = packageDirOf(id);
     if (p?.name !== '@shikijs/langs') continue;
-    const name = id.replace(/[?#].*$/, '').split('/').pop()!.replace(/\.mjs$/, '');
+    const name = modulePath(id).split('/').pop()!.replace(/\.mjs$/, '');
     const ours = join(root, 'node_modules', 'tm-grammars', 'grammars', `${name}.json`);
     if (name === 'index' || !existsSync(ours)) continue;
     const m = /JSON\.parse\(("(?:[^"\\]|\\.)*")\)/.exec(readFileSync(id.replace(/^\0/, '').replace(/[?#].*$/, ''), 'utf8'));

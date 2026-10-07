@@ -10,7 +10,7 @@ import { createCommitMessageCache } from '../api/commitMessages';
 import type { CommitMessage } from '../api/gen/CommitMessage';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import { copyText } from '../api/transport';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
 import type { MenuRow } from '../menu/types';
 

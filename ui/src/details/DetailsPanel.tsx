@@ -13,7 +13,7 @@ import { filesKey } from '../repo/services';
 import { useRuntime } from '../app/runtime';
 import { rewordableOlder } from './rewordable';
 import { openWorktree, useRepoView, useRepoViewStore, type FileSection, type PanelContent } from '../repo/store';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { Avatar } from '../avatars/Avatar';
 import { LARGEST_AVATAR_PX } from '../avatars/avatarStore';
 import { HoverTooltip, useHoverTooltip } from '../ui/HoverTooltip';

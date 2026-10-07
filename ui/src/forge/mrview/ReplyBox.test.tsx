@@ -12,7 +12,7 @@ const { Discussion } = await import('./Thread');
 const { useReplyDrafts } = await import('./drafts');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { mrOf, user } = await import('../testMrs');
 const { preloadMarkdown } = await import('../../markdown/lazy');
 

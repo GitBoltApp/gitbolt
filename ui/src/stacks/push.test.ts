@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import type { LocalBranch } from '../api/gen/LocalBranch';
 import { useRuntime } from '../app/runtime';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import type { Stack } from './detect';
 import { pushStack, pushStackRow, pushSummary } from './push';
 

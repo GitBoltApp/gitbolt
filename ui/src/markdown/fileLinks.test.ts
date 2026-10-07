@@ -21,7 +21,7 @@ const { Loader } = await import('../data/loader');
 const { Lru } = await import('../data/lru');
 const { createRepoViewStore, fileViewTarget } = await import('../repo/store');
 const { fakeServices } = await import('../repo/testServices');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 
 const A = 'a'.repeat(40);
 const specA = { kind: 'commit', id: A, parent: 0 } as const;

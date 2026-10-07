@@ -509,7 +509,7 @@ fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), GbError> {
         return Err(e);
     }
     // The rename is durable only once the directory entry is.
-    std::fs::File::open(dir)?.sync_all()?;
+    crate::platform::fs::sync_dir(dir)?;
     Ok(())
 }
 
@@ -1077,7 +1077,6 @@ mod tests {
     /// store runs on defaults for it and leaves it alone for the session.
     #[test]
     fn unreadable_files_are_never_overwritten() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
         let pdir = dir.path().join("profiles/default");
@@ -1085,7 +1084,7 @@ mod tests {
         let profile = pdir.join("profile.json");
         std::fs::write(&settings, br#"{"version": 1, "commitLimit": 500}"#).unwrap();
         std::fs::write(&profile, br#"{"version": 1, "name": "Mine"}"#).unwrap();
-        let lock = |p: &Path, mode| std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+        let lock = |p: &Path, mode| crate::platform::fs::set_mode(p, mode).unwrap();
         lock(&settings, 0o000);
         lock(&profile, 0o000);
         if std::fs::read(&settings).is_ok() {

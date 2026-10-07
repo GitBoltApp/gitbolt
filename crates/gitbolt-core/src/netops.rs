@@ -69,6 +69,9 @@ pub enum FetchOutcome {
 
 /// The host of a git URL or scp-like address, without any userinfo (a token never reaches a reason).
 fn url_host(url: &str) -> Option<String> {
+    if crate::remotes::is_local_on_windows(url) {
+        return None;
+    }
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split('/').next().unwrap_or("");
     let host = authority.rsplit('@').next().unwrap_or("").split(':').next().unwrap_or("");
@@ -606,7 +609,7 @@ mod tests {
         r.git(&["remote", "set-url", "origin", "ssh://fake/never.git"]);
         // The stand-in ssh marks that the fetch's transfer is running, then hangs.
         let started = r.root().join("ssh-started");
-        r.git(&["config", "core.sshCommand", &format!("touch '{}'; sleep 10; false", started.display())]);
+        r.git(&["config", "core.sshCommand", &format!("touch '{}'; sleep 10; false", crate::platform::fs::to_git_path(&started))]);
         let api = Arc::new(api());
         let id = open(&api, &r).await;
         let mut rx = api.subscribe();
@@ -636,6 +639,7 @@ mod tests {
 
     /// 2A final review I1: the cancel a user op sends a background fetch is a write's (SIGTERM,
     /// then SIGKILL), so a fetch stopped inside its ref transaction leaves no `.lock` behind.
+    #[cfg(unix)] // SIGTERM (Windows kills git, which can leave a .lock)
     #[tokio::test(flavor = "multi_thread")]
     async fn a_cancelled_fetch_leaves_no_ref_lock_behind() {
         let r = TestRepo::new();
@@ -646,8 +650,8 @@ mod tests {
         std::fs::create_dir_all(&hooks).unwrap();
         let started = r.root().join("tx-prepared");
         let hook = hooks.join("reference-transaction");
-        std::fs::write(&hook, format!("#!/bin/sh\nif [ \"$1\" = prepared ]; then touch '{}'; sleep 30; fi\nexit 0\n", started.display())).unwrap();
-        std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::write(&hook, format!("#!/bin/sh\nif [ \"$1\" = prepared ]; then touch '{}'; sleep 30; fi\nexit 0\n", crate::platform::fs::to_git_path(&started))).unwrap();
+        crate::platform::fs::set_mode(&hook, 0o755).unwrap();
         r.git(&["config", "core.hooksPath", hooks.to_str().unwrap()]);
         let api = Arc::new(api());
         let id = open(&api, &r).await;
@@ -790,13 +794,19 @@ mod tests {
     /// `scripts/fake-ssh` (K96): an ssh stand-in that fails like a dead agent, asks a passphrase
     /// through SSH_ASKPASS, or hangs.
     fn fake_ssh() -> String {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fake-ssh").to_string()
+        crate::platform::fs::to_git_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/fake-ssh"))
+    }
+
+    /// `ssh://fake/<path>`: `/abs/path` on Unix, `/C:/abs/path` on Windows.
+    fn ssh_url(path: &Path) -> String {
+        let p = crate::platform::fs::to_git_path(path);
+        if p.starts_with('/') { format!("ssh://fake{p}") } else { format!("ssh://fake/{p}") }
     }
 
     /// Points the fixture's `origin` at an ssh URL served by `ssh_command` (its bare origin).
     fn ssh_origin(r: &TestRepo, ssh_command: &str) {
         let origin = r.root().join("origin.git");
-        r.git(&["remote", "set-url", "origin", &format!("ssh://fake{}", origin.display())]);
+        r.git(&["remote", "set-url", "origin", &ssh_url(&origin)]);
         r.git(&["config", "core.sshCommand", ssh_command]);
         r.git(&["config", "ssh.variant", "simple"]);
     }
@@ -812,11 +822,11 @@ mod tests {
         let script = r.root().join("env-ssh");
         std::fs::write(
             &script,
-            format!("#!/bin/sh\n{{ env; echo SID=$(cut -d' ' -f6 /proc/$$/stat); }} > '{}'\necho \"$1: Permission denied (publickey).\" >&2\nexit 255\n", dump.display()),
+            format!("#!/bin/sh\n{{ env; echo SID=$(cut -d' ' -f6 /proc/$$/stat); }} > '{}'\necho \"$1: Permission denied (publickey).\" >&2\nexit 255\n", crate::platform::fs::to_git_path(&dump)),
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        ssh_origin(&r, script.to_str().unwrap());
+        crate::platform::fs::set_mode(&script, 0o755).unwrap();
+        ssh_origin(&r, &crate::platform::fs::to_git_path(&script));
         // No display at all: DISPLAY and WAYLAND_DISPLAY unset (not just empty), after everything else.
         let no_display: crate::git::CommandHook = Arc::new(|c| {
             c.env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
@@ -849,7 +859,7 @@ mod tests {
         fixtures::basic(&r);
         ssh_origin(&r, &format!("{} --dead-agent", fake_ssh()));
         let origin = r.root().join("origin.git");
-        r.git(&["remote", "add", "second", &format!("ssh://fake{}", origin.display())]);
+        r.git(&["remote", "add", "second", &ssh_url(&origin)]);
         let api = api();
         let id = open(&api, &r).await;
         let mut rx = api.subscribe();
@@ -868,8 +878,8 @@ mod tests {
         fixtures::basic(&r);
         let script = r.root().join("leaky-ssh");
         std::fs::write(&script, "#!/bin/sh\necho \"fatal: repository 'ssh://ada:hunter2@fake/x' not found\" >&2\nexit 128\n").unwrap();
-        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        ssh_origin(&r, script.to_str().unwrap());
+        crate::platform::fs::set_mode(&script, 0o755).unwrap();
+        ssh_origin(&r, &crate::platform::fs::to_git_path(&script));
         let api = api();
         let id = open(&api, &r).await;
         let mut rx = api.subscribe();
@@ -1026,7 +1036,7 @@ mod tests {
         env.extend([("GIT_CONFIG_COUNT".into(), "1".into()), ("GIT_CONFIG_KEY_0".into(), "protocol.ext.allow".into()), ("GIT_CONFIG_VALUE_0".into(), "always".into())]);
         let api = Api::new(GitCli::new(Arc::new(CommandLog::new(100))).with_env(env), None);
         let marker = r.root().join("ran");
-        let url = format!("ext::sh -c touch% {}", marker.display());
+        let url = format!("ext::sh -c touch% {}", crate::platform::fs::to_git_path(&marker));
         r.git(&["remote", "add", "evil", &url]);
         let id = open(&api, &r).await;
         assert!(api.fetch(id, false).await.is_err());

@@ -24,6 +24,7 @@ every package carries them, generated fresh by each `just package`.
 - The Arch package has the same files, plus `/usr/share/licenses/gitbolt`, a symlink to
   `/usr/share/doc/gitbolt` (Arch's location for license files). Its `license` lines are MIT, the
   licenses in the two notices files' summaries, `BSD-3-Clause` and `LicenseRef-SCOWL`.
+- The Windows installers put them in `licenses\` in the install folder.
 - In the app, **Help > About GitBolt > Open source licenses** shows all of them except the
   Chromium credits, which are too large to embed in the app; the page gives their installed path instead.
   The UI build copies the files into `ui/dist/licenses/`, which the app embeds, so they're in a
@@ -42,7 +43,9 @@ so the notices can't go stale.
 
 1. **`scripts/licenses.sh`** writes `target/licenses/`:
    - **Rust:** `cargo about generate` (cargo-about 0.9.2) produces JSON for `gitbolt-app`'s graph:
-     the crates it links on `x86_64-unknown-linux-gnu`, without dev-only or build-time crates and
+     the crates it links on `x86_64-unknown-linux-gnu` (`x86_64-pc-windows-msvc` for the Windows
+     installers: `scripts/package-windows.ps1` runs the script in Git for Windows' bash, which
+     passes that target), without dev-only or build-time crates and
      without GitBolt's own workspace crates (the harness isn't in the graph at all). Then
      `scripts/notices.py` groups it and writes the text file. cargo-about was chosen over
      `cargo-bundle-licenses` or a script over `cargo metadata` because it does the hard parts
@@ -51,7 +54,8 @@ so the notices can't go stale.
      and filters the graph by target and dependency kind.
      Install it once: `cargo install cargo-about --version 0.9.2 --locked --features cli`.
    - **CEF and Chromium:** from the CEF distribution `cargo tauri` builds against, in
-     `~/.cache/tauri-cef/<version>/` (or `$CEF_PATH`), with the version taken from the `cef`
+     `~/.cache/tauri-cef/<version>/` (`%LOCALAPPDATA%\tauri-cef` on Windows, or `$CEF_PATH`),
+     with the version taken from the `cef`
      crate in `Cargo.lock`. The build's unpacked copy keeps only `CREDITS.html`, so `LICENSE.txt`
      is read from the downloaded archive beside it. On a machine that hasn't built the app yet,
      the script first downloads CEF the way the app build does.
@@ -69,6 +73,23 @@ so the notices can't go stale.
 `.deb` packaging takes the files from `target/licenses/` and `ui/dist/licenses/` (the `files`
 map in `crates/gitbolt-app/tauri.conf.json`); `scripts/check-deb.sh`, `scripts/package-arch.sh`
 and `scripts/check-arch-pkg.sh` fail if any of them is missing or empty.
+
+## Windows packaging tools
+
+The Windows build uses three tools that aren't GitBolt dependencies (`scripts/package-windows.ps1`
+downloads them, pinned, into `target\windows-tools`). Only NSIS puts code of its own in a
+package:
+
+- **NSIS 3.11** builds the `-setup.exe`, which contains NSIS's installer stub. The stub and its
+  plug-ins are under the zlib/libpng license, and the installer is compressed with bzip2, whose
+  decompressor is under the bzip2 license; neither asks for a notice in a binary. Not LZMA: NSIS's
+  LZMA module is under the Common Public License 1.0, a copyleft license.
+- **WiX 5.0.2** (Microsoft Reciprocal License) builds the MSI. The MSI has no custom actions and
+  no WiX UI, so no WiX code ships in it.
+- **rcedit 2.0.0** (MIT) writes GitBolt's icon, version information and manifest into
+  `GitBolt.exe` and `GitBolt.dll`.
+
+`GitBolt.exe` itself is CEF's `bootstrap.exe`, covered by `CEF-LICENSE.txt`.
 
 ## The spell-check dictionary
 
@@ -187,6 +208,6 @@ their source.
   research an unrecorded one upstream, and replace or drop one whose project states no license.
 - **CEF upgrade:** the notices follow the `cef` crate's version. Check the dictionary's version
   in that Chromium's `components/spellcheck/common/spellcheck_common.cc` (`{"en-US", "-10-1"}`);
-  if it changed, replace the `.bdic` (and the name in `crates/gitbolt-app/src/main.rs`,
+  if it changed, replace the `.bdic` (and the name in `crates/gitbolt-app/src/lib.rs`,
   `tauri.conf.json` and the package checks) with the one its `DEPS` pins, and update its
   license file.

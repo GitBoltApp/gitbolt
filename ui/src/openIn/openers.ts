@@ -5,7 +5,7 @@ import type { BlobSource } from '../api/gen/BlobSource';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
 import { useRepoView, type DiffTarget } from '../repo/store';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { configuredOpenerId } from './configuredOpener';

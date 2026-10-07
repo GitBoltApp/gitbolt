@@ -8,7 +8,7 @@ import { currentOrigin } from '../ui/arm/origin';
 import { holdOrigin } from '../ui/arm/store';
 import { askChoice } from '../ui/ChoiceDialog';
 import { confirmWith } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 import { toastRebaseOutcome } from '../irebase/outcome';
 

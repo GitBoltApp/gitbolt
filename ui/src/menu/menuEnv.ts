@@ -29,7 +29,7 @@ import type { RepoServices } from '../repo/services';
 import type { SideItem } from '../sidebar/model';
 import { wipKey } from '../repo/wipLists';
 import { inCommitSelection, openWorktree, selectedCommits, type CommitRef, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { stackBase, stackFor, stacksOf, type Stack } from '../stacks/detect';
 import './builders';
 import { refreshMenuOn } from './menuStore';

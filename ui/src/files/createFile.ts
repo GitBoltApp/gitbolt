@@ -12,7 +12,7 @@ import { endStickyHistory } from '../history/sticky';
 import type { MenuRow } from '../menu/types';
 import { openWorktree, targetFor, worktreeViewTarget, type DiffTarget, type RepoViewStore } from '../repo/store';
 import { promptText } from '../ui/PromptDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /**

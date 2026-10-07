@@ -3,7 +3,7 @@ import type { CreateMr } from '../../api/gen/CreateMr';
 
 const api = vi.hoisted(() => ({ forgeCompleteCreate: vi.fn(), openUrl: vi.fn(async () => null) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message: string }).message) }));
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { partsText, retry, showCreated } = await import('./outcome');
 
 const req: CreateMr = {

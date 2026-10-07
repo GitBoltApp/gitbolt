@@ -6,7 +6,7 @@ import { runFetch } from '../../app/fetchSchedule';
 import { useRuntime } from '../../app/runtime';
 import { tabStore } from '../../app/tabStores';
 import type { RepoViewStore } from '../../repo/store';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { mrName } from '../labels';
 import { forgeOf } from '../mrStore';
 

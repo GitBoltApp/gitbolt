@@ -16,10 +16,10 @@ import { registerKeys } from '../../ui/keyRouter';
 import { registerKeyHints } from '../../shortcuts/hints';
 import { escOwners } from '../../app/modalKeys';
 import { currentOrigin } from '../../ui/arm/origin';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { useEmoji } from '../emoji';
 import { openInBrowser } from './MrHeader';
-import { deleteNote, GITHUB_REACTIONS, GITLAB_COMMON, knownGlyph, quoteReply, resolveThread, saveNote, toggleReaction } from './noteActions';
+import { deleteNote, GITHUB_REACTIONS, GITLAB_COMMON, knownGlyph, quoteReply, resolveThread, saveNote, toggleReaction } from './noteActionsStore';
 
 const copyLink = (url: string) => { copyText(url).then(() => useToast.getState().show('Copied the link'), () => useToast.getState().show("Couldn't copy the link", { error: true })); };
 

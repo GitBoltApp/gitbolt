@@ -1,7 +1,8 @@
 # Release: `just release <version>` commits the version bump and tags it v<version>; pushing them
 # together (git push origin main v<version>, or GitBolt's Push with "Push tags with branches")
-# runs one build, on main: it builds the .deb and the Arch package, checks them, and uploads them
-# with SHA256SUMS to a draft GitHub release for review. Building on main matters for speed: only
+# runs one build, on main: it builds the .deb and the Arch package on Linux and the two Windows
+# installers (NSIS and MSI, unsigned for now), checks them, and uploads them with SHA256SUMS to a
+# draft GitHub release for review. Building on main matters for speed: only
 # main's runs save caches (a tag's run can restore main's but not another tag's), so each release
 # warms the next one, while GitHub keeps the caches (7 days unused).
 #
@@ -304,9 +305,155 @@ jobs:
           compression-level: 0
           overwrite: true # a re-run replaces the earlier attempt's artifact
 
+  windows:
+    name: Build the Windows installers
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # The runner's git checks text files out with CRLF (core.autocrlf=true in its system
+      # config); the sources are LF, as on Linux.
+      - name: LF checkout
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      # The tag's version, or tauri.conf.json's for a dry run: package-windows.ps1 checks that
+      # GITBOLT_RELEASE_VERSION is a release version equal to tauri.conf.json's. The CEF version
+      # keys its cache.
+      - name: Version
+        id: version
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          $conf = (Get-Content -Raw crates/gitbolt-app/tauri.conf.json | ConvertFrom-Json).version
+          $v = if ($env:TAG) { $env:TAG -replace '^v', '' } else { $conf }
+          $lock = Get-Content -Raw Cargo.lock
+          if ($lock -notmatch 'name = "cef"\r?\nversion = "[^+"]*\+([^"]+)"') { throw 'No CEF version in Cargo.lock' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "cef=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          "Version $v, CEF $($Matches[1])"
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-windows
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # cargo-about, for the license notices (scripts/licenses.sh), compiled once per version.
+      - name: Restore cargo-about
+        id: cargo-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-about.exe
+          key: cargo-tools-about-${{ env.CARGO_ABOUT_VERSION }}-windows
+      - name: Install cargo-about
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
+        run: cargo install cargo-about --version "=$env:CARGO_ABOUT_VERSION" --locked --features cli
+      - name: Save cargo-about
+        if: steps.cargo-tools.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-about.exe
+          key: ${{ steps.cargo-tools.outputs.cache-primary-key }}
+
+      # The CEF archive, as in the build job (cef-dll-sys verifies and unpacks it), and the pinned
+      # packaging tools package-windows.ps1 downloads (NSIS, WiX, rcedit; it checks their hashes).
+      - name: Restore the CEF archive and the packaging tools
+        id: cef
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/AppData/Local/tauri-cef/${{ steps.version.outputs.cef }}/cef_binary_*_windows64_minimal.tar.bz2
+            target/windows-tools
+          key: cef-${{ steps.version.outputs.cef }}-windows64-minimal-${{ hashFiles('scripts/package-windows.ps1') }}
+
+      # cef-dll-sys builds CEF's C++ wrapper with CMake and Ninja.
+      - name: Ninja on PATH
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+            "$vs\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: just
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      # `just package-windows`: the notices, the UI, gitbolt-app as a DLL, the staged layout
+      # (CEF's bootstrap as GitBolt.exe, checked against the CEF build), then the NSIS installer
+      # and the MSI, ICE-validated.
+      #
+      # Signing (none yet): set GITBOLT_SIGN_COMMAND here, e.g. from a secret, to a command that
+      # signs the path appended to it in place. The script then signs GitBolt.exe and GitBolt.dll
+      # with the same certificate (the bootstrap requires it), the NSIS uninstaller and installer,
+      # and the MSI. See docs/releasing.md.
+      - name: Build the installers
+        env:
+          GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $env:CARGO_BUILD_JOBS = "$env:NUMBER_OF_PROCESSORS"
+          just package-windows
+
+      - name: Save the CEF archive and the packaging tools
+        if: steps.cef.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/AppData/Local/tauri-cef/${{ steps.version.outputs.cef }}/cef_binary_*_windows64_minimal.tar.bz2
+            target/windows-tools
+          key: ${{ steps.cef.outputs.cache-primary-key }}
+
+      - name: Collect the installers and their checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $out = 'target/release/bundle/windows'
+          $files = @("GitBolt_${env:VERSION}_x64-setup.exe", "GitBolt_${env:VERSION}_x64.msi")
+          New-Item -ItemType Directory -Force dist-windows | Out-Null
+          foreach ($f in $files) {
+            if (-not (Test-Path "$out/$f")) { throw "Missing $f in $out: $((Get-ChildItem $out).Name -join ', ')" }
+            Copy-Item "$out/$f" dist-windows/
+          }
+          # sha256sum's format, so the release job checks and merges it with the Linux one.
+          $sums = foreach ($f in $files) { "{0}  {1}" -f (Get-FileHash -Algorithm SHA256 "dist-windows/$f").Hash.ToLower(), $f }
+          [IO.File]::WriteAllText("$PWD/dist-windows/SHA256SUMS", ($sums -join "`n") + "`n")
+          Get-Content dist-windows/SHA256SUMS
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitbolt-${{ steps.version.outputs.version }}-windows
+          path: dist-windows/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          overwrite: true
+
   release:
     name: Draft the GitHub release
-    needs: [plan, build]
+    needs: [plan, build, windows]
     if: needs.plan.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -319,10 +466,19 @@ jobs:
         with:
           name: gitbolt-${{ needs.build.outputs.version }}
           path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: gitbolt-${{ needs.build.outputs.version }}-windows
+          path: dist-windows
 
+      # Each job's checksums, then one SHA256SUMS for all the packages.
       - name: Verify SHA256SUMS
-        working-directory: dist
-        run: sha256sum -c SHA256SUMS
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          (cd dist-windows && sha256sum -c SHA256SUMS)
+          mv dist-windows/*.exe dist-windows/*.msi dist/
+          cat dist-windows/SHA256SUMS >> dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS && cat SHA256SUMS)
 
       # Artifact attestations need a public repository, or GitHub Enterprise Cloud for a private
       # one: while the repository is private this is skipped unless the GITBOLT_ATTEST variable is
@@ -334,6 +490,8 @@ jobs:
           subject-path: |
             dist/*.deb
             dist/*.pkg.tar.zst
+            dist/*.exe
+            dist/*.msi
 
       # Creates the draft, or on a re-run updates it and replaces its assets (--clobber). A
       # release that's already published is left alone: the run fails instead.
@@ -345,7 +503,7 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          assets=(dist/*.deb dist/*.pkg.tar.zst dist/SHA256SUMS)
+          assets=(dist/*.deb dist/*.pkg.tar.zst dist/*.exe dist/*.msi dist/SHA256SUMS)
           if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$draft" != true ]; then
               echo "::error::The release $TAG is already published; not replacing its assets."

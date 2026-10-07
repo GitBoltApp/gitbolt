@@ -13,7 +13,7 @@ import { guardTabClose, installLeaveGuard } from '../diff/workingCopy';
 import { createRepoViewStore, targetFor } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { draftKey, getDraft, pruneClosedTabs, pruneResolved, registerLive, reloadDraft, saveMerge, STORED_DRAFTS, storedDrafts, useMergeDrafts, type MergeDraft } from './mergeDrafts';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { wipKey } from '../repo/wipLists';
 
 const key = draftKey('t', '/r', 'a.txt');

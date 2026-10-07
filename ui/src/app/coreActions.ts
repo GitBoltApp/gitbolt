@@ -2,7 +2,7 @@ import { ArrowLeftToLine, ArrowRightToLine, Copy, CopyPlus, FileX, FolderOpen, F
 import { api, errorMessage } from '../api/client';
 import type { Profile } from '../api/gen/Profile';
 import { copyText, inTauri } from '../api/transport';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { activeRuntime, activeStore, activeTab, registerActions, type Action } from './actions';
 import { useAbout } from './About';
 import { useOpenUi } from '../open/openUi';

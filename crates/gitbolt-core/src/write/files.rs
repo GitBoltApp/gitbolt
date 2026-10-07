@@ -166,7 +166,7 @@ impl WriteIntent for WriteWorktreeFile {
         if !meta.file_type().is_file() {
             return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} isn't a regular file: edit it in your editor", self.path)));
         }
-        if std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o200 == 0 {
+        if crate::platform::fs::mode(&meta) & 0o200 == 0 {
             return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} is read-only: make it writable first", self.path)));
         }
         let bytes = std::fs::read(&file)?;
@@ -247,7 +247,7 @@ impl WriteIntent for CreateWorktreeFile {
     /// deepest first: the order Undo removes them in.
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
         crate::blob::check_relative(&self.path)?;
-        let root = pre.root.canonicalize()?;
+        let root = crate::platform::fs::canonicalize(pre.root)?;
         let parts: Vec<&str> = self.path.split('/').collect();
         let mut dir = root.clone();
         let mut made = Vec::new();
@@ -321,18 +321,18 @@ mod tests {
         assert_eq!(err.message, "This text can't be saved as ISO-8859-1");
     }
 
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn a_save_writes_atomically_keeps_the_mode_and_returns_the_new_hash() {
-        use std::os::unix::fs::PermissionsExt;
         let data = tempfile::tempdir().unwrap();
         let r = repo();
         r.write("run.sh", "#!/bin/sh\r\necho hi\r\n");
-        std::fs::set_permissions(r.path().join("run.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("run.sh"), 0o755).unwrap();
         let api = api(data.path());
         let id = open(&api, &r).await;
         let res = save(&api, id, &r, "run.sh", "#!/bin/sh\necho bye\n", &base(&r, "run.sh")).await.unwrap();
         assert_eq!(std::fs::read(r.path().join("run.sh")).unwrap(), b"#!/bin/sh\r\necho bye\r\n", "CRLF kept");
-        assert_eq!(std::fs::metadata(r.path().join("run.sh")).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(crate::platform::fs::mode(&std::fs::metadata(r.path().join("run.sh")).unwrap()) & 0o777, 0o755);
         assert_eq!(res["outcome"]["hash"], base(&r, "run.sh"));
         let unstaged: Vec<&str> = res["wip"]["unstaged"]["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect();
         assert_eq!(unstaged, ["run.sh"], "the response's lists refresh the panel (§7.5)");
@@ -464,6 +464,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(r.path().join("inner/x.txt")).unwrap(), "inner\n");
     }
 
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn a_symlink_or_a_binary_file_is_never_written() {
         let data = tempfile::tempdir().unwrap();
@@ -495,6 +496,7 @@ mod tests {
         assert_eq!(s.staging(), Staging::Keep);
     }
 
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn paths_outside_the_worktree_or_into_dot_git_are_refused() {
         let data = tempfile::tempdir().unwrap();
@@ -514,11 +516,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_read_only_or_missing_file_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
         let data = tempfile::tempdir().unwrap();
         let r = repo();
         let b = base(&r, "a.txt");
-        std::fs::set_permissions(r.path().join("a.txt"), std::fs::Permissions::from_mode(0o444)).unwrap();
+        crate::platform::fs::set_mode(r.path().join("a.txt"), 0o444).unwrap();
         let api = api(data.path());
         let id = open(&api, &r).await;
         let err = save(&api, id, &r, "a.txt", "x\n", &b).await.unwrap_err();
@@ -578,6 +579,7 @@ mod tests {
     }
 
     /// O.1: refused before anything is written or journaled.
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn create_refuses_existing_outside_and_git_paths() {
         let data = tempfile::tempdir().unwrap();

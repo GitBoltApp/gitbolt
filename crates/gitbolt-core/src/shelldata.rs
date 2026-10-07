@@ -533,7 +533,7 @@ const FIELDS: [&str; 16] = [
 ];
 
 fn canonical(p: &Path) -> std::path::PathBuf {
-    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+    crate::platform::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// The sidebar's branches, remotes, worktrees, stashes and tags (spec §6.4), for the repository at
@@ -1019,7 +1019,7 @@ mod tests {
         let repo = gix::ThreadSafeRepository::discover(&wt).unwrap();
         let workdir = repo.work_dir().unwrap().to_path_buf();
         let info = repo_info(&repo, &workdir).await.unwrap();
-        assert_eq!(info.main_worktree.as_deref(), Some(r.path().canonicalize().unwrap().display().to_string().as_str()));
+        assert_eq!(info.main_worktree.as_deref(), Some(crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string().as_str()));
     }
 
     #[tokio::test]

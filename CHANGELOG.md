@@ -7,6 +7,10 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ### Added
 
+- **Windows:** GitBolt builds, runs and installs on Windows 10 and 11: an NSIS installer (per user,
+  no administrator rights) and an MSI (per machine), both unsigned for now, so SmartScreen warns.
+  Chromium runs sandboxed, as on Linux. Editors and IDEs, File Explorer, Open with and the folder
+  picker use Windows' own.
 - **Reply and resolve** (or unresolve) beside Reply in a resolvable thread (Ctrl+Shift+Enter).
 - Software centre metadata in the Linux packages. A `.deb` opened in GNOME Software, Ubuntu's App
   Center or Discover now shows the homepage and a full description, and GNOME Software the MIT

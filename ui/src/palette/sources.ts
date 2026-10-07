@@ -7,7 +7,7 @@ import { activateTab, tabLabel } from '../app/tabs';
 import { SETTINGS, useSettingsUi } from '../settings/schema';
 import { checkoutLocal, checkoutRemote } from '../branches/checkout';
 import { openFileHistory } from '../history/open';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import type { PaletteEntry } from './search';
 
 export function actionEntries(): PaletteEntry[] {

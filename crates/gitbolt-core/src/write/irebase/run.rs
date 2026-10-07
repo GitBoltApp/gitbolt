@@ -539,7 +539,7 @@ impl WriteIntent for IrebaseIntent {
         // `--no-reschedule-failed-exec`: a message script that failed (a commit-msg hook) stops
         // the rebase once, and is never run again behind the user's back.
         args.extend(["rebase".to_string(), "-i".into(), "--empty=drop".into(), "--no-reschedule-failed-exec".into(), p.base.to_string()]);
-        let editor = format!("cp {}", sh_quote(&todo.display().to_string()));
+        let editor = format!("cp {}", sh_quote(&crate::platform::fs::to_git_path(&todo)));
         // The pause banner names the base short, as the label does.
         let mut failed = None;
         let out = run_rebase_stop(cx, args, short_ref(&self.base), Some(p.base), vec![("GIT_SEQUENCE_EDITOR".into(), editor.into())], &mut failed).await;

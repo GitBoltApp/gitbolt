@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import { useRuntime } from '../app/runtime';
 import * as confirm from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import * as active from '../worktrees/active';
 import { checkout, checkoutLabel, checkoutSideItem } from './checkout';
 import { useTabViews } from '../app/tabStores';

@@ -1,6 +1,6 @@
 import { copyAndSay as copy, openDebug } from '../app/activityLog';
 import { actionsFor, describeError, toGbError, type ErrorAction, type ErrorContext } from '../errors/describe';
-import { useToast, type ToastAction } from '../ui/toast';
+import { useToast, type ToastAction } from '../ui/toastStore';
 
 const CONTEXT_ACTIONS: ReadonlySet<ErrorAction['id']> = new Set(['retry', 'refresh', 'remove-recent', 'remove-lock']);
 

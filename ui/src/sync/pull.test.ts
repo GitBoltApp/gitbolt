@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import type { LocalBranch } from '../api/gen/LocalBranch';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { pull, pullRow, syncView } from './pull';
 
 const ask = vi.fn();

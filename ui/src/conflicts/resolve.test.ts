@@ -4,7 +4,7 @@ import { buildMenu } from '../menu/registry';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { markResolved, resolveFile } from './resolve';
 import './menus';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async () => true) }));
 

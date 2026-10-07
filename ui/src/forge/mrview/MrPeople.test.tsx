@@ -13,7 +13,7 @@ const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { clearPickerCache } = await import('../pickerCache');
 const { resetPeopleLimits } = await import('../peopleLimits');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { detailOf, mrOf, user } = await import('../testMrs');
 
 const ada = { ...user('Ada Lovelace'), id: 7 };

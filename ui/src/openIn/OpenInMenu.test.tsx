@@ -6,7 +6,7 @@ import { ContextMenu } from '../menu/ContextMenu';
 import { createRepoViewStore, RepoViewContext, type DiffTarget } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { TooltipHost } from '../ui/TooltipHost';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 const OPENERS: OpenerPayload[] = [
   { id: 'jetbrains-phpstorm', name: 'PhpStorm', kind: 'editor' },

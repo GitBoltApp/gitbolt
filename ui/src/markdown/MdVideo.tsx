@@ -4,7 +4,7 @@ import { api, errorMessage } from '../api/client';
 import { useRuntime } from '../app/runtime';
 import { openLightbox } from '../lightbox/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { openExternal } from './actions';
 import { allowImage, imageAllowed, resolveImage } from './images';
 import type { MdImageProps } from './types';

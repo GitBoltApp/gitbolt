@@ -25,7 +25,7 @@ import { fileViewTarget, useRepoView } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { registerKeys } from '../ui/keyRouter';
 import { isEditableTarget } from '../ui/keys';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { BlameLayer } from './BlameGutter';
 import { ChangesAtCommit } from './HistoryChanges';
 import { NO_BINARY_BLAME } from './HistoryButtons';

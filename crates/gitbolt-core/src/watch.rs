@@ -76,9 +76,10 @@ pub fn classify(path: &Path, common_dir: &Path, worktrees: &[WatchedWorktree]) -
     }
     let by_git_dir = |g: &Path| worktrees.iter().position(|w| w.git_dir == g);
     if let Ok(rel) = path.strip_prefix(common_dir) {
-        let rel = rel.to_string_lossy();
+        // `/`-separated, as git names them (Windows spells the path with `\`).
+        let rel = crate::platform::fs::to_git_path(rel);
         let c = |kind, worktree| Some(Classified { kind, worktree });
-        return match rel.as_ref() {
+        return match rel.as_str() {
             "HEAD" => c(ChangeKind::Head, by_git_dir(common_dir)),
             "index" => c(ChangeKind::Index, by_git_dir(common_dir)),
             "packed-refs" => c(ChangeKind::Refs, None),
@@ -418,6 +419,9 @@ struct Batch {
     topology: bool,
     /// Folders deleted or renamed away.
     gone: Vec<PathBuf>,
+    /// Paths removed that may have been folders (Windows doesn't say which): their watches, if
+    /// any, are dropped like `gone`'s, but nothing else changes.
+    vanished: Vec<PathBuf>,
     /// Roots whose HEAD or index changed: read at once, never throttled.
     urgent: BTreeSet<PathBuf>,
 }
@@ -439,7 +443,7 @@ struct LastRun {
 
 impl Batch {
     fn is_empty(&self) -> bool {
-        self.kinds.is_empty() && !self.overflow && !self.topology && self.gone.is_empty()
+        self.kinds.is_empty() && !self.overflow && !self.topology && self.gone.is_empty() && self.vanished.is_empty()
     }
 
     fn add(&mut self, ev: &notify::Event, spec: &WatchSpec) {
@@ -451,11 +455,22 @@ impl Batch {
         for (i, p) in ev.paths.iter().enumerate() {
             let gone = match ev.kind {
                 EventKind::Remove(RemoveKind::Folder) | EventKind::Modify(ModifyKind::Name(RenameMode::From)) => true,
+                // Windows can't tell a removed folder from a file; inotify always says which.
+                EventKind::Remove(RemoveKind::Any) => {
+                    self.vanished.push(p.clone());
+                    false
+                }
                 EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => i == 0,
                 _ => false,
             };
             if gone {
                 self.gone.push(p.clone());
+            }
+            // Windows reports a folder as modified when anything in it changes (its last-write
+            // time), even an ignored `target/` under a watched folder; inotify doesn't. The
+            // change itself, where it matters, comes as its own event.
+            if cfg!(windows) && matches!(ev.kind, EventKind::Modify(ModifyKind::Any | ModifyKind::Metadata(_))) && p.is_dir() {
+                continue;
             }
             if *p == linked || p.parent() == Some(linked.as_path()) {
                 self.topology = true;
@@ -474,7 +489,7 @@ impl Batch {
                     if c.kind == ChangeKind::Worktree
                         && let Ok(rel) = p.strip_prefix(root)
                     {
-                        self.touched.entry(root.clone()).or_default().insert(rel.to_string_lossy().into_owned());
+                        self.touched.entry(root.clone()).or_default().insert(crate::platform::fs::to_git_path(rel));
                     }
                 }
             }
@@ -643,8 +658,8 @@ fn watched_worktrees(list: &[Worktree]) -> Vec<WatchedWorktree> {
     list.iter()
         .filter(|w| !w.bare && !w.prunable && w.path.is_dir())
         .filter_map(|w| {
-            let git_dir = gix::open(&w.path).ok()?.git_dir().canonicalize().ok()?;
-            Some(WatchedWorktree { root: w.path.canonicalize().ok()?, git_dir })
+            let git_dir = crate::platform::fs::canonicalize(gix::open(&w.path).ok()?.git_dir()).ok()?;
+            Some(WatchedWorktree { root: crate::platform::fs::canonicalize(&w.path).ok()?, git_dir })
         })
         .collect()
 }
@@ -796,7 +811,7 @@ impl Loop {
 
     /// The worktree the tab shows (the last graph's `active`, else the one opened).
     fn active(&self) -> PathBuf {
-        self.wip.active().unwrap_or_else(|| self.spec.workdir.canonicalize().unwrap_or_else(|_| self.spec.workdir.clone()))
+        self.wip.active().unwrap_or_else(|| crate::platform::fs::canonicalize(&self.spec.workdir).unwrap_or_else(|_| self.spec.workdir.clone()))
     }
 
     /// Whether `root`'s same files alone keep changing: its last run was for the same paths as
@@ -899,7 +914,7 @@ impl Loop {
 
     async fn handle(&mut self, batch: Batch) {
         let rebased = self.take_absorbed();
-        for g in &batch.gone {
+        for g in batch.gone.iter().chain(&batch.vanished) {
             self.watches.forget(g);
         }
         let mut kinds = batch.kinds;
@@ -1170,7 +1185,7 @@ impl Api {
         let list = list_worktrees(&h.workdir).await?;
         let (repo, workdir) = (h.repo.clone(), h.workdir.clone());
         tokio::task::spawn_blocking(move || {
-            let common_dir = repo.to_thread_local().common_dir().canonicalize()?;
+            let common_dir = crate::platform::fs::canonicalize(repo.to_thread_local().common_dir())?;
             Ok(WatchSpec { repo: id, handle: repo, workdir, common_dir, worktrees: watched_worktrees(&list) })
         })
         .await
@@ -1308,7 +1323,7 @@ mod tests {
         r.git(&["add", "."]);
         r.git(&["commit", "-q", "-m", "c"]);
         std::fs::create_dir_all(r.path().join("node_modules/pkg")).unwrap();
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let common = root.join(".git");
         let p = plan(&common, &[WatchedWorktree { root: root.clone(), git_dir: common.clone() }]);
         assert!(p.flat.contains(&root) && p.flat.contains(&root.join("src")) && p.flat.contains(&root.join("src/deep")));
@@ -1351,7 +1366,7 @@ mod tests {
     }
 
     fn canonical(p: &Path) -> String {
-        p.canonicalize().unwrap().display().to_string()
+        crate::platform::fs::canonicalize(p).unwrap().display().to_string()
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1653,7 +1668,7 @@ mod tests {
         let hold = with_watcher(&api, id, |w| w.hold());
         r.write("new.txt", "x\n");
         r.git(&["update-ref", "refs/heads/x", &c]);
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let lists = read_and_keep_lists(&h.repo, &api.cli, &h.wip, &root).await.unwrap();
         hold.absorb(root, lists.digest);
         hold.absorb_git();
@@ -1669,7 +1684,7 @@ mod tests {
         let h = api.handle(id).unwrap();
         let hold = with_watcher(&api, id, |w| w.hold());
         r.write("mine.txt", "x\n");
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let lists = read_and_keep_lists(&h.repo, &api.cli, &h.wip, &root).await.unwrap();
         hold.absorb(root, lists.digest);
         hold.absorb_git();
@@ -1736,8 +1751,8 @@ mod tests {
     fn the_git_snapshot_tells_which_kinds_changed() {
         let r = TestRepo::new();
         fixtures::basic(&r);
-        let common = r.path().join(".git").canonicalize().unwrap();
-        let wts = [WatchedWorktree { root: r.path().canonicalize().unwrap(), git_dir: common.clone() }];
+        let common = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+        let wts = [WatchedWorktree { root: crate::platform::fs::canonicalize(r.path()).unwrap(), git_dir: common.clone() }];
         let snap = || git_state(&common, &wts);
         let mut before = snap();
         assert!(changed_kinds(&before, &snap()).is_empty(), "stable");
@@ -1773,8 +1788,8 @@ mod tests {
     async fn past_the_flat_cap_the_watch_is_degraded_not_recursive() {
         let r = TestRepo::new();
         fixtures::basic(&r);
-        let common = r.path().join(".git").canonicalize().unwrap();
-        let root = r.path().canonicalize().unwrap();
+        let common = crate::platform::fs::canonicalize(r.path().join(".git")).unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let p = plan_capped(&common, &[WatchedWorktree { root: root.clone(), git_dir: common.clone() }], 3);
         assert!(p.truncated && p.flat.len() == 3);
         assert_eq!(p.recursive, BTreeSet::from([common.join("refs")]));
@@ -1801,8 +1816,16 @@ mod tests {
         assert!(kinds.contains(&ChangeKind::Head), "{kinds:?} {wts:?}");
         assert!(api.status_is_watched(id));
         std::fs::write(added.join("in-added.txt"), "x\n").unwrap();
-        // An inactive worktree, read less than `INACTIVE_INTERVAL` ago (when it was added).
-        let (_, wts) = next_change(&mut rx, INACTIVE_INTERVAL + Duration::from_secs(2)).await.expect("an event");
+        // An inactive worktree, read less than `INACTIVE_INTERVAL` ago (when it was added). A late
+        // event of the `worktree add` itself (no worktree: Windows reports some later) may come first.
+        let deadline = tokio::time::Instant::now() + INACTIVE_INTERVAL + Duration::from_secs(2);
+        let wts = loop {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let (_, wts) = next_change(&mut rx, left).await.expect("an event");
+            if !wts.is_empty() {
+                break wts;
+            }
+        };
         assert_eq!(wts, vec![want]);
     }
 
@@ -2032,7 +2055,7 @@ mod tests {
         let (api, id, mut rx) = watched(&r).await;
         let index = index_state(&r);
         let wt = canonical(r.path());
-        let f = std::fs::File::open(r.path().join("file_0.txt")).unwrap();
+        let f = std::fs::File::options().write(true).open(r.path().join("file_0.txt")).unwrap();
         f.set_modified(f.metadata().unwrap().modified().unwrap() + Duration::from_secs(120)).unwrap();
         r.write("other.txt", "x\n"); // a real change, so a refresh certainly runs
         change_naming(&mut rx, &wt).await;
@@ -2216,14 +2239,14 @@ mod tests {
                 s => s.to_string(),
             }
         };
-        let cwd = cwd.map(|c| c.canonicalize().unwrap());
+        let cwd = cwd.map(|c| crate::platform::fs::canonicalize(c).unwrap());
         api.cli
             .log()
             .entries()
             .iter()
             .filter(|e| e.id > mark)
             .filter(|e| name(&e.args) == sub)
-            .filter(|e| cwd.as_ref().is_none_or(|c| Path::new(&e.cwd).canonicalize().is_ok_and(|p| p == *c)))
+            .filter(|e| cwd.as_ref().is_none_or(|c| crate::platform::fs::canonicalize(Path::new(&e.cwd)).is_ok_and(|p| p == *c)))
             .count()
     }
 
@@ -2236,6 +2259,7 @@ mod tests {
     }
 
     /// What the UI asks after a `repoChanged`: the graph, and (refs, HEAD) the sidebar at once.
+    #[cfg(unix)] // helper of Unix-only tests
     async fn ui_refresh(api: &Api, id: u32, side: bool) {
         let graph = call(api, serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}));
         if side {
@@ -2248,6 +2272,7 @@ mod tests {
 
     /// One save: one status, one pair of numstats for the lists, and the graph the UI reloads
     /// then runs no git process at all.
+    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
     #[tokio::test(flavor = "multi_thread")]
     async fn a_single_save_runs_one_status_and_the_graph_reload_none() {
         let r = TestRepo::new();
@@ -2322,6 +2347,7 @@ mod tests {
     /// A worktree the tab doesn't show (an agent editing and building in a linked worktree):
     /// its status runs at most every `INACTIVE_INTERVAL` while its events keep coming, once more
     /// when they stop, and no WIP lists (numstat) are computed for it, only its counts.
+    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
     #[tokio::test(flavor = "multi_thread")]
     async fn a_busy_inactive_worktree_is_throttled_and_gets_counts_only() {
         let r = TestRepo::new();
@@ -2412,6 +2438,7 @@ mod tests {
     }
 
     /// The UI reads both lists of a WIP row at once: one status and one pair of numstats.
+    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
     #[tokio::test(flavor = "multi_thread")]
     async fn concurrent_reads_of_a_worktrees_lists_share_one_computation() {
         let r = TestRepo::new();
@@ -2425,6 +2452,7 @@ mod tests {
     }
 
     /// A fetch moves refs only: no status and no lists.
+    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
     #[tokio::test(flavor = "multi_thread")]
     async fn a_refs_only_change_runs_no_status() {
         let r = TestRepo::new();

@@ -1,6 +1,6 @@
 import { activeTab } from '../../app/actions';
 import { useRuntime } from '../../app/runtime';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { writeCtx } from '../../write/ctx';
 import { mrNoun, mrRef } from '../labels';
 import { firstAfterMerge } from './chain';

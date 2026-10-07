@@ -1,7 +1,7 @@
 import { tabStore } from '../app/tabStores';
 import { recordPlace } from '../nav/history';
 import { openCenterView } from '../repo/centerView';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { writeCtx } from '../write/ctx';
 import type { FileHistoryArgs } from './model';
 

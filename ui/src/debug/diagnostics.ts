@@ -1,7 +1,7 @@
 import { api } from '../api/client';
 import { copyText } from '../api/transport';
 import { useAppState } from '../app/state';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 
 /** The Debug modal's Copy diagnostics (spec §16.2): the backend writes the text (versions, OS,
  * git, the settings with secrets scrubbed and `$HOME` as `~`, R24) from what only the UI knows. */

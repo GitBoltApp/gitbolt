@@ -1,6 +1,7 @@
 //! The process-wide Linux desktop setup GitBolt needs before GTK starts: how the window is named
 //! to the desktop (dock icon, H13) and how the input method hands keys to the embedded browser
-//! (Ctrl+C, zoom and the other chords, H19/H2).
+//! (Ctrl+C, zoom and the other chords, H19/H2). Elsewhere (Windows) most of it is unused.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::ffi::OsString;
 use std::process::Command;
@@ -146,7 +147,9 @@ mod tests {
     #[test]
     fn the_program_name_is_the_binary_the_desktop_entries_name() {
         // The packages' entry says `StartupWMClass=<binary name>`; so does `just install-desktop`.
-        assert_eq!(PROGRAM_NAME, env!("CARGO_BIN_NAME"));
+        // (The app is a library; the binary is the `[[bin]]` in Cargo.toml.)
+        let manifest = include_str!("../Cargo.toml");
+        assert!(manifest.contains(&format!("[[bin]]\nname = \"{PROGRAM_NAME}\"")), "the [[bin]] name");
         let template = include_str!("../linux/GitBolt.desktop.hbs");
         assert!(template.contains("\nStartupWMClass={{exec}}\n"), "the packages' entry");
         let justfile = include_str!("../../../justfile");

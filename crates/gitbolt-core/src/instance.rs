@@ -22,12 +22,16 @@
 //! The socket is distinct from the askpass one (`gitbolt-askpass-<pid>-<rand>.sock`), and the
 //! check runs after `askpass::run_client_from_env` in `main`, so git running GitBolt as its
 //! askpass never reaches it.
+//!
+//! Windows: the "socket" is the named pipe `\\.\pipe\gitbolt-instance-<key>.sock`, private to
+//! this user (see [`crate::platform::ipc`]); the lock is a `LockFileEx` lock on the same file.
+//! A pipe goes away with its last handle, so a crash leaves nothing stale behind.
 
+use crate::platform::ipc;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{BufRead, Write};
-use std::os::unix::net::{UnixListener as StdListener, UnixStream as StdStream};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -71,23 +75,26 @@ pub enum Claim {
 pub struct Primary {
     _lock: File,
     socket: PathBuf,
-    listener: Mutex<Option<StdListener>>,
+    listener: Mutex<Option<ipc::Listener>>,
     accept: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 /// `<dir>/gitbolt-instance-<key>.lock` and `.sock`, `<key>` the 64-bit FNV-1a hash of
 /// `config_dir`'s components (so `a//b/` and `a/b` are one key) as 16 hex digits. Not a
-/// security boundary (the runtime dir is this user's, `0700`): only a short, stable name.
+/// security boundary (the runtime dir is this user's, `0700`): only a short, stable name. On
+/// Windows, whose paths are case-insensitive, ASCII case doesn't change the key either, and the
+/// `.sock` is a pipe name ([`ipc::endpoint`]).
 pub fn instance_paths(runtime_dir: &Path, config_dir: &Path) -> (PathBuf, PathBuf) {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for comp in config_dir.components() {
         for b in comp.as_os_str().as_encoded_bytes().iter().chain(b"/") {
-            hash ^= u64::from(*b);
+            let b = if cfg!(windows) { b.to_ascii_lowercase() } else { *b };
+            hash ^= u64::from(b);
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
     }
     let stem = format!("gitbolt-instance-{hash:016x}");
-    (runtime_dir.join(format!("{stem}.lock")), runtime_dir.join(format!("{stem}.sock")))
+    (runtime_dir.join(format!("{stem}.lock")), ipc::endpoint(runtime_dir, &format!("{stem}.sock")))
 }
 
 /// [`claim`] for this process: the guard is off when [`ENV_MULTI`] is set; otherwise it's keyed
@@ -130,7 +137,7 @@ fn claim_within(runtime_dir: &Path, config_dir: &Path, launch: Option<&str>, pat
             Err(std::fs::TryLockError::WouldBlock) => {}
             Err(std::fs::TryLockError::Error(e)) => return Claim::Unguarded(Some(format!("can't lock {}: {e}", lock_path.display()))),
         }
-        if let Ok(stream) = StdStream::connect(&socket) {
+        if let Ok(stream) = ipc::connect(&socket) {
             forward(stream, &OpenRequest { path: path.clone() });
             return Claim::Forwarded;
         }
@@ -142,20 +149,14 @@ fn claim_within(runtime_dir: &Path, config_dir: &Path, launch: Option<&str>, pat
 }
 
 fn open_lock(path: &Path) -> std::io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
     std::fs::create_dir_all(path.parent().unwrap_or(Path::new("/")))?;
-    std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(path)
+    crate::platform::fs::private_file(std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)).open(path)
 }
 
 /// With the lock held, any socket file there is a dead instance's: replace it with ours.
 fn become_primary(lock: File, socket: PathBuf) -> Claim {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::remove_file(&socket);
-    let bound = StdListener::bind(&socket).and_then(|l| {
-        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
-        Ok(l)
-    });
-    match bound {
+    ipc::remove(&socket);
+    match ipc::Listener::bind(&socket) {
         Ok(listener) => Claim::Primary(Primary { _lock: lock, socket, listener: Mutex::new(Some(listener)), accept: Mutex::new(None) }),
         Err(e) => Claim::Unguarded(Some(format!("can't listen on {}: {e}", socket.display()))),
     }
@@ -163,14 +164,12 @@ fn become_primary(lock: File, socket: PathBuf) -> Claim {
 
 /// Sends the request and waits (briefly) for the acknowledgement. Errors are ignored: the
 /// request is queued in the socket once written, and a dead peer can't be helped either way.
-fn forward(mut stream: StdStream, req: &OpenRequest) {
-    let mut send = || -> std::io::Result<()> {
+fn forward(mut stream: ipc::Client, req: &OpenRequest) {
+    let send = || -> std::io::Result<()> {
         let mut line = serde_json::to_string(req)?;
         line.push('\n');
         stream.write_all(line.as_bytes())?;
-        stream.set_read_timeout(Some(ACK_WAIT))?;
-        let mut ack = String::new();
-        std::io::BufReader::new(&stream).read_line(&mut ack)?;
+        stream.read_line_within(Some(ACK_WAIT))?;
         Ok(())
     };
     if let Err(e) = send() {
@@ -191,9 +190,7 @@ impl Primary {
         let Some(listener) = self.listener.lock().unwrap_or_else(|e| e.into_inner()).take() else {
             return Err(std::io::Error::other("already serving"));
         };
-        listener.set_nonblocking(true)?;
-        let listener = tokio::net::UnixListener::from_std(listener)?;
-        let own = nix::unistd::geteuid().as_raw();
+        let mut listener = listener.into_async()?;
         let on_request = std::sync::Arc::new(on_request);
         let task = tokio::spawn(async move {
             // EMFILE and friends: back off (100 ms, doubling up to 5 s) rather than spin or flood
@@ -201,7 +198,7 @@ impl Primary {
             let mut backoff = ACCEPT_BACKOFF_MIN;
             loop {
                 let stream = match listener.accept().await {
-                    Ok((stream, _)) => {
+                    Ok(stream) => {
                         backoff = ACCEPT_BACKOFF_MIN;
                         stream
                     }
@@ -214,7 +211,7 @@ impl Primary {
                 };
                 let on_request = on_request.clone();
                 tokio::spawn(async move {
-                    if stream.peer_cred().ok().map(|c| c.uid()) != Some(own) {
+                    if !stream.from_this_user() {
                         tracing::warn!("instance socket: refused a connection from another user");
                         return;
                     }
@@ -245,7 +242,7 @@ impl Primary {
             task.abort();
         }
         self.listener.lock().unwrap_or_else(|e| e.into_inner()).take();
-        let _ = std::fs::remove_file(&self.socket);
+        ipc::remove(&self.socket);
     }
 }
 
@@ -258,7 +255,6 @@ impl Drop for Primary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     use tokio::sync::mpsc;
 
     fn primary(c: Claim) -> Primary {
@@ -284,6 +280,11 @@ mod tests {
         tokio::task::spawn_blocking(move || claim(&rt, &cfg, launch.as_deref())).await.unwrap()
     }
 
+    /// An absolute launch path as the platform spells it (`/x` on Unix, `C:\x` on Windows).
+    fn abs(p: &str) -> String {
+        std::path::absolute(p).unwrap().to_string_lossy().into_owned()
+    }
+
     async fn recv(rx: &mut mpsc::UnboundedReceiver<Option<String>>) -> Option<String> {
         tokio::time::timeout(Duration::from_secs(10), rx.recv()).await.expect("a forwarded request").expect("channel open")
     }
@@ -293,10 +294,13 @@ mod tests {
         let rt = tempfile::tempdir().unwrap();
         let cfg = rt.path().join("config/gitbolt");
         let first = primary(claim_async(rt.path(), &cfg, None).await);
-        assert_eq!(std::fs::metadata(first.socket_path()).unwrap().permissions().mode() & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            assert_eq!(crate::platform::fs::mode(&std::fs::metadata(first.socket_path()).unwrap()) & 0o777, 0o600);
+        }
         let mut got = collect(&first);
-        assert!(matches!(claim_async(rt.path(), &cfg, Some("/some/repo")).await, Claim::Forwarded));
-        assert_eq!(recv(&mut got).await.as_deref(), Some("/some/repo"));
+        assert!(matches!(claim_async(rt.path(), &cfg, Some(&abs("/some/repo"))).await, Claim::Forwarded));
+        assert_eq!(recv(&mut got).await.as_deref(), Some(abs("/some/repo").as_str()));
         assert!(matches!(claim_async(rt.path(), &cfg, None).await, Claim::Forwarded), "a pathless launch only focuses");
         assert_eq!(recv(&mut got).await, None);
     }
@@ -309,7 +313,8 @@ mod tests {
         let mut got = collect(&first);
         assert!(matches!(claim_async(rt.path(), &cfg, Some("rel/repo")).await, Claim::Forwarded));
         let want = std::env::current_dir().unwrap().join("rel/repo");
-        assert_eq!(recv(&mut got).await.as_deref(), Some(want.to_str().unwrap()));
+        // As paths: Windows spells it with `\`.
+        assert_eq!(recv(&mut got).await.as_deref().map(Path::new), Some(want.as_path()));
     }
 
     #[tokio::test]
@@ -318,18 +323,20 @@ mod tests {
         let cfg = rt.path().join("cfg");
         let first = primary(claim_async(rt.path(), &cfg, None).await);
         // The first instance is still starting (no `serve` yet): the request queues in the socket.
-        assert!(matches!(claim_async(rt.path(), &cfg, Some("/early")).await, Claim::Forwarded));
+        assert!(matches!(claim_async(rt.path(), &cfg, Some(&abs("/early"))).await, Claim::Forwarded));
         let mut got = collect(&first);
-        assert_eq!(recv(&mut got).await.as_deref(), Some("/early"));
+        assert_eq!(recv(&mut got).await.as_deref(), Some(abs("/early").as_str()));
     }
 
+    /// Unix only: a crashed instance's pipe goes with it on Windows; nothing stale is left.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_stale_socket_from_a_crashed_instance_is_taken_over() {
         let rt = tempfile::tempdir().unwrap();
         let cfg = rt.path().join("cfg");
         let (_, socket) = instance_paths(rt.path(), &cfg);
         // A crash leaves the socket file (nobody listening) and frees the lock.
-        drop(StdListener::bind(&socket).unwrap());
+        drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
         assert!(socket.exists());
         let first = primary(claim_async(rt.path(), &cfg, None).await);
         let mut got = collect(&first);
@@ -364,7 +371,18 @@ mod tests {
         assert_ne!(instance_paths(rt, Path::new("/tmp/x/gitbolt")).1, sock);
         let name = sock.file_name().unwrap().to_str().unwrap();
         assert!(name.starts_with("gitbolt-instance-") && name.ends_with(".sock") && !name.contains("askpass"), "{name}");
+        assert_eq!(lock.file_name().unwrap().to_str().unwrap(), name.replace(".sock", ".lock"));
+        #[cfg(unix)]
         assert_eq!(lock.with_extension("sock"), sock);
+    }
+
+    /// Windows paths are case-insensitive: so is the key there.
+    #[cfg(windows)]
+    #[test]
+    fn the_key_ignores_case_on_windows() {
+        let rt = Path::new(r"C:\Users\u\AppData\Local\Temp\gitbolt-u");
+        assert_eq!(instance_paths(rt, Path::new(r"C:\Users\U\AppData\Roaming\gitbolt")), instance_paths(rt, Path::new(r"c:\users\u\appdata\roaming\GitBolt")));
+        assert_eq!(instance_paths(rt, Path::new(r"C:\Users\U\AppData\Roaming\gitbolt")), instance_paths(rt, Path::new("C:/Users/U/AppData/Roaming/gitbolt/")));
     }
 
     #[test]
@@ -390,6 +408,8 @@ mod tests {
         assert!(matches!(claim_within(rt.path(), &cfg, None, Duration::from_millis(200)), Claim::Unguarded(Some(_))));
     }
 
+    /// Unix only: a named pipe can't be deleted from under its server.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_serving_instance_whose_socket_was_deleted_leaves_later_launches_unguarded() {
         let rt = tempfile::tempdir().unwrap();

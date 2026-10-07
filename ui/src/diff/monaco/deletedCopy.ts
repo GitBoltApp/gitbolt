@@ -1,6 +1,6 @@
 import type * as MonacoNs from 'monaco-editor/editor/editor.api';
 import { copyText } from '../../api/transport';
-import { useToast } from '../../ui/toast';
+import { useToast } from '../../ui/toastStore';
 import { monaco } from './setup';
 
 const squash = (s: string) => s.replace(/\s+/g, '');

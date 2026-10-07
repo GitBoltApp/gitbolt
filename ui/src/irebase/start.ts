@@ -3,7 +3,7 @@ import { toGbError } from '../errors/describe';
 import { centerViewOf, closeCenterView, openCenterView } from '../repo/centerView';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runWrite } from '../write/client';
 import { toastRebaseOutcome } from './outcome';
 import { dirty, problems, reload, toRequest } from './model';

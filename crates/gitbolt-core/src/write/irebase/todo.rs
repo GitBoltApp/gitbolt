@@ -86,7 +86,7 @@ fn reword_script(oid: &str, guard: &str, msg: &Path) -> String {
         "#!/bin/sh\n# GitBolt: the new message of {short} (interactive rebase)\n[ \"$(git log -1 --no-show-signature --format='%ae %at %s')\" = {guard} ] || exit 0\nexec git commit -q --amend --only --allow-empty -F {msg}\n",
         short = short(oid),
         guard = sh_quote(guard),
-        msg = sh_quote(&msg.display().to_string()),
+        msg = sh_quote(&crate::platform::fs::to_git_path(msg)),
     )
 }
 
@@ -239,7 +239,7 @@ pub(crate) fn build(plan: &TodoPlan) -> Result<Todo, GbError> {
             } else {
                 let script = plan.dir.join(format!("{n}.sh"));
                 files.push((script.clone(), reword_script(&t.oid, &t.guard, &msg)));
-                text.push_str(&format!("exec sh {}\n", sh_quote(&script.display().to_string())));
+                text.push_str(&format!("exec sh {}\n", sh_quote(&crate::platform::fs::to_git_path(&script))));
             }
         }
         refs_at(&at, Some(k), &mut text, &mut update_refs);

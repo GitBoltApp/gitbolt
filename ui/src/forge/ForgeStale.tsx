@@ -3,7 +3,9 @@ import { relativeTime } from '../format/relative';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useTabForge, type TabForge } from './mrStore';
 
-const hhmm = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// Without a trailing full stop, which some locales' "a.m." has, so a sentence ending in one gets
+// just the one.
+const hhmm = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).replace(/\.$/, '');
 
 /** "Couldn't refresh: <reason>. Last updated 2 minutes ago" (spec #4 §6: stale data stays,
  * with a note), "Rate limited until 14:05. …" while the account's budget is spent, or "Updated

@@ -16,7 +16,7 @@ vi.mock('../../app/tabStores', async (importOriginal) => ({
 const { compareMr } = await import('./compare');
 const { patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { detailOf, mrOf } = await import('../testMrs');
 
 const BASE = 'b'.repeat(40);

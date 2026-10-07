@@ -16,8 +16,8 @@ use crate::error::GbError;
 use crate::events::OpKind;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use crate::platform::fs::{private_file, FileId};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -420,10 +420,7 @@ impl Owner {
     /// Whether the instance still runs: its owner file is still locked.
     pub fn alive(&self, data_dir: &Path) -> bool {
         let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(self.file(data_dir)) else { return false };
-        match nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock) {
-            Ok(_free) => false,
-            Err((_, e)) => e == nix::errno::Errno::EWOULDBLOCK,
-        }
+        matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
     }
 }
 
@@ -432,10 +429,11 @@ fn process_start() -> u64 {
     std::fs::read_to_string("/proc/self/stat").ok().and_then(|s| s.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().nth(19)?.parse().ok())).unwrap_or(0)
 }
 
-/// An instance's owner `flock`, held for the `Api`'s life.
+/// An instance's owner `flock` (`LockFileEx` on Windows), held for the `Api`'s life: the file,
+/// locked, released when it closes.
 pub struct OwnerLock {
     pub owner: Owner,
-    _lock: nix::fcntl::Flock<std::fs::File>,
+    _lock: std::fs::File,
 }
 
 impl OwnerLock {
@@ -452,11 +450,10 @@ impl OwnerLock {
         // instance would look dead (2A final M3). Locked, the path must still be our file.
         let path = owner.file(data_dir);
         loop {
-            let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(&path)?;
-            let lock = nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock).map_err(|(_, e)| GbError::from(std::io::Error::from(e)))?;
-            use std::os::unix::fs::MetadataExt;
-            let (ours, there) = (lock.metadata()?, std::fs::metadata(&path));
-            if there.is_ok_and(|t| (t.dev(), t.ino()) == (ours.dev(), ours.ino())) {
+            let lock = private_file(std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)).open(&path)?;
+            lock.try_lock().map_err(|e| GbError::from(std::io::Error::from(e)))?;
+            let (ours, there) = (FileId::of(&lock)?, FileId::of_path(&path));
+            if there.is_ok_and(|t| t == ours) {
                 return Ok(Self { owner, _lock: lock });
             }
         }
@@ -468,9 +465,9 @@ impl OwnerLock {
         for e in entries.flatten() {
             let p = e.path();
             let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&p) else { continue };
-            if let Ok(free) = nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock) {
+            if file.try_lock().is_ok() {
                 let _ = std::fs::remove_file(&p);
-                drop(free);
+                drop(file);
             }
         }
     }
@@ -1014,15 +1011,14 @@ impl JournalStore {
     }
 
     /// The 0700 directories, then an exclusive `flock` on `<hash>.lock` (Deviation 5).
-    fn locked(&self) -> Result<nix::fcntl::Flock<std::fs::File>, GbError> {
+    fn locked(&self) -> Result<std::fs::File, GbError> {
         let data = self.dir.parent().ok_or_else(|| GbError::other("journal dir has no parent"))?;
         if let Some(parent) = data.parent() {
             std::fs::create_dir_all(parent)?;
         }
         crate::paths::private_dir(data)?;
         crate::paths::private_dir(&self.dir)?;
-        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).open(&self.lock)?;
-        nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive).map_err(|(_, e)| GbError::from(std::io::Error::from(e)))
+        lock_exclusive(&self.lock)
     }
 
     /// Missing: empty. Corrupt or from a newer GitBolt: set aside (renamed, never overwritten),
@@ -1104,6 +1100,14 @@ fn migrate_v1(v: &mut serde_json::Value) {
     }
 }
 
+/// `path` opened (created 0600) under an exclusive `flock` (`LockFileEx` on Windows), waiting
+/// for it; closing the file releases it.
+pub(crate) fn lock_exclusive(path: &Path) -> Result<std::fs::File, GbError> {
+    let file = private_file(std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)).open(path)?;
+    file.lock()?;
+    Ok(file)
+}
+
 /// Temp file (0600) + fsync + rename + directory fsync.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), GbError> {
     static SEQ: AtomicU32 = AtomicU32::new(0);
@@ -1111,23 +1115,23 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), GbError> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = dir.join(format!(".{name}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
     let written = (|| -> std::io::Result<()> {
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        let mut f = private_file(std::fs::OpenOptions::new().write(true).create_new(true)).open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
+        drop(f);
         std::fs::rename(&tmp, path)
     })();
     if let Err(e) = written {
         let _ = std::fs::remove_file(&tmp);
         return Err(e.into());
     }
-    std::fs::File::open(dir)?.sync_all()?;
+    crate::platform::fs::sync_dir(dir)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn store(data: &Path) -> JournalStore {
         JournalStore::new(data, Path::new("/r/.git"), Path::new("/r"))
@@ -1156,9 +1160,12 @@ mod tests {
         let want = format!("{}.json", &JournalStore::hex(&sha2::Sha256::digest(b"/r/.git"))[..16]);
         assert_eq!(s.path(), data.path().join("journal").join(want));
         s.update(|j| record(j, "commit \"x\"", 1)).unwrap();
-        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&data.path().join("journal")), 0o700);
-        assert_eq!(mode(s.path()), 0o600);
+        if cfg!(unix) {
+            // (Windows: private by the profile's ACL.)
+            let mode = |p: &Path| crate::platform::fs::mode(&std::fs::metadata(p).unwrap()) & 0o777;
+            assert_eq!(mode(&data.path().join("journal")), 0o700);
+            assert_eq!(mode(s.path()), 0o600);
+        }
         let other = JournalStore::new(data.path(), Path::new("/r/.git/worktrees/wt"), Path::new("/wt"));
         assert_ne!(other.path(), s.path(), "a linked worktree has its own journal");
     }

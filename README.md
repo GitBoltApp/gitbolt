@@ -20,15 +20,30 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 
 ![GitBolt: the commit graph with four repository tabs and a selected commit's details](docs/images/screenshot.webp)
 
-> **Status:** early (0.x). Usable day to day on Linux, but expect rough edges.
+> **Status:** early (0.x). Usable day to day on Linux and Windows, but expect rough edges.
 
 ## Platforms
 
 | Platform | Status |
 |---|---|
 | Linux | Supported: `.deb` and Arch Linux packages |
-| Windows | Planned |
+| Windows | Supported (10 and 11): an installer (per user) and an MSI (per machine) |
 | macOS | Planned |
+
+## Installing
+
+Download the package for your system from the
+[latest release](https://github.com/GitBoltApp/gitbolt/releases/latest):
+
+- **Debian and Ubuntu:** `sudo apt install ./GitBolt_<version>_amd64.deb`
+- **Arch Linux:** `sudo pacman -U GitBolt-<version>-x86_64.pkg.tar.zst`
+- **Windows:** run `GitBolt_<version>_x64-setup.exe` (installs for you, no administrator rights)
+  or `GitBolt_<version>_x64.msi` (installs for all users). They aren't code-signed yet, so
+  Windows SmartScreen warns the first time: **More info** › **Run anyway**.
+
+GitBolt needs Git 2.40 or newer on your `PATH` (on Windows,
+[Git for Windows](https://gitforwindows.org/)). `SHA256SUMS` in each release lists the files'
+checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 
 ## Features
 
@@ -94,12 +109,12 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 | AI commit messages and summaries | ✅ | ❌ |
 | Issue trackers (Jira, Trello, …) | ✅ | ❌ |
 | Cloud workspaces and team features | ✅ | ❌ |
-| Windows and macOS | ✅ | ❌ Planned |
+| Windows and macOS | ✅ | 🟡 Windows; macOS planned |
 | License | Proprietary; free for local and public repos | MIT |
 
 ### What GitBolt doesn't do
 
-- **Planned:** Windows and macOS builds, Forgejo, and adding inline review comments.
+- **Planned:** macOS builds, Forgejo, and adding inline review comments.
 - **Not there yet:** Git LFS, Git Flow, submodule commands, and hiding or soloing branches.
 - **Not planned:** an integrated terminal, AI features, issue tracker integrations, and Bitbucket,
   Azure DevOps or GitHub Enterprise Server support. Use the tools you already have for those.
@@ -119,6 +134,7 @@ Then:
 cd ui && npm ci && cd ..
 just dev          # run in development mode
 just package      # build the .deb (and `just package-arch` for Arch Linux)
+just package-windows  # on Windows: the installer and the MSI (see docs/dev-setup.md)
 just test         # Rust and UI unit tests
 just e2e          # end-to-end tests (Playwright)
 ```

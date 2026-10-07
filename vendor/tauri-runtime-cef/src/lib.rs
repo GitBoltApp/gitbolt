@@ -32,6 +32,8 @@ mod runtime;
 // `SandboxPolicy` itself is public API and lives in `runtime`; this module holds the
 // decision behind it.
 mod sandbox;
+#[cfg(windows)]
+pub use sandbox::set_windows_sandbox_info;
 /// Helpers for the Chromium command line the runtime hands to CEF.
 mod switches;
 mod tauri_ext;

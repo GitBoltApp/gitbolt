@@ -108,12 +108,12 @@ fn is_log(name: &str) -> bool {
 
 impl RollingFile {
     fn new(dir: &Path, max_file: u64, total_cap: u64) -> std::io::Result<Self> {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        use crate::platform::fs as pfs;
+        pfs::private_dir_builder(std::fs::DirBuilder::new().recursive(true)).create(dir)?;
+        pfs::set_mode(dir, 0o700)?;
         for e in std::fs::read_dir(dir)?.flatten() {
             if is_log(&e.file_name().to_string_lossy()) {
-                let _ = std::fs::set_permissions(e.path(), std::fs::Permissions::from_mode(0o600));
+                let _ = pfs::set_mode(e.path(), 0o600);
             }
         }
         let mut me = Self { dir: dir.to_path_buf(), max_file, total_cap, day: today(), seq: 0, file: None, written: 0 };
@@ -123,7 +123,6 @@ impl RollingFile {
 
     /// Opens the first file of `self.day` (from `self.seq` up) that still has room, then prunes.
     fn open_next(&mut self) -> std::io::Result<()> {
-        use std::os::unix::fs::OpenOptionsExt;
         loop {
             let name = if self.seq == 0 { format!("{FILE_PREFIX}.{}.log", self.day) } else { format!("{FILE_PREFIX}.{}.{}.log", self.day, self.seq) };
             let path = self.dir.join(name);
@@ -132,7 +131,7 @@ impl RollingFile {
                 self.seq += 1;
                 continue;
             }
-            self.file = Some(std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(&path)?);
+            self.file = Some(crate::platform::fs::private_file(std::fs::OpenOptions::new().create(true).append(true)).open(&path)?);
             self.written = len;
             self.prune(&path);
             return Ok(());
@@ -361,7 +360,6 @@ mod tests {
 
     #[test]
     fn dir_is_private_and_files_roll_by_size_under_a_total_cap() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let logs = dir.path().join("logs");
         std::fs::create_dir_all(&logs).unwrap();
@@ -371,12 +369,17 @@ mod tests {
             w.write_all(&[b'x'; 60]).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&logs), 0o700);
+        // Modes on Unix only (Windows: private by the profile's ACL).
+        let mode = |p: &Path| crate::platform::fs::mode(&std::fs::metadata(p).unwrap()) & 0o777;
+        if cfg!(unix) {
+            assert_eq!(mode(&logs), 0o700);
+        }
         let mut total = 0;
         for e in std::fs::read_dir(&logs).unwrap() {
             let e = e.unwrap();
-            assert_eq!(mode(&e.path()), 0o600, "{:?}", e.path());
+            if cfg!(unix) {
+                assert_eq!(mode(&e.path()), 0o600, "{:?}", e.path());
+            }
             assert!(e.metadata().unwrap().len() <= 100);
             total += e.metadata().unwrap().len();
         }

@@ -551,7 +551,6 @@ mod tests {
     use crate::write::test_support::{api, call, journal_step, open, repo, wt};
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
-    use std::os::unix::fs::PermissionsExt;
 
     async fn discard(api: &Api, id: u32, r: &TestRepo, scope: Value) -> Result<Value, crate::error::GbError> {
         call(api, "discard", json!({ "repo": id, "worktree": wt(r.path()), "scope": scope })).await
@@ -570,7 +569,7 @@ mod tests {
                 if m.is_dir() {
                     walk(root, &p, out);
                 } else {
-                    let mode = if m.file_type().is_symlink() { 0o120000 } else { 0o100000 | (m.permissions().mode() & 0o7777) };
+                    let mode = if m.file_type().is_symlink() { 0o120000 } else { 0o100000 | (crate::platform::fs::mode(&m) & 0o7777) };
                     out.insert(p.strip_prefix(root).unwrap().display().to_string(), mode);
                 }
             }
@@ -615,7 +614,7 @@ mod tests {
     }
 
     fn chmod(r: &TestRepo, path: &str, mode: u32) {
-        std::fs::set_permissions(r.path().join(path), std::fs::Permissions::from_mode(mode)).unwrap();
+        crate::platform::fs::set_mode(r.path().join(path), mode).unwrap();
     }
 
     #[tokio::test]
@@ -826,6 +825,7 @@ mod tests {
     }
 
     /// Review Focus 2.
+    #[cfg(unix)] // file names Windows forbids (*, ?, :, newlines)
     #[tokio::test]
     async fn awkward_paths_discard_literally() {
         let data = tempfile::tempdir().unwrap();
@@ -992,6 +992,7 @@ mod tests {
     }
 
     /// Modes: an executable untracked file, an unstaged chmod and a 0600 file all come back.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn modes_round_trip() {
         let data = tempfile::tempdir().unwrap();
@@ -1010,6 +1011,7 @@ mod tests {
     }
 
     /// I2: with `core.fileMode=false` git keeps no exec bit, but the snapshot's own record does.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn modes_round_trip_without_core_filemode() {
         let data = tempfile::tempdir().unwrap();
@@ -1027,6 +1029,7 @@ mod tests {
     }
 
     /// A hunk discard keeps the file's permissions exactly, even with `core.fileMode=false`.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn a_hunk_discard_keeps_the_files_permissions() {
         let data = tempfile::tempdir().unwrap();
@@ -1046,6 +1049,7 @@ mod tests {
     }
 
     /// With `core.fileMode` on, an executable file's hunk discard round-trips with its mode.
+    #[cfg(unix)] // permission bits (Windows has none; git keeps the executable bit in the index)
     #[tokio::test]
     async fn an_executable_files_hunk_discard_round_trips() {
         let data = tempfile::tempdir().unwrap();
@@ -1230,6 +1234,7 @@ mod tests {
 
     /// M3 (probes p07, p19): a tracked folder replaced by a symlink is refused in words; the
     /// folder it points at is untouched.
+    #[cfg(unix)] // symlinks (Windows: privileges, and core.symlinks=false there)
     #[tokio::test]
     async fn a_folder_replaced_by_a_symlink_is_refused() {
         for unborn in [false, true] {
@@ -1320,7 +1325,7 @@ mod tests {
         let api = api(data.path());
         let id = open(&api, &r).await;
         let h = api.handle(id).unwrap();
-        let root = r.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let d = super::Discard { scope: super::DiscardScope::Paths { paths: vec!["dir".into()] }, label: std::sync::Mutex::new("discard dir".into()), targets: std::sync::Mutex::new(None) };
         let before = crate::write::Before { head: Default::default(), refs: Default::default(), in_progress: None };
         let pre = crate::write::Pre { api: &api, h: &h, root: &root, expect: &Default::default(), before: &before };

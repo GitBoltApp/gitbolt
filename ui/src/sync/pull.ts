@@ -7,7 +7,7 @@ import type { SyncButtonMode } from '../api/gen/SyncButtonMode';
 import type { MenuRow } from '../menu/types';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { runOnce, withPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 import { headBranchOf } from './push';

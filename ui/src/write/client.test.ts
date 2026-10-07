@@ -13,7 +13,7 @@ const put = vi.hoisted(() => vi.fn());
 vi.mock('../app/tabStores', () => ({ tabView: () => ({ services: { wip: { put } } }) }));
 
 const { runWrite } = await import('./client');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 const { journalKey, useJournal } = await import('../undo/store');
 
 const ctx = { tabId: 't', repoId: 4, worktree: '/r' };

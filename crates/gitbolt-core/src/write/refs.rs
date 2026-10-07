@@ -9,7 +9,6 @@ use crate::journal::RefMove;
 use crate::write::WriteToken;
 use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
 use gix::refs::{FullName, Target};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +56,9 @@ fn hooks_dir(repo: &gix::Repository, workdir: &Path) -> PathBuf {
     }
 }
 
+/// Whether git would run the hook at `p` (see [`crate::platform::fs::is_executable`]).
 fn executable(p: &Path) -> bool {
-    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    crate::platform::fs::is_executable(p)
 }
 
 pub(crate) fn backend_for(repo: &gix::Repository, workdir: &Path) -> Backend {
@@ -220,7 +220,6 @@ mod tests {
     use crate::error::GbErrorKind;
     use crate::log::CommandLog;
     use crate::testing::{isolated_git_env, TestRepo};
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Arc;
 
     fn cli() -> GitCli {
@@ -300,24 +299,25 @@ mod tests {
         let marker = r.root().join("tx-hook-ran");
         let hook = r.path().join(".git/hooks/reference-transaction");
         std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
-        std::fs::write(&hook, format!("#!/bin/sh\ncat >/dev/null\ntouch {}\n", marker.display())).unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(&hook, format!("#!/bin/sh\ncat >/dev/null\ntouch {}\n", crate::platform::fs::to_git_path(&marker))).unwrap();
+        crate::platform::fs::set_mode(&hook, 0o755).unwrap();
         let repo = open(&r);
         assert_eq!(backend_for(&repo.to_thread_local(), r.path()), Backend::Cli);
         cas(&cli(), &WriteToken::for_tests(), &repo, r.path(), &[mv("refs/heads/x", None, Some(&c1))], "m").await.unwrap();
         assert!(marker.exists(), "git ran the hook");
     }
 
+    #[cfg(unix)] // the executable bit decides whether git runs a hook (on Windows a #! file always runs)
     #[test]
     fn a_relative_hooks_path_is_resolved_from_the_worktree() {
         let (r, _, _) = repo();
         let dir = r.path().join("myhooks");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("reference-transaction"), "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(dir.join("reference-transaction"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform::fs::set_mode(dir.join("reference-transaction"), 0o755).unwrap();
         r.git(&["config", "core.hooksPath", "myhooks"]);
         assert_eq!(backend_for(&open(&r).to_thread_local(), r.path()), Backend::Cli);
-        std::fs::set_permissions(dir.join("reference-transaction"), std::fs::Permissions::from_mode(0o644)).unwrap();
+        crate::platform::fs::set_mode(dir.join("reference-transaction"), 0o644).unwrap();
         assert_eq!(backend_for(&open(&r).to_thread_local(), r.path()), Backend::Gix, "a hook git wouldn't run doesn't count");
     }
 

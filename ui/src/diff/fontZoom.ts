@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { useAppState } from '../app/state';
 import { registerKeyHints } from '../shortcuts/hints';
 import { registerKeys } from '../ui/keyRouter';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { inFontZoomPanel, zoomDirection } from '../ui/zoom';
 import { clampEditorFont, EDITOR_FONT_SIZE } from './options';
 

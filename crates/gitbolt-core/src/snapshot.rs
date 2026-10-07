@@ -178,7 +178,7 @@ impl WipCache {
     }
 
     fn key(path: &Path) -> PathBuf {
-        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+        crate::platform::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, WipInner> {
@@ -667,7 +667,7 @@ fn cached_walk(repo: &gix::Repository, tips: Vec<ObjectId>, stash_ids: &HashSet<
 }
 
 fn canonical(p: &Path) -> PathBuf {
-    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+    crate::platform::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// `here`: the canonical open (active) worktree.
@@ -820,7 +820,7 @@ mod tests {
     fn kept_wip_lists_are_fresh_only_while_covered_and_current() {
         let c = WipCache::watched_only();
         let a = tempfile::tempdir().unwrap();
-        let root = a.path().canonicalize().unwrap();
+        let root = crate::platform::fs::canonicalize(a.path()).unwrap();
         let empty = || FileListPayload { files: vec![], added: 0, deleted: 0, version: None };
         let e = WipEntry::from_raw(b"? a\0");
         c.put(&root, c.stamp(), e);
@@ -845,7 +845,7 @@ mod tests {
         c.put(a.path(), c.stamp(), e);
         c.put(b.path(), c.stamp(), e);
         assert_eq!(c.reusable(a.path()), None, "nothing is covered yet");
-        c.cover(7, [a.path().canonicalize().unwrap()].into());
+        c.cover(7, [crate::platform::fs::canonicalize(a.path()).unwrap()].into());
         assert_eq!(c.reusable(a.path()), Some(e));
         assert_eq!(c.reusable(b.path()), None, "not covered by the watcher");
         c.uncover(8);

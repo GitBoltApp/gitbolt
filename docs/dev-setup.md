@@ -58,7 +58,7 @@ sudo chown root:root target/debug/chrome-sandbox && sudo chmod 4755 target/debug
 ## Never disable the sandbox in committed code
 
 Never set the runtime's sandbox policy to `Disabled` as a default or in committed code.
-`crates/gitbolt-app/src/main.rs` sets `SandboxPolicy::Required` on Linux, so a missing helper
+`crates/gitbolt-app/src/lib.rs` sets `SandboxPolicy::Required` on Linux, so a missing helper
 stops the app instead of silently dropping the sandbox, which `Auto` would do. If you need a one-off unsandboxed run for a specific
 measurement (e.g. reading `/proc/<pid>/smaps_rollup` for PSS, which is unreadable for a sandboxed,
 non-dumpable renderer), that's a manual, temporary override you make yourself, not something to
@@ -444,3 +444,39 @@ renderer.
 - The other performance budgets (latencies) are asserted by `just e2e` (`menu-perf.spec`, the
   `tabs.spec` switch) and the opt-in, read-only `real-repo.spec` timings. These are single
   timings: there's no repo generator and no statistics.
+
+## Windows
+
+The app builds, runs and packages on Windows (x64). Needs Visual Studio's C++ Build Tools
+with its Ninja on `PATH` (`…\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja`), CMake, Git for
+Windows and Node.
+
+- **CEF:** `cef-dll-sys`'s build script downloads the Windows distribution into `CEF_PATH`
+  (`cargo tauri` uses `%LOCALAPPDATA%\tauri-cef`) and copies its runtime files next to the binary.
+- **The UI:** `cd ui && npm ci && npm run build`.
+- **Debug build with the bundled UI:** `cargo build -p gitbolt-app --features tauri/custom-protocol`
+  (without the feature, a debug build loads the Vite dev server, `npm run dev`).
+- **Sandboxed:** a plain debug `gitbolt.exe` runs Chromium unsandboxed, and a release one refuses
+  to start (SECURITY.md). The sandbox needs the app as a DLL under CEF's bootstrap, named alike:
+  ```bat
+  cargo rustc -p gitbolt-app --lib --crate-type cdylib --features tauri/custom-protocol
+  copy %CEF_PATH%\152.0.6\cef_windows_x86_64\bootstrapc.exe target\debug\gitbolt_app.exe
+  target\debug\gitbolt_app.exe
+  ```
+  (`bootstrapc.exe` keeps a console; `bootstrap.exe` is the windowed host.)
+- **A throwaway instance, driven from another machine:** in debug builds,
+  `GITBOLT_DEV_DIRS=<absolute dir>` puts the config, cache, data and Chromium profile folders under
+  that folder (Windows' Known Folders ignore the environment; set `TEMP` and `TMP` too for the
+  single-instance and askpass files), and `GITBOLT_DEV_CDP_PORT=<port>` opens Chromium's DevTools
+  protocol on `127.0.0.1:<port>`. Started over SSH, the app runs in the SSH session's own window
+  station, not on the desktop; `ssh -L 9333:127.0.0.1:9333 <host>` and Playwright's
+  `chromium.connectOverCDP('http://127.0.0.1:9333')` then reach its page. Release builds have
+  neither variable.
+- **The installers:** `just package-windows` (or `powershell -File scripts\package-windows.ps1`)
+  builds the NSIS per-user installer and the per-machine MSI into
+  `target\release\bundle\windows\`, from a release build with the sandboxed layout above
+  (`GitBolt.exe` is CEF's `bootstrap.exe`, `GitBolt.dll` the app). Besides the above it needs
+  Python 3 (`PYTHON` picks one), cargo-about 0.9.2 (`cargo install cargo-about --version 0.9.2
+  --locked --features cli`) and the .NET SDK (WiX is a .NET tool); NSIS, WiX and rcedit are
+  downloaded into `target\windows-tools` on first use. docs/releasing.md has the details, the
+  versions and the signing hook.

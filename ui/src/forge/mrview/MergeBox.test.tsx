@@ -13,7 +13,7 @@ const { MergeBox } = await import('./MergeBox');
 const { resetProjectSettings } = await import('./projectSettings');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
-const { useToast } = await import('../../ui/toast');
+const { useToast } = await import('../../ui/toastStore');
 const { useMenu } = await import('../../menu/menuStore');
 const { detailOf, mrOf, user } = await import('../testMrs');
 

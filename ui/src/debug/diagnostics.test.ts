@@ -8,7 +8,7 @@ vi.mock('../api/transport', () => ({ copyText, inTauri: () => false }));
 
 const { copyDiagnostics, openLogsFolder: open } = await import('./diagnostics');
 const { useAppState } = await import('../app/state');
-const { useToast } = await import('../ui/toast');
+const { useToast } = await import('../ui/toastStore');
 
 beforeEach(() => vi.clearAllMocks());
 

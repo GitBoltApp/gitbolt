@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { isDismissKey } from './HoverTooltip';
 import { useKeys } from './keyRouter';
-import { useToast, type ToastAction } from './toast';
+import { useToast, type ToastAction } from './toastStore';
 
 export function Toast() {
   const message = useToast((s) => s.message);

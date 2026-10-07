@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setOrigin, type Origin } from '../ui/arm/origin';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { squashSelection } from './squash';
 import { oid, plan } from './testPlan';
 

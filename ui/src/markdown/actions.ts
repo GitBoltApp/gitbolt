@@ -6,7 +6,7 @@ import { loadMrDetail, openMrView } from '../forge/poll';
 import { recordPlace } from '../nav/history';
 import { scrollToAnchorWhenReady } from '../nav/scroll';
 // --- end 5B T6 ---
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { browserUrlFor } from './links';
 import type { FileMarkdownContext, LinkTarget, MarkdownContext } from './types';
 

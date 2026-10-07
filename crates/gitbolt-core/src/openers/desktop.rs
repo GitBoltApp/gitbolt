@@ -176,7 +176,7 @@ fn runnable(env: &DetectEnv, e: &Entry) -> Option<(PathBuf, Vec<ExecArg>)> {
     }
     let (program, args) = parse_exec(e.exec.as_deref()?)?;
     let program = resolve_program(env, &program)?;
-    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let canonical = |p: &Path| crate::platform::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     if env.self_exe.as_deref().is_some_and(|me| canonical(me) == canonical(&program)) {
         return None;
     }

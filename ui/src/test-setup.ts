@@ -16,6 +16,16 @@ beforeAll(async () => {
   try { await (await import('./markdown/lazy')).preloadMarkdown(); } catch { /* not preloaded */ }
 }, 30_000);
 
+// Dates format in en-US when the code asks for the default locale, so a test sees the same text on
+// every machine ("8:56 AM", never en-CA's "8:56 a.m."). LANG can't pin it: Windows ignores it.
+for (const m of ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString'] as const) {
+  const format = Date.prototype[m];
+  Date.prototype[m] = function (this: Date, locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+    const fallback = locales === undefined || (Array.isArray(locales) && locales.length === 0);
+    return format.call(this, fallback ? 'en-US' : locales, options);
+  };
+}
+
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 Element.prototype.scrollTo ??= function scrollTo() {} as typeof Element.prototype.scrollTo;
 

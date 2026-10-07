@@ -8,7 +8,7 @@ import { useRuntime } from '../app/runtime';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { askChoice } from '../ui/ChoiceDialog';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { useToast, type ToastAction } from '../ui/toast';
+import { useToast, type ToastAction } from '../ui/toastStore';
 import { runOnce, withPending } from '../pending/store';
 import { runWrite, type WriteCtx } from '../write/client';
 import { notifyBranchPushed } from '../forge/usePolling';

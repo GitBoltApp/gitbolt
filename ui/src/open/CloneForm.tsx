@@ -1,3 +1,4 @@
+import { examplePath, joinPath } from '../app/osPath';
 import { LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api/client';
@@ -21,7 +22,7 @@ export function CloneForm({ tabId, autoFocus }: { tabId: string; autoFocus: bool
   useEffect(() => {
     if (destEdited) return;
     const name = repoNameFromUrl(url);
-    setDest(reposFolder && name ? `${reposFolder.replace(/\/+$/, '')}/${name}` : '');
+    setDest(reposFolder && name ? joinPath(reposFolder, name) : '');
   }, [url, reposFolder, destEdited]);
   // The clone's op is labelled with its destination (`opStarted.label`).
   const op = useOps((s) => (busy ? Object.values(s.ops).find((o) => o.kind === 'clone' && o.label === dest.trim()) : undefined));
@@ -48,7 +49,7 @@ export function CloneForm({ tabId, autoFocus }: { tabId: string; autoFocus: bool
   return (
     <form className="clone-form" onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }}>
       <label>Repository URL <input ref={urlRef} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="git@gitlab.example.com:group/project.git" aria-label="Repository URL" disabled={busy} spellCheck={false} /></label>
-      <label>Destination <input value={dest} onChange={(e) => { setDest(e.target.value); setDestEdited(true); }} placeholder="/home/you/repos/project" aria-label="Destination" disabled={busy} spellCheck={false} /></label>
+      <label>Destination <input value={dest} onChange={(e) => { setDest(e.target.value); setDestEdited(true); }} placeholder={examplePath('repos/project')} aria-label="Destination" disabled={busy} spellCheck={false} /></label>
       {busy && (
         <div className="clone-progress">
           <LoaderCircle size={14} className="spin" />

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LONG_TOAST_MS, TOAST_MS, toastDuration, useToast } from './toast';
+import { LONG_TOAST_MS, TOAST_MS, toastDuration, useToast } from './toastStore';
 
 describe('the toast duration policy', () => {
   beforeEach(() => vi.useFakeTimers());

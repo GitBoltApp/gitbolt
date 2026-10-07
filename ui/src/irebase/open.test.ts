@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { centerViewOf, closeCenterView, registerCenterView } from '../repo/centerView';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { REBASE_VIEW, openRebaseEditor } from './open';
 import { editSession, editState, pruneSessions, sessionOf, setSession, useRebaseSessions } from './session';
 import { oid, plan } from './testPlan';

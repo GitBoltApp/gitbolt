@@ -1,3 +1,4 @@
+import { dirname } from '../app/osPath';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { api, errorMessage } from '../api/client';
@@ -51,7 +52,7 @@ function Form({ req }: { req: Req }) {
     if (out && openTab) await openWorktreeTab(req.tabId, out.path);
   };
   const browse = async () => {
-    const picked = await api.pickFolder(path ? path.slice(0, path.lastIndexOf('/')) : null);
+    const picked = await api.pickFolder(path ? dirname(path) : null);
     if (picked) { setEdited(true); setPath(picked); }
   };
   return (

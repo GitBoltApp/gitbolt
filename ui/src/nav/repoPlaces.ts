@@ -10,7 +10,7 @@ import { MR_FLYOUT } from '../forge/mrStore';
 import { contentKey } from '../repo/services';
 import { contentsRequest, fileViewTarget, openWorktree, targetFor, worktreeViewTarget, type DiffTarget, type RepoViewState, type RepoViewStore } from '../repo/store';
 import { closeFlyout, flyoutOf } from '../ui/flyout/flyout';
-import { useToast } from '../ui/toast';
+import { useToast } from '../ui/toastStore';
 import { dropHistory, placeKey, recordPlace, registerPlaceKind, type BlockPos, type FileCommit, type Place, type PlaceView } from './history';
 import { scrollBlockOf, scrollOf, setPendingScroll } from './scroll';
 

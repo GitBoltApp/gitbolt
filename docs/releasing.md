@@ -2,8 +2,9 @@
 
 A release is a tag. `just release <version>` prepares the release commit and tag locally;
 pushing them starts [.github/workflows/release.yml](../.github/workflows/release.yml), which
-builds the `.deb` and the Arch package, checks them, and uploads them to a **draft** GitHub
-release. You review the draft and publish it. Nothing is published automatically.
+builds the `.deb`, the Arch package and the two Windows installers, checks them, and uploads
+them to a **draft** GitHub release. You review the draft and publish it. Nothing is published
+automatically.
 
 ## Before you start
 
@@ -48,9 +49,10 @@ release. You review the draft and publish it. Nothing is published automatically
    section for it.
 
 4. **Review the draft** under Releases. It's titled "GitBolt 0.1.0-alpha.1" and has the
-   changelog section as its notes, plus the `.deb`, the `.pkg.tar.zst` and `SHA256SUMS`. A
+   changelog section as its notes, plus the `.deb`, the `.pkg.tar.zst`, the Windows
+   `-setup.exe` and `.msi`, and `SHA256SUMS`. A
    version with a pre-release part (`-alpha.1`, `-rc.2`) is marked pre-release. Edit the notes
-   if needed, and install the `.deb` or the Arch package from the draft to try it.
+   if needed, and install the packages from the draft to try them.
 
 5. **Publish** the draft. GitHub marks a published release as the latest unless it's a
    pre-release.
@@ -82,13 +84,23 @@ before the release:
   `dpkg --compare-versions`, and with `vercmp` when it's installed. Run it with
   `GITBOLT_TEST_DOCKER=1` to use `vercmp` in an `archlinux:latest` container.
 
+Windows wants numeric versions: the MSI's `ProductVersion` and the files' `FILEVERSION` are
+`X.Y.Z.0` for every build of `X.Y.Z`, its pre-releases and local builds included. Windows Installer
+compares only the first three fields, so the MSI allows same-version upgrades
+(`AllowSameVersionUpgrades`): any build of `0.1.0` replaces whichever `0.1.0` build is installed,
+pre-release or not, and an older `X.Y.Z` is refused. The full version stays in the file names
+(`GitBolt_0.1.0-alpha.1_x64-setup.exe`, `GitBolt_0.1.0-alpha.1_x64.msi`), in the files' version
+strings (Properties > Details) and in the NSIS installer's entry in Settings > Apps; the MSI's
+entry shows `0.1.0.0`.
+
 Local `just package` builds stay stamped (`<version>+<UTC time>.<commit>`), so each one installs
 over the last. `GITBOLT_RELEASE_VERSION=<version> just package` builds the plain version the way
 the workflow does; it must equal `tauri.conf.json`'s version.
 
 ## What the workflow does
 
-After Plan (see [Which run builds](#which-run-builds)), two jobs run on `ubuntu-24.04`:
+After Plan (see [Which run builds](#which-run-builds)), the Linux build and the Windows build run
+side by side, then the release job:
 
 1. **Build** (read-only access to the repository):
    - checks the tag against `tauri.conf.json`'s version and extracts the release notes from
@@ -104,8 +116,13 @@ After Plan (see [Which run builds](#which-run-builds)), two jobs run on `ubuntu-
      and checks it, its notices included;
    - writes `SHA256SUMS`, and keeps the packages, the checksums and the notes as a workflow
      artifact for 3 days.
-2. **Release** (`contents: write`): verifies `SHA256SUMS`, adds build provenance attestations
-   for both packages (see below), and creates the draft release, or updates it on a re-run.
+2. **Windows** (`windows-latest`, read-only): stable Rust, Node 22, `just`, cargo-about 0.9.2
+   and Visual Studio's Ninja; runs `just package-windows` with `GITBOLT_RELEASE_VERSION` set (see
+   [Windows installers](#windows-installers)), and keeps both installers and their checksums as
+   a workflow artifact.
+3. **Release** (`contents: write`): verifies both jobs' checksums and merges them into one
+   `SHA256SUMS`, adds build provenance attestations for every package (see below), and creates
+   the draft release, or updates it on a re-run.
 
 The packages' `Depends` come from the build machine's libraries (dpkg-shlibdeps), so packages
 built on the 24.04 runner install on Ubuntu 24.04 and later. A local `just package` on a newer
@@ -125,6 +142,50 @@ per release, decided by the workflow's first job, **Plan**:
   builds and drafts the release itself, from cold caches. Nothing is lost either way.
 - **Run workflow** (Actions → Release → Run workflow, on main) with a **tag**: releases that tag
   (its commit, warm). The way to redo or rescue a release by hand.
+
+## Windows installers
+
+`just package-windows` (on Windows; `scripts/package-windows.ps1`) builds once and packages twice,
+into `target\release\bundle\windows\`:
+
+- **`GitBolt_<version>_x64-setup.exe`** (NSIS): installs for the current user, no administrator
+  rights, into `%LOCALAPPDATA%\Programs\GitBolt`. Silent: `/S`, and `/D=<folder>` (last,
+  unquoted) for another folder. Settings > Apps lists it; its uninstaller is
+  `uninstall.exe` (`/S` for silent). Installing a newer one over it runs the old uninstaller first.
+- **`GitBolt_<version>_x64.msi`** (WiX v5): installs for all users into `Program Files\GitBolt`
+  (administrator rights), for managed deployment: `msiexec /i GitBolt_<version>_x64.msi /qn`.
+
+Both add a Start menu shortcut and "Open in GitBolt" on folders in File Explorer, and leave the
+user's settings and data (`%APPDATA%\gitbolt`, `%LOCALAPPDATA%\gitbolt`,
+`%LOCALAPPDATA%\dev.gitbolt.desktop`) on uninstall.
+
+The installed folder is CEF's sandboxed layout: `GitBolt.exe` is CEF's `bootstrap.exe` (with
+GitBolt's icon, version information and `packaging/windows/GitBolt.exe.manifest`), which loads
+`GitBolt.dll` (gitbolt-app built as a DLL) and runs Chromium sandboxed; then CEF's runtime files,
+`dictionaries\` and the license notices in `licenses\`. The bootstrap must come from the CEF build
+the DLL links, and nothing at run time checks that, so the script compares `bootstrap.exe`'s and
+`libcef.dll`'s versions with `Cargo.lock`'s CEF before staging.
+
+The packaging tools are pinned and downloaded on first use into `target\windows-tools` (checked
+against their SHA-256; WiX through `dotnet tool install`): NSIS 3.11, WiX 5.0.2 and rcedit 2.0.0.
+The MSI also goes through Windows Installer's ICE checks.
+
+### Signing
+
+The installers aren't signed yet, so SmartScreen warns about them ("Windows protected your PC" >
+More info > Run anyway). The hook is in place: `GITBOLT_SIGN_COMMAND`, a command that signs the
+file path appended to it in place (for example `signtool sign /fd sha256 /tr <timestamp URL> /td
+sha256 /f <certificate>`). With it set, `package-windows.ps1` signs, in order:
+
+1. `GitBolt.exe` and `GitBolt.dll`, **with the same certificate**: a signed bootstrap only loads a
+   DLL signed with its own certificate, so signing one without the other, or with two
+   certificates, makes the app refuse to start;
+2. the NSIS uninstaller (while the installer is built, through NSIS's `!uninstfinalize`), then the
+   installer;
+3. the MSI.
+
+In the workflow, set it in the "Build the installers" step of the Windows job, from a secret (the
+step's comment marks the place).
 
 ## Dry run
 
@@ -146,7 +207,7 @@ also warms the caches.
 
 ## Build provenance
 
-The release job attests both packages with `actions/attest-build-provenance`, so anyone can
+The release job attests every package with `actions/attest-build-provenance`, so anyone can
 check that a file came from this workflow:
 
 ```sh
@@ -173,7 +234,8 @@ runner; public ones get 4 vCPUs, roughly halving the compile steps):
 | Release job | 1 min | 1 min |
 | **Total** | **about 50–75 min** | **about 20–30 min** |
 
-The job's timeout is 120 minutes.
+The job's timeout is 120 minutes. The Windows job runs at the same time and takes about as long
+(its Rust build is the longest step); on a private repository its minutes count double.
 
 The repository is private, so the runs count against the account's included Actions minutes
 (Linux runners at a 1× rate: 2,000 minutes a month on GitHub Free, 3,000 on Team). A release is

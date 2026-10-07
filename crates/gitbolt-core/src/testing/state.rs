@@ -23,7 +23,6 @@ pub struct RepoState {
 }
 
 fn files(root: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>, modes: &mut BTreeMap<String, u32>) {
-    use std::os::unix::fs::PermissionsExt;
     let mut entries: Vec<_> = std::fs::read_dir(dir).expect("read dir").flatten().map(|e| e.path()).collect();
     entries.sort();
     for p in entries {
@@ -33,8 +32,8 @@ fn files(root: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>, modes: &m
         if p.is_dir() {
             files(root, &p, out, modes);
         } else {
-            let rel = p.strip_prefix(root).expect("inside").display().to_string();
-            modes.insert(rel.clone(), std::fs::symlink_metadata(&p).expect("stat file").permissions().mode());
+            let rel = crate::platform::fs::to_git_path(p.strip_prefix(root).expect("inside"));
+            modes.insert(rel.clone(), crate::platform::fs::mode(&std::fs::symlink_metadata(&p).expect("stat file")));
             out.insert(rel, std::fs::read(&p).expect("read file"));
         }
     }
