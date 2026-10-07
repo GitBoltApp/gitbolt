@@ -60,6 +60,10 @@ done
 # The spell-check dictionary the app copies into Chromium's profile (PRIVACY.md).
 [ -s "$work/pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic" ] ||
   fail "the .deb has no usr/share/GitBolt/dictionaries/en-US-10-1.bdic (or it's empty)"
+# How the package was installed (the update check picks the Arch package by it): `arch`, where
+# the .deb says `deb` (an edited file for arch-pkg.py verify, below).
+[ "$(cat "$work/pkg/usr/share/GitBolt/install-kind" 2>/dev/null)" = deb ] || fail "the .deb has no usr/share/GitBolt/install-kind saying deb"
+printf 'arch\n' > "$work/pkg/usr/share/GitBolt/install-kind"
 [ -e "$work/pkg/usr/share/licenses/gitbolt" ] && fail "the .deb's payload already has usr/share/licenses/gitbolt"
 mkdir -p "$work/pkg/usr/share/licenses"
 chmod 755 "$work/pkg/usr/share/licenses"
@@ -70,7 +74,7 @@ mapfile -t licenses < <(python3 "$helper" licenses "$work/pkg/usr/share/doc/gitb
 # The AppStream metainfo's <pkgname> is the .deb's package name (git-bolt); a software centre
 # matches the installed component to its package by it, so here it's this package's.
 debpkg=$(dpkg-deb -f "$deb" Package)
-edited=()
+edited=(usr/share/GitBolt/install-kind)
 for m in "$work"/pkg/usr/share/metainfo/*.metainfo.xml; do
   [ -e "$m" ] || continue
   grep -qF "<pkgname>$debpkg</pkgname>" "$m" || fail "$(basename "$m") doesn't name the .deb's package, $debpkg"
@@ -110,6 +114,7 @@ mv "$work/meta.tar" "$work/pkg.tar"
 # and setuid.
 python3 "$helper" verify "$work/data.tar" "$work/pkg.tar" "${edited[@]}" >/dev/null
 [ "$(tar -tf "$work/pkg.tar" | head -2 | tr '\n' ' ')" = ".PKGINFO .MTREE " ] || fail "the archive doesn't start with .PKGINFO, .MTREE"
+[ "$(tar -xOf "$work/pkg.tar" usr/share/GitBolt/install-kind)" = arch ] || fail "the package's install-kind isn't arch"
 line=$(tar -tvf "$work/pkg.tar" | grep '/chrome-sandbox$') || fail "no chrome-sandbox in the package"
 [[ $line == -rwsr-xr-x\ root/root* ]] || fail "chrome-sandbox is not root:root 4755: $line"
 

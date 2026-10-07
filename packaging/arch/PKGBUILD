@@ -37,4 +37,6 @@ package() {
   # The AppStream metainfo names the .deb's package; software centres match it to this one.
   sed -i "s|<pkgname>git-bolt</pkgname>|<pkgname>$pkgname</pkgname>|" \
     "$pkgdir/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml"
+  # The update check offers the Arch package (or the AUR helper's command), not the .deb.
+  printf 'arch\n' > "$pkgdir/usr/share/GitBolt/install-kind"
 }

@@ -8,6 +8,7 @@ import type { QueueItem } from "./QueueItem";
 import type { QueueStop } from "./QueueStop";
 import type { RemoteLine } from "./RemoteLine";
 import type { StashStep } from "./StashStep";
+import type { UpdateState } from "./UpdateState";
 
 export type AppEvent = { "type": "repoChanged", repo: number, kinds: Array<ChangeKind>, worktrees: Array<string>, versions: Record<string, string>, } | { "type": "refsUpdated", repo: number, } | { "type": "opStarted", op: number, kind: OpKind, repo: number | null, 
 /**
@@ -27,4 +28,4 @@ step?: ProgressStep, } | { "type": "opRemote", op: number, lines: Array<RemoteLi
  * The git command that ran, argv joined for display and redacted (no environment, no
  * askpass secrets): the activity log shows it (K101).
  */
-command: string | null, } | { "type": "opOutput", op: number, line: string, } | { "type": "opStashStep", op: number, step: StashStep | null, message: string, } | { "type": "journalChanged", repo: number, worktree: string, state: JournalState, } | { "type": "queueChanged", repo: number, running: QueueItem | null, queued: Array<QueueItem>, stopped: QueueStop | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, } | { "type": "openRequested", path: string, };
+command: string | null, } | { "type": "opOutput", op: number, line: string, } | { "type": "opStashStep", op: number, step: StashStep | null, message: string, } | { "type": "journalChanged", repo: number, worktree: string, state: JournalState, } | { "type": "queueChanged", repo: number, running: QueueItem | null, queued: Array<QueueItem>, stopped: QueueStop | null, } | { "type": "authWaiting", prompt: number, op: number, repo: number | null, text: string, secret: boolean, } | { "type": "authResolved", prompt: number, } | { "type": "openRequested", path: string, } | { "type": "updateChanged", state: UpdateState, };

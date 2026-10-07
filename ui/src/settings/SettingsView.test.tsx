@@ -68,7 +68,7 @@ describe('SettingsView', () => {
     expect(container.innerHTML).toBe('');
     act(() => useSettingsUi.getState().show());
     const dialog = screen.getByRole('dialog', { name: 'Settings' });
-    for (const sec of ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Hosts', 'Repository']) {
+    for (const sec of ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Hosts', 'Updates', 'Repository']) {
       tabTo(sec);
       for (const s of SETTINGS.filter((d) => d.section === sec)) expect(dialog.querySelector(`[data-setting-id="${s.id}"]`), s.id).not.toBeNull();
     }
@@ -119,6 +119,19 @@ describe('SettingsView', () => {
     expect(box).toBeChecked();
     fireEvent.click(box);
     expect(useAppState.getState().settings.pushFollowTags).toBe(false);
+  });
+
+  it('Updates: the automatic check is on and pre-releases off by default, and both write the app settings', () => {
+    show();
+    tabTo('Updates');
+    const auto = screen.getByLabelText('Check for updates automatically');
+    const pre = screen.getByLabelText('Include pre-releases');
+    expect(auto).toBeChecked();
+    expect(pre).not.toBeChecked();
+    fireEvent.click(auto);
+    fireEvent.click(pre);
+    expect(useAppState.getState().settings.updateCheck).toBe(false);
+    expect(useAppState.getState().settings.updatePrereleases).toBe(true);
   });
 
   it('shows a hand-edited fetch interval clamped', () => {

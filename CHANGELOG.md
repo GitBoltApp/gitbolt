@@ -11,6 +11,11 @@ All notable changes to GitBolt are listed here, newest first. The format follows
   no administrator rights) and an MSI (per machine), both unsigned for now, so SmartScreen warns.
   Chromium runs sandboxed, as on Linux. Editors and IDEs, File Explorer, Open with and the folder
   picker use Windows' own.
+- **Updates from GitHub Releases.** GitBolt checks for a new release at startup and once a day
+  (Settings › Updates, with **Include pre-releases**), and on Help › Check for updates. A pill at
+  the bottom right downloads the package for your install, checks it against the release's
+  `SHA256SUMS`, and installs it: through your desktop's password prompt (`pkexec`) on Linux, then **Restart
+  GitBolt**; on Windows by starting the installer. GitBolt's own version is in the status bar.
 - **Reply and resolve** (or unresolve) beside Reply in a resolvable thread (Ctrl+Shift+Enter).
 - Software centre metadata in the Linux packages. A `.deb` opened in GNOME Software, Ubuntu's App
   Center or Discover now shows the homepage and a full description, and GNOME Software the MIT
@@ -27,6 +32,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ### Fixed
 
+- A repeat request GitHub answered with "not modified" failed ("gzip decompression failed"): GitHub
+  labels those empty answers as gzipped. It affected the update check and GitHub MR/PR polling.
 - In the rendered Markdown diff, an edited heading (`## Windows (in progress)` → `## Windows`) or
   short block showed as removed and added; it now shows as one change, its words diffed.
 - A GitLab thread's own system note ("changed this line in version 3 of the diff") showed at the

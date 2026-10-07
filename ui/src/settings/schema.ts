@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { STICKY_SCROLL_NOTE } from '../diff/editorSettings';
 
-export type SettingsSection = 'General' | 'Appearance' | 'Fetch' | 'Editor' | 'Profile' | 'Accounts' | 'Hosts' | 'Advanced' | 'Repository';
+export type SettingsSection = 'General' | 'Appearance' | 'Fetch' | 'Editor' | 'Profile' | 'Accounts' | 'Hosts' | 'Updates' | 'Advanced' | 'Repository';
 export interface SettingDef {
   id: string;
   label: string;
@@ -35,6 +35,8 @@ export const SETTINGS: readonly SettingDef[] = [
   { id: 'forgeAccounts', label: 'Forge accounts', section: 'Accounts', keywords: 'gitlab github token personal access token pat account login keyring merge request pull request forks', help: "This profile's GitLab and GitHub accounts, one per host: GitBolt uses them for merge requests, pull requests, forks and avatars. Tokens are kept in the system keyring, or in a file in GitBolt's data directory when no keyring is available." },
   // --- end 4A T11 ---
   { id: 'hostOverrides', label: 'Forge type per host', section: 'Hosts', keywords: 'gitlab github self-hosted icon links', help: 'Tells GitBolt which forge a self-hosted host runs, for its remote icons and web links.' },
+  { id: 'updateCheck', label: 'Check for updates automatically', section: 'Updates', keywords: 'update upgrade new version release github check daily', help: "Asks GitHub for GitBolt's releases at startup and once a day. Nothing about you or your repositories is sent. Off: only Help › Check for updates asks." },
+  { id: 'updatePrereleases', label: 'Include pre-releases', section: 'Updates', keywords: 'update beta rc alpha pre-release preview', help: 'Also offers release candidates and betas. A pre-release build always sees newer pre-releases.' },
   { id: 'debugLogging', label: 'Debug logging', section: 'Advanced', keywords: 'log file verbose diagnostics troubleshooting', help: 'Writes more detail (debug level) to the log files. Takes effect immediately, no restart. Replaces a RUST_LOG set at launch.' },
   { id: 'repoEditor', label: 'Editor for this repository', section: 'Repository', keywords: 'override open in', help: "Overrides the profile's default editor for this repository only." },
 ];

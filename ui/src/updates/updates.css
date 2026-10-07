@@ -1,0 +1,52 @@
+/* The status bar's update pill: the theme's accent as a soft gradient with a slow glow, the
+   same width in every state so moving on never shifts the bar. */
+.sb-update {
+  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  min-width: 118px; height: 16px; margin: 0 4px; padding: 0 10px; border-radius: 8px;
+  font-size: 11px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  color: var(--text-on-accent);
+  background: linear-gradient(120deg, var(--blue), color-mix(in srgb, var(--blue) 65%, var(--purple)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 55%, transparent), 0 0 6px color-mix(in srgb, var(--blue) 45%, transparent);
+  animation: sb-update-glow 2.8s ease-in-out infinite;
+  transition: filter var(--motion-fast);
+}
+.sb-update:hover { filter: brightness(1.12); }
+.sb-update:focus-visible { outline: 1px solid var(--text-selected); outline-offset: 2px; }
+.sb-update.failed {
+  background: color-mix(in srgb, var(--orange) 85%, var(--panel-bg0));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 60%, transparent);
+  animation: none;
+}
+.sb-update-bar { display: block; width: 84px; height: 4px; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, var(--text-on-accent) 28%, transparent); }
+.sb-update-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--text-on-accent); transition: width 200ms linear; }
+@keyframes sb-update-glow {
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 70%, transparent), 0 0 11px color-mix(in srgb, var(--blue) 65%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .sb-update { animation: none; } .sb-update-bar > span { transition: none; } }
+
+/* GitBolt's own version, right of git's. */
+.sb-version { cursor: default; }
+
+/* The update dialog. */
+.modal.update-dialog { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 64px); }
+.update-dialog .update-sub { margin: -4px 0 0; color: var(--text-secondary); }
+.update-dialog .update-badge { padding: 1px 6px; border-radius: 8px; font-size: 11px; font-weight: 600; color: var(--orange); border: 1px solid color-mix(in srgb, var(--orange) 60%, transparent); }
+.update-notes { flex: 1 1 auto; min-height: 60px; max-height: 46vh; overflow: auto; padding: 4px 12px; background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 6px; }
+.update-notes-empty { color: var(--text-secondary); font-style: italic; }
+.update-file { margin: 0; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.update-progress { display: flex; align-items: center; gap: 8px; }
+.update-progress .sb-update-bar { flex: 1; width: auto; height: 6px; background: var(--section-border); }
+.update-progress .sb-update-bar > span { background: var(--blue); }
+.update-message { margin: 0; }
+.update-message.error { color: var(--orange); }
+.update-output { margin: 0; max-height: 120px; overflow: auto; padding: 5px 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; }
+.update-command { display: flex; align-items: center; gap: 8px; }
+.update-command code { flex: 1; padding: 5px 8px; overflow-x: auto; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; }
+.update-command button, .update-choices button { padding: 4px 10px; font: inherit; color: var(--text-normal); background: var(--control-bg); border: 1px solid var(--section-border); border-radius: 4px; cursor: pointer; }
+.update-command button:hover, .update-choices button:hover { color: var(--text-selected); background: var(--hover-row); }
+.update-command button:focus-visible, .update-choices button:focus-visible { outline: 1px solid var(--text-selected); }
+.update-choices { display: flex; gap: 8px; }
+.update-choices button[aria-pressed='true'] { color: var(--text-selected); border-color: var(--blue); background: var(--selected-row); }
+.update-dialog .modal-actions { flex-wrap: wrap; }
+.update-dialog .modal-actions .update-link { margin-right: auto; }
+.update-about { display: flex; flex-direction: column; gap: 6px; }

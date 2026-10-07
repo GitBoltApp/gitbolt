@@ -63,6 +63,10 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File /r "${STAGE}\*"
   WriteUninstaller "$INSTDIR\uninstall.exe"
+  ; How GitBolt was installed, beside GitBolt.exe: its update check offers this installer.
+  FileOpen $0 "$INSTDIR\install-kind" w
+  FileWrite $0 "nsis$\r$\n"
+  FileClose $0
 
   CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\GitBolt.exe"
 
@@ -92,6 +96,7 @@ Section "Uninstall"
   ; Exactly the files installed (generated from the staged folder), then the folder if empty:
   ; never a recursive delete of a folder the user chose.
   !include "${UNINSTALL_LIST}"
+  Delete "$INSTDIR\install-kind"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
 

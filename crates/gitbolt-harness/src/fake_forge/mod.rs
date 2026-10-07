@@ -16,6 +16,7 @@ pub mod gitlab;
 // --- 4B T2 ---
 pub mod gitlab_mrs;
 // --- end 4B T2 ---
+pub mod releases;
 
 use axum::body::Bytes;
 use axum::extract::State;
@@ -175,6 +176,10 @@ pub struct GitHubSeed {
     /// The one valid signature of the fake's signed image URLs (any other is expired: 403).
     pub image_jwt: String,
     // --- end 5A T3 ---
+    /// GitBolt's own releases (the update check): none by default.
+    pub releases: Vec<releases::FakeRelease>,
+    /// A release download waits this long between 64 KiB chunks (a test sees it downloading).
+    pub download_chunk_delay_ms: u64,
   }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -438,6 +443,8 @@ pub fn default_seed(base: &str) -> ForgeSeed {
             // --- 5A T3 ---
             image_jwt: "jwt-1".into(),
             // --- end 5A T3 ---
+            releases: Vec::new(),
+            download_chunk_delay_ms: 0,
           },
     }
 }
@@ -493,6 +500,14 @@ impl FakeForge {
         format!("{}/github-images", self.base)
     }
     // --- end 5A T3 ---
+    /// GitHub's release downloads (`<it>/GitBoltApp/gitbolt/releases/download/<tag>/<name>`).
+    pub fn github_releases(&self) -> String {
+        format!("{}/github-releases", self.base)
+    }
+    /// The storage host they redirect to.
+    pub fn github_objects(&self) -> String {
+        format!("{}/github-objects", self.base)
+    }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, ForgeState> {
         self.state.lock().expect("fake forge poisoned")
@@ -602,6 +617,10 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         ("gitlab", r)
     } else if let Some(r) = path.strip_prefix("/github-avatars") {
         ("github-avatars", r)
+    } else if let Some(r) = path.strip_prefix("/github-releases") {
+        ("github-releases", r)
+    } else if let Some(r) = path.strip_prefix("/github-objects") {
+        ("github-objects", r)
     } else if let Some(r) = path.strip_prefix("/github-images") {
         // --- 5A T3 ---
         ("github-images", r)
@@ -632,16 +651,45 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         st.requests[logged].status = reply.status;
         return reply.into_response();
     }
+    if forge == "github-objects" {
+        let found = releases::object(&st, rest);
+        st.requests[logged].status = if found.is_some() { 200 } else { 404 };
+        drop(st);
+        return match found {
+            Some((bytes, delay)) => stream_object(bytes, delay),
+            None => StatusCode::NOT_FOUND.into_response(),
+        };
+    }
     let req = FakeRequest { method: method.as_str(), path: rest, segments: rest.split('/').filter(|p| !p.is_empty()).map(decode).collect(), query: parse_query(&query), token, body: &body, base: &s.base, accept: header("accept") };
     let reply = match forge {
         "gitlab" => gitlab::route(&mut st, &req),
         "github" => github::route(&mut st, &req),
         // --- 5A T3 ---
         "github-images" => github_pulls::image(&st, &req),
+        "github-releases" => releases::download(&req),
         _ => github::avatar(&req),
     };
     let reply = if forge == "gitlab" && st.gitlab_etags_off { reply } else { reply.with_etag(header("if-none-match").as_deref()) };
     st.requests[logged].status = reply.status;
     drop(st);
     reply.into_response()
+}
+
+/// A release asset's bytes in 64 KiB chunks, `delay_ms` apart.
+fn stream_object(bytes: Vec<u8>, delay_ms: u64) -> Response {
+    let len = bytes.len();
+    let chunks: Vec<Bytes> = bytes.chunks(64 * 1024).map(Bytes::copy_from_slice).collect();
+    let stream = futures_util::stream::unfold((chunks.into_iter(), true), move |(mut rest, first)| async move {
+        let next = rest.next()?;
+        if !first && delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        Some((Ok::<Bytes, std::io::Error>(next), (rest, false)))
+    });
+    Response::builder()
+        .status(200)
+        .header("content-type", "application/octet-stream")
+        .header("content-length", len)
+        .body(axum::body::Body::from_stream(stream))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }

@@ -34,6 +34,9 @@ for f in doc/gitbolt/{copyright,LICENSE,THIRD-PARTY-NOTICES-rust.txt,THIRD-PARTY
   [ -n "$size" ] || fail "no /usr/share/$f"
   [ "$size" -gt 0 ] || fail "/usr/share/$f is empty"
 done
+# How the package was installed, beside the binary: the update check picks the .deb by it.
+kind=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO --wildcards '*usr/share/GitBolt/install-kind' 2>/dev/null) || true
+[ "$kind" = deb ] || fail "/usr/share/GitBolt/install-kind isn't 'deb': '$kind'"
 
 # The desktop entry, the AppStream metainfo and the copyright file, unpacked once.
 meta=$(mktemp -d); trap 'rm -rf "$meta"' EXIT

@@ -119,6 +119,22 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 - **Not planned:** an integrated terminal, AI features, issue tracker integrations, and Bitbucket,
   Azure DevOps or GitHub Enterprise Server support. Use the tools you already have for those.
 
+## Updates
+
+GitBolt checks GitHub for a new release at startup and once a day. When there is one, a pill at
+the bottom right says **Update to 0.3.0**: a click downloads the package for how you installed
+GitBolt (the `.deb` or the Arch package), and GitBolt checks it against the release's
+`SHA256SUMS` before offering **Install**. The install asks for your password through your
+desktop's polkit prompt (`pkexec apt install` or `pkexec pacman -U`); then **Restart GitBolt**
+starts the new version. If it can't ask, it shows the command to run in a terminal. On Arch you
+can say you use an AUR helper instead, and it shows that command. On Windows, **Install** starts
+the installer you installed with (the setup `.exe` or the `.msi`) and GitBolt closes so it can be
+replaced. A build from source only links to the release page.
+
+Help › **Check for updates** checks at once. Settings › **Updates** turns the automatic check off,
+or includes pre-releases. [PRIVACY.md](PRIVACY.md) says what the check sends, and
+[SECURITY.md](SECURITY.md) how a download is verified.
+
 ## Building from source
 
 Requirements: a stable Rust toolchain (1.95 or newer, as Tauri 3 requires), Node.js and npm, [`just`](https://github.com/casey/just),

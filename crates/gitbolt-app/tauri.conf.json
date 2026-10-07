@@ -63,7 +63,8 @@
         "/usr/share/doc/gitbolt/CEF-LICENSE.txt": "../../target/licenses/CEF-LICENSE.txt",
         "/usr/share/doc/gitbolt/CHROMIUM-CREDITS.html.gz": "../../target/licenses/CHROMIUM-CREDITS.html.gz",
         "/usr/share/doc/gitbolt/DICTIONARY-en-US-LICENSE.txt": "dictionaries/en-US-LICENSE.txt",
-        "/usr/share/GitBolt/dictionaries/en-US-10-1.bdic": "dictionaries/en-US-10-1.bdic"
+        "/usr/share/GitBolt/dictionaries/en-US-10-1.bdic": "dictionaries/en-US-10-1.bdic",
+        "/usr/share/GitBolt/install-kind": "packaging/install-kind-deb"
       } }
     }
   }

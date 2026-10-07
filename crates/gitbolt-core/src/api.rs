@@ -1033,6 +1033,18 @@ pub enum Request {
           target: String,
       },
       // --- end 4D T3 ---
+    /// Where the update stands (`updates.rs`): `UpdateState`.
+    UpdateStatus,
+    /// Checks GitHub for a newer release now (Check for updates): `UpdateState`.
+    UpdateCheck,
+    /// Downloads and verifies the offered update; `updateChanged` events follow: `UpdateState`.
+    UpdateDownload,
+    /// Stops the download: `UpdateState`.
+    UpdateCancel,
+    /// Installs the verified update: `InstallOutcome`.
+    UpdateInstall,
+    /// Starts the installed version and quits this one.
+    UpdateRestart,
 }
 
 impl Request {
@@ -1062,6 +1074,8 @@ impl Request {
             // --- 4D T3 ---
             Request::ForgeStack { .. } | Request::ForgeSyncStack { .. } | Request::ForgeRetarget { .. } => false,
             // --- end 4D T3 ---
+            // Updates: GitHub and the cache folder, never a repository.
+            Request::UpdateStatus | Request::UpdateCheck | Request::UpdateDownload | Request::UpdateCancel | Request::UpdateInstall | Request::UpdateRestart => false,
             // Remote-tracking refs and objects.
             // --- 4A T7 ---
             Request::AddRemote { .. } | Request::RemoveRemote { .. } => true,
@@ -1337,6 +1351,12 @@ pub struct Api {
     owner: Mutex<Option<crate::journal::OwnerLock>>,
     /// The hard limit on one autostash step (spec #2 §6, 2A T11 review N3); tests shorten it.
     pub(crate) autostash_timeout: Duration,
+    /// This build's version, with a local build's `+<stamp>.<sha>` (`with_app_version`).
+    pub(crate) app_version: String,
+    /// How this GitBolt was installed (`with_install_kind`).
+    pub(crate) install_kind: crate::updates::install::InstallKind,
+    /// The update check, download and install (`with_updates`); `None`: updates refuse.
+    pub(crate) updates: Option<Arc<crate::updates::Updates>>,
 }
 
 /// The most forwarded paths kept for a UI that never takes them (the oldest go first).
@@ -1526,6 +1546,64 @@ impl Api {
             recovered: Mutex::default(),
             owner: Mutex::new(None),
             autostash_timeout: crate::journal::autostash::AUTOSTASH_TIMEOUT,
+            app_version: env!("CARGO_PKG_VERSION").into(),
+            install_kind: crate::updates::install::InstallKind::Unpackaged,
+            updates: None,
+        }
+    }
+
+    /// The build's own version (`GITBOLT_BUILD_VERSION`: `0.2.0+202610072046.d1d4d7d` for a
+    /// local package build); `Cargo.toml`'s otherwise. Before `with_updates`, which compares it.
+    pub fn with_app_version(mut self, version: impl Into<String>) -> Self {
+        self.app_version = version.into();
+        self
+    }
+
+    /// How this GitBolt was installed (`updates::install::detect_install_kind`).
+    pub fn with_install_kind(mut self, kind: crate::updates::install::InstallKind) -> Self {
+        self.install_kind = kind;
+        self
+    }
+
+    /// Updates from GitHub Releases, for `cfg.kind` (also the install kind About shows).
+    pub fn with_updates(mut self, cfg: crate::updates::UpdateConfig) -> Self {
+        self.install_kind = cfg.kind;
+        self.updates = Some(Arc::new(crate::updates::Updates::new(cfg, &self.app_version, self.bus.clone())));
+        self
+    }
+
+    /// The update state back to unchecked (the harness's reset).
+    pub fn reset_updates(&self) {
+        if let Some(u) = &self.updates {
+            u.reset();
+        }
+    }
+
+    fn updates(&self) -> Result<&Arc<crate::updates::Updates>, GbError> {
+        self.updates.as_ref().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "Updates aren't available in this build"))
+    }
+
+    /// The automatic update check (Settings › Updates): `FIRST_CHECK_DELAY` after startup, then
+    /// once a day, while the setting is on. The app spawns it; the harness and tests don't.
+    pub fn update_checks(self: &Arc<Self>) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let updates = self.updates.clone();
+        let api = Arc::downgrade(self);
+        async move {
+            let Some(updates) = updates else { return };
+            tokio::time::sleep(crate::updates::FIRST_CHECK_DELAY).await;
+            loop {
+                let Some(api) = api.upgrade() else { return };
+                let settings = api.store.state().settings;
+                let now = api.now();
+                drop(api);
+                if settings.update_check
+                    && updates.due(now)
+                    && let Err(e) = updates.check(settings.update_prereleases, now).await
+                {
+                    tracing::info!(target: "gitbolt_core::updates", "the update check failed: {}", e.message);
+                }
+                tokio::time::sleep(crate::updates::CHECK_TICK).await;
+            }
         }
     }
 
@@ -2046,7 +2124,7 @@ impl Api {
             Request::Diagnostics { ui } => {
                 let git_version = self.cli.check_version().await.ok();
                 to_json(crate::diagnostics::format(&crate::diagnostics::DiagnosticsInput {
-                    app_version: env!("CARGO_PKG_VERSION"),
+                    app_version: &self.app_version,
                     runtime: &self.runtime_info,
                     git_version,
                     os: crate::diagnostics::os_description(),
@@ -2621,7 +2699,16 @@ impl Api {
                 let h = self.handle(repo)?;
                 to_json(blocking(move || crate::shelldata::last_push(&h.repo, &remote_ref)).await?)
             }
-            Request::AppInfo => to_json(crate::shelldata::app_info_payload(self.git_version().await?)),
+            Request::AppInfo => to_json(crate::shelldata::app_info_payload(self.git_version().await?, &self.app_version, self.install_kind)),
+            Request::UpdateStatus => to_json(self.updates.as_ref().map_or(crate::updates::UpdateState::Idle, |u| u.state())),
+            Request::UpdateCheck => {
+                let include_pre = self.store.state().settings.update_prereleases;
+                to_json(self.updates()?.check(include_pre, self.now()).await?)
+            }
+            Request::UpdateDownload => to_json(self.updates()?.start_download()?),
+            Request::UpdateCancel => to_json(self.updates.as_ref().map_or(crate::updates::UpdateState::Idle, |u| u.cancel_download())),
+            Request::UpdateInstall => to_json(self.updates()?.install().await?),
+            Request::UpdateRestart => to_json(self.updates()?.restart()?),
             Request::PickFolder { start } => {
                 let Some(picker) = self.folder_picker.clone() else { return to_json(Option::<String>::None) };
                 let start = start.map(PathBuf::from).filter(|p| p.is_absolute());
@@ -4593,6 +4680,13 @@ mod tests {
             json!({"method": "sidebar", "params": {"repo": id}}),
             json!({"method": "lastPush", "params": {"repo": id, "remoteRef": "refs/remotes/origin/main"}}),
             json!({"method": "appInfo"}),
+            // Updates: no source in a test `Api`, so all but status and cancel refuse.
+            json!({"method": "updateStatus"}),
+            json!({"method": "updateCheck"}),
+            json!({"method": "updateDownload"}),
+            json!({"method": "updateCancel"}),
+            json!({"method": "updateInstall"}),
+            json!({"method": "updateRestart"}),
             json!({"method": "pickFolder", "params": {"start": null}}),
             json!({"method": "scanRepos", "params": {"root": root, "refresh": true}}),
             json!({"method": "scanFolders", "params": {"roots": [root], "refresh": true}}),
@@ -4788,7 +4882,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage", "forgeVideo", "forgeOpenVideo"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage", "forgeVideo", "forgeOpenVideo", "updateCheck", "updateDownload", "updateInstall", "updateRestart"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {

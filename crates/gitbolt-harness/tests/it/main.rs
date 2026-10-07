@@ -24,4 +24,5 @@ mod forge_mrs;
 mod forge_poll_cost;
 mod forge_stacks;
 mod markdown_images;
+mod updates;
 mod ws;

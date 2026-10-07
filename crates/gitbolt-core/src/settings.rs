@@ -94,6 +94,12 @@ pub struct AppSettings {
     /// Gravatar (its own setting), then initials.
     pub forge_avatars: bool,
     // --- end 4A T6 ---
+    /// "Check for updates automatically": the GitHub releases, at startup and once a day.
+    pub update_check: bool,
+    /// "Include pre-releases" in the update check (a pre-release build always sees them).
+    pub update_prereleases: bool,
+    /// How an Arch install updates, once the update dialog asked; `None` until then.
+    pub update_arch_method: Option<crate::updates::install::ArchMethod>,
     /// Per-theme lane colour overrides (plan 1D): theme id → lane index → `#rrggbb`, or null for
     /// the theme's own colour. The UI validates the entries; an invalid one shows the theme's.
     #[ts(type = "Record<string, (string | null)[]>")]
@@ -152,6 +158,9 @@ impl Default for AppSettings {
             sync_button: SyncButtonMode::FetchAll,
             push_follow_tags: true,
             forge_avatars: true,
+            update_check: true,
+            update_prereleases: false,
+            update_arch_method: None,
             graph_color_overrides: BTreeMap::new(),
             window: None,
         }

@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const api = vi.hoisted(() => ({
   cancelOp: vi.fn(async () => null),
   queueState: vi.fn(async () => ({ running: null, queued: [], stopped: null })),
-  appInfo: vi.fn(async () => ({ appVersion: '0.1.0', gitVersion: '2.47.1' })),
+  appInfo: vi.fn(async () => ({ appVersion: '0.1.0', gitVersion: '2.47.1', build: '202610072046.d1d4d7d', installKind: 'none' })),
+  updateStatus: vi.fn(async () => ({ state: 'idle' })),
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () => {} }));
 vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
@@ -43,9 +44,13 @@ describe('StatusBar (spec §6.5)', () => {
     expect(screen.getByRole('button', { name: 'Zoom 200%' })).toBeInTheDocument();
   });
 
-  it('shows the git version', async () => {
+  it('shows the git version, then GitBolt\'s, with a local build\'s stamp in its tooltip', async () => {
     render(<StatusBar />);
-    await waitFor(() => expect(bar()).toHaveTextContent('git 2.47.1'));
+    await waitFor(() => expect(bar()).toHaveTextContent('git 2.47.1GitBolt 0.1.0'));
+    fireEvent.mouseEnter(screen.getByText('GitBolt 0.1.0'));
+    expect(await screen.findByText('Build 202610072046.d1d4d7d')).toBeInTheDocument();
+    // No update: no pill.
+    expect(bar().querySelector('.sb-update')).toBeNull();
   });
 
   it('shows a running clone with its progress, and cancels it', () => {

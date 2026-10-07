@@ -33,6 +33,7 @@ notices="LICENSE THIRD-PARTY-NOTICES-rust.txt THIRD-PARTY-NOTICES-ui.txt CEF-LIC
 for f in $notices; do printf 'notice %s\n' "$f" > "$pkg/usr/share/doc/gitbolt/$f"; done
 mkdir -p "$pkg/usr/share/GitBolt/dictionaries"
 printf 'BDic' > "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic"
+printf 'deb\n' > "$pkg/usr/share/GitBolt/install-kind"
 newest=$(sed -n 's/.*<release version="\([^"]*\)".*/\1/p' "$metainfo" | head -1)
 cat > "$pkg/DEBIAN/control" <<EOT
 Package: git-bolt
@@ -95,4 +96,8 @@ rejects "newest release" "a stale newest release"
 cp "$work/metainfo" "$metainfo"
 rm "$pkg/usr/share/icons/hicolor/256x256/apps/dev.gitbolt.desktop.png"
 rejects "no hicolor 256x256" "no 256x256 icon"
+# The install kind the update check reads.
+printf 'arch\n' > "$pkg/usr/share/GitBolt/install-kind"
+rejects "install-kind" "an install-kind other than deb"
+printf 'deb\n' > "$pkg/usr/share/GitBolt/install-kind"
 echo "test-check-deb: OK"

@@ -1,7 +1,7 @@
 # Privacy
 
 GitBolt has no accounts, servers or cloud service of its own. It talks only to your git remotes,
-to the GitHub and GitLab accounts you add, and to Gravatar. This page lists every network request
+to the GitHub and GitLab accounts you add, to Gravatar, and to GitHub for its own updates. This page lists every network request
 the app makes, what each one sends, and how to turn it off. It also lists what GitBolt keeps on
 your computer and how to delete it.
 
@@ -64,6 +64,25 @@ makes no forge requests (apart from images you choose to load, below).
   - Remove the account (Settings › Accounts) to stop all requests to that forge.
   - Setting the background fetch interval to Off stops the timed polls. Polls when a tab opens or
     the window gets the focus still happen.
+
+### Update check (GitHub Releases)
+
+Setting: Settings › Updates › **Check for updates automatically** (on by default).
+
+- **When:** 10 seconds after startup, then once a day while GitBolt runs, and whenever you click
+  Help › **Check for updates** (or the button in About), even with the setting off.
+- **Sends:** `GET https://api.github.com/repos/GitBoltApp/gitbolt/releases?per_page=30`, with no
+  token (not even a GitHub account's you added), no cookie and nothing about you or your
+  repositories. GitHub sees your IP address and `User-Agent: GitBolt/<version>`. A repeated check
+  is conditional (an ETag), so an unchanged list is a cheap 304.
+- **Download:** only when you click the update. GitBolt downloads that release's package for
+  your install (`.deb`, Arch package, Windows setup `.exe` or `.msi`) and its `SHA256SUMS` from
+  `github.com/GitBoltApp/gitbolt/releases/download/…`, following GitHub's redirect to its asset
+  storage (`objects.githubusercontent.com` or `release-assets.githubusercontent.com`), over https
+  and without a token. No other host is followed.
+- **Include pre-releases** (off by default) only changes which releases are offered.
+- **Turn off:** uncheck the setting. GitBolt then asks GitHub only when you click Check for
+  updates.
 
 ### Avatars
 
@@ -180,9 +199,10 @@ Translate model (`www.gstatic.com`). GitBolt now turns all of that off
 
 ### What isn't there
 
-GitBolt has no telemetry, analytics, crash reporting or update checks.
+GitBolt has no telemetry, analytics or crash reporting. The update check (above) is the only
+request GitBolt makes on its own that isn't about your repositories or accounts.
 
-- The Rust code has no HTTP client besides the forge and Gravatar code above.
+- The Rust code has no HTTP client besides the forge, Gravatar and update code above.
 - The UI code makes no requests of its own. Its WebSocket client is used only by the test
   harness, outside the app.
 - The packages ship no `crash_reporter.cfg`, the file CEF needs before it will upload crash
@@ -206,6 +226,7 @@ Paths are the XDG defaults. `$XDG_CONFIG_HOME`, `$XDG_CACHE_HOME` and `$XDG_DATA
 | `~/.local/share/gitbolt/journal/`, `rewrites/`, `tmp/` | The undo journal per worktree, the notes Push uses after a rewrite, and temporary index files. |
 | `~/.cache/gitbolt/logs/` | Log files: daily, the newest 7 kept, at most 50 MB in all, redacted. They contain repository paths, git commands and error messages. |
 | `~/.cache/gitbolt/avatars/`, `forge-avatars/` | Avatar and Markdown image caches, named by SHA-256 hashes. |
+| `~/.cache/gitbolt/updates/` | The downloaded update package, while it waits to be installed (0700). Each download replaces the last. |
 | `~/.cache/gitbolt/open/` | Old file versions written for "Open in…", and videos opened with the default app. Copies older than a week are removed at startup. |
 | `~/.cache/dev.gitbolt.desktop/cef/` | Chromium's profile for the UI: its local storage (UI preferences, and unsent commit-message and MR/PR drafts), the words you add to the spell-check dictionary, a copy of the bundled dictionary (`Dictionaries/`) and `cef.log`. |
 | `$XDG_RUNTIME_DIR/gitbolt-*` | The askpass and single-instance sockets. Removed when GitBolt exits. |

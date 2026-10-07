@@ -12,6 +12,7 @@ import type { MenuRow } from '../menu/types';
 import { QueueChip } from '../queue/QueueChip';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { setZoom, useZoom, ZOOM_STEPS } from '../ui/zoom';
+import { UpdatePill } from '../updates/UpdatePill';
 import './statusbar.css';
 
 /** Spec §12.3: the zoom steps, the current one first in focus. */
@@ -74,7 +75,7 @@ function useWriteText(op: OpInfo | undefined): string | undefined {
 /**
  * The status bar (spec §6.5), in the app's `statusBar` slot: zoom, a running clone or a slow fetch
  * of the user's (or the auth prompt one waits on) with Cancel, the active tab's fetch-skipped
- * warning, the Keyboard Shortcuts button, and the git version. (The notification bell is in the tab bar.)
+ * warning, the update pill (`updates/`), the Keyboard Shortcuts button, git's version and GitBolt's. (The notification bell is in the tab bar.)
  */
 export function StatusBar() {
   const zoom = useZoom((s) => s.zoom);
@@ -89,6 +90,8 @@ export function StatusBar() {
   const writeText = useWriteText(writing);
   const prompt = useOps((s) => s.prompts[0]);
   const git = useAppInfo((s) => s.info?.gitVersion);
+  const version = useAppInfo((s) => s.info?.appVersion);
+  const build = useAppInfo((s) => s.info?.build);
   useEffect(() => { void useAppInfo.getState().load().catch((e: unknown) => console.warn('[gitbolt] app info', e)); }, []);
   const cancel = (op: number) => { void api.cancelOp(op).catch(() => {}); };
   return (
@@ -129,12 +132,18 @@ export function StatusBar() {
       ) : null}
       {skipped && <span className="sb-item sb-warn"><TriangleAlert size={12} aria-hidden /> {skipped}</span>}
       <span className="sb-spacer" />
+      <UpdatePill />
       <HoverTooltip content="Keyboard shortcuts (Ctrl+/)">
         <button type="button" className="sb-item sb-button" aria-label="Keyboard shortcuts" onClick={() => runAction('help.shortcuts')}>
           <Keyboard size={12} aria-hidden />
         </button>
       </HoverTooltip>
       <span className="sb-item">git {git ?? '…'}</span>
+      {build ? (
+        <HoverTooltip content={`Build ${build}`}>
+          <span className="sb-item sb-version">GitBolt {version ?? '…'}</span>
+        </HoverTooltip>
+      ) : <span className="sb-item sb-version">GitBolt {version ?? '…'}</span>}
     </footer>
   );
 }

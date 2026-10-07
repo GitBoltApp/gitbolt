@@ -42,7 +42,40 @@ const _: () = assert!(cfg!(debug_assertions) || !gitbolt_core::TESTING, "gitbolt
 /// `child_env` adjusts every child it starts: git, each opener launch, the chooser's `xdg-open`
 /// fallback and the URL opener (`desktop::restore_child_env` in the app). An opener launch also
 /// gets the login shell's environment, when `cli` has one captured (spec §5.3).
-fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook) -> Api {
+/// This build's version: a `just package` build's stamped one (`GITBOLT_BUILD_VERSION`,
+/// `0.2.0+202610072046.d1d4d7d`), else Cargo.toml's.
+const APP_VERSION: &str = match option_env!("GITBOLT_BUILD_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// Quits the app once the window exists (set in `setup`): what an installer that replaces the
+/// app, or Restart GitBolt, needs.
+type QuitSlot = Arc<OnceLock<Box<dyn Fn() + Send + Sync>>>;
+
+/// Updates from GitHub Releases (`gitbolt_core::updates`): downloads in the cache's `updates`
+/// folder, the install kind from the `install-kind` file each package puts beside the binary
+/// (`GitBolt.exe` on Windows, which loads this DLL); none: a build from source.
+fn update_config(child_env: ChildEnvHook, quit: QuitSlot) -> gitbolt_core::updates::UpdateConfig {
+    use gitbolt_core::updates::install::detect_install_kind;
+    let exe = std::env::current_exe().ok();
+    let kind = detect_install_kind(exe.as_deref().and_then(Path::parent));
+    gitbolt_core::updates::UpdateConfig {
+        source: Arc::new(gitbolt_forge::updates::GitHubReleases::github()),
+        runner: Arc::new(gitbolt_core::updates::SystemRunner {
+            hook: child_env,
+            quit: Arc::new(move || match quit.get() {
+                Some(quit) => quit(),
+                None => tracing::warn!("asked to quit before the window exists"),
+            }),
+        }),
+        dir: paths::cache_dir().join("updates"),
+        kind,
+        exe,
+    }
+}
+
+fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook, quit: QuitSlot) -> Api {
     let shell_env = cli.shell_env().cloned();
     // `system_url_opener` (I2) routes through the same argv-only, detached launch and
     // `child_env` hook as an opener launch, so the browser gets the session's own
@@ -53,6 +86,8 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook) -> Ap
         Arc::new(|url: &str| tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| GbError::other(format!("couldn't open {url}: {e}"))))
     });
     let api = Api::new(cli.with_command_hook(child_env.clone()), launch)
+        .with_app_version(APP_VERSION)
+        .with_updates(update_config(child_env.clone(), quit))
         .with_data_dir(paths::data_dir())
         .with_url_opener(url_opener)
         .with_openers(Arc::new(detect_system), launcher(child_env.clone(), shell_env));
@@ -294,7 +329,9 @@ pub fn run() {
     // "Open Repository" (spec §13): the folder-picker portal, parented to the main window once
     // it exists (R2: no picker on a portal-less desktop; the UI falls back to a typed path).
     let parent: ParentWindow = Arc::default();
-    let mut built = build_api(cli, launch, child_env).with_runtime_info("tauri 3.0.0-alpha.4 · tauri-runtime-cef 3.0.0-alpha.5 (GitBolt patch: CEF #3002)");
+    let quit: QuitSlot = Arc::default();
+    let quit_slot = quit.clone();
+    let mut built = build_api(cli, launch, child_env, quit).with_runtime_info("tauri 3.0.0-alpha.4 · tauri-runtime-cef 3.0.0-alpha.5 (GitBolt patch: CEF #3002)");
     if let Some(h) = log_handle {
         built = built.with_log_handle(h);
     }
@@ -411,6 +448,12 @@ pub fn run() {
                 }
             }
             let _ = parent.set(Box::new(move || portal_parent(&window)));
+            // An update's installer, or Restart GitBolt, quits the way closing the window does
+            // (a running write gets its 3 s first).
+            let exiting = app.handle().clone();
+            let _ = quit_slot.set(Box::new(move || exiting.exit(0)));
+            // The update check: shortly after startup, then daily (Settings › Updates).
+            tauri::async_runtime::spawn(forward.update_checks());
             // Here, after the runtime's `set_var` (its SAFETY note: no other thread may read the
             // environment before it): capture the login shell's environment (spec §5.3), detect
             // the "Open in…" editors off the UI's path, so the first `listOpeners` answers from
@@ -623,7 +666,7 @@ mod tests {
         // or spawns a PATH-relative child concurrently); restored immediately below, before
         // `dispatch` runs anything.
         unsafe { std::env::set_var("PATH", &with_fake_xdg_open) };
-        let api = build_api(GitCli::new(Arc::new(CommandLog::new(10))), None, hook);
+        let api = build_api(GitCli::new(Arc::new(CommandLog::new(10))), None, hook, QuitSlot::default());
         unsafe { std::env::set_var("PATH", &real_path) };
 
         api.dispatch(Request::OpenUrl { url: "https://example.com/x".into() }).await.unwrap();

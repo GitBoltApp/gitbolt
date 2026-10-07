@@ -107,3 +107,5 @@ import '../diff/keyActions';
 import '../repo/focusActions';
 import '../forge/mrview/keyActions';
 // --- end Shortcuts pass ---
+// Updates from GitHub Releases: Help → Check for updates and the update dialog.
+import '../updates/feature';

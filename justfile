@@ -128,8 +128,9 @@ package: check-tauri-cli
     # newer build replaces the installed one instead of skipping it as "already the newest".
     # GITBOLT_RELEASE_VERSION=<version> (the release workflow) builds the plain version instead,
     # which must equal tauri.conf.json's (scripts/package-version.sh). CARGO_BUILD_JOBS defaults to 4.
+    # GITBOLT_BUILD_VERSION bakes the same version into the binary (the status bar, the update check).
     cd crates/gitbolt-app && v="$(../../scripts/package-version.sh tauri.conf.json)" && \
-      env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
+      env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" GITBOLT_BUILD_VERSION="$v" cargo tauri build --bundles deb --config "{\"version\":\"$v\"}"
     scripts/fix-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/check-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/package-arch.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/arch

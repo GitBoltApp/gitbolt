@@ -57,6 +57,39 @@ automatically.
 5. **Publish** the draft. GitHub marks a published release as the latest unless it's a
    pre-release.
 
+## Asset names are an API
+
+Installed GitBolts find their update by these names (`crates/gitbolt-core/src/updates/release.rs`),
+so keep them exactly as they are, and keep `SHA256SUMS` in every release: an update whose
+package `SHA256SUMS` doesn't list is never installed.
+
+| Install | Asset |
+|---|---|
+| `.deb` | `GitBolt_<version>_amd64.deb` |
+| Arch | `GitBolt-<pkgver>-1-x86_64.pkg.tar.zst` (`<pkgver>`: the version without the pre-release's `-`) |
+| Windows (NSIS) | `GitBolt_<version>_x64-setup.exe` |
+| Windows (MSI) | `GitBolt_<version>_x64.msi` |
+| all | `SHA256SUMS` (`sha256sum` output listing each package) |
+
+The tag stays `v<version>`, and the release's body (the CHANGELOG section) is what the update
+dialog shows. Drafts are never offered; a release marked pre-release (or with a pre-release
+version) is offered only to users who include pre-releases, or who run a pre-release.
+
+Each package says how it was installed in an `install-kind` file beside the binary, which the
+app reads at run time (one build goes into both packages of a platform, so the binary itself
+can't know):
+
+- the `.deb` ships `/usr/share/GitBolt/install-kind` = `deb`
+  (`crates/gitbolt-app/packaging/install-kind-deb`, through tauri.conf.json), and
+  `scripts/package-arch.sh` rewrites it to `arch`;
+- the NSIS installer writes `install-kind` = `nsis` beside `GitBolt.exe`, and the MSI installs
+  `packaging/windows/install-kind-msi` (`msi`) there; `scripts/package-windows.ps1` checks the
+  MSI has it.
+
+No file: a build from source, which is only offered the release page. `just package` and
+`just package-windows` also bake the stamped version in (`GITBOLT_BUILD_VERSION`), which the
+status bar and the update check use.
+
 ## Versions
 
 A release version is [SemVer](https://semver.org) without build metadata: `X.Y.Z` or

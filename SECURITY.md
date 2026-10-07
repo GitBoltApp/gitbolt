@@ -156,6 +156,38 @@ That is a trust boundary.
   interval to Off first. `git status` and the other reads still run, so its `core.fsmonitor` still
   applies: open it only if you'd also run `git status` in it.
 
+### Updates
+
+GitBolt can download and install its own updates from GitHub Releases
+(`crates/gitbolt-core/src/updates/`, `crates/gitbolt-forge/src/updates.rs`).
+
+- **Checksums.** A downloaded package is kept only if the same release's `SHA256SUMS` lists it
+  with the same SHA-256 digest. A mismatch, a package `SHA256SUMS` doesn't list, or a release
+  without `SHA256SUMS` deletes the download and says so; it is never run. Right before the
+  install, the digest is checked again, so a file changed in the meantime is deleted too.
+- **Where downloads come from.** The release list comes from `api.github.com` without any
+  token. A package is fetched only from `github.com/GitBoltApp/gitbolt/releases/download/`, and
+  a redirect is followed only to GitHub's asset storage (`objects.githubusercontent.com`,
+  `release-assets.githubusercontent.com`), over https, through the same HTTP client (TLS, proxy,
+  timeouts) as the forge API. The download goes to `~/.cache/gitbolt/updates/` (0700; `%LOCALAPPDATA%\gitbolt\updates` on Windows).
+- **What `SHA256SUMS` proves.** It catches a corrupted or swapped download, but it comes from the
+  same release, so it only proves the file is the one published there. **The packages aren't
+  code-signed yet.** For a stronger check, GitHub's build provenance attestations tie each
+  package to the release workflow that built it; verify one by hand with the GitHub CLI:
+
+  ```sh
+  gh attestation verify GitBolt_0.3.0_amd64.deb --repo GitBoltApp/gitbolt
+  ```
+
+- **The install.** GitBolt runs `pkexec apt install -y ./<package>.deb` or
+  `pkexec pacman -U --noconfirm <package>` as an argument list (no shell), so your desktop's
+  polkit prompt asks for the password; GitBolt never sees it and never uses `sudo` itself. If
+  `pkexec` is missing or you cancel, it shows the `sudo` command to run yourself. On Windows it
+  starts the installer (the NSIS setup, or `msiexec /i` for the MSI) and quits.
+- **Which package.** Each package names how it was installed in an `install-kind` file beside the
+  binary (`deb`, `arch`, `nsis` or `msi`); a build from source has none and is only offered the
+  release page.
+
 ### Test-only code
 
 - The end-to-end test harness (`crates/gitbolt-harness`) is a separate binary. It serves the API

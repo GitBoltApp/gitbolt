@@ -1,4 +1,4 @@
-import { freshFixture, harnessHttp } from './fixtures';
+import { forgeSeed, freshFixture, harnessHttp, setForgeSeed } from './fixtures';
 import { expect, test } from './test';
 
 const openBoth = (a: string, b: string) => `/?repo=${encodeURIComponent(a)}&repo=${encodeURIComponent(b)}`;
@@ -6,7 +6,7 @@ const openBoth = (a: string, b: string) => `/?repo=${encodeURIComponent(a)}&repo
 test.describe('tabs', () => {
   // Each `test.step` below was a test of its own, paying for a page load; they run in an order
   // where each starts from what it needs.
-  test('one tab: the hamburger, About, the profile picker, renaming a tab (kept across a reload), profiles swap the tab set', async ({ page }) => {
+  test('one tab: the hamburger, About, an update, the profile picker, renaming a tab (kept across a reload), profiles swap the tab set', async ({ page, request }) => {
     await test.step('the hamburger lists only working actions, with shortcuts', async () => {
       const a = freshFixture('basic');
       await page.goto(`/?repo=${encodeURIComponent(a)}`);
@@ -27,6 +27,35 @@ test.describe('tabs', () => {
       const dialog = page.getByRole('dialog', { name: 'About GitBolt' });
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText('git');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+    });
+    await test.step('an update: Check for updates finds it, the pill downloads it, then the dialog offers the install', async () => {
+      const bar = page.locator('.status-bar');
+      await expect(bar).toContainText(/git [\d.]+GitBolt \d+\.\d+\.\d+/);
+      // The fake GitHub's release (never the real one), served slowly enough to see the download.
+      const seed = await forgeSeed(request);
+      const github = seed.github as Record<string, unknown>;
+      github.releases = [{ tagName: 'v0.99.0', name: 'GitBolt 0.99.0', body: '## Added\n\n- Updates from GitHub', assets: [{ name: 'GitBolt_0.99.0_amd64.deb', size: 2 * 1024 * 1024 }, { name: 'SHA256SUMS', size: 0 }] }];
+      github.downloadChunkDelayMs = 60;
+      await setForgeSeed(request, seed);
+      await page.getByRole('button', { name: 'Menu' }).click();
+      await page.getByRole('menuitem', { name: 'Help' }).hover();
+      await page.getByRole('menuitem', { name: 'Check for updates' }).click();
+      const about = page.getByRole('dialog', { name: 'About GitBolt' });
+      await expect(about.getByRole('status')).toHaveText('GitBolt 0.99.0 is available.');
+      await page.keyboard.press('Escape');
+      const pill = bar.locator('.sb-update');
+      await expect(pill).toHaveText('Update to 0.99.0');
+      await pill.click();
+      await expect(pill.getByRole('progressbar')).toBeVisible();
+      await expect(pill).toHaveText('Install 0.99.0', { timeout: 15_000 });
+      await pill.click();
+      const dialog = page.getByRole('dialog', { name: 'Update to GitBolt 0.99.0' });
+      await expect(dialog.getByRole('heading', { name: 'Added' })).toBeVisible();
+      await expect(dialog).toContainText('GitBolt_0.99.0_amd64.deb · 2.0 MB');
+      await expect(dialog.getByRole('button', { name: 'Install 0.99.0' })).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'View on GitHub' })).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(dialog).toBeHidden();
     });

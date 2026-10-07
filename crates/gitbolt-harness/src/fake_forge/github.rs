@@ -26,6 +26,10 @@ pub fn repo_json(p: &FakeProject, base: &str) -> Value {
 }
 
 pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
+    // GitBolt's own releases: public, no token.
+    if let Some(reply) = super::releases::api(st, r) {
+        return reply;
+    }
     // --- 4B T4: pull requests (github_pulls.rs), before the borrows below; without a token, 4A's
     // first arm answers 401. ---
     if r.token.is_some()

@@ -44,6 +44,7 @@ pub mod shellenv;
 pub mod snapshot;
 pub mod status;
 pub mod tree;
+pub mod updates;
 pub mod walk;
 pub mod watch;
 pub mod worktree;

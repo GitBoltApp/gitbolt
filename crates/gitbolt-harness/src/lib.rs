@@ -46,6 +46,31 @@ impl Launches {
     }
 }
 
+/// The update installer's commands, recorded in `/launches` and never run: `run` answers "not
+/// found" (the dialog then shows the command to run by hand), and a quit is recorded as the
+/// program `quit`.
+struct RecordingRunner(Arc<Launches>);
+
+impl RecordingRunner {
+    fn record(&self, c: &gitbolt_core::updates::install::InstallCommand) {
+        self.0.record(&LaunchCommand { program: c.program.clone().into(), args: c.args.iter().map(Into::into).collect() });
+    }
+}
+
+impl gitbolt_core::updates::UpdateRunner for RecordingRunner {
+    fn run<'a>(&'a self, cmd: &'a gitbolt_core::updates::install::InstallCommand) -> gitbolt_core::updates::RunFuture<'a> {
+        self.record(cmd);
+        Box::pin(async { Err(std::io::Error::new(std::io::ErrorKind::NotFound, "the harness never installs")) })
+    }
+    fn spawn(&self, cmd: &gitbolt_core::updates::install::InstallCommand) -> std::io::Result<()> {
+        self.record(cmd);
+        Ok(())
+    }
+    fn quit(&self) {
+        self.0.record(&LaunchCommand { program: "quit".into(), args: Vec::new() });
+    }
+}
+
 /// What `/launches` names "Other…" (the Open With chooser) by, in place of a program.
 pub const CHOOSER_PROGRAM: &str = "open-with-chooser";
 
@@ -224,7 +249,17 @@ impl Harness {
         let connector = Arc::new(fake_connector(&forge));
         // --- end 4A T10 ---
         let next_pick = picks.clone();
+        // Updates: the fake GitHub's releases (none until a test seeds some), a .deb install,
+        // downloads in the temp dir, and installs only recorded.
+        let updates = gitbolt_core::updates::UpdateConfig {
+            source: Arc::new(gitbolt_forge::updates::GitHubReleases::new(&forge.github_api(), &forge.github_releases(), vec![forge.github_objects()])),
+            runner: Arc::new(RecordingRunner(launches.clone())),
+            dir: runtime_tmp.path().join("updates"),
+            kind: gitbolt_core::updates::install::InstallKind::Deb,
+            exe: Some("/fake/bin/gitbolt".into()),
+        };
         let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
+            .with_updates(updates)
             // The journal and temp index files: the harness's own, never ~/.local/share.
             .with_data_dir(runtime_tmp.path().join("data"))
             .with_forge(connector, tokens.clone())
@@ -290,6 +325,7 @@ impl Harness {
         self.forge.reset();
         self.tokens.clear();
         self.api.forge_reset();
+        self.api.reset_updates();
     }
 }
 

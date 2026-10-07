@@ -15,6 +15,8 @@ pub mod images;
 pub mod known_names;
 pub mod time;
 pub mod pipelines;
+/// GitBolt's own releases (the update check).
+pub mod updates;
 #[cfg(test)]
 pub(crate) mod test_server;
 /// The contract these implement (core's, re-exported for callers of this crate).

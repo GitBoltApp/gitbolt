@@ -293,6 +293,17 @@ fetch timer (at most once a minute, and only while the window has the focus), wh
 the focus back, and after a GitBolt forge action. While a visible MR/PR's pipeline runs, it polls
 faster (20 s, backing off to 2 min). A failed poll keeps the data shown.
 
+## Updates
+
+`gitbolt-core/src/updates/` checks GitHub Releases for a newer version (SemVer; a local build's
+`+<stamp>` doesn't count), downloads the package for the install kind into the cache, keeps it only
+if the release's `SHA256SUMS` matches, and installs it (`pkexec apt`/`pacman` on Linux, the
+installer on Windows). The fetching is `gitbolt-forge/src/updates.rs`, through the forge HTTP
+client without a token; the commands run through an `UpdateRunner` the app supplies (the harness
+only records them). The install kind comes from `install-kind` beside the binary, which the
+packages write (docs/releasing.md). The UI's pill and dialog are in `ui/src/updates/`; progress
+arrives as `updateChanged` events.
+
 ## Settings, profiles and logs
 
 | What | Where |
@@ -303,7 +314,7 @@ faster (20 s, backing off to 2 min). A failed poll keeps the data shown.
 | Forge cache | `$XDG_DATA_HOME/gitbolt/forge-cache/` |
 | Forge tokens (only without a Secret Service) | `$XDG_DATA_HOME/gitbolt/forge-tokens` |
 | Log files | `$XDG_CACHE_HOME/gitbolt/logs/gitbolt.YYYY-MM-DD.log` |
-| Avatars, forge avatars, "open old version" copies | `$XDG_CACHE_HOME/gitbolt/{avatars,forge-avatars,open}/` |
+| Avatars, forge avatars, "open old version" copies, the downloaded update | `$XDG_CACHE_HOME/gitbolt/{avatars,forge-avatars,open,updates}/` |
 | Chromium profile | `$XDG_CACHE_HOME/dev.gitbolt.desktop/cef/` |
 
 The XDG defaults are `~/.config`, `~/.local/share` and `~/.cache`. Settings and profiles are

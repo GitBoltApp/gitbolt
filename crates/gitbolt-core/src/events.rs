@@ -194,6 +194,9 @@ pub enum AppEvent {
     /// Another launch on this config dir handed over its launch path (absolute) and exited
     /// (the single-instance guard, `instance.rs`): the UI opens it in a tab.
     OpenRequested { path: String },
+    /// The update check, download or install moved on (`updates.rs`): the status bar's pill and
+    /// the update dialog follow.
+    UpdateChanged { state: crate::updates::UpdateState },
 }
 
 #[derive(Clone)]

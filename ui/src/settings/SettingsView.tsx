@@ -23,7 +23,7 @@ import { Row } from './Row';
 import { clampFetchInterval, useSettingsUi, type SettingsSection } from './schema';
 import './settings.css';
 
-const SECTIONS: SettingsSection[] = ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Accounts', 'Hosts', 'Advanced', 'Repository'];
+const SECTIONS: SettingsSection[] = ['General', 'Appearance', 'Fetch', 'Editor', 'Profile', 'Accounts', 'Hosts', 'Updates', 'Advanced', 'Repository'];
 const FETCH_CHOICES: Array<[number, string]> = [[0, 'Off'], [60, 'Every minute'], [300, 'Every 5 minutes'], [600, 'Every 10 minutes'], [1800, 'Every 30 minutes']];
 const DATE_CHOICES: Array<[DateFormat, string]> = [['ymd12h', '2026-09-26 @ 3:14 PM'], ['ymd24h', '2026-09-26 15:14'], ['dmy24h', '26/09/2026 15:14'], ['mdy12h', '09/26/2026 3:14 PM']];
 const DENSITY_LABELS: Record<Density, [string, string]> = {
@@ -258,6 +258,10 @@ function SettingsDialog() {
                 )}
                 {s === 'Accounts' && <AccountsSection />}
                 {s === 'Hosts' && <Row id="hostOverrides" group><HostRows detected={detected} /></Row>}
+                {s === 'Updates' && <>
+                  <Row id="updateCheck"><input id="input-updateCheck" type="checkbox" checked={settings.updateCheck} onChange={(e) => setSettings({ updateCheck: e.target.checked })} /></Row>
+                  <Row id="updatePrereleases"><input id="input-updatePrereleases" type="checkbox" checked={settings.updatePrereleases} onChange={(e) => setSettings({ updatePrereleases: e.target.checked })} /></Row>
+                </>}
                 {s === 'Advanced' && (
                   <Row id="debugLogging"><input id="input-debugLogging" type="checkbox" checked={settings.debugLogging} onChange={(e) => setSettings({ debugLogging: e.target.checked })} /></Row>
                 )}

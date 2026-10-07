@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { useAppInfo } from './appInfo';
 import { useModalKeys } from './modalKeys';
+import { UpdateStatus } from '../updates/UpdateStatus';
 
 export const useAbout = create<{ open: boolean; setOpen(v: boolean): void }>((set) => ({
   open: false,
@@ -11,8 +12,8 @@ export const useAbout = create<{ open: boolean; setOpen(v: boolean): void }>((se
 // The licenses page loads on first use: none of it is in the startup bundle.
 const Licenses = lazy(() => import('./Licenses'));
 
-/** Help > About GitBolt (spec §6.1): the app version and the git version in use, and the open
- *  source licenses (the notices the build ships, docs/licensing.md). */
+/** Help > About GitBolt (spec §6.1): the app version and the git version in use, Check for
+ *  updates, and the open source licenses (the notices the build ships, docs/licensing.md). */
 export function About() {
   const open = useAbout((s) => s.open);
   const setOpen = useAbout((s) => s.setOpen);
@@ -43,8 +44,9 @@ export function About() {
         ) : (
           <>
             <h2>GitBolt</h2>
-            <p>Version {info?.appVersion ?? '…'}</p>
+            <p>Version {info?.appVersion ?? '…'}{info?.build ? ` (build ${info.build})` : ''}</p>
             <p>git {info?.gitVersion ?? '…'}</p>
+            <UpdateStatus onShow={close} />
             <div className="modal-actions">
               <button type="button" onClick={() => setPage('licenses')}>Open source licenses</button>
               <button type="button" autoFocus onClick={close}>Close</button>

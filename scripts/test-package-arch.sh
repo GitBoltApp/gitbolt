@@ -52,6 +52,7 @@ printf '<component>\n  <id>dev.gitbolt.desktop</id>\n  <pkgname>git-bolt</pkgnam
   > "$pkg/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml"
 mkdir -p "$pkg/usr/share/GitBolt/dictionaries"
 printf 'BDic' > "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic"
+printf 'deb\n' > "$pkg/usr/share/GitBolt/install-kind"
 cat > "$pkg/DEBIAN/control" <<'EOT'
 Package: git-bolt
 Version: 0.1.0+202610051325.ab4dbf9e
@@ -70,6 +71,7 @@ eq order "$(tar -tf "$work/p.tar" | head -3 | tr '\n' ' ')" '.PKGINFO .MTREE usr
 tar -tvf "$work/p.tar" | grep -Eq '^-rwsr-xr-x root/root .* usr/share/GitBolt/chrome-sandbox$' || fail "chrome-sandbox lost root:root 4755"
 tar -tvf "$work/p.tar" | grep -Eq '^lrwxrwxrwx root/root .* usr/bin/gitbolt -> \.\./share/GitBolt/gitbolt$' || fail "lost the /usr/bin/gitbolt symlink"
 tar -tvf "$work/p.tar" | grep -Eq '^-rw-r--r-- root/root +4 .* usr/share/GitBolt/dictionaries/en-US-10-1\.bdic$' || fail "lost the dictionary"
+eq install-kind "$(tar -xOf "$work/p.tar" usr/share/GitBolt/install-kind)" arch
 info=$(tar -xOf "$work/p.tar" .PKGINFO)
 for kv in 'pkgname = gitbolt' 'pkgver = 0.1.0.202610051325.ab4dbf9e-1' 'pkgdesc = A fast desktop Git client' \
           'arch = x86_64' "builddate = $(date -u -d '2026-10-05 13:25' +%s)" \
@@ -108,6 +110,11 @@ mv "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic" "$work/dict"
 dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/n.deb" >/dev/null
 "$here/package-arch.sh" "$work/n.deb" "$work/out3" 2>/dev/null && fail "package-arch accepted a .deb without the dictionary"
 mv "$work/dict" "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic"
+# Likewise without the install kind (the update check needs it).
+rm "$pkg/usr/share/GitBolt/install-kind"
+dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/n.deb" >/dev/null
+"$here/package-arch.sh" "$work/n.deb" "$work/out3" 2>/dev/null && fail "package-arch accepted a .deb without install-kind"
+printf 'deb\n' > "$pkg/usr/share/GitBolt/install-kind"
 # An unknown dependency fails the whole build.
 sed -i 's/^Depends: .*/Depends: libgtk-4-1, libfoo9/' "$pkg/DEBIAN/control"
 dpkg-deb --root-owner-group -Zgzip -b "$pkg" "$work/u.deb" >/dev/null

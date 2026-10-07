@@ -282,6 +282,9 @@ struct Raw {
 struct Inner {
     cfg: ClientConfig,
     agent: ureq::Agent,
+    /// `agent`'s rules (TLS, proxy, no automatic redirects) without its whole-request timeout:
+    /// a download takes as long as it takes, up to `DOWNLOAD_TIMEOUT`.
+    download_agent: ureq::Agent,
     etags: Mutex<EtagCache>,
     rate: Mutex<RateLimitState>,
     /// Until when the API's origin is taken as unreachable, and the error that said so.
@@ -333,22 +336,13 @@ impl HttpClient {
     }
 
     pub fn with_clock(cfg: ClientConfig, clock: SecsClock) -> Self {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(cfg.timeout))
-            .timeout_connect(Some(Duration::from_secs(10)))
-            .timeout_resolve(Some(Duration::from_secs(5)))
-            // A slow self-hosted forge may take a while on a big list, but must start answering.
-            .timeout_recv_response(Some(RESPONSE_START.min(cfg.timeout)))
-            .http_status_as_error(false)
-            .max_redirects(0)
-            .max_redirects_will_error(false)
-            .user_agent(USER_AGENT)
-            .build()
-            .into();
+        let agent = agent(Some(cfg.timeout), RESPONSE_START.min(cfg.timeout), None);
+        let download_agent = agent_for_downloads();
         Self {
             inner: Arc::new(Inner {
                 cfg,
                 agent,
+                download_agent,
                 etags: Mutex::default(),
                 rate: Mutex::default(),
                 down: Mutex::default(),
@@ -591,14 +585,98 @@ impl HttpClient {
         Err(GbError::other(format!("{} redirected an image too many times", self.host())))
     }
 
+    /// A small file (an update's `SHA256SUMS`), never with the token: `url` and every redirect
+    /// must pass `allowed`, never from https to http; at most `limit` bytes.
+    pub async fn fetch_within(&self, url: &str, allowed: &(dyn Fn(&str) -> bool + Sync), limit: u64) -> Result<Vec<u8>, GbError> {
+        let mut target = url.to_string();
+        for _ in 0..=DOWNLOAD_HOPS {
+            self.check_download_target(url, &target, allowed)?;
+            let raw = self.once(Method::Get, &target, None, None, false, limit, Some("application/octet-stream")).await?;
+            if is_redirect(raw.status) {
+                target = self.redirect_target(&target, &raw)?;
+                continue;
+            }
+            return match raw.status {
+                200 => Ok(raw.body),
+                s => Err(status_error(self.host(), s, &raw.body)),
+            };
+        }
+        Err(GbError::other(format!("{} redirected the download too many times", self.host())))
+    }
+
+    /// Streams `url` into `to.dest`, never with the token, following up to `DOWNLOAD_HOPS`
+    /// redirects that `allowed` takes (never https → http). `to.progress` hears the bytes so far;
+    /// once `to.cancel` is set it stops (`Cancelled`). On any failure `to.dest` is removed.
+    pub async fn download_within(&self, url: &str, allowed: &(dyn Fn(&str) -> bool + Sync), limit: u64, to: DownloadTo<'_>) -> Result<u64, GbError> {
+        let result = self.download_hops(url, allowed, limit, &to).await;
+        if result.is_err() {
+            let _ = std::fs::remove_file(to.dest);
+        }
+        result
+    }
+
+    async fn download_hops(&self, url: &str, allowed: &(dyn Fn(&str) -> bool + Sync), limit: u64, to: &DownloadTo<'_>) -> Result<u64, GbError> {
+        use std::sync::atomic::Ordering;
+        let mut target = url.to_string();
+        for _ in 0..=DOWNLOAD_HOPS {
+            self.check_download_target(url, &target, allowed)?;
+            self.gate(false)?;
+            let permit = self.inner.permits.clone().acquire_owned().await.map_err(|e| GbError::other(e.to_string()))?;
+            // The blocking read sees the flag between chunks; the cancel itself answers at once.
+            let (inner, at, dest) = (self.inner.clone(), target.clone(), to.dest.to_path_buf());
+            let received = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let (seen, stop) = (received.clone(), Arc::new(std::sync::atomic::AtomicBool::new(false)));
+            let stopped = stop.clone();
+            let mut job = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                let hop = inner.download_blocking(&at, &dest, limit, &seen, &stopped);
+                // Its own clean-up too: after a cancel nobody waits for it.
+                if hop.is_err() || stopped.load(Ordering::SeqCst) {
+                    let _ = std::fs::remove_file(&dest);
+                }
+                hop
+            });
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            let hop = loop {
+                tokio::select! {
+                    done = &mut job => break done.map_err(|e| GbError::other(format!("download task failed: {e}")))?,
+                    _ = tick.tick() => {
+                        // A cancel answers at once, even while a read waits on a stalled server:
+                        // the blocking read stops at its next chunk and removes the file.
+                        if to.cancel.load(Ordering::SeqCst) {
+                            stop.store(true, Ordering::SeqCst);
+                            return Err(GbError::new(GbErrorKind::Cancelled, "The download was cancelled"));
+                        }
+                        (to.progress)(received.load(Ordering::SeqCst));
+                    }
+                }
+            };
+            match hop? {
+                Hop::Done(n) => {
+                    (to.progress)(n);
+                    return Ok(n);
+                }
+                Hop::Redirect(location) => target = resolve_location(&target, &location).ok_or_else(|| GbError::other(format!("{} sent a redirect GitBolt couldn't follow", self.host())))?,
+            }
+        }
+        Err(GbError::other(format!("{} redirected the download too many times", self.host())))
+    }
+
+    /// A download's next address: one `allowed` takes, and never plain http after https.
+    fn check_download_target(&self, first: &str, url: &str, allowed: &(dyn Fn(&str) -> bool + Sync)) -> Result<(), GbError> {
+        if is_https(first) && !is_https(url) {
+            return Err(GbError::other("The download was redirected to plain http; GitBolt didn't follow it"));
+        }
+        if !allowed(url) {
+            let host = origin(url).map(|(_, a)| a).unwrap_or_default();
+            return Err(GbError::other(format!("The download was sent to {host}, which GitBolt doesn't download updates from")));
+        }
+        Ok(())
+    }
+
     fn redirect_target(&self, from: &str, raw: &Raw) -> Result<String, GbError> {
         let loc = raw.headers.get("location").ok_or_else(|| GbError::other(format!("{} redirected the request without saying where", self.host())))?;
-        if loc.starts_with("http://") || loc.starts_with("https://") {
-            return Ok(loc.clone());
-        }
-        let (scheme, rest) = from.split_once("://").ok_or_else(|| GbError::other("bad redirect"))?;
-        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-        if loc.starts_with('/') && !loc.starts_with("//") { Ok(format!("{scheme}://{authority}{loc}")) } else { Err(GbError::other(format!("{} sent a redirect GitBolt couldn't follow", self.host()))) }
+        resolve_location(from, loc).ok_or_else(|| GbError::other(format!("{} sent a redirect GitBolt couldn't follow", self.host())))
     }
 
     async fn request(&self, method: Method, path: &str, body: Option<Vec<u8>>, accept: Option<&'static str>) -> Result<HttpResponse, GbError> {
@@ -767,6 +845,60 @@ impl HttpClient {
     }
 }
 
+/// The forge clients' agent: connect within 10 s, resolve within 5 s, the answer must start within
+/// `response_start`; HTTP errors are answers, redirects are followed by hand, and the user agent is
+/// GitBolt's. ureq's TLS (rustls, the system's roots) and proxy (`*_PROXY` variables) defaults.
+fn agent(global: Option<Duration>, response_start: Duration, body: Option<Duration>) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(global)
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_resolve(Some(Duration::from_secs(5)))
+        // A slow self-hosted forge may take a while on a big list, but must start answering.
+        .timeout_recv_response(Some(response_start))
+        .timeout_recv_body(body)
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .max_redirects_will_error(false)
+        .user_agent(USER_AGENT)
+        .build()
+        .into()
+}
+
+/// A download (an update package) may take this long at most.
+pub const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+fn agent_for_downloads() -> ureq::Agent {
+    agent(None, RESPONSE_START, Some(DOWNLOAD_TIMEOUT))
+}
+
+/// Redirects a download follows at most (GitHub: the release asset, then its storage host).
+const DOWNLOAD_HOPS: usize = 3;
+
+/// Where one download request went.
+enum Hop {
+    /// Done: the bytes written.
+    Done(u64),
+    /// A redirect to this URL (not yet checked).
+    Redirect(String),
+}
+
+/// What `download_within` wrote to, and how it reports.
+pub struct DownloadTo<'a> {
+    pub dest: &'a std::path::Path,
+    pub progress: &'a (dyn Fn(u64) + Sync),
+    pub cancel: &'a std::sync::atomic::AtomicBool,
+}
+
+/// A redirect's `Location` from `from`: absolute http(s), or an absolute path on the same origin.
+fn resolve_location(from: &str, loc: &str) -> Option<String> {
+    if loc.starts_with("http://") || loc.starts_with("https://") {
+        return Some(loc.to_string());
+    }
+    let (scheme, rest) = from.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    (loc.starts_with('/') && !loc.starts_with("//")).then(|| format!("{scheme}://{authority}{loc}"))
+}
+
 fn is_redirect(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
 }
@@ -824,6 +956,50 @@ fn connect_failed(e: &ureq::Error) -> bool {
 }
 
 impl Inner {
+    /// One download request: a redirect's `Location`, or the body streamed into `dest`.
+    fn download_blocking(&self, url: &str, dest: &std::path::Path, limit: u64, received: &std::sync::atomic::AtomicU64, stop: &std::sync::atomic::AtomicBool) -> Result<Hop, GbError> {
+        use std::io::{Read, Write};
+        use std::sync::atomic::Ordering;
+        let host = origin(url).map(|(_, a)| a).unwrap_or_default();
+        let req = ureq::http::Request::builder().method("GET").uri(url).header("Accept", "application/octet-stream").body(()).map_err(|e| GbError::other(format!("couldn't build a request to {host}: {e}")))?;
+        let mut resp = self.download_agent.run(req).map_err(|e| GbError::new(GbErrorKind::Network, format!("Couldn't reach {host}: {}", redact(&e.to_string()))))?;
+        let status = resp.status().as_u16();
+        if is_redirect(status) {
+            let loc = resp.headers().get("location").and_then(|v| v.to_str().ok()).ok_or_else(|| GbError::other(format!("{host} redirected the download without saying where")))?;
+            return Ok(Hop::Redirect(loc.to_string()));
+        }
+        if status != 200 {
+            let body = resp.body_mut().with_config().limit(64 * 1024).read_to_vec().unwrap_or_default();
+            return Err(status_error(&host, status, &body));
+        }
+        let declared: Option<u64> = resp.headers().get("content-length").and_then(|v| v.to_str().ok()?.trim().parse().ok());
+        if declared.is_some_and(|n| n > limit) {
+            return Err(too_large(&host, limit));
+        }
+        let mut reader = resp.body_mut().with_config().limit(limit).reader();
+        let mut file = std::fs::File::create(dest)?;
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut total = 0u64;
+        loop {
+            if stop.load(Ordering::SeqCst) {
+                return Err(GbError::new(GbErrorKind::Cancelled, "The download was cancelled"));
+            }
+            let n = match reader.read(&mut buf) {
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(GbError::new(GbErrorKind::Network, format!("The download from {host} was cut short ({})", redact(&e.to_string())))),
+            };
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n])?;
+            total += n as u64;
+            received.store(total, Ordering::SeqCst);
+        }
+        file.sync_all()?;
+        Ok(Hop::Done(total))
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn send_blocking(&self, method: Method, url: &str, body: Option<Vec<u8>>, if_none_match: Option<String>, auth: bool, limit: u64, accept: Option<&'static str>) -> Result<Raw, Box<Failed>> {
         let host = &self.cfg.host;
@@ -855,6 +1031,11 @@ impl Inner {
         let declared: Option<u64> = resp.headers().get("content-length").and_then(|v| v.to_str().ok()?.trim().parse().ok());
         if declared.is_some_and(|n| n > limit) {
             return Err(Box::new(Failed { unreachable: false, error: too_large(host, limit) }));
+        }
+        // A 304 or a 204 has no body, whatever its headers say: GitHub labels its 304s
+        // `Content-Encoding: gzip`, and unzipping the nothing that follows fails.
+        if matches!(status, 204 | 304) {
+            return Ok(Raw { status, body: Vec::new(), headers });
         }
         let body = resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| match e {
             ureq::Error::BodyExceedsLimit(_) => too_large(host, limit),
@@ -891,6 +1072,22 @@ mod tests {
         assert!(head.contains(&format!("authorization: bearer {}", TOKEN.to_ascii_lowercase())), "{head}");
         assert!(head.contains(&format!("user-agent: {}", crate::gravatar::USER_AGENT.to_ascii_lowercase())), "{head}");
         assert!(!format!("{e:?}").contains(TOKEN));
+    }
+
+    /// GitHub answers a conditional GET's 304 with `Content-Encoding: gzip` and no body: the 304
+    /// answers from the cache, and nothing tries to unzip a body that doesn't exist.
+    #[tokio::test]
+    async fn a_304_labelled_gzip_with_no_body_answers_from_the_cache() {
+        let s = TestServer::start(|n, _| match n {
+            0 => Canned::json(200, r#"{"a":1}"#).header("ETag", "W/\"v1\""),
+            _ => Canned { status: 304, headers: vec![("Content-Encoding".into(), "gzip".into()), ("ETag".into(), "W/\"v1\"".into())], body: Vec::new() },
+        });
+        let c = client(&s.base);
+        assert!(!c.get("/repos/o/r/releases").await.unwrap().not_modified);
+        let again = c.get("/repos/o/r/releases").await.unwrap();
+        assert!(again.not_modified);
+        assert_eq!(&*again.body, br#"{"a":1}"#);
+        assert_eq!(s.hits(), 2);
     }
 
     #[tokio::test]

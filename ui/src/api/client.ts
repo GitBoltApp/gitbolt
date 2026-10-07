@@ -16,6 +16,8 @@ import type { RepoSummary } from './gen/RepoSummary';
 import type { SignaturePayload } from './gen/SignaturePayload';
 import type { AppEvent } from './gen/AppEvent';
 import type { AppInfoPayload } from './gen/AppInfoPayload';
+import type { InstallOutcome } from './gen/InstallOutcome';
+import type { UpdateState } from './gen/UpdateState';
 import type { AppSettings } from './gen/AppSettings';
 import type { FrontendLevel } from './gen/FrontendLevel';
 import type { UiDiagnostics } from './gen/UiDiagnostics';
@@ -242,6 +244,13 @@ export const api = {
   sidebar: (repo: number) => call<SidebarPayload>({ method: 'sidebar', params: { repo } }),
   lastPush: (repo: number, remoteRef: string) => call<LastPushPayload | null>({ method: 'lastPush', params: { repo, remoteRef } }),
   appInfo: () => call<AppInfoPayload>({ method: 'appInfo' }),
+  // Updates from GitHub Releases (core `updates.rs`): progress comes as `updateChanged` events.
+  updateStatus: () => call<UpdateState>({ method: 'updateStatus' }),
+  updateCheck: () => call<UpdateState>({ method: 'updateCheck' }),
+  updateDownload: () => call<UpdateState>({ method: 'updateDownload' }),
+  updateCancel: () => call<UpdateState>({ method: 'updateCancel' }),
+  updateInstall: () => call<InstallOutcome>({ method: 'updateInstall' }),
+  updateRestart: () => call<null>({ method: 'updateRestart' }),
   pickFolder: (start: string | null) => call<string | null>({ method: 'pickFolder', params: { start } }),
   scanRepos: (root: string, refresh: boolean) => call<ScannedRepo[]>({ method: 'scanRepos', params: { root, refresh } }),
   /** The repos in every folder, scanned in parallel, merged and de-duplicated ("Your repos"). */

@@ -185,6 +185,8 @@ Push-Location (Join-Path $root 'ui')
 try { Run npm.cmd run build } finally { Pop-Location }
 
 Step 'gitbolt-app as a DLL, release, with the UI embedded'
+# The version the app shows and compares updates against (the status bar, the update check).
+$env:GITBOLT_BUILD_VERSION = $version
 Push-Location $root
 try {
   Run cargo rustc -p gitbolt-app --lib --release --locked --crate-type cdylib --features tauri/custom-protocol
@@ -280,11 +282,15 @@ Invoke-Sign $setup
 Step 'MSI (per machine)'
 $msi = Join-Path $out "GitBolt_${version}_x64.msi"
 Run (Get-Wix) build -nologo -arch x64 -d "Version=$numeric" -d "DisplayVersion=$version" `
-  -d "Publisher=$publisher" -d "Icon=$icon" -bindpath "stage=$stage" `
+  -d "Publisher=$publisher" -d "Icon=$icon" -d "InstallKind=$(Join-Path $root 'packaging\windows\install-kind-msi')" -bindpath "stage=$stage" `
   -intermediatefolder (Join-Path $work 'wix') -o $msi (Join-Path $root 'packaging\windows\gitbolt.wxs')
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($msi, '.wixpdb'))
 # Windows Installer's own consistency checks (ICE). ICE61 only notes AllowSameVersionUpgrades.
 Run (Get-Wix) msi validate -nologo -sice ICE61 $msi
+# The update check finds its installer by the MSI's install-kind file (crates/gitbolt-core/src/updates/install.rs).
+$decompiled = Join-Path $work 'decompiled.wxs'
+Run (Get-Wix) msi decompile $msi -o $decompiled
+if (-not (Select-String -Quiet -SimpleMatch 'Name="install-kind"' $decompiled)) { Fail "the MSI has no install-kind file" }
 Invoke-Sign $msi
 
 Step 'done'
