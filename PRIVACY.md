@@ -106,25 +106,30 @@ accounts** (on by default).
 - **Turn off:** uncheck the setting. GitBolt then makes no request to Gravatar, including for
   Gravatar links a forge returns.
 
-### Images in rendered Markdown
+### Images and videos in rendered Markdown
 
-These are the images in MR/PR descriptions and comments, and in Markdown files and diffs.
+These are the images in MR/PR descriptions and comments, and in Markdown files and diffs. A video
+(an image link to an `.mp4`, `.m4v`, `.mov`, `.webm` or `.ogv` file, which GitLab shows as a
+video) follows the same rules, up to 100 MB, and is never cached on disk.
 
 - **The forge's own hosts:** when the repository has a forge account, the core fetches the image
   automatically.
   - GitLab: images on your GitLab host, fetched with your token. Uploads are read through its
-    API.
+    API, or, on a GitLab older than 17.4 (which has no uploads API), from the upload's own
+    address on the same host.
   - GitHub: images on `github.com`, `user-images.githubusercontent.com`,
     `private-user-images.githubusercontent.com`, `raw.githubusercontent.com` and
     `avatars.githubusercontent.com`. These are fetched without the token, which only ever goes to
     `api.github.com`.
-- **Any other host:** nothing is fetched until you click **Load image from `<host>`**. The core
+- **Any other host:** nothing is fetched until you click **Load image from `<host>`** (or **Load video from**). The core
   then fetches that image over https, without any token. The choice lasts for that image until
   GitBolt restarts.
 - **No request:**
   - relative images in a Markdown file are read from the repository;
   - inline `data:` images (PNG, GIF, JPEG, WebP) are shown as they are.
 - Found images are cached on disk (see below).
+- **Open with default app**, offered for a video the app can't play: the core fetches the video
+  again, saves it in `~/.cache/gitbolt/open/` and opens it with your default video player.
 
 ### Links
 
@@ -198,7 +203,7 @@ Paths are the XDG defaults. `$XDG_CONFIG_HOME`, `$XDG_CACHE_HOME` and `$XDG_DATA
 | `~/.local/share/gitbolt/journal/`, `rewrites/`, `tmp/` | The undo journal per worktree, the notes Push uses after a rewrite, and temporary index files. |
 | `~/.cache/gitbolt/logs/` | Log files: daily, the newest 7 kept, at most 50 MB in all, redacted. They contain repository paths, git commands and error messages. |
 | `~/.cache/gitbolt/avatars/`, `forge-avatars/` | Avatar and Markdown image caches, named by SHA-256 hashes. |
-| `~/.cache/gitbolt/open/` | Old file versions written for "Open in…". Copies older than a week are removed at startup. |
+| `~/.cache/gitbolt/open/` | Old file versions written for "Open in…", and videos opened with the default app. Copies older than a week are removed at startup. |
 | `~/.cache/dev.gitbolt.desktop/cef/` | Chromium's profile for the UI: its local storage (UI preferences, and unsent commit-message and MR/PR drafts), the words you add to the spell-check dictionary, a copy of the bundled dictionary (`Dictionaries/`) and `cef.log`. |
 | `$XDG_RUNTIME_DIR/gitbolt-*` | The askpass and single-instance sockets. Removed when GitBolt exits. |
 | Inside your repositories | Undo snapshots are stored as unreferenced commits in the repository's object store. `git gc` removes them in time. |

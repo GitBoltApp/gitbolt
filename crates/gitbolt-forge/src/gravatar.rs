@@ -66,6 +66,30 @@ pub(crate) fn ext_for(content_type: &str) -> Option<&'static str> {
     }
 }
 
+/// `ext_for`, or for a generic binary type (or none) the image its first bytes say it is: GitLab's
+/// uploads API sends every file as an `application/octet-stream` attachment. Only PNG, GIF, JPEG
+/// and WebP signatures count, so an SVG or a page is still refused.
+pub(crate) fn image_ext(content_type: &str, bytes: &[u8]) -> Option<&'static str> {
+    if let Some(ext) = ext_for(content_type) {
+        return Some(ext);
+    }
+    let base = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if !matches!(base.as_str(), "" | "application/octet-stream" | "binary/octet-stream") {
+        return None;
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("gif")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("jpg")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else {
+        None
+    }
+}
+
 /// Creates the cache directory (and parents) owner-only, and tightens one that already exists
 /// (minor #9): the index lists which hashed authors the user browsed.
 pub(crate) fn ensure_private_dir(dir: &Path) -> std::io::Result<()> {

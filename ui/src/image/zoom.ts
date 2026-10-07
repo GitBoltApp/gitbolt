@@ -43,6 +43,25 @@ export function zoomAround(v: View, scale: number, px: number, py: number): View
   return { scale, x: px - ix * scale, y: py - iy * scale };
 }
 
+/** Wheel travel (px) per zoom step: a mouse notch (~100 px) is one step, a trackpad pinch accumulates. */
+const WHEEL_STEP_PX = 50;
+const WHEEL_UNIT_PX = [1, 20, 400]; // by WheelEvent.deltaMode: pixel, line, page
+
+/** A wheel's zoom steps: each event answers 1 (zoom in: the wheel turned up), -1 (out) or 0 (not
+ * a step yet). Travel adds up until it's a step; turning the other way starts over. */
+export function wheelAccumulator(): (e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>) => 1 | -1 | 0 {
+  let acc = 0;
+  return (e) => {
+    const dy = e.deltaY * (WHEEL_UNIT_PX[e.deltaMode] ?? 1);
+    if (dy === 0) return 0;
+    if (Math.sign(dy) !== Math.sign(acc)) acc = 0;
+    acc += dy;
+    if (Math.abs(acc) < WHEEL_STEP_PX) return 0;
+    acc = 0;
+    return dy < 0 ? 1 : -1;
+  };
+}
+
 /** The index (in ZOOM_STEPS) of the next step above (1) or below (-1) `scale`. */
 export function nextStepIndex(scale: number, dir: 1 | -1): number {
   if (dir > 0) {

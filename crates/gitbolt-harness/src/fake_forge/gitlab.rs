@@ -51,6 +51,18 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
     let projects = &st.seed.gitlab.projects;
     let reply = match (r.method, segs.as_slice()) {
         ("GET", ["uploads", _]) => Reply::png(),
+        // A project upload's web address (`/<project>/uploads/<secret>/<file>`): cookie-only on a
+        // private project, so the token doesn't help.
+        ("GET", [path @ .., "uploads", secret, file]) if !path.is_empty() && path[0] != "api" => {
+            if st.seed.gitlab.private_uploads {
+                Reply::redirect(&format!("{}/gitlab/users/sign_in", r.base))
+            } else if st.seed.gitlab.uploads.iter().any(|u| *u == format!("{}/{secret}/{file}", path.join("/"))) {
+                Reply::upload(file)
+            } else {
+                Reply::status(404, json!({ "message": "404 Not Found" }))
+            }
+        }
+        ("GET", ["users", "sign_in"]) => Reply { status: 200, headers: Vec::new(), body: b"<!doctype html><title>Sign in</title>".to_vec(), content_type: "text/html" },
         ("GET", ["api", "v4", "avatar"]) => {
             let email = r.query.get("email").map(|e| e.to_lowercase()).unwrap_or_default();
             Reply::json(json!({ "avatar_url": st.seed.gitlab.avatars.get(&email) }))

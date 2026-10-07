@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ forgeImage: vi.fn() }));
-vi.mock('../api/client', () => ({ api, errorMessage: String }));
+const api = vi.hoisted(() => ({ forgeImage: vi.fn(), openUrl: vi.fn(async () => {}) }));
+vi.mock('../api/client', () => ({ api, errorMessage: (e: { message?: string }) => e?.message ?? String(e) }));
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}) }));
 vi.mock('../forge/poll', () => poll);
 
@@ -11,6 +11,8 @@ const { resetImageSession, refreshSignedImages } = await import('./images');
 const { patchForge, useForge } = await import('../forge/mrStore');
 const { projectOf } = await import('../forge/testMrs');
 const { useRuntime } = await import('../app/runtime');
+const { useLightbox } = await import('../lightbox/store');
+const { MdLink } = await import('./MdLink');
 
 const forge = { kind: 'forge', tabId: 't' } as const;
 const PNG = { kind: 'found', mime: 'image/png', base64: 'iVBORw==' } as const;
@@ -62,11 +64,26 @@ describe('MdImage (spec #5 §4.2)', () => {
   });
 
   it('a missing image shows its alt text and a broken-image icon', async () => {
-    api.forgeImage.mockResolvedValue({ kind: 'missing' });
+    api.forgeImage.mockResolvedValue({ kind: 'missing', reason: '404' });
     const { container } = render(<MdImage ctx={forge} src="/uploads/0123abcd0123abcd/gone.png" alt="gone" />);
     await waitFor(() => expect(container.querySelector('.md-img-broken')).not.toBeNull());
     expect(container.querySelector('.md-img-broken svg')).not.toBeNull();
     expect(container).toHaveTextContent('gone');
+  });
+
+  it('the placeholder says why on hover', async () => {
+    const why = async (src: string, answer?: () => Promise<unknown>) => {
+      if (answer) api.forgeImage.mockImplementationOnce(answer);
+      const { container, unmount } = render(<MdImage ctx={forge} src={src} alt="x" />);
+      await waitFor(() => expect(container.querySelector('.md-img-broken')).not.toBeNull());
+      const title = container.querySelector('.md-img-broken')!.getAttribute('title');
+      unmount();
+      return title;
+    };
+    expect(await why('/uploads/0123abcd0123abcd/a.png', async () => ({ kind: 'missing', reason: 'needs sign-in' }))).toBe("Couldn't load: needs sign-in");
+    expect(await why('/uploads/0123abcd0123abcd/b.png', async () => ({ kind: 'expired' }))).toBe("Couldn't load: its link expired");
+    expect(await why('/uploads/0123abcd0123abcd/c.png', async () => { throw { message: "Couldn't reach gitlab.example.com" }; })).toBe("Couldn't load: Couldn't reach gitlab.example.com");
+    expect(await why('javascript:alert(1)')).toBe("Not loaded: GitBolt doesn't load images from this address");
   });
 
   it('an expired signed image asks for the bodies again, at most once a minute', async () => {
@@ -103,6 +120,53 @@ describe('MdImage (spec #5 §4.2)', () => {
     answer('blob:slow.png');
     await waitFor(() => expect(release).toHaveBeenCalledWith('blob:slow.png'));
     off();
+  });
+
+  describe('a click opens the image viewer', () => {
+    const UPLOAD = 'https://gitlab.example.com/group/project/uploads/0123abcd0123abcd/a.png';
+    const shown = async (ui = <MdImage ctx={forge} src="/uploads/0123abcd0123abcd/a.png" alt="shot" />) => {
+      api.forgeImage.mockResolvedValue(PNG);
+      render(ui);
+      await waitFor(() => expect(screen.getByRole('img', { name: 'shot' })).toHaveAttribute('src'));
+      return screen.getByRole('img', { name: 'shot' });
+    };
+    beforeEach(() => { useLightbox.setState({ item: null }); });
+
+    it('with the URL it already loaded, and its web address for Open in browser', async () => {
+      const img = await shown();
+      expect(img).toHaveClass('md-img-zoomable');
+      fireEvent.click(img);
+      expect(useLightbox.getState().item).toEqual({ kind: 'image', url: 'data:image/png;base64,iVBORw==', alt: 'shot', browserUrl: UPLOAD });
+      expect(api.forgeImage).toHaveBeenCalledOnce();
+    });
+
+    it('Enter on the focused image opens it too', async () => {
+      const img = await shown();
+      expect(img).toHaveAttribute('tabindex', '0');
+      fireEvent.keyDown(img, { key: 'Enter' });
+      expect(useLightbox.getState().item?.url).toBe('data:image/png;base64,iVBORw==');
+    });
+
+    it('Ctrl+click opens it in the browser instead', async () => {
+      const img = await shown();
+      fireEvent.click(img, { ctrlKey: true });
+      expect(api.openUrl).toHaveBeenCalledWith(UPLOAD);
+      expect(useLightbox.getState().item).toBeNull();
+    });
+
+    it('a linked image keeps its link: no viewer, and only the link takes the focus', async () => {
+      const img = await shown(<MdLink ctx={forge} href="https://example.org/docs"><MdImage ctx={forge} src="/uploads/0123abcd0123abcd/a.png" alt="shot" /></MdLink>);
+      expect(img).not.toHaveAttribute('tabindex');
+      expect(img).not.toHaveClass('md-img-zoomable');
+      fireEvent.click(img);
+      expect(useLightbox.getState().item).toBeNull();
+    });
+
+    it('an inline data image has no web address', async () => {
+      const img = await shown(<MdImage ctx={forge} src="data:image/png;base64,iVBORw==" alt="shot" />);
+      fireEvent.click(img);
+      expect(useLightbox.getState().item?.browserUrl).toBeNull();
+    });
   });
 
   describe('GitHub’s signed attachment URLs, re-signed by a poll', () => {

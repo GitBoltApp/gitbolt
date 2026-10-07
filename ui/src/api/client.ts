@@ -215,6 +215,10 @@ export const api = {
   /** An image in a rendered Markdown body (spec #5 §4.2): the forge's own hosts load (`found`); anything else answers `ask` until `userAllowed` (the user's click). */
   forgeImage: (repo: number, url: string, userAllowed: boolean) => t().call({ method: 'forgeImage', params: { repo, url, userAllowed } }) as Promise<ForgeImage>,
   // --- end 5A T1 ---
+  /** A video a rendered Markdown body embeds, by `forgeImage`'s rules: `found` has a `video/*` type. */
+  forgeVideo: (repo: number, url: string, userAllowed: boolean) => t().call({ method: 'forgeVideo', params: { repo, url, userAllowed } }) as Promise<ForgeImage>,
+  /** That video saved to the app's cache and opened with the system's default app. */
+  forgeOpenVideo: (repo: number, url: string, userAllowed: boolean) => t().call({ method: 'forgeOpenVideo', params: { repo, url, userAllowed } }) as Promise<null>,
   openUrl: (url: string) => t().call({ method: 'openUrl', params: { url } }) as Promise<null>,
   /** The external editors and the file manager found on this machine (spec §14.5). */
   /** `repo`: the list as that repository sees it (its Custom editor, if its setting is one). */

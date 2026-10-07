@@ -725,6 +725,13 @@ impl ForgeProvider for GitHubProvider {
             crate::images::fetch(&self.http, self.cache.as_deref(), &route, &self.api_base, &allowed).await
         }))
     }
+    fn video<'a>(&'a self, _project: &'a ForgeProject, url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        let route = crate::images::github_route(url, &self.image_bases)?;
+        Some(Box::pin(async move {
+            let allowed = |next: &str| self.image_bases.iter().any(|b| crate::http::under(next, b));
+            crate::images::fetch_video(&self.http, &route, &self.api_base, &allowed).await
+        }))
+    }
     // --- end 5A T2 ---
 
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {

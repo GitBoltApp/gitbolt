@@ -26,3 +26,22 @@ describe('useModalKeys: the opening shortcut toggles', () => {
     expect(close).not.toHaveBeenCalled();
   });
 });
+
+describe('useModalKeys: the dialog’s own keys', () => {
+  function Viewer({ close, onKey }: { close: () => void; onKey: (e: KeyboardEvent) => boolean }) {
+    const ref = useModalKeys<HTMLDivElement>(true, close, undefined, onKey);
+    return <div ref={ref} role="dialog" aria-label="v"><button type="button">b</button></div>;
+  }
+
+  it('`onKey` sees each key first; one it takes is the dialog’s (default prevented), Esc still closes', () => {
+    const close = vi.fn();
+    const onKey = vi.fn((e: KeyboardEvent) => e.key === '+');
+    render(<Viewer close={close} onKey={onKey} />);
+    const b = screen.getByRole('button');
+    expect(fireEvent.keyDown(b, { key: '+' })).toBe(false);
+    expect(fireEvent.keyDown(b, { key: 'x' })).toBe(true);
+    expect(onKey).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(b, { key: 'Escape' });
+    expect(close).toHaveBeenCalledOnce();
+  });
+});

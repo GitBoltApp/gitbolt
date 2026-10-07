@@ -61,6 +61,19 @@
 
 /* Images: the box keeps an image's reserved size while it loads, fails or waits for a click */
 .md-img { max-width: 100%; height: auto; vertical-align: middle; }
+/* Not linked: a click opens the image viewer (lightbox/Lightbox.tsx). */
+.md-img-zoomable { cursor: zoom-in; }
+.md-img-zoomable:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* A video (MdVideo.tsx): the native controls; the expand button over its top right corner. */
+.md-video { position: relative; display: inline-block; max-width: 100%; vertical-align: middle; }
+.md-video-el { display: block; max-width: 100%; height: auto; max-height: 480px; background: var(--app-bg0); }
+.md-video-expand { position: absolute; top: 6px; right: 6px; opacity: 0; background: var(--backdrop); color: var(--text-on-accent); }
+.md-video:hover .md-video-expand, .md-video-expand:focus-visible { opacity: 1; }
+.md-video-expand:hover { background: var(--shadow-modal); color: var(--text-on-accent); }
+/* Loading or unplayable: the box a 16:9 video would take when the body gives no size. */
+.md-video-box { min-width: 240px; min-height: 135px; }
+.md-video-unplayable { flex-direction: column; text-align: center; }
+.md-video-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .md-img-box { display: inline-flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%; min-height: 24px; padding: 4px 8px; box-sizing: border-box; vertical-align: middle; border: 1px dashed var(--section-border); border-radius: 4px; color: var(--text-secondary); font-size: 11px; }
 .md-img-loading { background: var(--panel-bg1); }
 .md-img-alt { overflow: hidden; text-overflow: ellipsis; }

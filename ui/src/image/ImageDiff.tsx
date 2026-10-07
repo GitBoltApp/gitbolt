@@ -8,7 +8,7 @@ import { drawDifference } from './difference';
 import { imageMenuRows, type ImageSide } from './imageMenu';
 import { defaultMatch, matchedRect, rememberedMatch, rememberMatch, sizesDiffer, type Rect } from './matchSizes';
 import type { ImageSource } from './sources';
-import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, ZOOM_STEPS, zoomAround, type View } from './zoom';
+import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, wheelAccumulator, ZOOM_STEPS, zoomAround, type View } from './zoom';
 import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import './image.css';
 import { ArrowGlyph } from '../ui/ArrowGlyph';
@@ -21,9 +21,6 @@ interface Dim { w: number; h: number }
 interface Decoded { dim: Dim | null; failed: boolean }
 
 const MODES: [ImageMode, string][] = [['side', 'Side-by-side'], ['swipe', 'Swipe'], ['onion', 'Onion skin'], ['difference', 'Difference']];
-/** Wheel travel (px) per zoom step: a mouse notch (~100 px) is one step, a trackpad pinch accumulates. */
-const WHEEL_STEP_PX = 50;
-const WHEEL_UNIT_PX = [1, 20, 400]; // by WheelEvent.deltaMode: pixel, line, page
 
 /** Resolves to the decoded image, or null when it can't be decoded: it never stays pending. */
 function loadImage(url: string): Promise<HTMLImageElement | null> {
@@ -133,7 +130,7 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
   const amplifyRef = useRef(AMPLIFY_DEFAULT);
   const viewRef = useRef(view);
   const lastBox = useRef<{ w: number; h: number } | null>(null);
-  const wheelAcc = useRef(0);
+  const wheelStep = useMemo(wheelAccumulator, []);
   const zoomInputRef = useRef<HTMLInputElement>(null);
   // The Difference canvas's two loaded images (K10): kept so the Amplify slider can repaint
   // without reloading them on every tick.
@@ -273,22 +270,18 @@ export function ImageDiff({ old, new: neu, source, sourceLabel = 'Source', onSou
     const onWheel = (e: globalThis.WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      const dy = e.deltaY * (WHEEL_UNIT_PX[e.deltaMode] ?? 1);
-      if (dy === 0) return;
-      if (Math.sign(dy) !== Math.sign(wheelAcc.current)) wheelAcc.current = 0;
-      wheelAcc.current += dy;
-      if (Math.abs(wheelAcc.current) < WHEEL_STEP_PX) return;
-      wheelAcc.current = 0;
+      const dir = wheelStep(e);
+      if (dir === 0) return;
       const vp = (e.target as HTMLElement).closest<HTMLElement>('.image-viewport') ?? stage;
       const r = vp.getBoundingClientRect();
-      latest.current.applyStep(nextStepIndex(viewRef.current.scale, dy < 0 ? 1 : -1), { x: e.clientX - r.left, y: e.clientY - r.top });
+      latest.current.applyStep(nextStepIndex(viewRef.current.scale, dir), { x: e.clientX - r.left, y: e.clientY - r.top });
     };
     stage.addEventListener('wheel', onWheel, { passive: false });
     return () => {
       ro.disconnect();
       stage.removeEventListener('wheel', onWheel);
     };
-  }, [showSource]);
+  }, [showSource, wheelStep]);
 
   useEffect(() => {
     if (editingZoom) { zoomInputRef.current?.focus(); zoomInputRef.current?.select(); }

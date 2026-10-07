@@ -203,6 +203,11 @@ pub trait ForgeProvider: Send + Sync {
         None
     }
     // --- end 5A T1 ---
+    /// A video a Markdown body embeds, as `image` (the same hosts and token rules): `Found` with a
+    /// `video/*` type, up to the video size cap.
+    fn video<'a>(&'a self, _project: &'a ForgeProject, _url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        None
+    }
 
     // --- the cross-session cache (`forge::cache`) ---
     /// `project`'s list answers this provider keeps (their ETags and bodies), for the cache.
@@ -364,6 +369,10 @@ pub trait ForgeConnector: Send + Sync {
     /// image size cap. Needs no account.
     fn public_image<'a>(&'a self, _url: &'a str) -> ForgeFuture<'a, ForgeImage> {
         unsupported("Loading an image")
+    }
+    /// `public_image` for a video, up to the video size cap.
+    fn public_video<'a>(&'a self, _url: &'a str) -> ForgeFuture<'a, ForgeImage> {
+        unsupported("Loading a video")
     }
     // --- end 5A T1 ---
 }

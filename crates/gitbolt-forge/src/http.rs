@@ -33,6 +33,8 @@ pub const ETAG_ENTRIES: usize = 256;
 pub const MAX_BODY: u64 = 8 * 1024 * 1024;
 pub const MAX_CACHED_BODY: usize = 1024 * 1024;
 pub const MAX_IMAGE: u64 = 1024 * 1024;
+/// A video a Markdown body embeds (GitLab's `![clip](/uploads/…/clip.webm)`).
+pub const MAX_VIDEO: u64 = 100 * 1024 * 1024;
 /// Requests in flight per account (per host and profile).
 pub const PARALLEL: usize = 4;
 /// The answer must start within this long (the whole request has `ClientConfig.timeout`).
@@ -306,11 +308,17 @@ struct Inner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageFetch {
     Found { content_type: String, bytes: Vec<u8> },
-    Missing,
-    /// 401/403.
-    Forbidden,
+    /// 404/410: the status.
+    Missing(u16),
+    /// 401/403: the status.
+    Forbidden(u16),
+    /// It redirected to a sign-in page (GitLab's `/users/sign_in`, GitHub's `/login`): the address
+    /// wants a browser session. The page isn't fetched.
+    SignIn,
     /// It redirected to an address the allowlist refuses: its host.
     Elsewhere(String),
+    /// Larger than the size cap (`get_media_within`'s `limit`): not read past it.
+    TooLarge,
 }
 // --- end 5A T2 ---
 
@@ -510,18 +518,29 @@ impl HttpClient {
     /// http), else `Elsewhere(<host>)` without asking it; 401/403 are `Forbidden` (a signature
     /// that ran out), 404/410 `Missing`.
     pub async fn get_image_within(&self, url: &str, own_origin: &str, allowed: &(dyn Fn(&str) -> bool + Sync)) -> Result<ImageFetch, GbError> {
+        self.get_media_within(url, own_origin, allowed, MAX_IMAGE).await
+    }
+
+    /// `get_image_within` with its own size cap (a video's): a larger answer is `TooLarge`.
+    pub async fn get_media_within(&self, url: &str, own_origin: &str, allowed: &(dyn Fn(&str) -> bool + Sync), limit: u64) -> Result<ImageFetch, GbError> {
         let api = self.inner.cfg.api_base.clone();
         let mut target = url.to_string();
         let mut may_auth = true;
         for hop in 0..2 {
             let auth = may_auth && (under(&target, own_origin) || under(&target, &api));
             may_auth = auth;
-            let raw = self.once(Method::Get, &target, None, None, auth, MAX_IMAGE, None).await?;
+            let raw = match self.once(Method::Get, &target, None, None, auth, limit, None).await {
+                Err(e) if e.message == too_large(self.host(), limit).message => return Ok(ImageFetch::TooLarge),
+                r => r?,
+            };
             if auth && under(&target, &api) {
                 self.observe(&raw)?;
             }
             if is_redirect(raw.status) && hop == 0 {
                 let next = self.redirect_target(&target, &raw)?;
+                if is_sign_in(&next) {
+                    return Ok(ImageFetch::SignIn);
+                }
                 // --- 5A T3: https → http is "ask" too, never an error ---
                 if !image_redirect_followed(&target, &next, allowed) {
                     return Ok(ImageFetch::Elsewhere(origin(&next).map(|(_, a)| a).unwrap_or_default()));
@@ -532,8 +551,8 @@ impl HttpClient {
             }
             return match raw.status {
                 200 => Ok(ImageFetch::Found { content_type: raw.headers.get("content-type").cloned().unwrap_or_default(), bytes: raw.body }),
-                404 | 410 => Ok(ImageFetch::Missing),
-                401 | 403 => Ok(ImageFetch::Forbidden),
+                s @ (404 | 410) => Ok(ImageFetch::Missing(s)),
+                s @ (401 | 403) => Ok(ImageFetch::Forbidden(s)),
                 s => Err(status_error(self.host(), s, &raw.body)),
             };
         }
@@ -757,11 +776,25 @@ fn is_https(url: &str) -> bool {
     url.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"))
 }
 
+/// An answer larger than `limit`: its size isn't read past the cap.
+fn too_large(host: &str, limit: u64) -> GbError {
+    let mb = limit / (1024 * 1024);
+    GbError::new(GbErrorKind::Network, if mb > 0 { format!("{host}'s answer is larger than {mb} MB") } else { format!("{host}'s answer is larger than {limit} bytes") })
+}
+
 /// A Markdown image's redirect from `from` to `next` is followed only when it stays on https (or
 /// started on plain http: the harness) and `allowed` takes it; otherwise `get_image_within` answers
 /// `Elsewhere(<host>)` and the UI offers "Load image from <host>".
 fn image_redirect_followed(from: &str, next: &str, allowed: &(dyn Fn(&str) -> bool + Sync)) -> bool {
     !(is_https(from) && !is_https(next)) && allowed(next)
+}
+
+/// `url`'s path is a forge's sign-in page.
+fn is_sign_in(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let path = rest.find('/').map_or("", |i| &rest[i..]);
+    let path = path.split(['?', '#']).next().unwrap_or("").trim_end_matches('/').to_ascii_lowercase();
+    path.ends_with("/users/sign_in") || path.ends_with("/login")
 }
 // --- end 5A T3 ---
 
@@ -819,7 +852,14 @@ impl Inner {
         };
         let status = resp.status().as_u16();
         let headers = resp.headers().iter().filter_map(|(k, v)| Some((k.as_str().to_ascii_lowercase(), v.to_str().ok()?.to_string()))).collect();
-        let body = resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| GbError::new(GbErrorKind::Network, format!("Couldn't reach {host}: the answer was cut short ({})", redact(&e.to_string()))))?;
+        let declared: Option<u64> = resp.headers().get("content-length").and_then(|v| v.to_str().ok()?.trim().parse().ok());
+        if declared.is_some_and(|n| n > limit) {
+            return Err(Box::new(Failed { unreachable: false, error: too_large(host, limit) }));
+        }
+        let body = resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| match e {
+            ureq::Error::BodyExceedsLimit(_) => too_large(host, limit),
+            e => GbError::new(GbErrorKind::Network, format!("Couldn't reach {host}: the answer was cut short ({})", redact(&e.to_string()))),
+        })?;
         Ok(Raw { status, body, headers })
     }
 }
@@ -1215,6 +1255,7 @@ mod tests {
         let s = TestServer::start(move |n, _| match n {
             0 => Canned { status: 302, headers: vec![("Location".into(), to.clone())], body: Vec::new() },
             1 => Canned::json(403, r#"{"message":"expired"}"#),
+            3 => Canned { status: 302, headers: vec![("Location".into(), "/web/users/sign_in".into())], body: Vec::new() },
             _ => Canned::json(404, r#"{"message":"404 Not Found"}"#),
         });
         let c = client(&s.base);
@@ -1223,8 +1264,10 @@ mod tests {
         let host = other.base.trim_start_matches("http://").to_string();
         assert_eq!(c.get_image_within(&format!("{web}/a.png"), &web, &only_web).await.unwrap(), ImageFetch::Elsewhere(host));
         assert_eq!(other.hits(), 0, "the address off the allowlist was never asked");
-        assert_eq!(c.get_image_within(&format!("{web}/b.png"), &web, &only_web).await.unwrap(), ImageFetch::Forbidden);
-        assert_eq!(c.get_image_within(&format!("{web}/c.png"), &web, &only_web).await.unwrap(), ImageFetch::Missing);
+        assert_eq!(c.get_image_within(&format!("{web}/b.png"), &web, &only_web).await.unwrap(), ImageFetch::Forbidden(403));
+        assert_eq!(c.get_image_within(&format!("{web}/c.png"), &web, &only_web).await.unwrap(), ImageFetch::Missing(404));
+        assert_eq!(c.get_image_within(&format!("{web}/e.png"), &web, &only_web).await.unwrap(), ImageFetch::SignIn);
+        assert_eq!(s.hits(), 4, "the sign-in page isn't fetched");
         let anywhere = |_: &str| true;
         let direct = c.get_image_within(&format!("{}/d.png", other.base), &web, &anywhere).await.unwrap();
         assert_eq!(direct, ImageFetch::Found { content_type: "image/png".into(), bytes: b"\x89PNGz".to_vec() });

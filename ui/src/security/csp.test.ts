@@ -26,6 +26,10 @@ describe('the Content Security Policy (tauri.conf.json, the one source)', () => 
     expect(policy['img-src']).toEqual(["'self'", 'data:', 'blob:']);
   });
 
+  it('plays media only from the bundle and blob: (a Markdown video, from the bytes the core fetched)', () => {
+    expect(policy['media-src']).toEqual(["'self'", 'blob:']);
+  });
+
   it('connects only to the bundle and the app IPC', () => {
     expect(policy['connect-src']).toEqual(["'self'", 'ipc:', 'http://ipc.localhost']);
   });

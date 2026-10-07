@@ -1,0 +1,15 @@
+/* The image viewer (Lightbox.tsx). 950: above menus (900) and the debug overlay, below tooltips
+   (1000, so its buttons' tooltips show) and confirms (1005-1010). A toast (802) is lifted above it
+   while it's open, so "Image copied" shows. Dark in every theme, like a photo viewer. */
+.lightbox { position: fixed; inset: 0; z-index: 950; outline: none; /* theme-ok: a dark backdrop in every theme */ background: rgb(0 0 0 / 0.85); }
+body:has(.lightbox) .toast { z-index: 960; }
+.lightbox-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.lightbox-media { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; }
+.lightbox-pannable { cursor: grab; }
+.lightbox-pannable:active { cursor: grabbing; }
+.lightbox-toolbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 6px; background: var(--panel-bg1); border: 1px solid var(--section-border); box-shadow: 0 6px 20px var(--shadow-popup); font-size: 12px; }
+/* A fixed width, so the buttons don't move as the digit count changes (10% → 100%). */
+.lightbox-zoom { min-width: 5ch; padding: 0 4px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.lightbox-button { all: unset; cursor: pointer; padding: 2px 8px; border-radius: 4px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
+.lightbox-button:hover { background: var(--hover-row); color: var(--text-selected); }
+.lightbox-button:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; color: var(--text-selected); }

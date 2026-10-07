@@ -10,7 +10,8 @@ test('Ctrl+/ opens the Keyboard Shortcuts panel; it filters; Esc closes', async 
   await expect(dlg.getByPlaceholder('Filter shortcuts (Ctrl+F)')).toBeFocused();
   await expect(dlg.getByRole('region', { name: 'Repo actions' })).toBeVisible();
   await page.keyboard.type('zoom');
-  await expect(dlg.getByText('Zoom in')).toBeVisible();
+  // The app's Zoom in (Navigation); the image viewer has its own (Image viewer section).
+  await expect(dlg.getByRole('region', { name: 'Navigation' }).getByText('Zoom in')).toBeVisible();
   await expect(dlg.getByText('Next tab')).toHaveCount(0);
   // Every binding is listed, usable now or not: no file is open here.
   await page.keyboard.press('Control+A');

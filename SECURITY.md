@@ -114,6 +114,8 @@ untrusted text (`ui/src/markdown/`).
     is the policy's one loose part: injected CSS could restyle the page, but can't run code or
     load anything from outside;
   - `img-src 'self' data: blob:`: the core hands over every remote image as `data:` or `blob:`;
+  - `media-src 'self' blob:`: a video in rendered Markdown plays from a `blob:` URL of the bytes
+    the core fetched;
   - `connect-src 'self' ipc: http://ipc.localhost`: the app's own IPC only;
   - `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'none'`.
 - The end-to-end tests run the UI under the same policy (sent by `vite preview`,

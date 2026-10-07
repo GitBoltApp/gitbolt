@@ -29,7 +29,7 @@ test.describe('Content Security Policy', () => {
     page.on('console', (m) => { if (m.text().startsWith('[csp-violation]')) violations.push(m.text()); });
     const response = await page.goto(openUrl(repo));
     const policy = response!.headers()['content-security-policy'];
-    for (const directive of ["default-src 'self'", "script-src 'self' 'wasm-unsafe-eval' 'sha256-", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'none'"]) {
+    for (const directive of ["default-src 'self'", "script-src 'self' 'wasm-unsafe-eval' 'sha256-", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'none'", "media-src 'self' blob:"]) {
       expect(policy, directive).toContain(directive);
     }
     expect(policy).not.toContain("'unsafe-eval'");

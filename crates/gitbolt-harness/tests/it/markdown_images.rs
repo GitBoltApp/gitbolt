@@ -73,8 +73,59 @@ async fn gitlab_uploads_are_read_through_the_api_with_the_token() {
     let hit = log.iter().find(|r| r.path == format!("/api/v4/projects/42/uploads/{UPLOAD_SECRET}/shot.png")).expect("through the API");
     assert!(hit.authorized);
     let gone = format!("{}/group/project/uploads/{UPLOAD_SECRET}/gone.png", f.gitlab_web());
-    assert_eq!(p.image(&proj, &gone).unwrap().await.unwrap(), ForgeImage::Missing);
+    assert_eq!(p.image(&proj, &gone).unwrap().await.unwrap(), ForgeImage::Missing { reason: "404".into() });
     assert!(p.image(&proj, "https://cdn.example.org/a.png").is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn gitlab_video_uploads_come_through_the_api_as_videos_by_their_bytes() {
+    let f = FakeForge::start().await;
+    let p = gitlab(&f);
+    let proj = p.project("group/project").await.unwrap().value;
+    let web = |file: &str| format!("{}/group/project/uploads/{UPLOAD_SECRET}/{file}", f.gitlab_web());
+    let mime = |got: ForgeImage| match got {
+        ForgeImage::Found { mime, .. } => mime,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(mime(p.video(&proj, &web("clip.webm")).unwrap().await.unwrap()), "video/webm");
+    assert_eq!(mime(p.video(&proj, &web("screen.mp4")).unwrap().await.unwrap()), "video/mp4");
+    assert_eq!(p.video(&proj, &web("shot.png")).unwrap().await.unwrap(), ForgeImage::Missing { reason: "not a video GitBolt plays (application/octet-stream)".into() });
+    assert_eq!(p.image(&proj, &web("clip.webm")).unwrap().await.unwrap(), ForgeImage::Missing { reason: "not an image GitBolt shows (application/octet-stream)".into() }, "an image is never a video");
+    assert!(p.video(&proj, "https://cdn.example.org/a.webm").is_none());
+    assert!(f.requests().iter().filter(|r| r.path.contains("/uploads/")).all(|r| r.authorized && r.path.starts_with("/api/v4/")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gitlab_upload_the_api_refuses_says_why() {
+    let f = FakeForge::start().await;
+    let api_path = format!("/api/v4/projects/42/uploads/{UPLOAD_SECRET}/shot.png");
+    f.script(Scripted { forge: "gitlab".into(), method: "GET".into(), path: api_path, status: 403, headers: vec![], body: serde_json::json!({ "message": "403 Forbidden" }), times: 1 });
+    let p = gitlab(&f);
+    let proj = p.project("group/project").await.unwrap().value;
+    let url = format!("{}/group/project/uploads/{UPLOAD_SECRET}/shot.png", f.gitlab_web());
+    assert_eq!(p.image(&proj, &url).unwrap().await.unwrap(), ForgeImage::Missing { reason: "no access (403)".into() }, "GitLab signs nothing: not `Expired`");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gitlab_without_the_uploads_api_serves_them_from_their_web_address() {
+    let f = FakeForge::start().await;
+    let mut seed = f.current_seed();
+    seed.gitlab.no_uploads_api = true;
+    f.seed(seed);
+    let p = gitlab(&f);
+    let proj = p.project("group/project").await.unwrap().value;
+    let url = format!("{}/group/project/uploads/{UPLOAD_SECRET}/shot.png", f.gitlab_web());
+    assert!(matches!(p.image(&proj, &url).unwrap().await.unwrap(), ForgeImage::Found { ref mime, .. } if mime == "image/png"));
+    let asked: Vec<String> = f.requests().into_iter().filter(|r| r.path.contains("/uploads/")).map(|r| r.path).collect();
+    assert_eq!(asked, [format!("/api/v4/projects/42/uploads/{UPLOAD_SECRET}/shot.png"), format!("/group/project/uploads/{UPLOAD_SECRET}/shot.png")]);
+    let gone = format!("{}/group/project/uploads/{UPLOAD_SECRET}/gone.png", f.gitlab_web());
+    assert_eq!(p.image(&proj, &gone).unwrap().await.unwrap(), ForgeImage::Missing { reason: "404".into() });
+    // A private project's uploads want a session cookie: the web address sends to the sign-in page.
+    let mut seed = f.current_seed();
+    seed.gitlab.private_uploads = true;
+    f.seed(seed);
+    assert_eq!(p.image(&proj, &url).unwrap().await.unwrap(), ForgeImage::Missing { reason: "needs sign-in".into() });
+    assert!(f.requests().iter().all(|r| !r.path.contains("sign_in")), "the sign-in page isn't fetched");
 }
 
 #[tokio::test(flavor = "multi_thread")]

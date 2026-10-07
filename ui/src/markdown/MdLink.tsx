@@ -3,6 +3,7 @@ import { buildMenu } from '../menu/registry';
 import { openContextMenu } from '../menu/menuStore';
 import { HoverTooltip, type TooltipContent } from '../ui/HoverTooltip';
 import { openExternal, openLinkTarget } from './actions';
+import { InLink } from './inLink';
 import './linkMenu';
 import { browserUrlFor, linkTooltip, resolveLink } from './links';
 import type { LinkMenuTarget, LinkTarget, MarkdownContext, MdLinkProps } from './types';
@@ -44,7 +45,7 @@ export function LinkView({ ctx, target, href, className, tooltip, anchor, childr
       onKeyDown={(e) => { if (e.key === 'Enter') activate(e); }}
       onContextMenu={(e) => openContextMenu(e, () => buildMenu<LinkMenuTarget, unknown>('link', { ctx, target, href, text: ref.current?.textContent ?? '' }, null))}
     >
-      {children}
+      <InLink value>{children}</InLink>
     </a>
   );
   return tip ? <HoverTooltip content={tip}>{link}</HoverTooltip> : link;

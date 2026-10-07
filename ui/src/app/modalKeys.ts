@@ -39,18 +39,22 @@ export const isTopModal = (token: object): boolean => stack[stack.length - 1] ==
  * doesn't reach the app's own Esc handling (closing a file) behind it.
  *
  * `toggleCombo`: the chord that opens the dialog; pressing it again closes it (a toggle).
+ * `onKey`: the dialog's own keys (the image viewer's zoom and pan), offered each key before Esc
+ * and Tab; returning true takes it (its default prevented).
  *
  * Returns the ref the dialog's own root element (the one with `role="dialog"`) must attach, so
  * `useFocusTrap` (fix round 1: focus trapping + returning focus to the opener) can find its
  * focusable children.
  */
-export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => void, toggleCombo?: string): RefObject<T | null> {
+export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => void, toggleCombo?: string, onKey?: (e: KeyboardEvent) => boolean): RefObject<T | null> {
   const { ref, onTab } = useFocusTrap<T>(open);
   // The latest `close`, so the registration below runs once per opening: a dialog that passes an
   // inline `close` and re-renders (the Activity log on every op) must not re-push itself above a
   // prompt that opened later (final re-review N1).
   const closeRef = useRef(close);
   closeRef.current = close;
+  const keyRef = useRef(onKey);
+  keyRef.current = onKey;
   useEffect(() => {
     if (!open) return;
     const close = () => closeRef.current();
@@ -61,6 +65,10 @@ export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => 
       if (useMenu.getState().rows) return;
       // Esc disarms an armed control inside the dialog (spec §ui confirms); the dialog stays.
       if (escapeDisarms(e)) return 'handled';
+      if (keyRef.current?.(e)) {
+        e.preventDefault();
+        return 'handled';
+      }
       if (e.key === 'Escape' && [...escOwners].some((own) => own(e))) {
         e.preventDefault();
         return 'handled';

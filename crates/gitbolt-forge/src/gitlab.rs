@@ -1084,6 +1084,13 @@ impl ForgeProvider for GitLabProvider {
             crate::images::fetch(&self.http, self.avatars.as_deref(), &route, &self.web, &allowed).await
         }))
     }
+    fn video<'a>(&'a self, project: &'a ForgeProject, url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        let route = crate::images::gitlab_route(url, &self.web, project, |p| self.http.url(p))?;
+        Some(Box::pin(async move {
+            let allowed = |next: &str| under(next, &self.web);
+            crate::images::fetch_video(&self.http, &route, &self.web, &allowed).await
+        }))
+    }
     // --- end 5A T2 ---
 
     fn avatar_for_email<'a>(&'a self, email: &'a str) -> ForgeFuture<'a, Option<AvatarPayload>> {

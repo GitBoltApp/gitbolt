@@ -135,6 +135,12 @@ pub enum Request {
     /// (the user clicked "Load image from <host>"), from anywhere over https, never with a token.
     ForgeImage { repo: u32, url: String, user_allowed: bool },
     // --- end 5A T1 ---
+    /// A video a rendered Markdown body embeds (GitLab renders `![clip](/uploads/…/clip.webm)` as
+    /// a video): `ForgeImage` with a `video/*` type, by `forgeImage`'s rules, up to 100 MB.
+    ForgeVideo { repo: u32, url: String, user_allowed: bool },
+    /// That video (fetched again), saved in the app's cache (`open_copy`: removed after a week)
+    /// and opened with the system's default app, for a format the webview can't play; `null`.
+    ForgeOpenVideo { repo: u32, url: String, user_allowed: bool },
     /// Opens an `http(s)` link in the default browser (spec §14.4); returns `null`.
     OpenUrl { url: String },
     /// The detected external editors and the file manager, for "Open in…" (spec §14.5, H9).
@@ -1048,7 +1054,7 @@ impl Request {
             Request::ForgeReview { .. } | Request::ForgePeopleLimits { .. } | Request::ForgeSetSubscribed { .. } => false,
             Request::ForgeReact { .. } | Request::ForgeEditNote { .. } | Request::ForgeDeleteNote { .. } | Request::ForgeResolve { .. } => false,
             // --- 5A T1 ---
-            Request::ForgeImage { .. } => false,
+            Request::ForgeImage { .. } | Request::ForgeVideo { .. } | Request::ForgeOpenVideo { .. } => false,
             // --- end 5A T1 ---
               // --- 4C T5: forge reads and forge writes; none touches the repository ---
               Request::ForgeCreateContext { .. } | Request::ForgeSearchUsers { .. } | Request::ForgeLabels { .. } | Request::ForgeCreateMr { .. } | Request::ForgeCompleteCreate { .. } => false,
@@ -2242,6 +2248,29 @@ impl Api {
                 to_json(self.forge_hub()?.image(&self.store, &list, &url, user_allowed).await?)
             }
             // --- end 5A T1 ---
+            Request::ForgeVideo { repo, url, user_allowed } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.video(&self.store, &list, &url, user_allowed).await?)
+            }
+            Request::ForgeOpenVideo { repo, url, user_allowed } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                let cache = self.open_cache.clone().ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "videos can't be opened here"))?;
+                let opener = self.url_opener.clone().ok_or_else(|| GbError::other("opening files isn't available here"))?;
+                let (mime, base64) = match self.forge_hub()?.video(&self.store, &list, &url, user_allowed).await? {
+                    crate::forge::ForgeImage::Found { mime, base64 } => (mime, base64),
+                    crate::forge::ForgeImage::Missing { reason } => return Err(GbError::new(GbErrorKind::NotFound, format!("Couldn't load the video: {reason}"))),
+                    _ => return Err(GbError::new(GbErrorKind::NotFound, "Couldn't load the video")),
+                };
+                let (key, name) = (crate::forge::image::video_key(&url), crate::forge::image::video_file_name(&url, &mime));
+                let path = blocking(move || {
+                    use base64::Engine;
+                    let bytes = base64::engine::general_purpose::STANDARD.decode(base64).map_err(|e| GbError::other(e.to_string()))?;
+                    crate::open_copy::write_copy(&cache, &key, &name, &bytes)
+                })
+                .await?;
+                opener(&path.to_string_lossy())?;
+                to_json(())
+            }
             Request::ListOpeners => self.list_openers(None).await,
             Request::ListOpenersFor { repo } => {
                 let workdir = self.handle(repo)?.workdir.display().to_string();
@@ -4452,6 +4481,8 @@ mod tests {
             // --- end 4B T1 ---
             // --- 5A T1 ---
             json!({"method": "forgeImage", "params": {"repo": id, "url": "https://github.com/user-attachments/assets/1b2c3d4e-0000-4000-8000-00000000abcd", "userAllowed": false}}),
+            json!({"method": "forgeVideo", "params": {"repo": id, "url": "https://github.com/user-attachments/assets/1b2c3d4e-0000-4000-8000-00000000abcd", "userAllowed": false}}),
+            json!({"method": "forgeOpenVideo", "params": {"repo": id, "url": "https://github.com/user-attachments/assets/1b2c3d4e-0000-4000-8000-00000000abcd", "userAllowed": false}}),
             // --- end 5A T1 ---
             // --- 4C T5 ---
             json!({"method": "forgeCreateContext", "params": {"repo": id, "remote": "origin", "sourceRemote": "origin", "branch": "main", "target": "main"}}),
@@ -4716,7 +4747,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage", "forgeVideo", "forgeOpenVideo"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {
@@ -4877,6 +4908,42 @@ mod tests {
         assert_eq!(trunk(pinned().await), (serde_json::json!("refs/heads/main"), serde_json::json!("refs/remotes/origin/main")), "origin is the root: main stands for origin/main");
         projects().await.unwrap();
         assert_eq!(refreshes(&mut events), 0, "nothing new: no refresh");
+    }
+
+    #[tokio::test]
+    async fn a_video_opens_with_the_default_app_from_a_private_copy_in_the_cache() {
+        use crate::forge::fake::{project, FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::{ForgeImage, ForgeKind, TokenStorage};
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        const HOST: &str = "gitlab.example.com";
+        let clip = "https://gitlab.example.com/group/project/uploads/0123456789abcdef0123456789abcdef/screen.mp4";
+        let p = FakeProvider::new(ForgeKind::GitLab, HOST);
+        p.projects.lock().unwrap().insert("group/project".into(), project(HOST, "group/project", None, 1));
+        p.videos.lock().unwrap().insert(clip.into(), ForgeImage::Found { mime: "video/mp4".into(), base64: "AAAAIGZ0eXBpc29t".into() });
+        p.videos.lock().unwrap().insert(format!("{clip}2"), ForgeImage::Missing { reason: "larger than 100 MB".into() });
+        let cache = tempfile::tempdir().unwrap();
+        let opened = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = opened.clone();
+        let api = api()
+            .with_forge(FakeConnector::with(TOKEN, p), MemTokens::new(TokenStorage::Keyring))
+            .with_open_cache(cache.path().to_path_buf())
+            .with_url_opener(Arc::new(move |u: &str| {
+                seen.lock().unwrap().push(u.to_string());
+                Ok(())
+            }));
+        api.dispatch(req(serde_json::json!({"method": "addForgeAccount", "params": {"host": HOST, "kind": "gitlab", "token": TOKEN}}))).await.unwrap();
+        let r = TestRepo::new();
+        r.commit("base");
+        r.git(&["remote", "add", "origin", &format!("https://{HOST}/group/project.git")]);
+        let id = open(&api, &r).await as u32;
+        let open_video = |url: String| api.dispatch(req(serde_json::json!({"method": "forgeOpenVideo", "params": {"repo": id, "url": url, "userAllowed": false}})));
+        open_video(clip.into()).await.unwrap();
+        let path = std::path::PathBuf::from(opened.lock().unwrap()[0].clone());
+        assert!(path.starts_with(cache.path()) && path.file_name().unwrap() == "screen.mp4", "{path:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"\0\0\0 ftypisom");
+        let e = open_video(format!("{clip}2")).await.unwrap_err();
+        assert_eq!(e.message, "Couldn't load the video: larger than 100 MB");
+        assert_eq!(opened.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]

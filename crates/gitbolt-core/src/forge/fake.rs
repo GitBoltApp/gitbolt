@@ -58,6 +58,7 @@ pub(crate) struct FakeProvider {
       // --- 5A T1 ---
       /// URL → what `image` answers; any other URL isn't this forge's (`None`).
       pub images: Mutex<HashMap<String, ForgeImage>>,
+      pub videos: Mutex<HashMap<String, ForgeImage>>,
       // --- end 5A T1 ---
     // --- MR round 2 ---
     /// What `people_limits` answers.
@@ -81,6 +82,7 @@ impl FakeProvider {
               // --- end 4C T5 ---
               // --- 5A T1 ---
               images: Mutex::default(),
+              videos: Mutex::default(),
               // --- end 5A T1 ---
             limits: Mutex::default(), edit_error: Mutex::default(),
         }
@@ -297,6 +299,11 @@ impl ForgeProvider for FakeProvider {
         Some(Box::pin(async move { Ok(found) }))
     }
     // --- end 5A T1 ---
+    fn video<'a>(&'a self, _project: &'a ForgeProject, url: &'a str) -> Option<ForgeFuture<'a, ForgeImage>> {
+        self.call(format!("video {url}"));
+        let found = self.videos.lock().unwrap().get(url).cloned()?;
+        Some(Box::pin(async move { Ok(found) }))
+    }
 }
 
 // --- 4B T1 ---
@@ -362,6 +369,11 @@ impl ForgeConnector for FakeConnector {
         self.public_calls.lock().unwrap().push(url.to_string());
         let found = self.public.lock().unwrap().get(url).cloned();
         Box::pin(async move { found.ok_or_else(|| GbError::new(GbErrorKind::Network, "Couldn't reach the image host")) })
+    }
+    fn public_video<'a>(&'a self, url: &'a str) -> ForgeFuture<'a, ForgeImage> {
+        self.public_calls.lock().unwrap().push(format!("video {url}"));
+        let found = self.public.lock().unwrap().get(url).cloned();
+        Box::pin(async move { found.ok_or_else(|| GbError::new(GbErrorKind::Network, "Couldn't reach the video host")) })
     }
     // --- end 5A T1 ---
 }

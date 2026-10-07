@@ -36,6 +36,19 @@ pub const GITHUB_TOKEN: &str = "ghp_FAKE-e2e-octocat";
 pub const GITHUB_FINE_TOKEN: &str = "github_pat_FAKE-e2e-fine-grained";
 pub const GITHUB_READONLY_TOKEN: &str = "ghp_FAKE-e2e-readonly";
 pub const FAKE_PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake";
+/// Project uploads' bytes, by file name (64×48, 1 s videos): `clip.webm` (VP9: every Chromium
+/// plays it), `screen.mp4` (H.264: a build without the proprietary codecs can't),
+/// `screen-hevc.mp4` (HEVC: Playwright's Chromium can't either), else `shot.png`.
+pub fn upload_bytes(file: &str) -> &'static [u8] {
+    match file {
+        "clip.webm" => include_bytes!("media/clip.webm"),
+        "screen.mp4" => include_bytes!("media/screen.mp4"),
+        "screen-hevc.mp4" => include_bytes!("media/screen-hevc.mp4"),
+        _ => FAKE_UPLOAD_PNG,
+    }
+}
+/// A project upload (`shot.png`): a real 120×80 PNG, so the e2e can check it decodes and shows.
+pub const FAKE_UPLOAD_PNG: &[u8] = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x78\x00\x00\x00\x50\x08\x02\x00\x00\x00\x5d\xf9\x26\xde\x00\x00\x00\x82\x49\x44\x41\x54\x78\xda\xed\xd0\x31\x0d\x00\x00\x08\x03\xb0\xf9\xc2\x1d\xa2\xb9\x71\x41\x38\x9a\x54\x41\x53\x3d\x1c\x88\x02\xd1\xa2\x11\x2d\x5a\xb4\x05\xd1\xa2\x11\x2d\x5a\xb4\x05\xd1\xa2\x11\x2d\x5a\x34\xa2\x45\x23\x5a\xb4\x68\x44\x8b\x46\xb4\x68\xd1\x88\x16\x8d\x68\xd1\xa2\x11\x2d\x1a\xd1\xa2\x45\x23\x5a\x34\xa2\x45\x8b\x46\xb4\x68\x44\x8b\x16\x8d\x68\xd1\x88\x16\x2d\x1a\xd1\xa2\x11\x2d\x5a\x34\xa2\x45\x23\x5a\xb4\x68\x44\x8b\x46\xb4\x68\xd1\x88\x16\x8d\x68\xd1\xa2\x11\x2d\x1a\xd1\xa2\x45\x23\x5a\x34\xa2\xff\x58\xa4\xba\xbc\x32\xe5\x57\xae\x37\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
 // --- 5A T3 ---
 /// The secret of the default seed's GitLab upload, `group/project/<it>/shot.png`.
 pub const UPLOAD_SECRET: &str = "0123456789abcdef0123456789abcdef";
@@ -117,9 +130,15 @@ pub struct GitLabSeed {
     pub created: Vec<Value>,
     // --- end 4C T2 ---
     // --- 5A T3 ---
-    /// Project uploads, "<project path>/<secret>/<file>" (served as a PNG through the API).
+    /// Project uploads, "<project path>/<secret>/<file>": PNGs, which the API sends as GitLab
+    /// does (an `application/octet-stream` attachment) and the web address as `image/png`.
     pub uploads: Vec<String>,
     // --- end 5A T3 ---
+    /// A GitLab before 17.4: no `GET /projects/:id/uploads/:secret/:filename`.
+    pub no_uploads_api: bool,
+    /// Uploads need a signed-in session (a private project): their web address redirects to the
+    /// sign-in page, token or not.
+    pub private_uploads: bool,
     // --- MR round 2 ---
     /// An older GitLab: GraphQL has neither `allowsMultipleReviewers` / `allowsMultipleAssignees`
     /// nor `mergeRequestRequestChanges`.
@@ -260,6 +279,20 @@ impl Reply {
     pub fn png() -> Self {
         Self { status: 200, headers: Vec::new(), body: FAKE_PNG.to_vec(), content_type: "image/png" }
     }
+    /// A project upload at its web address: GitLab answers with the file's own type.
+    pub fn upload(file: &str) -> Self {
+        let content_type = if file.ends_with(".webm") { "video/webm" } else if file.ends_with(".mp4") { "video/mp4" } else { "image/png" };
+        Self { status: 200, headers: Vec::new(), body: upload_bytes(file).to_vec(), content_type }
+    }
+
+    /// A file as GitLab's API sends one: an `application/octet-stream` attachment.
+    pub fn attachment(name: &str, body: &[u8]) -> Self {
+        Self { status: 200, headers: Vec::new(), body: body.to_vec(), content_type: "application/octet-stream" }.header("Content-Disposition", &format!("attachment; filename=\"{name}\""))
+    }
+
+    pub fn redirect(to: &str) -> Self {
+        Self { status: 302, headers: Vec::new(), body: Vec::new(), content_type: "text/html" }.header("Location", to)
+    }
 
     pub fn header(mut self, k: &str, v: &str) -> Self {
         self.headers.push((k.to_string(), v.to_string()));
@@ -376,7 +409,9 @@ pub fn default_seed(base: &str) -> ForgeSeed {
             created: Vec::new(),
             // --- end 4C T2 ---
             // --- 5A T3 ---
-            uploads: vec![format!("group/project/{UPLOAD_SECRET}/shot.png")],
+            uploads: ["shot.png", "clip.webm", "screen.mp4", "screen-hevc.mp4"].map(|f| format!("group/project/{UPLOAD_SECRET}/{f}")).to_vec(),
+            no_uploads_api: false,
+            private_uploads: false,
             old_graphql: false,
             // --- end 5A T3 ---
         },

@@ -6,6 +6,7 @@ import { emojiReady } from '../forge/emoji';
 import { remarkAutolinkGuard } from './plugins/autolinkGuard';
 import { remarkEmoji } from './plugins/emoji';
 import { remarkHeadingIds } from './plugins/headingIds';
+import { remarkImageAttrs } from './plugins/imageAttrs';
 import { remarkReferences } from './plugins/references';
 import type { MdFlavor } from './types';
 
@@ -16,7 +17,7 @@ const processors: Partial<Record<MdFlavor, Processor<Root, Root, Root>>> = {};
 const keyOf = (text: string, flavor: MdFlavor) => `${flavor}\0${emojiReady() ? 1 : 0}\0${text}`;
 
 function processorFor(flavor: MdFlavor): Processor<Root, Root, Root> {
-  return (processors[flavor] ??= unified().use(remarkParse).use(remarkGfm).use(remarkAutolinkGuard).use(remarkEmoji).use(remarkReferences, { flavor }).use(remarkHeadingIds).freeze() as unknown as Processor<Root, Root, Root>);
+  return (processors[flavor] ??= unified().use(remarkParse).use(remarkGfm).use(remarkAutolinkGuard).use(flavor === 'gitlab' ? [remarkImageAttrs] : []).use(remarkEmoji).use(remarkReferences, { flavor }).use(remarkHeadingIds).freeze() as unknown as Processor<Root, Root, Root>);
 }
 
 /** The mdast tree (GFM: tables, task lists, strikethrough, autolink literals, footnotes; our

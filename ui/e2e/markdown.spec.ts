@@ -58,6 +58,12 @@ test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
     await expect(page.getByRole('tooltip')).toHaveText('Open !5 in GitBolt');
     await expect.poll(async () => (await forgeRequests(request)).some((r) => r.path === `/api/v4/projects/42/uploads/${UPLOAD_HASH}/shot.png` && r.authorized)).toBe(true);
     await expect(view.getByRole('button', { name: /Load image from/ })).toHaveCount(0);
+    // It shows: decoded at its own size (the upload arrives as application/octet-stream).
+    const shot = view.getByRole('img', { name: 'shot' });
+    await expect(shot).toBeVisible();
+    await expect.poll(() => shot.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+    expect(await shot.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight])).toEqual([120, 80]);
+    expect((await shot.boundingBox())!.width).toBeGreaterThan(0);
     await ref.click();
     await expect(page.getByRole('dialog', { name: 'Merge request !5' })).toBeVisible();
     expect(await page.content()).not.toContain(E2E_GITLAB_TOKEN);

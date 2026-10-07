@@ -3,6 +3,7 @@ import { GitTooOldScreen } from '../errors/GitTooOldScreen';
 import { useGitCheck } from '../errors/gitCheck';
 import { ContextMenu } from '../menu/ContextMenu';
 import { ArmLayer } from '../ui/arm/ArmLayer';
+import { Lightbox } from '../lightbox/Lightbox';
 import { ChoiceDialog } from '../ui/ChoiceDialog';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { PromptDialog } from '../ui/PromptDialog';
@@ -84,6 +85,8 @@ export function AppShell({ error = null }: { error?: string | null }) {
         </>
       )}
       <Toast />
+      {/* The image viewer: a Markdown image clicked, over everything but tooltips, confirms and toasts. */}
+      <Lightbox />
       {/* The one context menu and its tooltip (spec §7). */}
       <ContextMenu />
       <TooltipHost />

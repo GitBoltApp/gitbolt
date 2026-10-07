@@ -94,6 +94,9 @@ impl ForgeConnector for Forge {
         // The harness's fake forge is plain http; the app's never.
         Box::pin(crate::images::fetch_public(url, self.cfg.only_overrides))
     }
+    fn public_video<'a>(&'a self, url: &'a str) -> ForgeFuture<'a, ForgeImage> {
+        Box::pin(crate::images::fetch_public_video(url, self.cfg.only_overrides))
+    }
     // --- end 5A T2 ---
 }
 

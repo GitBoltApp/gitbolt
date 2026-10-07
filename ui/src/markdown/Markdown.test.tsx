@@ -21,6 +21,14 @@ describe('<Markdown> (spec #5 §3.1)', () => {
     expect(container.firstElementChild).toHaveClass('md');
   });
 
+  it('sizes a GitLab image by its attribute list, which doesn’t show', () => {
+    const { container } = render(<Markdown flavor="gitlab" context={ctx} text={'![image](/uploads/0123abcd0123abcd/image.png){width=900 height=575}'} />);
+    const box = screen.getByRole('img', { name: 'image' });
+    expect(box.style.width).toBe('900px');
+    expect(box.style.aspectRatio).toBe('900 / 575');
+    expect(container).not.toHaveTextContent('{width');
+  });
+
   it('gives headings their user-content ids', () => {
     render(<Markdown flavor="github" context={ctx} text="## Install it" />);
     expect(screen.getByRole('heading', { name: 'Install it' })).toHaveAttribute('id', 'user-content-install-it');

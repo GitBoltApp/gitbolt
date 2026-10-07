@@ -165,6 +165,48 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
       await expect(form).toBeHidden();
       await expect(view.getByRole('region', { name: 'Activity' })).toContainText('One question below.');
     });
+    await test.step("a comment's image and video open full size over the app; a video it can't play says so", async () => {
+      const uploads = `/uploads/${'0123456789abcdef'.repeat(2)}`;
+      const activity = view.getByRole('region', { name: 'Activity' });
+      await view.getByRole('textbox', { name: 'Write a comment' }).fill(`Screenshot:\n\n![shot](${uploads}/shot.png)\n\n![clip](${uploads}/clip.webm){width=320 height=240}\n\n![screen](${uploads}/screen-hevc.mp4)`);
+      await view.getByRole('button', { name: 'Comment', exact: true }).click();
+      // The WebM plays inline (paused, metadata only); Playwright's Chromium has no HEVC.
+      const clip = activity.locator('video[aria-label="clip"]');
+      await expect.poll(() => clip.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBe(64);
+      expect(await clip.evaluate((v: HTMLVideoElement) => [v.paused, v.autoplay, v.preload])).toEqual([true, false, 'metadata']);
+      await expect(activity.getByText("This video's format (HEVC) can't play here")).toBeVisible();
+      await expect(activity.getByRole('button', { name: 'Open with default app' })).toBeVisible();
+      await clip.hover();
+      await expect(activity.getByRole('button', { name: 'View full size' })).toBeVisible();
+      // A click on the paused picture (above its controls) opens the viewer instead of playing here.
+      await clip.click({ position: { x: 10, y: 5 } });
+      const player = page.getByRole('dialog', { name: 'Video viewer: clip' });
+      await expect(player).toBeVisible();
+      await expect.poll(() => player.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime > 0 || !v.paused)).toBe(true);
+      expect(await clip.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(player).toBeHidden();
+
+      const shot = activity.getByRole('img', { name: 'shot' });
+      await expect.poll(() => shot.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+      await shot.click();
+      const viewer = page.getByRole('dialog', { name: 'Image viewer: shot' });
+      await expect(viewer).toBeVisible();
+      await expect(viewer.getByTestId('lightbox-zoom')).toHaveText('100%');
+      expect((await viewer.getByRole('img', { name: 'shot' }).boundingBox())!.width).toBeCloseTo(120, 0);
+      await page.keyboard.press('+');
+      await expect(viewer.getByTestId('lightbox-zoom')).toHaveText('110%');
+      await page.keyboard.press('Escape');
+      await expect(viewer).toBeHidden();
+      // Esc closed the viewer only, and the focus is back on the image.
+      await expect(view).toBeVisible();
+      await expect(shot).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(viewer).toBeVisible();
+      await page.mouse.click(5, 300);
+      await expect(viewer).toBeHidden();
+      await expect(view).toBeVisible();
+    });
     // --- end MR round 2 ---
 
     // --- comment actions ---

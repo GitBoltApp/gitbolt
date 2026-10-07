@@ -2,7 +2,7 @@
 //! §14.3): `<dir>/<sha256(email)>.<ext>` plus `index.json`. Found avatars stay 7 days and "none"
 //! answers 1 day. Network errors are never cached (the caller doesn't store them).
 
-use crate::gravatar::{email_key, ensure_private_dir, ext_for, now, payload, write_atomic, FOUND_TTL_SECS, MISSING_TTL_SECS};
+use crate::gravatar::{email_key, ensure_private_dir, image_ext, now, payload, write_atomic, FOUND_TTL_SECS, MISSING_TTL_SECS};
 use crate::http::HttpClient;
 use gitbolt_core::avatar::AvatarPayload;
 use gitbolt_core::error::GbError;
@@ -45,9 +45,10 @@ pub enum Lookup {
     Unknown,
 }
 
-/// An avatar payload, if `content_type` is an image GitBolt shows.
+/// An avatar payload, if `content_type` (or, for a generic binary type, `bytes`) is an image
+/// GitBolt shows.
 pub fn payload_of(content_type: &str, bytes: &[u8]) -> Option<AvatarPayload> {
-    ext_for(content_type).map(|ext| payload(ext, bytes))
+    image_ext(content_type, bytes).map(|ext| payload(ext, bytes))
 }
 
 /// The picture at `url` (a forge's `avatar_url`, already allowed by the caller), through the
@@ -168,7 +169,7 @@ impl DiskAvatarCache {
     }
 
     fn store_found_hashed(&self, key: &str, content_type: &str, bytes: &[u8]) -> Option<AvatarPayload> {
-        let ext = ext_for(content_type)?;
+        let ext = image_ext(content_type, bytes)?;
         let written = ensure_private_dir(&self.dir).and_then(|_| write_atomic(&self.dir.join(format!("{key}.{ext}")), bytes));
         if let Err(e) = written {
             tracing::warn!("forge avatar not cached: {e}");
@@ -282,5 +283,21 @@ mod tests {
     fn payload_of_takes_images_only() {
         assert!(payload_of("image/jpeg; charset=binary", b"x").is_some());
         assert!(payload_of("application/json", b"{}").is_none());
+    }
+
+    #[test]
+    fn a_generic_binary_type_is_shown_when_its_bytes_are_an_image() {
+        // GitLab's uploads API answers every file as an `application/octet-stream` attachment.
+        let png = b"\x89PNG\r\n\x1a\nrest";
+        assert_eq!(payload_of("application/octet-stream", png).unwrap().mime, "image/png");
+        assert_eq!(payload_of("", b"GIF89a....").unwrap().mime, "image/gif");
+        assert_eq!(payload_of("binary/octet-stream", b"\xff\xd8\xff\xe0").unwrap().mime, "image/jpeg");
+        assert_eq!(payload_of("application/octet-stream", b"RIFF\x10\0\0\0WEBPVP8 ").unwrap().mime, "image/webp");
+        assert!(payload_of("application/octet-stream", b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>").is_none(), "never an SVG");
+        assert!(payload_of("text/html", png).is_none(), "only a generic type is sniffed");
+        let dir = tempfile::tempdir().unwrap();
+        let cache = DiskAvatarCache::new(dir.path().to_path_buf());
+        assert_eq!(cache.store_found_exact("img:a", "application/octet-stream", png).unwrap().mime, "image/png");
+        assert!(matches!(cache.lookup_exact("img:a"), Lookup::Found(p) if p.mime == "image/png"));
     }
 }

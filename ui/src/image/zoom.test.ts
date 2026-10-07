@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, SWIPE_VIEWPORT_EDGE_PX, ZOOM_STEPS, zoomAround } from './zoom';
+import { centered, clampSwipe, clampView, DEFAULT_STEP, fitScale, nearestStepIndex, nextStepIndex, pixelated, startView, stepLabel, SWIPE_VIEWPORT_EDGE_PX, wheelAccumulator, ZOOM_STEPS, zoomAround } from './zoom';
 
 describe('image zoom', () => {
   it('fits, centres and labels', () => {
@@ -71,5 +71,15 @@ describe('image zoom', () => {
     expect(clampSwipe(400, { scale: 1, x: 0, y: 0 }, 400, 400)).toBe(400 - SWIPE_VIEWPORT_EDGE_PX);
     // The edge is only what keeps the 3 px line on screen and off the resizer: a few px.
     expect(SWIPE_VIEWPORT_EDGE_PX).toBeLessThanOrEqual(4);
+  });
+
+  it('a mouse notch is one zoom step (up zooms in); a trackpad pinch accumulates, and turning back starts over', () => {
+    const wheel = wheelAccumulator();
+    const px = (deltaY: number) => ({ deltaY, deltaMode: 0 });
+    expect(wheel(px(100))).toBe(-1);
+    expect(wheel({ deltaY: -3, deltaMode: 1 })).toBe(1);
+    expect([wheel(px(20)), wheel(px(20)), wheel(px(20))]).toEqual([0, 0, -1]);
+    expect([wheel(px(30)), wheel(px(-30)), wheel(px(30))]).toEqual([0, 0, 0]);
+    expect(wheel(px(0))).toBe(0);
   });
 });
