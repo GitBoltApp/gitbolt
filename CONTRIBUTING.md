@@ -28,6 +28,11 @@ With [cargo-nextest](https://nexte.st) installed, you can run part of the Rust s
 `cargo nextest run -p gitbolt-core`, or one area of the harness's integration tests with
 `cargo nextest run -p gitbolt-harness -E 'test(/^forge_stacks::/)'`.
 
+**Fixture repositories are cached.** Each named fixture (`gitbolt_core::testing::fixtures`) is
+built once into `target/fixture-cache/`, keyed on the `testing` module's source and the git
+version, and every test (and `gitbolt-harness fixture`) gets a copy of it. Set
+`GITBOLT_FIXTURE_CACHE=0` to build them fresh, for instance while you debug a fixture.
+
 **Pick the cheapest test layer that proves the behavior.** A rule in the core gets a Rust unit
 test; a component's logic or rendering gets a vitest test; a Playwright test is for a real flow
 through the UI and the backend together. Each Playwright test boots the app, so it costs far more

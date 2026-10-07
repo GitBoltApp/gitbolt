@@ -1,5 +1,6 @@
 //! Deterministic throwaway git repositories for tests and harness fixtures.
 
+mod cache;
 pub mod fixtures;
 pub mod state;
 pub mod write;
@@ -131,6 +132,8 @@ pub struct TestRepo {
     path: PathBuf,
     clock: AtomicI64,
     counter: AtomicI64,
+    /// The fixture cache's own build (`cache::restore`), which mustn't restore from the cache.
+    building: bool,
 }
 
 impl TestRepo {
@@ -150,6 +153,7 @@ impl TestRepo {
             path,
             clock: AtomicI64::new(BASE_TIME),
             counter: AtomicI64::new(0),
+            building: false,
         };
         repo.git(&["init", "-q", "-b", "main"]);
         repo

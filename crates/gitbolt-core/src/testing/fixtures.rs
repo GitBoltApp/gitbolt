@@ -11,7 +11,18 @@
 
 use super::TestRepo;
 
+/// Opens a fixture's body: when the fixture cache has its build, `r` becomes a copy of it and the
+/// body is skipped (see `super::cache`).
+macro_rules! cached {
+    ($r:ident, $name:ident) => {
+        if super::cache::restore($r, stringify!($name), $name) {
+            return;
+        }
+    };
+}
+
 pub fn basic(r: &TestRepo) {
+    cached!(r, basic);
     r.commit_as("Initial commit", "Ada Lovelace", "ada@example.com");
     let readme = r.commit_as("Add readme", "Grace Hopper", "grace@example.com");
     r.add_origin();
@@ -43,6 +54,7 @@ pub const WIDE_BRANCHES: usize = 30;
 /// remote) keeps lane 0, so the graph is `WIDE_BRANCHES + 1` lanes wide. Used by the "no lane is clipped at the default
 /// Graph width" Playwright check.
 pub fn wide(r: &TestRepo) {
+    cached!(r, wide);
     r.commit("Root");
     for i in 0..WIDE_BRANCHES {
         r.switch_new(&format!("wide/{i:02}"));
@@ -59,6 +71,7 @@ pub fn unborn(_r: &TestRepo) {}
 /// assertions. The root commit has a multi-line body, for the summary/body gap check and the
 /// full-message tooltip.
 pub fn long_labels(r: &TestRepo) {
+    cached!(r, long_labels);
     r.commit_as("Initial commit\n\nWith a body line\n\nA second paragraph,\nwrapped over two lines.", "Ada Lovelace", "ada@example.com");
     r.switch_new("feature/this-is-an-extremely-long-branch-name-designed-to-overflow-the-label-chip-and-force-truncation-in-the-commit-graph-ui");
     let tip = r.commit_as("Long label commit", "Ada Lovelace", "ada@example.com");
@@ -155,6 +168,7 @@ const GUIDE_PADDING: &str = "Step five.\nStep six.\nStep seven.\nStep eight.\nSt
 /// (Grace, committed by Ada, with co-authors and MR refs), then "Add feature file" (feature/x),
 /// then "Initial commit". Remote `origin` (a GitLab URL) is never fetched.
 pub fn details(r: &TestRepo) {
+    cached!(r, details);
     r.write("src/app.php", &php_source(false));
     r.write("docs/guide.txt", &format!("Guide\n\nStep one.\nStep two.\nStep three.\n{GUIDE_PADDING}"));
     r.write_bytes("logo.png", &tiny_png(4, 4, [255, 0, 0, 255]));
@@ -199,6 +213,7 @@ pub fn details(r: &TestRepo) {
 /// wrap) it deletes lines 50-52 (50 and 51 are long enough to wrap), re-indents 120-127 and
 /// 150-153 (whitespace only), and changes lines 135 and 175.
 pub fn diff_view(r: &TestRepo) {
+    cached!(r, diff_view);
     let lines = |f: &dyn Fn(usize) -> Vec<String>| (1..=200).flat_map(f).map(|l| l + "\n").collect::<String>();
     r.write("long.txt", &lines(&|i| vec![format!("line {i:03}")]));
     // mixed.txt: lines 20, 50 and 51 are long (they wrap under Word wrap) and 50-52 get deleted;
@@ -244,6 +259,7 @@ pub fn diff_view(r: &TestRepo) {
 /// No remote, so nothing is pinned. Before K79 "Parser" and "Config loader" took the left-most
 /// lane waiting for them (1), so every merge-in curve came from the right.
 pub fn merge_lock(r: &TestRepo) {
+    cached!(r, merge_lock);
     r.commit("Initial commit");
     r.switch_new("dev");
     r.commit_as("Config loader", "Grace Hopper", "grace@example.com");
@@ -265,6 +281,7 @@ pub fn merge_lock(r: &TestRepo) {
 /// 60 linear commits ("Commit 00" … "Commit 59"): enough rows for the graph to scroll (plan 1B's
 /// "Esc keeps the scroll position" e2e).
 pub fn long_history(r: &TestRepo) {
+    cached!(r, long_history);
     for i in 0..60 {
         r.commit(&format!("Commit {i:02}"));
     }
@@ -277,6 +294,7 @@ pub fn long_history(r: &TestRepo) {
 /// - `space name.txt`: a line added, unstaged;
 /// - `new.txt`: untracked, 3 lines.
 pub fn wip_staging(r: &TestRepo) {
+    cached!(r, wip_staging);
     r.git(&["config", "user.name", "Ada Lovelace"]);
     r.git(&["config", "user.email", "ada@example.com"]);
     let lines = |f: &dyn Fn(usize) -> String| (1..=40).map(f).map(|l| l + "\n").collect::<String>();
@@ -304,6 +322,7 @@ pub fn wip_staging(r: &TestRepo) {
 /// - `same.txt` (10 lines): CRLF only, which `git status` doesn't count as a change;
 /// - `raw.txt` (10 lines, `-text`, committed with CRLF): line 5 edited, its CRLF kept as is.
 pub fn wip_crlf(r: &TestRepo) {
+    cached!(r, wip_crlf);
     r.git(&["config", "user.name", "Ada Lovelace"]);
     r.git(&["config", "user.email", "ada@example.com"]);
     let lines = |eol: &str, edited: bool| (1..=10).map(|i| if edited && i == 5 { format!("line 05 edited{eol}") } else { format!("line {i:02}{eol}") }).collect::<String>();
@@ -326,6 +345,7 @@ pub fn wip_crlf(r: &TestRepo) {
 /// sharpened by Ada; one unrelated commit sits in between. Blame at HEAD has six groups:
 /// [1 Sharpen] [2 Start] [3-4 Middle] [5 Start] [6 Move] [7-8 Start].
 pub fn file_history(r: &TestRepo) {
+    cached!(r, file_history);
     let story = |lines: [&str; 8]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
     let mut v = ["Once upon a time", "there was a repository.", "It had a few commits", "and a branch or two.", "Nobody blamed anyone,", "until the day it moved.", "The end.", "(really)"];
     r.write("story.txt", &story(v));
@@ -348,6 +368,7 @@ pub fn file_history(r: &TestRepo) {
 
 /// A merge stopped on a conflict in `c.txt` (both modified), plus an unstaged edit of `side.txt`.
 pub fn wip_conflict(r: &TestRepo) {
+    cached!(r, wip_conflict);
     r.git(&["config", "user.name", "Ada Lovelace"]);
     r.git(&["config", "user.email", "ada@example.com"]);
     r.write("c.txt", "base\n");
@@ -379,6 +400,7 @@ done
 
 /// Fetch, pull and push (spec #2 §12; `sync.spec`). See `Interfaces` in plan 2D Task 3.
 pub fn sync(r: &TestRepo) {
+    cached!(r, sync);
     r.commit_as("Initial commit", "Ada Lovelace", "ada@example.com");
     r.commit_as("Add readme", "Grace Hopper", "grace@example.com");
     r.add_origin();
@@ -414,6 +436,7 @@ fn numbered(edits: &[(usize, &str)]) -> String {
 
 /// Conflicts (spec #2 §13; `conflicts.spec`). See `Interfaces` in plan 2D Task 3.
 pub fn conflicts(r: &TestRepo) {
+    cached!(r, conflicts);
     r.write("a.txt", &numbered(&[]));
     r.write_bytes("logo.bin", &[0, 1, 2, 3, 0, 9]);
     r.write("gone.txt", "will be deleted on main\n");
@@ -438,6 +461,7 @@ pub fn conflicts(r: &TestRepo) {
 
 /// A three-branch stack (spec #2 §13.1): feature/a → b → c on main, main then moves.
 pub fn stack(r: &TestRepo) {
+    cached!(r, stack);
     r.commit("Base");
     for b in ["feature/a", "feature/b", "feature/c"] {
         r.switch_new(b);
@@ -452,6 +476,7 @@ pub fn stack(r: &TestRepo) {
 
 /// 60 one-file commits on `topic`, which `main` moved past: the rebase speed budget (§13.4, §16).
 pub fn rebase60(r: &TestRepo) {
+    cached!(r, rebase60);
     r.commit("Base");
     r.switch_new("topic");
     for i in 0..60 {
@@ -471,6 +496,7 @@ pub fn rebase60(r: &TestRepo) {
 /// 300 commits over six branches merged back into main, an origin, and three worktrees (main
 /// and two linked), each dirty so each has a WIP row.
 pub fn worktrees(r: &TestRepo) {
+    cached!(r, worktrees);
     r.commit_as("Initial commit", "Ada Lovelace", "ada@example.com");
     r.add_origin();
     for b in 0..6 {
@@ -502,6 +528,7 @@ pub fn worktrees(r: &TestRepo) {
 /// `A2` added to `notes.txt`, so C1 moved below A2 conflicts. `B2` adds two files (Split's e2e).
 /// main moved on. HEAD: feature/c.
 pub fn irebase(r: &TestRepo) {
+    cached!(r, irebase);
     r.write("notes.txt", "one\n");
     r.git(&["add", "notes.txt"]);
     r.git(&["commit", "-q", "-m", "Base"]);
@@ -538,6 +565,7 @@ pub fn irebase(r: &TestRepo) {
 /// `L3` appended: moving L4 above L3 predicts a conflict, moving it back clears it. The six are
 /// consecutive on the checked-out branch, for the multi-select Squash rows. HEAD: lab.
 pub fn rebase_lab(r: &TestRepo) {
+    cached!(r, rebase_lab);
     r.write("notes.txt", "one\ntwo\nthree\n");
     r.git(&["add", "notes.txt"]);
     r.git(&["commit", "-q", "-m", "Base"]);

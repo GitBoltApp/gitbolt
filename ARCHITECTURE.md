@@ -338,7 +338,8 @@ Tests live in three layers. Use the cheapest one that proves the behavior.
 
 - **Rust** (`cargo nextest run --workspace`, or `just test-rust`): unit tests next to the code, on
   throwaway repositories from `gitbolt_core::testing` (`TestRepo`, deterministic fixtures with
-  fixed dates and an environment isolated from your git config and ssh agent). The
+  fixed dates and an environment isolated from your git config and ssh agent). Each fixture is
+  built once into `target/fixture-cache/` and copied for each test (`testing/cache.rs`). The
   harness's integration tests are one test binary, `crates/gitbolt-harness/tests/it/`, one module
   per area: `cargo nextest run -p gitbolt-harness -E 'test(/^forge_stacks::/)'`.
 - **UI unit tests** (vitest with jsdom, `just test-ui`): components and logic, next to the source
@@ -366,7 +367,8 @@ whether a valid token came but never the token. It runs on its own ephemeral por
 connector points the real providers at it and can reach no other host, and its tokens go in a file
 in the temp dir, never the system keyring.
 
-**Fixtures** are built once per e2e run with `gitbolt-harness fixture` and copied for each test
+**Fixtures** are made once per e2e run with `gitbolt-harness fixture` (a copy from the fixture
+cache) and copied for each test
 that needs a fresh one (`freshFixture` in `ui/e2e/fixtures.ts`).
 
 **Playwright** runs on one worker against a production build of the UI (`vite build --mode e2e`,
