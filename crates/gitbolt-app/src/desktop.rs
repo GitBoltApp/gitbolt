@@ -7,10 +7,10 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 /// The X11 `WM_CLASS` instance name (GLib's program name). The desktop matches a window to its
-/// `.desktop` entry by it: the `.deb`'s entry (Tauri's bundler writes `StartupWMClass=<binary
-/// name>`) and `just install-desktop`'s both say `gitbolt`. GTK derives the class half
-/// (`Gitbolt`) from it. Unset, GTK4 leaves `WM_CLASS` empty and GNOME can't match the window
-/// to any app, so the dock shows no GitBolt icon.
+/// `.desktop` entry by it: the packages' entry (`linux/GitBolt.desktop.hbs`, which Tauri's
+/// bundler renders with `StartupWMClass=<binary name>`) and `just install-desktop`'s both say
+/// `gitbolt`. GTK derives the class half (`Gitbolt`) from it. Unset, GTK4 leaves `WM_CLASS` empty
+/// and GNOME can't match the window to any app, so the dock shows no GitBolt icon.
 pub const PROGRAM_NAME: &str = "gitbolt";
 /// The human-readable application name (GLib's), for the desktop's window lists.
 pub const APPLICATION_NAME: &str = "GitBolt";
@@ -145,8 +145,10 @@ mod tests {
 
     #[test]
     fn the_program_name_is_the_binary_the_desktop_entries_name() {
-        // Tauri's .deb entry says `StartupWMClass=<binary name>`; so does `just install-desktop`.
+        // The packages' entry says `StartupWMClass=<binary name>`; so does `just install-desktop`.
         assert_eq!(PROGRAM_NAME, env!("CARGO_BIN_NAME"));
+        let template = include_str!("../linux/GitBolt.desktop.hbs");
+        assert!(template.contains("\nStartupWMClass={{exec}}\n"), "the packages' entry");
         let justfile = include_str!("../../../justfile");
         assert!(justfile.contains("StartupWMClass=gitbolt"), "just install-desktop's entry");
     }

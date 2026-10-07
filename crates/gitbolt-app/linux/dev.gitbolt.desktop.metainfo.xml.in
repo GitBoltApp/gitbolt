@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The packages' AppStream metadata, /usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml.
+     At package time (`just package`), scripts/package-meta.py fills in the empty releases
+     element from CHANGELOG.md and the screenshot's tag with the newest release's.
+     pkgname is the .deb's package name (Tauri's kebab-case of productName); package-arch.sh
+     changes it to the Arch package's. Software centres match an installed component to its
+     package by it: no distribution catalog lists GitBolt. -->
+<component type="desktop-application">
+  <id>dev.gitbolt.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>GitBolt</name>
+  <summary>Fast, keyboard-friendly Git client</summary>
+  <developer id="dev.gitbolt">
+    <name>Francis Lavoie</name>
+  </developer>
+
+  <description>
+    <p>
+      GitBolt is a fast, keyboard-friendly desktop Git client with a commit graph at its heart:
+      the lane graph down the middle, the branch and remote sidebar, the commit details on the
+      right, and workflows driven from context menus and the keyboard.
+    </p>
+    <p>
+      It reads repositories with gitoxide and writes through the git command line, so your hooks,
+      config and credentials behave exactly as they do in a terminal.
+    </p>
+    <ul>
+      <li>Staging of files, hunks and lines, with inline, split and word-level diffs</li>
+      <li>Undo history: the last 50 operations of each worktree, across restarts</li>
+      <li>Interactive rebase with fixup, edit and conflict prediction</li>
+      <li>Merge requests and pull requests on GitLab and GitHub, stacks included</li>
+      <li>No account and no telemetry</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">GitBolt.desktop</launchable>
+  <icon type="stock">dev.gitbolt.desktop</icon>
+  <pkgname>git-bolt</pkgname>
+  <provides>
+    <binary>gitbolt</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/GitBoltApp/gitbolt</url>
+  <url type="bugtracker">https://github.com/GitBoltApp/gitbolt/issues</url>
+  <url type="vcs-browser">https://github.com/GitBoltApp/gitbolt</url>
+
+  <categories>
+    <category>Development</category>
+    <category>RevisionControl</category>
+  </categories>
+  <keywords>
+    <keyword>git</keyword>
+    <keyword>version control</keyword>
+    <keyword>commit</keyword>
+    <keyword>branch</keyword>
+    <keyword>merge</keyword>
+    <keyword>rebase</keyword>
+    <keyword>diff</keyword>
+    <keyword>GitHub</keyword>
+    <keyword>GitLab</keyword>
+  </keywords>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>The commit graph with four repository tabs and a selected commit's details</caption>
+      <image type="source" width="1600" height="1000">https://raw.githubusercontent.com/GitBoltApp/gitbolt/@TAG@/docs/images/screenshot.webp</image>
+    </screenshot>
+  </screenshots>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases/>
+</component>

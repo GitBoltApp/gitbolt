@@ -16,9 +16,14 @@ every package carries them, generated fresh by each `just package`.
 | `CHROMIUM-CREDITS.html.gz` | Chromium's credits for everything it bundles, from the same distribution (about 20 MB of HTML, gzipped to about 2 MB) |
 | `DICTIONARY-en-US-LICENSE.txt` | The spell-check dictionary's source and license (below) |
 
-- The `.deb` installs them in `/usr/share/doc/gitbolt/`.
+- The `.deb` installs them in `/usr/share/doc/gitbolt/`, with a `copyright` file in Debian's
+  machine-readable format (DEP-5, written by `scripts/package-meta.py`): GitBolt is MIT, CEF and
+  Chromium's files BSD-3-Clause, the dictionary SCOWL's license, each pointing to the file above.
+  The control file has `License: MIT` too, which GNOME Software shows for a `.deb` that isn't
+  installed yet, and the AppStream metainfo says `project_license` MIT.
 - The Arch package has the same files, plus `/usr/share/licenses/gitbolt`, a symlink to
-  `/usr/share/doc/gitbolt` (Arch's location for license files).
+  `/usr/share/doc/gitbolt` (Arch's location for license files). Its `license` lines are MIT, the
+  licenses in the two notices files' summaries, `BSD-3-Clause` and `LicenseRef-SCOWL`.
 - In the app, **Help > About GitBolt > Open source licenses** shows all of them except the
   Chromium credits, which are too large to embed in the app; the page gives their installed path instead.
   The UI build copies the files into `ui/dist/licenses/`, which the app embeds, so they're in a

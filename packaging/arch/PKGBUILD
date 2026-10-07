@@ -11,10 +11,13 @@ pkgname=gitbolt-bin
 pkgver=0.1.0
 _debver=0.1.0 # the .deb's version, e.g. 0.1.0+202610051325.ab4dbf9e for a dev build
 pkgrel=1
-pkgdesc="A fast desktop Git client"
+pkgdesc="Fast, keyboard-friendly Git client"
 arch=('x86_64')
 url="https://github.com/GitBoltApp/gitbolt"
-license=('custom')
+# Copy the release package's `license =` lines (scripts/arch-pkg.py licenses): MIT, then the
+# licenses of what it bundles.
+license=('MIT' 'Apache-2.0' 'BSD-2-Clause' 'BSD-3-Clause' 'CC0-1.0' 'CDLA-Permissive-2.0' 'EPL-2.0'
+         'ISC' 'LicenseRef-SCOWL' 'MPL-2.0' 'Unicode-3.0' 'Zlib')
 depends=('alsa-lib' 'at-spi2-core' 'cairo' 'dbus' 'expat' 'gcc-libs' 'gdk-pixbuf2' 'git' 'glib2'
          'glibc' 'graphene' 'gtk4' 'libcups' 'libx11' 'libxcb' 'libxcomposite' 'libxdamage'
          'libxext' 'libxfixes' 'libxkbcommon' 'libxrandr' 'mesa' 'nspr' 'nss' 'pango'
@@ -31,4 +34,7 @@ package() {
   # Chromium's sandbox helper must stay root-owned setuid, as in the .deb (makepkg runs under
   # fakeroot, so the archive records root:root).
   chmod 4755 "$pkgdir/usr/share/GitBolt/chrome-sandbox"
+  # The AppStream metainfo names the .deb's package; software centres match it to this one.
+  sed -i "s|<pkgname>git-bolt</pkgname>|<pkgname>$pkgname</pkgname>|" \
+    "$pkgdir/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml"
 }

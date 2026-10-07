@@ -7,6 +7,7 @@ test: test-rust test-ui test-scripts
 test-scripts:
     scripts/test-fix-deb.sh
     scripts/test-check-deb.sh
+    scripts/test-package-meta.sh
     scripts/test-package-arch.sh
     scripts/test-licenses.sh
     scripts/test-version-order.sh
@@ -116,6 +117,11 @@ package: check-tauri-cli
     # ones into target/licenses here; the UI's come from the UI build `cargo tauri build` runs.
     # Either fails the build on a license outside the allow-list in about.toml.
     scripts/licenses.sh
+    # The AppStream metainfo (its releases from CHANGELOG.md) and the DEP-5 copyright file, into
+    # target/package-meta for tauri.conf.json's files map (docs/dev-setup.md, "Software centres").
+    mkdir -p target/package-meta
+    scripts/package-meta.py metainfo crates/gitbolt-app/linux/dev.gitbolt.desktop.metainfo.xml.in CHANGELOG.md target/package-meta/dev.gitbolt.desktop.metainfo.xml
+    scripts/package-meta.py copyright LICENSE target/package-meta/copyright
     # Each build gets its own, increasing version (0.1.0+<UTC time>.<sha>), so `apt install` of a
     # newer build replaces the installed one instead of skipping it as "already the newest".
     # GITBOLT_RELEASE_VERSION=<version> (the release workflow) builds the plain version instead,

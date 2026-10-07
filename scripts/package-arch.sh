@@ -4,9 +4,11 @@
 # Turns the built (and fix-deb'ed) .deb into an Arch package, GitBolt-<ver>-1-x86_64.pkg.tar.zst,
 # without makepkg (the build machine is Ubuntu). out-dir defaults to target/release/bundle/arch.
 #   payload  = the .deb's data member: same paths and modes (chrome-sandbox stays root:root 4755),
-#              plus usr/share/licenses/gitbolt -> ../doc/gitbolt (the license notices)
+#              plus usr/share/licenses/gitbolt -> ../doc/gitbolt (the license notices); the
+#              AppStream metainfo's <pkgname> becomes gitbolt
 #   .PKGINFO = pacman's key = value metadata; depends mapped from the .deb's Depends through the
-#              table in scripts/arch-pkg.py (an unknown Debian name fails the build)
+#              table in scripts/arch-pkg.py (an unknown Debian name fails the build); license =
+#              MIT and the licenses of what the package bundles (arch-pkg.py licenses)
 #   .MTREE   = gzip'd mtree of .PKGINFO and the payload, as makepkg's bsdtar writes it
 # Archive order: .PKGINFO, .MTREE, then the payload; GNU tar, every entry root:root with one fixed
 # mtime (the version's +YYYYMMDDHHMM build stamp, or $SOURCE_DATE_EPOCH), zstd -19.
@@ -62,6 +64,19 @@ done
 mkdir -p "$work/pkg/usr/share/licenses"
 chmod 755 "$work/pkg/usr/share/licenses"
 ln -s ../doc/gitbolt "$work/pkg/usr/share/licenses/gitbolt"
+mapfile -t licenses < <(python3 "$helper" licenses "$work/pkg/usr/share/doc/gitbolt")
+[ ${#licenses[@]} -gt 0 ] || fail "no licenses found"
+
+# The AppStream metainfo's <pkgname> is the .deb's package name (git-bolt); a software centre
+# matches the installed component to its package by it, so here it's this package's.
+debpkg=$(dpkg-deb -f "$deb" Package)
+edited=()
+for m in "$work"/pkg/usr/share/metainfo/*.metainfo.xml; do
+  [ -e "$m" ] || continue
+  grep -qF "<pkgname>$debpkg</pkgname>" "$m" || fail "$(basename "$m") doesn't name the .deb's package, $debpkg"
+  sed -i "s|<pkgname>$debpkg</pkgname>|<pkgname>gitbolt</pkgname>|" "$m"
+  edited+=("${m#"$work/pkg/"}")
+done
 
 size=$(python3 "$helper" size "$work/pkg")
 {
@@ -76,7 +91,7 @@ size=$(python3 "$helper" size "$work/pkg")
   echo "packager = GitBolt build"
   echo "size = $size"
   echo "arch = x86_64"
-  echo "license = MIT"
+  printf 'license = %s\n' "${licenses[@]}"
   printf 'depend = %s\n' "${depends[@]}"
 } > "$work/pkg/.PKGINFO"
 chmod 644 "$work/pkg/.PKGINFO"
@@ -93,7 +108,7 @@ mv "$work/meta.tar" "$work/pkg.tar"
 
 # The payload must match the .deb entry for entry (plus the licenses symlink), and stay root-owned
 # and setuid.
-python3 "$helper" verify "$work/data.tar" "$work/pkg.tar" >/dev/null
+python3 "$helper" verify "$work/data.tar" "$work/pkg.tar" "${edited[@]}" >/dev/null
 [ "$(tar -tf "$work/pkg.tar" | head -2 | tr '\n' ' ')" = ".PKGINFO .MTREE " ] || fail "the archive doesn't start with .PKGINFO, .MTREE"
 line=$(tar -tvf "$work/pkg.tar" | grep '/chrome-sandbox$') || fail "no chrome-sandbox in the package"
 [[ $line == -rwsr-xr-x\ root/root* ]] || fail "chrome-sandbox is not root:root 4755: $line"

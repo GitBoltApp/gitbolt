@@ -188,6 +188,9 @@ GitBolt has no telemetry, analytics, crash reporting or update checks.
 - The packages ship no `crash_reporter.cfg`, the file CEF needs before it will upload crash
   reports.
 - Crashes and errors go only to the local log files.
+- The packages' AppStream metadata names a screenshot on `raw.githubusercontent.com`. Software
+  centres (GNOME Software, Discover) may download it to show GitBolt's page; that's the software
+  centre's request, not GitBolt's.
 
 ## Data on your computer
 

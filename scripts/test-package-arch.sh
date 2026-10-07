@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for package-arch.sh: the pure parts of scripts/arch-pkg.py (version mapping, the
 # dependency table and its unknown-name failure, mtree escaping), then a synthetic .deb through
-# the whole script (archive order, .PKGINFO, .MTREE, chrome-sandbox root:root 4755).
+# the whole script (archive order, .PKGINFO and its licenses, .MTREE, the metainfo's pkgname,
+# chrome-sandbox root:root 4755).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 helper="$here/arch-pkg.py"
@@ -42,6 +43,13 @@ ln -s ../share/GitBolt/gitbolt "$pkg/usr/bin/gitbolt"
 notices="LICENSE THIRD-PARTY-NOTICES-rust.txt THIRD-PARTY-NOTICES-ui.txt CEF-LICENSE.txt CHROMIUM-CREDITS.html.gz DICTIONARY-en-US-LICENSE.txt"
 mkdir -p "$pkg/usr/share/doc/gitbolt"
 for f in $notices; do printf 'notice %s\n' "$f" > "$pkg/usr/share/doc/gitbolt/$f"; done
+printf 'Rust notices\n\nSummary\n-------\n  MIT          40\n  Apache-2.0    2\n  Unicode-3.0   1\n\n\nMIT\n' \
+  > "$pkg/usr/share/doc/gitbolt/THIRD-PARTY-NOTICES-rust.txt"
+printf 'UI notices\n\nSummary\n-------\n  MIT     9\n  ISC     3\n  0BSD    1\n\n\nMIT\n' \
+  > "$pkg/usr/share/doc/gitbolt/THIRD-PARTY-NOTICES-ui.txt"
+mkdir -p "$pkg/usr/share/metainfo"
+printf '<component>\n  <id>dev.gitbolt.desktop</id>\n  <pkgname>git-bolt</pkgname>\n</component>\n' \
+  > "$pkg/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml"
 mkdir -p "$pkg/usr/share/GitBolt/dictionaries"
 printf 'BDic' > "$pkg/usr/share/GitBolt/dictionaries/en-US-10-1.bdic"
 cat > "$pkg/DEBIAN/control" <<'EOT'
@@ -64,10 +72,14 @@ tar -tvf "$work/p.tar" | grep -Eq '^lrwxrwxrwx root/root .* usr/bin/gitbolt -> \
 tar -tvf "$work/p.tar" | grep -Eq '^-rw-r--r-- root/root +4 .* usr/share/GitBolt/dictionaries/en-US-10-1\.bdic$' || fail "lost the dictionary"
 info=$(tar -xOf "$work/p.tar" .PKGINFO)
 for kv in 'pkgname = gitbolt' 'pkgver = 0.1.0.202610051325.ab4dbf9e-1' 'pkgdesc = A fast desktop Git client' \
-          'arch = x86_64' 'license = MIT' "builddate = $(date -u -d '2026-10-05 13:25' +%s)" \
+          'arch = x86_64' "builddate = $(date -u -d '2026-10-05 13:25' +%s)" \
           'depend = gcc-libs' 'depend = git' 'depend = glibc' 'depend = gtk4'; do
   grep -qxF "$kv" <<<"$info" || fail ".PKGINFO lacks '$kv': $info"
 done
+eq licenses "$(sed -n 's/^license = //p' <<<"$info" | tr '\n' ' ')" \
+  'MIT 0BSD Apache-2.0 BSD-3-Clause ISC LicenseRef-SCOWL Unicode-3.0 '
+# The metainfo names this package, not the .deb's.
+eq pkgname "$(tar -xOf "$work/p.tar" usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml | sed -n 's|.*<pkgname>\(.*\)</pkgname>.*|\1|p')" gitbolt
 mtree=$(tar -xOf "$work/p.tar" .MTREE | gzip -dc)
 eq mtree-head "$(head -2 <<<"$mtree" | tr '\n' '|')" '#mtree|/set type=file uid=0 gid=0 mode=644|'
 grep -Eq '^\./\.PKGINFO time=[0-9]+\.0 size=[0-9]+ md5digest=[0-9a-f]{32} sha256digest=[0-9a-f]{64}$' <<<"$mtree" || fail ".MTREE lacks .PKGINFO: $mtree"

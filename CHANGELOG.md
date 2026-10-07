@@ -8,6 +8,12 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 ### Added
 
 - **Reply and resolve** (or unresolve) beside Reply in a resolvable thread (Ctrl+Shift+Enter).
+- Software centre metadata in the Linux packages. A `.deb` opened in GNOME Software, Ubuntu's App
+  Center or Discover now shows the homepage and a full description, and GNOME Software the MIT
+  license; none of them shows a package's icon before it's installed. Once installed, GitBolt
+  has AppStream metadata (`dev.gitbolt.desktop`: description, license, links, screenshot and
+  release history), icons from 32 px to 512 px, and a Debian machine-readable `copyright` file.
+  The Arch package lists the licenses of the code it bundles, not only MIT.
 
 ### Changed
 

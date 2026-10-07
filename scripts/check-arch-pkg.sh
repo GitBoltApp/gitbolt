@@ -8,6 +8,8 @@
 #   - chrome-sandbox is root:root 4755 after install;
 #   - the license notices are in /usr/share/licenses/gitbolt/ and not empty;
 #   - the spell-check dictionary is in /usr/share/GitBolt/dictionaries/;
+#   - the AppStream metainfo validates and names the gitbolt package, the desktop entry validates,
+#     and the app-id icons are there;
 #   - ldd finds every library of the binary and the bundled CEF .so files;
 #   - the app starts headless (xvfb-run, as a normal user) without a missing library. Under
 #     Docker's default seccomp profile and capabilities, the setuid sandbox can't make its
@@ -51,6 +53,17 @@ step "spell-check dictionary in /usr/share/GitBolt/dictionaries"
 [ -s /usr/share/GitBolt/dictionaries/en-US-10-1.bdic ] || fail "no /usr/share/GitBolt/dictionaries/en-US-10-1.bdic (or it is empty)"
 [ "$(head -c 4 /usr/share/GitBolt/dictionaries/en-US-10-1.bdic)" = BDic ] || fail "en-US-10-1.bdic is not a .bdic"
 ls -l /usr/share/GitBolt/dictionaries/
+step "AppStream metainfo, desktop entry and icons"
+pacman -S --noconfirm --noprogressbar --needed appstream desktop-file-utils >/dev/null 2>&1 || fail "installing appstream"
+m=/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml
+appstreamcli validate --pedantic --no-net "$m" || fail "appstreamcli rejects $m"
+grep -qx "  <pkgname>gitbolt</pkgname>" "$m" || fail "$m does not name the gitbolt package"
+desktop-file-validate /usr/share/applications/GitBolt.desktop || fail "desktop-file-validate rejects GitBolt.desktop"
+for s in 32x32 64x64 128x128 256x256 512x512; do
+  [ -s "/usr/share/icons/hicolor/$s/apps/dev.gitbolt.desktop.png" ] || fail "no $s icon"
+done
+[ -s /usr/share/icons/hicolor/scalable/apps/dev.gitbolt.desktop.svg ] || fail "no scalable icon"
+appstreamcli get dev.gitbolt.desktop --details 2>&1 | grep -E "^(Identifier|Name|Summary|Package|License|Icon|Homepage)" || true
 step "ldd"
 missing=0
 for f in /usr/share/GitBolt/gitbolt /usr/share/GitBolt/*.so*; do

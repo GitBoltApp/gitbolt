@@ -11,9 +11,13 @@ Subcommands (each prints to stdout; errors go to stderr with exit status 2):
   escape <path>                 a path in mtree's escaping (tests)
   mtree <dir> <epoch> <out.gz>  writes the gzip-compressed .MTREE for everything under <dir>
   size <dir>                    installed size in bytes (apparent size, as makepkg reports it)
-  verify <src.tar> <pkg.tar>    the package's payload matches the .deb's data member: same
-                                paths, types, modes, sizes and link targets (plus ARCH_EXTRA),
-                                every entry root:root
+  licenses <doc-dir>            the package's licenses (SPDX), one per line: GitBolt's MIT, then
+                                those of the third-party notices' summaries, CEF and Chromium's
+                                BSD-3-Clause and the dictionary's LicenseRef-SCOWL
+  verify <src.tar> <pkg.tar> [edited...]
+                                the package's payload matches the .deb's data member: same
+                                paths, types, modes, sizes and link targets (plus ARCH_EXTRA;
+                                the edited files' sizes may differ), every entry root:root
 """
 import calendar
 import fnmatch
@@ -189,7 +193,31 @@ def entries(tarpath, skip_meta):
 ARCH_EXTRA = {"usr/share/licenses": ("dir", 0o755, 0, ""), "usr/share/licenses/gitbolt": ("link", 0, 0, "../doc/gitbolt")}
 
 
-def verify(src, pkg):
+# The Rust and UI notices (docs/licensing.md) each start with a summary of the licenses they list.
+NOTICES = ["THIRD-PARTY-NOTICES-rust.txt", "THIRD-PARTY-NOTICES-ui.txt"]
+SUMMARY = re.compile(r"^Summary\n-+\n((?:  \S+ +\d+\n)+)", re.M)
+# The rest of the payload's licenses: CEF's (CEF-LICENSE.txt, and Arch's chromium package uses
+# the same for Chromium, whose bundled projects' licenses are in CHROMIUM-CREDITS.html.gz), and
+# the spell-check dictionary's (DICTIONARY-en-US-LICENSE.txt), which SPDX doesn't list.
+OTHER_LICENSES = ["BSD-3-Clause", "LicenseRef-SCOWL"]
+
+
+def licenses(doc):
+    found = set(OTHER_LICENSES)
+    for name in NOTICES:
+        try:
+            with open(os.path.join(doc, name), encoding="utf-8") as f:
+                m = SUMMARY.search(f.read())
+        except OSError as e:
+            raise Fail(f"can't read {name}: {e.strerror}")
+        if not m:
+            raise Fail(f"{name} has no license summary")
+        found.update(line.split()[0] for line in m.group(1).splitlines())
+    found.discard("MIT")
+    return ["MIT"] + sorted(found)
+
+
+def verify(src, pkg, edited=()):
     a = entries(src, False)
     b = entries(pkg, True)
     problems = []
@@ -199,7 +227,7 @@ def verify(src, pkg):
         elif name not in a:
             if ARCH_EXTRA.get(name) != b[name][:4]:
                 problems.append(f"not in the .deb: {name}")
-        elif a[name][:4] != b[name][:4]:
+        elif a[name][:4] != b[name][:4] and not (name in edited and a[name][:2] + a[name][3:4] == b[name][:2] + b[name][3:4]):
             problems.append(f"differs: {name}: .deb {a[name][:4]} vs package {b[name][:4]}")
     for name, e in b.items():
         if e[4:] != (0, 0, "root", "root"):
@@ -223,8 +251,10 @@ def main(argv):
         write_mtree(args[0], args[1], args[2])
     elif cmd == "size":
         print(installed_size(args[0]))
+    elif cmd == "licenses":
+        print("\n".join(licenses(args[0])))
     elif cmd == "verify":
-        print(verify(args[0], args[1]))
+        print(verify(args[0], args[1], set(args[2:])))
     else:
         raise Fail(f"unknown subcommand {cmd}")
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for fix-deb.sh on a synthetic package (no Tauri build needed). It checks that GTK 3
-# goes, GTK 4 and git stay, dpkg-shlibdeps results arrive, the data member is byte-identical and
-# chrome-sandbox keeps root:root 4755.
+# goes, GTK 4 and git stay, dpkg-shlibdeps results arrive, the data member is byte-identical,
+# chrome-sandbox keeps root:root 4755 and the License field is added.
 set -euo pipefail
 command -v dpkg-shlibdeps >/dev/null || { echo "test-fix-deb: skipped (dpkg-dev not installed)"; exit 0; }
 here=$(cd "$(dirname "$0")" && pwd)
@@ -33,6 +33,8 @@ grep -Eq '(^|, )libc6 \(>= ' <<<"$deps" || fail "no dpkg-shlibdeps result: $deps
 dpkg-deb -c "$work/t.deb" | grep -Eq '^-rwsr-xr-x (root/root|0/0) .*/chrome-sandbox$' || { dpkg-deb -c "$work/t.deb" >&2; fail "chrome-sandbox lost root:root 4755"; }
 eq() { [ "$2" = "$3" ] || fail "$1: expected '$3', got '$2'"; }
 eq version-plain "$(dpkg-deb -f "$work/t.deb" Version)" 0.1.0
+eq license "$(dpkg-deb -f "$work/t.deb" License)" MIT
+eq description "$(dpkg-deb -f "$work/t.deb" Description)" 'fix-deb self-test'
 # A SemVer pre-release becomes a Debian one: '~' sorts before the final release, '-' wouldn't.
 for v in '0.1.0-alpha.1:0.1.0~alpha.1' '0.1.0-rc.2+202610051325.ab4dbf9e:0.1.0~rc.2+202610051325.ab4dbf9e' \
          '0.1.0+202610051325.ab4dbf9e:0.1.0+202610051325.ab4dbf9e'; do

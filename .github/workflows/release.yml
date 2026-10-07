@@ -196,9 +196,12 @@ jobs:
           sudo apt-get update -q
           # libgtk-4-dev and patchelf: the CEF runtime (docs/dev-setup.md); cmake and ninja: the
           # cef-dll-sys wrapper; dpkg-dev: fix-deb.sh's dpkg-shlibdeps; zstd and python3:
-          # package-arch.sh. The packages' Depends come from this runner's libraries (24.04).
+          # package-arch.sh; appstream and desktop-file-utils: check-deb.sh validates the AppStream
+          # metainfo and the desktop entry. The packages' Depends come from this runner's libraries
+          # (24.04).
           sudo apt-get install -y -q --no-install-recommends \
-            libgtk-4-dev patchelf pkg-config cmake ninja-build dpkg-dev zstd python3 jq
+            libgtk-4-dev patchelf pkg-config cmake ninja-build dpkg-dev zstd python3 jq \
+            appstream desktop-file-utils
 
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
         with:

@@ -11,7 +11,9 @@ release. You review the draft and publish it. Nothing is published automatically
   the test suite (there's no CI on main yet). Run `just lint`, `just test` and `just e2e` on the
   commit you're releasing.
 - **CHANGELOG.md's `## [Unreleased]` section lists the release's changes.** Its contents become
-  the release notes. `just release` refuses an empty section.
+  the release notes. `just release` refuses an empty section. The dated sections are also the
+  packages' AppStream release history (`scripts/package-meta.py`), and the newest one's tag pins
+  the metainfo's screenshot URL, so push the tag with the release.
 
 ## Steps
 
@@ -92,8 +94,8 @@ After Plan (see [Which run builds](#which-run-builds)), two jobs run on `ubuntu-
    - checks the tag against `tauri.conf.json`'s version and extracts the release notes from
      CHANGELOG.md (`scripts/changelog.py notes <version> CHANGELOG.md`);
    - installs the toolchain: the system packages (`libgtk-4-dev`, `patchelf`, `dpkg-dev`, `zstd`,
-     `cmake`, `ninja-build`), stable Rust, Node 22, `just`, `tauri-cli` 3.0.0-alpha.4 and
-     cargo-about 0.9.2;
+     `cmake`, `ninja-build`, and `appstream` and `desktop-file-utils` for `check-deb.sh`), stable
+     Rust, Node 22, `just`, `tauri-cli` 3.0.0-alpha.4 and cargo-about 0.9.2;
    - runs `just package` with `GITBOLT_RELEASE_VERSION` set. That generates the third-party
      license notices (`scripts/licenses.sh`, failing on a license outside `about.toml`'s
      allow-list; see [licensing.md](licensing.md)), builds, and runs `fix-deb.sh`, `check-deb.sh`
