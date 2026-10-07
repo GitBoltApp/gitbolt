@@ -14,6 +14,7 @@ import { useToast, type ToastAction } from '../ui/toast';
 import { runWrite, type WriteCtx } from '../write/client';
 import type { Stack } from './detect';
 import { joinNames } from './text';
+import { notifyBranchPushed } from '../forge/usePolling';
 
 export interface PushStep { name: string; result: 'pushed' | 'forced' | 'published' | 'upToDate' }
 export interface StackPushReport { steps: PushStep[]; failed: { name: string; error: GbError } | null; rest: string[]; remote: string; /** The servers' warnings, as pushed (4D's after-merge toast keeps them). */ warnings: string[] }
@@ -66,6 +67,7 @@ export async function pushStack(ctx: WriteCtx, stack: Stack): Promise<StackPushR
     report.steps.push({ name, result: out.upToDate ? 'upToDate' : out.forced ? 'forced' : publish ? 'published' : 'pushed' });
     if (out.server.warning) { warned.push(out.server.warning); lastOutput = serverActions(out.server, out.op); }
   }
+  if (report.steps.some((st) => st.result !== 'upToDate')) notifyBranchPushed(ctx.tabId);
   const s = pushSummary(report);
   const failed = report.failed;
   if (!failed && warned.length) {

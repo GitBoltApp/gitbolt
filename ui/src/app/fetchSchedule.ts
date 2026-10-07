@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { api, errorMessage } from '../api/client';
 import type { GbError } from '../api/gen/GbError';
+import type { MrHead } from '../api/gen/MrHead';
 import { useToast } from '../ui/toast';
 import { showServerResult } from '../sync/serverOutput';
 import { openActivityLog } from './activityLog';
@@ -112,12 +113,13 @@ const failing = new Set<number>();
  * link (§16.1, K96); a fetch that worked says nothing (7c303cc), a failure still toasts. A cancel is quiet. A user's fetch
  * that finds a background one running waits on that one: the Fetch button shows it as busy.
  */
-export async function runFetch(tabId: string, background: boolean, remote?: string): Promise<void> {
+export async function runFetch(tabId: string, background: boolean, remote?: string, mrHead?: MrHead): Promise<void> {
   // A background fetch has its own key: it must not light the Fetch button (K30).
-  await runOnce(tabId, 'fetch', `${background ? 'bg:' : ''}${remote ?? ''}`, () => fetchNow(tabId, background, remote));
+  await runOnce(tabId, 'fetch', `${background ? 'bg:' : ''}${remote ?? ''}${mrHead ? `:${mrHead.number}` : ''}`, () => fetchNow(tabId, background, remote, mrHead));
 }
 
-async function fetchNow(tabId: string, background: boolean, remote?: string): Promise<void> {
+/** `mrHead` (with `remote`): only that MR/PR's head (the MR view's Compare). */
+async function fetchNow(tabId: string, background: boolean, remote?: string, mrHead?: MrHead): Promise<void> {
   const rt = useRuntime.getState().tabs[tabId];
   if (!rt?.repo) return;
   const repo = rt.repo;
@@ -129,7 +131,7 @@ async function fetchNow(tabId: string, background: boolean, remote?: string): Pr
   // schedule's last fetch time are the full fetch's.
   const errors = () => useRuntime.getState().tabs[tabId]?.remoteFetchErrors ?? {};
   try {
-    const out = await (remote === undefined ? api.fetch(repo.id, background) : api.fetch(repo.id, background, remote));
+    const out = await (remote === undefined ? api.fetch(repo.id, background) : mrHead ? api.fetch(repo.id, background, remote, mrHead) : api.fetch(repo.id, background, remote));
     if (out.status === 'done' || out.reason === 'authRequired') failing.delete(repo.id);
     if (out.status === 'done') {
       // A fetch that worked says nothing (except a user's with server output, which links it, and a server warning, spec #2 §12.4), user-initiated or not: the button's spinner and the

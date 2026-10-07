@@ -3,7 +3,7 @@ import { errorMessage } from '../api/client';
 import { perf } from '../perf';
 import { useDiffPrefs } from './diffPrefs';
 import { setEditorRelease } from './editorRelease';
-import type { HunkZoneRequest, MonacoHost } from './monaco/host';
+import type { DiffLine, HunkZoneRequest, MonacoHost } from './monaco/host';
 import { loadMonacoHost } from './monaco/load';
 
 // Once loaded, later mounts get the host on their first render (no empty frame per file).
@@ -128,7 +128,7 @@ export const SHOW_ERROR_TITLE = "Couldn't show this file";
  * unless `attachDiff` has run. `onShown` fires once the diff is on screen (see `useOnShown`).
  * `hunkZones`: a WIP diff's hunk header rows, asked for with each show (`wipHunkZones`).
  */
-export function TextDiff({ path, original, modified, language, onShown, editable = false, onEdit, identity, hunkZones }: { identity?: string; path: string; original: string; modified: string; language: string; onShown?: () => void; editable?: boolean; onEdit?: () => void; hunkZones?: () => HunkZoneRequest | undefined }) {
+export function TextDiff({ path, original, modified, language, line, onShown, editable = false, onEdit, identity, hunkZones }: { identity?: string; path: string; original: string; modified: string; language: string; line?: DiffLine; onShown?: () => void; editable?: boolean; onEdit?: () => void; hunkZones?: () => HunkZoneRequest | undefined }) {
   const ref = useRef<HTMLDivElement>(null);
   const { host, error, retry } = useMonacoHost();
   const prefs = useDiffPrefs((s) => s.prefs);
@@ -152,9 +152,10 @@ export function TextDiff({ path, original, modified, language, onShown, editable
     h.onModifiedEdit(edit.current.editable ? () => edit.current.onEdit?.() : null);
   };
   const show = useShow(host, async (h) => {
-    await h.showDiff({ identity, path, original, modified, language, prefs: useDiffPrefs.getState().prefs, hunkZones: hunkZones?.() });
+    await h.showDiff({ identity, path, original, modified, language, prefs: useDiffPrefs.getState().prefs, hunkZones: hunkZones?.(), line });
     applyEditable(h);
-  }, [identity, path, original, modified, language], shown);
+    // `line` by identity: each open at a line is its own, so the same file opened at it again goes there again.
+  }, [identity, path, original, modified, language, line], shown);
   useEffect(() => {
     if (!host) return;
     applyEditable(host);

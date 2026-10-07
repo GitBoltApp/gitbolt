@@ -6,6 +6,7 @@ const api = vi.hoisted(() => ({
   forgeRepoProjects: vi.fn(), forgeCreateContext: vi.fn(), forgeCreateMr: vi.fn(),
   forgeSearchUsers: vi.fn(async () => []), forgeLabels: vi.fn(async () => []), openUrl: vi.fn(async () => null),
   forgeAccounts: vi.fn(async () => []), mergeBase: vi.fn(async () => null), fileList: vi.fn(),
+  forgePeopleLimits: vi.fn(async () => ({ maxReviewers: null, maxAssignees: null })),
 }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message: string }).message) }));
 const transport = vi.hoisted(() => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
@@ -23,6 +24,7 @@ vi.mock('../../sync/push', () => ({ pushBranch, openPushUpstream }));
 const { CreateMrFlyout } = await import('./CreateMrFlyout');
 const { discardMrDraft, readMrDraft, writeMrDraft } = await import('./draft');
 const { useRuntime } = await import('../../app/runtime');
+const { resetPeopleLimits } = await import('../peopleLimits');
 const { EMPTY_FORGE, patchForge, useForge } = await import('../mrStore');
 const { useToast } = await import('../../ui/toast');
 const { useMenu } = await import('../../menu/menuStore');
@@ -52,6 +54,7 @@ const CTX = {
 beforeEach(() => {
   vi.clearAllMocks();
   discardMrDraft('/r/shop', 'feature/login');
+  resetPeopleLimits();
   useForge.setState({ byTab: { t1: { ...EMPTY_FORGE } } });
   useToast.getState().dismiss();
   setRuntime();
@@ -335,6 +338,30 @@ describe('the Create flyout (spec #4 §4 "4C")', () => {
     fireEvent.click(createButton());
     await waitFor(() => expect(api.forgeCreateMr).toHaveBeenCalledWith(7, 'origin', expect.objectContaining({ reviewers: [5], assignees: [9] })));
   });
+
+  // --- MR round 2 ---
+  it('a project that allows one reviewer: once picked, + is Replace, and the next pick replaces them', async () => {
+    const grace = { id: 5, username: 'grace', name: 'Grace Hopper', avatarUrl: null, webUrl: '', email: null };
+    const ada = { id: 9, username: 'ada', name: 'Ada Lovelace', avatarUrl: null, webUrl: '', email: null };
+    api.forgePeopleLimits.mockResolvedValueOnce({ maxReviewers: 1, maxAssignees: 1 } as never);
+    api.forgeSearchUsers.mockResolvedValue([grace, ada] as never);
+    api.forgeCreateMr.mockResolvedValue({ mr: { number: 12, webUrl: 'w' }, failed: [] });
+    await show();
+    const people = screen.getByRole('group', { name: 'People and labels' });
+    fireEvent.change(addTo('reviewer', 'Reviewers'), { target: { value: 'g' } });
+    fireEvent.click(await screen.findByRole('option', { name: /Grace Hopper/ }));
+    fireEvent.keyDown(screen.getByLabelText('Reviewers'), { key: 'Escape' });
+    const swap = within(people).getByRole('button', { name: 'Replace reviewer' });
+    fireEvent.mouseEnter(swap);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('This project allows one reviewer');
+    fireEvent.click(swap);
+    fireEvent.change(screen.getByLabelText('Reviewers'), { target: { value: 'a' } });
+    fireEvent.click(await screen.findByRole('option', { name: /Ada Lovelace/ }));
+    expect(within(people).queryByText('Grace Hopper')).toBeNull();
+    fireEvent.click(createButton());
+    await waitFor(() => expect(api.forgeCreateMr).toHaveBeenCalledWith(7, 'origin', expect.objectContaining({ reviewers: [9] })));
+  });
+  // --- end MR round 2 ---
 
   it('× on a chip removes it from the draft', async () => {
     writeMrDraft('/r/shop', 'feature/login', {

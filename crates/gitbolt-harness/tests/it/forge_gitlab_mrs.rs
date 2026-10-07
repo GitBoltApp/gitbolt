@@ -6,6 +6,7 @@ use gitbolt_core::redact::Secret;
 use gitbolt_forge::endpoints::HostEndpoints;
 use gitbolt_forge::gitlab::GitLabProvider;
 use gitbolt_harness::fake_forge::*;
+use gitbolt_harness::fake_forge::gitlab_mrs::{FakeDiff, FakeDiscussion, FakeNote, FakePosition};
 
 fn provider(f: &FakeForge, token: &str) -> GitLabProvider {
     GitLabProvider::new(GITLAB_HOST, &HostEndpoints { api: f.gitlab_api(), web: f.gitlab_web(), avatars: None }, Secret::new(token), None).with_change_counter(f.change_counter())
@@ -124,6 +125,36 @@ async fn reads_discussions_with_diff_note_snippets() {
     assert_eq!(diffs(&f), 1);
     assert!(p.discussions(&g, 5).await.unwrap().value.is_empty());
     assert_eq!(diffs(&f), 1, "no diff note, no diffs request");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_multi_line_diff_note_has_its_range_and_its_lines() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let mut seed = f.current_seed();
+    let mr = seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap();
+    let diff = "@@ -1,3 +1,6 @@\n fn a() {}\n+fn b() {}\n+fn c() {}\n+fn d() {}\n fn e() {}\n fn f() {}\n";
+    mr.diffs.push(FakeDiff { old_path: "src/lib.rs".into(), new_path: "src/lib.rs".into(), diff: diff.into() });
+    let note = |id: u64, start| FakeNote {
+        id,
+        author: "grace".into(),
+        body: "These go together.".into(),
+        created_at: "2026-10-04T09:20:00Z".into(),
+        position: Some(FakePosition { new_path: "src/lib.rs".into(), old_path: "src/lib.rs".into(), new_line: Some(5), old_line: Some(2), start }),
+        ..Default::default()
+    };
+    let discussion = |id: &str, n| FakeDiscussion { id: id.into(), notes: vec![n], resolvable: true, ..Default::default() };
+    mr.discussions.push(discussion("d4", note(104, Some((Some(2), None)))));
+    // A range that starts where it ends (GitLab sends one for a single line too).
+    mr.discussions.push(discussion("d5", note(105, Some((Some(5), Some(2))))));
+    f.seed(seed);
+    let ds = p.discussions(&g, 12).await.unwrap().value;
+    let pos = ds[3].notes[0].position.as_ref().unwrap();
+    assert_eq!((pos.start_line, pos.start_old_line, pos.line, pos.old_line), (Some(2), None, Some(5), Some(2)));
+    assert_eq!(pos.snippet.as_deref(), Some("+fn b() {}\n+fn c() {}\n+fn d() {}\n fn e() {}"));
+    let one = ds[4].notes[0].position.as_ref().unwrap();
+    assert_eq!((one.start_line, one.start_old_line, one.snippet.as_deref()), (None, None, Some("+fn c() {}\n+fn d() {}\n fn e() {}")));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -252,12 +283,50 @@ async fn editing_a_drafts_title_keeps_it_a_draft() {
     let f = FakeForge::start().await;
     let p = provider(&f, GITLAB_TOKEN);
     let g = group(&p).await;
-    let m = p.edit(&g, 5, &MrEdit { title: Some("Explore caching more".into()), description: None, labels: None }).await.unwrap();
+    let m = p.edit(&g, 5, &MrEdit { title: Some("Explore caching more".into()), description: None, labels: None, ..Default::default() }).await.unwrap();
     assert_eq!((m.title.as_str(), m.state), ("Explore caching more", MrState::Draft));
     assert_eq!(seeded(&f, 5).title, "Draft: Explore caching more");
-    p.edit(&g, 12, &MrEdit { title: None, description: Some("New text".into()), labels: Some(vec!["backend".into(), "ui".into()]) }).await.unwrap();
+    p.edit(&g, 12, &MrEdit { title: None, description: Some("New text".into()), labels: Some(vec!["backend".into(), "ui".into()]), ..Default::default() }).await.unwrap();
     let s = seeded(&f, 12);
     assert_eq!((s.description.as_str(), s.labels.clone(), s.title.as_str()), ("New text", vec!["backend".to_string(), "ui".to_string()], "Dev work"));
+}
+
+fn people(add: &[u64], remove: &[u64]) -> Option<PeopleEdit> {
+    Some(PeopleEdit { add: add.to_vec(), remove: remove.to_vec() })
+}
+
+const ADA: u64 = 7;
+const GRACE: u64 = 8;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reviewers_and_assignees_change_through_one_put_of_the_whole_lists() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    // !12: ada reviews, no assignee.
+    p.edit(&g, 12, &MrEdit { reviewers: people(&[GRACE], &[ADA]), assignees: people(&[ADA], &[]), ..Default::default() }).await.unwrap();
+    let s = seeded(&f, 12);
+    assert_eq!((s.reviewers, s.assignees), (vec!["grace".to_string()], vec!["ada".to_string()]));
+    let puts: Vec<_> = f.requests().into_iter().filter(|r| r.method != "GET").map(|r| (r.method, r.path)).collect();
+    assert_eq!(puts, [("PUT".to_string(), "/api/v4/projects/42/merge_requests/12".to_string())]);
+    p.edit(&g, 12, &MrEdit { assignees: people(&[], &[ADA]), ..Default::default() }).await.unwrap();
+    let s = seeded(&f, 12);
+    assert_eq!((s.reviewers, s.assignees), (vec!["grace".to_string()], vec![]), "the reviewers kept");
+    let d = p.mr_detail(&g, 12).await.unwrap().value;
+    assert_eq!((d.reviewers.iter().map(|u| u.id).collect::<Vec<_>>(), d.assignees.len()), (vec![GRACE], 0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn people_gitlab_wont_add_and_a_refusal_say_why() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let e = p.edit(&g, 12, &MrEdit { reviewers: people(&[99], &[]), ..Default::default() }).await.unwrap_err();
+    assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "GitLab didn't add user 99 as a reviewer: are they a member of group/project?"));
+    f.script(Scripted { forge: "gitlab".into(), method: "PUT".into(), path: "/api/v4/projects/42/merge_requests/12".into(), status: 403, headers: vec![], body: serde_json::json!({"message": "403 Forbidden"}), times: 1 });
+    let e = p.edit(&g, 12, &MrEdit { assignees: people(&[GRACE], &[]), ..Default::default() }).await.unwrap_err();
+    assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::AuthFailed, "gitlab.example.com refused: 403 Forbidden"));
+    assert!(seeded(&f, 12).assignees.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -307,7 +376,7 @@ async fn label_colours_come_with_the_list_and_for_a_detail_from_the_projects_lab
     let f = FakeForge::start().await;
     let p = provider(&f, GITLAB_TOKEN);
     let g = group(&p).await;
-    p.edit(&g, 12, &MrEdit { title: None, description: None, labels: Some(vec!["bug".into(), "nope".into()]) }).await.unwrap();
+    p.edit(&g, 12, &MrEdit { title: None, description: None, labels: Some(vec!["bug".into(), "nope".into()]), ..Default::default() }).await.unwrap();
     let listed = p.open_mrs_light(&g, MrFilter::All).await.unwrap().value;
     let bug = || [("bug".to_string(), "#d9534f".to_string())].into_iter().collect::<std::collections::BTreeMap<_, _>>();
     assert_eq!(listed.iter().find(|m| m.number == 12).unwrap().label_colors, bug(), "the list's label details");
@@ -323,7 +392,7 @@ async fn label_colours_come_with_the_list_and_for_a_detail_from_the_projects_lab
     assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.mr.label_colors, bug());
     assert_eq!(labels_asked(&f), 2);
     // Every label known: kept for the session, no request.
-    p.edit(&g, 12, &MrEdit { title: None, description: None, labels: Some(vec!["bug".into()]) }).await.unwrap();
+    p.edit(&g, 12, &MrEdit { title: None, description: None, labels: Some(vec!["bug".into()]), ..Default::default() }).await.unwrap();
     assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.mr.label_colors, bug());
     assert_eq!(labels_asked(&f), 2, "kept for the session");
 }
@@ -358,3 +427,166 @@ async fn without_etags_a_poll_asks_only_whether_any_mr_changed() {
     assert_eq!(numbers(&p.open_mrs_light(&g, MrFilter::All).await.unwrap().value), [12, 14]);
     assert_eq!(lists(&f).len(), 1);
 }
+
+// --- auto-merge ---
+/// !12 with its pipeline running (GitLab: `ci_still_running` until it passes).
+fn running(f: &FakeForge) {
+    let mut seed = f.current_seed();
+    let m = seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap();
+    m.pipeline = Some("running".into());
+    m.merge_status = "ci_still_running".into();
+    f.seed(seed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn auto_merge_is_set_with_the_options_read_back_and_cancelled() {
+    let f = FakeForge::start().await;
+    running(&f);
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let opts = MergeOptions { squash: Some(true), delete_source_branch: Some(true), ..Default::default() };
+    let m = p.set_auto_merge(&g, 12, &opts).await.unwrap();
+    assert_eq!(m.state, MrState::Open, "it waits for the pipeline");
+    let by = m.auto_merge.unwrap().enabled_by.unwrap();
+    let s = seeded(&f, 12);
+    assert_eq!((s.auto_merge_by.as_deref(), s.squash, s.remove_source_branch), (Some(by.username.as_str()), true, Some(true)));
+    assert_eq!((s.merge_commit_message.as_deref(), s.squash_commit_message.as_deref()), (None, None), "GitLab's own messages");
+    p.http().expire_fresh();
+    assert!(p.mr_detail(&g, 12).await.unwrap().value.mr.auto_merge.is_some(), "the detail reads it");
+    assert!(p.open_mrs(&g, MrFilter::All).await.unwrap().value.iter().find(|m| m.number == 12).unwrap().auto_merge.is_some(), "and the list (the sidebar's mark)");
+    assert_eq!(p.cancel_auto_merge(&g, 12).await.unwrap().auto_merge, None);
+    assert_eq!(seeded(&f, 12).auto_merge_by, None);
+    let e = p.cancel_auto_merge(&g, 12).await.unwrap_err();
+    assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "!12 isn't set to auto-merge any more: refresh"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn auto_merge_merges_at_once_when_the_pipeline_passed_and_is_refused_on_a_draft() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    p.approve(&g, 12).await.unwrap();
+    assert_eq!(p.set_auto_merge(&g, 12, &MergeOptions::default()).await.unwrap().state, MrState::Merged, "!12's pipeline passed");
+    let e = p.set_auto_merge(&g, 5, &MergeOptions::default()).await.unwrap_err();
+    assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "GitLab can't set !5 to auto-merge now: refresh to see why"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_gitlab_is_still_processing_is_merging_then_merged() {
+    let f = FakeForge::start().await;
+    let mut seed = f.current_seed();
+    seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap().locks_on_merge = true;
+    f.seed(seed);
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    p.approve(&g, 12).await.unwrap();
+    assert_eq!(p.merge(&g, 12, &MergeOptions::default()).await.unwrap().state, MrState::Merging, "locked: not closed");
+    let d = p.mr_detail(&g, 12).await.unwrap().value;
+    assert_eq!((d.mr.state, d.merge_status), (MrState::Merging, MergeStatus::Blocked { reason: "It's being merged".into() }));
+    p.http().expire_fresh();
+    assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.mr.state, MrState::Merged);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_leaves_the_messages_to_gitlab() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    p.approve(&g, 12).await.unwrap();
+    p.merge(&g, 12, &MergeOptions { squash: Some(true), ..Default::default() }).await.unwrap();
+    let s = seeded(&f, 12);
+    assert_eq!((s.merge_commit_message, s.squash_commit_message), (None, None));
+}
+// --- end auto-merge ---
+
+// --- MR round 2 ---
+fn single_people(f: &FakeForge, single: bool, old: bool) {
+    let mut seed = f.current_seed();
+    seed.gitlab.projects.iter_mut().find(|p| p.path == "group/project").unwrap().single_people = single;
+    seed.gitlab.old_graphql = old;
+    f.seed(seed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_people_limits_come_from_graphql_per_project() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    assert_eq!(p.people_limits(&g).await.unwrap(), PeopleLimits::default(), "a paid tier: several of each");
+    single_people(&f, true, false);
+    assert_eq!(p.people_limits(&g).await.unwrap(), PeopleLimits { max_reviewers: Some(1), max_assignees: Some(1) });
+    let fork = p.project("alice/project").await.unwrap().value;
+    assert_eq!(p.people_limits(&fork).await.unwrap(), PeopleLimits::default(), "another project (no MR to ask about): no limit");
+    let asked = f.requests().into_iter().filter(|r| r.path == "/api/graphql").count();
+    assert_eq!(asked, 3, "one small request per project");
+    single_people(&f, true, true);
+    assert_eq!(p.people_limits(&g).await.unwrap(), PeopleLimits::default(), "an older GitLab without the fields: assume several");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn gitlab_free_keeping_only_the_first_says_who_it_kept() {
+    let f = FakeForge::start().await;
+    single_people(&f, true, false);
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    // !12: ada reviews; adding grace sends [ada, grace]: GitLab keeps ada.
+    let e = p.edit(&g, 12, &MrEdit { reviewers: people(&[GRACE], &[]), ..Default::default() }).await.unwrap_err();
+    assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "GitLab kept only Ada Lovelace: this project allows one reviewer"));
+    assert!(matches!(e.detail, Some(gitbolt_core::error::ErrorDetail::PeopleLimit { ref role }) if &**role == "reviewers"));
+    assert_eq!(seeded(&f, 12).reviewers, ["ada"]);
+    // A swap (the single mode's pick) goes in.
+    p.edit(&g, 12, &MrEdit { reviewers: people(&[GRACE], &[ADA]), ..Default::default() }).await.unwrap();
+    assert_eq!(seeded(&f, 12).reviewers, ["grace"]);
+}
+
+fn review(event: ReviewEvent, body: &str) -> ReviewSubmit {
+    ReviewSubmit { event, body: body.into() }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_review_composer_comments_approves_and_requests_changes() {
+    let f = FakeForge::start().await;
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let notes = |f: &FakeForge| seeded(f, 12).discussions.iter().flat_map(|d| d.notes.iter().map(|n| n.body.clone())).collect::<Vec<_>>();
+    assert!(!p.review(&g, 12, &review(ReviewEvent::Comment, "A note")).await.unwrap().fallback);
+    assert_eq!(notes(&f).last().map(String::as_str), Some("A note"));
+    p.review(&g, 12, &review(ReviewEvent::Approve, "")).await.unwrap();
+    assert_eq!((seeded(&f, 12).approved_by, notes(&f).len()), (vec!["ada".to_string()], 4), "no message: no note");
+    let out = p.review(&g, 12, &review(ReviewEvent::RequestChanges, "Rename it")).await.unwrap();
+    let s = seeded(&f, 12);
+    assert_eq!((out.fallback, s.changes_requested_by, s.approved_by), (false, vec!["ada".to_string()], vec![]), "the reviewer state, and the approval withdrawn");
+    assert_eq!(notes(&f).last().map(String::as_str), Some("Rename it"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_older_gitlab_requests_changes_with_a_note_and_the_approval_withdrawn() {
+    let f = FakeForge::start().await;
+    single_people(&f, false, true);
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    p.approve(&g, 12).await.unwrap();
+    let out = p.review(&g, 12, &review(ReviewEvent::RequestChanges, "Rename it")).await.unwrap();
+    let s = seeded(&f, 12);
+    assert_eq!((out.fallback, s.changes_requested_by.len(), s.approved_by.len()), (true, 0, 0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notifications_and_the_base_come_with_the_detail() {
+    let f = FakeForge::start().await;
+    let mut seed = f.current_seed();
+    seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap().base_sha = "b".repeat(40);
+    f.seed(seed);
+    let p = provider(&f, GITLAB_TOKEN);
+    let g = group(&p).await;
+    let d = p.mr_detail(&g, 12).await.unwrap().value;
+    assert_eq!((d.subscribed, d.base_sha), (Some(false), Some("b".repeat(40))));
+    assert!(p.set_subscribed(&g, 12, true).await.unwrap());
+    assert_eq!(seeded(&f, 12).subscribers, ["ada"]);
+    assert!(p.set_subscribed(&g, 12, true).await.unwrap(), "already: GitLab's 304 is fine");
+    p.http().expire_fresh();
+    assert_eq!(p.mr_detail(&g, 12).await.unwrap().value.subscribed, Some(true));
+    assert!(!p.set_subscribed(&g, 12, false).await.unwrap());
+    assert!(seeded(&f, 12).subscribers.is_empty());
+}
+// --- end MR round 2 ---

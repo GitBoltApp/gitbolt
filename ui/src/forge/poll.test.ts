@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
   forgeCachedMrs: vi.fn(),
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)) }));
-const flyout = vi.hoisted(() => ({ openFlyout: vi.fn() }));
+const flyout = vi.hoisted(() => ({ openFlyout: vi.fn(), shownFlyout: vi.fn((): { kind: string; props: unknown } | null => null) }));
 vi.mock('../ui/flyout/flyout', () => flyout);
 
 const { ACTIVATE_GAP_MS, fastPollWanted, loadMrDetail, openMrView, POLL_COST, pollForge, ratePacing, refreshMr } = await import('./poll');
@@ -234,6 +234,16 @@ describe('a poll that finds nothing new', () => {
 });
 
 describe('opening and loading an MR/PR', () => {
+  it('openMrView on the MR already open keeps the view as it is (no remount, no reload)', () => {
+    flyout.openFlyout.mockClear();
+    flyout.shownFlyout.mockReturnValueOnce({ kind: 'mr', props: { number: 12 } });
+    openMrView('t', 12);
+    expect(flyout.openFlyout).not.toHaveBeenCalled();
+    flyout.shownFlyout.mockReturnValueOnce({ kind: 'mr', props: { number: 12 } });
+    openMrView('t', 13);
+    expect(flyout.openFlyout).toHaveBeenCalledWith('t', 'mr', { number: 13 });
+  });
+
   it('openMrView opens the flyout; the view loads the MR as it mounts, not openMrView too', () => {
     openMrView('t', 12);
     expect(flyout.openFlyout).toHaveBeenCalledWith('t', 'mr', { number: 12 });
@@ -361,6 +371,10 @@ describe('fastPollWanted (spec #4 §3.4: a visible running pipeline)', () => {
     expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 2, details: { 2: { value: detailOf(mrOf(2, pipe('running'))), at: 1 } } }, false)).toBe(true);
     expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 1, list: list([mrOf(1, pipe('running'))]) }, false)).toBe(true);
     expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 2, list: list([mrOf(1, pipe('running')), mrOf(2, pipe('success'))]) }, false)).toBe(false);
+  });
+  it('counts an open MR the forge is merging (GitLab locks it for moments), until it leaves that state', () => {
+    expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 2, details: { 2: { value: detailOf(mrOf(2, { state: 'merging' })), at: 1 } } }, false)).toBe(true);
+    expect(fastPollWanted({ ...EMPTY_FORGE, openMr: 2, details: { 2: { value: detailOf(mrOf(2, { state: 'merged' })), at: 1 } } }, false)).toBe(false);
   });
   it('a poll reads the collapsed MR/PR section from the repository settings', async () => {
     useRuntime.setState({ tabs: { t: { status: 'ready', repo: { id: 4, path: '/r' }, sidebar: { locals: [] } } as never } });

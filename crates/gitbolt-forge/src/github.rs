@@ -80,14 +80,38 @@ pub struct GitHubProvider {
     /// The bases Markdown images load from without asking (`images::github_route`).
     image_bases: Vec<String>,
     // --- end 5A T2 ---
+    /// (repo, PR) → (its `updated_at` when asked, `viewerSubscription`): a detail poll asks
+    /// GraphQL only when the PR changed.
+    subscriptions: Mutex<Subscriptions>,
+    // --- comment actions ---
+    /// A comment's reactions URL → (its counts when read, its reactions with who and `mine`): read
+    /// again only when the comment's counts change.
+    reaction_lists: Mutex<ReactionLists>,
+    /// (repo, PR) → a review thread's first comment id → the thread's node id (what Resolve takes).
+    thread_ids: Mutex<HashMap<(String, u64), HashMap<u64, String>>>,
+    // --- end comment actions ---
   }
+
+/// Reactions URL → (`counts`, the reactions).
+type ReactionLists = HashMap<String, (Vec<(String, u32)>, Vec<ForgeReaction>)>;
+
+/// The names and counts of `reactions`: what a comment's summary says.
+fn counts(reactions: &[ForgeReaction]) -> Vec<(String, u32)> {
+    reactions.iter().map(|r| (r.name.clone(), r.count)).collect()
+}
+
+/// (repo, PR) → (its `updated_at` when asked, `viewerSubscription`).
+type Subscriptions = HashMap<(String, u64), (String, Option<bool>)>;
+
+/// The token's user's subscription to one PR.
+pub const SUBSCRIPTION_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { viewerSubscription } } }";
 
 impl GitHubProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, cache: Option<Arc<DiskAvatarCache>>) -> Self {
         let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: GITHUB_HEADERS.to_vec(), timeout: crate::http::REQUEST_TIMEOUT });
         let avatars_base = endpoints.avatars.clone().unwrap_or_else(|| "https://avatars.githubusercontent.com".into()).trim_end_matches('/').to_string();
         let image_bases = crate::images::default_github_image_bases(&endpoints.web, &avatars_base);
-        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), checks: Default::default(), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), names: KnownNames::default(), image_bases }
+        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), checks: Default::default(), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), names: KnownNames::default(), image_bases, subscriptions: Mutex::default(), reaction_lists: Mutex::default(), thread_ids: Mutex::default() }
     }
 
     // --- 5A T2 ---
@@ -143,6 +167,31 @@ pub mod json {
     pub(crate) fn text(v: &Value) -> Option<String> {
         v.as_str().filter(|s| !s.is_empty()).map(str::to_string)
     }
+
+    // --- MR round 2 ---
+    /// `viewerSubscription`: SUBSCRIBED is on; UNSUBSCRIBED and IGNORED are off.
+    pub fn subscribed(v: &Value) -> Option<bool> {
+        match v.as_str()? {
+            "SUBSCRIBED" => Some(true),
+            "UNSUBSCRIBED" | "IGNORED" => Some(false),
+            _ => None,
+        }
+    }
+
+    /// A review's POST body: the event, and the message unless empty (an approval needs none).
+    pub fn review_body(review: &ReviewSubmit) -> Value {
+        let event = match review.event {
+            ReviewEvent::Comment => "COMMENT",
+            ReviewEvent::Approve => "APPROVE",
+            ReviewEvent::RequestChanges => "REQUEST_CHANGES",
+        };
+        let mut b = serde_json::json!({ "event": event });
+        if !review.body.trim().is_empty() {
+            b["body"] = review.body.clone().into();
+        }
+        b
+    }
+    // --- end MR round 2 ---
 
     pub fn user(v: &Value) -> Option<ForgeUser> {
         let login = v["login"].as_str()?.to_string();
@@ -214,6 +263,22 @@ pub mod json {
         v.as_array().into_iter().flatten().filter_map(user).collect()
     }
 
+    /// The logins of `ids` among the PR's pending review requests, or the ids that aren't
+    /// requested (they reviewed: a submitted review stays, so there's nothing to withdraw).
+    pub fn requested_logins(pr: &Value, ids: &[u64]) -> Result<Vec<String>, Vec<u64>> {
+        let requested = users(&pr["requested_reviewers"]);
+        let login = |id: &u64| requested.iter().find(|u| u.id == *id).map(|u| u.username.clone());
+        let missing: Vec<u64> = ids.iter().filter(|id| login(id).is_none()).copied().collect();
+        if missing.is_empty() { Ok(ids.iter().filter_map(login).collect()) } else { Err(missing) }
+    }
+
+    /// Of `logins`, those an add-assignees answer doesn't have (GitHub drops, silently, whoever
+    /// can't be assigned).
+    pub fn not_assigned(answer: &Value, logins: &[String]) -> Vec<String> {
+        let have: Vec<String> = answer["assignees"].as_array().into_iter().flatten().filter_map(|u| u["login"].as_str().map(str::to_lowercase)).collect();
+        logins.iter().filter(|l| !have.contains(&l.to_lowercase())).cloned().collect()
+    }
+
     /// One PR from a list or a GET. A list has no `mergeable` (`conflicts: None`).
     pub fn pr(v: &Value) -> Option<ForgeMr> {
         let draft = v["draft"].as_bool().unwrap_or(false);
@@ -249,7 +314,22 @@ pub mod json {
             label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["body"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
+            auto_merge: auto_merge(&v["auto_merge"]),
         })
+    }
+
+    /// REST's `auto_merge` (null when not set): who enabled it and the method.
+    pub fn auto_merge(v: &Value) -> Option<AutoMerge> {
+        if !v.is_object() {
+            return None;
+        }
+        let method = match v["merge_method"].as_str() {
+            Some("merge") => Some(MergeMethod::Merge),
+            Some("squash") => Some(MergeMethod::Squash),
+            Some("rebase") => Some(MergeMethod::Rebase),
+            _ => None,
+        };
+        Some(AutoMerge { enabled_by: user(&v["enabled_by"]), method })
     }
 
     fn rank(s: PipelineStatus) -> u8 {
@@ -388,8 +468,36 @@ pub mod json {
             system: false,
             position: None,
             body_html: text(&v["body_html"]),
+            reactions: reaction_summary(&v["reactions"]),
+            web_url: text(&v["html_url"]),
         })
     }
+
+    // --- comment actions ---
+    /// A comment's `reactions` summary (counts only: no "mine", no who), in GitHub's order.
+    pub fn reaction_summary(v: &Value) -> Vec<ForgeReaction> {
+        GITHUB_REACTIONS.iter().filter_map(|n| v[*n].as_u64().filter(|c| *c > 0).map(|c| ForgeReaction { name: (*n).to_string(), count: c as u32, mine: false, users: Vec::new() })).collect()
+    }
+
+    /// One page of `REVIEW_THREADS_QUERY`: each thread's (first comment id, node id, resolved,
+    /// by whom), and the next page's cursor. `None`: GitHub didn't answer it.
+    #[allow(clippy::type_complexity)]
+    pub fn review_threads(answer: &Value) -> Option<(Vec<(u64, String, bool, Option<String>)>, Option<String>)> {
+        let threads = &answer["data"]["repository"]["pullRequest"]["reviewThreads"];
+        let out = threads["nodes"]
+            .as_array()?
+            .iter()
+            .filter_map(|t| Some((t["comments"]["nodes"][0]["databaseId"].as_u64()?, text(&t["id"])?, t["isResolved"].as_bool() == Some(true), text(&t["resolvedBy"]["login"]))))
+            .collect();
+        let next = (threads["pageInfo"]["hasNextPage"].as_bool() == Some(true)).then(|| text(&threads["pageInfo"]["endCursor"])).flatten();
+        Some((out, next))
+    }
+
+    /// A comment's reactions (`/reactions`: `content` and `user`), grouped.
+    pub fn reaction_list(list: &[Value], me: Option<u64>) -> Vec<ForgeReaction> {
+        group_reactions(list.iter().filter_map(|r| Some((r["content"].as_str()?, r["user"]["id"].as_u64()?, r["user"]["login"].as_str().unwrap_or_default()))), me, true)
+    }
+    // --- end comment actions ---
 
     /// A review comment's `diff_hunk` ends at the commented line: its last three lines.
     pub fn hunk_tail(hunk: &str) -> Option<String> {
@@ -399,15 +507,25 @@ pub mod json {
 
     fn review_position(v: &Value) -> Option<DiffPosition> {
         let path = text(&v["path"])?;
-        let left = v["side"].as_str() == Some("LEFT");
-        let line = v["line"].as_u64().or(v["original_line"].as_u64()).map(|n| n as u32);
-        Some(DiffPosition { path, old_path: None, line: if left { None } else { line }, old_line: if left { line } else { None }, snippet: v["diff_hunk"].as_str().and_then(hunk_tail) })
+        let num = |k: &str| v[k].as_u64().map(|n| n as u32);
+        // (new, old) by its side: `LEFT` is the old one.
+        let sided = |side: &str, n: Option<u32>| if v[side].as_str() == Some("LEFT") { (None, n) } else { (n, None) };
+        let (line, old_line) = sided("side", num("line").or(num("original_line")));
+        // A multi-line comment's first line (`start_side`: GitHub sends it with `start_line`).
+        let start = sided("start_side", num("start_line").or(num("original_start_line")));
+        let (start_line, start_old_line) = Some(start).filter(|s| *s != (line, old_line)).unwrap_or_default();
+        let hunk = v["diff_hunk"].as_str();
+        // The hunk is the original commit's, and ends at the comment's last line: a range's lines
+        // are found by the original numbers.
+        let range = start_line.or(start_old_line).is_some();
+        let snippet = if range { hunk.and_then(|h| crate::gitlab::json::range_snippet(h, sided("side", num("original_line")), sided("start_side", num("original_start_line")))) } else { None };
+        Some(DiffPosition { path, old_path: None, line, old_line, snippet: snippet.or_else(|| hunk.and_then(hunk_tail)), start_line, start_old_line })
     }
 
     /// The conversation (`issue-<id>`), review summaries with text (`review-<id>`) and review
     /// threads by their first comment (`thread-<id>`), oldest first.
     pub fn discussions(comments: &[Value], review_comments: &[Value], reviews: &[Value]) -> Vec<ForgeDiscussion> {
-        let one = |id: String, n: ForgeNote| ForgeDiscussion { id, notes: vec![n], resolvable: false, resolved: false };
+        let one = |id: String, n: ForgeNote| ForgeDiscussion { id, notes: vec![n], resolvable: false, resolved: false, resolved_by: None };
         let mut out: Vec<ForgeDiscussion> = comments.iter().filter_map(|c| comment_note(c).map(|n| one(format!("issue-{}", n.id), n))).collect();
         for r in reviews {
             let body = r["body"].as_str().unwrap_or_default();
@@ -416,7 +534,7 @@ pub mod json {
             }
             let (Some(id), Some(author)) = (r["id"].as_u64(), user(&r["user"])) else { continue };
             let created_at = r["submitted_at"].as_str().and_then(parse_rfc3339).unwrap_or(0);
-            out.push(one(format!("review-{id}"), ForgeNote { id: format!("review-{id}"), author, body: body.to_string(), created_at, system: false, position: None, body_html: text(&r["body_html"]) }));
+            out.push(one(format!("review-{id}"), ForgeNote { id: format!("review-{id}"), author, body: body.to_string(), created_at, system: false, position: None, body_html: text(&r["body_html"]), reactions: Vec::new(), web_url: text(&r["html_url"]) }));
         }
         let mut threads: Vec<(u64, ForgeDiscussion)> = Vec::new();
         for c in review_comments {
@@ -479,6 +597,7 @@ pub mod json {
             label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["body"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
+            auto_merge: None,
         })
     }
 
@@ -777,6 +896,8 @@ impl ForgeProvider for GitHubProvider {
                 merge_status: json::merge_status(&v),
                 squash: None,
                 delete_source_branch: None,
+                base_sha: json::text(&v["base"]["sha"]),
+                subscribed: self.subscription(project, number, v["updated_at"].as_str().unwrap_or_default()).await,
                 mr,
                 body_html: json::text(&v["body_html"]),
             };
@@ -794,7 +915,9 @@ impl ForgeProvider for GitHubProvider {
             let comments = self.http.get_pages_as(&format!("{repo}/issues/{number}/comments?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
             let review_comments = self.http.get_pages_as(&format!("{repo}/pulls/{number}/comments?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
             let reviews = self.http.get_pages_as(&format!("{repo}/pulls/{number}/reviews?per_page=100"), COMMENT_PAGES, GITHUB_FULL).await?;
-            let ds = json::discussions(&comments, &review_comments, &reviews);
+            let mut ds = json::discussions(&comments, &review_comments, &reviews);
+            self.fill_reactions(&repo, &mut ds).await;
+            self.fill_threads(project, number, &mut ds).await;
             self.names.learn_discussions(&ds);
             Ok(Fresh::new(ds, unix_now()))
         })
@@ -814,6 +937,75 @@ impl ForgeProvider for GitHubProvider {
         })
     }
 
+    // --- comment actions ---
+    /// The comment's reactions, read first (removing one takes its id); then the one asked for
+    /// added or removed, unless it's so already.
+    fn react<'a>(&'a self, project: &'a ForgeProject, _number: u64, note: &'a NoteRef, name: &'a str, on: bool) -> ForgeFuture<'a, Vec<ForgeReaction>> {
+        Box::pin(async move {
+            if !GITHUB_REACTIONS.contains(&name) {
+                return Err(GbError::new(GbErrorKind::InvalidInput, format!("GitHub has no :{name}: reaction")));
+            }
+            let url = format!("{}/reactions", comment_url(&Self::repo_url(&project.path)?, note)?);
+            let me = self.me().await?;
+            let mut list = self.http.get_pages(&format!("{url}?per_page=100"), REACTION_PAGES).await?;
+            let mine = list.iter().position(|r| r["content"].as_str() == Some(name) && r["user"]["id"].as_u64() == Some(me.id));
+            match (on, mine) {
+                (true, None) => {
+                    let r = self.http.send_json(Method::Post, &url, &json!({ "content": name })).await?;
+                    list.push(r.json(&self.host)?);
+                }
+                (false, Some(i)) => {
+                    let id = list[i]["id"].as_u64().ok_or_else(|| unreadable(&self.host, "reaction"))?;
+                    self.http.delete(&format!("{url}/{id}")).await?;
+                    list.remove(i);
+                }
+                _ => {}
+            }
+            let after = json::reaction_list(&list, Some(me.id));
+            self.reaction_lists.lock().expect("reactions poisoned").insert(url, (counts(&after), after.clone()));
+            Ok(after)
+        })
+    }
+
+    fn edit_note<'a>(&'a self, project: &'a ForgeProject, _number: u64, note: &'a NoteRef, body: &'a str) -> ForgeFuture<'a, ForgeNote> {
+        Box::pin(async move {
+            let r = self.http.send_json(Method::Patch, &comment_url(&Self::repo_url(&project.path)?, note)?, &json!({ "body": body })).await?;
+            json::comment_note(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "comment"))
+        })
+    }
+
+    fn delete_note<'a>(&'a self, project: &'a ForgeProject, _number: u64, note: &'a NoteRef) -> ForgeFuture<'a, ()> {
+        Box::pin(async move {
+            self.http.delete(&comment_url(&Self::repo_url(&project.path)?, note)?).await?;
+            Ok(())
+        })
+    }
+
+    /// A review thread (`thread-<first comment id>`) by its node id, from the last read (or read now).
+    fn resolve<'a>(&'a self, project: &'a ForgeProject, number: u64, discussion: &'a str, resolved: bool) -> ForgeFuture<'a, ThreadState> {
+        Box::pin(async move {
+            let root = discussion.strip_prefix("thread-").and_then(|r| r.parse::<u64>().ok()).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, "Only a review thread can be resolved"))?;
+            let key = (project.path.clone(), number);
+            let known = |s: &Self| s.thread_ids.lock().expect("thread ids poisoned").get(&key).and_then(|m| m.get(&root)).cloned();
+            let id = match known(self) {
+                Some(id) => id,
+                None => {
+                    self.review_threads(project, number).await;
+                    known(self).ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("GitHub has no such review thread on #{number}")))?
+                }
+            };
+            let (query, field) = if resolved { (RESOLVE_THREAD_MUTATION, "resolveReviewThread") } else { (UNRESOLVE_THREAD_MUTATION, "unresolveReviewThread") };
+            let v: Value = self.http.send_json(Method::Post, "/graphql", &json!({ "query": query, "variables": { "id": id } })).await?.json(&self.host)?;
+            if let Some(m) = v["errors"][0]["message"].as_str() {
+                return Err(GbError::other(format!("GitHub: {m}")));
+            }
+            let t = &v["data"][field]["thread"];
+            let now = t["isResolved"].as_bool().ok_or_else(|| unreadable(&self.host, "review thread"))?;
+            Ok(ThreadState { resolved: now, resolved_by: json::text(&t["resolvedBy"]["login"]).filter(|_| now) })
+        })
+    }
+    // --- end comment actions ---
+
     fn approve<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ()> {
         Box::pin(async move {
             let repo = Self::repo_url(&project.path)?;
@@ -830,25 +1022,83 @@ impl ForgeProvider for GitHubProvider {
         })
     }
 
+    // --- MR round 2 ---
+    /// One review: `POST /pulls/{n}/reviews` with the event and its message.
+    fn review<'a>(&'a self, project: &'a ForgeProject, number: u64, review: &'a ReviewSubmit) -> ForgeFuture<'a, ReviewOutcome> {
+        Box::pin(async move {
+            let repo = Self::repo_url(&project.path)?;
+            self.http.send_json(Method::Post, &format!("{repo}/pulls/{number}/reviews"), &json::review_body(review)).await?;
+            Ok(ReviewOutcome::default())
+        })
+    }
+
+    fn people_limits<'a>(&'a self, _project: &'a ForgeProject) -> ForgeFuture<'a, PeopleLimits> {
+        Box::pin(async { Ok(PeopleLimits::GITHUB) })
+    }
+
+    /// GraphQL's `updateSubscription` on the PR's node.
+    fn set_subscribed<'a>(&'a self, project: &'a ForgeProject, number: u64, on: bool) -> ForgeFuture<'a, bool> {
+        Box::pin(async move {
+            let v = self.pull_json(project, number).await?;
+            let id = v["node_id"].as_str().ok_or_else(|| unreadable(&self.host, "pull request"))?;
+            let state = if on { "SUBSCRIBED" } else { "UNSUBSCRIBED" };
+            let query = "mutation($id: ID!, $state: SubscriptionState!) { updateSubscription(input: {subscribableId: $id, state: $state}) { subscribable { viewerSubscription } } }";
+            let r = self.http.send_json(Method::Post, "/graphql", &json!({ "query": query, "variables": { "id": id, "state": state } })).await?;
+            let a: Value = r.json(&self.host)?;
+            if let Some(message) = a["errors"][0]["message"].as_str() {
+                return Err(GbError::new(GbErrorKind::InvalidInput, format!("GitHub: {message}")));
+            }
+            let now = json::subscribed(&a["data"]["updateSubscription"]["subscribable"]["viewerSubscription"]).unwrap_or(on);
+            let stamp = v["updated_at"].as_str().unwrap_or_default().to_string();
+            self.subscriptions.lock().expect("subscriptions poisoned").insert((project.path.clone(), number), (stamp, Some(now)));
+            Ok(now)
+        })
+    }
+    // --- end MR round 2 ---
+
     /// The method is chosen among the repository's; deleting the branch is the repository's own
     /// setting (ruling 8), so `delete_source_branch` and `squash` are ignored.
     fn merge<'a>(&'a self, project: &'a ForgeProject, number: u64, opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
         Box::pin(async move {
-            let method = method_word(opts.method.unwrap_or(MergeMethod::Merge))?;
+            let body = merge_body(opts)?;
             let repo = Self::repo_url(&project.path)?;
-            let mut body = serde_json::Map::new();
-            body.insert("merge_method".into(), method.into());
-            if let Some(sha) = &opts.expected_sha {
-                body.insert("sha".into(), sha.clone().into());
-            }
             self.http.send_json(Method::Put, &format!("{repo}/pulls/{number}/merge"), &Value::Object(body)).await.map_err(|e| merge_refused(number, e))?;
             self.pull(project, number).await
         })
     }
 
+    // --- auto-merge ---
+    /// GraphQL's `enablePullRequestAutoMerge` (REST has none), with the method and message;
+    /// `squash` and `delete_source_branch` are the method's and the repository's, as for a merge.
+    fn set_auto_merge<'a>(&'a self, project: &'a ForgeProject, number: u64, opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let v = self.pull_json(project, number).await?;
+            let id = v["node_id"].as_str().ok_or_else(|| unreadable(&self.host, "pull request"))?;
+            self.mutate(&enable_auto_merge(id, opts)?, |m| auto_merge_error(number, m)).await?;
+            self.pull(project, number).await
+        })
+    }
+
+    fn cancel_auto_merge<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let v = self.pull_json(project, number).await?;
+            let id = v["node_id"].as_str().ok_or_else(|| unreadable(&self.host, "pull request"))?;
+            let query = "mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { pullRequest { number } } }";
+            self.mutate(&json!({ "query": query, "variables": { "id": id } }), |m| GbError::new(GbErrorKind::InvalidInput, format!("GitHub: {m}"))).await?;
+            self.pull(project, number).await
+        })
+    }
+    // --- end auto-merge ---
+
     fn edit<'a>(&'a self, project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
         Box::pin(async move {
             let repo = Self::repo_url(&project.path)?;
+            if let Some(change) = edit.reviewers.as_ref().filter(|c| !c.is_empty()) {
+                self.change_reviewers(project, number, change).await?;
+            }
+            if let Some(change) = edit.assignees.as_ref().filter(|c| !c.is_empty()) {
+                self.change_assignees(project, number, change).await?;
+            }
             if let Some(labels) = &edit.labels {
                 self.http.send_json(Method::Put, &format!("{repo}/issues/{number}/labels"), &json!({ "labels": labels })).await?;
             }
@@ -984,6 +1234,34 @@ pub const PIPELINE_LOOKUPS: usize = 20;
 /// The open PRs' head checks (`refresh_checks`): one query for up to 100 PRs.
 pub const ROLLUP_QUERY: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } } } } } }";
 pub const COMMENT_PAGES: usize = 5;
+// --- comment actions ---
+/// Comments whose reactions (who, and whether the user's among them) one discussions read asks
+/// for, at most; the others keep their counts until a later read.
+pub const REACTION_LOOKUPS: usize = 20;
+pub const REACTION_PAGES: usize = 3;
+/// A PR's review threads: their node ids (to resolve), whether and by whom they're resolved, and
+/// their first comment's id (the `thread-<id>` discussions are named after it).
+pub const REVIEW_THREADS_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id isResolved resolvedBy { login } comments(first: 1) { nodes { databaseId } } } } } } }";
+pub const RESOLVE_THREAD_MUTATION: &str = "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved resolvedBy { login } } } }";
+pub const UNRESOLVE_THREAD_MUTATION: &str = "mutation($id: ID!) { unresolveReviewThread(input: {threadId: $id}) { thread { isResolved resolvedBy { login } } } }";
+pub const THREAD_PAGES: usize = 3;
+
+/// A conversation comment's (`issue-…`) or review comment's (`thread-…`) URL; a review's summary
+/// (`review-…`) is neither.
+pub fn comment_url(repo: &str, note: &NoteRef) -> Result<String, GbError> {
+    let kind = if note.discussion.starts_with("issue-") {
+        "issues"
+    } else if note.discussion.starts_with("thread-") {
+        "pulls"
+    } else {
+        return Err(GbError::new(GbErrorKind::InvalidInput, "A review's summary can't be changed here: open it on GitHub"));
+    };
+    if note.note.is_empty() || !note.note.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(GbError::new(GbErrorKind::InvalidInput, "GitHub has no such comment"));
+    }
+    Ok(format!("{repo}/{kind}/comments/{}", note.note))
+}
+// --- end comment actions ---
 
 impl GitHubProvider {
     /// The token's user, asked once.
@@ -996,6 +1274,75 @@ impl GitHubProvider {
         *self.me.lock().expect("me poisoned") = Some(u.clone());
         Ok(u)
     }
+
+    // --- comment actions ---
+    /// Who reacted and whether the user did, for the comments with reactions (their summaries
+    /// say only how many): kept per comment and asked again only when its counts change, at most
+    /// REACTION_LOOKUPS a read. The user is asked once, and only when some comment has any.
+    async fn fill_reactions(&self, repo: &str, ds: &mut [ForgeDiscussion]) {
+        let mut asked = 0;
+        let mut me: Option<Option<u64>> = None;
+        for d in ds.iter_mut() {
+            for n in d.notes.iter_mut().filter(|n| !n.reactions.is_empty()) {
+                let Ok(url) = comment_url(repo, &NoteRef { discussion: d.id.clone(), note: n.id.clone() }).map(|u| format!("{u}/reactions")) else { continue };
+                let now = counts(&n.reactions);
+                let kept = self.reaction_lists.lock().expect("reactions poisoned").get(&url).filter(|(c, _)| *c == now).map(|(_, l)| l.clone());
+                if let Some(l) = kept {
+                    n.reactions = l;
+                    continue;
+                }
+                if asked == REACTION_LOOKUPS {
+                    continue;
+                }
+                asked += 1;
+                if me.is_none() {
+                    me = Some(self.me().await.ok().map(|u| u.id));
+                }
+                let Ok(list) = self.http.get_pages(&format!("{url}?per_page=100"), REACTION_PAGES).await else { continue };
+                let l = json::reaction_list(&list, me.flatten());
+                self.reaction_lists.lock().expect("reactions poisoned").insert(url, (counts(&l), l.clone()));
+                n.reactions = l;
+            }
+        }
+    }
+
+    /// The PR's review threads, one GraphQL query (a page per 100 threads): each thread's first
+    /// comment id → (node id, resolved, by whom). The node ids are kept for Resolve. `None`:
+    /// GitHub didn't answer.
+    #[allow(clippy::type_complexity)]
+    async fn review_threads(&self, project: &ForgeProject, number: u64) -> Option<HashMap<u64, (String, bool, Option<String>)>> {
+        let (owner, name) = project.path.split_once('/')?;
+        let mut out = HashMap::new();
+        let mut after: Option<String> = None;
+        for _ in 0..THREAD_PAGES {
+            let body = json!({ "query": REVIEW_THREADS_QUERY, "variables": { "owner": owner, "name": name, "number": number, "after": after } });
+            let v: Value = self.http.send_json(Method::Post, "/graphql", &body).await.ok()?.json(&self.host).ok()?;
+            let (page, next) = json::review_threads(&v)?;
+            out.extend(page.into_iter().map(|(root, id, resolved, by)| (root, (id, resolved, by))));
+            match next {
+                Some(c) => after = Some(c),
+                None => break,
+            }
+        }
+        let ids = out.iter().map(|(root, (id, _, _))| (*root, id.clone())).collect();
+        self.thread_ids.lock().expect("thread ids poisoned").insert((project.path.clone(), number), ids);
+        Some(out)
+    }
+
+    /// Marks the review threads resolvable, resolved and by whom (`review_threads`), when the PR has any.
+    async fn fill_threads(&self, project: &ForgeProject, number: u64, ds: &mut [ForgeDiscussion]) {
+        if !ds.iter().any(|d| d.id.starts_with("thread-")) {
+            return;
+        }
+        let Some(threads) = self.review_threads(project, number).await else { return };
+        for d in ds.iter_mut() {
+            let Some((_, resolved, by)) = d.id.strip_prefix("thread-").and_then(|r| r.parse::<u64>().ok()).and_then(|r| threads.get(&r)) else { continue };
+            d.resolvable = true;
+            d.resolved = *resolved;
+            d.resolved_by = by.clone().filter(|_| *resolved);
+        }
+    }
+    // --- end comment actions ---
 
     /// The open PRs for `filter`, newest activity first; `with_checks`: the first PIPELINE_LOOKUPS
     /// with their checks (the list), else none (the badges).
@@ -1142,7 +1489,71 @@ fn method_word(m: MergeMethod) -> Result<&'static str, GbError> {
     }
 }
 
+// --- auto-merge ---
+/// The merge PUT's body: the method and the expected head (the message is GitHub's own).
+pub fn merge_body(opts: &MergeOptions) -> Result<serde_json::Map<String, Value>, GbError> {
+    let mut body = serde_json::Map::new();
+    body.insert("merge_method".into(), method_word(opts.method.unwrap_or(MergeMethod::Merge))?.into());
+    if let Some(sha) = &opts.expected_sha {
+        body.insert("sha".into(), sha.clone().into());
+    }
+    Ok(body)
+}
+
+/// GraphQL's `enablePullRequestAutoMerge` for the PR's node `id` (REST has none).
+pub fn enable_auto_merge(id: &str, opts: &MergeOptions) -> Result<Value, GbError> {
+    let method = method_word(opts.method.unwrap_or(MergeMethod::Merge))?.to_ascii_uppercase();
+    let query = "mutation($id: ID!, $method: PullRequestMergeMethod!, $sha: GitObjectID) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $sha}) { pullRequest { number } } }";
+    Ok(json!({ "query": query, "variables": { "id": id, "method": method, "sha": opts.expected_sha } }))
+}
+
+/// GitHub's GraphQL refusal of an auto-merge, said plainly.
+pub fn auto_merge_error(number: u64, message: &str) -> GbError {
+    let plain = if message.contains("Auto merge is not allowed") || message.contains("not allowed for this repository") {
+        "Auto-merge isn't enabled for this repository".to_string()
+    } else if message.contains("Head branch was modified") {
+        format!("#{number} changed since it was loaded: refresh and try again")
+    } else if message.contains("clean status") {
+        format!("#{number} can merge now: use Merge")
+    } else {
+        format!("GitHub: {message}")
+    };
+    GbError::new(GbErrorKind::InvalidInput, plain)
+}
+// --- end auto-merge ---
+
 impl GitHubProvider {
+    // --- auto-merge ---
+    /// A GraphQL mutation; its first error, said plainly by `refused`.
+    async fn mutate(&self, body: &Value, refused: impl Fn(&str) -> GbError) -> Result<(), GbError> {
+        let r = self.http.send_json(Method::Post, "/graphql", body).await?;
+        match r.json::<Value>(&self.host)?["errors"][0]["message"].as_str() {
+            Some(message) => Err(refused(message)),
+            None => Ok(()),
+        }
+    }
+    // --- end auto-merge ---
+
+    // --- MR round 2: notifications ---
+    /// The token's user's subscription to PR `number` (GraphQL's `viewerSubscription`), asked
+    /// again only once the PR's `stamp` (its `updated_at`) moved. Best effort: `None` if GitHub
+    /// didn't say.
+    async fn subscription(&self, project: &ForgeProject, number: u64, stamp: &str) -> Option<bool> {
+        let key = (project.path.clone(), number);
+        if let Some((s, v)) = self.subscriptions.lock().expect("subscriptions poisoned").get(&key)
+            && s == stamp
+        {
+            return *v;
+        }
+        let (owner, name) = project.path.split_once('/')?;
+        let body = json!({ "query": SUBSCRIPTION_QUERY, "variables": { "owner": owner, "name": name, "number": number } });
+        let v: Value = self.http.send_json(Method::Post, "/graphql", &body).await.ok()?.json(&self.host).ok()?;
+        let on = json::subscribed(&v["data"]["repository"]["pullRequest"]["viewerSubscription"]);
+        self.subscriptions.lock().expect("subscriptions poisoned").insert(key, (stamp.to_string(), on));
+        on
+    }
+    // --- end MR round 2 ---
+
     async fn pull_json(&self, project: &ForgeProject, number: u64) -> Result<Value, GbError> {
         self.http.get(&format!("{}/pulls/{number}", Self::repo_url(&project.path)?)).await?.json(&self.host)
     }
@@ -1185,11 +1596,49 @@ impl GitHubProvider {
         };
         let r = self.http.send_json(Method::Post, &path, &body).await?;
         if part == CreatePart::Assignees {
-            let got: Value = r.json(&self.host)?;
-            let have: Vec<String> = got["assignees"].as_array().into_iter().flatten().filter_map(|u| u["login"].as_str().map(str::to_lowercase)).collect();
-            let missing: Vec<String> = body["assignees"].as_array().into_iter().flatten().filter_map(|l| l.as_str()).filter(|l| !have.contains(&l.to_lowercase())).map(str::to_string).collect();
+            let wanted: Vec<String> = body["assignees"].as_array().into_iter().flatten().filter_map(|l| l.as_str().map(str::to_string)).collect();
+            let missing = json::not_assigned(&r.json(&self.host)?, &wanted);
             if !missing.is_empty() {
                 return Err(GbError::new(GbErrorKind::InvalidInput, format!("couldn't assign: {}", missing.join(", "))));
+            }
+        }
+        Ok(())
+    }
+
+    /// Withdraws review requests, then asks the added people. GitHub can't take back a review
+    /// already submitted (removing someone only withdraws a pending request; their review stays
+    /// on the PR), so removing a reviewer who reviewed is refused, saying so, before any write.
+    async fn change_reviewers(&self, project: &ForgeProject, number: u64, change: &PeopleEdit) -> Result<(), GbError> {
+        let path = format!("{}/pulls/{number}/requested_reviewers", Self::repo_url(&project.path)?);
+        if !change.remove.is_empty() {
+            // The PR as it is now, not as a GET moments ago saw it.
+            self.http.expire_fresh();
+            let logins = match json::requested_logins(&self.pull_json(project, number).await?, &change.remove) {
+                Ok(logins) => logins,
+                Err(reviewed) => {
+                    let who = self.logins(&reviewed).await?.join(", ");
+                    return Err(GbError::new(GbErrorKind::InvalidInput, format!("{who} already reviewed: GitHub keeps a submitted review, so they stay a reviewer")));
+                }
+            };
+            self.http.send_json(Method::Delete, &path, &json!({ "reviewers": logins })).await?;
+        }
+        if !change.add.is_empty() {
+            self.http.send_json(Method::Post, &path, &json!({ "reviewers": self.logins(&change.add).await? })).await?;
+        }
+        Ok(())
+    }
+
+    async fn change_assignees(&self, project: &ForgeProject, number: u64, change: &PeopleEdit) -> Result<(), GbError> {
+        let path = format!("{}/issues/{number}/assignees", Self::repo_url(&project.path)?);
+        if !change.remove.is_empty() {
+            self.http.send_json(Method::Delete, &path, &json!({ "assignees": self.logins(&change.remove).await? })).await?;
+        }
+        if !change.add.is_empty() {
+            let logins = self.logins(&change.add).await?;
+            let r = self.http.send_json(Method::Post, &path, &json!({ "assignees": logins })).await?;
+            let missing = json::not_assigned(&r.json(&self.host)?, &logins);
+            if !missing.is_empty() {
+                return Err(GbError::new(GbErrorKind::InvalidInput, format!("GitHub didn't assign {}: they can't be assigned in {}", missing.join(", "), project.path)));
             }
         }
         Ok(())
@@ -1200,7 +1649,10 @@ impl GitHubProvider {
     async fn logins(&self, ids: &[u64]) -> Result<Vec<String>, GbError> {
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
-            let r = self.http.get(&format!("/user/{id}")).await?;
+            let r = self.http.get(&format!("/user/{id}")).await.map_err(|e| match e.kind {
+                GbErrorKind::NotFound => GbError::new(GbErrorKind::InvalidInput, format!("{} has no user {id}", self.host)),
+                _ => e,
+            })?;
             out.push(json::user(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "user"))?.username);
         }
         Ok(out)
@@ -1378,6 +1830,29 @@ mod tests {
         assert_eq!(json::hunk_tail("@@ -1 +1,2 @@\n Readme\n+Second line").as_deref(), Some(" Readme\n+Second line"));
         assert_eq!(json::hunk_tail("@@ -1 +1 @@"), None);
     }
+
+    #[test]
+    fn a_multi_line_review_comment_has_its_range_and_its_lines() {
+        let hunk = "@@ -1,6 +1,7 @@\n one\n-two\n+zwei\n+drei\n three\n four\n five";
+        let pos = |extra: Value| {
+            let mut c = json!({"id": 51, "user": {"id": 2, "login": "hubot"}, "body": "b", "path": "a.txt", "line": 6, "original_line": 6, "side": "RIGHT", "diff_hunk": hunk, "start_line": null, "original_start_line": null, "start_side": null});
+            c.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            json::discussions(&[], &[c], &[]).remove(0).notes.remove(0).position.unwrap()
+        };
+        let p = pos(json!({}));
+        assert_eq!((p.line, p.start_line, p.start_old_line, p.snippet.as_deref()), (Some(6), None, None, Some(" three\n four\n five")));
+        let p = pos(json!({"start_line": 2, "original_start_line": 2, "start_side": "RIGHT"}));
+        assert_eq!((p.line, p.start_line, p.start_old_line), (Some(6), Some(2), None));
+        assert_eq!(p.snippet.as_deref(), Some("+zwei\n+drei\n three\n four\n five"));
+        // From an old line to a new one; outdated (no `start_line` / `line`): the original ones.
+        let p = pos(json!({"line": null, "start_line": null, "original_start_line": 2, "start_side": "LEFT"}));
+        assert_eq!((p.line, p.start_line, p.start_old_line), (Some(6), None, Some(2)));
+        assert_eq!(p.snippet.as_deref(), Some("-two\n+zwei\n+drei\n three\n four\n five"));
+        // Old lines both.
+        let p = pos(json!({"line": 4, "original_line": 4, "side": "LEFT", "start_line": 1, "original_start_line": 1, "start_side": "LEFT", "diff_hunk": "@@ -1,4 +1,1 @@\n one\n-two\n-three\n-four"}));
+        assert_eq!((p.line, p.old_line, p.start_line, p.start_old_line), (None, Some(4), None, Some(1)));
+        assert_eq!(p.snippet.as_deref(), Some(" one\n-two\n-three\n-four"));
+    }
     // --- end 4B T4 ---
     // --- 4C T4 ---
     fn create_req(source: &str) -> CreateMr {
@@ -1421,4 +1896,210 @@ mod tests {
         assert_eq!(json::try_decode_content(&json!({"content": "SGk=", "encoding": "base64"})), Some(b"Hi".to_vec()));
     }
     // --- end 4C T4 ---
+
+    #[test]
+    fn only_a_pending_review_request_can_be_withdrawn() {
+        let pr = json!({"requested_reviewers": [{"id": 1, "login": "octocat"}, {"id": 3, "login": "hubot"}]});
+        assert_eq!(json::requested_logins(&pr, &[3]), Ok(vec!["hubot".to_string()]));
+        // 2 reviewed (no longer requested): GitHub keeps the review, nothing to withdraw.
+        assert_eq!(json::requested_logins(&pr, &[1, 2]), Err(vec![2]));
+        assert_eq!(json::requested_logins(&json!({}), &[1]), Err(vec![1]));
+    }
+
+    #[test]
+    fn the_assignees_github_dropped_are_named() {
+        let answer = json!({"assignees": [{"id": 3, "login": "Hubot"}]});
+        assert_eq!(json::not_assigned(&answer, &["hubot".into(), "stranger".into()]), ["stranger"]);
+        assert!(json::not_assigned(&answer, &["HUBOT".into()]).is_empty(), "logins are case-insensitive");
+    }
+
+    // --- auto-merge ---
+    #[test]
+    fn a_prs_auto_merge_says_who_enabled_it_and_the_method() {
+        let pr = |auto: serde_json::Value| json::pr(&json!({"number": 3, "title": "t", "state": "open", "user": {"id": 2, "login": "monalisa"}, "head": {"ref": "dev"}, "base": {"ref": "main"}, "auto_merge": auto})).unwrap().auto_merge;
+        let set = pr(json!({"enabled_by": {"id": 3, "login": "hubot"}, "merge_method": "squash", "commit_title": "t", "commit_message": "m"})).unwrap();
+        assert_eq!((set.enabled_by.map(|u| u.username), set.method), (Some("hubot".into()), Some(MergeMethod::Squash)));
+        assert_eq!(pr(serde_json::Value::Null), None);
+    }
+
+    // --- MR round 2 ---
+    #[test]
+    fn a_review_body_names_the_event_and_carries_a_message_only_when_there_is_one() {
+        let r = |event, body: &str| json::review_body(&ReviewSubmit { event, body: body.into() });
+        assert_eq!(r(ReviewEvent::Comment, "Note"), json!({"event": "COMMENT", "body": "Note"}));
+        assert_eq!(r(ReviewEvent::Approve, " "), json!({"event": "APPROVE"}));
+        assert_eq!(r(ReviewEvent::RequestChanges, "Fix it"), json!({"event": "REQUEST_CHANGES", "body": "Fix it"}));
+    }
+
+    #[test]
+    fn the_viewer_subscription_is_on_only_when_subscribed() {
+        assert_eq!(json::subscribed(&json!("SUBSCRIBED")), Some(true));
+        assert_eq!(json::subscribed(&json!("IGNORED")), Some(false));
+        assert_eq!(json::subscribed(&json!("UNSUBSCRIBED")), Some(false));
+        assert_eq!(json::subscribed(&serde_json::Value::Null), None);
+    }
+    // --- end MR round 2 ---
+
+    #[test]
+    fn the_merge_body_leaves_the_message_to_github() {
+        let opts = MergeOptions { method: Some(MergeMethod::Squash), expected_sha: Some("abc".into()), ..Default::default() };
+        assert_eq!(serde_json::Value::Object(super::merge_body(&opts).unwrap()), json!({"merge_method": "squash", "sha": "abc"}));
+    }
+
+    #[test]
+    fn the_enable_mutation_carries_the_method_and_head() {
+        let opts = MergeOptions { method: Some(MergeMethod::Rebase), expected_sha: Some("abc".into()), ..Default::default() };
+        let m = super::enable_auto_merge("PR_3", &opts).unwrap();
+        assert!(m["query"].as_str().unwrap().contains("enablePullRequestAutoMerge"));
+        assert_eq!(m["variables"], json!({"id": "PR_3", "method": "REBASE", "sha": "abc"}));
+        assert!(super::enable_auto_merge("PR_3", &MergeOptions { method: Some(MergeMethod::FastForward), ..Default::default() }).is_err());
+    }
+
+    #[test]
+    fn auto_merge_refusals_are_said_plainly() {
+        assert_eq!(super::auto_merge_error(3, "Pull request Auto merge is not allowed for this repository").message, "Auto-merge isn't enabled for this repository");
+        assert_eq!(super::auto_merge_error(3, "Pull request is in clean status").message, "#3 can merge now: use Merge");
+        assert_eq!(super::auto_merge_error(3, "Head branch was modified. Review and try the merge again.").message, "#3 changed since it was loaded: refresh and try again");
+        assert_eq!(super::auto_merge_error(3, "Something else").message, "GitHub: Something else");
+    }
+    // --- end auto-merge ---
+
+    // --- comment actions ---
+    #[test]
+    fn a_comments_summary_counts_its_reactions_and_carries_its_link() {
+        let n = json::comment_note(&json!({"id": 41, "user": user_json(2, "monalisa"), "body": "b", "created_at": "2026-10-03T07:00:00Z",
+            "html_url": "https://github.com/octo-org/widget/pull/3#issuecomment-41",
+            "reactions": {"url": "x", "total_count": 3, "+1": 2, "-1": 0, "laugh": 0, "hooray": 0, "confused": 0, "heart": 1, "rocket": 0, "eyes": 0}})).unwrap();
+        assert_eq!(n.web_url.as_deref(), Some("https://github.com/octo-org/widget/pull/3#issuecomment-41"));
+        assert_eq!(n.reactions.iter().map(|r| (r.name.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("+1", 2, false), ("heart", 1, false)]);
+        let list = json::reaction_list(&[json!({"id": 1, "content": "heart", "user": {"id": 2, "login": "monalisa"}}), json!({"id": 2, "content": "+1", "user": {"id": 1, "login": "octocat"}})], Some(1));
+        assert_eq!(list.iter().map(|r| (r.name.as_str(), r.mine, r.users.clone())).collect::<Vec<_>>(), [("+1", true, vec!["octocat".to_string()]), ("heart", false, vec!["monalisa".to_string()])]);
+    }
+
+    #[test]
+    fn a_comments_url_comes_from_its_discussion_and_a_reviews_summary_has_none() {
+        let at = |d: &str, n: &str| super::comment_url("/repos/o/r", &NoteRef { discussion: d.into(), note: n.into() });
+        assert_eq!(at("issue-41", "41").unwrap(), "/repos/o/r/issues/comments/41");
+        assert_eq!(at("thread-51", "52").unwrap(), "/repos/o/r/pulls/comments/52");
+        assert!(at("review-31", "review-31").is_err());
+        assert!(at("issue-41", "41/../x").is_err());
+    }
+
+    fn served() -> (crate::test_server::TestServer, super::GitHubProvider, ForgeProject) {
+        use crate::test_server::{Canned, TestServer};
+        let s = TestServer::start(|_, head| {
+            let line = head.lines().next().unwrap_or_default().to_string();
+            let c = "/repos/octo-org/widget/issues/comments/41";
+            if line.starts_with("get /user ") {
+                Canned::json(200, r#"{"id": 1, "login": "octocat"}"#)
+            } else if line.starts_with(&format!("get {c}/reactions?per_page=100 ")) {
+                Canned::json(200, r#"[{"id": 7, "content": "+1", "user": {"id": 1, "login": "octocat"}}, {"id": 8, "content": "+1", "user": {"id": 2, "login": "monalisa"}}]"#)
+            } else if line.starts_with(&format!("post {c}/reactions ")) {
+                Canned::json(201, r#"{"id": 9, "content": "rocket", "user": {"id": 1, "login": "octocat"}}"#)
+            } else if line.starts_with(&format!("patch {c} ")) {
+                Canned::json(200, r#"{"id": 41, "user": {"id": 1, "login": "octocat"}, "body": "Edited", "created_at": "2026-10-03T07:00:00Z"}"#)
+            } else if line.starts_with("delete ") {
+                Canned { status: 204, headers: vec![], body: vec![] }
+            } else {
+                Canned::json(404, r#"{"message": "Not Found"}"#)
+            }
+        });
+        let ep = crate::endpoints::HostEndpoints { api: s.base.clone(), web: s.base.clone(), avatars: None };
+        let p = super::GitHubProvider::new("github.com", &ep, gitbolt_core::redact::Secret::new("ghp_FAKE-test-token"), None);
+        let project = ForgeProject { kind: ForgeKind::GitHub, id: 1, host: "github.com".into(), path: "octo-org/widget".into(), name: "widget".into(), owner: "octo-org".into(), web_url: String::new(), default_branch: None, clone_https: String::new(), clone_ssh: String::new(), fork_of: None, updated_at: None, archived: false, owner_avatar_url: None };
+        (s, p, project)
+    }
+
+    fn lines(s: &crate::test_server::TestServer) -> Vec<String> {
+        s.heads.lock().unwrap().iter().map(|h| h.lines().next().unwrap_or_default().trim_end_matches(" http/1.1").to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn reacting_adds_or_removes_only_what_isnt_so_and_only_githubs_eight() {
+        let (s, p, project) = served();
+        let note = NoteRef { discussion: "issue-41".into(), note: "41".into() };
+        let after = p.react(&project, 3, &note, "rocket", true).await.unwrap();
+        assert_eq!(after.iter().map(|r| (r.name.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("+1", 2, true), ("rocket", 1, true)]);
+        let after = p.react(&project, 3, &note, "+1", false).await.unwrap();
+        assert_eq!(after.iter().map(|r| (r.name.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("+1", 1, false)]);
+        p.react(&project, 3, &note, "+1", true).await.unwrap();
+        assert_eq!(p.react(&project, 3, &note, "thumbsup", true).await.unwrap_err().message, "GitHub has no :thumbsup: reaction");
+        let c = "/repos/octo-org/widget/issues/comments/41/reactions";
+        assert_eq!(lines(&s), [
+            "get /user".to_string(),
+            format!("get {c}?per_page=100"), format!("post {c}"),
+            format!("get {c}?per_page=100"), format!("delete {c}/7"),
+            format!("get {c}?per_page=100"),
+        ], "already mine: nothing sent");
+    }
+
+    #[tokio::test]
+    async fn a_comment_is_edited_with_patch_and_deleted_on_its_own_url() {
+        let (s, p, project) = served();
+        let note = NoteRef { discussion: "issue-41".into(), note: "41".into() };
+        assert_eq!(p.edit_note(&project, 3, &note, "Edited").await.unwrap().body, "Edited");
+        p.delete_note(&project, 3, &NoteRef { discussion: "thread-51".into(), note: "52".into() }).await.unwrap();
+        assert!(p.delete_note(&project, 3, &NoteRef { discussion: "review-31".into(), note: "review-31".into() }).await.is_err());
+        assert_eq!(lines(&s), ["patch /repos/octo-org/widget/issues/comments/41", "delete /repos/octo-org/widget/pulls/comments/52"]);
+    }
+
+    #[tokio::test]
+    async fn review_threads_come_from_one_query_and_resolve_by_their_node_id() {
+        use crate::test_server::{Canned, TestServer};
+        let s = TestServer::start(|_, head| {
+            let line = head.lines().next().unwrap_or_default().to_string();
+            if line.contains("/pulls/3/comments") {
+                Canned::json(200, r#"[{"id": 51, "user": {"id": 3, "login": "hubot"}, "body": "Why?", "created_at": "2026-10-03T08:01:00Z", "path": "README.md", "line": 2, "side": "RIGHT", "diff_hunk": "@@ -1 +1,2 @@\n+x"}]"#)
+            } else if line.starts_with("post /graphql ") {
+                Canned::json(200, r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": [{"id": "PRRT_51", "isResolved": true, "resolvedBy": {"login": "monalisa"}, "comments": {"nodes": [{"databaseId": 51}]}}]}}}, "unresolveReviewThread": {"thread": {"isResolved": false, "resolvedBy": null}}}}"#)
+            } else {
+                Canned::json(200, "[]")
+            }
+        });
+        let ep = crate::endpoints::HostEndpoints { api: s.base.clone(), web: s.base.clone(), avatars: None };
+        let p = super::GitHubProvider::new("github.com", &ep, gitbolt_core::redact::Secret::new("ghp_FAKE-test-token"), None);
+        let (_other, _, project) = served();
+        let ds = p.discussions(&project, 3).await.unwrap().value;
+        assert_eq!((ds[0].id.as_str(), ds[0].resolvable, ds[0].resolved, ds[0].resolved_by.as_deref()), ("thread-51", true, true, Some("monalisa")));
+        assert_eq!(p.resolve(&project, 3, "thread-51", false).await.unwrap(), ThreadState { resolved: false, resolved_by: None });
+        let graphql: Vec<String> = s.heads.lock().unwrap().iter().filter(|h| h.starts_with("post /graphql")).cloned().collect();
+        assert_eq!(graphql.len(), 2, "the threads once, then the mutation with the node id kept from it");
+        assert!(p.resolve(&project, 3, "issue-41", true).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn who_reacted_is_asked_only_for_comments_whose_counts_changed() {
+        use crate::test_server::{Canned, TestServer};
+        let counts = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(1));
+        let c2 = counts.clone();
+        let s = TestServer::start(move |_, head| {
+            let line = head.lines().next().unwrap_or_default().to_string();
+            let n = c2.load(std::sync::atomic::Ordering::SeqCst);
+            if line.starts_with("get /user ") {
+                Canned::json(200, r#"{"id": 1, "login": "octocat"}"#)
+            } else if line.contains("/issues/3/comments") {
+                Canned::json(200, &format!(r#"[{{"id": 41, "user": {{"id": 2, "login": "monalisa"}}, "body": "b", "created_at": "2026-10-03T07:00:00Z", "reactions": {{"+1": {n}}}}}, {{"id": 42, "user": {{"id": 2, "login": "monalisa"}}, "body": "c", "created_at": "2026-10-03T07:01:00Z", "reactions": {{"+1": 0}}}}]"#))
+            } else if line.contains("/issues/comments/41/reactions") {
+                let items: Vec<String> = (0..n).map(|i| format!(r#"{{"id": {i}, "content": "+1", "user": {{"id": {}, "login": "u{i}"}}}}"#, i + 1)).collect();
+                Canned::json(200, &format!("[{}]", items.join(",")))
+            } else {
+                Canned::json(200, "[]")
+            }
+        });
+        let ep = crate::endpoints::HostEndpoints { api: s.base.clone(), web: s.base.clone(), avatars: None };
+        let p = super::GitHubProvider::new("github.com", &ep, gitbolt_core::redact::Secret::new("ghp_FAKE-test-token"), None);
+        let (_other, _, project) = served();
+        let ds = p.discussions(&project, 3).await.unwrap().value;
+        assert_eq!((ds[0].notes[0].reactions[0].mine, ds[0].notes[0].reactions[0].users.clone()), (true, vec!["u0".to_string()]));
+        assert!(ds[1].notes[0].reactions.is_empty());
+        let asked = |s: &TestServer| s.heads.lock().unwrap().iter().filter(|h| h.contains("/reactions")).count();
+        assert_eq!(asked(&s), 1);
+        p.discussions(&project, 3).await.unwrap();
+        assert_eq!(asked(&s), 1, "the same counts: who reacted is kept");
+        counts.store(2, std::sync::atomic::Ordering::SeqCst);
+        let ds = p.discussions(&project, 3).await.unwrap().value;
+        assert_eq!((asked(&s), ds[0].notes[0].reactions[0].count), (2, 2));
+        assert_eq!(s.heads.lock().unwrap().iter().filter(|h| h.starts_with("get /user ")).count(), 1, "the user once");
+    }
+    // --- end comment actions ---
 }

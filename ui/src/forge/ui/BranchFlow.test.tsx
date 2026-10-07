@@ -31,6 +31,41 @@ describe('BranchFlow', () => {
     expect(within(card).queryByRole('list', { name: 'Commits' })).toBeNull();
   });
 
+  it('the whole bar is the toggle: one button, a click on its counts toggles too', () => {
+    render(flow(ready([{ sha: 'a1f3c9e00', summary: 'Build the request' }])));
+    const card = screen.getByRole('region', { name: 'Branches' });
+    const bar = within(card).getByRole('button', { name: /Show commits/ });
+    expect(bar).toHaveClass('flow-meta');
+    expect(bar).toHaveTextContent('1 commit5 files+128−41Show commits');
+    fireEvent.click(bar.querySelector('.flow-add')!);
+    expect(bar).toHaveAttribute('aria-expanded', 'true');
+    expect(within(card).getByRole('list', { name: 'Commits' })).toBeTruthy();
+    expect(within(bar).queryAllByRole('button')).toEqual([]);
+  });
+
+  // --- MR round 2: Compare ---
+  it("Compare sits at the bar's right end, past a divider, and its click doesn't toggle the list", () => {
+    const run = vi.fn();
+    const { rerender } = render(<BranchFlow from={{ branch: 'dev', sub: 'o' }} into={{ branch: 'main', sub: 'o' }} stats={ready([{ sha: 'a1f3c9e00', summary: 'One' }])} compare={{ run, busy: false }} />);
+    const card = screen.getByRole('region', { name: 'Branches' });
+    const compare = within(card).getByRole('button', { name: 'Compare' });
+    expect(compare.previousElementSibling).toHaveClass('flow-divider');
+    expect(compare.closest('.flow-toggle')).toBeNull();
+    fireEvent.mouseEnter(compare);
+    expect(screen.getByRole('tooltip')).toHaveTextContent("Compare the MR's changes in the diff view");
+    fireEvent.click(compare);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(within(card).getByRole('button', { name: /Show commits/ })).toHaveAttribute('aria-expanded', 'false');
+    // Fetching the head: a spinner in the icon, and no second click.
+    rerender(<BranchFlow from={{ branch: 'dev', sub: 'o' }} into={{ branch: 'main', sub: 'o' }} stats={{ status: 'none' }} none="Its commits aren't fetched into this repository" compare={{ run, busy: true }} />);
+    const busy = within(card).getByRole('button', { name: 'Compare' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy.querySelector('.spin')).toBeTruthy();
+    fireEvent.click(busy);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+  // --- end MR round 2 ---
+
   it('says Counting… while it loads, a fallback count or the note when the repository lacks the commits', () => {
     const { rerender } = render(flow({ status: 'loading' }));
     expect(screen.getByText('Counting…')).toBeTruthy();

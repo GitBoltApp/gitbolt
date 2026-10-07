@@ -32,7 +32,7 @@ vi.mock('../useMrDetail', () => ({ useMrDetail: () => ({ detail: null, error: nu
 const mr = (number: number, source: string, target: string, state: ForgeMr['state'] = 'open'): ForgeMr => ({
   number, title: `MR ${number}`, state, author: { id: 1, username: 'ada', name: 'Ada', avatarUrl: null, webUrl: '', email: null },
   sourceProject: 'group/project', sourceBranch: source, targetProject: 'group/project', targetBranch: target, headSha: `head${number}`,
-  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: number, stacked: true,
+  webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: number, autoMerge: null, stacked: true,
 });
 const lb = (name: string): LocalBranch => ({
   name, fullName: `refs/heads/${name}`, target: `${name}-tip`, upstream: null, ahead: 0, behind: 0, gone: false, tipTime: 0, summary: '', author: '',

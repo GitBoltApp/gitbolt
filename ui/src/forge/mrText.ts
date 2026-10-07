@@ -8,8 +8,8 @@ import { mrName, mrRef, pipelineNoun } from './labels';
 
 /** What an MR/PR's badge, hover card and view say (spec #4 §4 "4B"). Forge words come from
  * labels.ts; the rest is normalized. */
-export const MR_STATE_WORDS: Record<MrState, string> = { open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' };
-export const MR_STATE_LABELS: Record<MrState, string> = { open: 'Open', draft: 'Draft', merged: 'Merged', closed: 'Closed' };
+export const MR_STATE_WORDS: Record<MrState, string> = { open: 'open', draft: 'draft', merged: 'merged', merging: 'merging', closed: 'closed' };
+export const MR_STATE_LABELS: Record<MrState, string> = { open: 'Open', draft: 'Draft', merged: 'Merged', merging: 'Merging…', closed: 'Closed' };
 const PIPELINE_WORDS: Record<PipelineStatus, string> = { pending: 'pending', running: 'running', success: 'passed', failed: 'failed', canceled: 'canceled', skipped: 'skipped', manual: 'waiting for a manual job' };
 
 /** "Merge request !12: open": the badge's accessible name. */

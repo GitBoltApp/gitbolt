@@ -1,8 +1,8 @@
-import { Plus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeftRight, Pencil, Plus, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ForgeUser } from '../../api/gen/ForgeUser';
 import { ForgeAvatar } from '../../avatars/Avatar';
-import { isDismissKey } from '../../ui/HoverTooltip';
+import { HoverTooltip, isDismissKey } from '../../ui/HoverTooltip';
 import { useKeys } from '../../ui/keyRouter';
 import { chipStyle } from '../chipStyle';
 import { SearchPicker, type PickOption } from '../create/SearchPicker';
@@ -17,8 +17,15 @@ export interface RowEdit {
   search(query: string): Promise<Array<PickOption<() => void>>>;
   peek?(query: string): { options: Array<PickOption<() => void>>; stale: boolean } | undefined;
   onRemove(key: string): void;
+  /** False: that chip has no × (GitHub's reviewer who already reviewed). */
+  canRemove?(key: string): boolean;
   /** After + Add (Assignees' "Assign to me"). */
   extra?: ReactNode;
+  /** How many the forge allows (`peopleLimits`): one makes + a swap once someone is there (the
+   * pick replaces them: the caller's `search` values do); more, a disabled + at the cap.
+   * `maxTip` says so. */
+  max?: number | null;
+  maxTip?: string;
 }
 
 export interface PeopleRow {
@@ -29,14 +36,49 @@ export interface PeopleRow {
   /** null: not loaded yet. */
   chips: PeopleChip[] | null;
   edit?: RowEdit;
+  /** A pencil in the card's header (the cards layout), as + is for people: the Labels card's
+   * "Edit labels", which opens the MR's Edit form. */
+  pencil?: { tip: string; run(): void; disabled?: boolean };
 }
 
 /**
- * Reviewers, Assignees and Labels in one card (the Create flyout, Edit, the MR/PR view): avatar
- * chips and colour pills. Editable rows have × on each chip and a dashed + Add that opens the
- * search in a popover; read-only rows show the chips alone, or a dim "None".
+ * Reviewers, Assignees and Labels (the Create flyout, Edit, the MR/PR view): avatar chips and
+ * colour pills. Editable rows have × on each chip and a + that opens the search in a popover;
+ * read-only rows show the chips alone, or a dim "None". `rows`: one card, a row each, with a
+ * dashed + Add after the chips (the forms). `cards`: a card each, side by side (wrapping when
+ * narrow), as the MR/PR view's PIPELINE / APPROVALS / CONFLICTS: a small uppercase header with
+ * the + at its right, the chips under it.
  */
-export function PeopleCard({ rows, disabled = false, label = 'People and labels' }: { rows: PeopleRow[]; disabled?: boolean; label?: string }) {
+export function PeopleCard({ rows, disabled = false, label = 'People and labels', layout = 'rows' }: { rows: PeopleRow[]; disabled?: boolean; label?: string; layout?: 'rows' | 'cards' }) {
+  if (layout === 'cards') {
+    return (
+      <div className="people-cards" role="group" aria-label={label}>
+        {rows.map((r) => (
+          <div key={r.label} className="people-card" data-row={r.label.toLowerCase()}>
+            <div className="people-card-head">
+              <span className="people-card-k">{r.label}</span>
+              {r.edit && <AddButton row={r} disabled={disabled} compact />}
+              {r.pencil && (
+                <HoverTooltip content={r.pencil.tip}>
+                  <button type="button" className="card-btn people-add-icon" aria-label={r.pencil.tip} disabled={disabled || r.pencil.disabled} onClick={r.pencil.run}>
+                    <Pencil size={12} aria-hidden />
+                  </button>
+                </HoverTooltip>
+              )}
+            </div>
+            <div className="people-card-body">
+              <div className="people-chips">
+                {r.chips === null && <span className="people-none">Loading…</span>}
+                {r.chips?.length === 0 && <span className="people-none">None</span>}
+                {r.chips?.map((c) => <Chip key={c.key} chip={c} onRemove={r.edit && r.edit.canRemove?.(c.key) !== false ? () => r.edit!.onRemove(c.key) : undefined} disabled={disabled} />)}
+                {r.edit?.extra}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="people" role="group" aria-label={label}>
       {rows.map((r) => (
@@ -45,7 +87,7 @@ export function PeopleCard({ rows, disabled = false, label = 'People and labels'
           <div className="people-chips">
             {r.chips === null && <span className="people-none">Loading…</span>}
             {r.chips?.length === 0 && !r.edit && <span className="people-none">None</span>}
-            {r.chips?.map((c) => <Chip key={c.key} chip={c} onRemove={r.edit ? () => r.edit!.onRemove(c.key) : undefined} disabled={disabled} />)}
+            {r.chips?.map((c) => <Chip key={c.key} chip={c} onRemove={r.edit && r.edit.canRemove?.(c.key) !== false ? () => r.edit!.onRemove(c.key) : undefined} disabled={disabled} />)}
             {r.edit && <AddButton row={r} disabled={disabled} />}
             {r.edit?.extra}
           </div>
@@ -73,7 +115,7 @@ const POP_W = 280;
 /** The popover's tallest: the search box and its list (forgeUi.css caps the list at 220px). */
 const POP_H = 280;
 
-function AddButton({ row, disabled }: { row: PeopleRow; disabled: boolean }) {
+function AddButton({ row, disabled, compact = false }: { row: PeopleRow; disabled: boolean; compact?: boolean }) {
   const [at, setAt] = useState<DOMRect | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
@@ -115,31 +157,60 @@ function AddButton({ row, disabled }: { row: PeopleRow; disabled: boolean }) {
   const edit = row.edit!;
   // Under the button; over it (growing upwards) when the window has more room there.
   const place = (r: DOMRect) => {
-    const left = Math.max(4, Math.min(r.left, window.innerWidth - POP_W - 4));
+    const left = Math.max(4, Math.min(compact ? r.right - POP_W : r.left, window.innerWidth - POP_W - 4));
     const below = window.innerHeight - r.bottom;
     return below < POP_H && r.top > below ? { left, bottom: window.innerHeight - r.top + 4 } : { left, top: r.bottom + 4 };
   };
+  // The forge's cap (`RowEdit.max`): one is a swap once someone is there; more, no + at the cap.
+  const count = row.chips?.length ?? 0;
+  const swap = edit.max === 1 && count >= 1;
+  const full = !swap && edit.max != null && count >= edit.max;
+  const name = swap ? `Replace ${row.noun}` : `Add ${row.noun}`;
+  const tip = (swap || full) && edit.maxTip ? edit.maxTip : name;
+  const toggle = (e: MouseEvent<HTMLButtonElement>) => { if (!full) setAt(at ? null : e.currentTarget.getBoundingClientRect()); };
+  const plain = (
+    <button
+      ref={btn}
+      type="button"
+      className="people-add"
+      aria-label={name}
+      aria-haspopup="listbox"
+      aria-expanded={at !== null}
+      aria-disabled={full || undefined}
+      disabled={disabled}
+      onClick={toggle}
+    >
+      {swap ? <ArrowLeftRight size={12} aria-hidden /> : <Plus size={12} aria-hidden />} {swap ? 'Replace' : 'Add'}
+    </button>
+  );
   return (
     <>
-      <button
-        ref={btn}
-        type="button"
-        className="people-add"
-        aria-label={`Add ${row.noun}`}
-        aria-haspopup="listbox"
-        aria-expanded={at !== null}
-        disabled={disabled}
-        onClick={(e) => setAt(at ? null : e.currentTarget.getBoundingClientRect())}
-      >
-        <Plus size={12} aria-hidden /> Add
-      </button>
+      {compact ? (
+        // The card's header +: a small bordered button, as the APPROVALS card's.
+        <HoverTooltip content={tip}>
+          <button
+            ref={btn}
+            type="button"
+            className="card-btn people-add-icon"
+            aria-label={name}
+            aria-haspopup="listbox"
+            aria-expanded={at !== null}
+            aria-disabled={full || undefined}
+            disabled={disabled}
+            onClick={toggle}
+          >
+            {swap ? <ArrowLeftRight size={13} aria-hidden /> : <Plus size={13} aria-hidden />}
+          </button>
+        </HoverTooltip>
+      ) : swap || full ? <HoverTooltip content={tip}>{plain}</HoverTooltip> : plain}
       {at && (
         <div
           ref={pop}
           className="people-pop"
           style={{ ...place(at), width: POP_W }}
-          // Tab out of the search closes it.
-          onBlur={(e) => { if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) close(false); }}
+          // Tab out of the search closes it; not a press on its own button, whose click toggles it
+          // (closing here first would make that click open it again).
+          onBlur={(e) => { if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget) && !btn.current?.contains(e.relatedTarget)) close(false); }}
         >
           <SearchPicker<() => void> popover label={row.label} chips={row.chips ?? []} onRemove={() => {}} search={edit.search} peek={edit.peek} onPick={(run) => run()} />
         </div>

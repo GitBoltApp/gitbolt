@@ -35,6 +35,7 @@ import { showCreated } from './outcome';
 import { createBlocked, createRequest, defaultTarget, freshDraft, pushedAs, sourceBranchOf, squashToggle, unpushedCount, withTemplate, type Route } from './prefill';
 import type { PickOption } from './SearchPicker';
 import { labelListLimit, labelsSource, mapSource, peopleSource } from '../pickerCache';
+import { limitTip, maxOf, usePeopleLimits } from '../peopleLimits';
 import type { CreateMrArgs } from './store';
 import './createMr.css';
 
@@ -56,6 +57,8 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
   const [route, setRoute] = useState<Route | null>(null);
   const [ctx, setCtx] = useState<CreateContext | null>(null);
   const [draft, setDraft] = useState<MrDraft | null>(null);
+  // MR round 2: a project that allows one reviewer or assignee (GitLab Free) swaps on a pick.
+  const limits = usePeopleLimits(repoId, draft?.targetRemote);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState<DOMRect | null>(null);
@@ -257,18 +260,26 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
     ...labelOption(l), value: () => { setColors((c) => ({ ...c, [l.name]: l.color })); patch((d) => (d.labels.includes(l.name) ? d : { ...d, labels: [...d.labels, l.name] })); },
   }));
   const assigned = !!me && draft.assignees.some((u) => u.id === me.id);
+  // The forge's caps: one replaces whoever is there; at a higher cap, + is off (PeopleCard).
+  const [maxReviewers, maxAssignees] = [maxOf(limits, 'reviewers'), maxOf(limits, 'assignees')];
+  const added = (list: ForgeUser[], u: ForgeUser, max: number | null) => (max === 1 ? [u] : [...list, u]);
   const people: PeopleRow[] = [
     {
       label: 'Reviewers', noun: 'reviewer', chips: draft.reviewers.map(userChip),
-      edit: { ...searchUsers((d, u) => ({ ...d, reviewers: [...d.reviewers, u] })), onRemove: (k) => patch((d) => ({ ...d, reviewers: d.reviewers.filter((u) => String(u.id) !== k) })) },
+      edit: {
+        ...searchUsers((d, u) => ({ ...d, reviewers: added(d.reviewers, u, maxReviewers) })),
+        onRemove: (k) => patch((d) => ({ ...d, reviewers: d.reviewers.filter((u) => String(u.id) !== k) })),
+        max: maxReviewers, maxTip: maxReviewers !== null ? limitTip(kind, 'reviewers', maxReviewers) : undefined,
+      },
     },
     {
       label: 'Assignees', noun: 'assignee', chips: draft.assignees.map(userChip),
       edit: {
-        ...searchUsers((d, u) => ({ ...d, assignees: [...d.assignees, u] })),
+        ...searchUsers((d, u) => ({ ...d, assignees: added(d.assignees, u, maxAssignees) })),
         onRemove: (k) => patch((d) => ({ ...d, assignees: d.assignees.filter((u) => String(u.id) !== k) })),
         // Kept in the row once assigned (hidden, not removed), so the row never reflows.
-        extra: me && <button type="button" className="people-me" style={assigned ? { visibility: 'hidden' } : undefined} aria-hidden={assigned || undefined} tabIndex={assigned ? -1 : undefined} onClick={() => patch((d) => (d.assignees.some((u) => u.id === me.id) ? d : { ...d, assignees: [...d.assignees, me] }))}>Assign to me</button>,
+        extra: me && <button type="button" className="people-me" style={assigned ? { visibility: 'hidden' } : undefined} aria-hidden={assigned || undefined} tabIndex={assigned ? -1 : undefined} onClick={() => patch((d) => (d.assignees.some((u) => u.id === me.id) ? d : { ...d, assignees: added(d.assignees, me, maxAssignees) }))}>Assign to me</button>,
+        max: maxAssignees, maxTip: maxAssignees !== null ? limitTip(kind, 'assignees', maxAssignees) : undefined,
       },
     },
     {

@@ -1,4 +1,5 @@
 import { api, errorMessage } from '../api/client';
+import type { ForgeMr } from '../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../api/gen/ForgeMrDetail';
 import type { ForgePipeline } from '../api/gen/ForgePipeline';
 import type { GbError } from '../api/gen/GbError';
@@ -8,7 +9,7 @@ import { useAppState } from '../app/state';
 import { clampFetchInterval } from '../settings/schema';
 import { recordPlace } from '../nav/history';
 import { sectionKey } from '../sidebar/model';
-import { openFlyout } from '../ui/flyout/flyout';
+import { openFlyout, shownFlyout } from '../ui/flyout/flyout';
 import { forgeOf, forgeScratch, keepSame, knownMr, sameJson, MR_FLYOUT, patchForge, upstreamRefsOf, writeEpoch, type MrViewArgs, type TabForge } from './mrStore';
 import { backoffMs, type PollOutcome, type PollReason } from './poller';
 import { mappedRemotes } from './projects';
@@ -20,6 +21,8 @@ export const DETAIL_MAX_AGE_MS = 60_000;
 export const ACTIVATE_GAP_MS = 30_000;
 const IDLE: PollOutcome = { runningPipeline: false, serverIntervalMs: null };
 const isRunning = (p: ForgePipeline | null | undefined) => p?.status === 'running';
+/** A pipeline runs, or the forge is merging it (GitLab's `locked`, moments): worth a fast poll. */
+const hurried = (m: ForgeMr) => isRunning(m.pipeline) || m.state === 'merging';
 const repoOf = (tabId: string) => useRuntime.getState().tabs[tabId]?.repo?.id;
 const fetchIntervalMs = () => clampFetchInterval(useAppState.getState().settings.fetchIntervalSecs) * 1000;
 
@@ -31,8 +34,8 @@ const touch = (tabId: string, number: number) => forgeScratch.freshAt.set(`${tab
 export function runningShown(f: TabForge, listShown: boolean): string[] {
   const out = new Set<string>();
   const open = f.openMr === null ? null : f.details[f.openMr]?.value.mr ?? knownMr(f, f.openMr);
-  if (open && isRunning(open.pipeline)) out.add(`${open.number}:${open.headSha ?? ''}`);
-  if (listShown) for (const m of f.list?.mrs ?? []) if (isRunning(m.pipeline)) out.add(`${m.number}:${m.headSha ?? ''}`);
+  if (open && hurried(open)) out.add(`${open.number}:${open.headSha ?? ''}`);
+  if (listShown) for (const m of f.list?.mrs ?? []) if (hurried(m)) out.add(`${m.number}:${m.headSha ?? ''}`);
   return [...out].sort();
 }
 
@@ -272,6 +275,10 @@ export function loadMrDetail(tabId: string, number: number, maxAgeMs = DETAIL_MA
  * Spec #5 §3.4: a navigation place, recorded first (the view being left saves its scroll);
  * `replace` (the sidebar list's arrow keys) swaps the current MR/PR place instead of adding one. */
 export function openMrView(tabId: string, number: number, how: 'push' | 'replace' = 'push'): void {
+  // Already open on this MR: keep it as it is (opening it again would remount the view and load
+  // its commits and threads again).
+  const shown = shownFlyout(tabId);
+  if (shown?.kind === MR_FLYOUT && (shown.props as MrViewArgs).number === number) return;
   recordPlace(tabId, { kind: 'mr', number, scrollTop: 0 }, how);
   openFlyout<MrViewArgs>(tabId, MR_FLYOUT, { number });
   patchForge(tabId, { openMr: number });

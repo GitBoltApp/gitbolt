@@ -12,7 +12,7 @@
 //! - the writes (spec §3.5: remote actions, not journaled). Empty text is refused here, before
 //!   the forge is asked.
 
-use crate::error::{GbError, GbErrorKind};
+use crate::error::{ErrorDetail, GbError, GbErrorKind};
 use crate::forge::cache::{cache_key, RefLookup, StoredList};
 use crate::forge::hub::ForgeHub;
 use crate::forge::*;
@@ -440,6 +440,30 @@ impl ForgeHub {
         r
     }
 
+    // --- auto-merge ---
+    /// Sets it to merge once its checks pass. No stack guard (`before_merge`): nothing merges
+    /// now, and retargeting its dependents early would show them its commits.
+    pub async fn set_auto_merge(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, opts: MergeOptions) -> Result<ForgeMr, GbError> {
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.set_auto_merge(&t.project, number, &opts).await;
+        self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
+        r
+    }
+
+    pub async fn cancel_auto_merge(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64) -> Result<ForgeMr, GbError> {
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.cancel_auto_merge(&t.project, number).await;
+        self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
+        r
+    }
+    // --- end auto-merge ---
+
     pub async fn edit_mr(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, edit: MrEdit) -> Result<ForgeMr, GbError> {
         if edit.title.as_deref().is_some_and(|t| t.trim().is_empty()) {
             return Err(refuse("The title can't be empty"));
@@ -450,8 +474,110 @@ impl ForgeHub {
         if r.is_ok() {
             self.wrote(&t);
         }
+        // --- MR round 2: the forge kept only one: so does the cached limit from now on ---
+        if let Err(GbError { detail: Some(ErrorDetail::PeopleLimit { role }), .. }) = &r {
+            let key = cache_key(&t.key, &t.project.path);
+            let now = self.now();
+            self.cache.with(&key, |c| {
+                let mut l = c.people_limits.map_or_else(PeopleLimits::default, |(l, _)| l);
+                if &**role == "reviewers" { l.max_reviewers = Some(1) } else { l.max_assignees = Some(1) }
+                c.people_limits = Some((l, now));
+            });
+            self.cache.save(&key);
+        }
+        // --- end MR round 2 ---
         r
     }
+
+    // --- MR round 2 ---
+    /// A review from the composer. Request changes and Comment need a message; Approve doesn't.
+    pub async fn review(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, review: ReviewSubmit) -> Result<ReviewOutcome, GbError> {
+        if review.body.trim().is_empty() {
+            match review.event {
+                ReviewEvent::RequestChanges => return Err(refuse("Say what to change first")),
+                ReviewEvent::Comment => return Err(refuse("Write a comment first")),
+                ReviewEvent::Approve => {}
+            }
+        }
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.review(&t.project, number, &review).await;
+        self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
+        r
+    }
+
+    /// `remote`'s project's people limits: from the forge cache (a day, across restarts), else
+    /// asked (one small request) and kept.
+    pub async fn people_limits(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], remote: &str) -> Result<PeopleLimits, GbError> {
+        let (key, provider, project) = self.project_for_remote(store, remotes, remote).await?;
+        let ck = cache_key(&key, &project.path);
+        let now = self.now();
+        if let Some((l, at)) = self.cache.with(&ck, |c| c.people_limits)
+            && now.saturating_sub(at) < crate::forge::cache::PEOPLE_LIMITS_SECS
+        {
+            return Ok(l);
+        }
+        let r = provider.people_limits(&project).await;
+        self.record(&key, &r);
+        let l = r?;
+        self.cache.with(&ck, |c| c.people_limits = Some((l, now)));
+        self.cache.save(&ck);
+        Ok(l)
+    }
+
+    /// Subscribes to the MR/PR's notifications, or unsubscribes; the state after.
+    pub async fn set_subscribed(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, on: bool) -> Result<bool, GbError> {
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.set_subscribed(&t.project, number, on).await;
+        self.record(&t.key, &r);
+        r
+    }
+    // --- end MR round 2 ---
+
+    // --- comment actions ---
+    /// Adds or removes the token's user's reaction on a note; the note's reactions after.
+    pub async fn react(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, note: NoteRef, name: String, on: bool) -> Result<Vec<ForgeReaction>, GbError> {
+        if name.is_empty() || name.len() > 64 || !name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_+-".contains(&b)) {
+            return Err(refuse("That isn't an emoji name"));
+        }
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.react(&t.project, number, &note, &name, on).await;
+        self.record(&t.key, &r);
+        r
+    }
+
+    pub async fn edit_note(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, note: NoteRef, body: String) -> Result<ForgeNote, GbError> {
+        if body.trim().is_empty() {
+            return Err(refuse("A comment can't be empty: delete it instead"));
+        }
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.edit_note(&t.project, number, &note, &body).await;
+        self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
+        r
+    }
+
+    pub async fn delete_note(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, note: NoteRef) -> Result<(), GbError> {
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.delete_note(&t.project, number, &note).await;
+        self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
+        r
+    }
+
+    pub async fn resolve(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, discussion: String, resolved: bool) -> Result<ThreadState, GbError> {
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.resolve(&t.project, number, &discussion, resolved).await;
+        self.record(&t.key, &r);
+        r
+    }
+    // --- end comment actions ---
 
     pub async fn set_draft(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, draft: bool) -> Result<ForgeMr, GbError> {
         let t = self.mr_target(store, remotes).await?;
@@ -493,6 +619,69 @@ mod tests {
         let remotes = vec![remote("origin", "group/project"), remote("alice", "alice/project"), RemotePayload { name: "backup".into(), host: None, path: None, host_kind: HostKind::Generic, main: false }];
         (p, hub, store, remotes)
     }
+
+    // --- MR round 2 ---
+    /// `setup`, with the clock at `now` and the cache in `dir`.
+    async fn setup_at(now: i64, dir: &std::path::Path, limits: PeopleLimits) -> (Arc<FakeProvider>, ForgeHub, Arc<SettingsStore>, Vec<RemotePayload>) {
+        let p = FakeProvider::new(ForgeKind::GitLab, HOST);
+        p.projects.lock().unwrap().insert("group/project".into(), project(HOST, "group/project", None, 200));
+        *p.limits.lock().unwrap() = limits;
+        let conn = Arc::new(FakeConnector::default());
+        let p = conn.add(TOKEN, p);
+        let hub = ForgeHub::new(conn, MemTokens::new(TokenStorage::Keyring), Arc::new(move || now));
+        let store = SettingsStore::in_memory();
+        hub.add_account(&store, HOST, ForgeKind::GitLab, Secret::new(TOKEN)).await.unwrap();
+        // After the account (adding one forgets its host's cache): as a relaunch, which adds none.
+        hub.set_cache_dir(dir.to_path_buf());
+        (p, hub, store, vec![remote("origin", "group/project")])
+    }
+
+    #[tokio::test]
+    async fn people_limits_are_kept_a_day_across_restarts_per_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let one = PeopleLimits { max_reviewers: Some(1), max_assignees: Some(1) };
+        let asked = |p: &FakeProvider| p.calls().iter().filter(|c| c.starts_with("people_limits")).count();
+        let (p, hub, store, remotes) = setup_at(NOW_MS, dir.path(), one).await;
+        assert_eq!(hub.people_limits(&store, &remotes, "origin").await.unwrap(), one);
+        assert_eq!(hub.people_limits(&store, &remotes, "origin").await.unwrap(), one);
+        assert_eq!(asked(&p), 1, "asked once");
+        // A restart an hour later: from the file.
+        let (p, hub, store, remotes) = setup_at(NOW_MS + 3_600_000, dir.path(), PeopleLimits::default()).await;
+        assert_eq!(hub.people_limits(&store, &remotes, "origin").await.unwrap(), one);
+        assert_eq!(asked(&p), 0);
+        // A day later: asked again.
+        let (p, hub, store, remotes) = setup_at(NOW_MS + 24 * 3_600_000, dir.path(), PeopleLimits::default()).await;
+        assert_eq!(hub.people_limits(&store, &remotes, "origin").await.unwrap(), PeopleLimits::default());
+        assert_eq!(asked(&p), 1);
+    }
+
+    #[tokio::test]
+    async fn a_write_the_forge_trimmed_to_one_sets_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let (p, hub, store, remotes) = setup_at(NOW_MS, dir.path(), PeopleLimits::default()).await;
+        assert_eq!(hub.people_limits(&store, &remotes, "origin").await.unwrap(), PeopleLimits::default());
+        p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
+        let trimmed = GbError::new(GbErrorKind::InvalidInput, "GitLab kept only Ada: this project allows one reviewer").with_detail(ErrorDetail::PeopleLimit { role: "reviewers".into() });
+        *p.edit_error.lock().unwrap() = Some(trimmed);
+        let edit = MrEdit { reviewers: Some(PeopleEdit { add: vec![2], remove: vec![] }), ..Default::default() };
+        assert!(hub.edit_mr(&store, &remotes, 12, edit).await.is_err());
+        assert_eq!(hub.people_limits(&store, &remotes, "origin").await.unwrap(), PeopleLimits { max_reviewers: Some(1), max_assignees: None });
+    }
+
+    #[tokio::test]
+    async fn the_composer_needs_a_message_to_comment_or_request_changes_but_not_to_approve() {
+        let (p, hub, store, remotes) = setup().await;
+        p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
+        let review = |event, body: &str| ReviewSubmit { event, body: body.into() };
+        assert_eq!(hub.review(&store, &remotes, 12, review(ReviewEvent::Comment, " ")).await.unwrap_err().message, "Write a comment first");
+        assert_eq!(hub.review(&store, &remotes, 12, review(ReviewEvent::RequestChanges, "")).await.unwrap_err().message, "Say what to change first");
+        hub.review(&store, &remotes, 12, review(ReviewEvent::Approve, "")).await.unwrap();
+        hub.review(&store, &remotes, 12, review(ReviewEvent::Approve, "Nice")).await.unwrap();
+        let calls = p.calls();
+        assert_eq!(calls.iter().filter(|c| *c == "approve 12").count(), 2);
+        assert!(calls.iter().any(|c| c == "reply 12 None Nice"), "{calls:?}");
+    }
+    // --- end MR round 2 ---
 
     #[test]
     fn a_remote_ref_splits_on_the_longest_remote_name() {
@@ -724,7 +913,7 @@ mod tests {
     async fn the_list_details_and_discussions_come_from_the_target_project() {
         let (p, hub, store, remotes) = setup().await;
         p.mrs.lock().unwrap().extend([mr(12, "group/project", "dev", MrState::Open), mr(5, "group/project", "x", MrState::Draft)]);
-        let detail = ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: "d".into(), reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None };
+        let detail = ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: "d".into(), reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None };
         p.details.lock().unwrap().insert(12, detail.clone());
         let list = hub.mr_list(&store, &remotes, MrFilter::Mine).await.unwrap();
         assert_eq!((list.filter, list.remote.as_str(), list.mrs.len(), list.fetched_at), (MrFilter::Mine, "origin", 2, 9));
@@ -740,7 +929,7 @@ mod tests {
         let e = hub.reply(&store, &remotes, 12, NewNote { discussion: None, body: " \n".into() }).await.unwrap_err();
         assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "Write a reply first"));
         assert_eq!(hub.request_changes(&store, &remotes, 12, "  ".into()).await.unwrap_err().message, "Say what to change first");
-        let edit = MrEdit { title: Some(" ".into()), description: None, labels: None };
+        let edit = MrEdit { title: Some(" ".into()), description: None, labels: None, ..Default::default() };
         assert_eq!(hub.edit_mr(&store, &remotes, 12, edit).await.unwrap_err().message, "The title can't be empty");
         assert!(p.calls().iter().all(|c| !c.starts_with("reply") && !c.starts_with("request_changes") && !c.starts_with("edit")), "{:?}", p.calls());
     }
@@ -754,11 +943,26 @@ mod tests {
         hub.approve(&store, &remotes, 12).await.unwrap();
         hub.request_changes(&store, &remotes, 12, "Rename it".into()).await.unwrap();
         assert_eq!(hub.set_draft(&store, &remotes, 12, true).await.unwrap().state, MrState::Draft);
-        let opts = MergeOptions { method: None, squash: Some(true), delete_source_branch: None, expected_sha: None };
+        let opts = MergeOptions { squash: Some(true), ..Default::default() };
         assert_eq!(hub.merge(&store, &remotes, 12, opts).await.unwrap().state, MrState::Merged);
         let calls = p.calls();
         for c in ["reply 12 Some(\"d1\") Thanks", "approve 12", "request_changes 12 Rename it", "set_draft 12 true", "merge 12 Some(true)"] {
             assert!(calls.iter().any(|x| x == c), "{c} in {calls:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn auto_merge_is_set_and_cancelled_on_the_targets_provider() {
+        let (p, hub, store, remotes) = setup().await;
+        p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
+        let opts = MergeOptions { method: Some(MergeMethod::Squash), ..Default::default() };
+        let set = hub.set_auto_merge(&store, &remotes, 12, opts).await.unwrap();
+        assert_eq!((set.state, set.auto_merge.and_then(|a| a.enabled_by).map(|u| u.username)), (MrState::Open, Some(p.user.username.clone())));
+        assert_eq!(hub.cancel_auto_merge(&store, &remotes, 12).await.unwrap().auto_merge, None);
+        let calls = p.calls();
+        for c in ["set_auto_merge 12 Some(Squash)", "cancel_auto_merge 12"] {
+            assert!(calls.iter().any(|x| x == c), "{c} in {calls:?}");
+        }
+        assert!(!calls.iter().any(|c| c.starts_with("open_mrs_targeting") || c.starts_with("retarget")), "no stack guard: nothing merges now");
     }
 }

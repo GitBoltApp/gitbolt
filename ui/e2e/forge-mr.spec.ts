@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { addForgeAccount, E2E_GITLAB_TOKEN, forgeRequests, freshFixture, git, openUrl } from './fixtures';
+import { addForgeAccount, E2E_GITLAB_TOKEN, forgeRequests, forgeSeed, freshFixture, git, openUrl, setForgeSeed } from './fixtures';
 import { armedOverlay, confirmArmed, expect, test } from './test';
 
 /** The pointer at an element's centre: a hovered chip floats its copy over the resting one, so a
@@ -31,7 +31,9 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
     await pointAt(page, badge);
     const card = page.getByRole('tooltip').filter({ hasText: 'Dev work' });
     await expect(card).toContainText('!12');
-    await expect(card).toContainText('Grace Hopper · dev → main');
+    await expect(card.locator('.mr-card-author')).toContainText('Grace Hopper');
+    await expect(card.locator('.mr-card-title .mr-state')).toHaveText('Open');
+    await expect(card.locator('.mr-card-branches')).toHaveText('dev → main');
     await expect(card).toContainText('Pipeline passed');
     await expect(card).toContainText('0 of 1 approval');
 
@@ -44,6 +46,19 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
     await expect(view.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled();
     await expect(view).toContainText('It needs approval first');
 
+    await test.step('typing :thu in the comment box offers emoji, and Enter inserts :thumbsup: ', async () => {
+      const box = view.getByRole('textbox', { name: 'Write a comment' });
+      await box.pressSequentially(':thu');
+      await expect(page.getByRole('listbox', { name: 'Emoji' })).toBeVisible();
+      await box.press('Enter');
+      await expect(box).toHaveValue(':thumbsup: ');
+      await expect(page.getByRole('listbox', { name: 'Emoji' })).toBeHidden();
+      await box.press('Control+a');
+      await box.pressSequentially('@');
+      await expect(page.getByRole('listbox', { name: 'People' })).toBeVisible();
+      await box.press('Escape');
+      await expect(page.getByRole('listbox', { name: 'People' })).toBeHidden();
+    });
     await view.getByRole('textbox', { name: 'Write a comment' }).fill('Thanks, merging soon.');
     await view.getByRole('button', { name: 'Comment', exact: true }).click();
     await expect(view.getByRole('region', { name: 'Activity' })).toContainText('Thanks, merging soon.');
@@ -53,6 +68,148 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
     await expect(view.getByRole('button', { name: 'Approved', exact: true })).toBeVisible();
     await expect(view.getByRole('button', { name: 'Merge', exact: true })).toBeEnabled();
 
+    await test.step('an assignee added, then removed: at once, no confirm', async () => {
+      const people = view.getByRole('group', { name: 'Reviewers, assignees and labels' });
+      const puts = async () => (await forgeRequests(request)).filter((r) => r.method === 'PUT' && r.path === '/api/v4/projects/42/merge_requests/12').length;
+      await people.getByRole('button', { name: 'Add assignee' }).click();
+      await page.getByRole('combobox', { name: 'Assignees' }).fill('gra');
+      await page.getByRole('option', { name: /Grace Hopper/ }).click();
+      const remove = people.getByRole('button', { name: 'Remove Grace Hopper' });
+      await expect(remove).toBeVisible();
+      await expect.poll(puts).toBe(1);
+      await remove.click();
+      await expect(remove).toBeHidden();
+      await expect.poll(puts).toBe(2);
+      await expect(people.getByRole('button', { name: 'Remove Ada Lovelace' })).toBeVisible();
+    });
+
+    await test.step('auto-merge while the pipeline runs: set, shown with who set it, cancelled', async () => {
+      const seed = await forgeSeed(request);
+      const m = (seed.gitlab as unknown as { mergeRequests: Array<Record<string, unknown>> }).mergeRequests.find((x) => x.iid === 12)!;
+      Object.assign(m, { pipeline: 'running', mergeStatus: 'ci_still_running' });
+      await setForgeSeed(request, seed);
+      // Opened again (no page load): it loads the running pipeline.
+      await page.keyboard.press('Escape');
+      await expect(view).toBeHidden();
+      await page.getByRole('complementary', { name: 'Sidebar', exact: true }).getByRole('region', { name: 'Merge requests', exact: true }).getByRole('treeitem', { name: '!12 Dev work' }).click();
+      const box = view.getByRole('region', { name: 'Merge' });
+      await expect(box).toContainText('Merge when all checks pass');
+      await box.getByRole('button', { name: 'Set to auto-merge' }).click();
+      await confirmArmed(armedOverlay(page, 'Click again to set !12 to auto-merge'));
+      await expect(box).toContainText('Auto-merge set by');
+      await expect(box).toContainText('Ada Lovelace');
+      await expect(box).toContainText('Will merge when checks pass');
+      await box.getByRole('button', { name: 'Cancel auto-merge' }).click();
+      await confirmArmed(armedOverlay(page, 'Click again to cancel auto-merge of !12'));
+      await expect(box.getByRole('button', { name: 'Set to auto-merge' })).toBeVisible();
+      const writes = (await forgeRequests(request)).filter((r) => r.path.startsWith('/api/v4/projects/42/merge_requests/12/'));
+      expect(writes.some((r) => r.method === 'PUT' && r.path.endsWith('/merge'))).toBe(true);
+      expect(writes.some((r) => r.method === 'POST' && r.path.endsWith('/cancel_merge_when_pipeline_succeeds'))).toBe(true);
+    });
+
+    // --- MR round 2 ---
+    const mrs = (seed: Awaited<ReturnType<typeof forgeSeed>>) => (seed.gitlab as unknown as { mergeRequests: Array<Record<string, unknown>> }).mergeRequests;
+    const reopen = async () => {
+      await page.keyboard.press('Escape');
+      await expect(view).toBeHidden();
+      await page.getByRole('complementary', { name: 'Sidebar', exact: true }).getByRole('region', { name: 'Merge requests', exact: true }).getByRole('treeitem', { name: '!12 Dev work' }).click();
+      await expect(view).toBeVisible();
+    };
+
+    await test.step("Compare selects the MR's base and head in the graph and opens the compare", async () => {
+      // !12's head is origin/dev's tip; GitLab's base, main's tip: their merge base is the FROM.
+      const head = git(repo, 'rev-parse', 'origin/dev');
+      const base = git(repo, 'merge-base', 'origin/main', 'origin/dev');
+      const seed = await forgeSeed(request);
+      Object.assign(mrs(seed).find((x) => x.iid === 12)!, { headSha: head, baseSha: git(repo, 'rev-parse', 'origin/main') });
+      await setForgeSeed(request, seed);
+      await reopen();
+      const bar = view.getByRole('region', { name: 'Branches' });
+      // The new head loaded: the card counts what it brings.
+      await expect(bar).toContainText('1 commit');
+      await bar.getByRole('button', { name: 'Compare' }).click();
+      const header = page.getByTestId('compare-header');
+      await expect(header).toContainText(base.slice(0, 6));
+      await expect(header).toContainText(head.slice(0, 6));
+      await expect(graph.locator('[role="row"][aria-selected="true"]')).toHaveCount(2);
+      // Its click didn't toggle the commit list.
+      await expect(bar.getByRole('list', { name: 'Commits' })).toHaveCount(0);
+    });
+
+    await test.step('GitLab Free keeps one reviewer: the toast names who it kept, then + swaps', async () => {
+      const seed = await forgeSeed(request);
+      (seed.gitlab as unknown as { projects: Array<Record<string, unknown>> }).projects.find((p) => p.id === 42)!.singlePeople = true;
+      await setForgeSeed(request, seed);
+      const people = view.getByRole('group', { name: 'Reviewers, assignees and labels' });
+      await people.getByRole('button', { name: 'Add reviewer' }).click();
+      await page.getByRole('combobox', { name: 'Reviewers' }).fill('gra');
+      await page.getByRole('option', { name: /Grace Hopper/ }).click();
+      await expect(page.getByText('GitLab kept only Ada Lovelace: this project allows one reviewer')).toBeVisible();
+      await expect(people.getByRole('button', { name: 'Remove Grace Hopper' })).toBeHidden();
+      // The search is still open after that pick; its button toggles, so close it before reopening.
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('combobox', { name: 'Reviewers' })).toBeHidden();
+      await people.getByRole('button', { name: 'Replace reviewer' }).click();
+      await page.getByRole('combobox', { name: 'Reviewers' }).fill('gra');
+      await page.getByRole('option', { name: /Grace Hopper/ }).click();
+      await expect(people.getByRole('button', { name: 'Remove Grace Hopper' })).toBeVisible();
+      await expect(people.getByRole('button', { name: 'Remove Ada Lovelace' })).toBeHidden();
+      await expect.poll(async () => mrs(await forgeSeed(request)).find((x) => x.iid === 12)!.reviewers).toEqual(['grace']);
+    });
+
+    await test.step('Review… comments through the composer', async () => {
+      await view.getByRole('button', { name: 'Review…' }).click();
+      const form = view.getByRole('form', { name: 'Review' });
+      await form.getByRole('textbox', { name: 'Message' }).fill('One question below.');
+      await form.getByRole('button', { name: 'Comment', exact: true }).click();
+      await expect(form).toBeHidden();
+      await expect(view.getByRole('region', { name: 'Activity' })).toContainText('One question below.');
+    });
+    // --- end MR round 2 ---
+
+    // --- comment actions ---
+    type Seeded = { iid: number; discussions: Array<{ id: string; resolved: boolean; notes: Array<{ body: string; awards: Array<{ name: string }> }> }> };
+    const mr12 = async () => (mrs(await forgeSeed(request)) as unknown as Seeded[]).find((x) => x.iid === 12)!;
+    await test.step('my comment: react 👍 (a pill of 1, mine), edit it, delete it', async () => {
+      const activity = view.getByRole('region', { name: 'Activity' });
+      const id = await activity.locator('.mr-note', { hasText: 'Thanks, merging soon.' }).getAttribute('data-note');
+      const mine = activity.locator(`.mr-note[data-note='${id}']`);
+      await mine.hover();
+      await mine.getByRole('button', { name: 'Add reaction' }).click();
+      await page.getByRole('dialog', { name: 'Add reaction' }).getByRole('button', { name: ':thumbsup:' }).click();
+      await expect(mine.getByRole('button', { name: 'thumbsup: 1, yours' })).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(async () => (await mr12()).discussions.flatMap((d) => d.notes).find((n) => n.body === 'Thanks, merging soon.')?.awards.map((a) => a.name)).toEqual(['thumbsup']);
+      await mine.hover();
+      await mine.getByRole('button', { name: 'Comment actions' }).click();
+      await page.getByRole('menuitem', { name: /Edit/ }).click();
+      await mine.getByRole('textbox', { name: 'Edit comment' }).fill('Thanks, merging today.');
+      await mine.getByRole('button', { name: 'Save' }).click();
+      await expect(mine).toContainText('Thanks, merging today.');
+      await expect(mine.getByRole('button', { name: 'thumbsup: 1, yours' })).toBeVisible();
+      await mine.hover();
+      await mine.getByRole('button', { name: 'Comment actions' }).click();
+      await page.getByRole('menuitem', { name: /Delete/ }).click();
+      await confirmArmed(page.getByRole('menuitem', { name: /Click again to delete the comment/ }));
+      await expect(activity).not.toContainText('Thanks, merging today.');
+    });
+    await test.step('resolve a thread: its replies fold and the button turns green', async () => {
+      const activity = view.getByRole('region', { name: 'Activity' });
+      const diff = activity.getByRole('article').filter({ hasText: 'Why the second line?' });
+      await diff.getByRole('button', { name: 'Reply', exact: true }).click();
+      await diff.getByRole('textbox', { name: 'Reply' }).fill('It documents the setup.');
+      await diff.getByRole('button', { name: 'Reply', exact: true }).click();
+      await expect(diff).toContainText('It documents the setup.');
+      await diff.getByRole('button', { name: 'Resolve thread' }).click();
+      const resolved = diff.getByRole('button', { name: 'Unresolve thread' });
+      await expect(resolved).toHaveAttribute('aria-pressed', 'true');
+      await expect(resolved).toHaveClass(/\bon\b/);
+      await expect(diff.getByRole('button', { name: '1 reply' })).toHaveAttribute('aria-expanded', 'false');
+      await expect(diff).not.toContainText('It documents the setup.');
+      await expect(diff).toContainText('Last reply by Ada Lovelace');
+      await expect.poll(async () => (await mr12()).discussions.find((d) => d.id === 'd2')?.resolved).toBe(true);
+    });
+    // --- end comment actions ---
+
     const log = (await forgeRequests(request)).slice(logBefore);
     const mrCalls = log.filter((r) => r.path.includes('/merge_requests/12/'));
     expect(mrCalls.length).toBeGreaterThan(0);
@@ -60,8 +217,11 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
     expect(log.some((r) => r.method === 'POST' && r.path === '/api/v4/projects/42/merge_requests/12/notes')).toBe(true);
     expect(log.some((r) => r.method === 'POST' && r.path === '/api/v4/projects/42/merge_requests/12/approve')).toBe(true);
     expect(await page.content()).not.toContain(E2E_GITLAB_TOKEN);
-    await page.keyboard.press('Escape');
-    await expect(view).toBeHidden();
+    // Esc closes the view (after it leaves Compare's compare, when the graph has the keys).
+    await expect(async () => {
+      await page.keyboard.press('Escape');
+      await expect(view).toBeHidden({ timeout: 500 });
+    }).toPass({ timeout: 5000 });
   });
 
   test('the MR view docks beside the graph: both stay usable', async ({ page, request }) => {
@@ -94,10 +254,76 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
     await expect(details).toContainText('Initial commit');
     await expect(view).toBeVisible();
 
+    await test.step('docked narrow, the status line wraps and Check out, Edit and ⋯ stay at its right edge', async () => {
+      const handle = page.getByRole('separator', { name: 'Resize the panel' });
+      const h = (await handle.boundingBox())!;
+      await page.mouse.move(h.x + h.width / 2, h.y + 200);
+      await page.mouse.down();
+      await page.mouse.move(h.x - 400, h.y + 200, { steps: 8 });
+      await page.mouse.up();
+      const line = view.locator('.mr-line').first();
+      const [l, a] = [(await line.boundingBox())!, (await line.getByRole('group', { name: 'Actions' }).boundingBox())!];
+      expect(a.y, 'on a row of their own').toBeGreaterThan(l.y + 4);
+      expect(Math.abs(a.x + a.width - (l.x + l.width)), 'at the right edge').toBeLessThan(2);
+    });
+
     await undock.click();
     await expect(view.getByRole('button', { name: 'Dock beside the graph' })).toBeVisible();
     const [v2, g2] = [(await view.boundingBox())!, (await graph.boundingBox())!];
     expect(g2.x).toBeLessThan(v2.x + v2.width);
+  });
+
+  test('Edit shows the form first: title, description, then reviewers, assignees and labels; the rest steps aside', async ({ page, request }) => {
+    const repo = freshFixture('sync');
+    git(repo, 'remote', 'set-url', 'origin', 'https://gitlab.example.com/group/project.git');
+    await addForgeAccount(request, 'gitlab.example.com', 'gitlab', E2E_GITLAB_TOKEN);
+    await page.goto(openUrl(repo));
+    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+    await page.getByRole('complementary', { name: 'Sidebar', exact: true }).getByRole('region', { name: 'Merge requests', exact: true }).getByRole('treeitem', { name: '!12 Dev work' }).click();
+    const view = page.getByRole('dialog', { name: 'Merge request !12' });
+    await expect(view).toContainText('Adds the dev work.');
+    // GITBOLT_SHOT=<prefix> (a manual run): a screenshot of Edit in a narrow and a wide dock.
+    const shot = async (size: 'narrow' | 'wide') => { if (process.env.GITBOLT_SHOT) await page.screenshot({ path: `${process.env.GITBOLT_SHOT}-${size}.png` }); };
+    await view.getByRole('button', { name: 'Dock beside the graph' }).click();
+    const handle = page.getByRole('separator', { name: 'Resize the panel' });
+    const drag = async (dx: number) => {
+      const h = (await handle.boundingBox())!;
+      await page.mouse.move(h.x + h.width / 2, h.y + 200);
+      await page.mouse.down();
+      await page.mouse.move(h.x + dx, h.y + 200, { steps: 8 });
+      await page.mouse.up();
+    };
+    const edit = view.getByRole('button', { name: 'Edit', exact: true });
+    await drag(-400);
+    await edit.click();
+    await shot('narrow');
+    await view.getByRole('button', { name: 'Cancel' }).click();
+    await drag(800);
+    await edit.click();
+    await shot('wide');
+    await view.getByRole('button', { name: 'Cancel' }).click();
+    await edit.click();
+    const form = view.getByRole('form', { name: 'Edit' });
+    await expect(form.getByRole('textbox', { name: 'Title' })).toBeFocused();
+
+    await test.step('only the header, the branches and the form; the people rows sit below the description', async () => {
+      await expect(view.getByRole('region', { name: 'Activity' })).toBeHidden();
+      await expect(view.getByRole('region', { name: 'Merge' })).toBeHidden();
+      await expect(view.locator('.mr-facts')).toHaveCount(0);
+      const [d, p] = [(await form.locator('.md-field').boundingBox())!, (await form.getByRole('group', { name: 'Reviewers, assignees and labels' }).boundingBox())!];
+      expect(p.y).toBeGreaterThan(d.y + d.height - 1);
+    });
+    await test.step('Esc leaves Edit, back to the normal layout', async () => {
+      await form.getByRole('textbox', { name: 'Title' }).press('Escape');
+      await expect(form).toBeHidden();
+      await expect(view.getByRole('region', { name: 'Activity' })).toBeVisible();
+      await expect(view).toBeVisible();
+    });
+    await test.step("the Labels card's pencil opens Edit with the label picker open", async () => {
+      await view.getByRole('button', { name: 'Edit labels' }).click();
+      await expect(form).toBeVisible();
+      await expect(page.getByRole('combobox', { name: /label/i })).toBeVisible();
+    });
   });
 
   test("a sidebar row's menu: Copy link, then Check out a same-repository MR", async ({ page, request }) => {

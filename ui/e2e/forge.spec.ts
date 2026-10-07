@@ -90,6 +90,22 @@ test.describe('forge accounts and remotes (spec #4 §7, 4A)', () => {
       '/repos/octo-org/widget/issues/1/labels',
       '/repos/octo-org/widget/pulls/1/requested_reviewers',
     ]);
+
+    await test.step("the PR's view: a reviewer removed, then added back, at once", async () => {
+      await page.getByRole('complementary', { name: 'Sidebar', exact: true }).getByRole('region', { name: 'Pull requests', exact: true }).getByRole('treeitem', { name: '#1 Add the widget' }).click();
+      const view = page.getByRole('dialog', { name: 'Pull request #1' });
+      const people = view.getByRole('group', { name: 'Reviewers, assignees and labels' });
+      const remove = people.getByRole('button', { name: 'Remove hubot' });
+      const calls = async (method: string) => (await forgeRequests(request)).filter((r) => r.method === method && r.path === '/repos/octo-org/widget/pulls/1/requested_reviewers').length;
+      await remove.click();
+      await expect(remove).toBeHidden();
+      await expect.poll(() => calls('DELETE')).toBe(1);
+      await people.getByRole('button', { name: 'Add reviewer' }).click();
+      await page.getByRole('combobox', { name: 'Reviewers' }).fill('hub');
+      await page.getByRole('option', { name: /hubot/ }).click();
+      await expect(remove).toBeVisible();
+      await expect.poll(() => calls('POST')).toBe(3);
+    });
     expect(await page.content()).not.toContain(E2E_GITHUB_TOKEN);
   });
   // --- end 4C T10 ---

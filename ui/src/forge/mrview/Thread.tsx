@@ -1,5 +1,5 @@
-import { AtSign, Check, CircleAlert, CircleDot, CircleX, GitCommitHorizontal, GitMerge, GitPullRequestDraft, MessageSquare, Pencil, Tag, Type, type LucideIcon } from 'lucide-react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { AtSign, Check, ChevronRight, CircleAlert, CircleDot, CircleX, GitCommitHorizontal, GitMerge, GitPullRequestDraft, MessageSquare, Pencil, Tag, Type, type LucideIcon } from 'lucide-react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
@@ -7,8 +7,11 @@ import type { ForgeNote } from '../../api/gen/ForgeNote';
 import type { ForgeReview } from '../../api/gen/ForgeReview';
 import type { ForgeUser } from '../../api/gen/ForgeUser';
 import { ForgeAvatar } from '../../avatars/Avatar';
-import { relativeTime } from '../../format/relative';
 import { EmojiText } from '../emoji';
+import { useForge } from '../mrStore';
+import { changeableThread, foldKey, notePermalink, setFold, useThreadFolds } from './noteActions';
+import { linkMenu, linkMenuAt, NoteActions, NoteEditor, ReactionPills, ResolveButton } from './NoteActions';
+import { RelTime } from './RelTime';
 // --- 5A T10 ---
 import { signedAttachments } from '../../markdown/attachments';
 import { Markdown } from '../../markdown/lazy';
@@ -16,7 +19,9 @@ import { MR_BODY_MAX_BYTES } from '../../markdown/limits';
 import { whenIdle } from '../../markdown/idle';
 import { PlainBody } from '../../markdown/PlainBody';
 // --- end 5A T10 ---
+import { PendingMark } from '../../pending/PendingMark';
 import { openInBrowser } from './MrHeader';
+import { noteWhere } from './noteLine';
 import { openNoteFile } from './openNote';
 import { ThreadReply } from './ReplyBox';
 import { parseSystemNote, type NotePart, type SystemKind, type SystemNote } from './systemNote';
@@ -61,7 +66,7 @@ function SystemEvent({ n, kind, parts }: { n: { author: ForgeUser; createdAt: nu
   return (
     <div className="mr-ev mr-system" data-kind={kind}>
       <Node kind={kind} />
-      <div className="mr-ev-line"><b className="mr-who">{n.author.name}</b> <NoteParts parts={parts} /> <span className="mr-when">· {relativeTime(n.createdAt)}</span></div>
+      <div className="mr-ev-line"><b className="mr-who">{n.author.name}</b> <NoteParts parts={parts} /><RelTime at={n.createdAt} /></div>
     </div>
   );
 }
@@ -72,50 +77,91 @@ export const FIRST_BODIES = 20;
 const BODIES_PER_IDLE = 5;
 
 /** A comment, memoized on its data: a poll that changes nothing re-renders none. `deferred`: its
- * plain text holds the place until the timeline's idle rendering reaches it. */
-const Note = memo(function Note({ tabId, kind, n, reply, resolved, deferred }: { tabId: string; kind: ForgeKind; n: ForgeNote; reply: boolean; resolved: boolean; deferred: boolean }) {
+ * plain text holds the place until the timeline's idle rendering reaches it. The thread's first
+ * comment has its author's avatar on the timeline (and its Resolve, for a resolvable thread); a
+ * reply has a small one in its header. Its actions (react, ⋮) sit at the header's right end. */
+const Note = memo(function Note({ tabId, kind, mr, d, n, first, deferred, where }: { tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion; n: ForgeNote; first: boolean; deferred: boolean; where?: ReactNode }) {
   const text = useMemo(() => signedAttachments(n.body, n.bodyHtml ?? null), [n.body, n.bodyHtml]);
   const context = useMemo(() => ({ kind: 'forge', tabId }) as const, [tabId]);
+  const me = useForge((s) => s.byTab[tabId]?.me ?? null);
+  const [editing, setEditing] = useState(false);
+  const link = notePermalink(kind, mr, n);
+  const reactable = changeableThread(kind, d);
   return (
-    <div className={`mr-note${reply ? ' mr-reply-note' : ''}`}>
-      <ForgeAvatar user={n.author} size={28} />
-      <div>
-        <div className="mr-note-head">
-          <b>{n.author.name}</b>
-          <span className="mr-when">{relativeTime(n.createdAt)}</span>
-          {resolved && <span className="mr-resolved">Resolved</span>}
-        </div>
-        {/* --- 5A T10: rendered Markdown (spec #5 §2: every comment) --- */}
-        <div className="mr-note-body">
-          {deferred ? <PlainBody text={text} className="md" /> : <Markdown text={text} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />}
-        </div>
-        {/* --- end 5A T10 --- */}
+    <div className={`mr-note${first ? '' : ' mr-reply-note'}`} data-note={n.id}>
+      <div className="mr-note-head">
+        {!first && <ForgeAvatar user={n.author} size={18} />}
+        <b>{n.author.name}</b>
+        <RelTime at={n.createdAt} onContextMenu={link ? (e) => linkMenu(e, link) : undefined} onOpenMenu={link ? (el) => linkMenuAt(el, link) : undefined} />
+        <span className="mr-spacer" />
+        <NoteActions tabId={tabId} kind={kind} number={mr.number} d={d} n={n} link={link} mine={me !== null && n.author.username === me} reactable={reactable} onEdit={() => setEditing(true)} />
+        {first && d.resolvable && <ResolveButton tabId={tabId} number={mr.number} d={d} />}
       </div>
+      {where}
+      {editing
+        ? <NoteEditor tabId={tabId} kind={kind} number={mr.number} d={d} n={n} onDone={() => setEditing(false)} />
+        : (
+          // --- 5A T10: rendered Markdown (spec #5 §2: every comment) ---
+          <div className="mr-note-body">
+            {deferred ? <PlainBody text={text} className="md" /> : <Markdown text={text} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />}
+          </div>
+        )}
+      <ReactionPills tabId={tabId} kind={kind} number={mr.number} d={d} n={n} />
     </div>
   );
 });
 
-/** One discussion as a card: its notes (replies indented), the diff note's `file:line` (which
- * opens the file) and snippet, a Resolved chip, and Reply in its footer. `firstBody`: the
- * timeline's count of comment bodies before this thread; `rendered`: how many render yet. */
+/** A thread's replies: unfolded, just "Collapse replies"; folded, a toggle with the repliers'
+ * avatars (up to 3), how many, and who replied last, when. */
+function RepliesRow({ replies, open, toggle }: { replies: ForgeNote[]; open: boolean; toggle: () => void }) {
+  const people = [...new Map(replies.map((n) => [n.author.username, n.author])).values()].slice(0, 3);
+  const last = replies[replies.length - 1]!;
+  return (
+    <div className="mr-replies-row" onClick={toggle}>
+      <button type="button" className="mr-replies-toggle" aria-expanded={open} aria-label={open ? 'Collapse replies' : `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`} onClick={(e) => { e.stopPropagation(); toggle(); }}>
+        <ChevronRight size={14} className="mr-replies-chevron" aria-hidden />
+        {open
+          ? <span aria-hidden>Collapse replies</span>
+          : (
+            <>
+              <span className="mr-replies-faces" aria-hidden>{people.map((u) => <ForgeAvatar key={u.username} user={u} size={18} />)}</span>
+              <span className="mr-replies-count" aria-hidden>{replies.length} {replies.length === 1 ? 'reply' : 'replies'}</span>
+            </>
+          )}
+      </button>
+      {!open && <span className="mr-replies-last">Last reply by {last.author.name}<RelTime at={last.createdAt} /></span>}
+    </div>
+  );
+}
+
+/** One discussion as a card: the diff note's `file:line` (which opens the file) and snippet, its
+ * first comment, its replies (a resolved thread's folded by default; the user's choice kept for
+ * the session), and Reply at the bottom while unfolded. `firstBody`: the timeline's count of
+ * comment bodies before this thread; `rendered`: how many render yet. */
 export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBody = 0, rendered = Infinity }: {
   tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion; firstBody?: number; rendered?: number;
 }) {
+  const key = foldKey(tabId, mr.number, d.id);
+  const chosen = useThreadFolds((s) => s.open[key]);
   const notes = d.notes.filter((n) => !n.system);
   if (notes.length === 0) return null;
+  const replies = notes.slice(1);
+  const open = replies.length === 0 || (chosen ?? !d.resolved);
   const pos = d.notes.find((n) => n.position)?.position ?? null;
-  const line = pos ? pos.line ?? pos.oldLine : null;
   return (
-    <article className="mr-discussion" aria-label={`Thread by ${notes[0]!.author.name}`}>
-      {pos && (
-        <div className="mr-pos">
-          <button type="button" className="mr-link mr-where" onClick={() => void openNoteFile(tabId, kind, mr, pos.path)}>{pos.path}{line !== null ? `:${line}` : ''}</button>
-          {pos.snippet && <pre className="mr-snippet">{pos.snippet}</pre>}
-        </div>
-      )}
-      {notes.map((n, i) => <Note key={n.id} tabId={tabId} kind={kind} n={n} reply={i > 0} resolved={d.resolved && i === 0} deferred={firstBody + i >= rendered} />)}
+    <article className="mr-discussion" aria-label={`Thread by ${notes[0]!.author.name}`} data-resolved={d.resolved || undefined}>
+      <Note tabId={tabId} kind={kind} mr={mr} d={d} n={notes[0]!} first deferred={firstBody >= rendered} where={
+        (pos && (
+                <div className="mr-pos">
+                  <button type="button" className="mr-link mr-where" onClick={() => void openNoteFile(tabId, kind, mr, pos)}>{noteWhere(pos)}</button>
+                  {pos.snippet && <pre className="mr-snippet">{pos.snippet}</pre>}
+                </div>
+              ))
+      } />
+      {replies.length > 0 && <RepliesRow replies={replies} open={open} toggle={() => setFold(key, !open)} />}
+      {open && replies.map((n, i) => <Note key={n.id} tabId={tabId} kind={kind} mr={mr} d={d} n={n} first={false} deferred={firstBody + i + 1 >= rendered} />)}
       {/* --- 4B T13: reply in this thread --- */}
-      <ThreadReply tabId={tabId} kind={kind} number={mr.number} d={d} />
+      {open && <ThreadReply tabId={tabId} kind={kind} number={mr.number} d={d} />}
       {/* --- end 4B T13 --- */}
     </article>
   );
@@ -190,7 +236,7 @@ export function Thread({ tabId, kind, mr, discussions, reviews = [] }: { tabId: 
         ))}
       </div>
       <div className="mr-timeline" role="tabpanel">
-        {loading && <p className="mr-dim">Loading the discussion…</p>}
+        {loading && <p className="mr-dim mr-loading"><PendingMark action="fetch" size={14} label="Loading the discussion" /></p>}
         {!loading && shown.length === 0 && <p className="mr-dim">{tab === 'activity' ? 'No comments yet' : tab === 'comments' ? 'No comments yet' : 'No diff notes'}</p>}
         {shown.map((e) => {
           if (e.t === 'system') {
@@ -203,9 +249,11 @@ export function Thread({ tabId, kind, mr, discussions, reviews = [] }: { tabId: 
           }
           const firstBody = body;
           body += bodiesOf(e.d);
+          const author = e.d.notes.find((n) => !n.system)!.author;
           return (
-            <div key={e.key} className="mr-ev mr-thread-ev">
-              <Node kind="thread" icon={MessageSquare} />
+            <div key={e.key} className="mr-ev mr-thread-ev" data-diff={e.d.notes.some((n) => n.position) || undefined}>
+              {/* The thread's first comment's author, on the timeline. */}
+              <span className="mr-node mr-node-avatar" aria-hidden><ForgeAvatar user={author} size={22} /></span>
               <Discussion tabId={tabId} kind={kind} mr={mr} d={e.d} firstBody={firstBody} rendered={rendered} />
             </div>
           );

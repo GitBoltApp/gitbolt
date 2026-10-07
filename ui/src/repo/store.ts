@@ -9,6 +9,7 @@ import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileListPayload } from '../api/gen/FileListPayload';
 import type { GraphPayload } from '../api/gen/GraphPayload';
+import type { DiffLine } from '../diff/monaco/host';
 import { perf } from '../perf';
 import { contentKey, filesKey, isMutableKey, type RepoServices } from './services';
 
@@ -37,6 +38,9 @@ export interface DiffTarget {
   new: BlobSource;
   /** `file` = File View (the whole file, read-only); `diff` = Diff View. */
   view: 'diff' | 'file';
+  /** Diff View opens at this line instead of the first change (a diff note's `file:line`). Each
+   * open's own object: opening the same file at a line again goes there again. */
+  line?: DiffLine;
 }
 
 export interface FileSection { title: string | null; spec: DiffSpec; list: Loadable<FileListPayload> }

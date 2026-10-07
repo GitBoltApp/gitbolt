@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HoverTooltip } from './HoverTooltip';
+import { HoverTooltip, placeShown } from './HoverTooltip';
 import { countSyntheticPointerEvents } from './pointerRest';
 
 describe('HoverTooltip', () => {
@@ -382,5 +382,17 @@ describe('placement near the window edge (K52)', () => {
     expect(css).toMatch(/max-width:\s*min\(320px/);
     expect(css).toMatch(/overflow-wrap:\s*break-word/);
     expect(css).not.toMatch(/overflow-wrap:\s*anywhere/);
+  });
+});
+
+describe('placeShown: a card beside its anchor stays inside the window', () => {
+  it('a card that grew taller than the room below its centred spot moves up to fit', () => {
+    const vh = window.innerHeight;
+    const anchor = { left: 300, top: vh - 40, bottom: vh - 20, leftOf: 700 };
+    const short = placeShown(anchor, { width: 300, height: 60 });
+    const tall = placeShown(anchor, { width: 300, height: 260 });
+    expect(short.top + 60).toBeLessThanOrEqual(vh);
+    expect(tall.top + 260).toBeLessThanOrEqual(vh);
+    expect(tall.left).toBe(700 - 6 - 300);
   });
 });

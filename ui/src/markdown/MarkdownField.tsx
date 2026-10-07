@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { registerKeyHints } from '../shortcuts/hints';
 import { Markdown } from './lazy';
 import type { MarkdownContext, MdFlavor } from './types';
+import { useCompletion } from './useCompletion';
+import { useEmojiProvider, useMentionProvider } from './providers';
 import './field.css';
 
 export const PREVIEW_DEBOUNCE_MS = 150;
@@ -39,6 +41,7 @@ export function MarkdownField({ value, onChange, label, flavor, context, placeho
   const area = useRef<HTMLTextAreaElement>(null);
   const pane = useRef<HTMLDivElement>(null);
   const caret = useRef<[number, number]>([0, 0]);
+  const emoji = useCompletion(area, value, onChange, [useEmojiProvider(), useMentionProvider(context.tabId)]);
   useEffect(() => {
     if (mode !== 'preview' || shown === value) return;
     const t = setTimeout(() => setShown(value), PREVIEW_DEBOUNCE_MS);
@@ -67,6 +70,7 @@ export function MarkdownField({ value, onChange, label, flavor, context, placeho
       show(mode === 'write' ? 'preview' : 'write');
       return;
     }
+    if (e.currentTarget === area.current && emoji.keyDown(e)) return;
     onKeyDown?.(e);
   };
   return (
@@ -90,10 +94,13 @@ export function MarkdownField({ value, onChange, label, flavor, context, placeho
           value={value}
           aria-hidden={mode === 'preview' || undefined}
           tabIndex={mode === 'preview' ? -1 : undefined}
-          onChange={(e) => onChange(e.target.value)}
+          {...emoji.aria}
+          onChange={(e) => { onChange(e.target.value); emoji.sync(); }}
+          onSelect={emoji.sync}
           onKeyDown={keys}
           onBlur={onBlur}
         />
+        {mode === 'write' && emoji.popup}
         {mode === 'preview' && (
           <div ref={pane} className="md-field-preview" role="tabpanel" aria-label={`${label} preview`} tabIndex={0} onKeyDown={keys}>
             {shown.trim() ? <Markdown text={shown} flavor={flavor} context={context} /> : <p className="md-field-empty">Nothing to preview</p>}

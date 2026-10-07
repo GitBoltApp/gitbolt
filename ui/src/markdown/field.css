@@ -21,3 +21,10 @@
 .md-field-empty { margin: 0; color: var(--text-secondary); }
 .md-field-foot { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-top: 1px solid var(--wip-input-border); font-size: 11px; color: var(--text-disabled); }
 .md-field-mark { flex: none; }
+/* The :emoji popup, at the caret (fixed, so the box's overflow cannot clip it). */
+.md-emoji-pop { position: fixed; z-index: 50; margin: 0; padding: 4px; list-style: none; min-width: 180px; max-height: 260px; overflow-y: auto; border: 1px solid var(--wip-input-border); border-radius: 6px; background: var(--panel-bg1); box-shadow: 0 6px 18px var(--shadow-popup); font-size: 12px; }
+.md-emoji-opt { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 4px; color: var(--text-normal); cursor: pointer; }
+.md-emoji-opt[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
+.md-emoji-glyph { width: 1.4em; text-align: center; font-size: 14px; }
+.md-mention-handle { color: var(--text-secondary); }
+.md-emoji-opt[aria-selected="true"] .md-mention-handle { color: inherit; opacity: 0.8; }

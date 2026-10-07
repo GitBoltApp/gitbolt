@@ -10,7 +10,7 @@ export type MrOf = (branch: string) => ForgeMr | null;
 /** GitLab's native stacks hold at most 20; a longer walk is a loop (Ruling 13). */
 export const MAX_CHAIN = 20;
 
-export const MR_STATE_WORDS: Record<MrState, string> = { open: 'Open', draft: 'Draft', merged: 'Merged', closed: 'Closed' };
+export const MR_STATE_WORDS: Record<MrState, string> = { open: 'Open', draft: 'Draft', merged: 'Merged', merging: 'Merging', closed: 'Closed' };
 
 export const isOpenMr = (m: ForgeMr | null | undefined): m is ForgeMr => !!m && (m.state === 'open' || m.state === 'draft');
 

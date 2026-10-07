@@ -471,6 +471,11 @@ impl HttpClient {
         self.request(method, path, Some(body.to_string().into_bytes()), None).await
     }
 
+    /// A DELETE without a body (answered 204 by both forges).
+    pub async fn delete(&self, path: &str) -> Result<HttpResponse, GbError> {
+        self.request(Method::Delete, path, None, None).await
+    }
+
     /// Every page of a list, following `Link: rel="next"` on the API's own origin, at most `max_pages`.
     pub async fn get_pages(&self, path: &str, max_pages: usize) -> Result<Vec<serde_json::Value>, GbError> {
         self.pages(path, max_pages, None).await

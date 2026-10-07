@@ -77,6 +77,28 @@ async fn a_github_repo_gets_its_pull_requests() {
     assert_eq!(draft["state"], "draft");
 }
 
+// --- auto-merge ---
+#[tokio::test(flavor = "multi_thread")]
+async fn auto_merge_is_set_and_cancelled_through_the_api() {
+    let h = Harness::for_tests().await;
+    let mut seed = h.forge.current_seed();
+    let m = seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap();
+    m.pipeline = Some("running".into());
+    m.merge_status = "ci_still_running".into();
+    h.forge.seed(seed);
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": GITLAB_TOKEN}})).await.unwrap();
+    let r = repo_on("https://gitlab.example.com/group/project.git");
+    let id = open(&h.api, &r).await;
+    let set = call(&h.api, json!({"method": "forgeSetAutoMerge", "params": {"repo": id, "number": 12, "options": {"method": null, "squash": false, "deleteSourceBranch": true, "expectedSha": null}}})).await.unwrap();
+    assert_eq!((set["state"].as_str(), set["autoMerge"]["enabledBy"]["username"].as_str()), (Some("open"), Some("ada")));
+    let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 12}})).await.unwrap();
+    assert_eq!(detail["value"]["mr"]["autoMerge"]["enabledBy"]["username"], "ada");
+    let cancelled = call(&h.api, json!({"method": "forgeCancelAutoMerge", "params": {"repo": id, "number": 12}})).await.unwrap();
+    assert_eq!(cancelled["autoMerge"], serde_json::Value::Null);
+    assert!(!serde_json::to_string(&h.forge.requests()).unwrap().contains(GITLAB_TOKEN));
+}
+// --- end auto-merge ---
+
 // --- 4B final fix ---
 #[tokio::test(flavor = "multi_thread")]
 async fn a_full_github_poll_reads_each_prs_checks_once() {

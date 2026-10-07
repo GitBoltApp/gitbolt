@@ -3,4 +3,4 @@
 /**
  * The badge's state (spec #4 §2 "Badge"): a draft is an open MR/PR marked draft.
  */
-export type MrState = "open" | "draft" | "merged" | "closed";
+export type MrState = "open" | "draft" | "merged" | "merging" | "closed";

@@ -69,6 +69,8 @@ export function closeFlyout(tabId: string): void {
 }
 
 export const flyoutOf = (tabId: string): OpenFlyout | null => useFlyouts.getState().byTab[tabId] ?? null;
+/** The tab's open flyout now, outside React. */
+export const shownFlyout = (tabId: string): OpenFlyout | null => useFlyouts.getState().byTab[tabId] ?? null;
 export const useFlyout = (tabId: string): OpenFlyout | null => useFlyouts((s) => s.byTab[tabId] ?? null);
 
 /** Its width for a `preferred` one (null: the default) in a center `room` px wide: within

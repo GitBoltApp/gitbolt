@@ -84,6 +84,16 @@ describe('DiffPanel', () => {
     expect(store.getState().focus).toBe('graph');
   });
 
+  it("a target's line (a note's file:line) goes to the editor's show, again on each open, even of the same file", async () => {
+    const line = { side: 'modified', line: 92 } as const;
+    const { store } = renderPanel({ ...targetFor(change('src/app.php'), spec), line }, text);
+    await waitFor(() => expect(host.showDiff).toHaveBeenCalledWith(expect.objectContaining({ path: 'src/app.php', line })));
+    const shows = host.showDiff.mock.calls.length;
+    act(() => store.getState().openFile({ ...targetFor(change('src/app.php'), spec), line: { side: 'original', line: 7 } }));
+    await waitFor(() => expect(host.showDiff).toHaveBeenLastCalledWith(expect.objectContaining({ line: { side: 'original', line: 7 } })));
+    expect(host.showDiff).toHaveBeenCalledTimes(shows + 1);
+  });
+
   it.each([
     ['A', 'Added'],
     ['M', 'Modified'],

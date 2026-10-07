@@ -4,7 +4,7 @@ import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
 
-const api = vi.hoisted(() => ({ forgeApprove: vi.fn(async () => null), forgeRequestChanges: vi.fn(async () => null), forgeSetDraft: vi.fn(), forgeEditMr: vi.fn(), forgeLabels: vi.fn(async () => [{ name: 'ui', color: '#1f75cb', description: null }]) }));
+const api = vi.hoisted(() => ({ forgeApprove: vi.fn(async () => null), forgeReview: vi.fn(async () => ({ fallback: false })), forgeSetDraft: vi.fn(), forgePeopleLimits: vi.fn(() => new Promise(() => {})), forgeSearchUsers: vi.fn(async () => []), forgeEditMr: vi.fn(), forgeSetSubscribed: vi.fn(async (_r: number, _n: number, on: boolean) => on), forgeLabels: vi.fn(async () => [{ name: 'ui', color: '#1f75cb', description: null }]) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e) }));
 const polling = vi.hoisted(() => ({ notifyForgeWrite: vi.fn() }));
 vi.mock('../usePolling', () => polling);
@@ -102,21 +102,24 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     expect(api.forgeApprove).not.toHaveBeenCalled();
   });
 
-  it('Approve and Request changes are small icon buttons in the APPROVALS box, with the forge wording in their tooltips', () => {
+  it('Approve and Review… are small bordered buttons in the APPROVALS card, with the forge wording in their tooltips', () => {
     show();
     const box = screen.getByTestId('approvals');
     const group = within(box).getByRole('group', { name: 'Review' });
     const [ok, changes] = within(group).getAllByRole('button');
     expect(ok).toHaveAccessibleName('Approve');
-    expect(ok).toHaveClass('mr-review-btn', 'approve');
+    expect(ok).toHaveClass('card-btn', 'approve');
     expect(ok).toHaveTextContent('');
-    expect(changes).toHaveAccessibleName('Request changes');
-    expect(changes).toHaveClass('mr-review-btn', 'changes');
+    expect(changes).toHaveAccessibleName('Review…');
+    expect(changes).toHaveClass('card-btn', 'changes', 'prompts');
+    // It opens the composer: a caret right of its icon; Approve acts: none.
+    expect(changes!.querySelector('.card-caret')).toBeTruthy();
+    expect(ok!.querySelector('.card-caret')).toBeNull();
     fireEvent.mouseEnter(ok!);
     expect(screen.getByRole('tooltip')).toHaveTextContent('Approve !12');
     fireEvent.mouseLeave(ok!);
     fireEvent.mouseEnter(changes!);
-    expect(screen.getByRole('tooltip')).toHaveTextContent('Request changes on !12');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Review !12: comment, approve or request changes');
   });
 
   it("a GitHub PR's tooltips say #12", () => {
@@ -130,26 +133,80 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     show(mr, approved);
     const btn = screen.getByRole('button', { name: 'Approved' });
     expect(btn).toBeDisabled();
+    expect(btn, 'drawn pressed, in green').toHaveAttribute('data-on');
     fireEvent.mouseEnter(btn);
     expect(screen.getByRole('tooltip')).toHaveTextContent('You approved !12');
   });
 
-  it('Request changes opens its composer (no arm), which needs a comment, then sends it', async () => {
+  // --- MR round 2: the review composer ---
+  const openReview = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    expect(overlay(), 'a prompt: no arm').toBeNull();
+    return screen.getByRole('form', { name: 'Review' });
+  };
+  const mode = (form: HTMLElement, name: string) => fireEvent.click(within(form).getByRole('radio', { name }));
+  const message = (form: HTMLElement, value: string) => fireEvent.change(within(form).getByRole('textbox', { name: 'Message' }), { target: { value } });
+
+  it('Review… opens the composer: Comment, Approve and Request changes; the submit names the mode', () => {
     show();
-    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
-    expect(overlay()).toBeNull();
-    const form = screen.getByRole('form', { name: 'Request changes' });
-    expect(form).toHaveTextContent("GitLab's API has no review state");
+    const form = openReview();
+    expect(within(form).getAllByRole('radio').map((r) => r.closest('label')?.textContent)).toEqual(['Comment', 'Approve', 'Request changes']);
+    expect(within(form).getByRole('radio', { name: 'Comment' })).toBeChecked();
+    expect(within(form).getByRole('textbox', { name: 'Message' })).toHaveFocus();
+    for (const name of ['Comment', 'Approve', 'Request changes']) {
+      mode(form, name);
+      expect(within(form).getByRole('button', { name })).toHaveAttribute('type', 'submit');
+    }
+  });
+
+  it('Request changes needs a message, then sends it; GitLab says what it does', async () => {
+    show();
+    const form = openReview();
+    mode(form, 'Request changes');
+    expect(form).toHaveTextContent('withdraws your approval');
     const send = within(form).getByRole('button', { name: 'Request changes' });
     expect(send).toBeDisabled();
-    fireEvent.change(within(form).getByRole('textbox', { name: 'What should change?' }), { target: { value: 'Please add a test.' } });
+    message(form, 'Please add a test.');
     fireEvent.click(send);
     await waitFor(() => expect(useToast.getState().message).toBe('Requested changes on !12'));
-    expect(api.forgeRequestChanges).toHaveBeenCalledWith(4, 12, 'Please add a test.');
+    expect(api.forgeReview).toHaveBeenCalledWith(4, 12, { event: 'requestChanges', body: 'Please add a test.' });
     expect(polling.notifyForgeWrite).toHaveBeenCalledTimes(1);
     expect(poll.refreshMr).not.toHaveBeenCalled();
-    expect(screen.queryByRole('form', { name: 'Request changes' })).toBeNull();
+    expect(screen.queryByRole('form', { name: 'Review' })).toBeNull();
   });
+
+  it('Approve needs no message; Comment needs one; Ctrl+Enter submits', async () => {
+    show();
+    let form = openReview();
+    mode(form, 'Approve');
+    fireEvent.click(within(form).getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(useToast.getState().message).toBe('Approved !12'));
+    expect(api.forgeReview).toHaveBeenCalledWith(4, 12, { event: 'approve', body: '' });
+    form = openReview();
+    expect(within(form).getByRole('button', { name: 'Comment' })).toBeDisabled();
+    message(form, 'Looks good');
+    fireEvent.keyDown(within(form).getByRole('textbox', { name: 'Message' }), { key: 'Enter', ctrlKey: true });
+    await waitFor(() => expect(useToast.getState().message).toBe('Commented on !12'));
+    expect(api.forgeReview).toHaveBeenLastCalledWith(4, 12, { event: 'comment', body: 'Looks good' });
+  });
+
+  it("an older GitLab's Request changes: the toast says it only commented and withdrew the approval", async () => {
+    api.forgeReview.mockResolvedValueOnce({ fallback: true });
+    show();
+    const form = openReview();
+    mode(form, 'Request changes');
+    message(form, 'Rename it');
+    fireEvent.click(within(form).getByRole('button', { name: 'Request changes' }));
+    await waitFor(() => expect(useToast.getState().message).toBe('Commented on !12 and withdrew your approval: this GitLab has no Changes requested state'));
+  });
+
+  it('GitHub: no GitLab note', () => {
+    show(mr, detail, 'github');
+    const form = openReview();
+    mode(form, 'Request changes');
+    expect(form).not.toHaveTextContent('withdraws your approval');
+  });
+  // --- end MR round 2 ---
 
   it("Mark as ready / Mark as draft follow the state, and the server's answer is shown", async () => {
     api.forgeSetDraft.mockResolvedValueOnce(mrOf(12, { title: 'Dev work', state: 'open' }));
@@ -158,6 +215,45 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     await waitFor(() => expect(forgeOf('t').details[12]?.value.mr.state).toBe('open'));
     expect(api.forgeSetDraft).toHaveBeenCalledWith(4, 12, false);
   });
+
+  // --- MR round 2: notifications ---
+  /** `Actions`, fed from the store (the menu's row follows the detail's `subscribed`). */
+  const showLive = (subscribed: boolean | undefined) => {
+    patchForge('t', { details: { 12: { value: { ...detail, subscribed }, at: 1 } } });
+    const Live = () => {
+      const d = useForge((s) => s.byTab.t?.details[12]?.value ?? null);
+      return <Actions kind="gitlab" mr={mr} detail={d} />;
+    };
+    return render(<><Live /><ContextMenu /></>);
+  };
+  const subscribed = () => forgeOf('t').details[12]?.value.subscribed;
+
+  it("⋯ Subscribe / Unsubscribe follows the forge's notifications, at once, and sends it", async () => {
+    let answer!: (on: boolean) => void;
+    api.forgeSetSubscribed.mockReturnValueOnce(new Promise((r) => { answer = r; }));
+    showLive(false);
+    fireEvent.click(menuRow('Subscribe'));
+    expect(subscribed(), 'optimistic').toBe(true);
+    await waitFor(() => expect(api.forgeSetSubscribed).toHaveBeenCalledWith(4, 12, true));
+    answer(true);
+    await waitFor(() => expect(polling.notifyForgeWrite).toHaveBeenCalled());
+    fireEvent.click(menuRow('Unsubscribe'));
+    await waitFor(() => expect(api.forgeSetSubscribed).toHaveBeenLastCalledWith(4, 12, false));
+    await waitFor(() => expect(subscribed()).toBe(false));
+  });
+
+  it('a refused Subscribe is put back and says why; unknown: no row', async () => {
+    api.forgeSetSubscribed.mockRejectedValueOnce({ message: 'gitlab.example.com refused: 403 Forbidden' });
+    const { unmount } = showLive(false);
+    fireEvent.click(menuRow('Subscribe'));
+    await waitFor(() => expect(useToast.getState().message).toBe("Couldn't subscribe to !12: gitlab.example.com refused: 403 Forbidden"));
+    expect(subscribed()).toBe(false);
+    unmount();
+    showLive(undefined);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.queryByRole('menuitem', { name: /Subscribe/ })).toBeNull();
+  });
+  // --- end MR round 2 ---
 
   it("Edit's description is a ten-row textarea", () => {
     show();
@@ -232,7 +328,7 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
 
   it('on a merged MR: no review actions or Edit, but Check out and the menu (Copy link only)', () => {
     show(mrOf(12, { state: 'merged' }));
-    for (const n of ['Approve', 'Request changes', 'Edit']) expect(screen.queryByRole('button', { name: n })).toBeNull();
+    for (const n of ['Approve', 'Review…', 'Edit']) expect(screen.queryByRole('button', { name: n })).toBeNull();
     expect(screen.getByRole('button', { name: 'Check out' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getAllByRole('menuitem')).toHaveLength(1);

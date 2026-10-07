@@ -3,6 +3,6 @@ import type { MergeMethod } from "./MergeMethod";
 
 export type MergeOptions = { method: MergeMethod | null, squash: boolean | null, deleteSourceBranch: boolean | null, 
 /**
- * Merge only if the head is still this commit.
+ * Merge only if the head is still this commit. The commit messages are the forge's own.
  */
 expectedSha: string | null, };

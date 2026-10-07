@@ -4,7 +4,7 @@ import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}), loadMrDetail: vi.fn(async () => {}), openMrView: vi.fn() }));
 vi.mock('../poll', () => poll);
-const api = vi.hoisted(() => ({ openUrl: vi.fn(async () => null), forgeImage: vi.fn(async () => ({ kind: 'found', mime: 'image/png', base64: 'iVBORw==' })), forgeProjectSettings: vi.fn(() => new Promise(() => {})) }));
+const api = vi.hoisted(() => ({ openUrl: vi.fn(async () => null), forgeImage: vi.fn(async () => ({ kind: 'found', mime: 'image/png', base64: 'iVBORw==' })), forgeProjectSettings: vi.fn(() => new Promise(() => {})), forgePeopleLimits: vi.fn(() => new Promise(() => {})) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: String }));
 vi.mock('./openNote', () => ({ openNoteFile: vi.fn(async () => {}) }));
 // Spies on the parse and the render, the real ones underneath.

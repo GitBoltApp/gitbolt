@@ -22,13 +22,14 @@
 /* The row a context menu is open for (UX round 2: a right-click never moves the active row). */
 .sb-row[data-context="true"] { outline: 1px solid var(--blue); outline-offset: -1px; }
 .sb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* A draft MR/PR (its row has no state icon). */
-.sb-label[data-draft] { color: var(--text-secondary); }
 .sb-pipeline { flex: none; display: inline-flex; }
+.sb-automerge { flex: none; display: inline-flex; color: var(--text-secondary); opacity: 0.8; }
 .sb-count { font-weight: 700; color: var(--count-blue); }
 .sb-item.is-head { background: var(--checked-out-row); color: var(--text-selected); font-weight: 600; }
-.sb-row > svg:not([data-host-kind]) { flex: none; color: var(--sidebar-icon); }
-.sb-row:hover > svg:not([data-host-kind]), .sb-row[data-active="true"] > svg:not([data-host-kind]) { color: var(--text-normal); }
+.sb-row > svg:not([data-host-kind]) { flex: none; }
+/* Every row icon is dimmed except an MR/PR's state icon, which keeps its state colour (mr.css). */
+.sb-row > svg:not([data-host-kind], .mr-state-icon) { color: var(--sidebar-icon); }
+.sb-row:hover > svg:not([data-host-kind], .mr-state-icon), .sb-row[data-active="true"] > svg:not([data-host-kind], .mr-state-icon) { color: var(--text-normal); }
 .sb-row > svg[data-host-kind="generic"] { margin: 0 -1px; }
 .sn-item svg { color: var(--sidebar-icon); }
 .sn-item:hover svg { color: var(--text-normal); }
@@ -42,7 +43,8 @@
 .sn-item { all: unset; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 0; width: 36px; color: var(--text-secondary); border-radius: 4px; cursor: pointer; }
 .sn-item:hover { background: var(--hover-row); color: var(--text-selected); }
 .sn-count { font-size: 10px; font-weight: 700; color: var(--count-blue); }
-.hover-card { position: fixed; z-index: 700; width: 300px; padding: 10px 12px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); pointer-events: none; }
+/* A tooltip: over the status bar (810), as `.hover-tooltip`. */
+.hover-card { position: fixed; z-index: 1000; width: 300px; padding: 10px 12px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow-popup); pointer-events: none; }
 .hc-name { color: var(--text-selected); font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
 .hc-summary { margin-bottom: 4px; }
 .hc-meta { font-size: 11px; color: var(--text-secondary); }

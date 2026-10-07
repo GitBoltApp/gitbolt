@@ -13,7 +13,7 @@
 //! Never a token: the forge's own data, in the user's own data dir. Removing the account deletes
 //! its host's directory.
 
-use crate::forge::{AccountKey, ForgeMr, ForgeProject, MrState, StoredResponse};
+use crate::forge::{AccountKey, ForgeMr, ForgeProject, MrState, PeopleLimits, StoredResponse};
 use crate::journal::Clock;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -53,7 +53,7 @@ impl RefLookup {
         let ttl = match self.mr.as_ref().map(|m| m.state) {
             None => LOOKUP_NONE_SECS,
             Some(MrState::Merged | MrState::Closed) => LOOKUP_DONE_SECS,
-            Some(MrState::Open | MrState::Draft) => return false,
+            Some(MrState::Open | MrState::Draft | MrState::Merging) => return false,
         };
         self.tips == tips && now.saturating_sub(self.at) < ttl
     }
@@ -85,7 +85,13 @@ pub struct ProjectCache {
     pub open_refs: BTreeSet<String>,
     /// The lists' validators and bodies (`ForgeProvider::export_responses`).
     pub responses: Vec<StoredResponse>,
+    /// How many reviewers and assignees its MRs may have, and when that was read (unix
+    /// seconds): asked again after `PEOPLE_LIMITS_SECS`.
+    pub people_limits: Option<(PeopleLimits, i64)>,
 }
+
+/// The people limits are the namespace's tier's: asked again after a day.
+pub const PEOPLE_LIMITS_SECS: i64 = 24 * 3600;
 
 /// (profile, host, project path).
 pub type CacheKey = (String, String, String);

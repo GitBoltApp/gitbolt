@@ -3,4 +3,9 @@
 /**
  * Where a diff-line note sits (spec #4 §2: shown in the thread with `file:line` and a snippet).
  */
-export type DiffPosition = { path: string, oldPath: string | null, line: number | null, oldLine: number | null, snippet: string | null, };
+export type DiffPosition = { path: string, oldPath: string | null, line: number | null, oldLine: number | null, snippet: string | null, 
+/**
+ * A multi-line note's first line, as `line` / `old_line` are its last (GitLab's `line_range`,
+ * GitHub's `start_line`): `None` for a single-line note.
+ */
+startLine: number | null, startOldLine: number | null, };

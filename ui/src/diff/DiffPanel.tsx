@@ -279,7 +279,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
         ? <FileBody identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} markdown={markdownOf(selection, target)} />
         : (
           <DiffTextBody
-            identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified} language={language}
+            identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified} language={language} line={target.line}
             onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined}
             // Spec #2 §7.3: hunk and line buttons on a WIP text diff (in Source only, R8).
             after={wip ? <HunkActions target={target} /> : null}

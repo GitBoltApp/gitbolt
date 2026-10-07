@@ -4,7 +4,7 @@ import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}), loadMrDetail: vi.fn(async () => {}), openMrView: vi.fn() }));
 vi.mock('../poll', () => poll);
-const api = vi.hoisted(() => ({ openUrl: vi.fn(async () => null), forgeImage: vi.fn(async () => ({ kind: 'found', mime: 'image/png', base64: 'iVBORw==' })), forgeProjectSettings: vi.fn(() => new Promise(() => {})) }));
+const api = vi.hoisted(() => ({ forgeLabels: vi.fn(async () => [{ name: 'ui', color: '#1f75cb', description: null }]), forgeSearchUsers: vi.fn(async () => []), openUrl: vi.fn(async () => null), forgeImage: vi.fn(async () => ({ kind: 'found', mime: 'image/png', base64: 'iVBORw==' })), forgeProjectSettings: vi.fn(() => new Promise(() => {})), forgePeopleLimits: vi.fn(() => new Promise(() => {})) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: String }));
 const note = vi.hoisted(() => ({ openNoteFile: vi.fn(async () => {}) }));
 vi.mock('./openNote', () => note);
@@ -19,7 +19,7 @@ const mr = mrOf(12, { title: 'Dev work', pipeline: { status: 'success', webUrl: 
 const detail = detailOf({ ...mr, review: { decision: 'reviewRequired', approvals: 0, approvalsRequired: 1, reviews: [] } }, { reviewers: [user('Ada Lovelace')], mergeStatus: { kind: 'blocked', reason: 'It needs approval first' } });
 const threads: ForgeDiscussion[] = [
   { id: 'd1', resolvable: false, resolved: false, notes: [{ id: '101', author: grace, body: 'Looks good overall.', createdAt: 1_791_100_000, system: false, position: null }] },
-  { id: 'd2', resolvable: true, resolved: true, notes: [{ id: '102', author: grace, body: 'Why the second line?', createdAt: 1_791_100_300, system: false, position: { path: 'README.md', oldPath: null, line: 2, oldLine: null, snippet: ' Readme\n+Second line' } }] },
+  { id: 'd2', resolvable: true, resolved: true, notes: [{ id: '102', author: grace, body: 'Why the second line?', createdAt: 1_791_100_300, system: false, position: { path: 'README.md', oldPath: null, line: 2, oldLine: null, snippet: ' Readme\n+Second line', startLine: 1, startOldLine: 1 } }] },
   { id: 'd3', resolvable: false, resolved: false, notes: [{ id: '103', author: grace, body: 'added 1 commit', createdAt: 1_791_100_600, system: true, position: null }] },
 ];
 const close = vi.fn();
@@ -36,6 +36,13 @@ beforeEach(() => {
 });
 
 describe('the MR/PR view (spec #4 §4 "4B")', () => {
+  it('only the Review… button carries a caret: the people + buttons and the Labels pencil have none', () => {
+    show();
+    const summary = within(screen.getByRole('dialog', { name: 'Merge request !12' })).getByRole('region', { name: 'Summary' });
+    const carets = [...summary.querySelectorAll('.card-caret')].map((c) => c.closest('button')?.getAttribute('aria-label'));
+    expect(carets).toEqual(['Review…']);
+  });
+
   it('renders the description as Markdown, with its references (spec #5 §1)', async () => {
     // A reference links only with a project to resolve it against (inert without one).
     patchForge('t', { project: projectOf(), details: { 12: { value: { ...detail, description: '## What / why\n\nFollows !5.' }, at: 1 } } });
@@ -92,12 +99,14 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     const people = within(summary).getByRole('group', { name: 'Reviewers, assignees and labels' });
     expect(people).toHaveTextContent(/Reviewers.*Ada Lovelace.*Assignees\s*None/);
     expect(people).toHaveTextContent(/Labels\s*backend/);
-    // Read-only: no + Add, no ×.
-    expect(within(people).queryByRole('button')).toBeNull();
+    // Reviewers and assignees change here (MrPeople.test); labels in Edit, which the Labels card's pencil opens.
+    // As cards: each header's + (top right), then the chips.
+    expect([...people.querySelectorAll('.people-card')].map((c) => c.querySelector('.people-card-k')?.textContent)).toEqual(['Reviewers', 'Assignees', 'Labels']);
+    expect(within(people).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Add reviewer', 'Remove Ada Lovelace', 'Add assignee', 'Edit labels']);
     for (const text of ['Open', 'Grace Hopper', 'Passed', '0 of 1 approval', 'None']) expect(summary).toHaveTextContent(text);
   });
 
-  it('the status line ends in Check out, Edit and ⋯; Approve and Request changes sit in the APPROVALS box; no "·" before the time', () => {
+  it('the status line ends in Check out, Edit and ⋯; Approve and Review… sit in the APPROVALS box; no "·" before the time', () => {
     show();
     const summary = screen.getByRole('region', { name: 'Summary' });
     const line = summary.querySelector<HTMLElement>('.mr-line')!;
@@ -107,15 +116,15 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(within(actions).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim())).toEqual([expect.any(String), 'Edit', 'More actions']);
     expect(actions.previousElementSibling).toHaveClass('mr-spacer');
     const approvals = summary.querySelector<HTMLElement>('.mr-fact[data-fact="reviews"]')!;
-    expect(within(approvals).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Approve', 'Request changes']);
+    expect(within(approvals).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Approve', 'Review…']);
     // The old actions row is gone: nothing between the header and the merge box but the stack.
     expect(document.querySelectorAll('.mr-actions')).toHaveLength(1);
   });
 
-  it('Request changes opens its composer under the header', () => {
+  it('Review… opens its composer under the header', () => {
     show();
-    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
-    const form = screen.getByRole('form', { name: 'Request changes' });
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    const form = screen.getByRole('form', { name: 'Review' });
     expect(screen.getByRole('region', { name: 'Summary' }).compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(form.compareDocumentPosition(screen.getByRole('region', { name: 'Merge' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -175,16 +184,16 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(screen.getByRole('region', { name: 'Description' })).toHaveTextContent('No description');
   });
 
-  it("shows the discussion: notes, a diff note's file:line and snippet (which opens the file), system notes as timeline events", () => {
+  it("shows the discussion: notes, a diff note's file:start-end and snippet (which opens the file), system notes as timeline events", () => {
     show();
     const activity = screen.getByRole('region', { name: 'Activity' });
     expect(within(activity).getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['Thread by Grace Hopper', 'Thread by Grace Hopper']);
     expect(activity).toHaveTextContent('Looks good overall.');
     expect(activity).toHaveTextContent('+Second line');
-    expect(activity).toHaveTextContent('Resolved');
+    expect(within(activity).getByRole('button', { name: 'Unresolve thread' })).toHaveAttribute('aria-pressed', 'true');
     expect(activity).toHaveTextContent('Grace Hopper added 1 commit');
-    fireEvent.click(within(activity).getByRole('button', { name: 'README.md:2' }));
-    expect(note.openNoteFile).toHaveBeenCalledWith('t', 'gitlab', expect.objectContaining({ number: 12 }), 'README.md');
+    fireEvent.click(within(activity).getByRole('button', { name: 'README.md:1-2' }));
+    expect(note.openNoteFile).toHaveBeenCalledWith('t', 'gitlab', expect.objectContaining({ number: 12 }), expect.objectContaining({ path: 'README.md', line: 2 }));
   });
 
   it('has the tabs Activity, Comments and Diff notes, with counts on the last two', () => {
@@ -229,7 +238,7 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     patchForge('t', { discussions: {} });
     const { unmount } = show();
     expect(screen.getAllByRole('tab').filter((t) => !t.classList.contains('md-field-tab'))).toHaveLength(3);
-    expect(screen.getByText('Loading the discussion…')).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'Loading the discussion' })).toBeTruthy();
     unmount();
     patchForge('t', { discussions: { 12: [{ id: 'm', resolvable: false, resolved: false, notes: [
       { id: '1', author: grace, body: 'hello', createdAt: 1_791_100_000, system: false, position: null },
@@ -308,6 +317,51 @@ describe('navigation history (spec #5 §3.4)', () => {
     body.scrollTop = 120;
     fireEvent.scroll(body);
     expect(scrollOf('t', 'mr', 'mr:12')).toBe(120);
+  });
+
+  describe('Edit mode: the form first', () => {
+    const edit = () => fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    it('hides the cards, the merge box, the description and the activity (still mounted) and shows the form with the people rows below the description', () => {
+      show();
+      edit();
+      const view = screen.getByRole('dialog', { name: 'Merge request !12' });
+      // Reachable by role only while shown.
+      for (const name of ['Merge', 'Description', 'Activity']) expect(within(view).queryByRole('region', { name })).toBeNull();
+      expect(view.querySelector('.mr-facts')).toBeNull();
+      expect(view.querySelector('.people-cards')).toBeNull();
+      expect(view.querySelector('.mr-rest[hidden] [aria-label="Activity"]')).not.toBeNull();
+      const summary = within(view).getByRole('region', { name: 'Summary' });
+      expect(summary.querySelector('[aria-label="Branches"]')).not.toBeNull();
+      const form = within(view).getByRole('form', { name: 'Edit' });
+      const people = within(form).getByRole('group', { name: 'Reviewers, assignees and labels' });
+      expect(people).toHaveTextContent(/Reviewers.*Ada Lovelace.*Assignees\s*.*Labels\s*backend/);
+      expect(form.querySelector('.md-field')!.compareDocumentPosition(people) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(people).getByRole('button', { name: 'Add reviewer' })).toBeInTheDocument();
+      expect(within(form).getByRole('textbox', { name: 'Title' })).toHaveFocus();
+    });
+
+    it('Cancel and Esc bring the normal layout back', async () => {
+      show();
+      edit();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.getByRole('region', { name: 'Activity' })).toBeInTheDocument();
+      expect(screen.queryByRole('form', { name: 'Edit' })).toBeNull();
+      edit();
+      // The flyout host's Esc asks the owners (FlyoutHost.test): the form's leaves Edit.
+      const { escOwners } = await import('../../app/modalKeys');
+      const e = new KeyboardEvent('keydown', { key: 'Escape' });
+      Object.defineProperty(e, 'target', { value: screen.getByRole('textbox', { name: 'Title' }) });
+      act(() => { expect([...escOwners].some((own) => own(e))).toBe(true); });
+      expect(screen.queryByRole('form', { name: 'Edit' })).toBeNull();
+      expect(screen.getByRole('region', { name: 'Merge' })).toBeInTheDocument();
+    });
+
+    it("the Labels card's pencil opens Edit with the label picker open", async () => {
+      show();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit labels' }));
+      expect(screen.getByRole('form', { name: 'Edit' })).toBeInTheDocument();
+      expect(await screen.findByRole('combobox', { name: /label/i })).toBeInTheDocument();
+    });
   });
 });
 // --- end 5B T3 ---

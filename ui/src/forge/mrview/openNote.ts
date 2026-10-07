@@ -1,4 +1,5 @@
 import { api } from '../../api/client';
+import type { DiffPosition } from '../../api/gen/DiffPosition';
 import type { DiffSpec } from '../../api/gen/DiffSpec';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
@@ -10,13 +11,16 @@ import { targetFor } from '../../repo/store';
 import { useToast } from '../../ui/toast';
 import { mrName } from '../labels';
 import { forgeOf } from '../mrStore';
+import { noteLine } from './noteLine';
 
 /**
  * A diff-line note's `file:line` (spec #4 §2: "clicking opens that file's diff"): the file in the
  * local compare of merge-base(the target branch's remote tip, the MR's head) → the MR's head, as
- * the MR's diff is. Both commits must be in the loaded graph (fetch, or check out, first).
+ * the MR's diff is, at the note's line or lines (`noteLine`). Both commits must be in the loaded graph (fetch, or check
+ * out, first).
  */
-export async function openNoteFile(tabId: string, kind: ForgeKind, mr: ForgeMr, path: string): Promise<void> {
+export async function openNoteFile(tabId: string, kind: ForgeKind, mr: ForgeMr, pos: DiffPosition): Promise<void> {
+  const path = pos.path;
   const say = (m: string) => useToast.getState().show(m);
   const noun = mrName(kind).toLowerCase();
   const notLoaded = `The ${noun}'s commits aren't in the loaded history: fetch, or check it out first`;
@@ -34,5 +38,6 @@ export async function openNoteFile(tabId: string, kind: ForgeKind, mr: ForgeMr, 
   if (!list || i < 0) return say(`${path} isn't changed in this ${noun} any more`);
   // The note asks for that file's diff: File History stops being sticky (UX).
   endStickyHistory(tabId);
-  store.getState().openFile(targetFor(list.files[i], spec), list.files.slice(i + 1, i + 2).map((f) => targetFor(f, spec)));
+  const line = noteLine(pos);
+  store.getState().openFile({ ...targetFor(list.files[i], spec), ...(line && { line }) }, list.files.slice(i + 1, i + 2).map((f) => targetFor(f, spec)));
 }

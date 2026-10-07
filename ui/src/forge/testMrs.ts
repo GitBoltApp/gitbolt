@@ -15,7 +15,7 @@ export function mrOf(number: number, over: Partial<ForgeMr> = {}): ForgeMr {
     number, title: `MR ${number}`, state: 'open', author: user('Grace Hopper'),
     sourceProject: 'group/project', sourceBranch: 'dev', targetProject: 'group/project', targetBranch: 'main',
     headSha: String(number).padStart(40, '0'), webUrl: `https://gitlab.example.com/group/project/-/merge_requests/${number}`,
-    pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: 1_791_115_200, stacked: false,
+    pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: 1_791_115_200, stacked: false, autoMerge: null,
     ...over,
   };
 }

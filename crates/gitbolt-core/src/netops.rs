@@ -240,12 +240,18 @@ impl Api {
     /// marked fixture root.
     #[cfg(test)] // the dispatch calls `fetch_remote`; tests keep the short form
     pub(crate) async fn fetch(&self, id: u32, background: bool) -> Result<FetchOutcome, GbError> {
-        self.fetch_remote(id, background, None).await
+        self.fetch_remote(id, background, None, None).await
     }
 
     /// `fetch`, of `remote` only when given (a remote just added, spec #4 §4 4A), else `--all`.
-    pub(crate) async fn fetch_remote(&self, id: u32, background: bool, remote: Option<String>) -> Result<FetchOutcome, GbError> {
+    pub(crate) async fn fetch_remote(&self, id: u32, background: bool, remote: Option<String>, mr_head: Option<crate::forge::MrHead>) -> Result<FetchOutcome, GbError> {
         let h = self.handle(id)?;
+        // MR round 2: an MR/PR's head is fetched from a named remote only.
+        let refspec = match (&remote, mr_head) {
+            (Some(r), Some(m)) => Some(m.refspec(r)),
+            (None, Some(_)) => return Err(GbError::new(GbErrorKind::InvalidInput, "Fetching a merge request's head needs its remote")),
+            _ => None,
+        };
         // --- 4A T7 ---
         if let Some(r) = &remote {
             // A fresh read of the config: a remote added outside GitBolt counts too.
@@ -283,7 +289,7 @@ impl Api {
             // failed background fetch doesn't empty it (git ≥ 2.29; the minimum is 2.40).
             let fetch_head = background.then_some("--no-write-fetch-head");
             // 4A T7: one remote (named last, after the options), or every remote.
-            let target: Vec<&str> = match &remote { Some(r) => vec!["--end-of-options", r.as_str()], None => vec!["--all"] };
+            let target: Vec<&str> = match &remote { Some(r) => ["--end-of-options", r.as_str()].into_iter().chain(refspec.as_deref()).collect(), None => vec!["--all"] };
             let args: Vec<&str> = ["fetch", prune, "--no-prune-tags"].into_iter().chain(fetch_head).chain(["--progress"]).chain(target).collect();
             command = Some(display_command(&args));
             let inv = GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(args))
@@ -443,6 +449,29 @@ mod tests {
         assert!(parse_progress(" * [new branch]      x -> origin/x").is_none());
         assert!(parse_progress("fatal: unable to access 'x': 50% nonsense").is_none(), "not a progress phase");
     }
+
+    // --- MR round 2 ---
+    #[tokio::test]
+    async fn an_mr_head_is_fetched_into_a_remote_tracking_ref_of_its_own() {
+        use crate::forge::{ForgeKind, MrHead};
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let api = api();
+        let id = open(&api, &r).await;
+        push_from_elsewhere(&r, "mr-work");
+        let other = r.root().join("other-mr-work");
+        r.git_in(&other, &["push", "-q", "origin", "HEAD:refs/merge-requests/7/head", "HEAD:refs/pull/8/head"]);
+        r.git_in(&other, &["push", "-q", "origin", "--delete", "mr-work"]);
+        let head = r.git_in(&other, &["rev-parse", "HEAD"]);
+        let gitlab = MrHead { kind: ForgeKind::GitLab, number: 7 };
+        api.fetch_remote(id, false, Some("origin".into()), Some(gitlab)).await.unwrap();
+        assert_eq!(r.git(&["rev-parse", "refs/remotes/origin/mr/7"]), head);
+        api.fetch_remote(id, false, Some("origin".into()), Some(MrHead { kind: ForgeKind::GitHub, number: 8 })).await.unwrap();
+        assert_eq!(r.git(&["rev-parse", "refs/remotes/origin/pr/8"]), head);
+        let e = api.fetch_remote(id, false, None, Some(gitlab)).await.unwrap_err();
+        assert_eq!(e.kind, GbErrorKind::InvalidInput);
+    }
+    // --- end MR round 2 ---
 
     #[tokio::test]
     async fn fetch_reports_changes_and_emits_refs_updated_only_when_something_moved() {

@@ -2,14 +2,19 @@
    position: relative), right of the sidebar. Above the graph and the diff; below the sidebar's
    hover cards (700), modals (800) and menus (900). */
 .flyout-host { position: absolute; top: 0; bottom: 0; left: 0; z-index: 600; display: flex; max-width: 100%; }
-.flyout { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel-bg1); color: var(--text-normal); border-right: 1px solid var(--section-border); box-shadow: 4px 0 16px var(--shadow-popup); }
+.flyout { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel-bg1); color: var(--text-normal); border-right: 1px solid var(--section-border); position: relative; }
+/* The shadow, on the right edge only: a thin layer whose blur is clipped to its right, so it
+   never spills up over the toolbar (and the flyout's own popovers aren't clipped with it). */
+.flyout::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 24px; pointer-events: none; box-shadow: 4px 0 16px var(--shadow-popup); clip-path: inset(0 -32px 0 0); }
 .flyout-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--section-border); }
 .flyout-title { flex: 1; min-width: 0; margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text-selected); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; outline: none; }
 /* A wrapping title (an MR/PR's): every line shown; the icon and the buttons stay with the first line. */
 .flyout-head.wrap { align-items: flex-start; }
 .flyout-head.wrap .flyout-title { align-items: flex-start; white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.35; padding-top: 2px; }
 .flyout-head.wrap .flyout-title > svg { flex: none; margin-top: 2px; }
-.flyout-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+/* The scrollbar (10px, tokens.css) always has its place, inside the right padding: content never
+   shifts when it appears. 2px + the 10px gutter = the 12px of the other sides. */
+.flyout-body { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; padding: 12px 2px 12px 12px; display: flex; flex-direction: column; gap: 12px; }
 /* The body scrolls; its sections never shrink to fit it. A section that clips its own content (the
    merge box, the cards) would otherwise collapse to nothing once the rest overflows. */
 .flyout-body > * { flex-shrink: 0; }
@@ -20,5 +25,6 @@
 /* Docked (a dockable flyout, `useFlyoutDock`): a pane between the sidebar and the graph, which
    shrinks to fit (`.center-slot` is a row; this comes first in it). No shadow: it's beside the
    graph, not over it. */
+.flyout-host.under-file { visibility: hidden; }
 .flyout-host.docked { position: relative; order: -1; flex: none; z-index: 2; }
-.flyout-host.docked .flyout { box-shadow: none; }
+.flyout-host.docked .flyout::after { content: none; }

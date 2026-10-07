@@ -122,6 +122,7 @@ vi.mock('./setup', () => {
       },
       getSelection: vi.fn((): unknown => null),
       setPosition: vi.fn(),
+      setSelection: vi.fn(),
       setScrollTop: vi.fn((top: number) => {
         const before = ed.scrollTop;
         ed.scrollTop = Math.max(0, Math.min(top, ed.getScrollHeight() - 500));
@@ -210,7 +211,7 @@ vi.mock('./setup', () => {
     // Not Monaco's real value (8), so a hard-coded one would fail.
     MouseTargetType: { GUTTER_VIEW_ZONE: 105, CONTENT_TEXT: 106, CONTENT_VIEW_ZONE: 108 },
     EditorOption: { lineHeight: 75 },
-    createModel: (text: string, language: string) => ({ text, language, dispose: vi.fn(), getLineContent: (n: number) => text.split('\n')[n - 1], getLineCount: () => text.split('\n').length }),
+    createModel: (text: string, language: string) => ({ text, language, dispose: vi.fn(), getLineContent: (n: number) => text.split('\n')[n - 1], getLineMaxColumn: (n: number) => (text.split('\n')[n - 1] ?? '').length + 1, getLineCount: () => text.split('\n').length }),
   });
   const monaco = {
     editor: editor(),
@@ -244,7 +245,7 @@ const copyText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
 vi.mock('../../api/transport', () => ({ copyText }));
 vi.mock('shiki/wasm', () => ({ default: {} }));
 
-interface FakeCodeEditor { setPosition: ReturnType<typeof vi.fn>; apiZones: Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>; isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; getPosition: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
+interface FakeCodeEditor { setPosition: ReturnType<typeof vi.fn>; setSelection: ReturnType<typeof vi.fn>; apiZones: Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>; isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; getPosition: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
 interface FakeViewModel { model: { original: { text: string; dispose: ReturnType<typeof vi.fn> }; modified: { text: string; dispose: ReturnType<typeof vi.fn> } }; computed: boolean; dispose: ReturnType<typeof vi.fn>; finish(): void }
 interface FakeState {
   defined: Set<string>;
@@ -889,6 +890,73 @@ describe('MonacoHost', () => {
     m.sizeListeners.forEach((l) => l({}));
     await new Promise<void>((r) => setTimeout(r, 0));
     expect(m.scrollTop).toBe(0);
+  });
+
+  it("a diff opened at a line (a note's file:line) centres that line, not the first change, the cursor on it in its side; held through relayouts", async () => {
+    const { host, state } = await fresh();
+    host.attachDiff(document.createElement('div'));
+    const { modified: m, original: o } = state.diffs[0];
+    const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+    state.lineChanges = [{ originalStartLineNumber: 120, originalEndLineNumber: 120, modifiedStartLineNumber: 120, modifiedEndLineNumber: 120 }];
+    // New line 92 (1729-1748 px) centred in the 500 px view.
+    await host.showDiff({ ...diffReq('a.txt'), line: { side: 'modified', line: 92 } });
+    await flush();
+    expect(m.scrollTop).toBe(1738.5 - 250);
+    expect(m.setPosition).toHaveBeenLastCalledWith({ lineNumber: 92, column: 1 });
+    // A zone lands above it later: the line stays centred.
+    m.zones = o.zones = [{ after: 50, height: 57 }];
+    m.sizeListeners.forEach((l) => l({}));
+    await flush();
+    expect(m.scrollTop).toBe(1738.5 + 57 - 250);
+    m.zones = o.zones = [];
+    // An old line (Split's left side), in a deletion: the cursor goes to the original side.
+    state.lineChanges = [{ originalStartLineNumber: 150, originalEndLineNumber: 152, modifiedStartLineNumber: 149, modifiedEndLineNumber: 0 }];
+    const moves = m.setPosition.mock.calls.length;
+    await host.showDiff({ ...diffReq('b.txt', 'plaintext', { mode: 'split', ignoreWhitespace: false, wordWrap: false }), line: { side: 'original', line: 151 } });
+    expect(m.scrollTop).toBe(2859.5 - 250);
+    expect(o.setPosition).toHaveBeenLastCalledWith({ lineNumber: 151, column: 1 });
+    expect(m.setPosition).toHaveBeenCalledTimes(moves);
+    // Past the file's end (it changed since the note): its last line.
+    await host.showDiff({ ...diffReq('c.txt'), line: { side: 'modified', line: 900 } });
+    expect(m.setPosition).toHaveBeenLastCalledWith({ lineNumber: 201, column: 1 });
+    // Without a line, a new diff opens at its first change again.
+    state.lineChanges = [{ originalStartLineNumber: 120, originalEndLineNumber: 120, modifiedStartLineNumber: 120, modifiedEndLineNumber: 120 }];
+    await host.showDiff(diffReq('d.txt'));
+    expect(m.scrollTop).toBe(2270.5 - 250);
+    expect(m.setPosition).toHaveBeenLastCalledWith({ lineNumber: 120, column: 1 });
+  });
+
+  it("a diff opened at a range (a note's file:start-end) selects its lines in its side, the cursor on the first, the range centred; held through relayouts", async () => {
+    const { host, state } = await fresh();
+    host.attachDiff(document.createElement('div'));
+    const { modified: m, original: o } = state.diffs[0];
+    const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+    state.lineChanges = [{ originalStartLineNumber: 120, originalEndLineNumber: 120, modifiedStartLineNumber: 120, modifiedEndLineNumber: 120 }];
+    // New lines 100-105 (1881-1995 px) centred in the 500 px view; "a.txt new" ends at column 10.
+    await host.showDiff({ ...diffReq('a.txt'), line: { side: 'modified', line: 100, end: 105 } });
+    await flush();
+    expect(m.scrollTop).toBe(1938 - 250);
+    expect(m.setSelection).toHaveBeenLastCalledWith({ selectionStartLineNumber: 105, selectionStartColumn: 10, positionLineNumber: 100, positionColumn: 1 });
+    // A zone lands above it later: the range stays centred.
+    m.zones = o.zones = [{ after: 50, height: 57 }];
+    m.sizeListeners.forEach((l) => l({}));
+    await flush();
+    expect(m.scrollTop).toBe(1938 + 57 - 250);
+    m.zones = o.zones = [];
+    // Taller than the view: its first line at the top, below three lines of context.
+    await host.showDiff({ ...diffReq('b.txt'), line: { side: 'modified', line: 10, end: 80 } });
+    expect(m.scrollTop).toBe(171 - 57);
+    expect(m.setSelection).toHaveBeenLastCalledWith(expect.objectContaining({ selectionStartLineNumber: 80, positionLineNumber: 10 }));
+    // Old lines (Split's left side), in a deletion: selected in the original side.
+    state.lineChanges = [{ originalStartLineNumber: 150, originalEndLineNumber: 152, modifiedStartLineNumber: 149, modifiedEndLineNumber: 0 }];
+    const selections = m.setSelection.mock.calls.length;
+    await host.showDiff({ ...diffReq('c.txt', 'plaintext', { mode: 'split', ignoreWhitespace: false, wordWrap: false }), line: { side: 'original', line: 150, end: 152 } });
+    expect(m.scrollTop).toBe(2859.5 - 250);
+    expect(o.setSelection).toHaveBeenLastCalledWith({ selectionStartLineNumber: 152, selectionStartColumn: 10, positionLineNumber: 150, positionColumn: 1 });
+    expect(m.setSelection).toHaveBeenCalledTimes(selections);
+    // Past the file's end (it changed since the note): to its last line.
+    await host.showDiff({ ...diffReq('d.txt'), line: { side: 'modified', line: 195, end: 900 } });
+    expect(m.setSelection).toHaveBeenLastCalledWith(expect.objectContaining({ selectionStartLineNumber: 201, positionLineNumber: 195 }));
   });
 
   it('Next/Previous change go by the scroll: on from the change the view was put on, else from the centre line', async () => {

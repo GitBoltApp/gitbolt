@@ -97,6 +97,10 @@ pub enum ErrorDetail {
         until: i64,
     },
     // --- end 4A T1 ---
+    /// A people change the forge trimmed to one person (GitLab Free's one reviewer, one
+    /// assignee): `role` is `reviewers` or `assignees`. The toast says the message alone, and the
+    /// row picks by swapping from then on.
+    PeopleLimit { role: Box<str> },
 }
 
 /// One remote a fetch couldn't get, with a short reason ("couldn't reach host", "authentication failed").

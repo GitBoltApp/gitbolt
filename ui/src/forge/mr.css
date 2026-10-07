@@ -3,6 +3,7 @@
 .mr-state-icon[data-state="open"] { color: var(--green); }
 .mr-state-icon[data-state="draft"] { color: var(--text-secondary); }
 .mr-state-icon[data-state="merged"] { color: var(--blue); }
+.mr-state-icon[data-state="merging"] { color: var(--purple); }
 .mr-state-icon[data-state="closed"] { color: var(--red); }
 .mr-pipeline-icon { flex: none; vertical-align: -2px; }
 .mr-pipeline-icon[data-status="success"] { color: var(--green); }
@@ -15,10 +16,14 @@
 .mr-card-ref { color: var(--text-secondary); font-weight: 400; }
 .mr-card-meta { font-size: 11px; color: var(--text-secondary); }
 .mr-card-author { display: flex; align-items: center; gap: 5px; min-height: 16px; }
+.mr-card-title .mr-state { margin-right: 2px; padding: 0 7px; font-size: 10px; vertical-align: -1px; }
+/* The arrow centred on the branch names' x-height (its 12px icon sat low in 11px text). */
+.mr-card-branches .arrow-glyph { vertical-align: 0.05em; }
+.mr-card-bad { color: var(--red); }
 .mr-card-hint { font-size: 11px; color: var(--text-disabled); margin-top: 2px; }
-.mr-pipeline-icon.spin { animation: mr-spin 1s linear infinite; }
+.mr-pipeline-icon.spin, .mr-state-icon.spin { animation: mr-spin 1s linear infinite; }
 @keyframes mr-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .mr-pipeline-icon.spin { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .mr-pipeline-icon.spin, .mr-state-icon.spin { animation: none; } }
 
 /* 4B T9: stale data after a failed poll. */
 .forge-stale { display: inline-flex; color: var(--orange); }
@@ -28,3 +33,10 @@
 .mr-badge { cursor: pointer; }
 .sb-row .mr-badge { flex: none; margin-left: 4px; }
 .hc-mr { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--section-border); }
+
+/* The state chip (MrStateChip): the MR/PR view's header and the hover card. */
+.mr-state { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 11px; font-weight: 600; background: var(--control-bg); color: var(--text-secondary); }
+.mr-state[data-state="open"] { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+.mr-state[data-state="merged"], .mr-state[data-state="merging"] { background: color-mix(in srgb, var(--purple) 15%, transparent); color: var(--purple); }
+.mr-state[data-state="closed"] { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
+.mr-state .mr-state-icon { color: inherit; }

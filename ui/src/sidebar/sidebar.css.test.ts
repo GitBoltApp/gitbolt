@@ -25,9 +25,9 @@ it('K55: counts are bold light blue (a token); K56: the stack never scrolls itse
   expect(css).toMatch(/\.sb-stack\s*\{[^}]*overflow:\s*hidden/);
 });
 
-it('K62: row and strip icons use the dimmer --sidebar-icon, brightening on hover or the cursor; brand marks and the check keep theirs', () => {
+it('K62: row and strip icons use the dimmer --sidebar-icon, brightening on hover or the cursor; brand marks, the check and an MR/PR state icon keep theirs', () => {
   expect(tokens).toMatch(/--sidebar-icon:\s*rgba\(255, 255, 255, 0\.45\)/);
-  expect(css).toMatch(/\.sb-row > svg:not\(\[data-host-kind\]\)\s*\{[^}]*var\(--sidebar-icon\)/);
-  expect(css).toMatch(/\.sb-row:hover > svg:not\(\[data-host-kind\]\)[^{]*\{[^}]*var\(--text-normal\)/);
+  expect(css).toMatch(/\.sb-row > svg:not\(\[data-host-kind\], \.mr-state-icon\)\s*\{[^}]*var\(--sidebar-icon\)/);
+  expect(css).toMatch(/\.sb-row:hover > svg:not\(\[data-host-kind\], \.mr-state-icon\)[^{]*\{[^}]*var\(--text-normal\)/);
   expect(css).toMatch(/\.sn-item svg\s*\{[^}]*var\(--sidebar-icon\)/);
 });

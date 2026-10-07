@@ -59,6 +59,12 @@ pub(crate) struct FakeProvider {
       /// URL → what `image` answers; any other URL isn't this forge's (`None`).
       pub images: Mutex<HashMap<String, ForgeImage>>,
       // --- end 5A T1 ---
+    // --- MR round 2 ---
+    /// What `people_limits` answers.
+    pub limits: Mutex<PeopleLimits>,
+    /// The next `edit` fails with this.
+    pub edit_error: Mutex<Option<GbError>>,
+    // --- end MR round 2 ---
 }
 
 impl FakeProvider {
@@ -76,6 +82,7 @@ impl FakeProvider {
               // --- 5A T1 ---
               images: Mutex::default(),
               // --- end 5A T1 ---
+            limits: Mutex::default(), edit_error: Mutex::default(),
         }
     }
 
@@ -186,8 +193,26 @@ impl ForgeProvider for FakeProvider {
     }
     fn reply<'a>(&'a self, _project: &'a ForgeProject, number: u64, note: &'a NewNote) -> ForgeFuture<'a, ForgeNote> {
         self.call(format!("reply {number} {:?} {}", note.discussion, note.body));
-        Box::pin(async move { Ok(ForgeNote { id: "n1".into(), author: self.user.clone(), body: note.body.clone(), created_at: 9, system: false, position: None, body_html: None }) })
+        Box::pin(async move { Ok(ForgeNote { id: "n1".into(), author: self.user.clone(), body: note.body.clone(), created_at: 9, system: false, position: None, body_html: None, reactions: vec![], web_url: None }) })
     }
+    // --- comment actions ---
+    fn react<'a>(&'a self, _project: &'a ForgeProject, number: u64, note: &'a NoteRef, name: &'a str, on: bool) -> ForgeFuture<'a, Vec<ForgeReaction>> {
+        self.call(format!("react {number} {} {name} {on}", note.note));
+        Box::pin(async move { Ok(if on { vec![ForgeReaction { name: name.into(), count: 1, mine: true, users: vec![self.user.name.clone()] }] } else { vec![] }) })
+    }
+    fn edit_note<'a>(&'a self, _project: &'a ForgeProject, number: u64, note: &'a NoteRef, body: &'a str) -> ForgeFuture<'a, ForgeNote> {
+        self.call(format!("edit_note {number} {} {body}", note.note));
+        Box::pin(async move { Ok(ForgeNote { id: note.note.clone(), author: self.user.clone(), body: body.into(), created_at: 9, system: false, position: None, body_html: None, reactions: vec![], web_url: None }) })
+    }
+    fn delete_note<'a>(&'a self, _project: &'a ForgeProject, number: u64, note: &'a NoteRef) -> ForgeFuture<'a, ()> {
+        self.call(format!("delete_note {number} {}", note.note));
+        Box::pin(async { Ok(()) })
+    }
+    fn resolve<'a>(&'a self, _project: &'a ForgeProject, number: u64, discussion: &'a str, resolved: bool) -> ForgeFuture<'a, ThreadState> {
+        self.call(format!("resolve {number} {discussion} {resolved}"));
+        Box::pin(async move { Ok(ThreadState { resolved, resolved_by: resolved.then(|| self.user.name.clone()) }) })
+    }
+    // --- end comment actions ---
     fn approve<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ()> {
         self.call(format!("approve {number}"));
         Box::pin(async { Ok(()) })
@@ -200,9 +225,24 @@ impl ForgeProvider for FakeProvider {
         self.call(format!("merge {number} {:?}", opts.squash));
         Box::pin(async move { self.change(number, |m| m.state = MrState::Merged) })
     }
+    fn set_auto_merge<'a>(&'a self, _project: &'a ForgeProject, number: u64, opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
+        self.call(format!("set_auto_merge {number} {:?}", opts.method));
+        Box::pin(async move { self.change(number, |m| m.auto_merge = Some(AutoMerge { enabled_by: Some(self.user.clone()), method: opts.method })) })
+    }
+    fn cancel_auto_merge<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ForgeMr> {
+        self.call(format!("cancel_auto_merge {number}"));
+        Box::pin(async move { self.change(number, |m| m.auto_merge = None) })
+    }
     fn edit<'a>(&'a self, _project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
         self.call(format!("edit {number} {:?}", edit.title));
+        if let Some(e) = self.edit_error.lock().unwrap().take() {
+            return Box::pin(async move { Err(e) });
+        }
         Box::pin(async move { self.change(number, |m| if let Some(t) = &edit.title { m.title = t.clone() }) })
+    }
+    fn people_limits<'a>(&'a self, project: &'a ForgeProject) -> ForgeFuture<'a, PeopleLimits> {
+        self.call(format!("people_limits {}", project.path));
+        Box::pin(async move { Ok(*self.limits.lock().unwrap()) })
     }
     fn set_draft<'a>(&'a self, _project: &'a ForgeProject, number: u64, draft: bool) -> ForgeFuture<'a, ForgeMr> {
         self.call(format!("set_draft {number} {draft}"));
@@ -224,7 +264,7 @@ impl ForgeProvider for FakeProvider {
                   source_project: req.source.project.clone(), source_branch: req.source.branch.clone(), target_project: project.path.clone(),
                   target_branch: req.target_branch.clone(), head_sha: None, web_url: format!("{}/-/merge_requests/{number}", project.web_url), pipeline: None,
                   review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: Vec::new() },
-                  conflicts: None, labels: req.labels.clone(), label_colors: Default::default(), updated_at: 0, stacked: crate::forge::stack::carries_stack_table(&req.description),
+                  conflicts: None, labels: req.labels.clone(), label_colors: Default::default(), updated_at: 0, stacked: crate::forge::stack::carries_stack_table(&req.description), auto_merge: None,
               };
               Ok(CreateOutcome { mr, failed: self.fail_parts.lock().unwrap().clone() })
           })
@@ -276,7 +316,7 @@ pub(crate) fn mr(number: u64, source_project: &str, branch: &str, state: MrState
         source_project: source_project.into(), source_branch: branch.into(), target_project: "group/project".into(), target_branch: "main".into(),
         head_sha: Some(format!("{number:040}")), web_url: format!("https://gitlab.example.com/group/project/-/merge_requests/{number}"),
         pipeline: None, review: ReviewSummary { decision: ReviewDecision::None, approvals: 0, approvals_required: None, reviews: vec![] },
-        conflicts: Some(false), labels: vec![], label_colors: Default::default(), updated_at: number as i64, stacked: false,
+        conflicts: Some(false), labels: vec![], label_colors: Default::default(), updated_at: number as i64, stacked: false, auto_merge: None,
     }
 }
 // --- end 4B T1 ---
@@ -376,6 +416,7 @@ pub(crate) fn stack_mr(number: u64, source: &str, target: &str, state: MrState, 
         label_colors: Default::default(),
         updated_at: number as i64,
         stacked: false,
+        auto_merge: None,
     }
 }
 
@@ -502,7 +543,7 @@ impl ForgeProvider for StackFake {
         let found = self.mrs.lock().unwrap().iter().find(|(m, _)| m.number == number).cloned();
         Box::pin(async move {
             let (mr, description) = found.ok_or_else(|| self.missing(number))?;
-            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None }, 1))
+            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None }, 1))
         })
     }
     fn edit<'a>(&'a self, _project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {

@@ -7,6 +7,7 @@ import { tabStore, useTabView } from '../../app/tabStores';
 import { PanelErrorBoundary } from '../../errors/PanelErrorBoundary';
 import { centerViewOnTop, useCenterView } from '../../repo/centerView';
 import type { RepoViewStore } from '../../repo/store';
+import { escOwners } from '../../app/modalKeys';
 import { escapeDisarms } from '../arm/store';
 import { isDismissKey } from '../HoverTooltip';
 import { useKeys } from '../keyRouter';
@@ -36,6 +37,7 @@ export function FlyoutHost({ tab }: TabSlotProps) {
   const tabId = tab.id;
   const open = useFlyout(tabId);
   const onTop = useViewOnTop(tabId);
+  const fileOpen = useStore(useTabView(tabId)?.store ?? NO_STORE, (s) => s.diff !== null);
   // Read only while this tab has a flyout open, so a hidden tab never re-renders on another's resize.
   const preferred = useAppState((s) => (open !== null ? s.profile.flyoutWidth : null));
   const dockPref = useFlyoutDock((s) => (open !== null ? s : null));
@@ -45,11 +47,14 @@ export function FlyoutHost({ tab }: TabSlotProps) {
   const endDrag = useRef<(() => void) | null>(null);
   useEffect(() => () => endDrag.current?.(), []);
   const [room, setRoom] = useState(1200);
-  const shown = open !== null && !onTop;
   const close = useCallback(() => closeFlyout(tabId), [tabId]);
   const dockable = open !== null && flyoutDockable(open.kind);
   const roomToDock = canDock(room);
   const docked = dockable && !!dockPref?.docked && roomToDock;
+  // A file opened while it floats over the graph shows on top: the flyout steps aside (kept, with
+  // its scroll) until the file closes. Docked, it's a pane beside the file and stays.
+  const underFile = fileOpen && !docked;
+  const shown = open !== null && !onTop && !underFile;
   const dock = useMemo<FlyoutDock>(() => ({
     dockable,
     docked,
@@ -80,6 +85,8 @@ export function FlyoutHost({ tab }: TabSlotProps) {
     const t = e.target instanceof Element ? e.target : null;
     if (t && host.contains(t)) {
       if (escapeDisarms(e)) return 'handled';
+      // An inline popup inside the flyout (the Markdown field's emoji/@ list) takes the Esc first.
+      if ([...escOwners].some((own) => own(e))) { e.preventDefault(); return 'handled'; }
       close();
       e.preventDefault();
       return 'handled';
@@ -139,7 +146,7 @@ export function FlyoutHost({ tab }: TabSlotProps) {
     e.preventDefault();
   };
   return (
-    <div ref={hostRef} className={`flyout-host${docked ? ' docked' : ''}`} style={{ width }} hidden={onTop}>
+    <div ref={hostRef} className={`flyout-host${docked ? ' docked' : ''}${underFile ? ' under-file' : ''}`} style={{ width }} hidden={onTop}>
       <FlyoutDockContext value={dock}>
         <PanelErrorBoundary key={open.seq} name="Panel" onClose={close}>
           <Suspense fallback={<section className="flyout" aria-busy="true" />}>

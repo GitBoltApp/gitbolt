@@ -46,19 +46,25 @@ describe('the sidebar MR/PR section (spec #4 §2, §5)', () => {
     expect(order()).toEqual(['Local', 'Remote', 'Worktrees', 'Stashes', 'Tags']);
   });
 
-  it('sits below the worktrees and stashes and lists the open ones: no state icon, a draft dimmed, a pipeline only when it needs a look; a click opens one', () => {
+  it('sits below the worktrees and stashes and lists the open ones: a state icon (green open, grey draft), a pipeline only when it needs a look; a click opens one', () => {
     patchForge('t', { kind: 'gitlab', list: list() });
     show();
     expect(order()).toEqual(['Local', 'Remote', 'Worktrees', 'Stashes', 'Merge requests', 'Tags']);
     const panel = screen.getByRole('region', { name: 'Merge requests' });
     expect(within(panel).getByLabelText('Merge requests count')).toHaveTextContent('2');
     const row = within(panel).getByRole('treeitem', { name: '!12 Dev work' });
-    expect(row.querySelector('.mr-state-icon')).toBeNull();
+    expect(row.querySelector('.mr-state-icon[data-state="open"]')).toBeTruthy();
     expect(row.querySelector('.mr-pipeline-icon'), 'a passed pipeline is the hover card\'s').toBeNull();
-    expect(within(panel).getByRole('treeitem', { name: '!5 Explore' }).querySelector('.sb-label[data-draft]')).toBeTruthy();
+    // A draft's row has the grey draft icon; an open one's the green open icon.
+    expect(within(panel).getByRole('treeitem', { name: '!5 Explore' }).querySelector('.mr-state-icon[data-state="draft"]')).toBeTruthy();
     act(() => patchForge('t', { list: list([mrOf(12, { title: 'Dev work', pipeline: { status: 'failed', webUrl: null } })]) }));
     expect(within(panel).getByRole('img', { name: 'Pipeline failed' }).querySelector('.mr-pipeline-icon[data-status="failed"]')).toBeTruthy();
+    // Set to auto-merge: a small mark; being merged (GitLab's moments of `locked`): a spinner.
+    act(() => patchForge('t', { list: list([mrOf(12, { title: 'Dev work', autoMerge: { enabledBy: null, method: null } }), mrOf(5, { state: 'merging', title: 'Explore' })]) }));
+    expect(within(panel).getByRole('img', { name: 'Set to auto-merge' })).toBeTruthy();
+    expect(within(panel).getByRole('treeitem', { name: '!5 Explore' }).querySelector('.mr-state-icon.spin[data-state="merging"]')).toBeTruthy();
     act(() => patchForge('t', { list: list() }));
+    expect(within(panel).queryByRole('img', { name: 'Set to auto-merge' })).toBeNull();
     fireEvent.click(within(panel).getByRole('treeitem', { name: '!12 Dev work' }));
     expect(poll.openMrView).toHaveBeenCalledWith('t', 12);
     fireEvent.keyDown(within(panel).getByRole('tree'), { key: 'ArrowDown' });

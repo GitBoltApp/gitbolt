@@ -11,19 +11,21 @@ describe('MrCard (spec #4 §4 "4B": the hover card)', () => {
     render(<MrCard kind="gitlab" mr={mr} detail={null} hint="Click to open" />);
     const card = screen.getByLabelText('Merge request !12 details');
     expect(card).toHaveTextContent('!12 Dev work');
-    expect(card).toHaveTextContent('Grace Hopper · dev → main');
+    expect(card.querySelector('.mr-card-author')).toHaveTextContent('Grace Hopper');
+    expect(card.querySelector('.mr-card-title .mr-state[data-state="open"]'), 'the state leads the title').toHaveTextContent('Open');
+    expect(card.querySelector('.mr-card-branches')).toHaveTextContent('dev → main');
     expect(card).toHaveTextContent('Pipeline passed');
     expect(card).toHaveTextContent('Loading…');
     expect(card).toHaveTextContent('Click to open');
   });
 
-  it("shows the detail's review and conflicts, and a draft", () => {
+  it("shows the detail's review and conflicts, and a draft's chip; never the negatives", () => {
     const draft = mrOf(5, { state: 'draft', title: 'Explore' });
     const d = detailOf(draft, { mr: { ...draft, conflicts: true, review: { decision: 'approved', approvals: 1, approvalsRequired: null, reviews: [{ user: user('Ada Lovelace'), state: 'approved', submittedAt: null }] } } });
     render(<MrCard kind="github" mr={draft} detail={d} />);
     const card = screen.getByLabelText('Pull request #5 details');
-    expect(card).toHaveTextContent('· Draft');
-    expect(card).toHaveTextContent('No checks');
+    expect(card.querySelector('.mr-state[data-state="draft"]')).toHaveTextContent('Draft');
+    expect(card).not.toHaveTextContent('No checks');
     expect(card).toHaveTextContent('Approved by Ada Lovelace');
     expect(card).toHaveTextContent('Has conflicts');
     expect(card).not.toHaveTextContent('Loading…');
@@ -39,11 +41,21 @@ describe('MrCard (spec #4 §4 "4B": the hover card)', () => {
     render(<ForgeAvatarStoreContext value={store}><MrCard kind="gitlab" mr={withPic} detail={null} /></ForgeAvatarStoreContext>);
     const avatar = screen.getByTestId('avatar');
     expect([avatar.textContent, avatar.style.width, avatar.style.height]).toEqual(['GH', '16px', '16px']);
-    expect(avatar.closest('.mr-card-author')).toHaveTextContent('Grace Hopper · dev → main');
+    expect(avatar.closest('.mr-card-author')).toHaveTextContent('Grace Hopper');
     await act(async () => {});
     expect(avatar.querySelector('img')).toHaveAttribute('src', 'blob:grace');
     expect([avatar.style.width, avatar.style.height]).toEqual(['16px', '16px']);
     expect(fetch).toHaveBeenCalledExactlyOnceWith(url);
+  });
+
+  it('a clean MR says no "No reviews yet" or "No conflicts"', () => {
+    const clean = mrOf(7, { title: 'Clean', conflicts: false });
+    const d = detailOf(clean, { mr: { ...clean, conflicts: false, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] } } });
+    render(<MrCard kind="gitlab" mr={clean} detail={d} />);
+    const card = screen.getByLabelText('Merge request !7 details');
+    expect(card).not.toHaveTextContent('No reviews yet');
+    expect(card).not.toHaveTextContent('No conflicts');
+    expect(card).not.toHaveTextContent('Loading…');
   });
 
   it("says why the detail couldn't load", () => {

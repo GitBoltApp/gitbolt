@@ -77,13 +77,13 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 | Image diffs | 🟡 | ✅ Side by side, swipe, onion skin, difference |
 | File history and blame | ✅ | ✅ |
 | Rendered Markdown | 🟡 Files only | ✅ Files, diffs and MR/PR threads |
-| Pull/merge requests: list, view, create, comment, approve, merge | ✅ | ✅ |
+| Pull/merge requests: list, view, create, comment, approve, merge | ✅ | ✅ Also auto-merge (merge when the checks pass) |
 | Inline code review comments | ✅ GitHub | 🟡 Shown, but you can't add new ones yet |
 | Stacked pull/merge requests | 🟡 GitHub.com only | ✅ GitHub and GitLab |
 | Forges | GitHub, GitLab, Bitbucket, Azure DevOps; self-hosted on paid plans | GitHub.com and GitLab, including self-managed |
 | Commit signing | ✅ | ✅ Through your git config |
 | Signature verification | ✅ | ✅ |
-| Command palette and keyboard shortcuts | ✅ | ✅ |
+| Command palette and keyboard shortcuts | ✅ | ✅ Every one listed in Help › Keyboard shortcuts (Ctrl+/) |
 | Themes | ✅ | ✅ Ten built in, with per-lane graph colours |
 | Profiles | ✅ Multiple on paid plans | ✅ |
 | Hide and solo branches | ✅ | ❌ |
@@ -99,8 +99,7 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 
 ### What GitBolt doesn't do
 
-- **Planned:** Windows and macOS builds, Forgejo, adding inline review comments, and changing an
-  MR/PR's reviewers after it's created.
+- **Planned:** Windows and macOS builds, Forgejo, and adding inline review comments.
 - **Not there yet:** Git LFS, Git Flow, submodule commands, and hiding or soloing branches.
 - **Not planned:** an integrated terminal, AI features, issue tracker integrations, and Bitbucket,
   Azure DevOps or GitHub Enterprise Server support. Use the tools you already have for those.

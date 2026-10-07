@@ -84,4 +84,70 @@ describe('MarkdownField (spec #5 §3.2)', () => {
     expect(head).toContainElement(screen.getByRole('button', { name: 'Template: none' }));
     expect(box.querySelector('.md-field-foot')).toHaveTextContent('Markdown supported · Ctrl+Shift+P to preview');
   });
+
+  describe('emoji autocomplete', () => {
+    const type = (initial: string) => {
+      const keys = vi.fn();
+      render(<Field onKeyDown={keys} />);
+      const box = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Write a comment' });
+      box.focus();
+      fireEvent.change(box, { target: { value: initial, selectionStart: initial.length, selectionEnd: initial.length } });
+      return { box, keys };
+    };
+
+    it(':thu then Enter inserts :thumbsup: and a space', async () => {
+      const { box } = type('ok :thu');
+      await screen.findByRole('listbox');
+      expect(box).toHaveAttribute('aria-expanded', 'true');
+      expect(box.getAttribute('aria-activedescendant')).toBe(screen.getAllByRole('option')[0].id);
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(box).toHaveValue('ok :thumbsup: ');
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('arrows move and Tab inserts the chosen one', async () => {
+      const { box } = type(':thu');
+      await screen.findByRole('listbox');
+      const second = screen.getAllByRole('option')[1].textContent!.match(/:[^:]+:$/)![0];
+      fireEvent.keyDown(box, { key: 'ArrowDown' });
+      expect(screen.getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true');
+      fireEvent.keyDown(box, { key: 'Tab' });
+      expect(box.value).toBe(`${second} `);
+    });
+
+    it('a click inserts', async () => {
+      const { box } = type(':rocke');
+      fireEvent.click(await screen.findByRole('option', { name: /:rocket:/ }));
+      expect(box).toHaveValue(':rocket: ');
+    });
+
+    it("Esc closes the popup only, and is the editor's again afterwards", async () => {
+      const { box, keys } = type(':thu');
+      await screen.findByRole('listbox');
+      fireEvent.keyDown(box, { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(keys).not.toHaveBeenCalled();
+      fireEvent.keyDown(box, { key: 'Escape' });
+      expect(keys).toHaveBeenCalledTimes(1);
+    });
+
+    it('Ctrl+Enter still reaches the editor with the popup open, and so does Enter without it', async () => {
+      const { box, keys } = type(':thu');
+      await screen.findByRole('listbox');
+      fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+      expect(keys).toHaveBeenCalledTimes(1);
+      fireEvent.change(box, { target: { value: 'plain', selectionStart: 5, selectionEnd: 5 } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(keys).toHaveBeenCalledTimes(2);
+    });
+
+    it('stays closed for a URL, a time and code', () => {
+      const { box } = type('http://exa');
+      expect(screen.queryByRole('listbox')).toBeNull();
+      fireEvent.change(box, { target: { value: 'at 12:30', selectionStart: 8, selectionEnd: 8 } });
+      fireEvent.change(box, { target: { value: '`:thu', selectionStart: 5, selectionEnd: 5 } });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(box).toHaveAttribute('aria-expanded', 'false');
+    });
+  });
 });

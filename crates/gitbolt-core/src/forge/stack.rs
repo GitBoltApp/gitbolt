@@ -104,6 +104,7 @@ fn state_word(s: MrState) -> &'static str {
         MrState::Open => "Open",
         MrState::Draft => "Draft",
         MrState::Merged => "Merged",
+        MrState::Merging => "Merging",
         MrState::Closed => "Closed",
     }
 }
@@ -307,7 +308,7 @@ impl ForgeHub {
         if next == description {
             return Ok(false);
         }
-        let edit = MrEdit { title: None, description: Some(next), labels: None };
+        let edit = MrEdit { title: None, description: Some(next), labels: None, ..Default::default() };
         let r = c.provider.edit(&c.project, number, &edit).await;
         self.record(&c.key, &r);
         r.map(|_| true)

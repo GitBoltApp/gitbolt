@@ -4,12 +4,14 @@
 //! `cargo test -p gitbolt-harness --test it forge_stacks::`.
 
 mod askpass;
+mod crlf;
 mod details_latency;
 mod fake_forge;
 mod fake_forge_create;
 mod fake_forge_stacks;
 mod forge_accounts;
 mod forge_author_names;
+mod forge_comment_actions;
 mod forge_cache;
 mod forge_forks_paging;
 mod forge_github;

@@ -18,6 +18,9 @@ pub struct FakePosition {
     pub old_path: String,
     pub new_line: Option<u32>,
     pub old_line: Option<u32>,
+    /// A multi-line note's first line, (new, old): its `line_range` starts there and ends at
+    /// `new_line` / `old_line`.
+    pub start: Option<(Option<u32>, Option<u32>)>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -31,7 +34,23 @@ pub struct FakeNote {
     pub created_at: String,
     pub system: bool,
     pub position: Option<FakePosition>,
+    // --- comment actions ---
+    /// Its award emoji.
+    pub awards: Vec<FakeAward>,
+    // --- end comment actions ---
 }
+
+// --- comment actions ---
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FakeAward {
+    pub id: u64,
+    /// `thumbsup`, `tada`, …
+    pub name: String,
+    /// A username.
+    pub user: String,
+}
+// --- end comment actions ---
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -40,6 +59,10 @@ pub struct FakeDiscussion {
     pub notes: Vec<FakeNote>,
     pub resolvable: bool,
     pub resolved: bool,
+    // --- comment actions ---
+    /// The username who resolved it.
+    pub resolved_by: Option<String>,
+    // --- end comment actions ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -80,10 +103,25 @@ pub struct FakeMergeRequest {
     pub merge_status: String,
     pub squash: bool,
     pub remove_source_branch: Option<bool>,
+    /// A merge leaves it `locked` (GitLab merging it) until the next GET of it, then `merged`.
+    pub locks_on_merge: bool,
+    /// Set to auto-merge by this username (GitLab's `merge_user`); `None`: not set.
+    pub auto_merge_by: Option<String>,
+    /// The messages the last merge (or auto-merge) asked for.
+    pub merge_commit_message: Option<String>,
+    pub squash_commit_message: Option<String>,
     /// RFC 3339.
     pub updated_at: String,
     pub discussions: Vec<FakeDiscussion>,
     pub diffs: Vec<FakeDiff>,
+    // --- MR round 2 ---
+    /// `diff_refs.base_sha` (a single MR's GET); empty: none.
+    pub base_sha: String,
+    /// Usernames subscribed to its notifications (`subscribed` is the token user's).
+    pub subscribers: Vec<String>,
+    /// Usernames whose reviewer state is requested changes (`mergeRequestRequestChanges`).
+    pub changes_requested_by: Vec<String>,
+    // --- end MR round 2 ---
 }
 
 pub fn default_users() -> Vec<FakeUser> {
@@ -104,8 +142,8 @@ pub fn default_mrs() -> Vec<FakeMergeRequest> {
         updated_at: format!("{day}T10:00:00Z"),
         ..Default::default()
     };
-    let note = |id: u64, author: &str, body: &str, at: &str| FakeNote { id, author: author.into(), body: body.into(), created_at: at.into(), system: false, position: None };
-    let readme = FakePosition { new_path: "README.md".into(), old_path: "README.md".into(), new_line: Some(2), old_line: None };
+    let note = |id: u64, author: &str, body: &str, at: &str| FakeNote { id, author: author.into(), body: body.into(), created_at: at.into(), system: false, position: None, awards: vec![] };
+    let readme = FakePosition { new_path: "README.md".into(), old_path: "README.md".into(), new_line: Some(2), old_line: None, start: None };
     vec![
         FakeMergeRequest {
             description: "Adds the dev work.\n\nCloses #3.".into(),
@@ -115,9 +153,9 @@ pub fn default_mrs() -> Vec<FakeMergeRequest> {
             merge_status: "not_approved".into(),
             labels: vec!["backend".into()],
             discussions: vec![
-                FakeDiscussion { id: "d1".into(), notes: vec![note(101, "grace", "Looks good overall.", "2026-10-04T09:00:00Z")], resolvable: false, resolved: false },
-                FakeDiscussion { id: "d2".into(), notes: vec![FakeNote { position: Some(readme), ..note(102, "grace", "Why the second line?", "2026-10-04T09:05:00Z") }], resolvable: true, resolved: false },
-                FakeDiscussion { id: "d3".into(), notes: vec![FakeNote { system: true, ..note(103, "grace", "added 1 commit", "2026-10-04T09:10:00Z") }], resolvable: false, resolved: false },
+                FakeDiscussion { id: "d1".into(), notes: vec![note(101, "grace", "Looks good overall.", "2026-10-04T09:00:00Z")], resolvable: false, resolved: false, resolved_by: None },
+                FakeDiscussion { id: "d2".into(), notes: vec![FakeNote { position: Some(readme), ..note(102, "grace", "Why the second line?", "2026-10-04T09:05:00Z") }], resolvable: true, resolved: false, resolved_by: None },
+                FakeDiscussion { id: "d3".into(), notes: vec![FakeNote { system: true, ..note(103, "grace", "added 1 commit", "2026-10-04T09:10:00Z") }], resolvable: false, resolved: false, resolved_by: None },
             ],
             diffs: vec![FakeDiff { old_path: "README.md".into(), new_path: "README.md".into(), diff: "@@ -1,1 +1,2 @@\n Readme\n+Second line\n".into() }],
             ..mr(12, "Dev work", "dev", "grace", "opened", "2026-10-04")
@@ -130,7 +168,7 @@ pub fn default_mrs() -> Vec<FakeMergeRequest> {
 
 /// A username's user: a token's, else `GitLabSeed.users`, else a stand-in.
 fn person(st: &ForgeState, username: &str) -> FakeUser {
-    st.seed.gitlab.tokens.iter().map(|t| &t.user).chain(st.seed.gitlab.users.iter()).find(|u| u.username == username).cloned().unwrap_or_else(|| FakeUser { id: 999, username: username.into(), name: username.into(), ..Default::default() })
+    st.seed.gitlab.tokens.iter().map(|t| &t.user).chain(st.seed.gitlab.users.iter()).chain(st.seed.gitlab.members.iter()).find(|u| u.username == username).cloned().unwrap_or_else(|| FakeUser { id: 999, username: username.into(), name: username.into(), ..Default::default() })
 }
 
 fn is_draft(title: &str) -> bool {
@@ -166,24 +204,178 @@ pub fn mr_json(st: &ForgeState, m: &FakeMergeRequest, base: &str, single: bool) 
         "has_conflicts": m.has_conflicts,
         "detailed_merge_status": if m.merge_status.is_empty() { "mergeable" } else { m.merge_status.as_str() },
         "squash": m.squash, "force_remove_source_branch": m.remove_source_branch, "updated_at": m.updated_at,
+        "merge_when_pipeline_succeeds": m.auto_merge_by.is_some(),
+        "merge_user": m.auto_merge_by.as_deref().map_or(Value::Null, |u| user_json(&person(st, u), base)),
     });
     if single {
         v["head_pipeline"] = m.pipeline.as_deref().map_or(Value::Null, |s| pipeline_json(m, s, base));
+        // --- MR round 2 ---
+        if !m.base_sha.is_empty() {
+            v["diff_refs"] = json!({ "base_sha": m.base_sha, "start_sha": m.base_sha, "head_sha": m.head_sha });
+        }
+        // --- end MR round 2 ---
     }
     v
 }
+
+// --- MR round 2 ---
+/// A single MR's JSON for the token's user (`subscribed` is theirs).
+fn mr_json_for(st: &ForgeState, m: &FakeMergeRequest, r: &FakeRequest, base: &str) -> Value {
+    let mut v = mr_json(st, m, base, true);
+    let me = r.token.as_ref().map(|t| t.user.username.as_str());
+    v["subscribed"] = me.is_some_and(|u| m.subscribers.iter().any(|s| s == u)).into();
+    v
+}
+
+/// `/api/graphql`: the people flags (per project) and `mergeRequestRequestChanges`. An older
+/// GitLab (`old_graphql`) knows neither: GraphQL's "doesn't exist" errors.
+pub(crate) fn graphql(st: &mut ForgeState, r: &FakeRequest) -> Reply {
+    let b = body_of(r);
+    let query = b["query"].as_str().unwrap_or_default();
+    let vars = &b["variables"];
+    let missing = |field: &str, on: &str| Reply::json(json!({ "errors": [{ "message": format!("Field '{field}' doesn't exist on type '{on}'") }] }));
+    if query.contains("allowsMultipleReviewers") {
+        if st.seed.gitlab.old_graphql {
+            return missing("allowsMultipleReviewers", "MergeRequest");
+        }
+        let path = vars["path"].as_str().unwrap_or_default();
+        let Some(p) = st.seed.gitlab.projects.iter().find(|p| p.path == path) else { return Reply::json(json!({ "data": { "project": null } })) };
+        let multiple = !p.single_people;
+        let nodes: Vec<Value> = st.seed.gitlab.merge_requests.iter().filter(|m| m.project == path).take(1).map(|_| json!({ "allowsMultipleReviewers": multiple, "allowsMultipleAssignees": multiple })).collect();
+        return Reply::json(json!({ "data": { "project": { "mergeRequests": { "nodes": nodes } } } }));
+    }
+    if query.contains("mergeRequestRequestChanges") {
+        if st.seed.gitlab.old_graphql {
+            return missing("mergeRequestRequestChanges", "Mutation");
+        }
+        let (path, iid) = (vars["path"].as_str().unwrap_or_default(), vars["iid"].as_str().unwrap_or_default());
+        let me = r.token.as_ref().map(|t| t.user.username.clone()).unwrap_or_default();
+        return match st.seed.gitlab.merge_requests.iter_mut().find(|m| m.project == path && m.iid.to_string() == iid) {
+            Some(m) => {
+                if !m.changes_requested_by.contains(&me) {
+                    m.changes_requested_by.push(me);
+                }
+                Reply::json(json!({ "data": { "mergeRequestRequestChanges": { "errors": [] } } }))
+            }
+            None => Reply::json(json!({ "data": { "mergeRequestRequestChanges": null }, "errors": [{ "message": "The resource that you are attempting to access does not exist" }] })),
+        };
+    }
+    // --- comment actions: every note's award emoji, one page ---
+    if query.contains("awardEmoji") {
+        if st.seed.gitlab.old_graphql {
+            return missing("awardEmoji", "Note");
+        }
+        let (path, iid) = (vars["path"].as_str().unwrap_or_default(), vars["iid"].as_str().unwrap_or_default());
+        let Some(m) = st.seed.gitlab.merge_requests.iter().find(|m| m.project == path && m.iid.to_string() == iid) else {
+            return Reply::json(json!({ "data": { "project": { "mergeRequest": null } } }));
+        };
+        let nodes: Vec<Value> = m.discussions.iter().flat_map(|d| d.notes.iter()).map(|n| json!({
+            "id": format!("gid://gitlab/Note/{}", n.id),
+            "awardEmoji": { "nodes": n.awards.iter().map(|a| { let u = person(st, &a.user); json!({ "name": a.name, "user": { "id": format!("gid://gitlab/User/{}", u.id), "username": u.username, "name": u.name } }) }).collect::<Vec<_>>() },
+        })).collect();
+        return Reply::json(json!({ "data": { "project": { "mergeRequest": { "notes": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": nodes } } } } }));
+    }
+    // --- end comment actions ---
+    Reply::json(json!({ "errors": [{ "message": "Unknown query" }] }))
+}
+
+// --- comment actions ---
+fn award_json(st: &ForgeState, a: &FakeAward, base: &str) -> Value {
+    json!({ "id": a.id, "name": a.name, "user": user_json(&person(st, &a.user), base), "awardable_type": "Note" })
+}
+
+/// MR `i`'s note `nid`: (discussion, note) indexes.
+fn note_at(st: &ForgeState, i: usize, nid: &str) -> Option<(usize, usize)> {
+    st.seed.gitlab.merge_requests[i].discussions.iter().enumerate().find_map(|(d, x)| x.notes.iter().position(|n| n.id.to_string() == nid).map(|n| (d, n)))
+}
+
+fn forbidden() -> Reply {
+    Reply::status(403, json!({ "message": "403 Forbidden" }))
+}
+
+/// The award emoji and note routes under `merge_requests/<iid>/notes/<id>`: anyone may award,
+/// only the note's author edits or deletes it, and only an award's user removes it.
+fn note_route(st: &mut ForgeState, r: &FakeRequest, i: usize, nid: &str, rest: &[&str], base: &str) -> Reply {
+    let Some((d, n)) = note_at(st, i, nid) else { return not_found() };
+    let me = r.token.as_ref().map(|t| t.user.username.clone()).unwrap_or_default();
+    fn at(st: &mut ForgeState, i: usize, d: usize, n: usize) -> &mut FakeNote {
+        &mut st.seed.gitlab.merge_requests[i].discussions[d].notes[n]
+    }
+    match (r.method, rest) {
+        ("GET", ["award_emoji"]) => {
+            let items = at(st, i, d, n).awards.clone();
+            Reply::page(items.iter().map(|a| award_json(st, a, base)).collect(), r, &format!("{base}/gitlab{}", r.path))
+        }
+        ("POST", ["award_emoji"]) => {
+            let Some(name) = body_of(r)["name"].as_str().map(str::to_string) else { return bad_request() };
+            if at(st, i, d, n).awards.iter().any(|a| a.name == name && a.user == me) {
+                return Reply::status(404, json!({ "message": { "base": ["Award Emoji Name has already been taken"] } }));
+            }
+            let id = st.seed.gitlab.merge_requests.iter().flat_map(|m| m.discussions.iter()).flat_map(|d| d.notes.iter()).flat_map(|n| n.awards.iter()).map(|a| a.id).max().unwrap_or(0).max(500) + 1;
+            let a = FakeAward { id, name, user: me };
+            at(st, i, d, n).awards.push(a.clone());
+            Reply::status(201, award_json(st, &a, base))
+        }
+        ("DELETE", ["award_emoji", aid]) => {
+            let awards = &mut at(st, i, d, n).awards;
+            match awards.iter().position(|a| a.id.to_string() == *aid) {
+                Some(k) if awards[k].user == me => {
+                    awards.remove(k);
+                    Reply::no_content()
+                }
+                Some(_) => forbidden(),
+                None => not_found(),
+            }
+        }
+        ("PUT", []) => {
+            if at(st, i, d, n).author != me {
+                return forbidden();
+            }
+            let Some(body) = body_of(r)["body"].as_str().map(str::to_string) else { return bad_request() };
+            at(st, i, d, n).body = body;
+            let disc = &st.seed.gitlab.merge_requests[i].discussions[d];
+            Reply::json(note_json(st, &disc.notes[n], disc.resolvable, disc.resolved, base))
+        }
+        ("DELETE", []) => {
+            if at(st, i, d, n).author != me {
+                return forbidden();
+            }
+            let ds = &mut st.seed.gitlab.merge_requests[i].discussions;
+            ds[d].notes.remove(n);
+            if ds[d].notes.is_empty() {
+                ds.remove(d);
+            }
+            Reply::no_content()
+        }
+        _ => not_found(),
+    }
+}
+// --- end comment actions ---
+// --- end MR round 2 ---
 
 fn note_json(st: &ForgeState, n: &FakeNote, resolvable: bool, resolved: bool, base: &str) -> Value {
     json!({
         "id": n.id, "body": n.body, "author": user_json(&person(st, &n.author), base), "created_at": n.created_at, "system": n.system,
         "type": if n.position.is_some() { Value::from("DiffNote") } else { Value::Null },
-        "position": n.position.as_ref().map(|p| json!({ "position_type": "text", "new_path": p.new_path, "old_path": p.old_path, "new_line": p.new_line, "old_line": p.old_line })),
+        "position": n.position.as_ref().map(|p| {
+            // GitLab's line refs: `type` is the side the line is only on (null for a context line).
+            let at = |(new, old): (Option<u32>, Option<u32>)| json!({
+                "line_code": format!("f00d_{}_{}", old.unwrap_or(0), new.unwrap_or(0)),
+                "type": match (new, old) { (Some(_), None) => Value::from("new"), (None, Some(_)) => Value::from("old"), _ => Value::Null },
+                "new_line": new, "old_line": old,
+            });
+            let range = p.start.map_or(Value::Null, |s| json!({ "start": at(s), "end": at((p.new_line, p.old_line)) }));
+            json!({ "position_type": "text", "new_path": p.new_path, "old_path": p.old_path, "new_line": p.new_line, "old_line": p.old_line, "line_range": range })
+        }),
         "resolvable": resolvable, "resolved": resolved,
     })
 }
 
 fn discussion_json(st: &ForgeState, d: &FakeDiscussion, base: &str) -> Value {
-    json!({ "id": d.id, "individual_note": d.notes.len() == 1 && !d.resolvable, "notes": d.notes.iter().map(|n| note_json(st, n, d.resolvable, d.resolved, base)).collect::<Vec<_>>() })
+    // --- comment actions: each note of a resolved discussion names who resolved it ---
+    let by = d.resolved_by.as_deref().filter(|_| d.resolved).map_or(Value::Null, |u| user_json(&person(st, u), base));
+    let notes: Vec<Value> = d.notes.iter().map(|n| { let mut v = note_json(st, n, d.resolvable, d.resolved, base); if d.resolvable { v["resolved_by"] = by.clone(); } v }).collect();
+    json!({ "id": d.id, "individual_note": d.notes.len() == 1 && !d.resolvable, "notes": notes })
 }
 
 fn approvals_json(st: &ForgeState, m: &FakeMergeRequest, base: &str) -> Value {
@@ -237,7 +429,7 @@ fn new_note(st: &ForgeState, r: &FakeRequest) -> Option<FakeNote> {
     let body = body_of(r)["body"].as_str()?.to_string();
     let author = r.token.as_ref()?.user.username.clone();
     let id = st.seed.gitlab.merge_requests.iter().flat_map(|m| m.discussions.iter()).flat_map(|d| d.notes.iter()).map(|n| n.id).max().unwrap_or(0).max(1000) + 1;
-    Some(FakeNote { id, author, body, created_at: WRITE_TIME.into(), system: false, position: None })
+    Some(FakeNote { id, author, body, created_at: WRITE_TIME.into(), system: false, position: None, awards: vec![] })
 }
 // --- end 4B T3 ---
 
@@ -271,7 +463,16 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             Reply::json(Value::Array(mrs.iter().map(|m| pipeline_json(m, m.pipeline.as_deref().unwrap_or_default(), &base)).collect()))
         }
         ("GET", ["merge_requests", iid]) => match index(st, iid) {
-            Some(i) => Reply::json(mr_json(st, &st.seed.gitlab.merge_requests[i], &base, true)),
+            Some(i) => {
+                let reply = Reply::json(mr_json_for(st, &st.seed.gitlab.merge_requests[i], r, &base));
+                // GitLab's merge finishes: the next GET says merged.
+                let m = &mut st.seed.gitlab.merge_requests[i];
+                if m.state == "locked" {
+                    m.state = "merged".into();
+                    m.updated_at = WRITE_TIME.into();
+                }
+                reply
+            }
             None => not_found(),
         },
         ("GET", ["merge_requests", iid, "approvals"]) => match index(st, iid) {
@@ -290,7 +491,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         ("POST", ["merge_requests", iid, "notes"]) => match index(st, iid) {
             Some(i) => {
                 let Some(note) = new_note(st, r) else { return Some(bad_request()) };
-                st.seed.gitlab.merge_requests[i].discussions.push(FakeDiscussion { id: format!("d{}", note.id), notes: vec![note.clone()], resolvable: false, resolved: false });
+                st.seed.gitlab.merge_requests[i].discussions.push(FakeDiscussion { id: format!("d{}", note.id), notes: vec![note.clone()], resolvable: false, resolved: false, resolved_by: None });
                 Reply::status(201, note_json(st, &note, false, false, &base))
             }
             None => not_found(),
@@ -305,6 +506,27 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             }
             None => not_found(),
         },
+        // --- comment actions ---
+        (_, ["merge_requests", iid, "notes", nid, more @ ..]) => match index(st, iid) {
+            Some(i) => note_route(st, r, i, nid, more, &base),
+            None => not_found(),
+        },
+        ("PUT", ["merge_requests", iid, "discussions", did]) => match index(st, iid) {
+            Some(i) => {
+                let me = r.token.as_ref().map(|t| t.user.username.clone()).unwrap_or_default();
+                let Some(d) = st.seed.gitlab.merge_requests[i].discussions.iter_mut().find(|d| d.id == *did) else { return Some(not_found()) };
+                if !d.resolvable {
+                    return Some(bad_request());
+                }
+                let Some(on) = r.query.get("resolved").map(|v| v == "true") else { return Some(bad_request()) };
+                d.resolved = on;
+                d.resolved_by = on.then_some(me);
+                let d = d.clone();
+                Reply::json(discussion_json(st, &d, &base))
+            }
+            None => not_found(),
+        },
+        // --- end comment actions ---
         ("POST", ["merge_requests", iid, "approve"]) => match (index(st, iid), r.token.as_ref().map(|t| t.user.username.clone())) {
             (Some(i), Some(me)) => {
                 let m = &mut st.seed.gitlab.merge_requests[i];
@@ -335,9 +557,15 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         ("PUT", ["merge_requests", iid, "merge"]) => match index(st, iid) {
             Some(i) => {
                 let b = body_of(r);
+                let me = r.token.as_ref().map(|t| t.user.username.clone()).unwrap_or_default();
                 let m = &mut st.seed.gitlab.merge_requests[i];
                 let mergeable = m.merge_status.is_empty() || m.merge_status == "mergeable";
-                if m.state != "opened" || !mergeable {
+                // --- auto-merge: either flag (17.11's `auto_merge`, the older one) while the pipeline hasn't finished ---
+                let auto = b["auto_merge"].as_bool() == Some(true) || b["merge_when_pipeline_succeeds"].as_bool() == Some(true);
+                let unfinished = matches!(m.pipeline.as_deref(), Some("created" | "pending" | "running" | "waiting_for_resource" | "preparing"));
+                let waits = auto && unfinished && m.state == "opened" && !is_draft(&m.title) && !m.has_conflicts;
+                // --- end auto-merge ---
+                if m.state != "opened" || (!mergeable && !waits) {
                     return Some(Reply::status(405, json!({ "message": "405 Method Not Allowed" })));
                 }
                 if let Some(sha) = b["sha"].as_str()
@@ -345,22 +573,61 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 {
                     return Some(Reply::status(409, json!({ "message": format!("SHA does not match HEAD of source branch: {}", m.head_sha) })));
                 }
-                m.state = "merged".into();
+                if waits {
+                    m.auto_merge_by = Some(me);
+                } else {
+                    m.state = if m.locks_on_merge { "locked" } else { "merged" }.into();
+                }
                 if let Some(s) = b["squash"].as_bool() {
                     m.squash = s;
                 }
                 if let Some(d) = b["should_remove_source_branch"].as_bool() {
                     m.remove_source_branch = Some(d);
                 }
+                m.merge_commit_message = b["merge_commit_message"].as_str().map(str::to_string);
+                m.squash_commit_message = b["squash_commit_message"].as_str().map(str::to_string);
                 m.updated_at = WRITE_TIME.into();
                 Reply::json(mr_json(st, &st.seed.gitlab.merge_requests[i], &base, true))
             }
             None => not_found(),
         },
+        // --- auto-merge ---
+        ("POST", ["merge_requests", iid, "cancel_merge_when_pipeline_succeeds"]) => match index(st, iid) {
+            Some(i) => {
+                let m = &mut st.seed.gitlab.merge_requests[i];
+                if m.state != "opened" || m.auto_merge_by.take().is_none() {
+                    return Some(Reply::status(406, json!({ "message": "406 Not Acceptable" })));
+                }
+                m.updated_at = WRITE_TIME.into();
+                Reply::status(201, mr_json(st, &st.seed.gitlab.merge_requests[i], &base, true))
+            }
+            None => not_found(),
+        },
+        // --- end auto-merge ---
         ("PUT", ["merge_requests", iid]) => match index(st, iid) {
             Some(i) => {
                 let b = body_of(r);
+                // The whole lists, as ids; like GitLab, an id it can't add is dropped silently.
+                let people = |key: &str| -> Option<Vec<String>> {
+                    let ids: Vec<u64> = b[key].as_array()?.iter().filter_map(Value::as_u64).collect();
+                    let g = &st.seed.gitlab;
+                    Some(ids.iter().filter_map(|id| g.tokens.iter().map(|t| &t.user).chain(&g.users).chain(&g.members).find(|u| u.id == *id)).map(|u| u.username.clone()).collect())
+                };
+                let (mut reviewers, mut assignees) = (people("reviewer_ids"), people("assignee_ids"));
+                // --- MR round 2: GitLab Free keeps only the first id, silently ---
+                if find(&st.seed.gitlab.projects, &project).is_some_and(|p| p.single_people) {
+                    for list in [&mut reviewers, &mut assignees].into_iter().flatten() {
+                        list.truncate(1);
+                    }
+                }
+                // --- end MR round 2 ---
                 let m = &mut st.seed.gitlab.merge_requests[i];
+                if let Some(list) = reviewers {
+                    m.reviewers = list;
+                }
+                if let Some(list) = assignees {
+                    m.assignees = list;
+                }
                 if let Some(t) = b["title"].as_str() {
                     m.title = t.into();
                 }
@@ -381,6 +648,27 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             None => not_found(),
         },
         // --- end 4B T3 ---
+        // --- MR round 2: one member (whoever a PUT can add), and notifications (304 when already so, as GitLab) ---
+        ("GET", ["members", "all", uid]) => {
+            let g = &st.seed.gitlab;
+            match g.tokens.iter().map(|t| &t.user).chain(&g.users).chain(&g.members).find(|u| u.id.to_string() == *uid) {
+                Some(u) => Reply::json(user_json(u, &base)),
+                None => not_found(),
+            }
+        }
+        ("POST", ["merge_requests", iid, action @ ("subscribe" | "unsubscribe")]) => match (index(st, iid), r.token.as_ref().map(|t| t.user.username.clone())) {
+            (Some(i), Some(me)) => {
+                let on = *action == "subscribe";
+                let m = &mut st.seed.gitlab.merge_requests[i];
+                if m.subscribers.contains(&me) == on {
+                    return Some(Reply::status(304, Value::Null));
+                }
+                if on { m.subscribers.push(me) } else { m.subscribers.retain(|u| *u != me) }
+                Reply::status(201, mr_json_for(st, &st.seed.gitlab.merge_requests[i], r, &base))
+            }
+            _ => not_found(),
+        },
+        // --- end MR round 2 ---
         // --- 4C T2: create, people, labels, templates ---
         ("POST", ["merge_requests"]) => super::create::gitlab_post_mr(st, r, id),
         ("GET", ["members", "all"]) => super::create::gitlab_members(st, r, id),

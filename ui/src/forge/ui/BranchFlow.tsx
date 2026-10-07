@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronUp, GitCompareArrows, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { HoverTooltip } from '../../ui/HoverTooltip';
 import type { CommitJump } from './commitJump';
@@ -20,7 +20,7 @@ export interface FlowEnd {
  * status strip at the bottom (Create's "isn't on origin yet" with Push). The footer keeps its
  * height while the counts load.
  */
-export function BranchFlow({ from, into, stats, count = null, none, strip, jump }: {
+export function BranchFlow({ from, into, stats, count = null, none, strip, jump, compare }: {
   from: FlowEnd;
   into: FlowEnd;
   stats: RangeState;
@@ -31,12 +31,30 @@ export function BranchFlow({ from, into, stats, count = null, none, strip, jump 
   /** The footer when the repository lacks the commits. */
   none?: ReactNode;
   strip?: ReactNode;
+  /** The MR view's Compare, an icon at the bar's right end (`busy`: fetching its head). */
+  compare?: { run(): void; busy: boolean };
 }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
   const ready = stats.status === 'ready' ? stats.stats : null;
   const commits = ready?.commits ?? null;
   const shownCount = commits?.length ?? count;
+  const counts = (
+    <>
+      {stats.status === 'loading' && <span className="flow-wait">Counting…</span>}
+      {stats.status === 'none' && (count !== null
+        ? <span><b>{count}</b> {count === 1 ? 'commit' : 'commits'}</span>
+        : <span className="flow-wait">{none ?? "The commits aren't in this repository yet"}</span>)}
+      {ready && (
+        <>
+          {shownCount !== null && <span><b>{shownCount}</b> {shownCount === 1 ? 'commit' : 'commits'}</span>}
+          <span><b>{ready.files}</b> {ready.files === 1 ? 'file' : 'files'}</span>
+          <span className="flow-add">+{ready.added}</span>
+          <span className="flow-del">−{ready.deleted}</span>
+        </>
+      )}
+    </>
+  );
   return (
     <section className="flow" aria-label="Branches">
       <div className="flow-row">
@@ -44,22 +62,24 @@ export function BranchFlow({ from, into, stats, count = null, none, strip, jump 
         <span className="flow-arrow" aria-hidden><ArrowRight size={16} /></span>
         <End caption="Into" end={into} />
       </div>
-      <div className="flow-meta">
-        {stats.status === 'loading' && <span className="flow-wait">Counting…</span>}
-        {stats.status === 'none' && (count !== null
-          ? <span><b>{count}</b> {count === 1 ? 'commit' : 'commits'}</span>
-          : <span className="flow-wait">{none ?? "The commits aren't in this repository yet"}</span>)}
-        {ready && (
+      {/* With commits to list, the bar is the toggle (one button), but for Compare at its right end. */}
+      <div className="flow-bar">
+        {ready && commits && commits.length > 0 ? (
+          <button type="button" className="flow-meta flow-toggle" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)}>
+            {counts}
+            <span className="flow-more">{open ? 'Hide commits' : 'Show commits'} {open ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}</span>
+          </button>
+        ) : (
+          <div className="flow-meta">{counts}</div>
+        )}
+        {compare && (
           <>
-            {shownCount !== null && <span><b>{shownCount}</b> {shownCount === 1 ? 'commit' : 'commits'}</span>}
-            <span><b>{ready.files}</b> {ready.files === 1 ? 'file' : 'files'}</span>
-            <span className="flow-add">+{ready.added}</span>
-            <span className="flow-del">−{ready.deleted}</span>
-            {commits && commits.length > 0 && (
-              <button type="button" className="flow-more" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)}>
-                {open ? 'Hide commits' : 'Show commits'} {open ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
+            <span className="flow-divider" aria-hidden />
+            <HoverTooltip content="Compare the MR's changes in the diff view">
+              <button type="button" className="flow-compare" aria-label="Compare" aria-busy={compare.busy} onClick={() => { if (!compare.busy) compare.run(); }}>
+                {compare.busy ? <LoaderCircle className="spin" size={14} aria-hidden /> : <GitCompareArrows size={14} aria-hidden />}
               </button>
-            )}
+            </HoverTooltip>
           </>
         )}
       </div>

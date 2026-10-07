@@ -44,20 +44,20 @@ button.mr-button:focus-visible { outline: 1px solid var(--focus-outline); outlin
 
 /* --- MR view redesign: header, actions, merge box, activity timeline, thread cards --- */
 .mr-header { gap: 8px; }
-.mr-state { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 11px; font-weight: 600; background: var(--control-bg); color: var(--text-secondary); }
-.mr-state[data-state="open"] { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
-.mr-state[data-state="merged"] { background: color-mix(in srgb, var(--purple) 15%, transparent); color: var(--purple); }
-.mr-state[data-state="closed"] { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
-.mr-state .mr-state-icon { color: inherit; }
 .mr-branches { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .mr-chip { padding: 1px 5px; border-radius: 4px; background: var(--control-bg); color: var(--text-normal); }
 .mr-dim-line { color: var(--text-secondary); }
 .mr-author { color: var(--text-normal); }
 .mr-person { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; }
-.mr-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.mr-fact { min-height: 46px; padding: 7px 9px; border: 1px solid var(--section-border); border-radius: 6px; background: var(--panel-bg1); min-width: 0; }
-.mr-fact-k { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-.mr-fact-v { margin-top: 2px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-normal); overflow-wrap: anywhere; }
+.mr-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.mr-facts > .people-cards { display: contents; }
+/* A card: its header at the top (as tall as its buttons, in every card, so the rows line up), its
+   value centred in the rest (a row stretches its cards to the tallest). */
+.mr-fact { display: flex; flex-direction: column; min-height: 52px; box-sizing: border-box; padding: 6px 10px 8px; border: 1px solid var(--section-border); border-radius: 6px; background: var(--panel-bg1); min-width: 0; }
+.mr-fact-head { display: flex; align-items: center; gap: 6px; }
+.mr-fact-head .mr-fact-k { flex: 1; min-width: 0; display: block; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* a narrow card: its name gives way (an ellipsis), its buttons stay right */
+.mr-fact-k { min-height: 22px; display: flex; align-items: center; font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.mr-fact-v { flex: 1; padding-top: 4px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-normal); overflow-wrap: anywhere; }
 .mr-fact-v.ok { color: var(--green); }
 .mr-fact-v.warn { color: var(--orange); }
 .mr-fact-v.bad { color: var(--red); }
@@ -77,10 +77,15 @@ button.mr-button.merge:hover:not(:disabled) { background: var(--green); filter: 
 button.mr-button.merge:disabled { background: var(--control-bg); border-color: var(--section-border); color: var(--text-disabled); font-weight: 500; }
 
 .mr-merge { padding: 0; gap: 0; border: 1px solid var(--section-border); border-radius: 8px; overflow: hidden; }
-.mr-merge-top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel-bg1); }
-.mr-merge-ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.mr-merge-ttl b { color: var(--text-selected); }
-.mr-merge-reason { margin: 0; font-size: 12px; min-height: 17px; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* The status: the icon centred on the title line (both in the grid's first row, the row as tall as
+   the icon), the reason under the title, the buttons centred on both lines. */
+.mr-merge-top { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-rows: minmax(22px, auto) auto; column-gap: 10px; align-items: center; padding: 10px 12px; background: var(--panel-bg1); }
+.mr-merge-dot { grid-area: 1 / 1; }
+.mr-merge-title { grid-area: 1 / 2; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; color: var(--text-normal); line-height: 18px; }
+.mr-merge-title b { color: var(--text-selected); }
+.mr-merge-title .avatar { flex: none; }
+.mr-merge-reason { grid-area: 2 / 2; margin: 0; font-size: 12px; min-height: 17px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.mr-merge-act { grid-area: 1 / 3 / 3 / 4; display: flex; align-items: center; }
 .mr-merge-reason.wait { color: var(--orange); }
 .mr-merge-reason.bad { color: var(--red); }
 .mr-merge-reason.ready { color: var(--text-secondary); }
@@ -88,12 +93,19 @@ button.mr-button.merge:disabled { background: var(--control-bg); border-color: v
 .mr-merge-dot.ready { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
 .mr-merge-dot.wait { background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange); }
 .mr-merge-dot.bad { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+.mr-merge-dot .spin { animation: mr-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .mr-merge-dot .spin { animation: none; } }
+/* The split button: the action, and the method's dropdown joined to it. */
+button.mr-button.merge.split { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+button.mr-button.mr-merge-pick { padding: 3px 5px; align-self: stretch; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--text-on-accent) 35%, transparent); }
+button.mr-button.mr-merge-pick:disabled { border-left-color: var(--section-border); }
+button.mr-button.mr-merge-go.cancel { color: var(--text-normal); }
 .mr-merge-opts { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding: 8px 12px; border-top: 1px solid var(--section-border); min-height: 38px; }
-.mr-merge-opts .mr-merge-method { margin-left: auto; }
 .mr-merge-opts .mr-merge-row { min-height: 22px; }
-/* GitLab's squash / delete switches, side by side (one column when narrow); the method line under them. */
+/* GitLab's delete / squash / message switches, side by side (one column when narrow). */
 .mr-merge-opts .mr-merge-switches { flex: 1 1 100%; margin: -2px -4px; }
 .mr-merge-opts:has(.mr-merge-switches) { row-gap: 4px; }
+
 
 .mr-activity { display: flex; flex-direction: column; gap: 10px; }
 .mr-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--section-border); }
@@ -105,7 +117,7 @@ button.mr-button.merge:disabled { background: var(--control-bg); border-color: v
 .mr-timeline { position: relative; padding-left: 26px; display: flex; flex-direction: column; gap: 10px; }
 .mr-timeline::before { content: ""; position: absolute; left: 10px; top: 6px; bottom: 6px; width: 2px; background: var(--section-border); }
 .mr-ev { position: relative; font-size: 12px; color: var(--text-secondary); min-width: 0; }
-.mr-node { position: absolute; left: -26px; top: 0; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--panel-bg0); border: 2px solid var(--panel-bg1); color: var(--text-secondary); }
+.mr-node { position: absolute; left: -26px; top: 0; box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--panel-bg0); border: 2px solid var(--panel-bg1); color: var(--text-secondary); }
 .mr-node.kind-commits { color: var(--blue); }
 .mr-node.kind-title { color: var(--orange); }
 .mr-node.kind-mention { color: var(--purple); }
@@ -114,10 +126,14 @@ button.mr-button.merge:disabled { background: var(--control-bg); border-color: v
 .mr-node.kind-merged { color: var(--purple); }
 .mr-node.kind-closed { color: var(--red); }
 .mr-node.kind-thread { color: var(--text-normal); }
-/* 12px text on a 16px line, 3px down: the first line's middle is the 22px node's middle (11px). */
+/* 12px text on a 16px line, 3px down: the first line's middle is the 22px node's middle (11px; the
+   node's border inside its 22px). */
 .mr-ev-line { padding-top: 3px; line-height: 16px; overflow-wrap: anywhere; }
 .mr-who { color: var(--text-normal); font-weight: 600; }
 .mr-when { color: var(--text-disabled); font-size: 12px; }
+.mr-when-btn { padding: 0; border: none; background: none; font: inherit; font-size: 12px; cursor: pointer; }
+.mr-when-btn:hover, .mr-when-btn:focus-visible { text-decoration: underline; }
+.mr-loading { display: flex; justify-content: center; padding: 12px 0; }
 .mr-commits { margin: 5px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .mr-commits li { display: flex; gap: 8px; align-items: baseline; color: var(--text-normal); }
 .mr-sha, .mr-code { font-family: var(--font-mono); font-size: 11px; padding: 0 5px; border-radius: 3px; }
@@ -127,16 +143,44 @@ button.mr-button.merge:disabled { background: var(--control-bg); border-color: v
 .mr-ev ins { color: var(--green); text-decoration: none; }
 
 .mr-discussion { display: flex; flex-direction: column; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); color: var(--text-normal); }
-.mr-pos { display: flex; flex-direction: column; padding: 6px 12px 0; }
+.mr-pos { display: flex; flex-direction: column; padding: 2px 0 0; }
 .mr-where { font-family: var(--font-mono); font-size: 11px; }
 .mr-snippet { margin: 6px 0 0; padding: 5px 8px; font: 11px/1.5 var(--font-mono); white-space: pre; overflow-x: auto; background: var(--app-bg0); border-radius: 4px; color: var(--text-secondary); }
-.mr-note { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; padding: 10px 12px; min-width: 0; }
-.mr-note + .mr-note { border-top: 1px solid var(--section-border); }
-.mr-reply-note { padding-left: 36px; }
-.mr-note-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+/* --- comment actions: the first comment's avatar is on the timeline (its text fills the card);
+   replies are compact, a small avatar in their header --- */
+.mr-node-avatar { border: none; background: var(--panel-bg0); overflow: hidden; }
+.mr-node-avatar > * { border-radius: 50%; }
+/* Beside the first comment's header row (the card's border and padding: 9px down). */
+.mr-thread-ev > .mr-node-avatar { top: 9px; }
+.mr-note { display: flex; flex-direction: column; padding: 8px 12px; min-width: 0; }
+.mr-reply-note { padding: 6px 12px; border-top: 1px solid var(--section-border); }
+.mr-note-head { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: 12px; }
 .mr-note-head b { color: var(--text-selected); }
 .mr-note-body { margin-top: 2px; overflow-wrap: anywhere; font-size: 12px; }
-.mr-resolved { font-size: 11px; color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); border-radius: 10px; padding: 0 7px; }
+/* The header's actions: shown on hover or focus, and while their picker or menu is open. */
+.mr-note-actions { display: inline-flex; align-items: center; gap: 2px; opacity: 0; }
+.mr-note:hover .mr-note-actions, .mr-note:focus-within .mr-note-actions, .mr-note-actions[data-open] { opacity: 1; }
+.mr-note-btn { width: 22px; height: 22px; display: inline-grid; place-items: center; color: var(--text-secondary); }
+.mr-resolve.on { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); border-radius: 50%; }
+.mr-react { position: relative; display: inline-flex; }
+.mr-picker { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg0); box-shadow: 0 4px 16px var(--shadow-popup); }
+.mr-picker-search { width: 100%; box-sizing: border-box; font-size: 12px; }
+.mr-picker-grid { display: grid; grid-template-columns: repeat(8, 28px); gap: 2px; }
+.mr-pick { width: 28px; height: 28px; font-size: 16px; line-height: 1; border: none; border-radius: 4px; background: none; cursor: pointer; }
+.mr-pick:hover, .mr-pick:focus-visible { background: var(--control-bg); }
+.mr-pick.mine { background: color-mix(in srgb, var(--blue) 18%, transparent); }
+.mr-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.mr-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px solid var(--section-border); border-radius: 11px; background: var(--panel-bg0); color: var(--text-normal); font-size: 12px; cursor: pointer; }
+.mr-pill:hover { border-color: var(--text-disabled); }
+.mr-pill.mine { border-color: color-mix(in srgb, var(--blue) 60%, transparent); background: color-mix(in srgb, var(--blue) 14%, transparent); }
+.mr-replies-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-top: 1px solid var(--section-border); font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.mr-replies-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; border: none; background: none; color: var(--text-normal); font: inherit; cursor: pointer; }
+.mr-replies-chevron { transition: transform 0.1s; }
+.mr-replies-toggle[aria-expanded="true"] .mr-replies-chevron { transform: rotate(90deg); }
+.mr-replies-faces { display: inline-flex; }
+.mr-replies-faces > * + * { margin-left: -6px; }
+.mr-replies-last .mr-when, .mr-ev-line .mr-when { margin-left: 6px; }
+/* --- end comment actions --- */
 .mr-thread-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--section-border); }
 .mr-thread-foot .mr-reply { align-self: stretch; }
 .mr-new-comment { padding: 10px 12px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); }
@@ -148,19 +192,32 @@ button.mr-button.merge:disabled { background: var(--control-bg); border-color: v
 /* --- end 5A T9 --- */
 
 /* The status line's actions (Check out, Edit, ⋯) at its right end, and the APPROVALS box's review
-   buttons (Approve, Request changes) at its top right, in space it keeps for them: no shift. */
-.mr-line > .mr-actions { flex-wrap: nowrap; }
-.mr-fact[data-fact="reviews"] { position: relative; }
-.mr-fact[data-fact="reviews"]:has(.mr-review-buttons) .mr-fact-k { padding-right: 46px; }
-.mr-review-buttons { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; }
-button.mr-review-btn { all: unset; box-sizing: border-box; width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 4px; cursor: pointer; }
-button.mr-review-btn.approve { color: var(--green); }
-button.mr-review-btn.changes { color: var(--orange); }
-button.mr-review-btn.approve:hover:not(:disabled) { background: color-mix(in srgb, var(--green) 18%, transparent); }
-button.mr-review-btn.changes:hover:not(:disabled) { background: color-mix(in srgb, var(--orange) 16%, transparent); }
-button.mr-review-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--orange) 16%, transparent); }
-button.mr-review-btn:disabled { cursor: default; opacity: 0.7; }
-button.mr-review-btn:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
-.mr-review-btn .spin { animation: mr-spin 1s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .mr-review-btn .spin { animation: none; } }
+   buttons (Approve, Review…) at its top right, in space it keeps for them: no shift. When the line
+   wraps (a long name, a narrow dock), the group wraps as one and stays at the right edge
+   (`margin-left: auto`), never jumping to the left. */
+.mr-line > .mr-actions { flex-wrap: nowrap; margin-left: auto; justify-content: flex-end; }
+.mr-review-buttons { display: flex; gap: 4px; }
 .mr-form-note { margin: 0; font-size: 11px; color: var(--text-secondary); }
+
+/* --- MR round 2: the review composer: Comment / Approve / Request changes, as a segmented control --- */
+.mr-review-modes { display: inline-flex; align-self: flex-start; border: 1px solid var(--section-border); border-radius: 6px; overflow: hidden; background: var(--control-bg); }
+.mr-review-mode { position: relative; display: inline-flex; align-items: center; padding: 3px 10px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.mr-review-mode + .mr-review-mode { border-left: 1px solid var(--section-border); }
+.mr-review-mode input { position: absolute; opacity: 0; pointer-events: none; }
+.mr-review-mode:hover { background: var(--control-hover-bg); color: var(--text-normal); }
+.mr-review-mode:has(input:checked) { background: var(--selected-row); color: var(--text-selected); }
+.mr-review-mode[data-event='approve']:has(input:checked) { color: var(--green); }
+.mr-review-mode[data-event='requestChanges']:has(input:checked) { color: var(--orange); }
+.mr-review-mode:has(input:focus-visible) { outline: 2px solid var(--focus-outline); outline-offset: -2px; }
+.mr-review textarea { box-sizing: border-box; width: 100%; min-height: 4.5em; resize: vertical; padding: 5px 8px; border: 1px solid var(--wip-input-border); border-radius: 6px; outline: none; background: var(--wip-input-bg); color: var(--text-normal); font: inherit; font-size: 12px; }
+.mr-review textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var(--focus-outline); }
+button.mr-button.primary.warn { background: var(--orange); border-color: var(--orange); }
+
+/* The MR/PR view's body: the header and forms, then the rest (hidden in Edit, still mounted). */
+.mr-body, .mr-rest { display: flex; flex-direction: column; gap: 12px; }
+.mr-body > *, .mr-rest > * { flex-shrink: 0; }
+.mr-rest[hidden] { display: none; }
+
+/* Edit's Save / Cancel: the modal dialogs' action buttons (auth.css), right-aligned, stuck to the bottom of the view's scroll. */
+.mr-edit-actions { position: sticky; bottom: -12px; z-index: 2; gap: 8px; margin-top: 6px; padding: 10px 0 12px; background: var(--panel-bg1); }
+.mr-edit-actions button.mr-button { padding: 5px 14px; font-size: inherit; }

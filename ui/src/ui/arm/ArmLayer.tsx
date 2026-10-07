@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAppState } from '../../app/state';
 import { registerKeys } from '../keyRouter';
+import { armBounds, armPlacement } from './grow';
 import { OVERLAY_ATTR } from './origin';
 import { confirmable, confirmArmed, disarm, escHandled, onArmPress, useArm, type Armed } from './store';
 import './arm.css';
@@ -20,16 +21,18 @@ const same = (a: Box | null, b: Box) => !!a && a.left === b.left && a.top === b.
  * Where the overlay goes, from the armed control:
  * - its own box, or the box of its closest `[data-arm-cover]` (a row's actions, a button pair):
  *   the overlay covers the control's neighbours instead of moving them;
- * - a label longer than that grows the overlay leftwards or rightwards (`data-arm-grow` on the
- *   control or an ancestor; else away from the nearer window edge), over the adjacent content.
+ * - a label longer than that grows the overlay over the adjacent content, toward the side of its
+ *   container (the nearest panel or scroll box, `armBounds`) with room for it: `data-arm-grow` on
+ *   the control or an ancestor says which side first. It never crosses the container's edge.
+ *   `needed`: the label's natural width (0 until measured).
  */
-function geometry(el: HTMLElement): { box: Box; grow: 'left' | 'right'; cover: boolean } {
+function geometry(el: HTMLElement, needed: number): { box: Box; grow: 'left' | 'right'; maxWidth: number; cover: boolean } {
   const coverEl = el.closest<HTMLElement>('[data-arm-cover]');
-  const own = el.getBoundingClientRect();
-  const base = coverEl ? coverEl.getBoundingClientRect() : own;
+  const base = (coverEl ?? el).getBoundingClientRect();
   const growAttr = el.closest('[data-arm-grow]')?.getAttribute('data-arm-grow');
-  const grow = growAttr === 'left' || growAttr === 'right' ? growAttr : own.left + own.width / 2 > window.innerWidth / 2 ? 'left' : 'right';
-  return { box: boxOf(base), grow, cover: !!coverEl };
+  const preferred = growAttr === 'left' || growAttr === 'right' ? growAttr : null;
+  const { grow, maxWidth } = armPlacement(base, armBounds(coverEl ?? el), needed, preferred);
+  return { box: boxOf(base), grow, maxWidth, cover: !!coverEl };
 }
 
 /** The armed control's icon, when it's an icon button: the pill keeps it (board B). */
@@ -40,7 +43,14 @@ function iconOf(el: HTMLElement): string | null {
 
 function Overlay({ a }: { a: Armed & { origin: NonNullable<Armed['origin']> } }) {
   const el = a.origin.el;
-  const [geo, setGeo] = useState(() => geometry(el));
+  const overlay = useRef<HTMLButtonElement>(null);
+  // The label's natural width (the overlay's content, past its max-width), once drawn.
+  const needed = useRef(0);
+  const [geo, setGeo] = useState(() => geometry(el, 0));
+  useLayoutEffect(() => {
+    needed.current = overlay.current?.scrollWidth ?? 0;
+    setGeo(geometry(el, needed.current));
+  }, [el, a.req.arm]);
   // Follows the control (a scroll, a resize); disarms once it's gone or hidden: the thing it
   // would act on changed. (Not when it's disabled: a toolbar button is, while its action asks.)
   useEffect(() => {
@@ -52,8 +62,8 @@ function Overlay({ a }: { a: Armed & { origin: NonNullable<Armed['origin']> } })
         disarm();
         return;
       }
-      const g = geometry(el);
-      setGeo((old) => (same(old.box, g.box) && old.grow === g.grow ? old : g));
+      const g = geometry(el, needed.current);
+      setGeo((old) => (same(old.box, g.box) && old.grow === g.grow && old.maxWidth === g.maxWidth ? old : g));
       frame = raf(tick);
     };
     frame = raf(tick);
@@ -74,19 +84,20 @@ function Overlay({ a }: { a: Armed & { origin: NonNullable<Armed['origin']> } })
       dim?.classList.remove('arm-dimmed');
     };
   }, [el, a.req.tone]);
-  const { box, grow, cover } = geo;
+  const { box, grow, maxWidth, cover } = geo;
   const icon = iconOf(el);
   const side = grow === 'right' ? { left: box.left } : { right: window.innerWidth - box.right };
   return (
     <>
       {/* Visual only: the control keeps the focus and its name; Enter on it is the second click. */}
       <button
+        ref={overlay}
         type="button"
         tabIndex={-1}
         aria-hidden
         {...{ [OVERLAY_ATTR]: '' }}
         className={`arm-overlay tone-${a.req.tone}${cover ? ' arm-cover' : ''}`}
-        style={{ ...side, top: box.top, height: box.height, minWidth: box.width }}
+        style={{ ...side, top: box.top, height: box.height, minWidth: box.width, maxWidth }}
         // The control keeps the focus (Enter on it is the second click too).
         onMouseDown={(e) => e.preventDefault()}
         // Only a fresh single click after the settle confirms (`confirmable`): not a double

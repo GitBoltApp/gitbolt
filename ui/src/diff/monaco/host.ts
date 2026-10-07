@@ -7,7 +7,7 @@ import { keepOriginalWrap } from './originalWrap';
 import { HexPanes, type HexView } from './hexPanes';
 import { FileMarginStrip, type FileMargin } from './fileMargin';
 import { deletedLineAt, LineGutter, type LineGutterSpec } from './lineGutter';
-import { captureAnchor, restoreAnchor, type ScrollAnchor } from './scrollAnchor';
+import { captureAnchor, restoreAnchor, revealRange, type ScrollAnchor } from './scrollAnchor';
 import { openTop, revealTop, stepTarget, type ChangeBox } from '../changeNav';
 import { overflowLayer } from './overflow';
 import { monaco } from './setup';
@@ -15,7 +15,15 @@ import { useAppState } from '../../app/state';
 import { bindEditorTheme, currentEditorTheme } from '../../theme/editorThemes';
 import { ensureLanguage, ensureTheme } from './shiki';
 
-export interface DiffShowRequest { /** The target's key (repo/worktree and path): what `modifiedText` checks. */ identity?: string; path: string; original: string; modified: string; language: string; prefs: EditorDiffPrefs; hunkZones?: HunkZoneRequest }
+/** A line to open a diff at (a diff note's `file:line`): on the new side (`modified`) or the old;
+ * with `end`, the lines `line` to `end` (a multi-line note's `file:start-end`). */
+export interface DiffLine { side: 'original' | 'modified'; line: number; end?: number }
+export interface DiffShowRequest {
+  /** The target's key (repo/worktree and path): what `modifiedText` checks. */
+  identity?: string; path: string; original: string; modified: string; language: string; prefs: EditorDiffPrefs; hunkZones?: HunkZoneRequest;
+  /** Opens at this line, centred with the cursor on it, instead of at the first change. */
+  line?: DiffLine;
+}
 export type { LineGutterSpec };
 export type { FileMargin };
 export type { HexShowRequest, HexView } from './hexPanes';
@@ -57,8 +65,8 @@ export interface MonacoHost {
   keepDiff(el: HTMLElement, next: DiffContent): boolean;
   /** Resolves once the diff is on screen. Monaco computes it off-screen first, so the previous
    * diff stays until the new one swaps in whole: decorations, Hunk mode's collapsed regions and
-   * its first change centred, with the cursor on it (at the top instead when it shows there whole).
-   * That place is held through late relayouts until the user takes over, as `setDiffPrefs`'s.
+   * its first change centred, with the cursor on it (at the top instead when it shows there whole),
+   * or `line` centred when asked for. That place is held through late relayouts until the user takes over, as `setDiffPrefs`'s.
    * A newer call makes an older one a no-op.
    * `attachDiff` must have run first: before that there's no diff editor, and it resolves
    * without showing anything. */
@@ -160,8 +168,9 @@ const ANCHOR_RECOMPUTE_MAX_MS = 15_000;
 const KEPT_VIEW_MS = 5000;
 /** Monaco's `ScrollType.Immediate`: no smooth scrolling. */
 const SCROLL_IMMEDIATE = 1;
-/** A held place: a line at the viewport centre (a prefs change), or the first change (an open). */
-type Hold = ScrollAnchor | 'first';
+/** A held place: a line at the viewport centre (a prefs change), the first change (an open), or
+ * a note's lines (an open at a range, `revealRange`). */
+type Hold = ScrollAnchor | 'first' | Required<DiffLine>;
 
 type LineChange = MonacoNs.editor.ILineChange;
 /** Each change's extent in the diff's scroll space, from whichever sides have its lines. Both
@@ -416,7 +425,8 @@ class Host implements MonacoHost {
     // the next frame renders, so the diff shows up already there.
     const kept = this.keptView?.diff && this.keptView.diffPath === req.path ? this.keptView.diff : null;
     this.revealed = null;
-    if (!kept) this.openAtFirstChange(ed);
+    if (!kept && req.line) this.openAtLine(ed, req.line);
+    else if (!kept) this.openAtFirstChange(ed);
     // A new model gets a new view, which Monaco would paint empty and fill a frame later (the
     // "black frame"): draw both sides now, in this task.
     ed.getOriginalEditor().render(true);
@@ -442,6 +452,26 @@ class Host implements MonacoHost {
     ed.getModifiedEditor().setPosition({ lineNumber: this.clampLine(changeLine(first)), column: 1 });
     this.revealChange(ed, 0, true);
     this.anchor = 'first';
+    this.holdFor(ANCHOR_HOLD_MS);
+  }
+
+  /** As `openAtFirstChange`, for a line asked for (a note's `file:line`): centred, with the cursor
+   * on it in its side, and held through late relayouts as a prefs change's line is. A range
+   * (`file:start-end`) is selected, the cursor on its first line, and centred (`revealRange`). */
+  private openAtLine(ed: MonacoNs.editor.IStandaloneDiffEditor, at: DiffLine): void {
+    const side = at.side === 'original' ? ed.getOriginalEditor() : ed.getModifiedEditor();
+    const model = side.getModel();
+    const clamp = (n: number) => Math.max(1, Math.min(n, model?.getLineCount() ?? n));
+    const line = clamp(at.line);
+    const end = clamp(at.end ?? line);
+    if (end > line && model) {
+      side.setSelection({ selectionStartLineNumber: end, selectionStartColumn: model.getLineMaxColumn(end), positionLineNumber: line, positionColumn: 1 });
+      this.anchor = { side: at.side, line, end };
+    } else {
+      side.setPosition({ lineNumber: line, column: 1 });
+      this.anchor = { side: at.side, line, fraction: 0.5 };
+    }
+    this.restore(ed, this.anchor);
     this.holdFor(ANCHOR_HOLD_MS);
   }
 
@@ -501,7 +531,8 @@ class Host implements MonacoHost {
     }
     this.restoring = true;
     try {
-      restoreAnchor(ed, at);
+      if (typeof at === 'object' && 'end' in at) revealRange(ed, at, REVEAL_CONTEXT_LINES * ed.getModifiedEditor().getOption(monaco.editor.EditorOption.lineHeight));
+      else restoreAnchor(ed, at);
     } finally {
       this.restoring = false;
     }

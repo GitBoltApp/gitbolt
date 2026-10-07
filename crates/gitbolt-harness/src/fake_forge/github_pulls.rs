@@ -44,7 +44,24 @@ pub struct FakeComment {
     pub user: String,
     pub body: String,
     pub created_at: String,
+    // --- comment actions ---
+    pub reactions: Vec<FakeReaction>,
+    // --- end comment actions ---
 }
+
+// --- comment actions ---
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FakeReaction {
+    pub id: u64,
+    /// One of GitHub's eight (`+1`, `heart`, …).
+    pub content: String,
+    /// A login.
+    pub user: String,
+}
+
+pub const REACTIONS: [&str; 8] = ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"];
+// --- end comment actions ---
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -59,6 +76,12 @@ pub struct FakeReviewComment {
     pub side: String,
     pub diff_hunk: String,
     pub in_reply_to: Option<u64>,
+    /// A multi-line comment's first line, on `start_side` (`RIGHT` or `LEFT`).
+    pub start_line: Option<u32>,
+    pub start_side: Option<String>,
+    // --- comment actions ---
+    pub reactions: Vec<FakeReaction>,
+    // --- end comment actions ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -92,6 +115,41 @@ pub struct FakePull {
     pub comments: Vec<FakeComment>,
     pub review_comments: Vec<FakeReviewComment>,
     pub updated_at: String,
+    /// Set to auto-merge (`enablePullRequestAutoMerge`); `None`: not set.
+    pub auto_merge: Option<FakeAutoMerge>,
+    /// The commit title and message the merge asked for.
+    pub merge_title: Option<String>,
+    pub merge_message: Option<String>,
+    // --- MR round 2 ---
+    /// `base.sha`; empty: none.
+    pub base_sha: String,
+    /// Logins subscribed to its notifications (`viewerSubscription` is the token user's).
+    pub subscribers: Vec<String>,
+    // --- end MR round 2 ---
+    // --- comment actions ---
+    /// Review threads (by their first comment's id) resolved, and by whom (a login).
+    pub resolved_threads: Vec<FakeResolvedThread>,
+    // --- end comment actions ---
+}
+
+// --- comment actions ---
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FakeResolvedThread {
+    pub root: u64,
+    pub by: String,
+}
+// --- end comment actions ---
+
+/// A PR's `auto_merge`, as GitHub's REST shows it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FakeAutoMerge {
+    pub enabled_by: String,
+    /// `merge`, `squash`, `rebase`.
+    pub merge_method: String,
+    pub commit_title: Option<String>,
+    pub commit_message: Option<String>,
 }
 
 pub fn default_users() -> Vec<FakeUser> {
@@ -145,6 +203,9 @@ pub fn default_pulls() -> Vec<FakePull> {
             side: "RIGHT".into(),
             diff_hunk: hunk.into(),
             in_reply_to: reply,
+            reactions: vec![],
+            start_line: None,
+            start_side: None,
         };
     vec![
         FakePull {
@@ -173,6 +234,7 @@ pub fn default_pulls() -> Vec<FakePull> {
                 user: "monalisa".into(),
                 body: "Ready for review.".into(),
                 created_at: "2026-10-03T07:00:00Z".into(),
+                reactions: vec![FakeReaction { id: 701, content: "heart".into(), user: "hubot".into() }],
             }],
             review_comments: vec![
                 comment(
@@ -224,6 +286,8 @@ fn person(st: &ForgeState, login: &str) -> FakeUser {
         .iter()
         .map(|t| &t.user)
         .chain(st.seed.github.users.iter())
+        // The collaborators the people picker offers (added as reviewers or assignees).
+        .chain(st.seed.github.assignees.iter())
         .find(|u| u.username == login)
         .cloned()
         .unwrap_or_else(|| FakeUser {
@@ -255,12 +319,15 @@ pub fn pull_json(st: &ForgeState, p: &FakePull, base: &str, single: bool) -> Val
         "state": p.state, "draft": p.draft, "merged": p.merged, "merged_at": if p.merged { Value::from(WRITE_TIME) } else { Value::Null },
         "user": user_json(st, &p.author, base),
         "head": { "ref": p.head_ref, "sha": p.head_sha, "repo": { "full_name": head_repo(p) } },
-        "base": { "ref": p.base_ref, "repo": { "full_name": p.repo } },
+        "base": { "ref": p.base_ref, "sha": if p.base_sha.is_empty() { Value::Null } else { Value::from(p.base_sha.as_str()) }, "repo": { "full_name": p.repo } },
         "html_url": format!("{base}/github-web/{}/pull/{}", p.repo, p.number),
         "labels": p.labels.iter().map(|l| json!({ "name": l })).collect::<Vec<_>>(),
         "requested_reviewers": p.requested_reviewers.iter().map(|u| user_json(st, u, base)).collect::<Vec<_>>(),
         "assignees": p.assignees.iter().map(|u| user_json(st, u, base)).collect::<Vec<_>>(),
         "updated_at": p.updated_at,
+        "auto_merge": p.auto_merge.as_ref().map_or(Value::Null, |a| json!({
+            "enabled_by": user_json(st, &a.enabled_by, base), "merge_method": a.merge_method, "commit_title": a.commit_title, "commit_message": a.commit_message,
+        })),
     });
     if single {
         v["mergeable"] = p.mergeable.map_or(Value::Null, Value::from);
@@ -273,14 +340,99 @@ fn review_json(st: &ForgeState, r: &FakeReview, base: &str) -> Value {
     json!({ "id": r.id, "user": user_json(st, &r.user, base), "state": r.state, "body": r.body, "submitted_at": r.submitted_at })
 }
 
-fn comment_json(st: &ForgeState, c: &FakeComment, base: &str) -> Value {
-    json!({ "id": c.id, "user": user_json(st, &c.user, base), "body": c.body, "created_at": c.created_at })
+// --- comment actions: each comment's reactions summary and its `html_url` (`pull`: the PR's) ---
+fn summary_json(reactions: &[FakeReaction]) -> Value {
+    let mut v = json!({ "total_count": reactions.len() });
+    for c in REACTIONS {
+        v[c] = reactions.iter().filter(|r| r.content == c).count().into();
+    }
+    v
 }
 
-fn review_comment_json(st: &ForgeState, c: &FakeReviewComment, base: &str) -> Value {
+fn pull_url(p: &FakePull, base: &str) -> String {
+    format!("{base}/github-web/{}/pull/{}", p.repo, p.number)
+}
+
+fn reaction_json(st: &ForgeState, r: &FakeReaction, base: &str) -> Value {
+    json!({ "id": r.id, "content": r.content, "user": user_json(st, &r.user, base) })
+}
+
+/// A conversation comment (`issues`) or a review comment (`pulls`) of `repo`, by id: its author,
+/// its reactions and its body, to change.
+fn comment_parts<'a>(st: &'a mut ForgeState, repo: &str, kind: &str, id: &str) -> Option<(&'a str, &'a mut Vec<FakeReaction>, &'a mut String)> {
+    let pulls = st.seed.github.pulls.iter_mut().filter(|p| p.repo == repo);
+    if kind == "issues" {
+        pulls.flat_map(|p| p.comments.iter_mut()).find(|c| c.id.to_string() == id).map(|c| (c.user.as_str(), &mut c.reactions, &mut c.body))
+    } else {
+        pulls.flat_map(|p| p.review_comments.iter_mut()).find(|c| c.id.to_string() == id).map(|c| (c.user.as_str(), &mut c.reactions, &mut c.body))
+    }
+}
+
+/// `/{issues|pulls}/comments/<id>[/reactions[/<rid>]]`: anyone reacts (GitHub answers 200 with the
+/// one already there), only a reaction's user removes it, only the author edits or deletes.
+fn comment_route(st: &mut ForgeState, r: &FakeRequest, repo: &str, kind: &str, id: &str, rest: &[&str], base: &str) -> Reply {
+    let me = login(r);
+    let next = st.seed.github.pulls.iter().flat_map(|p| p.comments.iter().map(|c| &c.reactions).chain(p.review_comments.iter().map(|c| &c.reactions))).flatten().map(|x| x.id).max().unwrap_or(0).max(800) + 1;
+    let Some((author, reactions, body)) = comment_parts(st, repo, kind, id) else { return not_found() };
+    let author = author.to_string();
+    let forbidden = || Reply::status(403, json!({ "message": "Must have admin rights to Repository." }));
+    match (r.method, rest) {
+        ("GET", ["reactions"]) => {
+            let items = reactions.clone();
+            Reply::page(items.iter().map(|x| reaction_json(st, x, base)).collect(), r, &format!("{base}/github{}", r.path))
+        }
+        ("POST", ["reactions"]) => {
+            let content = body_of(r)["content"].as_str().unwrap_or_default().to_string();
+            if !REACTIONS.contains(&content.as_str()) {
+                return Reply::status(422, json!({ "message": "Validation Failed" }));
+            }
+            if let Some(x) = reactions.iter().find(|x| x.content == content && x.user == me).cloned() {
+                return Reply::json(reaction_json(st, &x, base));
+            }
+            let x = FakeReaction { id: next, content, user: me };
+            reactions.push(x.clone());
+            Reply::status(201, reaction_json(st, &x, base))
+        }
+        ("DELETE", ["reactions", rid]) => match reactions.iter().position(|x| x.id.to_string() == *rid) {
+            Some(k) if reactions[k].user == me => {
+                reactions.remove(k);
+                Reply::no_content()
+            }
+            Some(_) => forbidden(),
+            None => not_found(),
+        },
+        ("PATCH", []) if author == me => {
+            let Some(b) = body_of(r)["body"].as_str().map(str::to_string) else { return Reply::status(422, json!({ "message": "Validation Failed" })) };
+            *body = b;
+            let pull = st.seed.github.pulls.iter().find(|p| p.repo == repo && (p.comments.iter().any(|c| c.id.to_string() == id) || p.review_comments.iter().any(|c| c.id.to_string() == id))).map(|p| pull_url(p, base)).unwrap_or_default();
+            let p = st.seed.github.pulls.iter().find(|p| pull_url(p, base) == pull).expect("found above");
+            match kind {
+                "issues" => Reply::json(comment_json(st, p.comments.iter().find(|c| c.id.to_string() == id).expect("found"), base, &pull)),
+                _ => Reply::json(review_comment_json(st, p.review_comments.iter().find(|c| c.id.to_string() == id).expect("found"), base, &pull)),
+            }
+        }
+        ("DELETE", []) if author == me => {
+            for p in st.seed.github.pulls.iter_mut().filter(|p| p.repo == repo) {
+                if kind == "issues" { p.comments.retain(|c| c.id.to_string() != id) } else { p.review_comments.retain(|c| c.id.to_string() != id) }
+            }
+            Reply::no_content()
+        }
+        ("PATCH" | "DELETE", []) => forbidden(),
+        _ => not_found(),
+    }
+}
+// --- end comment actions ---
+
+fn comment_json(st: &ForgeState, c: &FakeComment, base: &str, pull: &str) -> Value {
+    json!({ "id": c.id, "user": user_json(st, &c.user, base), "body": c.body, "created_at": c.created_at, "html_url": format!("{pull}#issuecomment-{}", c.id), "reactions": summary_json(&c.reactions) })
+}
+
+fn review_comment_json(st: &ForgeState, c: &FakeReviewComment, base: &str, pull: &str) -> Value {
     json!({
         "id": c.id, "user": user_json(st, &c.user, base), "body": c.body, "created_at": c.created_at, "path": c.path,
         "line": c.line, "original_line": c.line, "side": c.side, "diff_hunk": c.diff_hunk, "in_reply_to_id": c.in_reply_to,
+        "start_line": c.start_line, "original_start_line": c.start_line, "start_side": c.start_side,
+        "html_url": format!("{pull}#discussion_r{}", c.id), "reactions": summary_json(&c.reactions),
     })
 }
 
@@ -375,6 +527,51 @@ fn rollups(st: &ForgeState, vars: &Value) -> Reply {
     Reply::json(json!({ "data": { "repository": { "pullRequests": { "nodes": nodes } } } }))
 }
 
+// --- auto-merge ---
+/// `enablePullRequestAutoMerge` / `disablePullRequestAutoMerge`, with GitHub's refusals: a
+/// repository without `allow_auto_merge` (the seed's repo `settings`; allowed when absent), a
+/// draft, a PR that could merge now ("clean status"), a moved head.
+fn auto_merge(st: &mut ForgeState, r: &FakeRequest, vars: &Value, enable: bool) -> Reply {
+    let err = |m: &str| Reply::json(json!({ "data": null, "errors": [{ "type": "UNPROCESSABLE", "message": m }] }));
+    let id = vars["id"].as_str().unwrap_or_default();
+    let me = login(r);
+    let Some(i) = st.seed.github.pulls.iter().position(|p| format!("PR_{}", p.number) == id) else {
+        return err(&format!("Could not resolve to a node with the global id of '{id}'"));
+    };
+    let allowed = st.seed.github.repos.iter().find(|x| x.path == st.seed.github.pulls[i].repo).is_none_or(|x| x.settings["allow_auto_merge"].as_bool() != Some(false));
+    let p = &mut st.seed.github.pulls[i];
+    if !enable {
+        p.auto_merge = None;
+        p.updated_at = WRITE_TIME.into();
+        return Reply::json(json!({ "data": { "disablePullRequestAutoMerge": { "pullRequest": { "number": p.number } } } }));
+    }
+    let finished = p.checks.iter().all(|c| c.status == "completed") && p.statuses.iter().all(|x| x.state != "pending");
+    if !allowed {
+        return err("Pull request Auto merge is not allowed for this repository");
+    }
+    if p.state != "open" {
+        return err("Pull request is not open");
+    }
+    if p.draft {
+        return err("Pull request is in draft state");
+    }
+    if finished && p.mergeable_state == "clean" {
+        return err("Pull request is in clean status");
+    }
+    if vars["sha"].as_str().is_some_and(|sha| sha != p.head_sha) {
+        return err("Head branch was modified. Review and try the merge again.");
+    }
+    p.auto_merge = Some(FakeAutoMerge {
+        enabled_by: me,
+        merge_method: vars["method"].as_str().unwrap_or("MERGE").to_ascii_lowercase(),
+        commit_title: vars["headline"].as_str().map(str::to_string),
+        commit_message: vars["body"].as_str().map(str::to_string),
+    });
+    p.updated_at = WRITE_TIME.into();
+    Reply::json(json!({ "data": { "enablePullRequestAutoMerge": { "pullRequest": { "number": p.number } } } }))
+}
+// --- end auto-merge ---
+
 fn graphql(st: &mut ForgeState, r: &FakeRequest) -> Reply {
     let b = body_of(r);
     let query = b["query"].as_str().unwrap_or_default();
@@ -382,6 +579,63 @@ fn graphql(st: &mut ForgeState, r: &FakeRequest) -> Reply {
     if query.contains("statusCheckRollup") {
         return rollups(st, &b["variables"]);
     }
+    // --- comment actions: review threads, resolved or not ---
+    if query.contains("resolveReviewThread") || query.contains("unresolveReviewThread") {
+        let on = !query.contains("unresolveReviewThread");
+        let field = if on { "resolveReviewThread" } else { "unresolveReviewThread" };
+        let me = login(r);
+        let root = id.strip_prefix("PRRT_").and_then(|x| x.parse::<u64>().ok());
+        let Some(p) = st.seed.github.pulls.iter_mut().find(|p| p.review_comments.iter().any(|c| Some(c.id) == root && c.in_reply_to.is_none())) else {
+            return Reply::json(json!({ "errors": [{ "message": format!("Could not resolve to a node with the global id of '{id}'") }] }));
+        };
+        let root = root.expect("found");
+        p.resolved_threads.retain(|t| t.root != root);
+        if on {
+            p.resolved_threads.push(FakeResolvedThread { root, by: me.clone() });
+        }
+        let mut data = serde_json::Map::new();
+        data.insert(field.into(), json!({ "thread": { "isResolved": on, "resolvedBy": if on { json!({ "login": me }) } else { Value::Null } } }));
+        return Reply::json(json!({ "data": data }));
+    }
+    if query.contains("reviewThreads") {
+        let v = &b["variables"];
+        let repo = format!("{}/{}", v["owner"].as_str().unwrap_or_default(), v["name"].as_str().unwrap_or_default());
+        let pr = st.seed.github.pulls.iter().find(|p| p.repo == repo && Some(p.number) == v["number"].as_u64());
+        let nodes: Vec<Value> = pr.map(|p| p.review_comments.iter().filter(|c| c.in_reply_to.is_none()).map(|c| {
+            let res = p.resolved_threads.iter().find(|t| t.root == c.id);
+            json!({ "id": format!("PRRT_{}", c.id), "isResolved": res.is_some(), "resolvedBy": res.map_or(Value::Null, |t| json!({ "login": t.by })), "comments": { "nodes": [{ "databaseId": c.id }] } })
+        }).collect()).unwrap_or_default();
+        return Reply::json(json!({ "data": { "repository": { "pullRequest": pr.map(|_| json!({ "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": nodes } })) } } }));
+    }
+    // --- end comment actions ---
+    // --- MR round 2: notifications ---
+    let me = login(r);
+    let state = |p: &FakePull| if p.subscribers.contains(&me) { "SUBSCRIBED" } else { "UNSUBSCRIBED" };
+    if query.contains("updateSubscription") {
+        let on = b["variables"]["state"].as_str() == Some("SUBSCRIBED");
+        return match st.seed.github.pulls.iter_mut().find(|p| format!("PR_{}", p.number) == id) {
+            Some(p) => {
+                p.subscribers.retain(|u| *u != me);
+                if on {
+                    p.subscribers.push(me.clone());
+                }
+                Reply::json(json!({ "data": { "updateSubscription": { "subscribable": { "viewerSubscription": state(p) } } } }))
+            }
+            None => Reply::json(json!({ "errors": [{ "message": format!("Could not resolve to a node with the global id of '{id}'") }] })),
+        };
+    }
+    if query.contains("viewerSubscription") {
+        let v = &b["variables"];
+        let repo = format!("{}/{}", v["owner"].as_str().unwrap_or_default(), v["name"].as_str().unwrap_or_default());
+        let pr = st.seed.github.pulls.iter().find(|p| p.repo == repo && Some(p.number) == v["number"].as_u64());
+        return Reply::json(json!({ "data": { "repository": { "pullRequest": pr.map(|p| json!({ "viewerSubscription": state(p) })) } } }));
+    }
+    // --- end MR round 2 ---
+    // --- auto-merge ---
+    if query.contains("enablePullRequestAutoMerge") || query.contains("disablePullRequestAutoMerge") {
+        return auto_merge(st, r, &b["variables"], query.contains("enablePullRequestAutoMerge"));
+    }
+    // --- end auto-merge ---
     let (field, draft) = if query.contains("convertPullRequestToDraft") {
         ("convertPullRequestToDraft", true)
     } else if query.contains("markPullRequestReadyForReview") {
@@ -428,6 +682,9 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             .position(|p| p.repo == repo && p.number.to_string() == num)
     };
     let reply = match (r.method, rest) {
+        // --- comment actions ---
+        (_, [kind @ ("issues" | "pulls"), "comments", id, more @ ..]) if id.bytes().all(|b| b.is_ascii_digit()) => comment_route(st, r, &repo, kind, id, more, &base),
+        // --- end comment actions ---
         ("GET", ["pulls"]) => {
             let state = r.query.get("state").map(String::as_str).unwrap_or("open");
             let head = r.query.get("head");
@@ -478,7 +735,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 st.seed.github.pulls[i]
                     .review_comments
                     .iter()
-                    .map(|x| review_comment_json(st, x, &base))
+                    .map(|x| review_comment_json(st, x, &base, &pull_url(&st.seed.github.pulls[i], &base)))
                     .collect(),
                 r,
                 &here,
@@ -490,7 +747,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 st.seed.github.pulls[i]
                     .comments
                     .iter()
-                    .map(|x| comment_json(st, x, &base))
+                    .map(|x| comment_json(st, x, &base, &pull_url(&st.seed.github.pulls[i], &base)))
                     .collect(),
                 r,
                 &here,
@@ -537,9 +794,9 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             Some(i) => {
                 let Some(body) = body_of(r)["body"].as_str().map(str::to_string) else { return Some(Reply::status(422, json!({ "message": "Validation Failed" }))) };
                 let p = &mut st.seed.github.pulls[i];
-                let c = FakeComment { id: next_id(p), user: login(r), body, created_at: WRITE_TIME.into() };
+                let c = FakeComment { id: next_id(p), user: login(r), body, created_at: WRITE_TIME.into(), reactions: vec![] };
                 p.comments.push(c.clone());
-                Reply::status(201, comment_json(st, &c, &base))
+                Reply::status(201, comment_json(st, &c, &base, &pull_url(&st.seed.github.pulls[i], &base)))
             }
             None => not_found(),
         },
@@ -548,9 +805,9 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 let Some(body) = body_of(r)["body"].as_str().map(str::to_string) else { return Some(Reply::status(422, json!({ "message": "Validation Failed" }))) };
                 let p = &mut st.seed.github.pulls[i];
                 let Some(first) = p.review_comments.iter().find(|c| c.id.to_string() == *root).cloned() else { return Some(not_found()) };
-                let c = FakeReviewComment { id: next_id(p), user: login(r), body, created_at: WRITE_TIME.into(), in_reply_to: Some(first.id), ..first };
+                let c = FakeReviewComment { id: next_id(p), user: login(r), body, created_at: WRITE_TIME.into(), in_reply_to: Some(first.id), reactions: vec![], ..first };
                 p.review_comments.push(c.clone());
-                Reply::status(201, review_comment_json(st, &c, &base))
+                Reply::status(201, review_comment_json(st, &c, &base, &pull_url(&st.seed.github.pulls[i], &base)))
             }
             None => not_found(),
         },
@@ -562,6 +819,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                     Some("APPROVE") => "APPROVED",
                     Some("REQUEST_CHANGES") if body.trim().is_empty() => return Some(Reply::status(422, json!({ "message": "Unprocessable Entity", "errors": ["Review Can not request changes on pull request without a body"] }))),
                     Some("REQUEST_CHANGES") => "CHANGES_REQUESTED",
+                    Some("COMMENT") if body.trim().is_empty() => return Some(Reply::status(422, json!({ "message": "Unprocessable Entity", "errors": ["Review Can not comment on pull request without a body"] }))),
                     _ => "COMMENTED",
                 };
                 let me = login(r);
@@ -588,6 +846,10 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 p.merged = true;
                 p.state = "closed".into();
                 p.merged_with = b["merge_method"].as_str().unwrap_or("merge").into();
+                // --- auto-merge: the message the merge asked for ---
+                p.merge_title = b["commit_title"].as_str().map(str::to_string);
+                p.merge_message = b["commit_message"].as_str().map(str::to_string);
+                // --- end auto-merge ---
                 p.updated_at = WRITE_TIME.into();
                 Reply::json(json!({ "sha": "m".repeat(40), "merged": true, "message": "Pull Request successfully merged" }))
             }
@@ -624,8 +886,8 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         // --- end 4B T5 ---
         // --- 4C T2: create and its follow-up calls, people, labels, contents ---
         ("POST", ["pulls"]) => super::create::github_post_pull(st, r, &repo),
-        ("POST", ["pulls", num, "requested_reviewers"]) => super::create::github_reviewers(st, r, &repo, num),
-        ("POST", ["issues", num, "assignees"]) => super::create::github_add_assignees(st, r, &repo, num),
+        ("POST" | "DELETE", ["pulls", num, "requested_reviewers"]) => super::create::github_reviewers(st, r, &repo, num),
+        ("POST" | "DELETE", ["issues", num, "assignees"]) => super::create::github_assignees_change(st, r, &repo, num),
         ("POST", ["issues", num, "labels"]) => super::create::github_add_labels(st, r, &repo, num),
         ("GET", ["assignees"]) => super::create::github_assignees(st, r, &repo),
         ("GET", ["labels"]) => super::create::github_labels(st, r, &repo),

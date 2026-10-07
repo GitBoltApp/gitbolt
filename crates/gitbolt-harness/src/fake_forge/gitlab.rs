@@ -42,6 +42,11 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Reply {
         return reply.header("RateLimit-Limit", "2000").header("RateLimit-Remaining", &remaining).header("RateLimit-Reset", &reset);
     }
     // --- end 4B T2 ---
+    // --- MR round 2: GraphQL ---
+    if r.method == "POST" && r.segments.iter().map(String::as_str).eq(["api", "graphql"]) {
+        return if r.token.is_some() { super::gitlab_mrs::graphql(st, r) } else { Reply::status(401, json!({ "message": "401 Unauthorized" })) };
+    }
+    // --- end MR round 2 ---
     let segs: Vec<&str> = r.segments.iter().map(String::as_str).collect();
     let projects = &st.seed.gitlab.projects;
     let reply = match (r.method, segs.as_slice()) {

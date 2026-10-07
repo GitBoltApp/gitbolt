@@ -90,6 +90,16 @@ export function measureNatural(el: HTMLElement): Size {
   return { width, height };
 }
 
+/** Where a shown tooltip goes: beside its anchor's left (`leftOf`, centred on it and kept inside
+ * the window) when there's room, else below it (`placeBelow`). */
+export function placeShown(anchor: Anchor & { leftOf?: number }, size: Size, gap = GAP): { left: number; top: number } {
+  const beside = anchor.leftOf === undefined ? null : anchor.leftOf - LEFT_OF_GAP - size.width;
+  if (beside !== null && beside >= EDGE) {
+    return { left: beside, top: Math.max(EDGE, Math.min((anchor.top + anchor.bottom - size.height) / 2, window.innerHeight - EDGE - size.height)) };
+  }
+  return placeBelow(anchor, size, gap);
+}
+
 export function placeBelow(anchor: Anchor, size: Size, gap = GAP) {
   const { left, top } = placeCard(anchor, size, gap);
   return { left, top };
@@ -260,12 +270,7 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
     if (atPointer) {
       ({ left, top } = pointerPosition(pointer.current.x, pointer.current.y, size));
     } else {
-      const { anchor } = shown;
-      const beside = anchor.leftOf === undefined ? null : anchor.leftOf - LEFT_OF_GAP - size.width;
-      if (beside !== null && beside >= EDGE) {
-        left = beside;
-        top = Math.max(EDGE, Math.min((anchor.top + anchor.bottom - size.height) / 2, window.innerHeight - EDGE - size.height));
-      } else ({ left, top } = placeBelow(anchor, size, gapFor(interactive)));
+      ({ left, top } = placeShown(shown.anchor, size, gapFor(interactive)));
     }
     tip.style.left = `${left}px`;
     tip.style.top = `${top}px`;
@@ -276,13 +281,13 @@ export function useHoverTooltip({ content, delayMs = 0, interactive: interactive
     const tip = tipEl.current;
     if (!shown || !tip || atPointer) return;
     const { anchor } = shown;
-    if (anchor.leftOf !== undefined) return;
     let last = tip.getBoundingClientRect().height;
     const ro = new ResizeObserver(() => {
       const h = tip.getBoundingClientRect().height;
       if (h === last) return;
       const size = measureNatural(tip);
-      const p = placeBelow(anchor, size, gapFor(interactive));
+      // Beside its anchor too (a sidebar MR row's card): it grew, so it may no longer fit there.
+      const p = placeShown(anchor, size, gapFor(interactive));
       tip.style.left = `${p.left}px`;
       tip.style.top = `${p.top}px`;
       last = tip.getBoundingClientRect().height;

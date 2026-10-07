@@ -7,7 +7,7 @@ use crate::http::{encode_component, under, ClientConfig, HttpClient, HttpRespons
 use crate::known_names::{normalize, KnownNames, NameMatch};
 use crate::time::{parse_rfc3339, unix_now};
 use gitbolt_core::avatar::AvatarPayload;
-use gitbolt_core::error::{GbError, GbErrorKind};
+use gitbolt_core::error::{ErrorDetail, GbError, GbErrorKind};
 use gitbolt_core::forge::*;
 use gitbolt_core::redact::Secret;
 use serde_json::{json, Value};
@@ -30,6 +30,9 @@ pub struct GitLabProvider {
     host: String,
     web: String,
     http: HttpClient,
+    /// `/api/graphql` (outside the REST base, so a client of its own) and its URL.
+    gql: HttpClient,
+    gql_url: String,
     avatars: Option<Arc<DiskAvatarCache>>,
     // --- 4B T2 ---
     /// The token's user, once asked (Mine, Review requested).
@@ -66,8 +69,11 @@ pub struct GitLabProvider {
 
 impl GitLabProvider {
     pub fn new(host: &str, endpoints: &HostEndpoints, token: Secret, avatars: Option<Arc<DiskAvatarCache>>) -> Self {
-        let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: Vec::new(), timeout: crate::http::REQUEST_TIMEOUT });
-        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, avatars, me: Mutex::new(None), paths: Mutex::default(), label_colors: Mutex::default(), pipelines: Default::default(), unconditional: Mutex::default(), unchanged: Mutex::default(), marks: Mutex::default(), learned: Mutex::default(), names: KnownNames::default(), names_asked: Mutex::default(), name_turn: tokio::sync::Mutex::new(()) } // 4B T2: me, paths
+        let api = endpoints.api.trim_end_matches('/');
+        let gql_url = format!("{}/graphql", api.strip_suffix("/v4").unwrap_or(api));
+        let gql = HttpClient::new(ClientConfig { host: host.into(), api_base: gql_url.clone(), token: Some(token.clone()), headers: Vec::new(), timeout: crate::http::REQUEST_TIMEOUT });
+        let http = HttpClient::new(ClientConfig { host: host.into(), api_base: api.into(), token: Some(token), headers: Vec::new(), timeout: crate::http::REQUEST_TIMEOUT });
+        Self { host: host.into(), web: endpoints.web.trim_end_matches('/').into(), http, gql, gql_url, avatars, me: Mutex::new(None), paths: Mutex::default(), label_colors: Mutex::default(), pipelines: Default::default(), unconditional: Mutex::default(), unchanged: Mutex::default(), marks: Mutex::default(), learned: Mutex::default(), names: KnownNames::default(), names_asked: Mutex::default(), name_turn: tokio::sync::Mutex::new(()) } // 4B T2: me, paths
     }
 
     /// The account's client, for 4B–4D's requests.
@@ -180,7 +186,8 @@ pub mod json {
             "opened" if draft => MrState::Draft,
             "opened" => MrState::Open,
             "merged" => MrState::Merged,
-            "closed" | "locked" => MrState::Closed,
+            "locked" => MrState::Merging,
+            "closed" => MrState::Closed,
             _ => return None,
         })
     }
@@ -217,6 +224,29 @@ pub mod json {
         v.as_array().into_iter().flatten().filter_map(user).collect()
     }
 
+    fn ids(v: &Value) -> Vec<u64> {
+        v.as_array().into_iter().flatten().filter_map(|u| u["id"].as_u64()).collect()
+    }
+
+    /// An edit's people as the PUT's `reviewer_ids` / `assignee_ids`: GitLab takes the whole
+    /// lists, so each change is applied to the MR's `current` ones. An unchanged one isn't sent.
+    pub fn people_body(current: &Value, edit: &MrEdit) -> serde_json::Map<String, Value> {
+        let mut body = serde_json::Map::new();
+        for (key, field, change) in [("reviewer_ids", "reviewers", &edit.reviewers), ("assignee_ids", "assignees", &edit.assignees)] {
+            if let Some(c) = change.as_ref().filter(|c| !c.is_empty()) {
+                body.insert(key.into(), c.apply(&ids(&current[field])).into());
+            }
+        }
+        body
+    }
+
+    /// Of `wanted`, the ids the MR's `field` (`reviewers`, `assignees`) doesn't have after the
+    /// PUT: GitLab drops, silently, whoever it can't add.
+    pub fn not_added(answer: &Value, field: &str, wanted: &[u64]) -> Vec<u64> {
+        let have = ids(&answer[field]);
+        wanted.iter().filter(|id| !have.contains(id)).copied().collect()
+    }
+
     /// One MR from a list or a GET. `target`: the project's path; `source`: its source project's.
     pub fn mr(v: &Value, target: &str, source: &str) -> Option<ForgeMr> {
         let draft = v["draft"].as_bool().or(v["work_in_progress"].as_bool()).unwrap_or(false);
@@ -239,7 +269,15 @@ pub mod json {
             label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["description"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
+            auto_merge: auto_merge(v),
         })
+    }
+
+    /// Set to merge when the pipeline succeeds: `merge_when_pipeline_succeeds` (or
+    /// `auto_merge_enabled`), by `merge_user`. Only while open: a merged MR keeps the flag.
+    pub fn auto_merge(v: &Value) -> Option<AutoMerge> {
+        let set = v["merge_when_pipeline_succeeds"].as_bool() == Some(true) || v["auto_merge_enabled"].as_bool() == Some(true);
+        (set && v["state"].as_str() == Some("opened")).then(|| AutoMerge { enabled_by: user(&v["merge_user"]), method: None })
     }
 
     /// Why GitLab won't merge it (`detailed_merge_status`, GitLab ≥ 15.6; `merge_status` before).
@@ -247,7 +285,8 @@ pub mod json {
         let blocked = |r: &str| MergeStatus::Blocked { reason: r.to_string() };
         match v["state"].as_str() {
             Some("merged") => return blocked("It's merged already"),
-            Some("closed" | "locked") => return blocked("It's closed"),
+            Some("locked") => return blocked("It's being merged"),
+            Some("closed") => return blocked("It's closed"),
             _ => {}
         }
         match v["detailed_merge_status"].as_str() {
@@ -310,14 +349,45 @@ pub mod json {
             merge_status: merge_status(v),
             squash: v["squash"].as_bool(),
             delete_source_branch: v["force_remove_source_branch"].as_bool(),
+            base_sha: text(&v["diff_refs"]["base_sha"]),
+            subscribed: v["subscribed"].as_bool(),
             body_html: None,
         })
     }
 
+    // --- MR round 2 ---
+    /// The project's people limits from GraphQL's `allowsMultipleReviewers` /
+    /// `allowsMultipleAssignees` (on any of its MRs): false is one. No MR, or a server without
+    /// the fields (an error), says nothing: no limit.
+    pub fn people_limits(answer: &Value) -> PeopleLimits {
+        let m = &answer["data"]["project"]["mergeRequests"]["nodes"][0];
+        let one = |k: &str| (m[k].as_bool() == Some(false)).then_some(1);
+        PeopleLimits { max_reviewers: one("allowsMultipleReviewers"), max_assignees: one("allowsMultipleAssignees") }
+    }
+
+    /// GitLab Free keeps only the first id of a list (`sent`): with more than one sent and one
+    /// kept, the one kept (`field`'s user).
+    pub fn kept_only(answer: &Value, field: &str, sent: usize) -> Option<ForgeUser> {
+        let list = answer[field].as_array()?;
+        if sent > 1 && list.len() == 1 { user(&list[0]) } else { None }
+    }
+
+    /// A GraphQL mutation `name` went in: no top-level errors, and none of its own.
+    pub fn mutation_ok(answer: &Value, name: &str) -> bool {
+        answer["errors"].as_array().is_none_or(|e| e.is_empty()) && answer["data"][name].is_object() && answer["data"][name]["errors"].as_array().is_none_or(|e| e.is_empty())
+    }
+    // --- end MR round 2 ---
+
     fn position(v: &Value) -> Option<DiffPosition> {
         let path = text(&v["new_path"]).or_else(|| text(&v["old_path"]))?;
         let old_path = text(&v["old_path"]).filter(|p| *p != path);
-        Some(DiffPosition { path, old_path, line: v["new_line"].as_u64().map(|n| n as u32), old_line: v["old_line"].as_u64().map(|n| n as u32), snippet: None })
+        let num = |v: &Value| v.as_u64().map(|n| n as u32);
+        let (line, old_line) = (num(&v["new_line"]), num(&v["old_line"]));
+        // A multi-line note's `line_range` (it ends at `new_line` / `old_line`); one that starts
+        // where it ends is a single line.
+        let start = &v["line_range"]["start"];
+        let (start_line, start_old_line) = Some((num(&start["new_line"]), num(&start["old_line"]))).filter(|s| *s != (line, old_line)).unwrap_or_default();
+        Some(DiffPosition { path, old_path, line, old_line, snippet: None, start_line, start_old_line })
     }
 
     pub fn note(v: &Value) -> Option<ForgeNote> {
@@ -329,62 +399,111 @@ pub mod json {
             system: v["system"].as_bool().unwrap_or(false),
             position: position(&v["position"]),
             body_html: None,
+            reactions: Vec::new(),
+            web_url: None,
         })
     }
+
+    // --- comment actions ---
+    /// The number at the end of a GraphQL global id (`gid://gitlab/Note/101`).
+    pub fn gid_number(v: &Value) -> Option<u64> {
+        v.as_str()?.rsplit('/').next()?.parse().ok()
+    }
+
+    /// A note's award emoji (REST `award_emoji`: `name` and `user`), grouped.
+    pub fn awards(list: &[Value], me: Option<u64>) -> Vec<ForgeReaction> {
+        fn who(a: &Value) -> &str {
+            a["user"]["name"].as_str().filter(|n| !n.is_empty()).or(a["user"]["username"].as_str()).unwrap_or_default()
+        }
+        group_reactions(list.iter().filter_map(|a| Some((a["name"].as_str()?, a["user"]["id"].as_u64().or_else(|| gid_number(&a["user"]["id"]))?, who(a)))), me, false)
+    }
+
+    /// One page of `NOTE_AWARDS_QUERY`: each note's (by id) award emoji, and the next page's
+    /// cursor. `None`: GitLab couldn't answer it (an older one without `Note.awardEmoji`).
+    #[allow(clippy::type_complexity)]
+    pub fn note_awards(answer: &Value, me: Option<u64>) -> Option<(Vec<(String, Vec<ForgeReaction>)>, Option<String>)> {
+        if answer["errors"].as_array().is_some_and(|e| !e.is_empty()) {
+            return None;
+        }
+        let notes = &answer["data"]["project"]["mergeRequest"]["notes"];
+        let mut out = Vec::new();
+        for n in notes["nodes"].as_array()? {
+            let Some(id) = gid_number(&n["id"]) else { continue };
+            let list = n["awardEmoji"]["nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
+            if !list.is_empty() {
+                out.push((id.to_string(), awards(list, me)));
+            }
+        }
+        let next = (notes["pageInfo"]["hasNextPage"].as_bool() == Some(true)).then(|| notes["pageInfo"]["endCursor"].as_str().map(str::to_string)).flatten();
+        Some((out, next))
+    }
+    // --- end comment actions ---
 
     pub fn discussion(v: &Value) -> Option<ForgeDiscussion> {
         let raw = v["notes"].as_array()?;
         let first = raw.first()?;
         let notes: Vec<ForgeNote> = raw.iter().filter_map(note).collect();
+        let resolved = first["resolved"].as_bool().unwrap_or(false);
+        // Each of a resolved discussion's notes names who resolved it.
+        let resolved_by = raw.iter().find_map(|n| n["resolved_by"]["name"].as_str().filter(|s| !s.is_empty()).or(n["resolved_by"]["username"].as_str())).filter(|_| resolved).map(str::to_string);
         (!notes.is_empty()).then(|| ForgeDiscussion {
             id: v["id"].as_str().unwrap_or_default().to_string(),
             notes,
             resolvable: first["resolvable"].as_bool().unwrap_or(false),
-            resolved: first["resolved"].as_bool().unwrap_or(false),
+            resolved,
+            resolved_by,
         })
     }
 
     /// Up to three lines of a unified diff ending at the commented one (`new_line` on the new
     /// side, else `old_line` on the old), each with its `+`, `-` or space.
     pub fn snippet(diff: &str, new_line: Option<u32>, old_line: Option<u32>) -> Option<String> {
+        range_snippet(diff, (new_line, old_line), (None, None))
+    }
+
+    /// As `snippet`, for a multi-line note's (new, old) `end` and `start` lines: from the start
+    /// (when it's in the end's hunk) or three lines back, whichever is earlier. GitHub's ranges too.
+    pub fn range_snippet(diff: &str, end: (Option<u32>, Option<u32>), start: (Option<u32>, Option<u32>)) -> Option<String> {
+        // Asked for by its new line, else (no new line asked for) by its old one.
+        let is = |kind: Option<char>, old: u32, new: u32, (new_line, old_line): (Option<u32>, Option<u32>)| match kind {
+            Some('+') => new_line == Some(new),
+            Some('-') => new_line.is_none() && old_line == Some(old),
+            _ => new_line == Some(new) || (new_line.is_none() && old_line == Some(old)),
+        };
         let (mut old, mut new) = (0u32, 0u32);
-        let mut window: std::collections::VecDeque<&str> = std::collections::VecDeque::new();
+        let mut hunk: Vec<&str> = Vec::new();
+        let mut first: Option<usize> = None;
         for line in diff.lines() {
             if let Some(h) = line.strip_prefix("@@ ") {
                 let start = |p: Option<&str>, sign: char| p.and_then(|s| s.strip_prefix(sign)).and_then(|s| s.split(',').next()).and_then(|s| s.parse::<u32>().ok());
                 let mut parts = h.split_whitespace();
                 old = start(parts.next(), '-').unwrap_or(0);
                 new = start(parts.next(), '+').unwrap_or(0);
-                window.clear();
+                hunk.clear();
+                first = None;
                 continue;
             }
             if line.starts_with('\\') {
                 continue;
             }
-            if window.len() == 3 {
-                window.pop_front();
+            let kind = line.chars().next();
+            hunk.push(line);
+            let i = hunk.len() - 1;
+            if first.is_none() && is(kind, old, new, start) {
+                first = Some(i);
             }
-            window.push_back(line);
-            let hit = match line.chars().next() {
-                Some('+') => {
-                    let hit = new_line == Some(new);
-                    new += 1;
-                    hit
-                }
-                Some('-') => {
-                    let hit = new_line.is_none() && old_line == Some(old);
-                    old += 1;
-                    hit
-                }
+            let hit = is(kind, old, new, end);
+            match kind {
+                Some('+') => new += 1,
+                Some('-') => old += 1,
                 _ => {
-                    let hit = new_line == Some(new) || (new_line.is_none() && old_line == Some(old));
                     old += 1;
                     new += 1;
-                    hit
                 }
-            };
+            }
             if hit {
-                return Some(window.iter().copied().collect::<Vec<_>>().join("\n"));
+                let from = i.saturating_sub(2);
+                return Some(hunk[first.map_or(from, |f| f.min(from))..].join("\n"));
             }
         }
         None
@@ -398,7 +517,7 @@ pub mod json {
                 continue;
             }
             let diff = diffs.iter().find(|d| d["new_path"].as_str() == Some(pos.path.as_str()) || d["old_path"].as_str() == Some(pos.path.as_str())).and_then(|d| d["diff"].as_str());
-            pos.snippet = diff.and_then(|d| snippet(d, pos.line, pos.old_line));
+            pos.snippet = diff.and_then(|d| range_snippet(d, (pos.line, pos.old_line), (pos.start_line, pos.start_old_line)));
         }
     }
 
@@ -446,7 +565,8 @@ pub mod json {
         let draft = v["draft"].as_bool().or(v["work_in_progress"].as_bool()).unwrap_or(false);
         let state = match v["state"].as_str()? {
             "merged" => MrState::Merged,
-            "closed" | "locked" => MrState::Closed,
+            "locked" => MrState::Merging,
+            "closed" => MrState::Closed,
             _ if draft => MrState::Draft,
             _ => MrState::Open,
         };
@@ -468,6 +588,7 @@ pub mod json {
             label_colors: labels_of(&v["labels"]).1,
             updated_at: v["updated_at"].as_str().and_then(parse_rfc3339).unwrap_or(0),
             stacked: v["description"].as_str().is_some_and(gitbolt_core::forge::stack::carries_stack_table),
+            auto_merge: None,
         })
     }
     // --- end 4C T3 ---
@@ -747,6 +868,45 @@ pub fn merge_refused(number: u64, e: GbError) -> GbError {
     e
 }
 
+// --- auto-merge ---
+/// The merge PUT's body: the options (the messages are GitLab's own) and, for `auto`, both
+/// auto-merge flags: `auto_merge` (GitLab 17.11+) and `merge_when_pipeline_succeeds` (before;
+/// deprecated since, still read). Each version ignores the one it doesn't know.
+pub fn merge_body(opts: &MergeOptions, auto: bool) -> serde_json::Map<String, Value> {
+    let mut body = serde_json::Map::new();
+    if let Some(s) = opts.squash {
+        body.insert("squash".into(), s.into());
+    }
+    if let Some(d) = opts.delete_source_branch {
+        body.insert("should_remove_source_branch".into(), d.into());
+    }
+    if let Some(sha) = &opts.expected_sha {
+        body.insert("sha".into(), sha.clone().into());
+    }
+    if auto {
+        body.insert("auto_merge".into(), true.into());
+        body.insert("merge_when_pipeline_succeeds".into(), true.into());
+    }
+    body
+}
+
+/// GitLab's refusals of an auto-merge, said plainly (as `merge_refused`'s).
+pub fn auto_merge_refused(number: u64, e: GbError) -> GbError {
+    if e.message.contains("HTTP 405") || e.message.contains("HTTP 406") {
+        return GbError::new(GbErrorKind::InvalidInput, format!("GitLab can't set !{number} to auto-merge now: refresh to see why"));
+    }
+    merge_refused(number, e)
+}
+
+/// A cancel of an auto-merge that isn't set (any more: it merged, or someone cancelled it).
+pub fn cancel_refused(number: u64, e: GbError) -> GbError {
+    if e.message.contains("HTTP 405") || e.message.contains("HTTP 406") {
+        return GbError::new(GbErrorKind::InvalidInput, format!("!{number} isn't set to auto-merge any more: refresh"));
+    }
+    e
+}
+// --- end auto-merge ---
+
 impl GitLabProvider {
     /// An MR JSON the forge answered a write with, normalized.
     async fn mr_from(&self, project: &ForgeProject, v: &Value) -> Result<ForgeMr, GbError> {
@@ -757,7 +917,63 @@ impl GitLabProvider {
     async fn current(&self, project: &ForgeProject, number: u64) -> Result<Value, GbError> {
         self.http.get(&Self::mr_url(project, number)).await?.json(&self.host)
     }
+
+    // --- MR round 2 ---
+    /// One GraphQL request (`/api/graphql`); the answer, `errors` and all.
+    async fn graphql(&self, query: &str, variables: Value) -> Result<Value, GbError> {
+        self.gql.send_json(Method::Post, &self.gql_url, &json!({ "query": query, "variables": variables })).await?.json(&self.host)
+    }
+    // --- end MR round 2 ---
+
+    // --- comment actions ---
+    /// Each note's award emoji, from `NOTE_AWARDS_QUERY` (one request per 100 notes, not one per
+    /// note), best effort: a GitLab that can't answer it leaves them without.
+    async fn fill_awards(&self, project: &ForgeProject, number: u64, ds: &mut [ForgeDiscussion]) {
+        if !ds.iter().any(|d| d.notes.iter().any(|n| !n.system)) {
+            return;
+        }
+        let me = self.me().await.ok().map(|u| u.id);
+        let mut found: HashMap<String, Vec<ForgeReaction>> = HashMap::new();
+        let mut after: Option<String> = None;
+        for _ in 0..AWARD_PAGES {
+            let Ok(v) = self.graphql(NOTE_AWARDS_QUERY, json!({ "path": project.path, "iid": number.to_string(), "after": after })).await else { return };
+            let Some((page, next)) = json::note_awards(&v, me) else { return };
+            found.extend(page);
+            match next {
+                Some(c) => after = Some(c),
+                None => break,
+            }
+        }
+        for n in ds.iter_mut().flat_map(|d| d.notes.iter_mut()) {
+            if let Some(r) = found.remove(&n.id) {
+                n.reactions = r;
+            }
+        }
+    }
+
+    /// `…/merge_requests/<iid>/notes/<id>`: a note of any discussion.
+    fn note_url(project: &ForgeProject, number: u64, note: &NoteRef) -> Result<String, GbError> {
+        if note.note.is_empty() || !note.note.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(GbError::new(GbErrorKind::InvalidInput, "GitLab has no such comment"));
+        }
+        Ok(format!("{}/notes/{}", Self::mr_url(project, number), note.note))
+    }
+    // --- end comment actions ---
 }
+
+// --- comment actions ---
+/// Every note's award emoji, a page of notes at a time (`Note.awardEmoji`: GitLab 16.0 and later).
+pub const NOTE_AWARDS_QUERY: &str = "query($path: ID!, $iid: String!, $after: String) { project(fullPath: $path) { mergeRequest(iid: $iid) { notes(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id awardEmoji { nodes { name user { id username name } } } } } } } }";
+pub const AWARD_PAGES: usize = 3;
+// --- end comment actions ---
+
+// --- MR round 2 ---
+/// The project's people limits, from any one of its MRs (the flags are the namespace's tier's).
+pub const PEOPLE_LIMITS_QUERY: &str = "query($path: ID!) { project(fullPath: $path) { mergeRequests(first: 1) { nodes { allowsMultipleReviewers allowsMultipleAssignees } } } }";
+/// Sets the token's user's reviewer state to requested changes (GitLab 17.x; older servers
+/// don't know the mutation).
+pub const REQUEST_CHANGES_MUTATION: &str = "mutation($path: ID!, $iid: String!) { mergeRequestRequestChanges(input: {projectPath: $path, iid: $iid}) { errors } }";
+// --- end MR round 2 ---
 // --- end 4B T3 ---
 
 impl ForgeProvider for GitLabProvider {
@@ -1014,6 +1230,7 @@ impl ForgeProvider for GitLabProvider {
                 let diffs = self.http.get_pages(&format!("{url}/diffs?per_page=100"), DIFF_PAGES).await.unwrap_or_default();
                 json::fill_snippets(&mut ds, &diffs);
             }
+            self.fill_awards(project, number, &mut ds).await;
             self.names.learn_discussions(&ds);
             Ok(Fresh::new(ds, unix_now()))
         })
@@ -1055,30 +1272,132 @@ impl ForgeProvider for GitLabProvider {
         })
     }
 
+    // --- MR round 2 ---
+    /// Request changes is `request_changes` (the comment, the approval withdrawn), then the
+    /// reviewer state set to requested changes (GraphQL's `mergeRequestRequestChanges`); a
+    /// server without it (or one that refuses it) leaves it at that: the outcome says so.
+    /// Comment and Approve are the default's.
+    fn review<'a>(&'a self, project: &'a ForgeProject, number: u64, review: &'a ReviewSubmit) -> ForgeFuture<'a, ReviewOutcome> {
+        Box::pin(async move {
+            if review.event != ReviewEvent::RequestChanges {
+                return review_by_parts(self, project, number, review).await;
+            }
+            self.request_changes(project, number, &review.body).await?;
+            let set = self.graphql(REQUEST_CHANGES_MUTATION, json!({ "path": project.path, "iid": number.to_string() })).await;
+            Ok(ReviewOutcome { fallback: !set.is_ok_and(|v| json::mutation_ok(&v, "mergeRequestRequestChanges")) })
+        })
+    }
+
+    fn people_limits<'a>(&'a self, project: &'a ForgeProject) -> ForgeFuture<'a, PeopleLimits> {
+        Box::pin(async move {
+            let v = self.graphql(PEOPLE_LIMITS_QUERY, json!({ "path": project.path })).await?;
+            Ok(json::people_limits(&v))
+        })
+    }
+
+    fn set_subscribed<'a>(&'a self, project: &'a ForgeProject, number: u64, on: bool) -> ForgeFuture<'a, bool> {
+        Box::pin(async move {
+            let url = format!("{}/{}", Self::mr_url(project, number), if on { "subscribe" } else { "unsubscribe" });
+            // Already so: GitLab answers 304.
+            match self.http.send_json(Method::Post, &url, &json!({})).await {
+                Ok(r) => Ok(r.json::<Value>(&self.host)?["subscribed"].as_bool().unwrap_or(on)),
+                Err(e) if e.message.contains("HTTP 304") => Ok(on),
+                Err(e) => Err(e),
+            }
+        })
+    }
+    // --- end MR round 2 ---
+
+    // --- comment actions ---
+    /// The note's award emoji, read first (GitLab refuses a second of the same, and removing
+    /// one takes its id); then the one asked for added or removed, unless it's so already.
+    fn react<'a>(&'a self, project: &'a ForgeProject, number: u64, note: &'a NoteRef, name: &'a str, on: bool) -> ForgeFuture<'a, Vec<ForgeReaction>> {
+        Box::pin(async move {
+            let url = format!("{}/award_emoji", Self::note_url(project, number, note)?);
+            let me = self.me().await?;
+            let mut list = self.http.get_pages(&format!("{url}?per_page=100"), AWARD_PAGES).await?;
+            let mine = list.iter().position(|a| a["name"].as_str() == Some(name) && a["user"]["id"].as_u64() == Some(me.id));
+            match (on, mine) {
+                (true, None) => {
+                    let r = self.http.send_json(Method::Post, &url, &json!({ "name": name })).await?;
+                    list.push(r.json(&self.host)?);
+                }
+                (false, Some(i)) => {
+                    let id = list[i]["id"].as_u64().ok_or_else(|| unreadable(&self.host, "reaction"))?;
+                    self.http.delete(&format!("{url}/{id}")).await?;
+                    list.remove(i);
+                }
+                _ => {}
+            }
+            Ok(json::awards(&list, Some(me.id)))
+        })
+    }
+
+    fn edit_note<'a>(&'a self, project: &'a ForgeProject, number: u64, note: &'a NoteRef, body: &'a str) -> ForgeFuture<'a, ForgeNote> {
+        Box::pin(async move {
+            let r = self.http.send_json(Method::Put, &Self::note_url(project, number, note)?, &json!({ "body": body })).await?;
+            json::note(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "note"))
+        })
+    }
+
+    fn delete_note<'a>(&'a self, project: &'a ForgeProject, number: u64, note: &'a NoteRef) -> ForgeFuture<'a, ()> {
+        Box::pin(async move {
+            self.http.delete(&Self::note_url(project, number, note)?).await?;
+            Ok(())
+        })
+    }
+
+    fn resolve<'a>(&'a self, project: &'a ForgeProject, number: u64, discussion: &'a str, resolved: bool) -> ForgeFuture<'a, ThreadState> {
+        Box::pin(async move {
+            let url = format!("{}/discussions/{}?resolved={resolved}", Self::mr_url(project, number), encode_component(discussion));
+            let r = self.http.send_json(Method::Put, &url, &json!({})).await?;
+            let d = json::discussion(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "discussion"))?;
+            Ok(ThreadState { resolved: d.resolved, resolved_by: d.resolved_by })
+        })
+    }
+    // --- end comment actions ---
+
     /// The method is the project's (GitLab merges with it); `opts.method` is ignored.
     fn merge<'a>(&'a self, project: &'a ForgeProject, number: u64, opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
         Box::pin(async move {
-            let mut body = serde_json::Map::new();
-            if let Some(s) = opts.squash {
-                body.insert("squash".into(), s.into());
-            }
-            if let Some(d) = opts.delete_source_branch {
-                body.insert("should_remove_source_branch".into(), d.into());
-            }
-            if let Some(sha) = &opts.expected_sha {
-                body.insert("sha".into(), sha.clone().into());
-            }
+            let body = merge_body(opts, false);
             let r = self.http.send_json(Method::Put, &format!("{}/merge", Self::mr_url(project, number)), &Value::Object(body)).await.map_err(|e| merge_refused(number, e))?;
             self.mr_from(project, &r.json(&self.host)?).await
         })
     }
 
+    // --- auto-merge ---
+    /// The merge PUT with the auto-merge flags: GitLab merges at once when the pipeline has
+    /// passed already (the answer is then merged).
+    fn set_auto_merge<'a>(&'a self, project: &'a ForgeProject, number: u64, opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let body = merge_body(opts, true);
+            let r = self.http.send_json(Method::Put, &format!("{}/merge", Self::mr_url(project, number)), &Value::Object(body)).await.map_err(|e| auto_merge_refused(number, e))?;
+            self.mr_from(project, &r.json(&self.host)?).await
+        })
+    }
+
+    /// `cancel_merge_when_pipeline_succeeds`: still the endpoint's name for GitLab's auto-merge.
+    fn cancel_auto_merge<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let url = format!("{}/cancel_merge_when_pipeline_succeeds", Self::mr_url(project, number));
+            let r = self.http.send_json(Method::Post, &url, &json!({})).await.map_err(|e| cancel_refused(number, e))?;
+            self.mr_from(project, &r.json(&self.host)?).await
+        })
+    }
+    // --- end auto-merge ---
+
     /// A draft keeps its prefix: a new title for it is sent as `Draft: <title>` (Review Focus 5).
     fn edit<'a>(&'a self, project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
         Box::pin(async move {
+            let people = [&edit.reviewers, &edit.assignees].iter().any(|c| c.as_ref().is_some_and(|c| !c.is_empty()));
+            if people {
+                // The whole lists are sent: from the MR as it is now, not as a GET moments ago saw it.
+                self.http.expire_fresh();
+            }
             let current = self.current(project, number).await?;
             let draft = current["draft"].as_bool().or(current["work_in_progress"].as_bool()).unwrap_or(false);
-            let mut body = serde_json::Map::new();
+            let mut body = json::people_body(&current, edit);
             if let Some(t) = &edit.title {
                 let t = json::strip_draft(t.trim());
                 body.insert("title".into(), if draft { format!("Draft: {t}") } else { t.to_string() }.into());
@@ -1089,8 +1408,28 @@ impl ForgeProvider for GitLabProvider {
             if let Some(l) = &edit.labels {
                 body.insert("labels".into(), l.join(",").into());
             }
+            let sent = |key: &str| body.get(key).and_then(Value::as_array).map_or(0, Vec::len);
+            let sent = [sent("reviewer_ids"), sent("assignee_ids")];
             let r = self.http.send_json(Method::Put, &Self::mr_url(project, number), &Value::Object(body)).await?;
-            self.mr_from(project, &r.json(&self.host)?).await
+            let v: Value = r.json(&self.host)?;
+            for ((field, role, change), sent) in [("reviewers", "a reviewer", &edit.reviewers), ("assignees", "an assignee", &edit.assignees)].into_iter().zip(sent) {
+                let dropped = json::not_added(&v, field, change.as_ref().map_or(&[][..], |c| &c.add));
+                // --- MR round 2: the post-write check: GitLab Free kept only the first. A
+                // non-member is dropped the same way: one who is a member was dropped by the limit. ---
+                if !dropped.is_empty()
+                    && let Some(kept) = json::kept_only(&v, field, sent)
+                    && self.http.get(&format!("/projects/{}/members/all/{}", project.id, dropped[0])).await.is_ok()
+                {
+                    let noun = if field == "reviewers" { "reviewer" } else { "assignee" };
+                    return Err(GbError::new(GbErrorKind::InvalidInput, format!("GitLab kept only {}: this project allows one {noun}", kept.name)).with_detail(ErrorDetail::PeopleLimit { role: field.into() }));
+                }
+                // --- end MR round 2 ---
+                if !dropped.is_empty() {
+                    let who = dropped.iter().map(|id| format!("user {id}")).collect::<Vec<_>>().join(", ");
+                    return Err(GbError::new(GbErrorKind::InvalidInput, format!("GitLab didn't add {who} as {role}: are they a member of {}?", project.path)));
+                }
+            }
+            self.mr_from(project, &v).await
         })
     }
 
@@ -1226,7 +1565,8 @@ mod tests {
         assert_eq!(json::strip_draft("WIP: Explore"), "Explore");
         assert_eq!(json::strip_draft("Drafting the plan"), "Drafting the plan");
         assert_eq!(json::mr_state("opened", true), Some(MrState::Draft));
-        assert_eq!(json::mr_state("locked", false), Some(MrState::Closed));
+        assert_eq!(json::mr_state("locked", false), Some(MrState::Merging), "GitLab locks it while merging");
+        assert_eq!(json::merge_status(&json!({"state": "locked"})), MergeStatus::Blocked { reason: "It's being merged".into() });
         assert_eq!(json::mr_state("weird", false), None);
         let v = json!({"iid": 5, "title": "Draft: Explore", "draft": true, "state": "opened", "author": {"id": 7, "username": "ada", "name": "Ada"}, "source_branch": "x", "target_branch": "main", "sha": "abc", "labels": ["a"], "updated_at": "2026-10-04T12:00:00Z", "has_conflicts": true});
         let m = json::mr(&v, "group/project", "group/project").unwrap();
@@ -1271,6 +1611,34 @@ mod tests {
         assert_eq!(json::snippet(diff, Some(4), None).as_deref(), Some("+zwei\n+drei\n three"));
         assert_eq!(json::snippet(diff, Some(40), None), None);
         assert_eq!(json::snippet("@@ -10,2 +12,2 @@\n a\n+b\n", Some(13), None).as_deref(), Some(" a\n+b"));
+    }
+
+    #[test]
+    fn a_ranges_snippet_is_its_lines_and_at_least_three() {
+        let diff = "@@ -1,6 +1,7 @@\n one\n-two\n+zwei\n+drei\n three\n four\n five\n six\n";
+        // New 1 (context) to new 6: every line between them, the removed one included.
+        assert_eq!(json::range_snippet(diff, (Some(6), None), (Some(1), Some(1))).as_deref(), Some(" one\n-two\n+zwei\n+drei\n three\n four\n five"));
+        // Old 2 (removed) to new 3 (added): the sides differ.
+        assert_eq!(json::range_snippet(diff, (Some(3), None), (None, Some(2))).as_deref(), Some("-two\n+zwei\n+drei"));
+        // A two-line range still shows three lines.
+        assert_eq!(json::range_snippet(diff, (Some(5), Some(4)), (Some(4), Some(3))).as_deref(), Some("+drei\n three\n four"));
+        // A start not in the end's hunk: the end's three lines.
+        assert_eq!(json::range_snippet(diff, (Some(6), None), (Some(40), None)).as_deref(), Some(" three\n four\n five"));
+    }
+
+    #[test]
+    fn a_multi_line_notes_position_has_its_range() {
+        let end = json!({"line_code": "abc_5_6", "type": null, "old_line": 5, "new_line": 6});
+        let pos = |range: serde_json::Value| json::note(&json!({"id": 1, "author": {"id": 8, "username": "grace"}, "body": "b", "position": {"new_path": "a.txt", "old_path": "a.txt", "new_line": 6, "old_line": 5, "line_range": range}})).unwrap().position.unwrap();
+        let p = pos(json!({"start": {"line_code": "abc_1_1", "type": null, "old_line": 1, "new_line": 1}, "end": end}));
+        assert_eq!((p.line, p.old_line, p.start_line, p.start_old_line), (Some(6), Some(5), Some(1), Some(1)));
+        let p = pos(json!({"start": {"line_code": "abc_2_2", "type": "old", "old_line": 2, "new_line": null}, "end": end}));
+        assert_eq!((p.start_line, p.start_old_line), (None, Some(2)));
+        // One line (a range that starts where it ends), or none: no start.
+        let p = pos(json!({"start": end, "end": end}));
+        assert_eq!((p.start_line, p.start_old_line), (None, None));
+        let p = pos(serde_json::Value::Null);
+        assert_eq!((p.line, p.start_line, p.start_old_line), (Some(6), None, None));
     }
 
     #[test]
@@ -1319,4 +1687,185 @@ mod tests {
         assert_eq!(json::label(&json!({"name": "bug", "color": "#d9534f", "description": ""})), Some(ForgeLabel { name: "bug".into(), color: Some("#d9534f".into()), description: None }));
     }
     // --- end 4C T3 ---
+
+    #[test]
+    fn a_people_change_is_sent_as_the_whole_lists() {
+        let current = json!({"reviewers": [{"id": 7, "username": "ada"}], "assignees": [{"id": 8, "username": "grace"}]});
+        let edit = MrEdit { reviewers: Some(PeopleEdit { add: vec![8], remove: vec![7] }), ..Default::default() };
+        assert_eq!(serde_json::Value::Object(json::people_body(&current, &edit)), json!({"reviewer_ids": [8]}), "assignees untouched: not sent");
+        let edit = MrEdit { assignees: Some(PeopleEdit { add: vec![], remove: vec![8] }), reviewers: Some(PeopleEdit::default()), ..Default::default() };
+        assert_eq!(serde_json::Value::Object(json::people_body(&current, &edit)), json!({"assignee_ids": []}), "the last one removed: an empty list");
+    }
+
+    #[test]
+    fn the_people_gitlab_dropped_are_found() {
+        let answer = json!({"reviewers": [{"id": 8, "username": "grace"}]});
+        assert_eq!(json::not_added(&answer, "reviewers", &[8, 99]), [99]);
+        assert!(json::not_added(&answer, "assignees", &[]).is_empty());
+    }
+
+    // --- auto-merge ---
+    #[test]
+    fn an_open_mr_set_to_auto_merge_says_by_whom() {
+        let v = |state: &str, extra: serde_json::Value| {
+            let mut v = json!({"iid": 5, "title": "t", "state": state, "author": {"id": 7, "username": "ada"}, "source_branch": "x", "target_branch": "main", "web_url": "u"});
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            json::mr(&v, "group/project", "group/project").unwrap().auto_merge
+        };
+        let by = v("opened", json!({"merge_when_pipeline_succeeds": true, "merge_user": {"id": 8, "username": "grace", "name": "Grace Hopper"}})).unwrap();
+        assert_eq!((by.enabled_by.map(|u| u.name), by.method), (Some("Grace Hopper".into()), None), "GitLab merges with the project's method");
+        assert!(v("opened", json!({"auto_merge_enabled": true})).is_some_and(|a| a.enabled_by.is_none()), "the newer field, no merge_user");
+        assert_eq!(v("opened", json!({"merge_when_pipeline_succeeds": false})), None);
+        assert_eq!(v("merged", json!({"merge_when_pipeline_succeeds": true})), None, "a merged MR keeps the flag: not shown");
+    }
+
+    #[test]
+    fn the_merge_body_carries_the_options_and_both_auto_merge_flags() {
+        let opts = MergeOptions { squash: Some(true), delete_source_branch: Some(false), expected_sha: Some("abc".into()), ..Default::default() };
+        let now = super::merge_body(&opts, false);
+        assert_eq!(serde_json::Value::Object(now.clone()), json!({"squash": true, "should_remove_source_branch": false, "sha": "abc"}), "no message: GitLab's own");
+        let auto = super::merge_body(&opts, true);
+        // `auto_merge` (GitLab 17.11+) and `merge_when_pipeline_succeeds` (before; deprecated, still read): each ignores the other.
+        assert_eq!((auto["auto_merge"].as_bool(), auto["merge_when_pipeline_succeeds"].as_bool()), (Some(true), Some(true)));
+        assert!(super::merge_body(&MergeOptions::default(), false).is_empty());
+    }
+
+    // --- MR round 2 ---
+    #[test]
+    fn the_people_flags_read_as_limits() {
+        let flags = |r: bool, a: bool| json!({"data": {"project": {"mergeRequests": {"nodes": [{"allowsMultipleReviewers": r, "allowsMultipleAssignees": a}]}}}});
+        assert_eq!(json::people_limits(&flags(false, false)), PeopleLimits { max_reviewers: Some(1), max_assignees: Some(1) });
+        assert_eq!(json::people_limits(&flags(true, false)), PeopleLimits { max_reviewers: None, max_assignees: Some(1) });
+        assert_eq!(json::people_limits(&json!({"data": {"project": {"mergeRequests": {"nodes": []}}}})), PeopleLimits::default(), "no MR: nothing known");
+        assert_eq!(json::people_limits(&json!({"errors": [{"message": "Field 'allowsMultipleReviewers' doesn't exist on type 'MergeRequest'"}]})), PeopleLimits::default(), "an older GitLab");
+    }
+
+    #[test]
+    fn kept_only_one_of_several_names_who() {
+        let one = json!({"reviewers": [{"id": 7, "username": "ada", "name": "Ada Lovelace"}]});
+        assert_eq!(json::kept_only(&one, "reviewers", 2).map(|u| u.name), Some("Ada Lovelace".into()));
+        assert_eq!(json::kept_only(&one, "reviewers", 1), None, "one sent, one kept: no limit at work");
+        assert_eq!(json::kept_only(&json!({"reviewers": []}), "reviewers", 2), None);
+    }
+
+    #[test]
+    fn a_mutation_went_in_without_errors() {
+        assert!(json::mutation_ok(&json!({"data": {"mergeRequestRequestChanges": {"errors": []}}}), "mergeRequestRequestChanges"));
+        assert!(!json::mutation_ok(&json!({"data": {"mergeRequestRequestChanges": {"errors": ["Not a reviewer"]}}}), "mergeRequestRequestChanges"));
+        assert!(!json::mutation_ok(&json!({"errors": [{"message": "Field 'mergeRequestRequestChanges' doesn't exist on type 'Mutation'"}]}), "mergeRequestRequestChanges"));
+    }
+
+    #[test]
+    fn the_detail_reads_the_base_and_the_subscription() {
+        let v = json!({"iid": 12, "title": "t", "state": "opened", "author": {"id": 1, "username": "ada", "name": "Ada"}, "source_branch": "dev", "target_branch": "main", "diff_refs": {"base_sha": "abc", "head_sha": "def", "start_sha": "abc"}, "subscribed": true});
+        let d = json::detail(&v, "group/project", "group/project", None).unwrap();
+        assert_eq!((d.base_sha.as_deref(), d.subscribed), (Some("abc"), Some(true)));
+    }
+    // --- end MR round 2 ---
+
+    #[test]
+    fn auto_merge_refusals_are_said_plainly() {
+        let e = |m: &str| gitbolt_core::error::GbError::new(gitbolt_core::error::GbErrorKind::InvalidInput, m);
+        let set = super::auto_merge_refused(12, e("HTTP 405: 405 Method Not Allowed"));
+        assert_eq!(set.message, "GitLab can't set !12 to auto-merge now: refresh to see why");
+        assert_eq!(super::auto_merge_refused(12, e("HTTP 409: SHA does not match HEAD of source branch: abc")).message, "!12 changed since it was loaded: refresh and try again");
+        assert_eq!(super::cancel_refused(12, e("HTTP 406: 406 Not Acceptable")).message, "!12 isn't set to auto-merge any more: refresh");
+        assert_eq!(super::cancel_refused(12, e("network down")).message, "network down");
+    }
+    // --- end auto-merge ---
+
+    // --- comment actions ---
+    #[test]
+    fn note_awards_come_by_note_with_mine_and_who() {
+        let answer = json!({"data": {"project": {"mergeRequest": {"notes": {
+            "pageInfo": {"hasNextPage": true, "endCursor": "c1"},
+            "nodes": [
+                {"id": "gid://gitlab/Note/101", "awardEmoji": {"nodes": [
+                    {"name": "thumbsup", "user": {"id": "gid://gitlab/User/7", "username": "ada", "name": "Ada"}},
+                    {"name": "thumbsup", "user": {"id": "gid://gitlab/User/8", "username": "grace", "name": ""}},
+                    {"name": "tada", "user": {"id": "gid://gitlab/User/8", "username": "grace", "name": ""}}
+                ]}},
+                {"id": "gid://gitlab/Note/102", "awardEmoji": {"nodes": []}}
+            ]
+        }}}}});
+        let (notes, next) = json::note_awards(&answer, Some(7)).unwrap();
+        assert_eq!(next.as_deref(), Some("c1"));
+        assert_eq!(notes.len(), 1, "a note without any is left out");
+        assert_eq!(notes[0].0, "101");
+        assert_eq!(notes[0].1, [
+            ForgeReaction { name: "thumbsup".into(), count: 2, mine: true, users: vec!["Ada".into(), "grace".into()] },
+            ForgeReaction { name: "tada".into(), count: 1, mine: false, users: vec!["grace".into()] },
+        ]);
+        assert!(json::note_awards(&json!({"errors": [{"message": "Field 'awardEmoji' doesn't exist on type 'Note'"}]}), Some(7)).is_none(), "an older GitLab");
+    }
+
+    fn served() -> (crate::test_server::TestServer, super::GitLabProvider, ForgeProject) {
+        use crate::test_server::{Canned, TestServer};
+        let s = TestServer::start(|_, head| {
+            let line = head.lines().next().unwrap_or_default().to_string();
+            let notes = "/api/v4/projects/1/merge_requests/12/notes/101";
+            if line.starts_with("get /api/v4/user ") {
+                Canned::json(200, r#"{"id": 7, "username": "ada", "name": "Ada"}"#)
+            } else if line.starts_with(&format!("get {notes}/award_emoji?per_page=100 ")) {
+                Canned::json(200, r#"[{"id": 5, "name": "thumbsup", "user": {"id": 7, "username": "ada", "name": "Ada"}}, {"id": 6, "name": "thumbsup", "user": {"id": 8, "username": "grace", "name": "Grace"}}]"#)
+            } else if line.starts_with(&format!("post {notes}/award_emoji ")) {
+                Canned::json(201, r#"{"id": 9, "name": "tada", "user": {"id": 7, "username": "ada", "name": "Ada"}}"#)
+            } else if line.starts_with(&format!("put {notes} ")) {
+                Canned::json(200, r#"{"id": 101, "body": "Edited", "author": {"id": 7, "username": "ada", "name": "Ada"}, "created_at": "2026-10-04T09:00:00Z", "system": false}"#)
+            } else if line.starts_with("delete ") {
+                Canned { status: 204, headers: vec![], body: vec![] }
+            } else if line.starts_with("put /api/v4/projects/1/merge_requests/12/discussions/d2?resolved=true ") {
+                Canned::json(200, r#"{"id": "d2", "notes": [{"id": 102, "body": "b", "author": {"id": 8, "username": "grace", "name": "Grace"}, "created_at": "2026-10-04T09:00:00Z", "system": false, "resolvable": true, "resolved": true, "resolved_by": {"id": 7, "username": "ada", "name": "Ada"}}]}"#)
+            } else {
+                Canned::json(404, r#"{"message": "404 Not found"}"#)
+            }
+        });
+        let ep = crate::endpoints::HostEndpoints { api: format!("{}/api/v4", s.base), web: s.base.clone(), avatars: None };
+        let p = super::GitLabProvider::new("gitlab.example.com", &ep, gitbolt_core::redact::Secret::new("glpat-FAKE-test-token"), None);
+        let project = ForgeProject { kind: ForgeKind::GitLab, id: 1, host: "gitlab.example.com".into(), path: "group/project".into(), name: "project".into(), owner: "group".into(), web_url: String::new(), default_branch: None, clone_https: String::new(), clone_ssh: String::new(), fork_of: None, updated_at: None, archived: false, owner_avatar_url: None };
+        (s, p, project)
+    }
+
+    fn lines(s: &crate::test_server::TestServer) -> Vec<String> {
+        s.heads.lock().unwrap().iter().map(|h| h.lines().next().unwrap_or_default().trim_end_matches(" http/1.1").to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn reacting_reads_the_awards_then_adds_or_removes_only_what_isnt_so() {
+        let (s, p, project) = served();
+        let note = NoteRef { discussion: "d1".into(), note: "101".into() };
+        let after = p.react(&project, 12, &note, "tada", true).await.unwrap();
+        assert_eq!(after.iter().map(|r| (r.name.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("thumbsup", 2, true), ("tada", 1, true)]);
+        let after = p.react(&project, 12, &note, "thumbsup", false).await.unwrap();
+        assert_eq!(after.iter().map(|r| (r.name.as_str(), r.count, r.mine)).collect::<Vec<_>>(), [("thumbsup", 1, false)]);
+        p.react(&project, 12, &note, "thumbsup", true).await.unwrap();
+        let notes = "/api/v4/projects/1/merge_requests/12/notes/101";
+        assert_eq!(lines(&s), [
+            "get /api/v4/user".to_string(),
+            format!("get {notes}/award_emoji?per_page=100"), format!("post {notes}/award_emoji"),
+            format!("get {notes}/award_emoji?per_page=100"), format!("delete {notes}/award_emoji/5"),
+            format!("get {notes}/award_emoji?per_page=100"),
+        ], "already mine: nothing sent");
+    }
+
+    #[tokio::test]
+    async fn a_note_is_edited_with_put_and_deleted_and_a_strange_id_never_asked() {
+        let (s, p, project) = served();
+        let note = NoteRef { discussion: "d1".into(), note: "101".into() };
+        assert_eq!(p.edit_note(&project, 12, &note, "Edited").await.unwrap().body, "Edited");
+        p.delete_note(&project, 12, &note).await.unwrap();
+        let bad = NoteRef { discussion: "d1".into(), note: "101/../../x".into() };
+        assert_eq!(p.delete_note(&project, 12, &bad).await.unwrap_err().kind, gitbolt_core::error::GbErrorKind::InvalidInput);
+        assert_eq!(lines(&s), ["put /api/v4/projects/1/merge_requests/12/notes/101", "delete /api/v4/projects/1/merge_requests/12/notes/101"]);
+    }
+
+    #[tokio::test]
+    async fn a_discussion_is_resolved_with_put_and_says_by_whom() {
+        let (s, p, project) = served();
+        assert_eq!(p.resolve(&project, 12, "d2", true).await.unwrap(), ThreadState { resolved: true, resolved_by: Some("Ada".into()) });
+        assert_eq!(lines(&s), ["put /api/v4/projects/1/merge_requests/12/discussions/d2?resolved=true"]);
+        let open = json::discussion(&json!({"id": "d3", "notes": [{"id": 1, "body": "b", "author": {"id": 8, "username": "grace", "name": "Grace"}, "resolvable": true, "resolved": false, "resolved_by": null}]})).unwrap();
+        assert_eq!((open.resolvable, open.resolved, open.resolved_by), (true, false, None));
+    }
+    // --- end comment actions ---
 }

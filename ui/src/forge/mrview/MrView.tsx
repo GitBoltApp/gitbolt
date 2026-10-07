@@ -1,5 +1,7 @@
 import { ExternalLink } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
+import { useLend } from '../../app/lent';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
@@ -40,27 +42,59 @@ import './mrview.css';
  */
 const REFRESH_GRACE_MS = 120;
 
-/** The header with the actions in it (Check out, Edit and ⋯ on the status line; Approve and
- * Request changes in the APPROVALS box), the stack (4D), then the Request changes or Edit form. */
-function MrTop({ tabId, kind, mr, detail }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null }) {
+/** The header (Check out, Edit and ⋯ on the status line; Approve and Review… in the APPROVALS
+ * box), then, in Edit, the form alone; otherwise the stack (4D), the Review form, the merge box,
+ * the description and the discussion. Edit hides the rest (`hidden`, still mounted: the loaded
+ * threads and commits stay, and leaving Edit returns to the same scroll). */
+function MrBody({ tabId, kind, mr, detail, discussions, description, context }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null; discussions: ForgeDiscussion[] | null; description: string; context: { kind: 'forge'; tabId: string } }) {
   const actions = useMrActions(tabId, kind, mr, detail);
+  const editing = actions.live && actions.mode === 'edit';
+  const root = useRef<HTMLDivElement>(null);
+  const was = useRef<number | null>(null);
+  // Edit starts at the top (the form); leaving it puts the scroll back.
+  useLayoutEffect(() => {
+    const body = root.current?.closest<HTMLElement>('.flyout-body');
+    if (!body) return;
+    if (editing) { was.current = body.scrollTop; body.scrollTop = 0; }
+    else if (was.current !== null) { body.scrollTop = was.current; was.current = null; }
+  }, [editing]);
   return (
-    <>
+    <div ref={root} className="mr-body">
       <MrHeader
         tabId={tabId}
         kind={kind}
         mr={mr}
         detail={detail}
+        editing={editing}
         actions={<StatusActions actions={actions}><CheckoutButton tabId={tabId} mr={mr} /></StatusActions>}
         review={<ReviewButtons kind={kind} mr={mr} actions={actions} />}
+        editLabels={actions.live ? () => actions.setMode('edit', 'labels') : undefined}
       />
       {/* --- 4D: the stack --- */}
-      <StackPanel tabId={tabId} mr={mr} />
+      <div className="mr-rest" hidden={editing}><StackPanel tabId={tabId} mr={mr} /></div>
       {/* --- end 4D --- */}
       {/* --- 4B T13: the actions' forms --- */}
       <MrForms tabId={tabId} kind={kind} mr={mr} detail={detail} actions={actions} />
       {/* --- end 4B T13 --- */}
-    </>
+      <div className="mr-rest" hidden={editing}>
+        {/* --- 4B T14: merge and check out --- */}
+        <MergeBox key={mr.number} tabId={tabId} kind={kind} mr={mr} detail={detail} />
+        {/* --- end 4B T14 --- */}
+        <section className="mr-description" aria-label="Description">
+          {/* --- 5A T10: rendered Markdown (spec #5 §1), plain over 1 MB --- */}
+          {detail
+            ? (detail.description.trim()
+              ? <Markdown text={description} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />
+              : <span className="mr-dim">No description</span>)
+            : <span className="mr-dim">Loading…</span>}
+          {/* --- end 5A T10 --- */}
+        </section>
+        <Thread tabId={tabId} kind={kind} mr={mr} discussions={discussions} reviews={detail?.mr.review.reviews} />
+        {/* --- 4B T13: new comment --- */}
+        <div className="mr-new-comment"><ReplyBox tabId={tabId} number={mr.number} discussion={null} /></div>
+        {/* --- end 4B T13 --- */}
+      </div>
+    </div>
   );
 }
 
@@ -83,6 +117,8 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
   const mr = detail?.mr ?? knownMr({ details, list, byRef }, number);
   const ref = mrRef(kind, number);
   const label = `${mrName(kind)} ${ref}`;
+  // Ctrl+Shift+O (`keyActions.ts`), as the header's button.
+  useLend('mr.openInBrowser', tabId, mr ? () => openInBrowser(mr.webUrl) : null);
   const error = detailErrors[number];
   // --- 5A final review: the description's text and context keep their identity across renders ---
   const description = useMemo(() => (detail ? signedAttachments(detail.description, detail.bodyHtml ?? null) : ''), [detail]);
@@ -116,26 +152,7 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
       {!mr && <p className="mr-wait">{error ? `Couldn't load ${label}: ${error}` : 'Loading…'}</p>}
       {/* The MR/PR's own refresh failed: what's shown is older. */}
       {mr && error && <p className="forge-stale-note" role="status">{`Couldn't refresh ${ref}: ${error}`}</p>}
-      {/* The header, the stack and the actions' forms. */}
-      {mr && <MrTop tabId={tabId} kind={kind} mr={mr} detail={detail} />}
-      {/* --- 4B T14: merge and check out --- */}
-      {mr && <MergeBox key={mr.number} tabId={tabId} kind={kind} mr={mr} detail={detail} />}
-      {/* --- end 4B T14 --- */}
-      {mr && (
-        <section className="mr-description" aria-label="Description">
-          {/* --- 5A T10: rendered Markdown (spec #5 §1), plain over 1 MB --- */}
-          {detail
-            ? (detail.description.trim()
-              ? <Markdown text={description} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />
-              : <span className="mr-dim">No description</span>)
-            : <span className="mr-dim">Loading…</span>}
-          {/* --- end 5A T10 --- */}
-        </section>
-      )}
-      {mr && <Thread tabId={tabId} kind={kind} mr={mr} discussions={discussions[number] ?? null} reviews={detail?.mr.review.reviews} />}
-      {/* --- 4B T13: new comment --- */}
-      {mr && <div className="mr-new-comment"><ReplyBox tabId={tabId} number={number} discussion={null} /></div>}
-      {/* --- end 4B T13 --- */}
+      {mr && <MrBody tabId={tabId} kind={kind} mr={mr} detail={detail} discussions={discussions[number] ?? null} description={description} context={context} />}
     </FlyoutFrame>
   );
 }

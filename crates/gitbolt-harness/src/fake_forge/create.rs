@@ -6,7 +6,7 @@
 //! requests find it.
 
 use super::gitlab_mrs::FakeMergeRequest;
-use super::github_pulls::FakePull;
+use super::github_pulls::{pull_json, FakePull, WRITE_TIME};
 use super::{gitlab, FakeLabel, FakeRequest, FakeUser, ForgeState, Reply};
 use base64::Engine;
 use serde_json::{json, Value};
@@ -247,36 +247,63 @@ pub(crate) fn github_post_pull(st: &mut ForgeState, r: &FakeRequest, path: &str)
     Reply::status(201, pr)
 }
 
-pub(crate) fn github_reviewers(st: &mut ForgeState, r: &FakeRequest, path: &str, n: &str) -> Reply {
-    let logins = strings(&body(r)["reviewers"]);
-    let collaborators = st.seed.github.assignees.clone();
-    let Some(pr) = pull_mut(st, path, n) else { return gh_not_found() };
-    if logins.iter().any(|l| pr["user"]["login"] == l.as_str()) {
-        return Reply::status(422, json!({ "message": "Review cannot be requested from pull request author." }));
-    }
-    let mut users = Vec::new();
-    for login in &logins {
-        match collaborators.iter().find(|u| &u.username == login) {
-            Some(u) => users.push(gh_user(u, r.base)),
-            None => return Reply::status(422, json!({ "message": format!("Reviews may only be requested from collaborators. One or more of the users or teams you specified is not a collaborator of the {path} repository.") })),
-        }
-    }
-    pr["requested_reviewers"] = Value::Array(users);
-    let reply = Reply::status(201, pr.clone());
-    mirror_pull(st, path, n, |p| p.requested_reviewers = logins);
-    reply
+/// A pull request's row in 4B's list (a created one is mirrored there): where people live.
+fn pull_at(st: &ForgeState, path: &str, n: &str) -> Option<usize> {
+    st.seed.github.pulls.iter().position(|p| p.repo == path && p.number.to_string() == n)
 }
 
-pub(crate) fn github_add_assignees(st: &mut ForgeState, r: &FakeRequest, path: &str, n: &str) -> Reply {
+/// After a change to row `i`'s people: the created PR's JSON says the same, and GitHub's answer.
+fn people_changed(st: &mut ForgeState, path: &str, n: &str, i: usize, base: &str, status: u16) -> Reply {
+    st.seed.github.pulls[i].updated_at = WRITE_TIME.into();
+    let pr = pull_json(st, &st.seed.github.pulls[i], base, true);
+    if let Some(created) = pull_mut(st, path, n) {
+        created["requested_reviewers"] = pr["requested_reviewers"].clone();
+        created["assignees"] = pr["assignees"].clone();
+    }
+    Reply::status(status, pr)
+}
+
+/// `POST` adds to the requested reviewers (collaborators only, never the author); `DELETE`
+/// withdraws requests (a login that isn't requested is left alone, as GitHub does).
+pub(crate) fn github_reviewers(st: &mut ForgeState, r: &FakeRequest, path: &str, n: &str) -> Reply {
+    let logins = strings(&body(r)["reviewers"]);
+    let Some(i) = pull_at(st, path, n) else { return gh_not_found() };
+    if r.method == "DELETE" {
+        st.seed.github.pulls[i].requested_reviewers.retain(|u| !logins.contains(u));
+        return people_changed(st, path, n, i, r.base, 200);
+    }
+    if logins.iter().any(|l| *l == st.seed.github.pulls[i].author) {
+        return Reply::status(422, json!({ "message": "Review cannot be requested from pull request author." }));
+    }
+    if logins.iter().any(|l| !st.seed.github.assignees.iter().any(|u| &u.username == l)) {
+        return Reply::status(422, json!({ "message": format!("Reviews may only be requested from collaborators. One or more of the users or teams you specified is not a collaborator of the {path} repository.") }));
+    }
+    let p = &mut st.seed.github.pulls[i];
+    for l in logins {
+        if !p.requested_reviewers.contains(&l) {
+            p.requested_reviewers.push(l);
+        }
+    }
+    people_changed(st, path, n, i, r.base, 201)
+}
+
+/// `POST` adds assignees (GitHub drops the logins that can't be assigned, silently); `DELETE`
+/// removes them.
+pub(crate) fn github_assignees_change(st: &mut ForgeState, r: &FakeRequest, path: &str, n: &str) -> Reply {
     let logins = strings(&body(r)["assignees"]);
-    // GitHub drops the logins that can't be assigned, silently.
-    let known: Vec<Value> = st.seed.github.assignees.iter().filter(|u| logins.contains(&u.username)).map(|u| gh_user(u, r.base)).collect();
-    let on_pr: Vec<String> = st.seed.github.assignees.iter().filter(|u| logins.contains(&u.username)).map(|u| u.username.clone()).collect();
-    let Some(pr) = pull_mut(st, path, n) else { return gh_not_found() };
-    pr["assignees"] = Value::Array(known);
-    let reply = Reply::status(201, pr.clone());
-    mirror_pull(st, path, n, |p| p.assignees = on_pr);
-    reply
+    let Some(i) = pull_at(st, path, n) else { return gh_not_found() };
+    if r.method == "DELETE" {
+        st.seed.github.pulls[i].assignees.retain(|u| !logins.contains(u));
+        return people_changed(st, path, n, i, r.base, 200);
+    }
+    let known: Vec<String> = st.seed.github.assignees.iter().filter(|u| logins.contains(&u.username)).map(|u| u.username.clone()).collect();
+    let p = &mut st.seed.github.pulls[i];
+    for l in known {
+        if !p.assignees.contains(&l) {
+            p.assignees.push(l);
+        }
+    }
+    people_changed(st, path, n, i, r.base, 201)
 }
 
 pub(crate) fn github_add_labels(st: &mut ForgeState, r: &FakeRequest, path: &str, n: &str) -> Reply {
@@ -324,7 +351,7 @@ pub(crate) fn github_contents(st: &ForgeState, path: &str, file: &str) -> Reply 
 pub(crate) fn github_user(st: &ForgeState, r: &FakeRequest, id: &str) -> Reply {
     let id: u64 = id.parse().unwrap_or(0);
     let gh = &st.seed.github;
-    match gh.tokens.iter().map(|t| &t.user).chain(gh.assignees.iter()).find(|u| u.id == id) {
+    match gh.tokens.iter().map(|t| &t.user).chain(gh.assignees.iter()).chain(gh.users.iter()).find(|u| u.id == id) {
         Some(u) => Reply::json(gh_user(u, r.base)),
         None => gh_not_found(),
     }

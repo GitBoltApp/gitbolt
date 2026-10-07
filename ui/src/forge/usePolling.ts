@@ -40,6 +40,20 @@ export function notifyForgeWrite(tabId: string): void {
   pollers.get(tabId)?.afterWrite();
 }
 
+/** A push's follow-up polls: the forge starts the branch's pipeline a moment after the push lands,
+ * so the poll right away may still see the old one; these catch the new one, which then polls
+ * fast while it runs. */
+export const AFTER_PUSH_POLLS_MS = [5_000, 15_000] as const;
+const pushTimers = new Map<string, ReturnType<typeof setTimeout>[]>();
+
+/** After a branch push: its MR/PR (head sha, pipeline, mergeability) changed on the forge, so the
+ * tab's poller polls at once and again shortly after. A newer push restarts the follow-ups. */
+export function notifyBranchPushed(tabId: string): void {
+  for (const t of pushTimers.get(tabId) ?? []) clearTimeout(t);
+  pollers.get(tabId)?.afterWrite();
+  pushTimers.set(tabId, AFTER_PUSH_POLLS_MS.map((ms) => setTimeout(() => pollers.get(tabId)?.afterWrite(), ms)));
+}
+
 export { notifyForgeAccountsChanged };
 
 /** After an account was added or removed (spec #4 §3.4): every live poller polls at once, asking the forges again, and a tab's next activation does too. */

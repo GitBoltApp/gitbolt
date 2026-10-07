@@ -156,3 +156,13 @@ export function restoreAnchor(diff: Diff, anchor: ScrollAnchor): void {
   if (anchor === 'bottom') return m.setScrollTop(m.getScrollHeight(), IMMEDIATE);
   m.setScrollTop(anchorY(diff, anchor) - m.getLayoutInfo().height / 2, IMMEDIATE);
 }
+
+/** Scrolls `diff` so `side`'s lines `line`-`end` are centred, or, taller than the view (with
+ * `margin` above and below), so `line` is at the top below `margin`. */
+export function revealRange(diff: Diff, at: { side: 'modified' | 'original'; line: number; end: number }, margin: number): void {
+  const m = diff.getModifiedEditor();
+  const top = anchorY(diff, { side: at.side, line: at.line, fraction: 0 });
+  const bottom = anchorY(diff, { side: at.side, line: at.end, fraction: 1 });
+  const height = m.getLayoutInfo().height;
+  m.setScrollTop(bottom - top + 2 * margin > height ? top - margin : (top + bottom - height) / 2, IMMEDIATE);
+}

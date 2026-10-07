@@ -9,6 +9,17 @@ export type ForgeMrDetail = { mr: ForgeMr,
  */
 description: string, reviewers: Array<ForgeUser>, assignees: Array<ForgeUser>, mergeStatus: MergeStatus, squash: boolean | null, deleteSourceBranch: boolean | null, 
 /**
+ * The commit its changes are counted from, as the forge says (GitLab's
+ * `diff_refs.base_sha`, GitHub's `base.sha`): the Compare button's FROM, after a local
+ * merge-base with the head (GitHub's is the target's tip when it was last updated).
+ */
+baseSha?: string, 
+/**
+ * The token's user gets its notifications (GitLab's `subscribed`, GitHub's
+ * `viewerSubscription`); `None`: the forge didn't say.
+ */
+subscribed?: boolean, 
+/**
  * GitHub's rendered description (the `full` media type): its signed attachment URLs
  * (spec #5 §4.2). `None` for GitLab.
  */

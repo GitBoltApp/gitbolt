@@ -1,7 +1,7 @@
 import { PendingMark } from '../pending/PendingMark';
 import { usePendingAny } from '../pending/store';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Clock, Folder, FolderOpen, GitBranch, House, ListTree, Tag, TreePine } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Clock, Folder, FolderOpen, GitBranch, GitMerge, House, ListTree, Tag, TreePine } from 'lucide-react';
 import { stashLabel } from './stashLabel';
 import { memo, useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { selectCommit } from '../app/graphNav';
@@ -26,7 +26,7 @@ import { UpstreamWarning } from '../branches/UpstreamWarning';
 import { LocalBranchBadge } from '../forge/MrBadge';
 // --- end 4B T10 ---
 // --- 4B T11 ---
-import { PipelineIcon } from '../forge/MrIcons';
+import { MrStateIcon, PipelineIcon } from '../forge/MrIcons';
 import { pipelineText } from '../forge/mrText';
 
 /** The pipeline states an MR/PR row shows an icon for. */
@@ -45,7 +45,8 @@ export function ItemIcon({ item, tabId }: { item: SideItem; tabId: string }) {
   if (pending) return <PendingMark action={pending} />;
   if (item.kind === 'local') return item.branch.isHead ? <span className="co-check" aria-label="current branch"><Check size={11} strokeWidth={3} /></span> : <GitBranch size={13} />;
   if (item.kind === 'remote') return <GitBranch size={13} />;
-  if (item.kind === 'mr') return null; // the section says what these are; a draft's label is dimmed
+  // Coloured by state: an open one green, a draft grey (its own icon), as on the forge.
+  if (item.kind === 'mr') return <MrStateIcon state={item.mr.state} size={13} />;
   if (item.kind === 'worktree') {
     const Icon = item.worktree.isMain ? House : TreePine;
     return <Icon size={13} data-wt={item.worktree.isMain ? 'main' : 'linked'} aria-label={item.worktree.isCurrent ? 'current worktree' : undefined} aria-hidden={item.worktree.isCurrent ? undefined : true} />;
@@ -259,7 +260,7 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   <ItemIcon item={it} tabId={tabId} />
                   {/* UX round 3, M.1: an upstream with another branch name, before the name. */}
                   {it.kind === 'local' && it.branch.upstreamMismatch && <UpstreamWarning branch={it.name} upstream={it.branch.upstreamMismatch} size={13} />}
-                  <span className="sb-label" title={it.kind === 'stash' ? `stash@{${it.stash.index}}` : undefined} data-draft={it.kind === 'mr' && it.mr.state === 'draft' ? '' : undefined}>{it.kind === 'stash' ? <StashText label={row.label} /> : row.label}</span>
+                  <span className="sb-label" title={it.kind === 'stash' ? `stash@{${it.stash.index}}` : undefined}>{it.kind === 'stash' ? <StashText label={row.label} /> : row.label}</span>
                   {it.kind === 'local' && (it.branch.ahead > 0 || it.branch.behind > 0) && <span className="sb-ab" aria-label={`${it.branch.ahead} ahead, ${it.branch.behind} behind`}><span>{it.branch.ahead}<ArrowUp size={12} strokeWidth={2.5} aria-hidden /></span><span>{it.branch.behind}<ArrowDown size={12} strokeWidth={2.5} aria-hidden /></span></span>}
                   {/* --- 4B T10: the branch's MR/PR badge (spec #4 §5) --- */}
                   {it.kind === 'local' && <LocalBranchBadge tabId={tabId} upstream={it.branch.upstream} />}
@@ -267,6 +268,8 @@ export const SidebarPanel = memo(function SidebarPanel({ panel, height, tabId, r
                   {/* --- 4B T11: an MR/PR row's pipeline, only when it needs a look (failed, running, pending); the hover card says the rest --- */}
                   {it.kind === 'mr' && it.mr.pipeline && NOTABLE_PIPELINE.has(it.mr.pipeline.status) && <span className="sb-pipeline" role="img" aria-label={pipelineText(it.forge, it.mr.pipeline)}><PipelineIcon pipeline={it.mr.pipeline} size={12} /></span>}
                   {/* --- end 4B T11 --- */}
+                  {/* Being merged (GitLab locks it for moments), or set to merge once its checks pass: subtle marks; the view says the rest. */}
+                  {it.kind === 'mr' && it.mr.autoMerge && <span className="sb-automerge" role="img" aria-label="Set to auto-merge"><GitMerge size={12} aria-hidden /></span>}
                 </div>
               );
             })}

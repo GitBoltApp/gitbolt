@@ -12,7 +12,7 @@ import { useNarrowPane } from './narrowPane';
 import { MdFontPx } from '../markdown/fontPx';
 import { editorFontVar, useEditorFontPx } from './fontZoom';
 import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
-import type { HunkZoneRequest } from './monaco/host';
+import type { DiffLine, HunkZoneRequest } from './monaco/host';
 import { useParseBudget } from './parseBudget';
 import { loadedHost, TextDiff } from './TextDiff';
 
@@ -26,13 +26,14 @@ import { loadedHost, TextDiff } from './TextDiff';
  * actions). Over 5 MB a side, a diff over 2 s, or one that gave up (its alignment ran out of time,
  * at any size), it's Source with "Too large to render" (R14), and the file stays in Source.
  */
-export function DiffTextBody({ identity, path, oldPath, original, modified, language, onShown, editable = false, onEdit, hunkZones, after, markdown }: {
+export function DiffTextBody({ identity, path, oldPath, original, modified, language, line, onShown, editable = false, onEdit, hunkZones, after, markdown }: {
   identity: string;
   path: string;
   oldPath: string | null;
   original: string;
   modified: string;
   language: string;
+  line?: DiffLine;
   onShown?: () => void;
   editable?: boolean;
   onEdit?: () => void;
@@ -109,7 +110,7 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
     <>
       {isMd && picked === 'rendered' && tooLarge && <div role="note" className="diff-banner">{TOO_LARGE_TO_RENDER}</div>}
       <div className="file-source" hidden={rendered} data-font-zoom="">
-        <TextDiff identity={identity} path={path} original={original} modified={modified} language={language} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={hunkZones} />
+        <TextDiff identity={identity} path={path} original={original} modified={modified} language={language} line={line} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={hunkZones} />
       </div>
       {!rendered && after}
       {isMd && (

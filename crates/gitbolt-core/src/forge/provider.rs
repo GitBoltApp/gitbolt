@@ -255,9 +255,55 @@ pub trait ForgeProvider: Send + Sync {
     fn request_changes<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _body: &'a str) -> ForgeFuture<'a, ()> {
         unsupported("Requesting changes")
     }
+    // --- MR round 2: the review composer ---
+    /// A review from the composer. By default: Comment is a note, Approve approves (then the
+    /// note, if any), Request changes is `request_changes`. GitHub posts one review; GitLab
+    /// sets the requested-changes reviewer state where it can.
+    fn review<'a>(&'a self, project: &'a ForgeProject, number: u64, review: &'a ReviewSubmit) -> ForgeFuture<'a, ReviewOutcome> {
+        Box::pin(review_by_parts(self, project, number, review))
+    }
+    /// How many reviewers and assignees an MR/PR of `project` may have (`PeopleLimits`).
+    /// Default: no limit known (a change the forge trims is caught after the write).
+    fn people_limits<'a>(&'a self, _project: &'a ForgeProject) -> ForgeFuture<'a, PeopleLimits> {
+        Box::pin(async { Ok(PeopleLimits::default()) })
+    }
+    /// Subscribes the token's user to the MR/PR's notifications, or unsubscribes; the state after.
+    fn set_subscribed<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _on: bool) -> ForgeFuture<'a, bool> {
+        unsupported("Notifications")
+    }
+    // --- end MR round 2 ---
+    // --- comment actions ---
+    /// Adds (`on`) or removes the token's user's `name` reaction on a note, if not so already;
+    /// the note's reactions after.
+    fn react<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _note: &'a NoteRef, _name: &'a str, _on: bool) -> ForgeFuture<'a, Vec<ForgeReaction>> {
+        unsupported("Reactions")
+    }
+    /// The note with its new body, as the forge answered (no position or reactions: the caller
+    /// keeps its own).
+    fn edit_note<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _note: &'a NoteRef, _body: &'a str) -> ForgeFuture<'a, ForgeNote> {
+        unsupported("Editing a comment")
+    }
+    fn delete_note<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _note: &'a NoteRef) -> ForgeFuture<'a, ()> {
+        unsupported("Deleting a comment")
+    }
+    /// Resolves a resolvable thread (GitLab's discussion, GitHub's review thread), or unresolves it.
+    fn resolve<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _discussion: &'a str, _resolved: bool) -> ForgeFuture<'a, ThreadState> {
+        unsupported("Resolving a thread")
+    }
+    // --- end comment actions ---
     fn merge<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
         unsupported("Merging")
     }
+    // --- auto-merge ---
+    /// Sets it to merge once its checks pass, with `opts` (GitLab's auto-merge, GitHub's
+    /// auto-merge). GitLab merges at once when they've passed already: the answer says which.
+    fn set_auto_merge<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _opts: &'a MergeOptions) -> ForgeFuture<'a, ForgeMr> {
+        unsupported("Auto-merge")
+    }
+    fn cancel_auto_merge<'a>(&'a self, _project: &'a ForgeProject, _number: u64) -> ForgeFuture<'a, ForgeMr> {
+        unsupported("Auto-merge")
+    }
+    // --- end auto-merge ---
     fn edit<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
         unsupported("Editing a merge request")
     }
@@ -288,6 +334,25 @@ pub trait ForgeProvider: Send + Sync {
     fn retarget<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _target_branch: &'a str) -> ForgeFuture<'a, ForgeMr> {
         unsupported("Retargeting")
     }
+}
+
+/// `ForgeProvider::review`'s default, from the provider's own writes: Comment is a note,
+/// Approve approves (then the note, if any), Request changes is `request_changes`.
+pub async fn review_by_parts<P: ForgeProvider + ?Sized>(p: &P, project: &ForgeProject, number: u64, review: &ReviewSubmit) -> Result<ReviewOutcome, GbError> {
+    let note = || NewNote { discussion: None, body: review.body.clone() };
+    match review.event {
+        ReviewEvent::Comment => {
+            p.reply(project, number, &note()).await?;
+        }
+        ReviewEvent::Approve => {
+            p.approve(project, number).await?;
+            if !review.body.trim().is_empty() {
+                p.reply(project, number, &note()).await?;
+            }
+        }
+        ReviewEvent::RequestChanges => p.request_changes(project, number, &review.body).await?,
+    }
+    Ok(ReviewOutcome::default())
 }
 
 /// Builds a provider for an account (gitbolt-forge's `Forge`; tests' fakes).

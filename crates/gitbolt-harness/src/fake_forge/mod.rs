@@ -76,6 +76,9 @@ pub struct FakeProject {
     pub archived: bool,
     /// Merged over the project's JSON (`squash_option`, `allow_rebase_merge`, …).
     pub settings: Value,
+    /// GitLab Free: one reviewer, one assignee per MR (GraphQL's flags say so; a PUT keeps the
+    /// first id of each list).
+    pub single_people: bool,
 }
 
 // --- 4C T2 ---
@@ -117,6 +120,11 @@ pub struct GitLabSeed {
     /// Project uploads, "<project path>/<secret>/<file>" (served as a PNG through the API).
     pub uploads: Vec<String>,
     // --- end 5A T3 ---
+    // --- MR round 2 ---
+    /// An older GitLab: GraphQL has neither `allowsMultipleReviewers` / `allowsMultipleAssignees`
+    /// nor `mergeRequestRequestChanges`.
+    pub old_graphql: bool,
+    // --- end MR round 2 ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -244,6 +252,11 @@ impl Reply {
         Self { status, ..Self::json(v) }
     }
 
+    /// A 204: done, nothing to say (a DELETE).
+    pub fn no_content() -> Self {
+        Self { status: 204, headers: Vec::new(), body: Vec::new(), content_type: "application/json" }
+    }
+
     pub fn png() -> Self {
         Self { status: 200, headers: Vec::new(), body: FAKE_PNG.to_vec(), content_type: "image/png" }
     }
@@ -364,6 +377,7 @@ pub fn default_seed(base: &str) -> ForgeSeed {
             // --- end 4C T2 ---
             // --- 5A T3 ---
             uploads: vec![format!("group/project/{UPLOAD_SECRET}/shot.png")],
+            old_graphql: false,
             // --- end 5A T3 ---
         },
         github: GitHubSeed {
