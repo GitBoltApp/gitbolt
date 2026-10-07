@@ -1132,10 +1132,10 @@ mod tests {
     // --- end 2D T14 ---
 
     // --- 3B T4 ---
-    /// Spec #3 §3.9: "Push tags with branches" (`--follow-tags`), off by default: an annotated tag
-    /// on the pushed commits goes along only when it's on.
+    /// Spec #3 §3.9: "Push tags with branches" (`--follow-tags`), on by default: an annotated tag
+    /// on the pushed commits goes along, and stays behind when it's off.
     #[tokio::test]
-    async fn follow_tags_sends_the_branchs_annotated_tags_only_when_set() {
+    async fn follow_tags_sends_the_branchs_annotated_tags_unless_turned_off() {
         let r = TestRepo::new();
         fixtures::sync(&r);
         r.switch("dev");
@@ -1145,13 +1145,14 @@ mod tests {
         let id = open(&api, r.path()).await;
         let origin = r.root().join("origin.git");
         api.dispatch(push(id, &r, "dev")).await.unwrap();
-        assert!(r.try_git_in(&origin, &["rev-parse", "--verify", "-q", "refs/tags/v-dev"]).is_err(), "off by default");
-        r.commit("again");
+        assert_eq!(r.git_in(&origin, &["rev-parse", "refs/tags/v-dev"]), r.git(&["rev-parse", "refs/tags/v-dev"]), "on by default");
         let mut s = api.store().state().settings;
-        s.push_follow_tags = true;
+        s.push_follow_tags = false;
         api.store().save_settings(s);
+        r.commit("again");
+        r.tag("v-dev-2", "HEAD");
         api.dispatch(push(id, &r, "dev")).await.unwrap();
-        assert_eq!(r.git_in(&origin, &["rev-parse", "refs/tags/v-dev"]), r.git(&["rev-parse", "refs/tags/v-dev"]));
+        assert!(r.try_git_in(&origin, &["rev-parse", "--verify", "-q", "refs/tags/v-dev-2"]).is_err(), "off: the branch alone");
     }
     // --- end 3B T4 ---
 }

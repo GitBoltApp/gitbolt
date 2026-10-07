@@ -29,7 +29,8 @@ debugLogging: boolean,
 syncButton: SyncButtonMode, 
 /**
  * "Push tags with branches" (spec #3 §3.9): every push adds `--follow-tags`, sending the
- * annotated tags on the pushed commits that the remote lacks. Off by default.
+ * annotated tags on the pushed commits that the remote lacks. On by default (a release's
+ * annotated tag goes out with its commit).
  */
 pushFollowTags: boolean, 
 /**

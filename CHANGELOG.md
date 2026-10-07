@@ -5,6 +5,12 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Push tags with branches** is on by default: a push also sends the annotated tags on the pushed
+  commits that the remote lacks (`--follow-tags`), so a release's tag goes out with its commit.
+  A settings file that already has it off keeps it off.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added

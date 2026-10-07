@@ -1,14 +1,31 @@
-# Release: a pushed tag v<version> (from `just release <version>`) builds the .deb and the Arch
-# package, checks them, and uploads them with SHA256SUMS to a draft GitHub release for review.
-# "Run workflow" (workflow_dispatch) is a dry run: the same build and checks, with the packages
-# kept as a workflow artifact and no release. Run it from main to warm the caches for the next
-# tag: a tag's run can restore main's caches but not another tag's. See docs/releasing.md.
+# Release: `just release <version>` commits the version bump and tags it v<version>; pushing them
+# together (git push origin main v<version>, or GitBolt's Push with "Push tags with branches")
+# runs one build, on main: it builds the .deb and the Arch package, checks them, and uploads them
+# with SHA256SUMS to a draft GitHub release for review. Building on main matters for speed: only
+# main's runs save caches (a tag's run can restore main's but not another tag's), so each release
+# warms the next one, while GitHub keeps the caches (7 days unused).
+#
+# The `plan` job decides what a run does:
+# - a push to main (one that changes Cargo.lock, as a release's version bump does) releases the
+#   v* tag on that commit, if it has one, and otherwise does nothing;
+# - a pushed tag waits for main's run on the same commit and stops if that one releases it; if not
+#   (the tag was pushed after its commit), it builds the release itself, from cold caches;
+# - "Run workflow" (workflow_dispatch) on main with a tag releases that tag, warm; without one it's
+#   a dry run: the same build and checks, the packages kept as a workflow artifact, no release.
+# See docs/releasing.md.
 name: Release
 
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    paths: [Cargo.lock]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release this tag (v1.2.3): build its commit and draft the release. Empty: a dry run.'
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -23,8 +40,91 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read # a tag's run looks for main's run on the same commit
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      tag: ${{ steps.plan.outputs.tag }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      - name: What this run builds and releases
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          # The v* tags on commit $1, from the remote (an annotated tag's peeled `^{}` line has the
+          # commit; a lightweight tag's own line does).
+          tags_at() {
+            git ls-remote --tags "https://github.com/$GH_REPO" 'v*' |
+              awk -v c="$1" '$1 == c { n = $2; sub(/^refs\/tags\//, "", n); sub(/\^\{\}$/, "", n); print n }' | sort -u
+          }
+          commit_of() {
+            git ls-remote --tags "https://github.com/$GH_REPO" "refs/tags/$1" "refs/tags/$1^{}" |
+              awk '{ c = $1 } $2 ~ /\^\{\}$/ { p = $1 } END { print (p != "" ? p : c) }'
+          }
+          build=true tag='' sha=$GITHUB_SHA
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            if [ -n "$INPUT_TAG" ]; then
+              tag=$INPUT_TAG sha=$(commit_of "$tag")
+              [ -n "$sha" ] || { echo "::error::No tag $tag on $GH_REPO"; exit 1; }
+            fi
+          elif [ "$GITHUB_REF_TYPE" = branch ]; then
+            sleep 10 # a tag pushed with its commit is in place by now
+            mapfile -t tags < <(tags_at "$GITHUB_SHA")
+            if [ "${#tags[@]}" -eq 0 ]; then
+              build=false
+              echo "No v* tag on $GITHUB_SHA: nothing to release."
+            elif [ "${#tags[@]}" -gt 1 ]; then
+              echo "::error::Several v* tags on $GITHUB_SHA (${tags[*]}): release one with Run workflow."
+              exit 1
+            else
+              tag=${tags[0]}
+            fi
+          else
+            tag=$GITHUB_REF_NAME
+            # Main's run on this commit releases it if it saw the tag. Wait for its plan, then
+            # build here only if it didn't (the tag came after the commit, or there's no main run).
+            main_builds=0
+            for i in $(seq 1 30); do
+              runs=$(gh api "repos/$GH_REPO/actions/workflows/release.yml/runs?head_sha=$GITHUB_SHA&branch=main&event=push" --jq '[.workflow_runs[].id] | join(" ")')
+              if [ -z "$runs" ]; then
+                # None yet: give a push of the commit with the tag a minute to show up.
+                [ "$i" -lt 6 ] || break
+                sleep 10
+                continue
+              fi
+              pending=0 main_builds=0
+              for id in $runs; do
+                state=$(gh api "repos/$GH_REPO/actions/runs/$id/jobs" --jq '[.jobs[] | select(.name == "Plan") | .status + ":" + (.conclusion // "")] | first // "none"')
+                case $state in
+                  completed:success)
+                    b=$(gh api "repos/$GH_REPO/actions/runs/$id/jobs" --jq '[.jobs[] | select(.name == "Build and check the packages") | .conclusion // "running"] | first // "skipped"')
+                    [ "$b" = skipped ] || main_builds=1 ;;
+                  completed:*) ;;
+                  *) pending=1 ;;
+                esac
+              done
+              [ "$pending" = 1 ] || break
+              sleep 10
+            done
+            if [ "$main_builds" = 1 ]; then
+              build=false
+              echo "Main's run on $GITHUB_SHA releases $tag."
+            fi
+          fi
+          echo "build=$build tag=${tag:-none} sha=$sha"
+          { echo "build=$build"; echo "tag=$tag"; echo "sha=$sha"; } >> "$GITHUB_OUTPUT"
+
   build:
     name: Build and check the packages
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
@@ -35,16 +135,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
 
       - name: Version
         id: version
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
           conf=$(jq -er .version crates/gitbolt-app/tauri.conf.json)
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            v=${GITHUB_REF_NAME#v}
+          if [ -n "$TAG" ]; then
+            v=${TAG#v}
             if [ "$v" != "$conf" ]; then
-              echo "::error::The tag $GITHUB_REF_NAME doesn't match tauri.conf.json's version $conf; tag with 'just release <version>'."
+              echo "::error::The tag $TAG doesn't match tauri.conf.json's version $conf; tag with 'just release <version>'."
               exit 1
             fi
           else
@@ -66,11 +169,12 @@ jobs:
       - name: Release notes
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
           mkdir -p dist
           if python3 scripts/changelog.py notes "$VERSION" CHANGELOG.md > dist/release-notes.md; then
             echo "Release notes: $(wc -l < dist/release-notes.md) lines"
-          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+          elif [ -n "$TAG" ]; then
             exit 1
           else
             echo "::warning::No CHANGELOG.md section for $VERSION (fine for a dry run)."
@@ -199,8 +303,8 @@ jobs:
 
   release:
     name: Draft the GitHub release
-    needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [plan, build]
+    if: needs.plan.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -234,7 +338,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.plan.outputs.tag }}
           VERSION: ${{ needs.build.outputs.version }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |

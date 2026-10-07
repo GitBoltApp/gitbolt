@@ -1,7 +1,7 @@
 # Releasing GitBolt
 
 A release is a tag. `just release <version>` prepares the release commit and tag locally;
-pushing the tag starts [.github/workflows/release.yml](../.github/workflows/release.yml), which
+pushing them starts [.github/workflows/release.yml](../.github/workflows/release.yml), which
 builds the `.deb` and the Arch package, checks them, and uploads them to a **draft** GitHub
 release. You review the draft and publish it. Nothing is published automatically.
 
@@ -31,11 +31,15 @@ release. You review the draft and publish it. Nothing is published automatically
    than every `v*` tag. If a step fails partway, it restores the files it edited.
    To undo a release you haven't pushed: `git tag -d v0.1.0-alpha.1 && git reset --hard HEAD~1`.
 
-2. **Push the commit and the tag** (the command `just release` prints):
+2. **Push the commit and the tag together** (the command `just release` prints):
 
    ```sh
    git push origin main v0.1.0-alpha.1
    ```
+
+   GitBolt's Push does the same with **Push tags with branches** on (the default), since the
+   tag is annotated. The build then runs on main's push, warm (see
+   [Which run builds](#which-run-builds)). Pushed apart, it still releases: see there.
 
 3. **Wait for the workflow:** Actions → Release (see [Build time and cost](#build-time-and-cost)).
    It fails fast when the tag doesn't match `tauri.conf.json`'s version or CHANGELOG.md has no
@@ -82,7 +86,7 @@ the workflow does; it must equal `tauri.conf.json`'s version.
 
 ## What the workflow does
 
-On a `v*` tag, two jobs run on `ubuntu-24.04`:
+After Plan (see [Which run builds](#which-run-builds)), two jobs run on `ubuntu-24.04`:
 
 1. **Build** (read-only access to the repository):
    - checks the tag against `tauri.conf.json`'s version and extracts the release notes from
@@ -105,15 +109,27 @@ The packages' `Depends` come from the build machine's libraries (dpkg-shlibdeps)
 built on the 24.04 runner install on Ubuntu 24.04 and later. A local `just package` on a newer
 distribution can require newer library versions; publish the workflow's packages, not local ones.
 
+## Which run builds
+
+Only runs on main save caches: a tag's run can restore caches saved on main, but not another
+tag's. So a release builds on main, and each release warms the next one, as long as GitHub keeps
+the caches (it evicts them after 7 days unused; the next release then builds cold). One build
+per release, decided by the workflow's first job, **Plan**:
+
+- **A push to main that changes `Cargo.lock`** (a release's version bump does): if the pushed
+  commit carries a `v*` tag, this run releases it. Otherwise it does nothing (a few seconds).
+- **A pushed `v*` tag:** waits for main's run on the same commit. If that one releases the tag,
+  this run stops. If not (the tag was pushed after its commit, or main's push didn't run), it
+  builds and drafts the release itself, from cold caches. Nothing is lost either way.
+- **Run workflow** (Actions → Release → Run workflow, on main) with a **tag**: releases that tag
+  (its commit, warm). The way to redo or rescue a release by hand.
+
 ## Dry run
 
-Actions → Release → **Run workflow**, on main. It builds and checks the packages from the
-branch's version, as the plain version, and keeps them as a workflow artifact (3 days). It
-creates no release and no tag. A missing CHANGELOG section is only a warning.
-
-A dry run on main also **warms the caches** for the next tag. A tag's run can restore caches
-saved on main, but not caches saved by another tag, so the workflow saves its caches from main
-only. A dry run after a dependency or CEF update makes the next release build fast.
+Actions → Release → **Run workflow**, on main, with the tag left empty. It builds and checks the
+packages from the branch's version, as the plain version, and keeps them as a workflow artifact
+(3 days). It creates no release and no tag. A missing CHANGELOG section is only a warning. It
+also warms the caches.
 
 ## Re-running and fixing
 

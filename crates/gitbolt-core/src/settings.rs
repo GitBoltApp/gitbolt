@@ -86,7 +86,8 @@ pub struct AppSettings {
     /// The toolbar Fetch/Pull button's default operation (spec #2 §12.1).
     pub sync_button: SyncButtonMode,
     /// "Push tags with branches" (spec #3 §3.9): every push adds `--follow-tags`, sending the
-    /// annotated tags on the pushed commits that the remote lacks. Off by default.
+    /// annotated tags on the pushed commits that the remote lacks. On by default (a release's
+    /// annotated tag goes out with its commit).
     pub push_follow_tags: bool,
     // --- 4A T6 ---
     /// "Load avatars from your forge accounts" (spec #4 §2 "Avatars"): the forges first, then
@@ -149,7 +150,7 @@ impl Default for AppSettings {
             gravatar: true,
             debug_logging: false,
             sync_button: SyncButtonMode::FetchAll,
-            push_follow_tags: false,
+            push_follow_tags: true,
             forge_avatars: true,
             graph_color_overrides: BTreeMap::new(),
             window: None,
