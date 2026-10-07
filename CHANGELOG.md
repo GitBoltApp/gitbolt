@@ -5,6 +5,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
 ### Added
 
 - Comment actions in the MR/PR view, at the right of each comment's header (shown on hover or
