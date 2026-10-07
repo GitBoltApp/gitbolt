@@ -105,11 +105,12 @@ git -C "$repo" config commit.gpgsign false
 git -C "$repo" config tag.gpgsign false
 # A non-empty Unreleased section to release.
 python3 - "$repo/CHANGELOG.md" <<'EOF'
-import sys
+import re, sys
 p = sys.argv[1]
 s = open(p).read()
 assert "## [Unreleased]\n" in s, "the real CHANGELOG.md has no [Unreleased] heading"
-s = s.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n- A release-test fix.\n", 1)
+# Its body is replaced, not added to: the real section may already list changes.
+s = re.sub(r"(## \[Unreleased\]\n).*?(?=\n## \[|\Z)", r"\1\n### Fixed\n\n- A release-test fix.\n", s, count=1, flags=re.S)
 open(p, "w").write(s)
 EOF
 git -C "$repo" add -A
@@ -156,9 +157,10 @@ git -C "$repo" fetch -q -p origin
 # A late failure (here: the Unreleased section emptied) restores every file it touched.
 cp "$repo/CHANGELOG.md" "$work/changelog.keep"
 python3 - "$repo/CHANGELOG.md" <<'EOF'
-import sys
+import re, sys
 p = sys.argv[1]
-s = open(p).read().replace("### Fixed\n\n- A release-test fix.\n", "", 1)
+# The whole Unreleased body, not only the fix added above: the real one may list changes too.
+s = re.sub(r"(## \[Unreleased\]\n).*?(?=\n## \[|\Z)", r"\1", open(p).read(), count=1, flags=re.S)
 open(p, "w").write(s)
 EOF
 git -C "$repo" commit -q -am "Empty Unreleased"

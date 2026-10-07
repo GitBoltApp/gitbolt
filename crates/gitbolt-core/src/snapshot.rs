@@ -741,7 +741,15 @@ fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], here: &Path, index: &Ha
     {
         labels.push(RefLabel { row, name: "HEAD".into(), local: None, remotes: vec![], tag: false, is_head: true, worktree: None, checked_out: None, upstream_mismatch: None, annotation: None });
     }
-    let priority = |l: &RefLabel| if l.is_head { 0 } else if l.local.is_some() { 1 } else if !l.tag { 2 } else { 3 };
+    // HEAD's branch, then locals: a published one (its remote at the same commit, `main` with
+    // `origin/main`) before a local-only one, and one checked out in another worktree (a scratch
+    // branch) last; then remote-only branches, then tags. Ties keep the refs' order.
+    let priority = |l: &RefLabel| match () {
+        _ if l.is_head => (0, 0),
+        _ if l.local.is_some() => (1, if l.worktree.is_some() { 2 } else if l.remotes.is_empty() { 1 } else { 0 }),
+        _ if !l.tag => (2, 0),
+        _ => (3, 0),
+    };
     labels.sort_by_key(|l| (l.row, priority(l)));
     labels
 }
@@ -889,6 +897,22 @@ mod tests {
         assert_eq!(main.modified, 1);
         let out: Vec<_> = g.rows[2].segments.iter().map(|&s| crate::graph::Segment::unpack(s)).filter(|s| s.half == crate::graph::Half::Bottom).collect();
         assert!(!out.is_empty() && out.iter().all(|s| s.dashed), "WIP outgoing segments are dashed");
+    }
+
+    /// On one commit: a published local branch (with its remote) leads a local-only one, and a
+    /// branch checked out in another worktree comes last, whatever their names.
+    #[tokio::test]
+    async fn a_rows_published_branch_leads_its_local_and_worktree_ones() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        r.git(&["branch", "a-local", "feature/login"]);
+        r.git(&["branch", "a-wt", "feature/login"]);
+        let p = r.root().join("wt-a");
+        r.git(&["worktree", "add", "-q", p.to_str().unwrap(), "a-wt"]);
+        let g = build(&r, BuildOptions::default()).await;
+        let row = g.labels.iter().find(|l| l.name == "feature/login").unwrap().row;
+        let names: Vec<_> = g.labels.iter().filter(|l| l.row == row).map(|l| l.name.as_str()).collect();
+        assert_eq!(names, vec!["feature/login", "a-local", "a-wt"]);
     }
 
     #[tokio::test]

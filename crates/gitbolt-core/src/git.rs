@@ -624,7 +624,8 @@ fn first_message_line(stderr: &str) -> Option<String> {
 /// counter), a transfer count (`remote: Enumerating objects: 824, done.`, `remote: Total 824
 /// (delta 412), …`), an empty `remote:` line, `From <url>`, `Cloning into …`, `POST
 /// git-upload-pack (…)`, or a fetch's ref summary (`   a..b  dev -> origin/dev`, `* [new
-/// branch] …`; a rejected ` ! …` one is kept).
+/// branch] …`; a rejected ` ! …` one is kept), or ssh's `** ` banner (OpenSSH 10's post-quantum
+/// warning).
 fn is_chatter(l: &str) -> bool {
     let bare = l.strip_prefix("remote:").map_or(l, str::trim_start);
     bare.is_empty()
@@ -632,6 +633,7 @@ fn is_chatter(l: &str) -> bool {
         || l.starts_with("From ")
         || l.starts_with("Cloning into ")
         || l.starts_with("POST git-")
+        || l.starts_with("** ")
         || is_rebase_step(l)
         || crate::netops::parse_progress(l).is_some()
         || is_transfer_count(bare)
@@ -812,6 +814,15 @@ mod tests {
         assert_eq!(first_message_line("Cloning into '/tmp/x'...\nfatal: repository '/nope' does not exist\n").as_deref(), Some("repository '/nope' does not exist"));
         assert_eq!(first_message_line("hint: x\nerror: boom\n").as_deref(), Some("boom"));
         assert_eq!(first_message_line("Rebasing (1/2)\rerror: could not apply abc\n").as_deref(), Some("could not apply abc"), "a rebase's counter isn't the message");
+    }
+
+    /// OpenSSH 10's `** WARNING: connection is not using a post-quantum key exchange algorithm.`
+    /// banner (three `** ` lines) comes before git's own error: it's not the message.
+    #[test]
+    fn the_message_skips_ssh_banner_lines() {
+        let pq = "** WARNING: connection is not using a post-quantum key exchange algorithm.\n** This session may be vulnerable to \"store now, decrypt later\" attacks.\n** The server may need to be upgraded. See https://openssh.com/pq.html\nERROR: Repository not found.\nfatal: Could not read from remote repository.\n";
+        assert_eq!(first_message_line(pq).as_deref(), Some("ERROR: Repository not found."));
+        assert_eq!(first_message_line("** WARNING: connection is not using a post-quantum key exchange algorithm.\n"), None, "only the banner: the caller says what exited");
     }
 
     /// A fetch that failed after the server began sending: its counts (`Enumerating objects:
