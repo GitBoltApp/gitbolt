@@ -93,6 +93,9 @@ impl WipEntry {
 pub struct WipCache {
     seq: AtomicU64,
     inner: Mutex<WipInner>,
+    /// Per worktree: held while its lists are computed on request, so two requests at once (the
+    /// UI reads a WIP row's two lists together) share one computation.
+    list_reads: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 /// One worktree's WIP file lists, computed by the active tab's watcher (K44) from the status
@@ -133,12 +136,45 @@ struct WipInner {
     /// `None`: every entry is reusable. `Some`: only the covered worktrees', and whose watcher
     /// (by serial) covers them.
     coverage: Option<(Option<u64>, HashSet<PathBuf>)>,
+    /// The worktree the last graph laid out as the open one: the watcher keeps it responsive,
+    /// and the others' changes throttled, with counts only (`None`: the handle's own).
+    active: Option<PathBuf>,
+    /// Worktrees whose kept lists were served (a `fileList`) since they were computed.
+    served: HashSet<PathBuf>,
 }
 
 impl WipCache {
     /// A cache whose entries are reused only for worktrees a watcher covers.
     pub fn watched_only() -> Self {
-        Self { seq: AtomicU64::new(0), inner: Mutex::new(WipInner { entries: HashMap::new(), lists: HashMap::new(), coverage: Some((None, HashSet::new())) }) }
+        Self { inner: Mutex::new(WipInner { coverage: Some((None, HashSet::new())), ..Default::default() }), ..Default::default() }
+    }
+
+    /// The graph laid `path` out as the open worktree.
+    pub fn set_active(&self, path: &Path) {
+        self.lock().active = Some(Self::key(path));
+    }
+
+    /// The open worktree, if a graph named one.
+    pub fn active(&self) -> Option<PathBuf> {
+        self.lock().active.clone()
+    }
+
+    /// A `fileList` was answered from this worktree's kept lists (or computed them).
+    pub fn mark_served(&self, path: &Path) {
+        let key = Self::key(path);
+        self.lock().served.insert(key);
+    }
+
+    /// Whether its kept lists were served since they were computed.
+    pub fn served(&self, path: &Path) -> bool {
+        let key = Self::key(path);
+        self.lock().served.contains(&key)
+    }
+
+    /// Held while `path`'s lists are computed on request (see `list_reads`).
+    pub async fn list_read(&self, path: &Path) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = self.list_reads.lock().expect("wip cache poisoned").entry(Self::key(path)).or_default().clone();
+        lock.lock_owned().await
     }
 
     fn key(path: &Path) -> PathBuf {
@@ -192,13 +228,16 @@ impl WipCache {
         let key = Self::key(path);
         let mut inner = self.lock();
         if inner.lists.get(&key).is_none_or(|held| held.stamp <= lists.stamp) {
+            inner.served.remove(&key);
             inner.lists.insert(key, lists);
         }
     }
 
     pub fn drop_lists(&self, path: &Path) {
         let key = Self::key(path);
-        self.lock().lists.remove(&key);
+        let mut inner = self.lock();
+        inner.served.remove(&key);
+        inner.lists.remove(&key);
     }
 
     /// Whether a watcher covers this worktree.
@@ -222,6 +261,7 @@ impl WipCache {
     pub fn cover(&self, owner: u64, roots: HashSet<PathBuf>) {
         let mut inner = self.lock();
         inner.lists.retain(|k, _| roots.contains(k));
+        inner.served.retain(|k| roots.contains(k));
         inner.coverage = Some((Some(owner), roots));
     }
 
@@ -235,6 +275,7 @@ impl WipCache {
             *who = None;
             roots.clear();
             inner.lists.clear();
+            inner.served.clear();
         }
     }
 }
@@ -246,7 +287,7 @@ pub async fn build_graph(repo: gix::ThreadSafeRepository, workdir: PathBuf, cli:
 /// Like `build_graph`, plus each walked commit's lowercased full message (`summary + "\n" +
 /// body`), in walk order, for find (spec §8.7).
 pub async fn build_graph_with_text(repo: gix::ThreadSafeRepository, workdir: PathBuf, cli: GitCli, opts: BuildOptions) -> Result<(GraphPayload, Vec<(ObjectId, String)>), GbError> {
-    let worktrees = list_worktrees(&cli, &workdir).await?;
+    let worktrees = list_worktrees(&workdir).await?;
     // `active` must be one of the usable worktrees (a crafted request can't lay out, or read the
     // status of, an arbitrary directory); checked against this list, so no second listing.
     if let Some(active) = &opts.active {

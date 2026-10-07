@@ -289,7 +289,7 @@ impl Api {
     pub(crate) async fn locate_commit(&self, id: u32, sha: &str) -> Result<LocateResult, GbError> {
         let s = self.find_snapshot(id)?;
         let h = self.handle(id)?;
-        let worktrees = list_worktrees(&self.cli, &h.workdir).await?;
+        let worktrees = list_worktrees(&h.workdir).await?;
         let sha = sha.trim().to_string();
         let repo = h.repo.clone();
         tokio::task::spawn_blocking(move || {
@@ -326,7 +326,7 @@ impl Api {
         // HEAD and the stashes, never `--all` (notes, `refs/original`, other namespaces). A stash's
         // index and untracked-files commits aren't graph rows (only its first parent is followed),
         // so they're dropped from the results.
-        let worktrees = list_worktrees(&self.cli, &h.workdir).await?;
+        let worktrees = list_worktrees(&h.workdir).await?;
         let repo = h.repo.clone();
         let (extra_tips, stash_parts) = tokio::task::spawn_blocking(move || -> Result<(Vec<String>, HashSet<ObjectId>), GbError> {
             let repo = repo.to_thread_local();

@@ -332,10 +332,12 @@ function panelFor(s: RepoViewState): Pick<RepoViewState, 'panel' | 'panelPending
 /** Where a section's list comes from: WIP lists are held apart (K44). */
 const sourceFor = (services: RepoServices, spec: DiffSpec): Source<FileListPayload> => (spec.kind === 'wip' ? services.wip : services.files);
 
-/** The WIP rows' worktrees, the main worktree's first (K44 loads them ahead). */
-function wipWorktrees(g: GraphPayload): string[] {
-  const rows = g.rows.flatMap((r) => (r.kind === 'wip' && r.wip ? [r.wip] : []));
-  return [...rows.filter((w) => w.worktreeName === null), ...rows.filter((w) => w.worktreeName !== null)].map((w) => w.worktreePath);
+/** The open worktree, when it has a WIP row: the one whose lists K44 loads ahead. Another
+ * worktree's are read when its WIP row is selected (the backend keeps only its counts current,
+ * so reading them ahead on every change would cost a status and numstat each time). */
+function openWip(g: GraphPayload, repoPath: string): string[] {
+  const open = openWorktree({ graph: g, repoPath });
+  return g.rows.some((r) => r.kind === 'wip' && r.wip?.worktreePath === open) ? [open] : [];
 }
 
 export function createRepoViewStore(repo: number, repoPath: string, graph: GraphPayload, services: RepoServices): RepoViewStore {
@@ -381,10 +383,10 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
       }, mySeq, refresh));
     }
 
-    // A watched worktree's WIP lists changed (K44): load them again ahead, and refresh the
-    // panel if it's that WIP row's.
+    // A watched worktree's WIP lists changed (K44): the open worktree's load again ahead, and
+    // the panel refreshes if it's that WIP row's.
     services.wip.subscribe((worktrees) => {
-      services.wip.prefetch([...worktrees]);
+      services.wip.prefetch(openWip(get().graph, repoPath).filter((w) => worktrees.has(w)));
       const { selection } = get();
       if (selection.kind === 'wip' && worktrees.has(selection.worktree)) loadSections(sectionSpecs(selection, 0), seq, true);
     });
@@ -568,7 +570,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
         // The selected commit or worktree is gone: clear what was shown for it.
         if (selection.kind === 'none' && prev.selection.kind !== 'none') return clearSelection({ graph: next, indexById });
         set({ graph: next, indexById, selection, picks });
-        services.wip.prefetch(wipWorktrees(next));
+        services.wip.prefetch(openWip(next, repoPath));
         // Picked rows gone (K27): select those left anew, so two left are a compare and one a
         // single selection. The anchor and cursor, if gone, move to the row picked last.
         if (picks.rows.length < p.rows.length) {
@@ -580,7 +582,7 @@ export function createRepoViewStore(repo: number, repoPath: string, graph: Graph
 
       setWatched(on) {
         services.wip.setWatched(on);
-        if (on) services.wip.prefetch(wipWorktrees(get().graph));
+        if (on) services.wip.prefetch(openWip(get().graph, repoPath));
       },
 
       selectRow(index, mods = {}) {

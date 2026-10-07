@@ -7,13 +7,14 @@ import { ActionLogView } from '../debug/ActionLogView';
 import { CommandLogView } from '../debug/CommandLogView';
 import { clockTime, DebugCheck, DebugRow, type Pill } from '../debug/DebugRow';
 import { copyDiagnostics, openLogsFolder } from '../debug/diagnostics';
+import { RequestLogView } from '../debug/RequestLogView';
 import { toastActionError } from '../debug/errorToast';
 import { activityRows, allText, copyAndSay, useActivityUi, type DebugView } from './activityLog';
 import { useModalKeys } from './modalKeys';
 import { useOps, type ActivityEntry } from './ops';
 import './activity.css';
 
-const TABS: Array<[DebugView, string]> = [['activity', 'Activity'], ['commands', 'Commands'], ['actions', 'Actions']];
+const TABS: Array<[DebugView, string]> = [['activity', 'Activity'], ['commands', 'Commands'], ['requests', 'Requests'], ['actions', 'Actions']];
 
 /** Stable (R25, the N1 lesson): the modal-keys registration never re-runs for a new `close`. */
 const close = () => useActivityUi.getState().setOpen(false);
@@ -117,7 +118,7 @@ function ActivityView() {
 
 /**
  * K101 + 1D R9: the one Debug modal. Tabs: Activity (the activity log) | Commands (the backend's
- * git commands) | Actions (what the user ran). The header holds Copy diagnostics, Open logs folder
+ * git commands) | Requests (the backend's API requests) | Actions (what the user ran). The header holds Copy diagnostics, Open logs folder
  * and the Perf overlay toggle. Debug info, so every tab is a selectable timeline with Copy all.
  */
 export function ActivityModal() {
@@ -152,6 +153,7 @@ export function ActivityModal() {
         <div className="activity-panel" role="tabpanel" id="activity-panel" aria-labelledby={`activity-tab-${view}`}>
           {view === 'activity' && <ActivityView />}
           {view === 'commands' && <CommandLogView focusId={focusCommandId} />}
+          {view === 'requests' && <RequestLogView />}
           {view === 'actions' && <ActionLogView />}
         </div>
       </div>

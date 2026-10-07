@@ -273,18 +273,12 @@ pub(crate) async fn edit_head_message(api: &Api, repo: u32, worktree: &str, mess
 
 /// The pencil's note (§8.3): the upstream's short name when HEAD is reachable from it (gix
 /// `merge_base`), else `None`. A read.
-pub(crate) async fn head_on_upstream(cli: &GitCli, root: &Path) -> Result<Option<String>, GbError> {
-    let branch = head_state(&gix::open(root).map_err(gix_err)?)?.branch;
-    let Some(branch) = branch else { return Ok(None) };
-    let full = format!("refs/heads/{branch}");
-    let out = cli.run(GitInvocation::new(root, ["for-each-ref", "--format=%(upstream)", full.as_str()])).await?;
-    let upstream = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if upstream.is_empty() {
-        return Ok(None);
-    }
+pub(crate) async fn head_on_upstream(root: &Path) -> Result<Option<String>, GbError> {
     let root = root.to_path_buf();
     blocking(move || {
         let repo = gix::open(&root).map_err(gix_err)?;
+        let Some(branch) = head_state(&repo)?.branch else { return Ok(None) };
+        let Some((upstream, _, _)) = crate::shelldata::upstream_ref(&crate::shelldata::fresh_config(&repo), &branch) else { return Ok(None) };
         let head = repo.head_id().map_err(gix_err)?.detach();
         let Some(up) = crate::write::refs::read_ref(&repo, &upstream)? else { return Ok(None) };
         let up = gix::ObjectId::from_hex(up.as_bytes()).map_err(gix_err)?;

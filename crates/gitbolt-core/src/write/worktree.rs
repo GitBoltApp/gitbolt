@@ -50,8 +50,8 @@ pub enum WorktreeRemoveOutcome {
     NeedsForce { reason: String },
 }
 
-async fn main_root(pre_cli: &crate::git::GitCli, root: &Path) -> Result<PathBuf, GbError> {
-    let list = crate::worktree::list_worktrees(pre_cli, root).await?;
+async fn main_root(root: &Path) -> Result<PathBuf, GbError> {
+    let list = crate::worktree::list_worktrees(root).await?;
     Ok(list.into_iter().find(|w| w.is_main).map(|w| w.path).unwrap_or_else(|| root.to_path_buf()))
 }
 
@@ -102,7 +102,7 @@ impl WriteIntent for WorktreeAdd {
                 if !exists {
                     return Err(GbError::new(GbErrorKind::NotFound, format!("No branch {name}")));
                 }
-                let list = crate::worktree::list_worktrees(&pre.api.cli, pre.root).await?;
+                let list = crate::worktree::list_worktrees(pre.root).await?;
                 let full = format!("refs/heads/{name}");
                 if let Some(w) = list.iter().find(|w| w.branch.as_deref() == Some(full.as_str())) {
                     let main = list.iter().find(|m| m.is_main).map(|m| m.path.clone()).unwrap_or_else(|| pre.h.workdir.clone());
@@ -160,7 +160,7 @@ impl WriteIntent for WorktreeRemove {
         None
     }
     async fn plan(&self, pre: &Pre<'_>) -> Result<Plan, GbError> {
-        let list = crate::worktree::list_worktrees(&pre.api.cli, pre.root).await?;
+        let list = crate::worktree::list_worktrees(pre.root).await?;
         let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
         let Some(w) = list.iter().find(|w| canonical(&w.path) == canonical(&self.path)) else {
             return Err(GbError::new(GbErrorKind::NotFound, "That isn't a worktree of this repository"));
@@ -192,20 +192,20 @@ impl WriteIntent for WorktreeRemove {
 }
 
 /// Where a remove runs: the main worktree (never the one going away).
-pub(crate) async fn remove_cwd(cli: &crate::git::GitCli, root: &Path) -> Result<PathBuf, GbError> {
-    main_root(cli, root).await
+pub(crate) async fn remove_cwd(root: &Path) -> Result<PathBuf, GbError> {
+    main_root(root).await
 }
 
 /// `SuggestWorktreePath` (a read): the folder the create dialog proposes.
-pub(crate) async fn suggest(cli: &crate::git::GitCli, root: &Path, branch: &str) -> Result<String, GbError> {
-    let main = main_root(cli, root).await?;
+pub(crate) async fn suggest(root: &Path, branch: &str) -> Result<String, GbError> {
+    let main = main_root(root).await?;
     let main = main.canonicalize().unwrap_or(main);
     Ok(suggest_worktree_path(&main, branch, Path::exists).display().to_string())
 }
 
 /// How the label shows `path`.
-pub(crate) async fn shown(cli: &crate::git::GitCli, root: &Path, path: &Path) -> String {
-    match main_root(cli, root).await {
+pub(crate) async fn shown(root: &Path, path: &Path) -> String {
+    match main_root(root).await {
         Ok(main) => display_worktree(&main, path),
         Err(_) => path.display().to_string(),
     }

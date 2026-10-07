@@ -26,6 +26,7 @@ import type { Profile } from './gen/Profile';
 import type { ProfileMeta } from './gen/ProfileMeta';
 import type { RepoInfoPayload } from './gen/RepoInfoPayload';
 import type { Request } from './gen/Request';
+import type { RequestLogEntry } from './gen/RequestLogEntry';
 import type { SaveOutcome } from './gen/SaveOutcome';
 import type { ScannedRepo } from './gen/ScannedRepo';
 import type { SequenceOutcome } from './gen/SequenceOutcome';
@@ -114,9 +115,16 @@ import type { ForgeDiscussion } from './gen/ForgeDiscussion';
 import type { ForgeMr } from './gen/ForgeMr';
 import type { ForgeMrDetail } from './gen/ForgeMrDetail';
 import type { ForgeNote } from './gen/ForgeNote';
+import type { ForgeReaction } from './gen/ForgeReaction';
+import type { NoteRef } from './gen/NoteRef';
+import type { ThreadState } from './gen/ThreadState';
 import type { Fresh } from './gen/Fresh';
 import type { MergeOptions } from './gen/MergeOptions';
 import type { MrEdit } from './gen/MrEdit';
+import type { MrHead } from './gen/MrHead';
+import type { PeopleLimits } from './gen/PeopleLimits';
+import type { ReviewOutcome } from './gen/ReviewOutcome';
+import type { ReviewSubmit } from './gen/ReviewSubmit';
 import type { MrFilter } from './gen/MrFilter';
 import type { MrList } from './gen/MrList';
 // --- 4C T5 ---
@@ -178,6 +186,8 @@ export const api = {
   graph: (repo: number, limit: number | null = null, extra: { pin?: PinSetting; rescan?: boolean; active?: string } = {}) =>
     call<GraphPayload>({ method: 'graph', params: { repo, limit, ...extra } }),
   commandLog: () => t().call({ method: 'commandLog' }) as Promise<CommandLogEntry[]>,
+  /** Every core API request (the Debug modal's Requests tab), oldest first; its own reads aren't in it. */
+  requestLog: () => t().call({ method: 'requestLog' }) as Promise<RequestLogEntry[]>,
   launchRepo: () => t().call({ method: 'launchRepo' }) as Promise<string | null>,
   /** Paths later launches forwarded (the single-instance guard) not yet taken: each returned once. */
   takeOpenRequests: () => call<string[]>({ method: 'takeOpenRequests' }),
@@ -236,7 +246,7 @@ export const api = {
   clone: (url: string, dest: string) => call<RepoSummary>({ method: 'clone', params: { url, dest } }),
   suggestReposFolder: () => call<string | null>({ method: 'suggestReposFolder' }),
   /** `git fetch --all` (spec §15), or one `remote` (a remote just added, spec #4). `background`: GitBolt's own timer, which never prompts. */
-  fetch: (repo: number, background: boolean, remote?: string) => call<FetchOutcome>({ method: 'fetch', params: remote === undefined ? { repo, background } : { repo, background, remote } }),
+  fetch: (repo: number, background: boolean, remote?: string, mrHead?: MrHead) => call<FetchOutcome>({ method: 'fetch', params: remote === undefined ? { repo, background } : mrHead ? { repo, background, remote, mrHead } : { repo, background, remote } }),
   // --- 4A T12 ---
   /** Every remote with its forge project, and the remote MRs/PRs target (spec #4 §3.3). */
   forgeRepoProjects: (repo: number, refresh = false) => call<RepoProjects>({ method: 'forgeRepoProjects', params: { repo, refresh } }),
@@ -476,7 +486,22 @@ export const api = {
   forgeReply: (repo: number, number: number, discussion: string | null, body: string) => call<ForgeNote>({ method: 'forgeReply', params: { repo, number, discussion, body } }),
   forgeApprove: (repo: number, number: number) => call<null>({ method: 'forgeApprove', params: { repo, number } }),
   forgeRequestChanges: (repo: number, number: number, body: string) => call<null>({ method: 'forgeRequestChanges', params: { repo, number, body } }),
+  /** The review composer's Comment, Approve or Request changes. */
+  forgeReview: (repo: number, number: number, review: ReviewSubmit) => call<ReviewOutcome>({ method: 'forgeReview', params: { repo, number, review } }),
+  /** How many reviewers and assignees `remote`'s project's MRs/PRs may have (cached a day in the core). */
+  forgePeopleLimits: (repo: number, remote: string) => call<PeopleLimits>({ method: 'forgePeopleLimits', params: { repo, remote } }),
+  /** The MR/PR's notifications on or off: the state after. */
+  forgeSetSubscribed: (repo: number, number: number, on: boolean) => call<boolean>({ method: 'forgeSetSubscribed', params: { repo, number, on } }),
+  // --- comment actions ---
+  /** Adds (`on`) or removes the user's `name` reaction on a note: its reactions after. */
+  forgeReact: (repo: number, number: number, note: NoteRef, name: string, on: boolean) => call<ForgeReaction[]>({ method: 'forgeReact', params: { repo, number, note, name, on } }),
+  forgeEditNote: (repo: number, number: number, note: NoteRef, body: string) => call<ForgeNote>({ method: 'forgeEditNote', params: { repo, number, note, body } }),
+  forgeDeleteNote: (repo: number, number: number, note: NoteRef) => call<null>({ method: 'forgeDeleteNote', params: { repo, number, note } }),
+  forgeResolve: (repo: number, number: number, discussion: string, resolved: boolean) => call<ThreadState>({ method: 'forgeResolve', params: { repo, number, discussion, resolved } }),
+  // --- end comment actions ---
   forgeMerge: (repo: number, number: number, options: MergeOptions) => call<ForgeMr>({ method: 'forgeMerge', params: { repo, number, options } }),
+  forgeSetAutoMerge: (repo: number, number: number, options: MergeOptions) => call<ForgeMr>({ method: 'forgeSetAutoMerge', params: { repo, number, options } }),
+  forgeCancelAutoMerge: (repo: number, number: number) => call<ForgeMr>({ method: 'forgeCancelAutoMerge', params: { repo, number } }),
   forgeEditMr: (repo: number, number: number, edit: MrEdit) => call<ForgeMr>({ method: 'forgeEditMr', params: { repo, number, edit } }),
   forgeSetDraft: (repo: number, number: number, draft: boolean) => call<ForgeMr>({ method: 'forgeSetDraft', params: { repo, number, draft } }),
   /** The common ancestor of two commits; null when the repo lacks one of them. */

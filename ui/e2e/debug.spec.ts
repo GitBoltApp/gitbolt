@@ -2,7 +2,7 @@ import { expect, test, type Page } from './test';
 import { fixtures, openUrl } from './fixtures';
 
 // Plan 1D lane W2-B (T8, T9 UI, R9-R11): the Activity modal is the one Debug modal, with
-// Activity | Commands | Actions tabs and the diagnostics / logs folder / perf overlay header.
+// Activity | Commands | Requests | Actions tabs and the diagnostics / logs folder / perf overlay header.
 
 const debugDialog = (page: Page) => page.getByRole('dialog', { name: 'Activity' });
 
@@ -48,6 +48,9 @@ test.describe('the Debug modal', () => {
       await expect(dialog.getByRole('tab', { name: 'Commands' })).toHaveAttribute('aria-selected', 'true');
       const entries = dialog.locator('li.debug-entry');
       await expect(entries.first()).toContainText('$ git ');
+      // Every command, reads too: with Hide reads on, opening the repo leaves only `git --version`,
+      // which has no subcommand to filter by.
+      await dialog.getByLabel('Hide reads').uncheck();
       // Filter by the newest command's own subcommand (its first word that isn't an option).
       const newest = (await entries.first().locator('.activity-cmd').textContent()) ?? '';
       const sub = newest.replace(/^\$ git /, '').split(' ').find((w, i, ws) => !w.startsWith('-') && ws[i - 1] !== '-c')!;
@@ -58,6 +61,17 @@ test.describe('the Debug modal', () => {
       await dialog.getByRole('searchbox', { name: 'Filter commands' }).clear();
       await dialog.getByRole('searchbox', { name: 'Filter commands' }).pressSequentially('no-such-command');
       await expect(dialog).toContainText('No command matches');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+    });
+    await test.step('the Requests tab lists the core API requests: the graph that opened the repo', async () => {
+      await runFromPalette(page, 'Debug');
+      const dialog = debugDialog(page);
+      await dialog.getByRole('tab', { name: 'Requests' }).click();
+      await dialog.getByRole('searchbox', { name: 'Filter requests' }).fill('graph');
+      const graph = dialog.locator('li.debug-request').filter({ has: page.locator('.activity-cmd', { hasText: /^graph$/ }) }).first();
+      await expect(graph).toContainText('repo=');
+      await expect(graph.locator('.debug-ms')).toContainText(/ m?s$/);
       await page.keyboard.press('Escape');
       await expect(dialog).toHaveCount(0);
     });

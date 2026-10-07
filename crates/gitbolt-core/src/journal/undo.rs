@@ -884,7 +884,7 @@ impl UndoIntent {
         let branches: Vec<&RefMove> = e.refs.iter().filter(|m| m.name.starts_with("refs/heads/")).collect();
         if !branches.is_empty() {
             let here = pre.root.canonicalize().unwrap_or_else(|_| pre.root.to_path_buf());
-            let trees = crate::worktree::list_worktrees(&pre.api.cli, pre.root).await?;
+            let trees = crate::worktree::list_worktrees(pre.root).await?;
             for m in branches {
                 let name = short_ref(&m.name);
                 for w in trees.iter().filter(|w| w.branch.as_deref() == Some(m.name.as_str())) {

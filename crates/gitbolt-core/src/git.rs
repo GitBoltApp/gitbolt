@@ -290,6 +290,7 @@ impl GitCli {
 
     async fn run_bin(&self, bin: &Path, git: bool, mut inv: GitInvocation) -> Result<GitOutput, GbError> {
         let id = self.log.next_id();
+        crate::log::note_command(id);
         let started = Instant::now();
         let started_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
 
@@ -1256,7 +1257,12 @@ mod tests {
         // gave the file: the expectation no longer depends on timing or filesystem timestamp granularity.
         let pinned = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_700_000_000_123);
         std::fs::File::options().write(true).open(&lock).unwrap().set_modified(pinned).unwrap();
-        let err = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["update-index", "--refresh"])).await.unwrap_err();
+        // A write that must change the index. `update-index --refresh` needed the lock only when
+        // it had something to refresh: the commit's file "racily clean" (written in the same
+        // filesystem tick as the index). A slower run let a tick pass, and it then succeeded
+        // without the lock (about 3 runs in 1000).
+        r.write("new.txt", "new\n");
+        let err = cli().run(GitInvocation::write(&WriteToken::for_tests(), r.path(), ["add", "new.txt"])).await.unwrap_err();
         assert_eq!(err.kind, GbErrorKind::IndexLocked);
         let mtime = 1_700_000_000_123_i64;
         match err.detail {

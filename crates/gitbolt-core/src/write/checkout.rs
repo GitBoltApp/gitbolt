@@ -137,7 +137,7 @@ fn touch_all(cx: &mut WriteCx<'_>) {
 
 /// The worktree other than this one whose HEAD is `full`, as the UI names it.
 async fn elsewhere(pre: &Pre<'_>, full: &str) -> Result<Option<String>, GbError> {
-    let worktrees = crate::worktree::list_worktrees(&pre.api.cli, pre.root).await?;
+    let worktrees = crate::worktree::list_worktrees(pre.root).await?;
     let main = worktrees.iter().find(|w| w.is_main).map(|w| w.path.clone()).unwrap_or_else(|| pre.h.workdir.clone());
     Ok(worktrees
         .iter()

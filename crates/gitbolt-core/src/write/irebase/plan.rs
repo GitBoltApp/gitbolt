@@ -187,7 +187,7 @@ pub(crate) async fn read_range(cli: &GitCli, root: &Path, branch: &str, base: &s
     let behind = cli.run(GitInvocation::new(root, ["rev-list", "--count", lag.as_str(), "--"])).await?;
     let behind: u32 = String::from_utf8_lossy(&behind.stdout).trim().parse().unwrap_or(0);
     let canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let elsewhere: BTreeMap<String, String> = crate::worktree::list_worktrees(cli, root)
+    let elsewhere: BTreeMap<String, String> = crate::worktree::list_worktrees(root)
         .await?
         .into_iter()
         .filter(|w| w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != canon)

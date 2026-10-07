@@ -102,7 +102,7 @@ impl WriteIntent for DeleteBranch {
             return Err(GbError::new(GbErrorKind::NotFound, "No local branch"));
         }
         // Review Focus 1: never a branch some worktree has checked out.
-        let worktrees = crate::worktree::list_worktrees(&pre.api.cli, pre.root).await?;
+        let worktrees = crate::worktree::list_worktrees(pre.root).await?;
         if let Some(w) = worktrees.iter().find(|w| w.branch.as_deref() == Some(self.full().as_str())) {
             let here = w.path.canonicalize().unwrap_or(w.path.clone()) == pre.root;
             if here {

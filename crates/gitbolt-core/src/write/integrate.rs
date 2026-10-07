@@ -352,7 +352,7 @@ impl WriteIntent for FastForwardIntent {
     }
     async fn run(&self, cx: &mut WriteCx<'_>) -> Result<IntegrateOutcome, GbError> {
         let name = format!("refs/heads/{}", self.branch);
-        let worktrees = crate::worktree::list_worktrees(&cx.api.cli, cx.root).await?;
+        let worktrees = crate::worktree::list_worktrees(cx.root).await?;
         if let Some(w) = worktrees.iter().find(|w| w.branch.as_deref() == Some(name.as_str())) {
             return Err(GbError::new(GbErrorKind::InvalidInput, format!("{} is checked out in {}", self.branch, w.path.display())));
         }
@@ -462,7 +462,7 @@ pub(crate) async fn preview(api: &Api, repo: u32, worktree: &str, kind: Integrat
     let h = api.handle(repo)?;
     let root = api.worktree_dir(&h, worktree).await?;
     let here = root.canonicalize().unwrap_or_else(|_| root.clone());
-    let elsewhere: HashMap<String, String> = crate::worktree::list_worktrees(&api.cli, &root)
+    let elsewhere: HashMap<String, String> = crate::worktree::list_worktrees(&root)
         .await?
         .into_iter()
         .filter(|w| w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != here)

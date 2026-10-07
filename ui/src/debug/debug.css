@@ -42,6 +42,9 @@
 .debug-detail-head { margin-top: 6px; font-size: 11px; color: var(--text-secondary); user-select: none; }
 .debug-cmd-line { color: var(--text-selected); }
 .debug-err { color: var(--stats-deleted-bright); }
+/* The Requests tab: the params after the method, quieter; a linked git command's id. */
+.debug-label .debug-params { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+.debug-link { padding: 0; border: 0; background: none; font: inherit; color: var(--link); text-decoration: none; cursor: pointer; }
 
 /* The filter bar's checkboxes: box and label on one line (beats `.modal label`'s column). */
 .modal .debug-toolbar label.debug-check { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; white-space: nowrap; user-select: none; cursor: pointer; }

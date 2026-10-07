@@ -411,6 +411,27 @@ describe('WIP lists held while watched (K44)', () => {
     expect(wipCalls(rec.calls)).toHaveLength(4);
   });
 
+  it('only the open worktree\'s lists are read ahead: another worktree\'s are read when its WIP row is selected', async () => {
+    const W = 'files {"kind":"wip","worktree":"/w","staged":false}';
+    const linked = { ...graph, rows: [...graph.rows, row('wip:/w', 'wip', { worktreePath: '/w', worktreeName: 'w', modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 })] };
+    const rec = fakeServices();
+    const s = createRepoViewStore(1, '/r', linked, rec.services);
+    s.getState().setWatched(true);
+    expect(wipCalls(rec.calls)).toEqual([U, S]);
+    // A change to the other worktree, or a new graph: still not read (its counts are enough).
+    rec.services.wip.changed(['/w'], {});
+    s.getState().setGraph({ ...linked, rows: [...linked.rows] });
+    expect(wipCalls(rec.calls).filter((c) => c.includes('"/w"'))).toEqual([]);
+    // Selected, it's read; a change to it then reads it again.
+    s.getState().selectRow(4);
+    expect(wipCalls(rec.calls).filter((c) => c.includes('"/w"'))).toHaveLength(2);
+    rec.resolve(W, lists('w1', 'w.txt'));
+    rec.resolve(W.replace('false', 'true'), lists('w1', 'ws.txt'));
+    await settle();
+    rec.services.wip.changed(['/w'], { '/w': 'w2' });
+    expect(wipCalls(rec.calls).filter((c) => c.includes('"/w"'))).toHaveLength(4);
+  });
+
   it('an older refresh landing after a newer one is dropped', async () => {
     const reads: { answer: (l: FileListPayload) => void }[] = [];
     const rec = fakeServices();

@@ -511,7 +511,7 @@ fn pre_rebase_refused(e: GbError) -> GbError {
 /// branches, and the merged-in ones it would move too but mustn't (review I2). Neither holds a
 /// branch checked out in any worktree: git never moves those.
 async fn update_ref_sets(cx: &WriteCx<'_>, branch: &str, target: ObjectId) -> Result<(Vec<(String, ObjectId)>, Vec<(String, ObjectId)>), GbError> {
-    let out: std::collections::HashSet<String> = crate::worktree::list_worktrees(&cx.api.cli, cx.root).await?.into_iter().filter_map(|w| w.branch).collect();
+    let out: std::collections::HashSet<String> = crate::worktree::list_worktrees(cx.root).await?.into_iter().filter_map(|w| w.branch).collect();
     let (root, branch) = (cx.root.to_path_buf(), branch.to_string());
     blocking(move || {
         let repo = gix::open(&root).map_err(gix_err)?;

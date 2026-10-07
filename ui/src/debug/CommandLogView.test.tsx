@@ -7,7 +7,7 @@ const copyText = vi.hoisted(() => vi.fn(async (_t: string) => {}));
 vi.mock('../api/client', () => ({ api: { commandLog }, errorMessage: String, onEvent: () => () => {} }));
 vi.mock('../api/transport', () => ({ copyText, inTauri: () => false }));
 
-const { CommandLogView, commandLine, filterCommands } = await import('./CommandLogView');
+const { CommandLogView, commandLine, filterCommands, isReadCommand, subcommandOf } = await import('./CommandLogView');
 
 const e = (id: number, args: string[], exitCode: number | null, stderr = ''): CommandLogEntry => ({ id, args, cwd: '/r', startedMs: 1_767_225_600_000 + id, durationMs: id, exitCode, stderr });
 const entries = [e(1, ['status'], 0), e(2, ['fetch', '--all'], 128, 'fatal: Authentication failed'), e(3, ['log', '--format=%H %s'], 0)];
@@ -30,6 +30,28 @@ describe('the Commands tab (R10)', () => {
     expect(filterCommands(entries, '', false)).toHaveLength(3);
   });
 
+  it('Hide reads keeps the actions, a failed read, and the command an error points at', () => {
+    const log = [e(1, ['status'], 0), e(2, ['-c', 'core.quotepath=off', 'diff', '--stat'], 0), e(3, ['commit', '-m', 'x'], 0), e(4, ['log'], 128, 'bad'), e(5, ['rev-parse', 'HEAD'], 0)];
+    expect(filterCommands(log, '', false, true).map((x) => x.id)).toEqual([3, 4]);
+    expect(filterCommands(log, '', false, true, 5).map((x) => x.id)).toEqual([3, 4, 5]);
+    expect(filterCommands(log, '', false, false)).toHaveLength(5);
+  });
+
+  it('knows a read from an action, past git\'s global options', () => {
+    expect(subcommandOf(['-C', '/r', '-c', 'a=b', '--no-optional-locks', 'status'])).toBe('status');
+    const read = (args: string[]) => isReadCommand(e(9, args, 0));
+    expect(read(['status', '--porcelain=v2'])).toBe(true);
+    expect(read(['config', '--get', 'user.name'])).toBe(true);
+    expect(read(['config', 'user.name', 'X'])).toBe(false);
+    expect(read(['branch', '--list'])).toBe(true);
+    expect(read(['branch', '-D', 'old'])).toBe(false);
+    expect(read(['stash', 'list'])).toBe(true);
+    expect(read(['stash', 'push'])).toBe(false);
+    expect(read(['--version'])).toBe(true);
+    expect(read(['fetch', '--all'])).toBe(false);
+    expect(read(['push', 'origin', 'main'])).toBe(false);
+  });
+
   it('writes a command line that pastes into a shell', () => {
     expect(commandLine(entries[2])).toBe("$ git log '--format=%H %s'");
     expect(commandLine(e(5, ['commit', '-m', "it's"], 0))).toBe("$ git commit -m 'it'\\''s'");
@@ -39,6 +61,10 @@ describe('the Commands tab (R10)', () => {
     const { unmount } = render(<CommandLogView focusId={2} />);
     await act(async () => { await Promise.resolve(); });
     const items = () => [...document.querySelectorAll('li.debug-entry')];
+    // Hide reads is on by default: only the fetch (an action) shows; off, every command.
+    expect(screen.getByLabelText('Hide reads')).toBeChecked();
+    expect(items()).toHaveLength(1);
+    fireEvent.click(screen.getByLabelText('Hide reads'));
     expect(items()).toHaveLength(3);
     expect(items()[0]).toHaveTextContent("$ git log '--format=%H %s'");
     expect(items()[1]).toHaveAttribute('aria-current', 'true');

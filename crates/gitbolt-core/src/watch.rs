@@ -43,6 +43,14 @@ use tokio_util::sync::CancellationToken;
 pub const DEBOUNCE: Duration = Duration::from_millis(150);
 pub const MAX_WAIT: Duration = Duration::from_secs(1);
 pub const MAX_FLAT_DIRS: usize = 20_000;
+/// A worktree whose same files alone keep changing (a growing log, a file rewritten in a loop):
+/// after two quick runs, its status is read at most this often until another path changes.
+pub const STREAM_INTERVAL: Duration = Duration::from_secs(2);
+/// How long the same-files back-off remembers a run: a write later than this is a fresh change.
+const STREAM_WINDOW: Duration = Duration::from_secs(3);
+/// A worktree the tab doesn't show (only its WIP counts are visible): its file changes are read
+/// at most this often while they keep coming, and once more when they stop.
+pub const INACTIVE_INTERVAL: Duration = Duration::from_secs(5);
 
 /// One worktree being watched; both paths canonical.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -410,6 +418,23 @@ struct Batch {
     topology: bool,
     /// Folders deleted or renamed away.
     gone: Vec<PathBuf>,
+    /// Roots whose HEAD or index changed: read at once, never throttled.
+    urgent: BTreeSet<PathBuf>,
+}
+
+/// A worktree's file changes waiting for their turn (`Loop::schedule`).
+struct Deferred {
+    due: Instant,
+    touched: BTreeSet<String>,
+}
+
+/// A worktree's last status read.
+struct LastRun {
+    at: Instant,
+    /// The paths written that it was for.
+    touched: BTreeSet<String>,
+    /// How many runs in a row before it were for those same paths only, within `STREAM_WINDOW`.
+    streak: u32,
 }
 
 impl Batch {
@@ -443,6 +468,9 @@ impl Batch {
                 {
                     let root = &spec.worktrees[i].root;
                     self.status.insert(root.clone());
+                    if c.kind != ChangeKind::Worktree {
+                        self.urgent.insert(root.clone());
+                    }
                     if c.kind == ChangeKind::Worktree
                         && let Ok(rel) = p.strip_prefix(root)
                     {
@@ -655,6 +683,8 @@ fn launch(spec: WatchSpec, cli: GitCli, wip: Arc<WipCache>, bus: EventBus, h: Ha
         inject: h.tx,
         quiet_until: Instant::now(),
         trusted: false,
+        deferred: HashMap::new(),
+        runs: HashMap::new(),
     };
     tokio::spawn(state.run(h.rx, h.ready));
     Ok(())
@@ -684,6 +714,10 @@ struct Loop {
     quiet_until: Instant,
     /// The last `update_trust` covered the worktrees.
     trusted: bool,
+    /// Per worktree root: file changes held back (`schedule`).
+    deferred: HashMap<PathBuf, Deferred>,
+    /// Per worktree root: its last status read.
+    runs: HashMap<PathBuf, LastRun>,
 }
 
 impl Loop {
@@ -701,14 +735,27 @@ impl Loop {
         self.quiet_until = Instant::now() + DEBOUNCE;
         let _ = ready.send(true);
         loop {
+            // Events, or the turn of changes held back.
+            let due = self.deferred.values().map(|d| d.due).min();
+            let turn = async {
+                match due {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            };
             let first = tokio::select! {
                 _ = self.stop.cancelled() => return,
-                ev = rx.recv() => match ev { Some(e) => e, None => return },
+                _ = turn => None,
+                ev = rx.recv() => match ev { Some(e) => Some(e), None => return },
             };
-            if self.own_overflow(&first) {
-                continue;
+            let mut events = Vec::new();
+            if let Some(first) = first {
+                if self.own_overflow(&first) {
+                    continue;
+                }
+                let Some(gathered) = gather(first, &mut rx, &self.stop).await else { return };
+                events = gathered;
             }
-            let Some(mut events) = gather(first, &mut rx, &self.stop).await else { return };
             if !self.wait_released(&mut rx, &mut events).await {
                 return;
             }
@@ -716,10 +763,14 @@ impl Loop {
             for ev in events.iter().filter(|ev| !self.own_overflow(ev)) {
                 batch.add(ev, &self.spec);
             }
+            let woke = !batch.is_empty();
+            self.schedule(&mut batch);
             if batch.is_empty() {
                 continue;
             }
-            self.shared.wakeups.fetch_add(1, Ordering::SeqCst);
+            if woke {
+                self.shared.wakeups.fetch_add(1, Ordering::SeqCst);
+            }
             self.handle(batch).await;
             self.update_trust();
             self.quiet_until = Instant::now() + DEBOUNCE;
@@ -741,6 +792,80 @@ impl Loop {
             tracing::debug!("dropping an event-queue overflow caused by the watcher's own status read");
         }
         own
+    }
+
+    /// The worktree the tab shows (the last graph's `active`, else the one opened).
+    fn active(&self) -> PathBuf {
+        self.wip.active().unwrap_or_else(|| self.spec.workdir.canonicalize().unwrap_or_else(|_| self.spec.workdir.clone()))
+    }
+
+    /// Whether `root`'s same files alone keep changing: its last run was for the same paths as
+    /// the one before it, recently, and `touched` (with what's held back) is no more than those.
+    fn streaming(&self, root: &Path, touched: &BTreeSet<String>, now: Instant) -> bool {
+        let Some(last) = self.runs.get(root) else { return false };
+        let held = self.deferred.get(root).map(|d| &d.touched);
+        last.streak >= 1 && now.duration_since(last.at) < STREAM_WINDOW && !touched.is_empty() && touched.iter().all(|p| last.touched.contains(p) || held.is_some_and(|h| h.contains(p)))
+    }
+
+    /// Holds back file changes that needn't be read yet, and brings back those whose turn came.
+    /// Changes to the shown worktree are read at once, unless only the same files keep changing
+    /// (a growing log): then at most every `STREAM_INTERVAL`. Another worktree's (only its WIP
+    /// counts show) are read at most every `INACTIVE_INTERVAL`. A HEAD or index change, or an
+    /// overflow, is read at once, with whatever was held back for that worktree.
+    fn schedule(&mut self, batch: &mut Batch) {
+        let now = Instant::now();
+        let active = self.active();
+        for root in batch.status.clone() {
+            let held = self.deferred.remove(&root);
+            if !(batch.overflow || batch.urgent.contains(&root)) {
+                let touched = batch.touched.get(&root).cloned().unwrap_or_default();
+                let interval = if root != active {
+                    INACTIVE_INTERVAL
+                } else if self.streaming(&root, &touched, now) {
+                    STREAM_INTERVAL
+                } else {
+                    Duration::ZERO
+                };
+                let ready = self.runs.get(&root).map_or(now, |r| r.at + interval);
+                if ready > now {
+                    batch.status.remove(&root);
+                    batch.touched.remove(&root);
+                    let mut d = held.unwrap_or(Deferred { due: ready, touched: BTreeSet::new() });
+                    d.due = ready;
+                    d.touched.extend(touched);
+                    self.deferred.insert(root, d);
+                    continue;
+                }
+            }
+            if let Some(d) = held {
+                batch.touched.entry(root).or_default().extend(d.touched);
+            }
+        }
+        let due: Vec<PathBuf> = self.deferred.iter().filter(|(_, d)| d.due <= now).map(|(r, _)| r.clone()).collect();
+        for root in due {
+            if let Some(d) = self.deferred.remove(&root) {
+                batch.touched.entry(root.clone()).or_default().extend(d.touched);
+                batch.status.insert(root);
+                batch.kinds.insert(ChangeKind::Worktree);
+            }
+        }
+        // Only held-back file changes: nothing to do now.
+        if batch.status.is_empty() && batch.kinds.iter().all(|k| *k == ChangeKind::Worktree) && !batch.overflow && !batch.topology && batch.gone.is_empty() {
+            batch.kinds.clear();
+        }
+    }
+
+    /// Notes a status read of each of `roots` starting now, for `streaming`.
+    fn note_runs(&mut self, roots: &BTreeSet<PathBuf>, touched: &HashMap<PathBuf, BTreeSet<String>>) {
+        let now = Instant::now();
+        for root in roots {
+            let touched = touched.get(root).cloned().unwrap_or_default();
+            let streak = match self.runs.get(root) {
+                Some(last) if now.duration_since(last.at) < STREAM_WINDOW && !touched.is_empty() && touched.is_subset(&last.touched) => last.streak + 1,
+                _ => 0,
+            };
+            self.runs.insert(root.clone(), LastRun { at: now, touched, streak });
+        }
     }
 
     /// While a write holds the watch, keeps gathering. `false` once stopped.
@@ -803,6 +928,7 @@ impl Loop {
         }
         // Gone worktrees (and any the re-listing couldn't drop) are never read.
         status.retain(|r| r.is_dir());
+        self.note_runs(&status, &batch.touched);
         let mut changed = self.refresh_status(&status, false, &batch.touched, batch.overflow).await;
         let git_kinds = [ChangeKind::Refs, ChangeKind::Head, ChangeKind::Stash, ChangeKind::Config, ChangeKind::State];
         if batch.overflow || rebased || git_kinds.iter().any(|k| kinds.contains(k)) {
@@ -841,7 +967,7 @@ impl Loop {
         // `git worktree list` runs from the directory the repo was opened from, which may be
         // the worktree that's gone: the common dir answers the same.
         let cwd = if self.spec.workdir.is_dir() { self.spec.workdir.clone() } else { self.spec.common_dir.clone() };
-        let list = match list_worktrees(&self.cli, &cwd).await {
+        let list = match list_worktrees(&cwd).await {
             Ok(list) => list,
             Err(e) => {
                 tracing::warn!("couldn't re-list the worktrees: {e}");
@@ -873,8 +999,9 @@ impl Loop {
     /// watches, and their WIP file lists (K44) where they may have changed: none kept yet, the
     /// status changed, a path status lists was written (`touched`), or `relist` (an overflow).
     /// The `first` pass computes no lists (`ready` doesn't wait for numstat; the first read
-    /// does, `read_and_keep_lists`). Lists that can't be recomputed are dropped, never kept
-    /// stale. Returns the canonical roots whose status or lists changed: against this watcher's
+    /// does, `read_and_keep_lists`). Lists are kept for the shown worktree, and for another one
+    /// only while they're read (`WipCache::served`): an unread one's are dropped, not
+    /// recomputed. Lists that can't be recomputed are dropped, never kept stale. Returns the canonical roots whose status or lists changed: against this watcher's
     /// own last read, or on the `first` pass, against the cache (what the graph last showed; a
     /// first read of an uncached worktree isn't a change).
     async fn refresh_status(&mut self, roots: &BTreeSet<PathBuf>, first: bool, touched: &HashMap<PathBuf, BTreeSet<String>>, relist: bool) -> BTreeSet<String> {
@@ -884,12 +1011,15 @@ impl Loop {
         {
             self.spec.handle = fresh;
         }
-        let (cli, wip, handle, fail) = (&self.cli, &self.wip, &self.spec.handle, &self.tuning.fail_lists);
+        let active = self.active();
+        let (cli, wip, handle, fail, active) = (&self.cli, &self.wip, &self.spec.handle, &self.tuning.fail_lists, &active);
         let reads = roots.iter().filter(|root| still_a_worktree(root)).map(|root| async move {
             let stamp = wip.stamp();
             let res = status_raw(cli, root).await;
             // `None`: not recomputed. `Some(Err)`: recomputing failed.
             let mut lists = None;
+            // Stale lists of a worktree nobody reads: dropped, not recomputed.
+            let mut unread = false;
             if let Ok(raw) = &res
                 && !first
             {
@@ -898,7 +1028,13 @@ impl Loop {
                 let prev = wip.lists(root);
                 let touched = touched.get(root);
                 let written = touched.is_some_and(|t| entries.iter().any(|e| t.contains(&e.path) || e.orig_path.as_ref().is_some_and(|o| t.contains(o))));
-                if relist || written || prev.as_ref().is_none_or(|p| p.digest != digest) {
+                // Kept for the shown worktree (its WIP row selects at once), and for another one
+                // only while its lists are read (its WIP row selected): the others get counts.
+                let wanted = root == active || wip.served(root);
+                let stale = relist || written || prev.as_ref().is_none_or(|p| p.digest != digest);
+                if stale && !wanted {
+                    unread = prev.is_some();
+                } else if stale {
                     // After an overflow, which files were written is unknown: count them all.
                     let reuse = match &prev {
                         Some(p) if !relist => untracked_counts(p, touched),
@@ -912,10 +1048,10 @@ impl Loop {
                     lists = Some(res.map(|(staged, unstaged)| (prev.map(|p| p.version), WipLists::new(stamp, digest, staged, unstaged))));
                 }
             }
-            (root, stamp, res, lists)
+            (root, stamp, res, lists, unread)
         });
         let mut changed = BTreeSet::new();
-        for (root, stamp, res, lists) in futures_util::future::join_all(reads).await {
+        for (root, stamp, res, lists, unread) in futures_util::future::join_all(reads).await {
             match res {
                 Ok(raw) => {
                     let entry = WipEntry::from_raw(&raw);
@@ -937,6 +1073,10 @@ impl Loop {
                             let held = self.wip.lists(root).is_some();
                             self.wip.drop_lists(root);
                             held
+                        }
+                        None if unread => {
+                            self.wip.drop_lists(root);
+                            true
                         }
                         None => false,
                     };
@@ -1027,7 +1167,7 @@ fn still_a_worktree(root: &Path) -> bool {
 impl Api {
     /// What to watch for `h`: its common dir and usable worktrees, canonical.
     async fn watch_spec(&self, id: u32, h: &RepoHandle) -> Result<WatchSpec, GbError> {
-        let list = list_worktrees(&self.cli, &h.workdir).await?;
+        let list = list_worktrees(&h.workdir).await?;
         let (repo, workdir) = (h.repo.clone(), h.workdir.clone());
         tokio::task::spawn_blocking(move || {
             let common_dir = repo.to_thread_local().common_dir().canonicalize()?;
@@ -1178,7 +1318,7 @@ mod tests {
     }
 
     fn api() -> Api {
-        Api::new(crate::git::GitCli::new(Arc::new(CommandLog::new(100))).with_env(isolated_git_env()), None)
+        Api::new(crate::git::GitCli::new(Arc::new(CommandLog::new(2000))).with_env(isolated_git_env()), None)
     }
 
     async fn call(api: &Api, v: serde_json::Value) -> serde_json::Value {
@@ -1661,7 +1801,8 @@ mod tests {
         assert!(kinds.contains(&ChangeKind::Head), "{kinds:?} {wts:?}");
         assert!(api.status_is_watched(id));
         std::fs::write(added.join("in-added.txt"), "x\n").unwrap();
-        let (_, wts) = next_change(&mut rx, Duration::from_secs(5)).await.expect("an event");
+        // An inactive worktree, read less than `INACTIVE_INTERVAL` ago (when it was added).
+        let (_, wts) = next_change(&mut rx, INACTIVE_INTERVAL + Duration::from_secs(2)).await.expect("an event");
         assert_eq!(wts, vec![want]);
     }
 
@@ -2055,5 +2196,248 @@ mod tests {
         change_naming(&mut rx, &canonical(r.path())).await;
         let text = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
         assert!(!text.contains("WARN"), "{text}");
+    }
+
+    // --- status frequency: how many git processes a change costs ---
+
+    /// How many git processes ran since `mark` (a command log id) by subcommand (`status`,
+    /// `diff --numstat`, `diff --numstat --cached`, `worktree list`, …), in `cwd` when given.
+    fn ran_since(api: &Api, mark: u64, sub: &str, cwd: Option<&Path>) -> usize {
+        let name = |args: &[String]| {
+            let mut i = 0;
+            while i < args.len() && args[i].starts_with('-') {
+                i += if args[i] == "-c" { 2 } else { 1 };
+            }
+            let Some(s) = args.get(i) else { return String::new() };
+            let rest = &args[i + 1..];
+            match s.as_str() {
+                "diff" => format!("diff{}{}", if rest.iter().any(|a| a == "--numstat") { " --numstat" } else { "" }, if rest.iter().any(|a| a == "--cached") { " --cached" } else { "" }),
+                "worktree" => format!("worktree {}", rest.first().map(String::as_str).unwrap_or("")),
+                s => s.to_string(),
+            }
+        };
+        let cwd = cwd.map(|c| c.canonicalize().unwrap());
+        api.cli
+            .log()
+            .entries()
+            .iter()
+            .filter(|e| e.id > mark)
+            .filter(|e| name(&e.args) == sub)
+            .filter(|e| cwd.as_ref().is_none_or(|c| Path::new(&e.cwd).canonicalize().is_ok_and(|p| p == *c)))
+            .count()
+    }
+
+    fn mark(api: &Api) -> u64 {
+        last_git(api).unwrap_or(0)
+    }
+
+    fn ran_after(api: &Api, mark: u64) -> Vec<String> {
+        api.cli.log().entries().iter().filter(|e| e.id > mark).map(|e| e.args.join(" ")).collect()
+    }
+
+    /// What the UI asks after a `repoChanged`: the graph, and (refs, HEAD) the sidebar at once.
+    async fn ui_refresh(api: &Api, id: u32, side: bool) {
+        let graph = call(api, serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}));
+        if side {
+            let sidebar = call(api, serde_json::json!({"method": "sidebar", "params": {"repo": id}}));
+            futures_util::future::join(graph, sidebar).await;
+        } else {
+            graph.await;
+        }
+    }
+
+    /// One save: one status, one pair of numstats for the lists, and the graph the UI reloads
+    /// then runs no git process at all.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_single_save_runs_one_status_and_the_graph_reload_none() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let wt = canonical(r.path());
+        file_list(&api, id, &wt, false).await;
+        ui_refresh(&api, id, true).await;
+        let m = mark(&api);
+        r.write("file_1.txt", "main change\nsaved\n");
+        change_naming(&mut rx, &wt).await;
+        ui_refresh(&api, id, false).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(ran_since(&api, m, "status", None), 1, "{:?}", ran_after(&api, m));
+        assert_eq!(ran_since(&api, m, "diff --numstat", None) + ran_since(&api, m, "diff --numstat --cached", None), 2, "{:?}", ran_after(&api, m));
+        assert_eq!(ran_after(&api, m).len(), 3, "nothing else: {:?}", ran_after(&api, m));
+    }
+
+    /// A file appended to every 200 ms (a growing log): after two quick runs, its status is
+    /// re-read at most every `STREAM_INTERVAL` while only it keeps changing, and once more when
+    /// it stops, so the counts end right.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_growing_file_is_read_at_most_every_stream_interval() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, _rx) = watched(&r).await;
+        let wt = canonical(r.path());
+        file_list(&api, id, &wt, false).await;
+        let m = mark(&api);
+        let log = r.path().join("app.log");
+        let mut text = String::new();
+        for i in 0..30 {
+            text.push_str(&format!("line {i}\n"));
+            std::fs::write(&log, &text).unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        tokio::time::sleep(STREAM_INTERVAL + Duration::from_millis(800)).await;
+        let runs = ran_since(&api, m, "status", None);
+        assert!((2..=7).contains(&runs), "{runs} status runs in 6 s");
+        let list = file_list(&api, id, &wt, false).await;
+        let added = list["files"].as_array().unwrap().iter().find(|f| f["path"] == "app.log").expect("listed")["additions"].as_u64();
+        assert_eq!(added, Some(30), "the last run counted every line");
+    }
+
+    /// While one file streams, a save to another file is read at once.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn another_path_changing_ends_the_stream_back_off() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let wt = canonical(r.path());
+        file_list(&api, id, &wt, false).await;
+        let log = r.path().join("app.log");
+        let mut text = String::new();
+        for i in 0..6 {
+            text.push_str(&format!("line {i}\n"));
+            std::fs::write(&log, &text).unwrap();
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        while next_change(&mut rx, Duration::from_millis(50)).await.is_some() {}
+        let t0 = Instant::now();
+        r.write("other.txt", "x\n");
+        loop {
+            change_naming(&mut rx, &wt).await;
+            if paths(&file_list(&api, id, &wt, false).await).iter().any(|p| p == "other.txt") {
+                break;
+            }
+        }
+        assert!(t0.elapsed() < Duration::from_millis(1000), "{:?}", t0.elapsed());
+    }
+
+    /// A worktree the tab doesn't show (an agent editing and building in a linked worktree):
+    /// its status runs at most every `INACTIVE_INTERVAL` while its events keep coming, once more
+    /// when they stop, and no WIP lists (numstat) are computed for it, only its counts.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_busy_inactive_worktree_is_throttled_and_gets_counts_only() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, _rx) = watched(&r).await;
+        let hotfix = r.root().join("wt-hotfix");
+        let m = mark(&api);
+        for i in 0..20 {
+            std::fs::write(hotfix.join(format!("new_{i}.txt")), "x\n").unwrap();
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+        tokio::time::sleep(INACTIVE_INTERVAL + Duration::from_millis(800)).await;
+        let runs = ran_since(&api, m, "status", Some(&hotfix));
+        assert!((2..=3).contains(&runs), "{runs} status runs in 6 s");
+        assert_eq!(ran_since(&api, m, "diff --numstat", Some(&hotfix)) + ran_since(&api, m, "diff --numstat --cached", Some(&hotfix)), 0, "no lists for it");
+        let g = call(&api, serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}})).await;
+        let added = g["rows"].as_array().unwrap().iter().find_map(|r| r["wip"].as_object().filter(|w| w["worktreeName"] == "wt-hotfix").map(|w| w["added"].as_u64().unwrap()));
+        assert_eq!(added, Some(20), "the counts end right");
+    }
+
+    /// The worktree the graph lays out as the open one (`active`) is the responsive one.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_graphs_active_worktree_gets_lists_at_once() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let hotfix = r.root().join("wt-hotfix");
+        let wt = canonical(&hotfix);
+        call(&api, serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "active": wt}})).await;
+        std::fs::write(hotfix.join("added.txt"), "x\n").unwrap();
+        let versions = change_naming(&mut rx, &wt).await;
+        assert!(versions.contains_key(&wt), "the active worktree's lists are kept: {versions:?}");
+    }
+
+    /// An inactive worktree whose lists the UI reads (its WIP row selected) keeps them current;
+    /// once they go unread, they're dropped rather than recomputed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_inactive_worktrees_lists_are_kept_only_while_read() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        let hotfix = r.root().join("wt-hotfix");
+        let wt = canonical(&hotfix);
+        file_list(&api, id, &wt, false).await;
+        std::fs::write(hotfix.join("one.txt"), "x\n").unwrap();
+        assert!(change_naming(&mut rx, &wt).await.contains_key(&wt), "read since: recomputed");
+        tokio::time::sleep(INACTIVE_INTERVAL).await;
+        std::fs::write(hotfix.join("two.txt"), "x\n").unwrap();
+        assert!(!change_naming(&mut rx, &wt).await.contains_key(&wt), "unread since: dropped");
+        assert!(api.handle(id).unwrap().wip.lists(&hotfix).is_none());
+        assert_eq!(paths(&file_list(&api, id, &wt, false).await), vec!["file_0.txt", "one.txt", "two.txt"]);
+    }
+
+    /// Nothing changing, nothing runs.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_idle_watch_runs_no_git() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, _rx) = watched(&r).await;
+        file_list(&api, id, &canonical(r.path()), false).await;
+        let m = mark(&api);
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(mark(&api), m);
+    }
+
+    /// Ignored build output (`target/`), in the open worktree and a linked one, runs no git.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ignored_build_output_runs_no_git() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        std::fs::write(r.path().join(".git/info/exclude"), "target/\n").unwrap();
+        let hotfix = r.root().join("wt-hotfix");
+        for root in [r.path().to_path_buf(), hotfix.clone()] {
+            std::fs::create_dir_all(root.join("target/debug")).unwrap();
+        }
+        let (api, _id, _rx) = watched(&r).await;
+        let m = mark(&api);
+        for i in 0..10 {
+            for root in [r.path().to_path_buf(), hotfix.clone()] {
+                std::fs::write(root.join(format!("target/debug/o{i}.o")), "x").unwrap();
+                std::fs::write(root.join("target/.rustc_info.json"), format!("{i}")).unwrap();
+                std::fs::create_dir_all(root.join(format!("target/debug/d{i}"))).unwrap();
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(mark(&api), m, "{:?}", ran_after(&api, m));
+    }
+
+    /// The UI reads both lists of a WIP row at once: one status and one pair of numstats.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_reads_of_a_worktrees_lists_share_one_computation() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, _rx) = watched(&r).await;
+        let wt = canonical(r.path());
+        let m = mark(&api);
+        futures_util::future::join(file_list(&api, id, &wt, false), file_list(&api, id, &wt, true)).await;
+        assert_eq!(ran_since(&api, m, "status", None), 1, "{:?}", ran_after(&api, m));
+        assert_eq!(ran_since(&api, m, "diff --numstat", None), 1, "{:?}", ran_after(&api, m));
+    }
+
+    /// A fetch moves refs only: no status and no lists.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_refs_only_change_runs_no_status() {
+        let r = TestRepo::new();
+        fixtures::basic(&r);
+        let (api, id, mut rx) = watched(&r).await;
+        file_list(&api, id, &canonical(r.path()), false).await;
+        let m = mark(&api);
+        let head = r.git(&["rev-parse", "HEAD"]);
+        r.git(&["update-ref", "refs/remotes/origin/fetched", head.trim()]);
+        let (kinds, _) = next_change(&mut rx, Duration::from_secs(5)).await.expect("an event");
+        assert!(kinds.contains(&ChangeKind::Refs));
+        ui_refresh(&api, id, true).await;
+        assert_eq!(ran_since(&api, m, "status", None), 0, "{:?}", ran_after(&api, m));
+        assert_eq!(ran_since(&api, m, "diff --numstat", None), 0, "{:?}", ran_after(&api, m));
     }
 }

@@ -4,8 +4,9 @@ import { useMenu } from '../menu/menuStore';
 import { useToast } from '../ui/toast';
 import type { ActivityEntry } from './ops';
 
-/** The Debug modal's tabs (R9): the activity log, the backend's git command log, the action log. */
-export type DebugView = 'activity' | 'commands' | 'actions';
+/** The Debug modal's tabs (R9): the activity log, the backend's git command log and request log,
+ * the action log. */
+export type DebugView = 'activity' | 'commands' | 'requests' | 'actions';
 
 interface ActivityUi {
   open: boolean;

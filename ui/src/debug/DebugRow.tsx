@@ -29,6 +29,8 @@ interface Props {
   title?: string;
   pills?: Pill[];
   ms: number;
+  /** The duration as written, when `seconds(ms)` isn't it (a request's tenths of a millisecond). */
+  msText?: string;
   /** The entry as plain text, for its Copy button. */
   copy: () => string;
   /** The expanded part (command, output), rendered only while expanded; none means no chevron. */
@@ -46,7 +48,7 @@ interface Props {
  * (status, time, label, pills, duration, Copy on hover) that expands into a selectable monospace
  * block on click.
  */
-export function DebugRow({ status, at, now, label, title, pills = [], ms, copy, detail, defaultOpen = false, className = '', liRef, current, dataOp }: Props) {
+export function DebugRow({ status, at, now, label, title, pills = [], ms, msText, copy, detail, defaultOpen = false, className = '', liRef, current, dataOp }: Props) {
   const [open, setOpen] = useState(defaultOpen);
   useEffect(() => { if (defaultOpen) setOpen(true); }, [defaultOpen]);
   const Icon = STATUS_ICON[status];
@@ -63,7 +65,7 @@ export function DebugRow({ status, at, now, label, title, pills = [], ms, copy, 
         <span className="debug-pills">
           {pills.map((p, i) => <span key={i} className={`debug-pill${p.mono ? ' mono' : ''}${p.bad ? ' bad' : ''}`} title={p.title}>{p.text}</span>)}
         </span>
-        <span className="debug-ms">{seconds(ms)}</span>
+        <span className="debug-ms">{msText ?? seconds(ms)}</span>
         <button type="button" className="icon-button debug-copy" aria-label="Copy entry" onClick={(ev) => { ev.stopPropagation(); void copyAndSay(copy()); }}><Copy size={13} /></button>
       </div>
       {open && detail && <div className="debug-row-detail">{detail()}</div>}

@@ -277,10 +277,10 @@ impl PullIntent {
 }
 
 /// `branch` checked out in a worktree other than `root`: its path.
-async fn checked_out_elsewhere(api: &Api, root: &std::path::Path, branch: &str) -> Result<Option<std::path::PathBuf>, GbError> {
+async fn checked_out_elsewhere(root: &std::path::Path, branch: &str) -> Result<Option<std::path::PathBuf>, GbError> {
     let full = format!("refs/heads/{branch}");
     let here = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    Ok(crate::worktree::list_worktrees(&api.cli, root)
+    Ok(crate::worktree::list_worktrees(root)
         .await?
         .into_iter()
         .find(|w| w.branch.as_deref() == Some(full.as_str()) && w.path.canonicalize().unwrap_or_else(|_| w.path.clone()) != here)
@@ -355,7 +355,7 @@ impl WriteIntent for PullIntent {
             if self.mode != PullMode::FfOnly {
                 return Err(check_out_first(&self.branch));
             }
-            if let Some(path) = checked_out_elsewhere(pre.api, pre.root, &self.branch).await? {
+            if let Some(path) = checked_out_elsewhere(pre.root, &self.branch).await? {
                 return Err(elsewhere_error(&self.branch, &path));
             }
         }
@@ -480,7 +480,7 @@ pub(crate) async fn pull(api: &Api, repo: u32, worktree: &str, branch: Option<St
         if mode != PullMode::FfOnly {
             return Err(check_out_first(&branch));
         }
-        if let Some(path) = checked_out_elsewhere(api, &root, &branch).await? {
+        if let Some(path) = checked_out_elsewhere(&root, &branch).await? {
             return Err(elsewhere_error(&branch, &path));
         }
     }
