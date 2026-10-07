@@ -24,3 +24,7 @@
 .arm-popover .modal-actions button:focus { outline-offset: 1px; }
 /* Its row armed (a risky choice covers it): no focus ring pokes out from under the overlay. */
 .arm-popover .modal-actions:has([data-armed]) button { outline: none; }
+
+/* A confirm popover's row never wraps: Cancel at its own size, the answer filling the rest. */
+.arm-popover .modal-actions.confirm-actions { flex-wrap: nowrap; }
+.arm-popover .modal-actions.confirm-actions .confirm-main { flex: 1; min-width: 0; }

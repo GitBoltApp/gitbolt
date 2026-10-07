@@ -115,18 +115,15 @@ describe('StatusBar (spec §6.5)', () => {
     expect(bar()).toHaveTextContent('Fetch skipped: authentication required');
   });
 
-  it('the bell counts unread background errors, and lists them newest first', () => {
+  it('the Keyboard shortcuts button opens the panel, left of the version', async () => {
+    await import('../shortcuts/feature');
+    const { useShortcutsUi } = await import('../shortcuts/ShortcutsPanel');
     render(<StatusBar />);
-    const bell = () => screen.getByRole('button', { name: /^Notifications/ });
-    const labels = () => useMenu.getState().rows!.map((r) => (r.kind === 'separator' ? '-' : r.label));
-    fireEvent.click(bell());
-    expect(labels()).toEqual(['No notifications', '-', 'Activity log…']);
-    act(() => useMenu.getState().close());
-    act(() => { useOps.getState().pushError('Fetch failed (a): one'); useOps.getState().pushError('Fetch failed (b): two'); });
-    expect(bell()).toHaveAccessibleName('Notifications (2 new)');
-    fireEvent.click(bell());
-    expect(labels()).toEqual(['Fetch failed (b): two', 'Fetch failed (a): one', '-', 'Activity log…', 'Clear notifications']);
-    expect(bell()).toHaveAccessibleName('Notifications');
+    const btn = screen.getByRole('button', { name: 'Keyboard shortcuts' });
+    expect(btn.nextElementSibling).toHaveTextContent(/^git /);
+    expect(screen.queryByRole('button', { name: /^Notifications/ })).toBeNull();
+    fireEvent.click(btn);
+    expect(useShortcutsUi.getState().open).toBe(true);
   });
 
   it('shows a write still running after 2 s, with Cancel (spec #2 §3.3)', async () => {

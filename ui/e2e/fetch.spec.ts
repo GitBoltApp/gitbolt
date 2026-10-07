@@ -127,7 +127,7 @@ test.describe('fetch', () => {
       await expect(graph(page)).toBeVisible();
       // A cancelled prompt is a cancel, not an error: no toast, nothing in the bell.
       await expect(page.getByRole('status')).toHaveCount(0);
-      await expect(statusBar(page).getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
+      await expect(page.locator('.tab-bar').getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
     });
     await test.step('cancelling from the status bar kills the fetch quietly', async () => {
       await fetchButton(page).click();
@@ -148,10 +148,10 @@ test.describe('fetch', () => {
       await expect(statusBar(page)).not.toContainText('Fetching');
       await expect(dialog.getByLabel('Answer')).toBeFocused();
       await dialog.getByLabel('Answer').fill('ada');
-      await dialog.getByRole('button', { name: 'OK' }).click();
+      await dialog.getByRole('button', { name: 'Submit' }).click();
       await expect(dialog.getByLabel('Password')).toHaveAttribute('type', 'password');
       await dialog.getByLabel('Password').fill('wrong');
-      await dialog.getByRole('button', { name: 'OK' }).click();
+      await dialog.getByRole('button', { name: 'Submit' }).click();
       await expect(page.getByRole('status')).toContainText('Authentication failed', { timeout: 10_000 });
       await expect(dialog).toHaveCount(0);
     });
@@ -188,7 +188,7 @@ test.describe('fetch', () => {
     await expect(dialog).toContainText('Enter passphrase for key');
     await expect(dialog.getByLabel('Password')).toHaveAttribute('type', 'password');
     await dialog.getByLabel('Password').fill('testpass');
-    await dialog.getByRole('button', { name: 'OK' }).click();
+    await dialog.getByRole('button', { name: 'Submit' }).click();
     // The fetched commit shows; a fetch that worked raises no toast.
     await expect(page.getByText('Fetched over ssh')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('status').filter({ hasText: 'Fetch failed' })).toHaveCount(0);

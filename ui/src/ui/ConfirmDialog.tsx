@@ -75,12 +75,14 @@ function ConfirmPopover({ a }: { a: Armed }) {
     window.addEventListener('pointerdown', onDown, true);
     return () => window.removeEventListener('pointerdown', onDown, true);
   }, []);
-  // Board H (started from the keyboard): the primary button takes the focus, so Enter goes. A
-  // popover that opens after a click's write (the control gone) focuses Cancel: a key pressed
-  // meanwhile mustn't run the destructive answer. After the focus trap's own focus (which,
+  // Board H (started from the keyboard): a safe answer takes the focus, so Enter goes; a
+  // destructive one starts on Cancel, as does a popover that opens after a click's write (the
+  // control gone): a key pressed meanwhile mustn't run it. After the focus trap's own focus (which,
   // re-run, would put it on the first button: React's dev double effects).
   useEffect(() => { ref.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true }); }, [ref]);
   const tone = a.req.tone;
+  // Enter goes (focus on the answer) only for a safe answer; a destructive or risky one starts on Cancel.
+  const goFocus = a.hints && tone !== 'danger' && tone !== 'warn';
   const opt = a.req.option;
   return (
     <div
@@ -96,12 +98,12 @@ function ConfirmPopover({ a }: { a: Armed }) {
       <h2 id="confirm-title">{a.req.title}</h2>
       {a.req.body && <p id="confirm-body">{a.req.body}</p>}
       {opt && <OptionCheck opt={opt} checked={a.checked} onChange={setArmOption} />}
-      {/* One right-aligned row (the app's dialogs): Cancel, a quiet text button, then the answer. */}
-      <div className="modal-actions">
-        {a.hints && <span className="arm-hints" aria-hidden><kbd>⏎</kbd>go<kbd>Esc</kbd>cancel</span>}
-        <button type="button" className="choice-cancel" autoFocus={!a.hints} data-autofocus={!a.hints || undefined} onClick={cancel}>Cancel</button>
+      {/* One row: Cancel, a quiet text button, then the answer filling the rest of the width. */}
+      <div className="modal-actions confirm-actions">
+        {a.hints && <span className="arm-hints" aria-hidden>{goFocus && <><kbd>⏎</kbd>go</>}<kbd>Esc</kbd>cancel</span>}
+        <button type="button" className="choice-cancel" autoFocus={!goFocus} data-autofocus={!goFocus || undefined} onClick={cancel}>Cancel</button>
         {/* Only a fresh press after the popover opened answers it (the settle guard). */}
-        <button type="button" autoFocus={a.hints} data-autofocus={a.hints || undefined} className={tone === 'danger' ? 'danger' : tone === 'warn' ? 'warn' : 'primary positive'} onClick={(e) => { if (confirmable(e.nativeEvent, a)) a.resolve(true); }}>{a.req.confirmLabel}</button>
+        <button type="button" autoFocus={goFocus} data-autofocus={goFocus || undefined} className={`confirm-main ${tone === 'danger' ? 'danger' : tone === 'warn' ? 'warn' : 'primary positive'}`} onClick={(e) => { if (confirmable(e.nativeEvent, a)) a.resolve(true); }}>{a.req.confirmLabel}</button>
       </div>
     </div>
   );

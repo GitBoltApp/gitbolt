@@ -34,7 +34,8 @@ function resolve(t: CommitTarget, env: MenuEnv): { plan: DeletePlan; localWhy: s
     : remoteBranch(b.remotes[0]?.fullName ?? `refs/remotes/origin/${b.name}`);
   const remote = found?.ref ?? null;
   const unpushed = local && found && local.upstream === found.full && !local.gone && local.ahead > 0 ? local.ahead : undefined;
-  const localWhy = !local ? 'No local branch' : local.checkedOut === env.activeWorktree ? 'Checked out' : local.checkedOut ? `Checked out in ${env.worktreeShown(local.checkedOut)}` : null;
+  const n = local?.name ?? b.name;
+  const localWhy = !local ? 'No local branch' : local.checkedOut === env.activeWorktree ? `Can't delete ${n}: it's checked out` : local.checkedOut ? `Can't delete ${n}: it's checked out in ${env.worktreeShown(local.checkedOut)}` : null;
   return { plan: { branch: local?.name ?? b.name, local: local ? { oid: local.target } : null, remote, unpushed }, localWhy, remoteWhy: remote ? null : 'No remote branch' };
 }
 
@@ -46,21 +47,24 @@ export function deleteRow(t: CommitTarget, env: MenuEnv): MenuRow | null {
   const { plan, localWhy, remoteWhy } = r;
   const remoteName = plan.remote ? `${plan.remote.remote}/${plan.remote.branch}` : '';
   const go = (local: boolean, remote: boolean) => () => void deleteBranch(ctx, { ...plan, local: local ? plan.local : null, remote: remote ? plan.remote : null });
-  // Only the variants that can run: none for a branch that's checked out and has no remote.
-  const canLocal = !localWhy;
-  const canRemote = !remoteWhy;
-  if (!canLocal && !canRemote) return null;
+  // Local shows (disabled, with why) wherever a local branch exists; Remote only where there is one.
+  const hasLocal = !!plan.local;
+  const canLocal = hasLocal && !localWhy;
+  const hasRemote = !!plan.remote;
+  const localOff = localWhy ? { disabledReason: localWhy } : {};
   const variants: Variant[] = [
-    ...(canLocal ? [{ id: 'local', label: 'Local', tooltip: `Delete the local branch ${plan.branch} (you can undo this)`, run: go(true, false) }] : []),
-    ...(canRemote ? [{ id: 'remote', label: 'Remote', tooltip: `Delete ${remoteName || 'the remote branch'} from its remote (a push: can't be undone)`, run: go(false, true) }] : []),
-    ...(canLocal && canRemote ? [{ id: 'both', label: 'Both', tooltip: 'Delete the remote branch, then the local one', run: go(true, true) }] : []),
+    ...(hasLocal ? [{ id: 'local', label: 'Local', tooltip: `Delete the local branch ${plan.branch} (you can undo this)`, run: go(true, false), ...localOff }] : []),
+    ...(hasRemote ? [{ id: 'remote', label: 'Remote', tooltip: `Delete ${remoteName} from its remote (a push: can't be undone)`, run: go(false, true) }] : []),
+    ...(hasLocal && hasRemote ? [{ id: 'both', label: 'Both', tooltip: 'Delete the remote branch, then the local one', run: go(true, true), ...localOff }] : []),
   ];
-  // The label: the local branch, or the remote one when the local can't go (or there's none).
-  const remoteOnly = !canLocal;
+  // The row runs the local branch's delete, or the remote one when the local can't go (or there's none).
+  const remoteOnly = !canLocal && hasRemote;
+  const why = remoteOnly || canLocal ? undefined : localWhy ?? remoteWhy ?? undefined;
   return {
     kind: 'action', id: 'branch.delete', label: 'Delete', icon: Trash2, variants,
     tooltip: remoteOnly ? `Delete ${remoteName} from ${plan.remote!.remote}` : `Delete the local branch ${plan.branch}`,
     run: remoteOnly ? go(false, true) : go(true, false),
+    defaultVariant: remoteOnly ? 'remote' : 'local', disabledReason: why,
   };
 }
 

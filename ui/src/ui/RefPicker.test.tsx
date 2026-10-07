@@ -94,7 +94,7 @@ describe('RefPicker', () => {
     picker({ onPick, onClose, ignore: opener });
     fireEvent.pointerDown(opener);
     expect(onClose).not.toHaveBeenCalled();
-    fireEvent.pointerDown(document.body);
+    fireEvent.pointerDown(document.body, { clientX: 500, clientY: 500 });
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByText('hotfix'));
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'hotfix' }));
@@ -136,5 +136,35 @@ describe('RefPicker placement', () => {
     unmount();
     picker({ anchor: new DOMRect(10, window.innerHeight + 200, 100, 20) });
     expect(parseFloat((document.querySelector('.picker') as HTMLElement).style.top)).toBeLessThanOrEqual(window.innerHeight - 4);
+  });
+});
+
+describe('RefPicker: pressing its trigger again toggles it closed', () => {
+  it('a press on the anchor closes it once, and the click that follows does not reach the trigger (no reopen)', () => {
+    const onClose = vi.fn();
+    const reopen = vi.fn();
+    render(<button type="button" onClick={reopen}>trigger</button>);
+    picker({ anchor: new DOMRect(10, 10, 100, 20), onClose });
+    const trigger = screen.getByRole('button', { name: 'trigger' });
+    fireEvent.pointerDown(trigger, { clientX: 20, clientY: 15 });
+    // The real order: the popup's search box blurs towards the trigger, then the click.
+    fireEvent.blur(input(), { relatedTarget: trigger });
+    fireEvent.pointerUp(trigger, { clientX: 20, clientY: 15 });
+    fireEvent.click(trigger, { clientX: 20, clientY: 15 });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(reopen).not.toHaveBeenCalled();
+  });
+
+  it('a press elsewhere closes it and the click is not swallowed', () => {
+    const onClose = vi.fn();
+    const other = vi.fn();
+    render(<button type="button" onClick={other}>other</button>);
+    picker({ anchor: new DOMRect(10, 10, 100, 20), onClose });
+    const b = screen.getByRole('button', { name: 'other' });
+    fireEvent.pointerDown(b, { clientX: 400, clientY: 400 });
+    fireEvent.pointerUp(b, { clientX: 400, clientY: 400 });
+    fireEvent.click(b, { clientX: 400, clientY: 400 });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(other).toHaveBeenCalledOnce();
   });
 });

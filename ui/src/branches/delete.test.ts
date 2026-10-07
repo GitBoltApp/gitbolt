@@ -16,19 +16,22 @@ const variants = (row: ReturnType<typeof deleteRow>) => (row?.kind === 'action' 
 describe('Delete | Local | Remote | Both | (spec #2 §9.2)', () => {
   it('offers all three for a local branch with an upstream', () => {
     const row = deleteRow(target('feature/x'), env([local('feature/x')]));
-    expect(row?.kind === 'action' && row.disabledReason).toBeFalsy();
+    expect(row?.kind === 'action' && [row.disabledReason, row.defaultVariant]).toEqual([undefined, 'local']);
     expect(variants(row)).toEqual({ local: null, remote: null, both: null });
   });
-  it('hides what can\'t apply (spec #2 §9.2)', () => {
+  it('omits what makes no sense, and shows what is blocked as disabled with its reason (spec #2 §9.2)', () => {
     expect(variants(deleteRow(target('solo'), env([local('solo', { upstream: null })], [])))).toEqual({ local: null });
     expect(variants(deleteRow(target('feature/x', false), env([])))).toEqual({ remote: null });
-    // Checked out (here or in another worktree): only the remote branch can go, and the label deletes it.
+    // Checked out here: Local stays, disabled, with why; the label runs Remote.
     const here = deleteRow(target('feature/x'), env([local('feature/x', { checkedOut: '/r' })]));
-    expect(variants(here)).toEqual({ remote: null });
-    expect(here?.kind === 'action' && here.tooltip).toBe('Delete origin/feature/x from origin');
-    expect(variants(deleteRow(target('feature/x'), env([local('feature/x', { checkedOut: '/r-x' })])))).toEqual({ remote: null });
-    // Checked out with no remote branch: nothing to delete, no row.
-    expect(deleteRow(target('solo'), env([local('solo', { upstream: null, checkedOut: '/r' })], []))).toBeNull();
+    expect(variants(here)).toEqual({ local: "Can't delete feature/x: it's checked out", remote: null, both: "Can't delete feature/x: it's checked out" });
+    expect(here?.kind === 'action' && [here.disabledReason, here.defaultVariant, here.tooltip]).toEqual([undefined, 'remote', 'Delete origin/feature/x from origin']);
+    // Checked out in another worktree: it names that worktree.
+    expect(variants(deleteRow(target('feature/x'), env([local('feature/x', { checkedOut: '/r-x' })]))).local).toBe("Can't delete feature/x: it's checked out in ../r-x");
+    // Checked out with no remote branch: a disabled row.
+    const solo = deleteRow(target('solo'), env([local('solo', { upstream: null, checkedOut: '/r' })], []));
+    expect(variants(solo)).toEqual({ local: "Can't delete solo: it's checked out" });
+    expect(solo?.kind === 'action' && solo.disabledReason).toBe("Can't delete solo: it's checked out");
   });
   it('the label deletes the remote branch when there is only a remote one', () => {
     const row = deleteRow(target('feature/x', false), env([]));

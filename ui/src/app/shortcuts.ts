@@ -6,18 +6,27 @@ import { actionForCombo, invoke } from './actions';
 const CODE_NAMES: Record<string, string> = { Comma: ',', Equal: '=', Minus: '-', Period: '.', Slash: '/', Backquote: '`', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Backslash: '\\' };
 const MODIFIERS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'OS']);
 
+const FUNCTION_KEY = /^F([1-9]|1[0-2])$/;
+
 /**
- * "Ctrl+Shift+T" for a Ctrl chord; '' for anything else (no Ctrl, a Super/Meta chord, a lone
- * modifier, IME composition). Letters follow the layout the way 1B's `matchesLetter` does
- * (`letterOf`: by character, else by key position); digits and punctuation by key position, so
- * Shift doesn't rename them.
+ * "Ctrl+Shift+T" for a Ctrl chord, "F8" / "Shift+F7" for a function key, "Alt+1" for Alt and a
+ * digit (the focus keys); '' for anything else (another key without Ctrl, a Super/Meta chord, a
+ * lone modifier, IME composition). Alt with an arrow isn't named: Alt+←/→ are Go back / forward
+ * (`nav/input.ts`). Letters follow the layout the way 1B's `matchesLetter` does (`letterOf`: by
+ * character, else by key position); digits and punctuation by key position, so Shift doesn't
+ * rename them.
  */
 export function comboOf(e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey' | 'key' | 'code'> & { isComposing?: boolean }): string {
-  if (!e.ctrlKey || e.metaKey || e.isComposing || MODIFIERS.has(e.key)) return '';
+  if (e.metaKey || e.isComposing || MODIFIERS.has(e.key)) return '';
+  const digit = /^Digit\d$/.test(e.code) ? e.code.slice(5) : null;
+  if (!e.ctrlKey) {
+    if (FUNCTION_KEY.test(e.key)) return [e.altKey && 'Alt', e.shiftKey && 'Shift', e.key].filter(Boolean).join('+');
+    return e.altKey && digit ? ['Alt', e.shiftKey && 'Shift', digit].filter(Boolean).join('+') : '';
+  }
   const letter = letterOf(e);
   let key = e.key;
   if (letter) key = letter.toUpperCase();
-  else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  else if (digit) key = digit;
   else if (CODE_NAMES[e.code]) key = CODE_NAMES[e.code];
   return ['Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+');
 }
@@ -41,7 +50,9 @@ const blockBrowserChords: KeyHandler = (e) => {
  * claims its keys first, and within the app layer, the only Ctrl+W binding is here (it closes
  * the open file if there is one, else the tab; `coreActions.ts`). Ctrl chords work even while
  * typing in a text box (spec §11.1), except where the action yields to the focused element
- * (`Action.yieldsTo`: Ctrl+Z belongs to a text box's own undo, spec #2 §5.5).
+ * (`Action.yieldsTo`: Ctrl+Z belongs to a text box's own undo, spec #2 §5.5; Ctrl+Enter, to a
+ * field that submits). The function keys (F8) and Alt+digit (the focus keys) dispatch here too;
+ * an action whose keys another handler takes (`Action.keysBy`: F7, Alt+←) never matches.
  */
 export const shortcutKeys: KeyHandler = (e) => {
   const action = actionForCombo(comboOf(e));

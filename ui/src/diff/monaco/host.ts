@@ -3,10 +3,12 @@ import { DEFAULT_DIFF_PREFS, type EditorDiffPrefs } from '../diffPrefs';
 import { useEditorSettings } from '../editorSettings';
 import { clampEditorFont, diffEditorOptions, EDITOR_SCROLLBAR, fileViewOptions } from '../options';
 import { enableDeletedLineCopy } from './deletedCopy';
+import { keepOriginalWrap } from './originalWrap';
 import { HexPanes, type HexView } from './hexPanes';
 import { FileMarginStrip, type FileMargin } from './fileMargin';
 import { deletedLineAt, LineGutter, type LineGutterSpec } from './lineGutter';
 import { captureAnchor, restoreAnchor, type ScrollAnchor } from './scrollAnchor';
+import { openTop, revealTop, stepTarget, type ChangeBox } from '../changeNav';
 import { overflowLayer } from './overflow';
 import { monaco } from './setup';
 import { useAppState } from '../../app/state';
@@ -54,8 +56,10 @@ export interface MonacoHost {
    * `next` on screen, as `attachDiff` does. False (nothing done) when it's elsewhere. */
   keepDiff(el: HTMLElement, next: DiffContent): boolean;
   /** Resolves once the diff is on screen. Monaco computes it off-screen first, so the previous
-   * diff stays until the new one swaps in whole: decorations, Hunk mode's collapsed regions and,
-   * in Inline and Split, scrolled to its first change. A newer call makes an older one a no-op.
+   * diff stays until the new one swaps in whole: decorations, Hunk mode's collapsed regions and
+   * its first change centred, with the cursor on it (at the top instead when it shows there whole).
+   * That place is held through late relayouts until the user takes over, as `setDiffPrefs`'s.
+   * A newer call makes an older one a no-op.
    * `attachDiff` must have run first: before that there's no diff editor, and it resolves
    * without showing anything. */
   showDiff(req: DiffShowRequest): Promise<void>;
@@ -64,6 +68,9 @@ export interface MonacoHost {
    * (Ignore whitespace), until the user takes over (a pointer, the wheel, a key, Next/Previous
    * change) or another file shows. No jump to the first change: that's for a new file only. */
   setDiffPrefs(prefs: EditorDiffPrefs): void;
+  /** Next: the first change starting below the viewport's centre line; Previous: the last one
+   * ending above it (`stepTarget`), centred, with the cursor on it. Right after a step (or the
+   * open), while the view is still where it was put, it goes on from that change. Wraps. */
   goToChange(direction: 'next' | 'previous'): void;
   /** `next`: as `attachDiff`'s, for File View. */
   attachFile(el: HTMLElement, next?: FileContent): void;
@@ -120,6 +127,9 @@ export interface MonacoHost {
   /** Each selection in either editor (and again when it scrolls), as the lines it covers on that
    * side and where its last line is on screen; `null` when it's empty. `null` removes the listener. */
   onDiffSelection(cb: ((s: DiffSelection | null) => void) | null): void;
+  /** The diff editor's cursor: its line, on the side holding the keyboard, else the new side
+   * (where Next/Previous change puts it). `null` while no diff is attached. */
+  diffCursor(): { side: 'original' | 'modified'; line: number } | null;
   /** A binary's hex view (UX round 2, lane K) in `el`: editors of its own, hex | text per side,
    * until `dispose` (which the view calls when `el` goes). While it's on screen, Next/Previous
    * change, `focus` and `openFind` act on it, and the context menu is this host's. */
@@ -136,7 +146,7 @@ export const HUNK_ZONE_PX = 24;
 /** Monaco's own zones take its default ordinal (10000): a header row comes after them. */
 const HUNK_ZONE_ORDINAL = 10001;
 
-/** Lines of context above the first change when a diff opens scrolled to it (as Hunk mode's). */
+/** Lines of context above a change taller than the view when it's revealed (as Hunk mode's). */
 export const REVEAL_CONTEXT_LINES = 3;
 /** How long a diff may take to compute before it's shown anyway (without its decorations). */
 const DIFF_BACKSTOP_MS = 5000;
@@ -150,6 +160,33 @@ const ANCHOR_RECOMPUTE_MAX_MS = 15_000;
 const KEPT_VIEW_MS = 5000;
 /** Monaco's `ScrollType.Immediate`: no smooth scrolling. */
 const SCROLL_IMMEDIATE = 1;
+/** A held place: a line at the viewport centre (a prefs change), or the first change (an open). */
+type Hold = ScrollAnchor | 'first';
+
+type LineChange = MonacoNs.editor.ILineChange;
+/** Each change's extent in the diff's scroll space, from whichever sides have its lines. Both
+ * editors share that space: in Inline and Hunk the original editor is the old-line-number strip,
+ * its deleted lines level with the modified side's zone for them (see `scrollAnchor.ts`). */
+function changeBoxes(ed: MonacoNs.editor.IStandaloneDiffEditor, changes: LineChange[]): ChangeBox[] {
+  const o = ed.getOriginalEditor();
+  const m = ed.getModifiedEditor();
+  return changes.map((c) => {
+    const tops: number[] = [];
+    const bottoms: number[] = [];
+    if (c.originalEndLineNumber > 0) {
+      tops.push(o.getTopForLineNumber(c.originalStartLineNumber));
+      bottoms.push(o.getBottomForLineNumber(c.originalEndLineNumber));
+    }
+    if (c.modifiedEndLineNumber > 0) {
+      tops.push(m.getTopForLineNumber(c.modifiedStartLineNumber));
+      bottoms.push(m.getBottomForLineNumber(c.modifiedEndLineNumber));
+    }
+    return { top: Math.min(...tops), bottom: Math.max(...bottoms) };
+  });
+}
+/** The modified line a change's cursor goes to. A pure deletion reports the line above it; its
+ * removed lines show below that line. */
+const changeLine = (c: LineChange) => (c.modifiedEndLineNumber === 0 ? c.modifiedStartLineNumber + 1 : c.modifiedStartLineNumber);
 /** Keys that are only modifiers: pressing one alone isn't the user taking over the scroll. */
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'OS', 'Super', 'Hyper', 'Fn', 'FnLock', 'CapsLock', 'NumLock', 'ScrollLock', 'Symbol', 'SymbolLock']);
 
@@ -204,7 +241,10 @@ class Host implements MonacoHost {
    * line breaks), until the user takes over by input. Scroll positions can't tell: Monaco moves
    * the view itself while it relayouts (recovering its viewport start, restoring its scroll
    * state), and reports that before or after the relayout's own events, depending on the path. */
-  private anchor: ScrollAnchor | null = null;
+  private anchor: Hold | null = null;
+  /** The change a reveal (the open's, a step's) put the view on, and the scroll it left: the next
+   * step goes on from that change while the view is still there (`stepTarget`'s `current`). */
+  private revealed: { index: number; top: number } | null = null;
   private anchorTimer: ReturnType<typeof setTimeout> | undefined;
   /** Recomputes (Ignore whitespace) that prefs changes asked for and whose results aren't in: the
    * place is held until the last one is. Monaco computes each to the end (a later one doesn't
@@ -290,11 +330,13 @@ class Host implements MonacoHost {
       this.wireMenu(this.diff.getOriginalEditor(), 'original');
       this.wireMenu(this.diff.getModifiedEditor(), 'modified');
       enableDeletedLineCopy(this.diff);
+      keepOriginalWrap(this.diff.getOriginalEditor(), monaco.editor.EditorOption.wordWrapOverride2);
       // A relayout that lands later still (word wrap's line breaks, a recompute's view zones and
       // collapsed regions), or Monaco moving the view itself (recovering its viewport start):
       // keep the anchored place.
       const m = this.diff.getModifiedEditor();
       m.onDidContentSizeChange(() => this.onRelayout());
+      m.onDidLayoutChange(() => this.onRelayout());
       m.onDidScrollChange((e) => {
         if (e.scrollTopChanged && !this.restoring) this.onRelayout();
       });
@@ -370,8 +412,11 @@ class Host implements MonacoHost {
     ed.setModel(view);
     this.hunkZones = req.hunkZones ? { req: req.hunkZones, zones } : null;
     this.layHunkZones();
-    // Before the next frame renders: the diff shows up already at its first change.
-    this.revealFirstChange(ed);
+    // A save's reload keeps its place (below); any other show opens at the first change, before
+    // the next frame renders, so the diff shows up already there.
+    const kept = this.keptView?.diff && this.keptView.diffPath === req.path ? this.keptView.diff : null;
+    this.revealed = null;
+    if (!kept) this.openAtFirstChange(ed);
     // A new model gets a new view, which Monaco would paint empty and fill a frame later (the
     // "black frame"): draw both sides now, in this task.
     ed.getOriginalEditor().render(true);
@@ -382,32 +427,65 @@ class Host implements MonacoHost {
     for (const m of this.diffModels) m.dispose();
     this.diffView = view;
     this.diffModels = [original, modified];
-    if (this.keptView?.diff && this.keptView.diffPath === req.path) ed.restoreViewState(this.keptView.diff);
+    if (kept) ed.restoreViewState(kept);
     this.keptView = null;
   }
 
-  /** Inline and Split: scrolls the new diff so its first change sits near the top, with
-   * `REVEAL_CONTEXT_LINES` above it (F28), unless it's already on the first screen. Once per `showDiff`, never on a prefs change, so it
-   * doesn't fight the user's own scrolling. Hunk mode already starts at its first hunk. */
-  private revealFirstChange(ed: MonacoNs.editor.IStandaloneDiffEditor): void {
-    if (this.prefs.mode === 'hunk') return;
+  /** A new diff opens at its first change (`openTop`: centred, or at the top when it shows there
+   * whole), in every mode, with the cursor on it. Once per `showDiff`, never on a prefs change, so
+   * it doesn't fight the user's own scrolling. The place is held like a prefs change's: what lays
+   * out later (word wrap's line breaks, view zones, Hunk's collapsed regions, the editor's own
+   * size) would move the change, so it's revealed again until the user takes over. */
+  private openAtFirstChange(ed: MonacoNs.editor.IStandaloneDiffEditor): void {
     const first = ed.getLineChanges()?.[0];
     if (!first) return;
-    // A pure deletion reports the line above it; its removed lines show below that line.
-    const line = first.modifiedEndLineNumber === 0 ? first.modifiedStartLineNumber + 1 : first.modifiedStartLineNumber;
+    ed.getModifiedEditor().setPosition({ lineNumber: this.clampLine(changeLine(first)), column: 1 });
+    this.revealChange(ed, 0, true);
+    this.anchor = 'first';
+    this.holdFor(ANCHOR_HOLD_MS);
+  }
+
+  /** Scrolls change `index` into place: `openTop` for the open, else `revealTop` (centred).
+   * False when there's no such change. */
+  private revealChange(ed: MonacoNs.editor.IStandaloneDiffEditor, index: number, open: boolean): boolean {
+    const box = changeBoxes(ed, ed.getLineChanges() ?? [])[index];
+    if (!box) return false;
     const m = ed.getModifiedEditor();
-    // Already on the first screen: leave it at the top.
-    if (m.getTopForLineNumber(line + 1) <= m.getLayoutInfo().height) return;
-    m.setScrollTop(m.getTopForLineNumber(Math.max(1, line - REVEAL_CONTEXT_LINES)), SCROLL_IMMEDIATE);
+    const height = m.getLayoutInfo().height;
+    const margin = REVEAL_CONTEXT_LINES * m.getOption(monaco.editor.EditorOption.lineHeight);
+    this.restoring = true;
+    try {
+      m.setScrollTop(open ? openTop(box, height, margin) : revealTop(box, height, margin), SCROLL_IMMEDIATE);
+    } finally {
+      this.restoring = false;
+    }
+    this.revealed = { index, top: m.getScrollTop() };
+    return true;
+  }
+
+  /** The change the view is still on, where a reveal left it; null once it's moved. */
+  private revealedChange(): number | null {
+    const m = this.diff?.getModifiedEditor();
+    return m && this.revealed && Math.abs(m.getScrollTop() - this.revealed.top) <= 1 ? this.revealed.index : null;
+  }
+
+  private clampLine(line: number): number {
+    return Math.max(1, Math.min(line, this.diff?.getModifiedEditor().getModel()?.getLineCount() ?? line));
   }
 
   setDiffPrefs(prefs: EditorDiffPrefs): void {
     const ed = this.diff;
     const recomputes = prefs.ignoreWhitespace !== this.prefs.ignoreWhitespace;
     // An anchor still held (a relayout or recompute not in yet) is the truer place than the
-    // scroll now, whatever Monaco scrolled meanwhile.
-    const anchor = ed && this.diffModels.length ? (this.anchor ?? captureAnchor(ed, this.prefs.mode)) : null;
+    // scroll now, whatever Monaco scrolled meanwhile. The open's first change only while the view
+    // is still on it: a move we saw no input for is the user's too.
+    const held = this.anchor === 'first' && this.revealedChange() === null ? null : this.anchor;
+    const anchor = ed && this.diffModels.length ? (held ?? captureAnchor(ed, this.prefs.mode)) : null;
     this.applyDiffPrefs(prefs);
+    // The view keeps a line now, not a change (and a recompute renumbers them): the steps go by
+    // the centre line again, even where the scroll happens to be the same. The open's first
+    // change is revealed again (`restore`).
+    this.revealed = null;
     if (!ed || !anchor) return;
     this.anchor = anchor;
     this.restore(ed, anchor);
@@ -416,7 +494,11 @@ class Host implements MonacoHost {
   }
 
   /** Scrolls back to `at`. */
-  private restore(ed: MonacoNs.editor.IStandaloneDiffEditor, at: ScrollAnchor): void {
+  private restore(ed: MonacoNs.editor.IStandaloneDiffEditor, at: Hold): void {
+    if (at === 'first') {
+      this.revealChange(ed, 0, true);
+      return;
+    }
     this.restoring = true;
     try {
       restoreAnchor(ed, at);
@@ -511,7 +593,25 @@ class Host implements MonacoHost {
     if (this.hex?.isShown()) return this.hex.goToChange(direction);
     // The user's own move (F7, Next/Previous change): a kept place mustn't pull the view back.
     this.dropAnchor();
-    this.diff?.goToDiff(direction);
+    const ed = this.diff;
+    if (!ed) return;
+    const changes = ed.getLineChanges() ?? [];
+    const m = ed.getModifiedEditor();
+    const view = { top: m.getScrollTop(), height: m.getLayoutInfo().height };
+    const i = stepTarget(changeBoxes(ed, changes), view, direction, this.revealedChange());
+    if (i === null) return;
+    m.setPosition({ lineNumber: this.clampLine(changeLine(changes[i]!)), column: 1 });
+    this.revealChange(ed, i, false);
+  }
+
+  diffCursor(): { side: 'original' | 'modified'; line: number } | null {
+    const ed = this.diff;
+    if (!ed || !this.diffEl.parentElement) return null;
+    // As `openFind`: the side holding the keyboard, else the new one (where Next/Previous change
+    // puts the cursor).
+    const side = ed.getOriginalEditor().hasTextFocus() ? 'original' : 'modified';
+    const pos = (side === 'original' ? ed.getOriginalEditor() : ed.getModifiedEditor()).getPosition();
+    return pos ? { side, line: pos.lineNumber } : null;
   }
 
   attachFile(el: HTMLElement, next?: FileContent): void {

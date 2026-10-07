@@ -11,7 +11,6 @@
 .sb-link { all: unset; margin-left: 6px; color: var(--blue); cursor: pointer; }
 .sb-link:hover { text-decoration: underline; }
 .sb-link:focus-visible { outline: 1px solid var(--blue); }
-.sb-badge { min-width: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: var(--status-deleted); color: var(--text-on-accent); font-size: 10px; line-height: 14px; text-align: center; }
 .sb-spin { animation: sb-spin 1s linear infinite; }
 @keyframes sb-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sb-spin { animation: none; } }

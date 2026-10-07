@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isEditableTarget, letterOf, matchesLetter } from './keys';
+import { isEditableTarget, isTypingOrEditor, isTypingTarget, letterOf, matchesLetter } from './keys';
 
 const ev = (key: string, code: string, mods: Partial<{ ctrlKey: boolean; altKey: boolean; metaKey: boolean; shiftKey: boolean }> = {}) => ({ key, code, ctrlKey: true, altKey: false, metaKey: false, shiftKey: false, ...mods });
 
@@ -37,5 +37,21 @@ describe('isEditableTarget', () => {
     expect(isEditableTarget(mk('<input type="checkbox">'))).toBe(false);
     expect(isEditableTarget(mk('<button></button>'))).toBe(false);
     expect(isEditableTarget(null)).toBe(false);
+  });
+});
+
+describe('isTypingTarget', () => {
+  const at = (html: string) => { document.body.innerHTML = html; return document.getElementById('t'); };
+  it('is a text box or an editable Monaco, not a read-only one', () => {
+    expect(isTypingTarget(at('<textarea id="t"></textarea>'))).toBe(true);
+    expect(isTypingTarget(at('<div data-editable="true"><div class="monaco-editor"><textarea id="t"></textarea></div></div>'))).toBe(true);
+    expect(isTypingTarget(at('<div class="monaco-editor"><textarea id="t"></textarea></div>'))).toBe(false);
+    expect(isTypingTarget(at('<div id="t" tabindex="0"></div>'))).toBe(false);
+    expect(isTypingTarget(null)).toBe(false);
+  });
+  it('isTypingOrEditor: any Monaco too', () => {
+    expect(isTypingOrEditor(at('<div class="monaco-editor"><textarea id="t"></textarea></div>'))).toBe(true);
+    expect(isTypingOrEditor(at('<input id="t">'))).toBe(true);
+    expect(isTypingOrEditor(at('<div id="t" tabindex="0"></div>'))).toBe(false);
   });
 });

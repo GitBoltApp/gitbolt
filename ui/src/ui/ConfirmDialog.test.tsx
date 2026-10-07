@@ -10,12 +10,12 @@ describe('ConfirmDialog: the popover with no control to arm (K68, spec §ui conf
   afterEach(() => clock.restore());
   const ask = () => confirmAction({ title: 'Delete the profile “Work”?', body: 'Gone for good.', confirmLabel: 'Delete profile', arm: 'Click again to delete Work', danger: true }, null);
 
-  it('resolves true only on the confirm button; the confirm button takes the initial focus', async () => {
+  it('resolves true only on the confirm button; a destructive answer leaves the initial focus on Cancel', async () => {
     render(<ConfirmDialog />);
     let answer!: Promise<boolean>;
     act(() => { answer = ask(); });
     expect(screen.getByRole('alertdialog', { name: 'Delete the profile “Work”?' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Delete profile' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Delete profile' })).toHaveClass('danger');
     // Only a fresh press past the settle answers it.
     press(screen.getByRole('button', { name: 'Delete profile' }));

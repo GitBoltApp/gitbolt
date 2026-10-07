@@ -160,6 +160,18 @@ test.describe('diff viewer controls', () => {
       await expect(d.locator('.diff-hidden-lines')).toHaveCount(0);
     });
 
+    await test.step('Ctrl+Shift+3 / 1 / 2 pick Split, Hunk and Inline from the keyboard', async () => {
+      const d = diff(page);
+      await page.keyboard.press('Control+Shift+Digit3');
+      await expect(d.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(() => sideRatio(page)).toBeGreaterThan(0.8);
+      await page.keyboard.press('Control+Shift+Digit1');
+      await expect(d.getByRole('button', { name: 'Hunk' })).toHaveAttribute('aria-pressed', 'true');
+      await page.keyboard.press('Control+Shift+Digit2');
+      await expect(d.getByRole('button', { name: 'Inline' })).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(() => sideRatio(page)).toBeLessThan(0.2);
+    });
+
     await test.step('diff colours are forest green and brick red, lighter for whole lines', async () => {
       const d = diff(page);
       await d.getByRole('button', { name: 'Split' }).click();
@@ -175,8 +187,13 @@ test.describe('diff viewer controls', () => {
       await expect(d.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true');
       const longLine = d.locator('.editor.modified .view-line', { hasText: 'long line' });
       await expect(longLine).toHaveCount(1);
+      // The left side too, after Inline then Split: Monaco left its inline-mode "never wrap the
+      // hidden editor" override on the original side (diff/monaco/originalWrap.ts).
+      const oldLongLine = d.locator('.editor.original .view-line', { hasText: 'long line' });
+      await expect(oldLongLine).toHaveCount(1);
       await d.getByRole('button', { name: 'Word wrap' }).click();
       await expect.poll(() => longLine.count()).toBeGreaterThan(1);
+      await expect.poll(() => oldLongLine.count()).toBeGreaterThan(1);
     });
 
     await test.step('the picked mode is remembered across a reload', async () => {
@@ -499,9 +516,13 @@ test.describe('diff viewer controls', () => {
       await computed(page);
       const list = page.getByRole('listbox', { name: 'Changed files' });
       await expect(list).toBeFocused();
-      await page.keyboard.press('F7');
+      // Opened on its first change (line 5), the cursor there: F7 goes to the second.
       await expect(active).toHaveText('5');
       await page.keyboard.press('F7');
+      await expect(active).toHaveText('55');
+      await page.keyboard.press('Shift+ArrowUp');
+      await expect(active).toHaveText('5');
+      await page.keyboard.press('Shift+ArrowDown');
       await expect(active).toHaveText('55');
       await page.keyboard.press('Shift+ArrowUp');
       await expect(active).toHaveText('5');
@@ -576,16 +597,16 @@ test.describe('diff viewer controls', () => {
       // A click in the diff zone puts the keyboard in the editor; F7 is still the panel's.
       await d.getByTestId('diff-path').click();
       await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('.editor.modified'))).toBe(true);
-      await page.keyboard.press('F7');
-      await expect(active).toHaveText('5');
+      // Opened on the first change (line 5).
       await page.keyboard.press('F7');
       await expect(active).toHaveText('55');
       await page.keyboard.press('Shift+F7');
       await expect(active).toHaveText('5');
       await d.getByRole('button', { name: 'Next change' }).click();
       await expect(active).toHaveText('55');
-      // src/app.php has exactly two changes, at lines 5 and 55: F7 wraps from the last to the first,
-      // and Shift+F7 back.
+      // src/app.php has exactly two changes, at lines 5 and 55: F7 wraps from the last to the first
+      // (on from the change it went to, though the end of the file keeps line 55 below the
+      // centre), and Shift+F7 back.
       await page.keyboard.press('F7');
       await expect(active).toHaveText('5');
       await page.keyboard.press('Shift+F7');
@@ -666,6 +687,14 @@ test.describe('diff viewer controls', () => {
 
 // The `diff_view` fixture: 200-line long.txt, first changed at line 120 (fixtures.rs).
 test.describe('presenting a long file', () => {
+  /** Whether modified line `line` sits in the middle third of the editor's viewport. */
+  const inMiddleThird = (page: Page, line: number) => diff(page).locator('.editor.modified').evaluate((ed, n) => {
+    const box = ed.querySelector('.overflow-guard')!.getBoundingClientRect();
+    const row = [...ed.querySelectorAll('.margin-view-overlays .line-numbers')].find((e) => Number(e.textContent) === n);
+    if (!row) return false;
+    const mid = (row.getBoundingClientRect().top + row.getBoundingClientRect().bottom) / 2;
+    return mid >= box.top + box.height / 3 && mid <= box.top + (2 * box.height) / 3;
+  }, line);
   /** The smallest line number the modified editor draws: the top of its viewport. */
   const topLine = (page: Page) => diff(page).locator('.editor.modified .margin-view-overlays .line-numbers').evaluateAll((els) => Math.min(...els.map((e) => Number(e.textContent))));
   /** The line whose number sits at the vertical centre of `side`'s viewport, or null. */
@@ -733,9 +762,10 @@ test.describe('presenting a long file', () => {
       await deleted('line 150').click({ modifiers: ['Shift'] });
       await expect(toast).toHaveText('Copied 3 lines');
       if (browserName === 'chromium') expect(await clip()).toBe('line 150\nline 151\nline 152');
-      // A changed line's old text copies the same way, in Inline mode too.
+      // A changed line's old text copies the same way, in Inline mode too. Hunk showed the change
+      // on its first screen, at the top, and the mode switch keeps the top: Next change, from the
+      // top, goes to it.
       await d.getByRole('button', { name: 'Inline' }).click();
-      // A mode switch isn't a new presentation (no reveal): go to the change.
       await d.getByRole('button', { name: 'Next change' }).click();
       await expect(deleted('line 120')).toBeVisible();
       await deleted('line 120').click();
@@ -745,7 +775,11 @@ test.describe('presenting a long file', () => {
 
     await test.step('Word wrap mid-file keeps the centre line, with wrapping deleted lines between the top and the centre', async () => {
       await present(page, 'mixed.txt');
-      // Opened at the first change (the deletion at 50): its zone is above the centre.
+      // Opened with the first change (the deletion at 50) centred; a few lines down, its zone is
+      // above the centre.
+      await expect.poll(() => inMiddleThird(page, 49)).toBe(true);
+      await d.locator('.editor.modified').hover();
+      await page.mouse.wheel(0, 60);
       await expect.poll(() => oldLinesAboveCentre(page, 50, 52)).toBe(true);
       await expect.poll(() => centreLineOf(page, 'modified')).not.toBeNull();
       const before = (await centreLineOf(page, 'modified'))!;
@@ -764,7 +798,7 @@ test.describe('presenting a long file', () => {
       /** The line whose number sits at the vertical centre of `side`'s viewport, or null. */
       const centreLine = (side: 'modified' | 'original') => centreLineOf(page, side);
       await present(page, 'long.txt');
-      await expect.poll(() => topLine(page)).toBe(117);
+      await expect.poll(() => inMiddleThird(page, 120)).toBe(true);
       // Somewhere mid-file, off a line boundary.
       await d.locator('.editor.modified').hover();
       await page.mouse.wheel(0, -333);
@@ -775,8 +809,8 @@ test.describe('presenting a long file', () => {
       await expect.poll(() => sideRatio(page)).toBeGreaterThan(0.8);
       await expect.poll(async () => Math.abs((await centreLine('modified'))! - before)).toBeLessThanOrEqual(1);
 
-      // Deleted lines at the centre in Inline: the same old line is at the centre in Split. Next
-      // change centres the deletion of lines 150-152 (Monaco's revealRangeInCenter).
+      // Deleted lines at the centre in Inline: the same old line is at the centre in Split. From
+      // above line 120, Next change goes to it, then centres the deletion of lines 150-152.
       await d.getByRole('button', { name: 'Inline' }).click();
       await expect.poll(() => sideRatio(page)).toBeLessThan(0.2);
       await d.getByRole('button', { name: 'Next change' }).click();
@@ -820,9 +854,13 @@ test.describe('presenting a long file', () => {
 
     await test.step('Ignore whitespace mid-file keeps the centre line, with the re-indented block between the top and the centre', async () => {
       await present(page, 'mixed.txt');
-      // Next change twice: the re-indent (new 117-124) centred, its 8 old lines in the zone above.
+      // Opened on the deletion at 50: Next change centres the re-indent (its 8 old lines in the
+      // zone above its 8 new ones, 117-124). A little further down, the old lines are all above
+      // the centre.
       await d.getByRole('button', { name: 'Next change' }).click();
-      await d.getByRole('button', { name: 'Next change' }).click();
+      await expect.poll(() => inMiddleThird(page, 117)).toBe(true);
+      await d.locator('.editor.modified').hover();
+      await page.mouse.wheel(0, 60);
       await expect.poll(() => oldLinesAboveCentre(page, 120, 127)).toBe(true);
       await expect.poll(() => centreLineOf(page, 'modified')).not.toBeNull();
       const before = (await centreLineOf(page, 'modified'))!;
@@ -839,9 +877,9 @@ test.describe('presenting a long file', () => {
       await expect.poll(() => computedCount(page)).toBeGreaterThan(on);
     });
 
-    await test.step('Inline and Split open at the first change, three lines of context above it', async () => {
+    await test.step('Inline and Split open with the first change centred', async () => {
       await present(page, 'long.txt');
-      await expect.poll(() => topLine(page)).toBe(117);
+      await expect.poll(() => inMiddleThird(page, 120)).toBe(true);
       // Only once per presentation: the user's own scrolling isn't undone.
       await d.locator('.editor.modified').hover();
       for (let i = 0; i < 100 && (await topLine(page)) > 1; i++) await page.mouse.wheel(0, -1000);
@@ -851,7 +889,28 @@ test.describe('presenting a long file', () => {
       await expect(d).toHaveCount(0);
       await open(page, 'long.txt');
       await expect.poll(() => sideRatio(page)).toBeGreaterThan(0.8);
-      await expect.poll(() => topLine(page)).toBe(117);
+      await expect.poll(() => inMiddleThird(page, 120)).toBe(true);
+      // And it stays there once the diff's late layout is in.
+      await page.waitForTimeout(300);
+      expect(await inMiddleThird(page, 120)).toBe(true);
+    });
+
+    await test.step("Next/Previous change go by the scroll: from the open the second change; from the end, the last change above the view's centre", async () => {
+      // long.txt in Split, opened on its first change (120): its changes are 120, the deletion of
+      // old 150-152, and the line inserted at new 178.
+      const active = d.locator('.editor.modified .active-line-number');
+      await expect(active).toHaveText('120');
+      await d.getByRole('button', { name: 'Next change' }).click();
+      await expect(active).toHaveText('150');
+      await expect.poll(async () => Math.abs(((await centreLineOf(page, 'original')) ?? 0) - 151)).toBeLessThanOrEqual(2);
+      // To the end of the file: Previous goes to the insertion, not back to 120.
+      await d.locator('.editor.modified').hover();
+      for (let i = 0; i < 20 && (await topLine(page)) < 170; i++) await page.mouse.wheel(0, 1000);
+      await d.getByRole('button', { name: 'Previous change' }).click();
+      await expect(active).toHaveText('178');
+      await expect.poll(() => inMiddleThird(page, 178)).toBe(true);
+      await d.getByRole('button', { name: 'Previous change' }).click();
+      await expect(active).toHaveText('150');
     });
 
     await test.step('Hunk + Ignore whitespace mid-file keeps the centre line, with the collapsed regions above the viewport changing', async () => {

@@ -12,6 +12,10 @@ test('Ctrl+/ opens the Keyboard Shortcuts panel; it filters; Esc closes', async 
   await page.keyboard.type('zoom');
   await expect(dlg.getByText('Zoom in')).toBeVisible();
   await expect(dlg.getByText('Next tab')).toHaveCount(0);
+  // Every binding is listed, usable now or not: no file is open here.
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('stage file');
+  await expect(dlg.getByRole('region', { name: 'Staging' }).getByText('Stage file', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveCount(0);
   // Ctrl+/ toggles

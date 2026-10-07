@@ -12,6 +12,7 @@ import { useQueuedKind } from '../queue/store';
 import { registerToolbarButton } from '../toolbar/registry';
 import { runWrite } from '../write/client';
 import { writeCtx } from '../write/ctx';
+import { isTypingOrEditor } from '../ui/keys';
 import { offSyncMenu, registerSyncRows } from './menus';
 import { branchOf, defaultRemote, forcePush, headBranchOf, nothingToPush, pushBranch, pushLabel, pushTooltip } from './push';
 import { PushUpstreamPanel } from './PushUpstreamPanel';
@@ -46,7 +47,9 @@ const offs = [
   offSyncMenu,
   registerAppSlot('overlay', 'pushUpstream', PushUpstreamPanel),
   registerActions([{
-    id: 'sync.push', label: 'Push', group: 'Repository', icon: ArrowUpFromLine, tooltip: 'Push the current branch',
+    id: 'sync.push', label: 'Push', group: 'Repository', icon: ArrowUpFromLine, tooltip: 'Push the current branch', shortcuts: ['Ctrl+Shift+K'],
+    // In an editor, Monaco's (and VS Code's) Delete line.
+    yieldsTo: isTypingOrEditor,
     when: () => { const t = activeTab(); return t?.kind === 'repo' && !!writeCtx(t.id); },
     run: () => {
       const t = activeTab();

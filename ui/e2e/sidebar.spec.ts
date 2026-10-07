@@ -223,16 +223,17 @@ test.describe('sidebar item menus', () => {
       await expect(menu(page)).toBeVisible();
       // Spec #2 §14: the Sync, Commit (Reset), Integrate, Branch and Manage groups come first. Only
       // what can apply (UX round 1): hotfix has no upstream (no Pull), is checked out in wt-hotfix
-      // (no Fast-forward) and isn't on a remote, so it can't be deleted (no Delete). Spec #3 §4.3:
+      // (no Fast-forward) and isn't on a remote: Delete shows, disabled, with the reason. Spec #3 §4.3:
       // Cherry-pick and Create tag here; no Revert or Interactive rebase after this commit (hotfix's tip
       // isn't on main), no Interactive rebase main onto hotfix (main is in its history).
       expect(await labels(page)).toEqual([
         'Push', 'Set upstream', 'Reset main to this commit',
         'Fast-forward main to hotfix', 'Rebase main onto hotfix',
         'Checkout', 'Create worktree from', 'Create branch here',
-        'Cherry-pick onto main', 'Create tag here', 'Rename hotfix',
+        'Cherry-pick onto main', 'Create tag here', 'Rename hotfix', 'Delete',
         'Copy branch name', 'Copy SHA', 'Copy message', 'Compare with HEAD', 'Show in graph',
       ]);
+      await expect(action(page, 'Delete')).toBeDisabled();
       await action(page, 'Copy SHA').hover();
       await expect(page.getByRole('tooltip')).toHaveText('Copy the full commit id');
       await action(page, 'Show in graph').hover();

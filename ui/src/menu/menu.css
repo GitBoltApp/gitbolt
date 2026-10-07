@@ -33,3 +33,6 @@
 .ctx-arm-box.checked { background: var(--green); border-color: var(--green); color: var(--text-on-accent); }
 .ctx-arm-option-detail { color: var(--text-secondary); }
 .ctx-arm-option-note { display: block; color: var(--text-secondary); font-size: 12px; }
+/* The variant a row's body runs: lit while the row's own body is hovered or focused, a shade quieter
+   than hovering the variant itself. */
+.ctx-variant[data-default="true"] { background: color-mix(in srgb, var(--blue) 70%, var(--control-bg)); color: var(--text-on-accent); }

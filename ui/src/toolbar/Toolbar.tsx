@@ -62,7 +62,7 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
     <div className="tb-split">
       {button}
       <HoverTooltip content={`${label} options`}>
-        <button type="button" className="tb-btn tb-caret" aria-label={`${label} options`} aria-haspopup="menu" onClick={(e) => { void openCaret(e.currentTarget); }}>
+        <button type="button" className="tb-btn tb-caret" aria-label={`${label} options`} aria-haspopup="menu" aria-expanded={b.picker ? pickerAt !== null : undefined} onClick={(e) => { void openCaret(e.currentTarget); }}>
           <ChevronDown size={12} aria-hidden />
         </button>
       </HoverTooltip>

@@ -11,10 +11,11 @@ import { buildMenu } from '../menu/registry';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { isEditableTarget } from '../ui/keys';
 import { HamburgerMenu } from './HamburgerMenu';
+import { NotificationsBell } from './NotificationsBell';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { nextTabFocus } from './tabKeyboard';
 // The tab menu's contributions (`registerMenu`) register at import time.
-import { useTabUi, type TabEnv, type TabTarget } from './tabMenu';
+import { useTabUi, type TabBarEnv, type TabEnv, type TabTarget } from './tabMenu';
 import { useTabDrag } from './useTabDrag';
 import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import './tabs.css';
@@ -65,6 +66,7 @@ export function TabBar() {
   const tabs = useAppState((s) => s.profile.tabs);
   const active = useAppState((s) => s.profile.activeTab);
   const closedCount = useAppState((s) => s.profile.closedTabs.length);
+  const lastClosed = useAppState((s) => s.profile.closedTabs.at(-1) ?? null);
   const runtimes = useRuntime((s) => s.tabs);
   const renaming = useTabUi((s) => s.renaming);
   const update = useAppState((s) => s.updateProfile);
@@ -97,7 +99,11 @@ export function TabBar() {
           <FolderPlus size={16} aria-hidden />
         </button>
       </HoverTooltip>
-      <div className={`tabs${drag ? ' reordering' : ''}`} role="tablist" aria-label="Repositories" ref={tablistRef}>
+      <div className={`tabs${drag ? ' reordering' : ''}`} role="tablist" aria-label="Repositories" ref={tablistRef}
+        // Empty space only: a tab's own menu stops its event. The menu key and Shift+F10 reach this
+        // too, as a native contextmenu event on whatever has focus.
+        onContextMenu={(e) => openContextMenu(e, () => buildMenu<null, TabBarEnv>('tabbar', null, { lastClosed }))}
+      >
         {tabs.map((t, i) => {
           const label = tabLabel(t, runtimes[t.id]?.repo?.name);
           const lifted = drag?.from === i;
@@ -143,6 +149,7 @@ export function TabBar() {
           );
         })}
       </div>
+      <NotificationsBell />
       <HoverTooltip content="Settings (Ctrl+,)">
         <button type="button" className="tab-bar-btn" aria-label="Settings" onClick={() => runAction('file.settings')}>
           <Settings size={16} aria-hidden />

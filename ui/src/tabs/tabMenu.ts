@@ -4,11 +4,12 @@ import { errorMessage } from '../api/client';
 import type { Profile } from '../api/gen/Profile';
 import type { TabState } from '../api/gen/TabState';
 import { copyText } from '../api/transport';
+import { runAction } from '../app/actions';
 import { openRepoFolder, reopenLastClosed } from '../app/coreActions';
 import { useRuntime, worktreeOf } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { guardTabClose } from '../diff/workingCopy';
-import { closeOthers, closeTab, closeToRight } from '../app/tabs';
+import { basename, closeOthers, closeTab, closeToRight } from '../app/tabs';
 import { ICONS } from '../menu/icons';
 import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
@@ -77,4 +78,25 @@ registerMenu<TabTarget, TabEnv>({
       ),
     ];
   },
+});
+
+// The tab bar's empty-space menu: Reopen <name> (the same function as Ctrl+Shift+T), then Open
+// repository and Clone (the registry's own actions).
+export interface TabBarEnv { lastClosed: { path: string; alias: string | null } | null }
+
+registerMenu<null, TabBarEnv>({
+  id: 'tabbar.reopen', kind: 'tabbar', group: 'restore', order: 0,
+  rows: (_t, { lastClosed }) => [row(
+    'tabbar.reopen', lastClosed ? `Reopen ${lastClosed.alias ?? basename(lastClosed.path)}` : 'Reopen closed tab', ICONS.reopen,
+    'Reopen the most recently closed tab', reopenLastClosed,
+    lastClosed ? { shortcut: 'Ctrl+Shift+T' } : { shortcut: 'Ctrl+Shift+T', disabledReason: 'No recently closed tabs' },
+  )],
+});
+
+registerMenu<null, TabBarEnv>({
+  id: 'tabbar.open', kind: 'tabbar', group: 'open', order: 0,
+  rows: () => [
+    row('tabbar.openRepo', 'Open repository…', ICONS.openRepo, 'Open the Open Repository screen in a new tab', () => runAction('file.openRepo'), { shortcut: 'Ctrl+O' }),
+    row('tabbar.clone', 'Clone repository…', ICONS.clone, 'Clone a repository into a new tab', () => runAction('file.clone')),
+  ],
 });

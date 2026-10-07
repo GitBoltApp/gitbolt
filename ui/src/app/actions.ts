@@ -20,11 +20,18 @@ export interface Action {
   id: string;
   label: string;
   group: ActionGroup;
+  /** The Keyboard Shortcuts panel's section, when not the group's (`shortcuts/catalog.ts`):
+   * 'Staging', 'Diff', … beside the views' own key hints. */
+  section?: string;
   icon: LucideIcon;
   tooltip: string;
   /** `comboOf` names, e.g. `Ctrl+Shift+T`. The first is the one menus show. When several
    * usable actions share a combo, the first registered takes it. */
   shortcuts?: string[];
+  /** The file whose own key handler takes this action's keys (F7 in `diff/changeKeys.ts`, Alt+←
+   * in `nav/input.ts`): its `shortcuts` are then display names, which the Ctrl dispatcher never
+   * matches, so the key never runs it twice. */
+  keysBy?: string;
   /** Usable now (hidden from menus and the palette, and its shortcut passes through, when not). */
   when?: () => boolean;
   /** `false`: left out of the hamburger menu, still in the palette and on its shortcuts (the ten
@@ -65,6 +72,8 @@ export function registerActions(list: Action[]): () => void {
 }
 
 export const getAction = (id: string) => registry.get(id);
+/** Every registered action, usable now or not, in registration order (the registry's audit). */
+export const allActions = (): Action[] => [...registry.values()];
 const usable = (a: Action) => !a.when || a.when();
 /** Usable actions, in registration order. */
 export const availableActions = () => [...registry.values()].filter(usable);
@@ -88,7 +97,7 @@ export function runAction(id: string): boolean {
 }
 
 export function actionForCombo(combo: string): Action | undefined {
-  return combo ? availableActions().find((a) => a.shortcuts?.includes(combo)) : undefined;
+  return combo ? availableActions().find((a) => !a.keysBy && a.shortcuts?.includes(combo)) : undefined;
 }
 
 export const activeTab = (): TabState | null => {

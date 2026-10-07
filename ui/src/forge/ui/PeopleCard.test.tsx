@@ -58,6 +58,19 @@ describe('PeopleCard', () => {
     expect(screen.queryByRole('combobox', { name: 'Reviewers' })).toBeNull();
   });
 
+  it('+ Add toggles: pressing it again closes the search (its blur toward the button must not close it first)', () => {
+    render(<Editable />);
+    const add = screen.getByRole('button', { name: 'Add reviewer' });
+    fireEvent.click(add);
+    const box = screen.getByRole('combobox', { name: 'Reviewers' });
+    // A real press: the search loses the focus to the button, then the button's click.
+    fireEvent.pointerDown(add);
+    fireEvent.blur(box, { relatedTarget: add });
+    fireEvent.click(add);
+    expect(screen.queryByRole('combobox', { name: 'Reviewers' })).toBeNull();
+    expect(add).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('read-only: the chips alone, no + Add or ×; an empty row says None, an unloaded one Loading…', async () => {
     render(<PeopleCard rows={[
       { label: 'Reviewers', noun: 'reviewer', chips: [{ key: '1', label: 'Ada Lovelace', user: ada }] },

@@ -49,7 +49,7 @@ export const offCheckoutMenus = [
       return [{
         kind: 'action', id: 'commit.reset', label: `Reset ${x} to this commit`, icon: RotateCcw,
         tooltip: `Move ${x} to ${t.sha.slice(0, 7)}, keeping the working copy but resetting the index`,
-        run: run('mixed'), disabledReason: why,
+        run: run('mixed'), disabledReason: why, defaultVariant: 'mixed',
         variants: [
           { id: 'soft', label: 'Soft', tooltip: 'keep all changes', run: run('soft'), disabledReason: why },
           { id: 'mixed', label: 'Mixed', tooltip: 'keep working copy but reset index', run: run('mixed'), disabledReason: why },

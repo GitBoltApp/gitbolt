@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { MenuRow } from './types';
+import { swallowGestureClick } from '../ui/swallowClick';
 
 interface MenuState {
   rows: MenuRow[] | null;
@@ -121,5 +122,8 @@ export function pressedAnchor(target: EventTarget | null): boolean {
   const clear = () => { setTimeout(() => { if (swallowed === a) swallowed = null; }, 0); };
   window.addEventListener('pointerup', clear, { once: true, capture: true });
   window.addEventListener('pointercancel', clear, { once: true, capture: true });
+  // And the click stops there: no handler on or above the trigger runs for it (the bell's
+  // mark-as-read, a card's own click), not only the reopen `swallowed` prevents.
+  swallowGestureClick((e) => e.target instanceof Node && a.contains(e.target));
   return true;
 }

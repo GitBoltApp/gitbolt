@@ -186,7 +186,8 @@ vi.mock('./setup', () => {
       getLineChanges: () => state.lineChanges,
       updateOptions: vi.fn(),
       layout: vi.fn(),
-      goToDiff: vi.fn(),
+      saveViewState: vi.fn(() => ({ saved: true })),
+      restoreViewState: vi.fn(),
     };
   }
   const editor = () => ({
@@ -243,7 +244,7 @@ const copyText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
 vi.mock('../../api/transport', () => ({ copyText }));
 vi.mock('shiki/wasm', () => ({ default: {} }));
 
-interface FakeCodeEditor { apiZones: Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>; isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
+interface FakeCodeEditor { setPosition: ReturnType<typeof vi.fn>; apiZones: Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>; isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; getPosition: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
 interface FakeViewModel { model: { original: { text: string; dispose: ReturnType<typeof vi.fn> }; modified: { text: string; dispose: ReturnType<typeof vi.fn> } }; computed: boolean; dispose: ReturnType<typeof vi.fn>; finish(): void }
 interface FakeState {
   defined: Set<string>;
@@ -258,7 +259,7 @@ interface FakeState {
     updateOptions: ReturnType<typeof vi.fn>;
     createViewModel: ReturnType<typeof vi.fn> & { mock: { results: { value: FakeViewModel }[] } };
     setModel: ReturnType<typeof vi.fn>;
-    goToDiff: ReturnType<typeof vi.fn>;
+    restoreViewState: ReturnType<typeof vi.fn>;
   }[];
   files: FakeCodeEditor[];
 }
@@ -387,6 +388,18 @@ describe('MonacoHost', () => {
     host.focus();
     expect(state.files[0].focus).toHaveBeenCalledTimes(1);
     expect(state.diffs[0].modified.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("diffCursor() is the cursor's line on the side holding the keyboard, else the new side", async () => {
+    const { host, state } = await fresh();
+    expect(host.diffCursor()).toBeNull();
+    host.attachDiff(document.createElement('div'));
+    const d = state.diffs[0];
+    d.modified.getPosition.mockReturnValue({ lineNumber: 12, column: 3 });
+    d.original.getPosition.mockReturnValue({ lineNumber: 4, column: 1 });
+    expect(host.diffCursor()).toEqual({ side: 'modified', line: 12 });
+    d.original.hasTextFocus.mockReturnValue(true);
+    expect(host.diffCursor()).toEqual({ side: 'original', line: 4 });
   });
 
   it("openFind() opens Monaco's find in the attached editor: the diff side holding the keyboard (else the modified one), else the file editor", async () => {
@@ -791,29 +804,155 @@ describe('MonacoHost', () => {
     expect(fileEl.style.opacity).toBe('');
   });
 
-  it('Inline and Split open at the first change, 3 lines of context above it, unless it is on the first screen; Hunk opens at the top', async () => {
+  it('a new diff opens with its first change centred, in every mode, the cursor on it; at the top when it shows there whole', async () => {
     const { host, state } = await fresh();
     host.attachDiff(document.createElement('div'));
-    const scroll = () => state.diffs[0].modified.setScrollTop;
+    const m = () => state.diffs[0].modified;
+    // Line 120 (2261-2280 px) centred in the 500 px view.
     state.lineChanges = [{ originalStartLineNumber: 120, originalEndLineNumber: 120, modifiedStartLineNumber: 120, modifiedEndLineNumber: 120 }];
     await host.showDiff(diffReq('a.txt'));
-    expect(scroll()).toHaveBeenLastCalledWith(116 * 19, 1);
-    // A deletion only: Monaco reports the line above it, the removed lines show below that line.
+    expect(m().scrollTop).toBe(2270.5 - 250);
+    expect(m().setPosition).toHaveBeenLastCalledWith({ lineNumber: 120, column: 1 });
+    // A deletion only: Monaco reports the line above it. Its removed lines (the original side's
+    // 150-152, 2831-2888 px) are the change; the cursor goes to the line below them.
     state.lineChanges = [{ originalStartLineNumber: 150, originalEndLineNumber: 152, modifiedStartLineNumber: 149, modifiedEndLineNumber: 0 }];
     await host.showDiff(diffReq('b.txt', 'plaintext', { mode: 'split', ignoreWhitespace: false, wordWrap: false }));
-    expect(scroll()).toHaveBeenLastCalledWith(146 * 19, 1);
-    // Once per presentation: a prefs change keeps the place (no jump to the first change).
-    const kept = state.diffs[0].modified.scrollTop;
-    host.setDiffPrefs({ mode: 'split', ignoreWhitespace: true, wordWrap: false });
-    expect(state.diffs[0].modified.scrollTop).toBe(kept);
-    const calls = scroll().mock.calls.length;
-    // Already on the first screen (500 px, 19 px lines: lines 1-26): no scrolling; nor in Hunk.
-    state.lineChanges = [{ originalStartLineNumber: 25, originalEndLineNumber: 25, modifiedStartLineNumber: 25, modifiedEndLineNumber: 25 }];
-    await host.showDiff(diffReq('c.txt'));
-    await host.showDiff(diffReq('d.txt', 'plaintext', { mode: 'hunk', ignoreWhitespace: false, wordWrap: false }));
-    state.lineChanges = [];
+    expect(m().scrollTop).toBe(2859.5 - 250);
+    expect(m().setPosition).toHaveBeenLastCalledWith({ lineNumber: 150, column: 1 });
+    // Once per presentation: a prefs change keeps the place.
+    const kept = m().scrollTop;
+    host.setDiffPrefs({ mode: 'inline', ignoreWhitespace: false, wordWrap: false });
+    expect(m().scrollTop).toBe(kept);
+    // Hunk too.
+    state.lineChanges = [{ originalStartLineNumber: 120, originalEndLineNumber: 120, modifiedStartLineNumber: 120, modifiedEndLineNumber: 120 }];
+    await host.showDiff(diffReq('c.txt', 'plaintext', { mode: 'hunk', ignoreWhitespace: false, wordWrap: false }));
+    expect(m().scrollTop).toBe(2270.5 - 250);
+    // Whole on the first screen (500 px, 19 px lines: lines 1-26): at the top.
+    state.lineChanges = [{ originalStartLineNumber: 25, originalEndLineNumber: 26, modifiedStartLineNumber: 25, modifiedEndLineNumber: 26 }];
+    await host.showDiff(diffReq('d.txt'));
+    expect(m().scrollTop).toBe(0);
+    expect(m().setPosition).toHaveBeenLastCalledWith({ lineNumber: 25, column: 1 });
+    // One line further, it would be cut: centred.
+    state.lineChanges = [{ originalStartLineNumber: 26, originalEndLineNumber: 27, modifiedStartLineNumber: 26, modifiedEndLineNumber: 27 }];
     await host.showDiff(diffReq('e.txt'));
-    expect(scroll()).toHaveBeenCalledTimes(calls);
+    expect(m().scrollTop).toBe(494 - 250);
+    // No change: nothing moves the cursor.
+    const moves = m().setPosition.mock.calls.length;
+    state.lineChanges = [];
+    await host.showDiff(diffReq('f.txt'));
+    expect(m().scrollTop).toBe(0);
+    expect(m().setPosition).toHaveBeenCalledTimes(moves);
+  });
+
+  it("the open's place is held through late relayouts (zones, wrapped lines, the editor's size) until the user takes over", async () => {
+    const { host, state } = await fresh();
+    const el = document.createElement('div');
+    host.attachDiff(el);
+    const { modified: m, original: o } = state.diffs[0];
+    state.lineChanges = [{ originalStartLineNumber: 120, originalEndLineNumber: 120, modifiedStartLineNumber: 120, modifiedEndLineNumber: 120 }];
+    await host.showDiff(diffReq('a.txt'));
+    const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+    await flush(); // the new model's onDidUpdateDiff
+    const centred = () => m.scrollTop + 250 === m.getTopForLineNumber(120) + 9.5;
+    expect(centred()).toBe(true);
+    // A zone lands above the change (Monaco's restore keeps the top line: the change moves down).
+    // The original side is laid out level with it, as Monaco aligns the two.
+    m.zones = o.zones = [{ after: 50, height: 57 }];
+    m.sizeListeners.forEach((l) => l({}));
+    await flush();
+    expect(centred()).toBe(true);
+    // Lines above it wrap later still, and Monaco moves the view itself.
+    m.heights = o.heights = { 60: 38, 61: 38 };
+    m.scrollTop += 7;
+    m.scrollListeners.forEach((l) => l({ scrollTopChanged: true }));
+    await flush();
+    expect(centred()).toBe(true);
+    // The user takes over (a wheel): a later relayout is Monaco's alone.
+    el.firstElementChild!.dispatchEvent(new Event('wheel', { bubbles: true }));
+    m.zones = o.zones = [{ after: 50, height: 114 }];
+    m.sizeListeners.forEach((l) => l({}));
+    await flush();
+    expect(centred()).toBe(false);
+  });
+
+  it("a save's reload keeps its view: no jump to the first change, and nothing held", async () => {
+    const { host, state } = await fresh();
+    host.attachDiff(document.createElement('div'));
+    const m = state.diffs[0].modified;
+    state.lineChanges = [{ originalStartLineNumber: 120, originalEndLineNumber: 120, modifiedStartLineNumber: 120, modifiedEndLineNumber: 120 }];
+    await host.showDiff(diffReq('a.txt'));
+    host.keepViewOnNextShow();
+    await host.showDiff({ ...diffReq('a.txt'), modified: 'edited\n'.repeat(200) });
+    expect(state.diffs[0].restoreViewState).toHaveBeenCalledWith({ saved: true });
+    // The fake's restore doesn't scroll: the new model's top stays, and a relayout doesn't reveal.
+    expect(m.scrollTop).toBe(0);
+    m.sizeListeners.forEach((l) => l({}));
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(m.scrollTop).toBe(0);
+  });
+
+  it('Next/Previous change go by the scroll: on from the change the view was put on, else from the centre line', async () => {
+    const { host, state } = await fresh();
+    const el = document.createElement('div');
+    host.attachDiff(el);
+    const m = state.diffs[0].modified;
+    const at = (line: number) => ({ originalStartLineNumber: line, originalEndLineNumber: line, modifiedStartLineNumber: line, modifiedEndLineNumber: line });
+    state.lineChanges = [at(30), at(100), at(190)];
+    await host.showDiff(diffReq('a.txt'));
+    const centredOn = (line: number) => m.scrollTop + 250 === m.getTopForLineNumber(line) + 9.5;
+    const cursor = () => (m.setPosition.mock.lastCall?.[0] as { lineNumber: number }).lineNumber;
+    expect(centredOn(30)).toBe(true);
+    // Opened on the first change: Next is the second.
+    host.goToChange('next');
+    expect(centredOn(100)).toBe(true);
+    expect(cursor()).toBe(100);
+    host.goToChange('next');
+    expect(centredOn(190)).toBe(true);
+    host.goToChange('previous');
+    expect(centredOn(100)).toBe(true);
+    // The user scrolls back to the top: Next is the first change below the centre line.
+    const scrollTo = (top: number) => {
+      el.firstElementChild!.dispatchEvent(new Event('wheel', { bubbles: true }));
+      m.scrollTop = top;
+    };
+    scrollTo(0);
+    host.goToChange('next');
+    expect(centredOn(30)).toBe(true);
+    expect(cursor()).toBe(30);
+    // To the end: Previous is the last change above the centre line, not one before the cursor.
+    scrollTo(3781);
+    host.goToChange('previous');
+    expect(centredOn(190)).toBe(true);
+    // Between changes 1 and 2 (the centre at line 140): Next is 190, Previous 100.
+    scrollTo(m.getTopForLineNumber(140) - 250);
+    host.goToChange('next');
+    expect(centredOn(190)).toBe(true);
+    scrollTo(m.getTopForLineNumber(140) - 250);
+    host.goToChange('previous');
+    expect(centredOn(100)).toBe(true);
+    // Past the last, it wraps to the first.
+    host.goToChange('next');
+    host.goToChange('next');
+    expect(centredOn(30)).toBe(true);
+  });
+
+  it("a mode switch that keeps a line, not the change, isn't on that change any more, even at the same scroll", async () => {
+    const { host, state } = await fresh();
+    const el = document.createElement('div');
+    host.attachDiff(el);
+    const m = state.diffs[0].modified;
+    const at = (line: number) => ({ originalStartLineNumber: line, originalEndLineNumber: line, modifiedStartLineNumber: line, modifiedEndLineNumber: line });
+    // Hunk shows its first change on the first screen: the view opens at the top.
+    state.lineChanges = [at(25), at(100)];
+    await host.showDiff(diffReq('a.txt', 'plaintext', { mode: 'hunk', ignoreWhitespace: false, wordWrap: false }));
+    expect(m.scrollTop).toBe(0);
+    // A click, then Inline, where the change is further down (the fake's layout doesn't change, so
+    // the place kept is the top). Next goes to the first change below the centre line.
+    el.firstElementChild!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    state.lineChanges = [at(40), at(100)];
+    host.setDiffPrefs(prefs);
+    host.goToChange('next');
+    expect(m.setPosition).toHaveBeenLastCalledWith({ lineNumber: 40, column: 1 });
   });
 
   it("Hunk mode's header rows are laid out with the diff, before it renders; Inline and Split have none (spec #2 §7.3)", async () => {
@@ -1064,21 +1203,20 @@ describe('MonacoHost', () => {
 
     it('showing a new file is not a mode switch: it opens at its own first change, and a held place never pulls it back', async () => {
       const { host, m, state } = await shown('inline');
-      // Held: line 100, 3 px down, at scrollTop 1634 (a recompute pending).
+      // Held: line 100, 3 px down (a recompute pending).
       m.scrollTop = m.getTopForLineNumber(100) + 3 - 250;
       host.setDiffPrefs({ mode: 'inline', ignoreWhitespace: true, wordWrap: false });
       expect(m.scrollTop).toBe(1634);
-      // The next file's first change is line 90: its reveal (line 87 at the top) lands on that same
-      // 1634, so only the new-file path (not the scroll guard) can tell the two apart. Its layout
-      // has a zone between 87 and 100, so restoring line 100 would scroll 57 px further.
+      // The next file's first change is line 90 (1691-1710 px), centred. Its layout has a zone
+      // between 90 and 100, so restoring line 100 would scroll 57 px further.
       state.lineChanges = [{ originalStartLineNumber: 90, originalEndLineNumber: 90, modifiedStartLineNumber: 90, modifiedEndLineNumber: 90 }];
       m.zones = [{ after: 95, height: 57 }];
       await host.showDiff({ path: 'g.txt', original: lines(200), modified: lines(200), language: 'plaintext', prefs: { mode: 'inline', ignoreWhitespace: true, wordWrap: false } });
-      expect(m.scrollTop).toBe(m.getTopForLineNumber(87));
+      expect(m.scrollTop).toBe(1700.5 - 250);
       await flush(); // the new model's onDidUpdateDiff
       m.sizeListeners.forEach((l) => l({}));
       await flush();
-      expect(m.scrollTop).toBe(m.getTopForLineNumber(87));
+      expect(m.scrollTop).toBe(1700.5 - 250);
     });
 
     it('Ignore whitespace removing the anchored change: the original line maps to its modified line', async () => {
@@ -1227,7 +1365,7 @@ describe('MonacoHost', () => {
     });
 
     it('the user takes over by input only: a pointer, the wheel, a key that is not a lone modifier, or Next/Previous change', async () => {
-      const { host, ed, m, inside } = await shown('inline');
+      const { host, m, inside } = await shown('inline');
       // Each relayout grows a zone between the top and the centre by one more line.
       let grown = 0;
       const relayoutAbove = () => relayout(m, () => { m.zones = [{ after: 95, height: 19 * ++grown }]; });
@@ -1249,7 +1387,7 @@ describe('MonacoHost', () => {
       expect(await kept(() => user(inside, new Event('wheel', { bubbles: true }))), 'wheel').toBe(false);
       expect(await kept(key('PageDown')), 'PageDown').toBe(false);
       expect(await kept(() => host.goToChange('next')), 'goToChange').toBe(false);
-      expect(ed.goToDiff).toHaveBeenCalledWith('next');
+      expect(m.setPosition).toHaveBeenLastCalledWith({ lineNumber: 150, column: 1 });
     });
 
     it('detaching the diff lets the place go', async () => {

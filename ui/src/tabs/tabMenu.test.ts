@@ -13,6 +13,21 @@ import type { MenuRow } from '../menu/types';
 const labels = (rows: MenuRow[]) => rows.map((r) => (r.kind === 'separator' ? '---' : r.label));
 const find = (rows: MenuRow[], label: string) => rows.find((r) => r.kind === 'action' && r.label === label) as Extract<MenuRow, { kind: 'action' }>;
 
+describe('tab bar menu', () => {
+  it('offers Reopen <name>, Open repository and Clone', () => {
+    const rows = buildMenu('tabbar', null, { lastClosed: { path: '/x/proj/', alias: null } });
+    expect(labels(rows)).toEqual(['Reopen proj', '---', 'Open repository…', 'Clone repository…']);
+    expect(find(rows, 'Reopen proj').shortcut).toBe('Ctrl+Shift+T');
+    expect(find(rows, 'Open repository…').shortcut).toBe('Ctrl+O');
+    expect(labels(buildMenu('tabbar', null, { lastClosed: { path: '/x/p', alias: 'Mine' } }))[0]).toBe('Reopen Mine');
+  });
+
+  it('disables Reopen with a reason when nothing was closed', () => {
+    const rows = buildMenu('tabbar', null, { lastClosed: null });
+    expect(find(rows, 'Reopen closed tab').disabledReason).toBe('No recently closed tabs');
+  });
+});
+
 describe('tab menu', () => {
   it('has the spec §6.2 rows, each with an icon and a tooltip', () => {
     const rows = buildMenu('tab', { tab: { id: 'a', kind: 'repo', path: '/r', alias: null }, index: 0 }, { tabCount: 2, closedCount: 0 });

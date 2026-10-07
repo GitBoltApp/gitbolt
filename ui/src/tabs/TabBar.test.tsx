@@ -10,6 +10,8 @@ vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: (
 const { useAppState, EMPTY_PROFILE } = await import('../app/state');
 const { TabBar } = await import('./TabBar');
 const { useTabUi } = await import('./tabMenu');
+const { useOps } = await import('../app/ops');
+const { useMenu } = await import('../menu/menuStore');
 
 const tab = (id: string) => ({ id, kind: 'repo' as const, path: `/${id}`, alias: null });
 
@@ -198,5 +200,23 @@ describe('TabBar: live drag reordering (spec §6.2)', () => {
     release(152);
     fireEvent.click(b);
     expect(useAppState.getState().profile.activeTab).toBe('b');
+  });
+});
+
+describe('TabBar: the notification bell', () => {
+  it('sits left of the settings gear, counts unread background errors, and lists them newest first', () => {
+    setTabs(['a'], 'a');
+    render(<TabBar />);
+    const bell = () => screen.getByRole('button', { name: /^Notifications/ });
+    expect(bell().nextElementSibling).toBe(screen.getByRole('button', { name: 'Settings' }));
+    const labels = () => useMenu.getState().rows!.map((r) => (r.kind === 'separator' ? '-' : r.label));
+    fireEvent.click(bell());
+    expect(labels()).toEqual(['No notifications', '-', 'Activity log…']);
+    act(() => useMenu.getState().close());
+    act(() => { useOps.getState().pushError('Fetch failed (a): one'); useOps.getState().pushError('Fetch failed (b): two'); });
+    expect(bell()).toHaveAccessibleName('Notifications (2 new)');
+    fireEvent.click(bell());
+    expect(labels()).toEqual(['Fetch failed (b): two', 'Fetch failed (a): one', '-', 'Activity log…', 'Clear notifications']);
+    expect(bell()).toHaveAccessibleName('Notifications');
   });
 });

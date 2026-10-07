@@ -55,3 +55,21 @@ describe('the commit box on an unborn branch (the first commit)', () => {
     expect(h.commit).toHaveBeenCalledWith(1, '/r', expect.objectContaining({ amend: false, stageAll: true, expect: { head: null, refs: {} } }));
   });
 });
+
+describe('Ctrl+Enter outside the message (commit/keyActions.ts)', () => {
+  it('the box lends its Commit to the active tab', async () => {
+    const { CommitBox } = await import('./CommitBox');
+    const { writeWipDraft } = await import('./draft');
+    const { lentHandler } = await import('../app/lent');
+    const { EMPTY_PROFILE, useAppState } = await import('../app/state');
+    useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
+    writeWipDraft('/r', '/r', { summary: 'From the keyboard', description: '' });
+    h.commit.mockClear();
+    h.runWrite.mockImplementation(async (_c: unknown, send: () => Promise<unknown>) => { await send(); return null; });
+    const r = render(<CommitBox />);
+    lentHandler('commit.commit')?.();
+    await vi.waitFor(() => expect(h.commit).toHaveBeenCalledWith(1, '/r', expect.objectContaining({ summary: 'From the keyboard' })));
+    r.unmount();
+    expect(lentHandler('commit.commit')).toBeNull();
+  });
+});

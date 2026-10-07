@@ -51,7 +51,7 @@ export const offTagMenus = [
           { id: 'both', label: 'Both', tooltip: `Delete ${t.name} from ${remote}, then here`, run: go(true, remote) },
         ] : []),
       ];
-      return [{ kind: 'action', id: 'tag.delete', label: 'Delete', icon: Trash2, tooltip: `Delete the tag ${t.name} here`, run: go(true, null), variants }];
+      return [{ kind: 'action', id: 'tag.delete', label: 'Delete', icon: Trash2, tooltip: `Delete the tag ${t.name} here`, run: go(true, null), variants, defaultVariant: 'local' }];
     },
   }),
   registerMenu<SidebarTarget, MenuEnv>({

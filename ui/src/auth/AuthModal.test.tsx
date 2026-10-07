@@ -27,7 +27,7 @@ describe('AuthModal', () => {
     const input = screen.getByLabelText('Password');
     expect(input).toHaveAttribute('type', 'password');
     fireEvent.change(input, { target: { value: 's3cret' } });
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
     expect(authAnswer).toHaveBeenLastCalledWith(5, 's3cret');
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(authAnswer).toHaveBeenLastCalledWith(5, null);

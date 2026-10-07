@@ -15,6 +15,7 @@ const offActions = registerActions([
     icon: ArrowLeft,
     tooltip: 'Back to the previous MR/PR, file or commit you visited',
     shortcuts: ['Alt+Left', 'Mouse back'],
+    keysBy: 'nav/input.ts',
     when: inRepoTab,
     run: () => {
       const t = activeTab();
@@ -28,6 +29,7 @@ const offActions = registerActions([
     icon: ArrowRight,
     tooltip: 'Forward to the next MR/PR, file or commit you visited',
     shortcuts: ['Alt+Right', 'Mouse forward'],
+    keysBy: 'nav/input.ts',
     when: inRepoTab,
     run: () => {
       const t = activeTab();

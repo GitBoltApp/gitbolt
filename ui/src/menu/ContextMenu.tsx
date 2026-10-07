@@ -126,6 +126,8 @@ export function ContextMenu() {
   const [levels, setLevels] = useState<Level[]>([]);
   // The keyboard is on the armed row's option (its checkbox row under it), not the row itself.
   const [onOption, setOnOption] = useState(false);
+  /** The row whose variant the pointer is on: its default-variant hint is off then. */
+  const [overVariant, setOverVariant] = useState<string | null>(null);
   const armedId = armed?.id;
   useEffect(() => setOnOption(false), [armedId]);
   const placedSeq = useRef(-1);
@@ -532,9 +534,11 @@ export function ContextMenu() {
                       aria-label={v.tooltip}
                       aria-disabled={!!v.disabledReason || undefined}
                       data-active={active && j === lv.variant}
-                      onPointerEnter={(e) => { e.stopPropagation(); tipVariant(e.currentTarget, v); }}
+                      data-default={(active && !disabled && lv.variant < 0 && overVariant !== rowId(depth, i) && v.id === r.defaultVariant) || undefined}
+                      onPointerEnter={(e) => { e.stopPropagation(); setOverVariant(rowId(depth, i)); tipVariant(e.currentTarget, v); }}
                       onPointerLeave={(e) => {
                         e.stopPropagation();
+                        setOverVariant(null);
                         // K25: moving straight into a sibling in this group leaves the tooltip alone —
                         // that sibling's own pointerEnter (above) swaps it to its tooltip directly. Only
                         // leaving the group altogether falls back to the row's tooltip, so the pointer

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Hunk } from '../api/gen/Hunk';
-import { HunkButtons, hunkAt, selectedChanges, stagingMenuRows, wipSideOf } from './hunkActions';
+import { atCursor, HunkButtons, hunkAt, selectedChanges, stagingMenuRows, wipSideOf } from './hunkActions';
 import type { MenuRow } from '../menu/types';
 import { provideStagingRows, stagingRows } from './stagingMenu';
 import { hunkHeader, zoneAfter } from './wipHunks';
@@ -12,6 +12,22 @@ const hunks: Hunk[] = [
   { oldStart: 17, oldLines: 7, newStart: 17, newLines: 8, del: [20], add: [20, 21] },
 ];
 const rect = { top: 0, left: 0, bottom: 0 };
+
+describe('the hunk or lines at the cursor (Ctrl+Shift+D)', () => {
+  it('takes the selected changed lines, else the hunk the cursor is in', () => {
+    expect(atCursor(hunks, { side: 'modified', start: 19, end: 22 }, { side: 'modified', line: 3 })).toEqual({ kind: 'lines', old: [], new: [{ start: 20, end: 21 }] });
+    expect(atCursor(hunks, null, { side: 'modified', line: 20 })).toEqual({ kind: 'hunks', hunks: [1] });
+    expect(atCursor(hunks, { side: 'modified', start: 10, end: 11 }, { side: 'original', line: 3 })).toEqual({ kind: 'hunks', hunks: [0] });
+    expect(atCursor(hunks, null, { side: 'modified', line: 12 })).toBeNull();
+    expect(atCursor(hunks, null, null)).toBeNull();
+  });
+  it('a pure deletion: Next change leaves the cursor on the line after it', () => {
+    const del: Hunk[] = [{ oldStart: 4, oldLines: 2, newStart: 3, newLines: 0, del: [4, 5], add: [] }];
+    expect(atCursor(del, null, { side: 'modified', line: 4 })).toEqual({ kind: 'hunks', hunks: [0] });
+    expect(atCursor(del, null, { side: 'modified', line: 3 })).toEqual({ kind: 'hunks', hunks: [0] });
+    expect(atCursor(del, null, { side: 'modified', line: 6 })).toBeNull();
+  });
+});
 
 describe('hunks and lines (spec #2 §7.3)', () => {
   it('counts only the changed lines a selection covers, on its side', () => {

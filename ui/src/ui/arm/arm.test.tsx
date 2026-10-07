@@ -227,8 +227,9 @@ describe('arm in place (spec §ui confirms)', () => {
     let a!: Promise<boolean>;
     act(() => { a = confirmAction(req()); });
     const pop = screen.getByRole('alertdialog', { name: 'Discard all changes?' });
-    expect(pop).toHaveTextContent('go');
-    expect(screen.getByRole('button', { name: 'Discard all' })).toHaveFocus();
+    expect(pop).not.toHaveTextContent('go');
+    // A destructive answer never takes the Enter focus: Cancel does.
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
     clock.settle();
     pressEnter(screen.getByRole('button', { name: 'Discard all' }));
     await expect(a).resolves.toBe(true);
@@ -245,6 +246,13 @@ describe('arm in place (spec §ui confirms)', () => {
     clock.settle();
     press(screen.getByRole('button', { name: 'Discard all' }));
     await expect(a).resolves.toBe(true);
+  });
+
+  it('the popover row reads Cancel then the answer (answer rightmost)', () => {
+    render(<><ArmLayer /><ConfirmDialog /></>);
+    act(() => { void confirmAction(req(), null); });
+    const names = Array.from(screen.getByRole('alertdialog').querySelectorAll('.modal-actions button')).map((b) => b.textContent);
+    expect(names).toEqual(['Cancel', 'Discard all']);
   });
 
   it('a popover goes under its anchor, or above it with no room below, on screen', () => {

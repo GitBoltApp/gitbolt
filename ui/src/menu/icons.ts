@@ -1,5 +1,5 @@
 import {
-  AppWindow, ArrowRightToLine, Check, CircleAlert, Flag, Code, Columns3, Copy, Download, ExternalLink, Eye, EyeOff, FileCode, FileDiff, FileText, FolderGit2, FolderOpen,
+  AppWindow, ArrowRightToLine, Check, CircleAlert, Flag, Code, Columns3, Copy, Download, ExternalLink, Eye, EyeOff, FileCode, FileDiff, FileText, FolderGit2, FolderOpen, FolderPlus, CopyPlus,
   GitBranch, GitCommitHorizontal, GitCompare, GitGraph, GitPullRequest, Hash, LoaderCircle, MessageSquare, Pencil, RotateCcw, Settings, SquareArrowOutUpRight, SquareX, Tag, X,
 } from 'lucide-react';
 
@@ -35,6 +35,8 @@ export const ICONS = {
   closeOthers: SquareX,
   closeRight: ArrowRightToLine,
   reopen: RotateCcw,
+  openRepo: FolderPlus,
+  clone: CopyPlus,
   repo: FolderGit2,
   columns: Columns3,
   show: Eye,

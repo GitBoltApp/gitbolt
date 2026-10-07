@@ -73,8 +73,9 @@ export async function checkout(ctx: WriteCtx, target: CheckoutTarget, expect: Ex
   const ok = await confirmAction({
     title: 'Branches have diverged',
     body: `${out.local} and ${out.remote} have diverged (${out.ahead} ahead, ${out.behind} behind).`,
-    confirmLabel: `Reset ${out.local} to ${out.remote}`,
-    arm: `Click again to reset ${out.local} to ${out.remote}${out.ahead ? ` (drops ${out.ahead} local ${out.ahead === 1 ? 'commit' : 'commits'})` : ''}`,
+    // The names are in the body: the button stays short, so its row never wraps.
+    confirmLabel: 'Reset to remote',
+    arm: `Click again to reset${out.ahead ? ` (drops ${out.ahead} local ${out.ahead === 1 ? 'commit' : 'commits'})` : ''}`,
     caption: `${out.local} and ${out.remote} have diverged (${out.ahead} ahead, ${out.behind} behind).`,
     danger: true,
   }, origin);

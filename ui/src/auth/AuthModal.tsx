@@ -104,7 +104,7 @@ function AuthForm({ prompt }: { prompt: AuthPrompt }) {
         <p className="auth-note">Remembering credentials is up to your git credential helper.</p>
         <div className="modal-actions">
           <button type="button" onClick={() => answer(null)}>Cancel</button>
-          <button type="submit" className="primary">OK</button>
+          <button type="submit" className="primary">Submit</button>
         </div>
       </form>
     </div>

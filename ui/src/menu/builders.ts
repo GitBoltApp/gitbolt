@@ -217,7 +217,7 @@ registerMenu<CommitTarget, MenuEnv>({
       }));
     }
     out.push(row({
-      id: 'commit.copySha', label: 'Copy SHA', icon: ICONS.sha, tooltip: 'Copy the full commit id', run: () => env.act.copy(t.sha),
+      id: 'commit.copySha', label: 'Copy SHA', icon: ICONS.sha, tooltip: 'Copy the full commit id', run: () => env.act.copy(t.sha), defaultVariant: 'full',
       variants: [
         { id: 'short', label: 'Short', tooltip: `Copy the short id (${shortSha(t.sha)})`, run: () => env.act.copy(shortSha(t.sha)) },
         { id: 'full', label: 'Full', tooltip: 'Copy the full 40-character id', run: () => env.act.copy(t.sha) },

@@ -11,6 +11,7 @@ import { useQueuedKind } from '../queue/store';
 import { MODE_OF, pull, syncView } from '../sync/pull';
 import { branchOf, headBranchOf } from '../sync/push';
 import { writeCtx } from '../write/ctx';
+import { isTypingTarget } from '../ui/keys';
 import { registerToolbarButton } from './registry';
 import { Toolbar } from './Toolbar';
 
@@ -23,7 +24,9 @@ const repoTab = () => {
 const offs = [
   registerActions([
     {
-      id: 'repo.fetch', label: 'Fetch all', group: 'Repository', icon: ICONS.fetch, tooltip: 'Fetch every remote of the current repository',
+      id: 'repo.fetch', label: 'Fetch all', group: 'Repository', icon: ICONS.fetch, tooltip: 'Fetch every remote of the current repository', shortcuts: ['Ctrl+L'],
+      // GitKraken's Fetch all. In the editable working copy, Monaco's Expand line selection.
+      yieldsTo: isTypingTarget,
       when: () => !!repoTab(),
       run: () => {
         const t = repoTab();

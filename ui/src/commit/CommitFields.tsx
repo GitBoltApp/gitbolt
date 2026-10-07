@@ -12,7 +12,9 @@ const isSubmit = (e: KeyboardEvent) => e.key === 'Enter' && (e.ctrlKey || e.meta
  * - Ctrl+Enter submits from either; Esc blurs, keeping the text (or `onEscape`, e.g. Cancel).
  * One text box (ux round 1): one border around both, the focus ring on it. The description
  * shows 4 lines, grows to 8, then scrolls (CSS `field-sizing`).
- * Keys typed here never reach the app's shortcuts (the same rule as the WIP row's box).
+ * Keys typed here never reach the page's own handlers (the same rule as the WIP row's box); the
+ * app's Ctrl chords still come first (key router), and the app-wide Commit (Ctrl+Enter,
+ * `commit/keyActions.ts`) yields to these fields.
  */
 export function CommitFields({ value, onChange, onSubmit, onEscape, disabled = false, autoFocus = false }: { value: WipDraft; onChange: (d: WipDraft) => void; onSubmit: () => void; onEscape?: () => void; disabled?: boolean; autoFocus?: boolean }) {
   const summary = useRef<HTMLInputElement>(null);

@@ -8,6 +8,7 @@ import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
 import { registerToolbarButton, type ButtonView } from '../toolbar/registry';
 import type { WriteCtx } from '../write/client';
+import { isTypingTarget } from '../ui/keys';
 import { applyStash, dropStash, stashPushFor } from './actions';
 
 const writeCtx = (): WriteCtx | null => {
@@ -38,12 +39,15 @@ const popView = ({ tabId }: RepoCtx): ButtonView => {
 const offs = [
   registerActions([
     {
-      id: 'stash.push', label: 'Stash', group: 'Repository', icon: StashIcon, tooltip: 'Stash every change, named from the WIP message',
+      id: 'stash.push', label: 'Stash', group: 'Repository', icon: StashIcon, tooltip: 'Stash every change, named from the WIP message', shortcuts: ['Ctrl+Alt+S'],
+      // Ctrl+Alt is AltGr on Windows: typed text never runs it.
+      yieldsTo: isTypingTarget,
       when: () => dirty(activeRuntime()),
       run: () => { const c = writeCtx(); if (c) void stashPushFor(c); },
     },
     {
-      id: 'stash.pop', label: 'Pop', group: 'Repository', icon: ArchiveRestore, tooltip: 'Apply the newest stash and delete it',
+      id: 'stash.pop', label: 'Pop', group: 'Repository', icon: ArchiveRestore, tooltip: 'Apply the newest stash and delete it', shortcuts: ['Ctrl+Alt+P'],
+      yieldsTo: isTypingTarget,
       when: () => !!newest(activeRuntime()),
       // The oid is read at the click, so a Pop that waits in the queue acts on the stash clicked.
       run: () => { const c = writeCtx(); const s = newest(activeRuntime()); if (c && s) void applyStash(c, s.id, true); },

@@ -104,7 +104,7 @@ function Form({ req }: { req: Req }) {
           )}
           <div className="modal-actions">
             <button type="button" onClick={close}>Cancel</button>
-            <button type="button" onClick={() => void submit()} disabled={!label || merged || emptyTitle}>{label ?? `Create stack ${noun}s`}</button>
+            <button type="button" className="primary" onClick={() => void submit()} disabled={!label || merged || emptyTitle}>{label ?? `Create stack ${noun}s`}</button>
           </div>
         </form>
       </div>

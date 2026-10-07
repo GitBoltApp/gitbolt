@@ -26,6 +26,18 @@ test.describe('WIP staging (spec #2 §7.1, §7.2)', () => {
       await page.getByRole('menuitem', { name: 'Unstage' }).click();
       await expect(fileRow(page, 'unstaged', 'new.txt')).toBeVisible();
     });
+    await test.step('Ctrl+Shift+S stages the open file, and unstages it from Staged', async () => {
+      await fileRow(page, 'unstaged', 'new.txt').click();
+      await expect(page.getByTestId('diff-path')).toContainText('new.txt');
+      await page.keyboard.press('Control+Shift+S');
+      await expect(fileRow(page, 'staged', 'new.txt')).toBeVisible();
+      expect(git(repo, 'diff', '--cached', '--name-only')).toContain('new.txt');
+      await fileRow(page, 'staged', 'new.txt').click();
+      await expect(page.getByTestId('diff-path')).toContainText('new.txt');
+      await page.keyboard.press('Control+Shift+S');
+      await expect(fileRow(page, 'unstaged', 'new.txt')).toBeVisible();
+      await expect(fileRow(page, 'staged', 'new.txt')).toHaveCount(0);
+    });
     await test.step('an unstaged diff has no unlabeled revert arrow in its gutter', async () => {
       await fileRow(page, 'unstaged', 'new.txt').click();
       await expect(page.getByTestId('diff-path')).toContainText('new.txt');

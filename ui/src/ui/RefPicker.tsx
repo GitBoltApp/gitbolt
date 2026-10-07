@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { HoverTooltip } from './HoverTooltip';
 import { useKeys } from './keyRouter';
+import { pointInRect, swallowGestureClick } from './swallowClick';
 import './picker.css';
 
 export interface PickItem { id: string; label: string; detail?: string; icon?: LucideIcon; current?: boolean; tooltip?: string }
@@ -74,11 +75,14 @@ export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore,
   useLayoutEffect(() => {
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
-      if (!ref.current?.contains(t) && !ignore?.contains(t)) onClose();
+      if (ref.current?.contains(t) || ignore?.contains(t)) return;
+      // A press on the trigger (the anchor's own box) closes it, and its click must not reopen it.
+      if (pointInRect(e, anchor)) swallowGestureClick((c) => pointInRect(c, anchor));
+      onClose();
     };
     window.addEventListener('pointerdown', onDown, true);
     return () => window.removeEventListener('pointerdown', onDown, true);
-  }, [onClose, ignore]);
+  }, [onClose, ignore, anchor]);
 
   useKeys('menu', (e) => {
     const plain = !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing;

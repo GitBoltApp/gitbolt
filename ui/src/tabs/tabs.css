@@ -4,7 +4,7 @@
    its tab. The bar draws its own bottom edge as a background line rather than a border, so the
    selected tab's background covers it: no line between the selected tab and the action bar. */
 .tab-bar { display: flex; align-items: stretch; height: 34px; background: linear-gradient(to top, var(--section-border) 1px, transparent 1px), var(--tab-bar-bg); flex: none; user-select: none; }
-.tab-bar-btn { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 34px; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
+.tab-bar-btn { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 34px; flex: none; position: relative; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
 .tab-bar-btn:hover, .tab-bar-btn:focus-visible { color: var(--text-selected); background: var(--hover-row); }
 
 .tabs { display: flex; flex: 1; min-width: 0; overflow: hidden; }
@@ -57,3 +57,5 @@
 .modal .modal-error { margin: -4px 0 12px; color: var(--red); }
 .modal label.modal-check { flex-direction: row; align-items: center; gap: 6px; }
 .modal label.modal-check input { padding: 0; }
+
+.bell-badge { position: absolute; top: 4px; right: 2px; min-width: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: var(--status-deleted); color: var(--text-on-accent); font-size: 10px; line-height: 14px; text-align: center; pointer-events: none; }

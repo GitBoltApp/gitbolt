@@ -5,12 +5,14 @@ import { api } from '../api/client';
 import type { Hunk } from '../api/gen/Hunk';
 import type { LineRange } from '../api/gen/LineRange';
 import type { StageSelection } from '../api/gen/StageSelection';
+import { useLend } from '../app/lent';
 import { useRepoContext } from '../app/repoContext';
 import type { MenuRow } from '../menu/types';
 import type { DiffTarget } from '../repo/store';
 import { discardPatch, stagePatch } from '../stage/actions';
 import { COMMIT_QUEUED, useCommitting } from '../stage/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
+import { useToast } from '../ui/toast';
 import { LineActionBar } from './LineActionBar';
 import type { DiffSelection, EditorContextMenuEvent } from './monaco/host';
 import { provideStagingRows } from './stagingMenu';
@@ -44,6 +46,18 @@ export function hunkAt(hunks: Hunk[], side: Side, line: number): number {
     const [start, n] = side === 'original' ? [h.oldStart, h.oldLines] : [h.newStart, h.newLines];
     return n === 0 ? line === start : line >= start && line < start + n;
   });
+}
+
+/** Ctrl+Shift+D's selection: the changed lines `sel` covers, else the hunk `cursor` is in. A pure
+ * deletion's hunk is numbered by the line before it, and Next change puts the cursor on the line
+ * after it: either counts. `null`: nothing to stage there. */
+export function atCursor(hunks: Hunk[], sel: LineSpan | null, cursor: { side: Side; line: number } | null): StageSelection | null {
+  const lines = sel ? selectedChanges(hunks, sel) : null;
+  if (lines && lines.count > 0) return { kind: 'lines', old: lines.old, new: lines.new };
+  if (!cursor) return null;
+  let i = hunkAt(hunks, cursor.side, cursor.line);
+  if (i < 0 && cursor.side === 'modified') i = hunks.findIndex((h) => h.newLines === 0 && h.newStart === cursor.line - 1);
+  return i < 0 ? null : { kind: 'hunks', hunks: [i] };
 }
 
 /** One line's selection, on its side. */
@@ -172,6 +186,14 @@ export function HunkActions({ target }: { target: DiffTarget }) {
     const hunk = hunkAt(l.hunks, e.deletedLine !== undefined ? 'original' : e.side, e.deletedLine ?? e.line);
     return stagingMenuRows({ hunks: l.hunks, span, hunk, staged: l.staged, canDiscard: l.canDiscard, reason: l.reason, run: l.run });
   }), []);
+  // Ctrl+Shift+D (`stage/keyActions.ts`): the selected lines, else the hunk at the cursor.
+  const staging = !!side && !!payload && payload.refused === null && hunks.length > 0;
+  useLend('stage.hunk', tabId, staging ? () => {
+    const l = latest.current;
+    if (l.reason) return useToast.getState().show(l.reason);
+    const picked = atCursor(l.hunks, l.sel, host?.diffCursor() ?? null);
+    if (picked) l.run(picked, false);
+  } : null);
   const changes = sel && hunks.length > 0 ? selectedChanges(hunks, sel) : null;
   const selection: StageSelection | null = changes && changes.count > 0 ? { kind: 'lines', old: changes.old, new: changes.new } : null;
   // The bar shows what the write will take: the backend counts after the no-newline tie.

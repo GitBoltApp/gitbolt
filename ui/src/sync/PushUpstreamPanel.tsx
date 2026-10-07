@@ -6,6 +6,7 @@ import { usePopoverPlace } from '../ui/arm/anchor';
 import { currentOrigin, originRect, type Origin } from '../ui/arm/origin';
 import { confirmable } from '../ui/arm/store';
 import { Select } from '../ui/Select';
+import { swallowGestureClick } from '../ui/swallowClick';
 import './push.css';
 
 /** Where a branch with no upstream goes, and whether it tracks it. */
@@ -54,11 +55,15 @@ function Panel({ req }: { req: Req }) {
     const onDown = (e: PointerEvent) => {
       const t = e.target instanceof Element ? e.target : null;
       if (t && (ref.current?.contains(t) || t.closest('.ctx-menu'))) return;
+      // A press on the control that started the push (the Push button) closes it, as a toggle:
+      // its click must not push again and reopen the panel.
+      const trigger = req.origin?.via === 'pointer' && req.origin.control ? req.origin.el : null;
+      if (t && trigger?.contains(t)) swallowGestureClick((c) => c.target instanceof Node && trigger.contains(c.target));
       doneRef.current(null);
     };
     window.addEventListener('pointerdown', onDown, true);
     return () => window.removeEventListener('pointerdown', onDown, true);
-  }, [ref]);
+  }, [ref, req.origin]);
   // Push takes the focus (after the focus trap's own: React's dev double effects re-run it).
   useEffect(() => { ref.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true }); }, [ref]);
   // The settle guard (as a popover's choice): the press or held Enter that opened it never pushes.

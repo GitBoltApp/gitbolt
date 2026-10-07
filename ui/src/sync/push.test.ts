@@ -3,12 +3,14 @@ import { api } from '../api/client';
 import type { LocalBranch } from '../api/gen/LocalBranch';
 import { useRuntime } from '../app/runtime';
 import { useToast } from '../ui/toast';
-import { afterPushActions, forceText, nothingToPush, pushBranch, pushHooks, pushLabel, pushTooltip } from './push';
+import { afterPushActions, forceText, nothingToPush, openPushUpstream, pushBranch, pushHooks, pushLabel, pushTooltip } from './push';
 
 const confirm = vi.fn(async () => true);
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: (...a: unknown[]) => confirm(...(a as [])) }));
 const ask = vi.fn(async (_req: { title: string; body?: string; choices: { id: string; label: string; danger?: boolean; arm?: string; quiet?: boolean }[] }) => ({ choice: null as string | null }));
 vi.mock('../ui/ChoiceDialog', () => ({ askChoice: (...a: unknown[]) => ask(...(a as [never])) }));
+const target = vi.fn(async () => null as { target: { remote: string; branch: string }; track: boolean } | null);
+vi.mock('./PushUpstreamPanel', () => ({ askPushTarget: () => target() }));
 
 const main: LocalBranch = { name: 'main', fullName: 'refs/heads/main', target: 'a'.repeat(40), upstream: 'origin/main', ahead: 1, behind: 0, gone: false, tipTime: 0, summary: '', author: '', isHead: true, worktree: null, checkedOut: null, pushTarget: 'origin/main', pushBehind: 3, rewritten: null };
 const ctx = { tabId: 't', repoId: 1, worktree: '/r' };
@@ -68,6 +70,26 @@ describe('push (spec #2 §12.3)', () => {
     await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(2));
     expect(push.mock.calls[1][3]).toMatchObject({ lease: { oid: 'b'.repeat(40) } });
     expect(confirm).not.toHaveBeenCalled();
+    useRuntime.setState({ tabs: {} } as never);
+  });
+
+  it('a rejected push from the "Push to" panel (no upstream yet) still offers Force push, to that target, with its lease', async () => {
+    // The branch the remote already has (a rebased branch whose upstream was never set here).
+    const loose = { ...main, upstream: null, pushTarget: null, pushBehind: null };
+    useRuntime.setState({ tabs: { t: { sidebar: { locals: [loose], remotes: [{ name: 'origin', branches: [{ name: 'main', target: 'b'.repeat(40) }] }] } } } } as never);
+    target.mockResolvedValueOnce({ target: { remote: 'origin', branch: 'main' }, track: true });
+    const push = vi.spyOn(api, 'push').mockRejectedValueOnce({ kind: 'NonFastForward', message: 'rejected', commandId: 4, stderr: null });
+    push.mockResolvedValueOnce({ outcome: { remote: 'origin', dst: 'main', branch: 'main', forced: null, upToDate: false, server: [], op: 1 }, journal: { undo: null, redo: null, undoBlocked: null, redoBlocked: null, banners: [] }, staging: { undo: null, redo: null, off: null }, wip: null } as never);
+    pushHooks.pull = vi.fn();
+    ask.mockClear();
+    ask.mockResolvedValueOnce({ choice: 'force' });
+    await openPushUpstream(ctx, loose);
+    await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(2));
+    const req = ask.mock.calls[0][0];
+    expect(req.title).toBe("origin/main has commits main doesn't have");
+    expect(req.choices.map((c) => c.label)).toEqual(['Pull', 'Force push…', 'Details']);
+    expect(req.choices[1]).toMatchObject({ danger: true, arm: 'Click again to force push to origin/main' });
+    expect(push.mock.calls[1][3]).toMatchObject({ target: { remote: 'origin', branch: 'main' }, setUpstream: true, lease: { oid: 'b'.repeat(40) } });
     useRuntime.setState({ tabs: {} } as never);
   });
 

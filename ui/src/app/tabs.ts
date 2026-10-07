@@ -9,7 +9,7 @@ export const MAX_RECENT = 50;
 export const newTabId = (): string =>
   globalThis.crypto?.randomUUID?.() ?? `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
+export const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
 /** What a tab shows: the alias, else the repo's name (a linked worktree's folder name, as
  * before 2C shared one handle between them), else the folder name. */

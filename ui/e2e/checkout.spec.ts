@@ -64,7 +64,7 @@ test.describe('checkout (spec #2 §9.3)', () => {
     await page.goto(openUrl(repo));
     await page.getByRole('treeitem', { name: 'feature/login' }).last().dblclick();
     await expect(page.getByRole('alertdialog')).toContainText('feature/login and origin/feature/login have diverged (1 ahead, 1 behind).');
-    await confirmArmed(page.getByRole('button', { name: 'Reset feature/login to origin/feature/login' }));
+    await confirmArmed(page.getByRole('button', { name: 'Reset to remote' }));
     await expect.poll(() => git(repo, 'rev-parse', 'feature/login')).toBe(git(repo, 'rev-parse', 'origin/feature/login'));
     await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => git(repo, 'rev-parse', 'feature/login')).toBe(mine);

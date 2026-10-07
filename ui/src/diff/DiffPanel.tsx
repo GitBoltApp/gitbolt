@@ -317,6 +317,13 @@ export const editorOwnsEscape = () =>
 /** Targets inside the zone that use ← themselves. */
 const OWNS_ARROWS = '.monaco-host, .hex-view, input, textarea, select, [role="slider"]';
 /** Targets a click leaves alone: controls, and the editor (Monaco focuses itself). */
+/** Alt+4 (`repo/focusActions.ts`): the editor, when one shows, so the keys scroll and select in
+ * it; else the panel. */
+const focusEditor = (el: HTMLElement): HTMLElement => {
+  if (el.querySelector('.monaco-host')?.checkVisibility?.()) void loadMonacoHost().then((h) => h.focus());
+  return el;
+};
+
 const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .hex-view, .md-rendered, .md-diff-ruler';
 
 /**
@@ -337,7 +344,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const closeDiff = useRepoView((s) => s.closeDiff);
   const setFocus = useRepoView((s) => s.setFocus);
   const ref = useRef<HTMLElement>(null);
-  const zone = useFocusZone('diff', ref);
+  const zone = useFocusZone('diff', ref, focusEditor);
   // "Load anyway" holds for the file it was pressed on, until it's closed; another file asks again.
   const [forcedKey, setForcedKey] = useState<string | null>(null);
   const forcedFor = (t: DiffTarget) => forcedKey === `${session}|${t.key}`;

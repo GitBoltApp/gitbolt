@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { armClock, press, pressEnter } from '../ui/arm/armTesting';
 import { askPushTarget, branchWidth, PushUpstreamPanel } from './PushUpstreamPanel';
 
@@ -57,5 +57,23 @@ describe('the push-upstream panel (spec #2 §12.3, UX round 3)', () => {
     act(() => { p = askPushTarget('main', ['origin']); });
     act(() => { fireEvent.pointerDown(screen.getByText('outside')); });
     await expect(p).resolves.toBeNull();
+  });
+
+  it('pressing the control that started the push closes the panel, and its click does not push again', async () => {
+    const trigger = document.createElement('button');
+    const again = vi.fn();
+    trigger.addEventListener('click', again);
+    document.body.append(trigger);
+    render(<PushUpstreamPanel />);
+    let p!: ReturnType<typeof askPushTarget>;
+    act(() => { p = askPushTarget('main', ['origin'], { el: trigger, rect: null, via: 'pointer', control: true, holds: 0 }); });
+    clock.settle();
+    fireEvent.pointerDown(trigger);
+    fireEvent.pointerUp(trigger);
+    fireEvent.click(trigger);
+    await expect(p).resolves.toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(again).not.toHaveBeenCalled();
+    trigger.remove();
   });
 });

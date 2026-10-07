@@ -79,16 +79,17 @@ export function forceText(b: LocalBranch): string {
 }
 
 /** The armed Force push's label: what it replaces, when the snapshot counts it. */
-export function forceArm(b: LocalBranch): string {
-  const n = b.pushBehind ?? 0;
-  return n === 0 ? `Click again to force push to ${b.pushTarget}` : `Click again to force push: replaces ${n} ${n === 1 ? 'commit' : 'commits'}`;
+export function forceArm(b: LocalBranch, target = b.pushTarget, behind = b.pushBehind): string {
+  const n = behind ?? 0;
+  return n === 0 ? `Click again to force push to ${target}` : `Click again to force push: replaces ${n} ${n === 1 ? 'commit' : 'commits'}`;
 }
 
-/** The remote-tracking oid the snapshot shows for the push target: the lease (spec #2 §12.3). */
-function leaseOf(tabId: string, b: LocalBranch): string | null {
+/** The remote-tracking oid the snapshot shows for `target` (`origin/main`, by default the
+ * branch's push target): the lease (spec #2 §12.3). */
+function leaseOf(tabId: string, b: LocalBranch, target = b.pushTarget): string | null {
   const groups = useRuntime.getState().tabs[tabId]?.sidebar?.remotes ?? [];
   for (const g of groups) {
-    const hit = g.branches.find((r) => `${g.name}/${r.name}` === b.pushTarget);
+    const hit = g.branches.find((r) => `${g.name}/${r.name}` === target);
     if (hit) return hit.target;
   }
   return null;
@@ -117,27 +118,33 @@ export function afterPushActions(tabId: string, b: LocalBranch, upToDate: boolea
  * that started it, "origin/main has 1 commit main doesn't have", with [Cancel] [Force push…]
  * [Pull]: the safe Pull right-most and focused, Force push (with lease) red, arming in place
  * before it goes; Details is a link in the body. */
-async function rejected(ctx: WriteCtx, b: LocalBranch, err: GbError, target: string, origin: Origin | null): Promise<void> {
+async function rejected(ctx: WriteCtx, b: LocalBranch, err: GbError, target: string, origin: Origin | null, sent: SendOpts): Promise<void> {
   const pull = pushHooks.pull;
   const now = branchOf(ctx.tabId, b.name) ?? b;
+  // The push's own target: the "Push to" panel's (the branch had no push target, or one it
+  // wasn't sent to), else the branch's. Its behind count is known only when it's the branch's.
+  const theirs = sent.target ? `${sent.target.remote}/${sent.target.branch}` : now.pushTarget;
+  const behind = theirs === now.pushTarget ? now.pushBehind : null;
   // The lease is read with the count the armed label shows, before the question: they agree.
-  const lease = leaseOf(ctx.tabId, now);
-  const n = now.pushBehind ?? 0;
+  const lease = leaseOf(ctx.tabId, now, theirs);
+  const n = behind ?? 0;
   const answer = await askChoice({
     title: `${target} has ${n > 0 ? `${n} ${n === 1 ? 'commit' : 'commits'}` : 'commits'} ${b.name} doesn't have`,
     body: pull ? 'Pull them in first, or overwrite them.' : 'Overwrite them with a force push?',
     choices: [
       ...(pull ? [{ id: 'pull', label: 'Pull', primary: true }] : []),
-      ...(b.pushTarget ? [{ id: 'force', label: 'Force push…', danger: true, arm: forceArm(now) }] : []),
+      ...(theirs ? [{ id: 'force', label: 'Force push…', danger: true, arm: forceArm(now, theirs, behind) }] : []),
       { id: 'details', label: 'Details', quiet: true },
     ],
   }, origin);
   if (answer.choice === 'pull') pull?.(ctx, b.name);
-  else if (answer.choice === 'force') await forcePush(ctx, now, { oid: lease, origin });
+  else if (answer.choice === 'force') await send(ctx, now, { target: sent.target, setUpstream: sent.setUpstream, lease: { oid: lease } }, origin);
   else if (answer.choice === 'details') openDebug('commands', err.commandId ?? null);
 }
 
-async function send(ctx: WriteCtx, b: LocalBranch, opts: { target?: PushTarget; setUpstream?: boolean; lease?: { oid: string | null } }, origin: Origin | null = currentOrigin()): Promise<void> {
+type SendOpts = { target?: PushTarget; setUpstream?: boolean; lease?: { oid: string | null } };
+
+async function send(ctx: WriteCtx, b: LocalBranch, opts: SendOpts, origin: Origin | null = currentOrigin()): Promise<void> {
   const shown = opts.target ? `${opts.target.remote}/${opts.target.branch}` : (b.pushTarget ?? b.name);
   // The rejection's question runs once this push has ended (its Force push is a push of the same branch).
   let rejection: GbError | null = null;
@@ -155,7 +162,7 @@ async function send(ctx: WriteCtx, b: LocalBranch, opts: { target?: PushTarget; 
     },
     origin,
   })));
-  if (rejection) void rejected(ctx, b, rejection, shown, origin);
+  if (rejection) void rejected(ctx, b, rejection, shown, origin, opts);
 }
 
 /** Push: to the branch's target; with none, asks where (and tracks it). */
@@ -177,12 +184,11 @@ export async function openPushUpstream(ctx: WriteCtx, b: LocalBranch): Promise<v
 }
 
 /** Force push with a lease on the remote-tracking oid shown now, after a confirmation (it arms
- * in place). `confirmed`: it already did, in the rejection's popover, with this lease (read when
- * that question showed its count) and the origin the push started from. */
-export async function forcePush(ctx: WriteCtx, b: LocalBranch, confirmed?: { oid: string | null; origin: Origin | null }): Promise<void> {
+ * in place). The rejection's popover asks its own question and sends the push itself. */
+export async function forcePush(ctx: WriteCtx, b: LocalBranch): Promise<void> {
   if (!b.pushTarget) return;
-  const origin = confirmed ? confirmed.origin : currentOrigin();
-  const oid = confirmed ? confirmed.oid : leaseOf(ctx.tabId, b);
-  if (!confirmed && !(await confirmAction({ title: `Force push ${b.name} to ${b.pushTarget}?`, body: forceText(b), confirmLabel: 'Force push', arm: forceArm(b), danger: true }, origin))) return;
+  const origin = currentOrigin();
+  const oid = leaseOf(ctx.tabId, b);
+  if (!(await confirmAction({ title: `Force push ${b.name} to ${b.pushTarget}?`, body: forceText(b), confirmLabel: 'Force push', arm: forceArm(b), danger: true }, origin))) return;
   await send(ctx, b, { lease: { oid } }, origin);
 }

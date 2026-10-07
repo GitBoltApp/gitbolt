@@ -81,14 +81,13 @@ export async function pull(ctx: WriteCtx, mode: PullMode, branch?: string): Prom
 export function pullRow(b: LocalBranch, run: (mode: PullMode) => void): MenuRow | null {
   if (!b.upstream || b.gone) return null;
   const up = upstreamOf(b);
+  const notHere = b.isHead ? {} : { disabledReason: `${b.name} isn't checked out: it can only be fast-forwarded` };
   return {
-    kind: 'action', id: 'sync.pull', label: 'Pull', icon: GitPullRequest, tooltip: `Pull ${up ?? 'its upstream'} into ${b.name} (fast-forward only)`, run: () => run('ffOnly'),
+    kind: 'action', id: 'sync.pull', label: 'Pull', icon: GitPullRequest, tooltip: `Pull ${up ?? 'its upstream'} into ${b.name} (fast-forward only)`, run: () => run('ffOnly'), defaultVariant: 'ffOnly',
     variants: [
       { id: 'ffOnly', label: 'ff-only', tooltip: 'Fast-forward only', run: () => run('ffOnly') },
-      ...(b.isHead ? [
-        { id: 'rebase', label: 'rebase', tooltip: `Rebase ${b.name} onto ${up}`, run: () => run('rebase') },
-        { id: 'merge', label: 'merge', tooltip: `Merge ${up} into ${b.name}`, run: () => run('ffOrMerge') },
-      ] : []),
+      { id: 'rebase', label: 'rebase', tooltip: `Rebase ${b.name} onto ${up}`, run: () => run('rebase'), ...notHere },
+      { id: 'merge', label: 'merge', tooltip: `Merge ${up} into ${b.name}`, run: () => run('ffOrMerge'), ...notHere },
     ],
   };
 }

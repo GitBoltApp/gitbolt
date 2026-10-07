@@ -23,7 +23,7 @@ describe('checkout (spec #2 §9.3)', () => {
       .mockResolvedValueOnce(done({ status: 'done', branch: 'feature/x' }) as never);
     const ask = vi.spyOn(confirm, 'confirmAction').mockResolvedValue(true);
     await checkout(ctx, target, { head: 'h0', refs: {} });
-    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Branches have diverged', body: 'feature/x and origin/feature/x have diverged (2 ahead, 3 behind).', confirmLabel: 'Reset feature/x to origin/feature/x', arm: 'Click again to reset feature/x to origin/feature/x (drops 2 local commits)', danger: true }), null);
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Branches have diverged', body: 'feature/x and origin/feature/x have diverged (2 ahead, 3 behind).', confirmLabel: 'Reset to remote', arm: 'Click again to reset (drops 2 local commits)', danger: true }), null);
     expect(call).toHaveBeenLastCalledWith(1, '/r', target, { head: 'h0', refs: { 'refs/heads/feature/x': 'l1', 'refs/remotes/origin/feature/x': 'r1' } }, false, 'reset');
   });
   it("the spinner hands straight over to the checkmark: it stays until the refreshed graph and sidebar arrive", async () => {

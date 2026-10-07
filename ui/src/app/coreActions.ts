@@ -3,12 +3,12 @@ import { api, errorMessage } from '../api/client';
 import type { Profile } from '../api/gen/Profile';
 import { copyText, inTauri } from '../api/transport';
 import { useToast } from '../ui/toast';
-import { activeRuntime, activeStore, activeTab, registerActions } from './actions';
+import { activeRuntime, activeStore, activeTab, registerActions, type Action } from './actions';
 import { useAbout } from './About';
 import { useOpenUi } from '../open/openUi';
 import { flushSaves, useAppState } from './state';
 import { guardTabClose } from '../diff/workingCopy';
-import { closeTab, cycleTab, openBlankTab, reopenClosed } from './tabs';
+import { activateTab, closeTab, cycleTab, openBlankTab, reopenClosed } from './tabs';
 
 /**
  * The shell's own actions: tabs (spec §6.2) and the current repo. Features register theirs in
@@ -96,6 +96,17 @@ const off = registerActions([
     id: 'view.prevTab', label: 'Previous tab', group: 'View', icon: ArrowLeftToLine, tooltip: 'Switch to the previous tab', shortcuts: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
     when: () => tabCount() > 1,
     run: () => update((p) => cycleTab(p, -1)),
+  },
+  // Ctrl+1…8 go to that tab, Ctrl+9 to the last one, as in browsers. Not in the hamburger.
+  ...Array.from({ length: 8 }, (_, i): Action => ({
+    id: `view.tab${i + 1}`, label: `Go to tab ${i + 1}`, group: 'View', icon: ArrowRightToLine, tooltip: `Switch to tab ${i + 1}`, shortcuts: [`Ctrl+${i + 1}`], menu: false,
+    when: () => tabCount() > i,
+    run: () => update((p) => (p.tabs[i] ? activateTab(p, p.tabs[i].id) : p)),
+  })),
+  {
+    id: 'view.lastTab', label: 'Go to the last tab', group: 'View', icon: ArrowRightToLine, tooltip: 'Switch to the last tab', shortcuts: ['Ctrl+9'], menu: false,
+    when: () => tabCount() > 1,
+    run: () => update((p) => (p.tabs.length ? activateTab(p, p.tabs[p.tabs.length - 1].id) : p)),
   },
   {
     id: 'repo.copyPath', label: 'Copy repository path', group: 'Repository', icon: Copy, tooltip: 'Copy the current repository\'s directory path',

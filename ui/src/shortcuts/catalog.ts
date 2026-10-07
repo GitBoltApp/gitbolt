@@ -1,4 +1,4 @@
-import { availableActions, type ActionGroup } from '../app/actions';
+import { allActions, type ActionGroup } from '../app/actions';
 import { keyHints } from './hints';
 
 export interface ShortcutRow { id: string; label: string; keys: string[]; context?: string }
@@ -7,23 +7,24 @@ export interface ShortcutSection { title: string; rows: ShortcutRow[] }
 const ACTION_SECTIONS: Record<ActionGroup, string> = {
   File: 'Repo actions', Edit: 'Edit and search', View: 'Navigation', Repository: 'Repo actions', Help: 'Help',
 };
-const ORDER = ['Repo actions', 'Navigation', 'Edit and search', 'Staging', 'Commit message', 'Diff', 'File history', 'Rebase editor', 'Help'];
+const ORDER = ['Repo actions', 'Navigation', 'Edit and search', 'Staging', 'Commit message', 'Diff', 'File history', 'Merge request', 'Rebase editor', 'Help'];
 
 /** 'Ctrl+Shift+T' into its keycaps (a trailing '+' key stays a key). */
 export const keycaps = (chord: string): string[] => chord.split(/\+(?=.)/);
 
-/** Every real binding: usable actions with a shortcut plus the declared hints, grouped by
- * section. Built from the live registries, not a hand-written list. */
+/** Every real binding: the actions with a shortcut (usable now or not: the panel is the reference,
+ * so "Stage file" is listed with no file open) plus the declared hints, grouped by section. Built
+ * from the live registries, not a hand-written list. */
 export function shortcutSections(): ShortcutSection[] {
   const by = new Map<string, ShortcutRow[]>();
   const add = (section: string, row: ShortcutRow) => by.set(section, [...(by.get(section) ?? []), row]);
   const seen = new Set<string>();
-  for (const a of availableActions()) {
+  for (const a of allActions()) {
     if (!a.shortcuts?.length) continue;
     const key = `${a.label}|${a.shortcuts.join()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    add(ACTION_SECTIONS[a.group], { id: a.id, label: a.label, keys: a.shortcuts });
+    add(a.section ?? ACTION_SECTIONS[a.group], { id: a.id, label: a.label, keys: a.shortcuts });
   }
   for (const h of keyHints()) add(h.section, { id: h.id, label: h.label, keys: h.keys, context: h.context });
   const rank = (t: string) => (ORDER.includes(t) ? ORDER.indexOf(t) : ORDER.length);

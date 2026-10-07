@@ -5,6 +5,7 @@ import { isDismissKey } from '../ui/HoverTooltip';
 import { registerKeys } from '../ui/keyRouter';
 import { useFocusTrap } from '../ui/useFocusTrap';
 import { escapeDisarms } from '../ui/arm/store';
+import { comboOf } from './shortcuts';
 
 /**
  * The open dialogs, oldest first. Only the topmost one acts on keys (one owner per key, R6): an
@@ -37,11 +38,13 @@ export const isTopModal = (token: object): boolean => stack[stack.length - 1] ==
  * focus the browser's own way. Escape closes the dialog (WCAG 1.4.13 style dismissal) and
  * doesn't reach the app's own Esc handling (closing a file) behind it.
  *
+ * `toggleCombo`: the chord that opens the dialog; pressing it again closes it (a toggle).
+ *
  * Returns the ref the dialog's own root element (the one with `role="dialog"`) must attach, so
  * `useFocusTrap` (fix round 1: focus trapping + returning focus to the opener) can find its
  * focusable children.
  */
-export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => void): RefObject<T | null> {
+export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => void, toggleCombo?: string): RefObject<T | null> {
   const { ref, onTab } = useFocusTrap<T>(open);
   // The latest `close`, so the registration below runs once per opening: a dialog that passes an
   // inline `close` and re-renders (the Activity log on every op) must not re-push itself above a
@@ -62,7 +65,8 @@ export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => 
         e.preventDefault();
         return 'handled';
       }
-      if (isDismissKey(e)) {
+      // The shortcut that opened it (Settings' Ctrl+,, the palette's Ctrl+P) toggles it closed.
+      if (isDismissKey(e) || (toggleCombo !== undefined && comboOf(e) === toggleCombo)) {
         close();
         e.preventDefault();
         return 'handled';

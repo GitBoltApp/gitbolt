@@ -1,4 +1,5 @@
-import { useId, useState, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { cancelWhenLeft } from '../branches/BranchNameInput';
 import '../branches/branchInput.css';
 import './tags.css';
 
@@ -20,6 +21,7 @@ export function TagNameInput({ annotated, validate, onSubmit, onCancel }: { anno
   const [focused, setFocused] = useState(true);
   const error = name ? validate(name) : null;
   const noteId = useId();
+  const input = useRef<HTMLInputElement>(null);
   const escape = (e: KeyboardEvent) => {
     e.stopPropagation();
     if (e.key !== 'Escape') return false;
@@ -35,6 +37,7 @@ export function TagNameInput({ annotated, validate, onSubmit, onCancel }: { anno
     <span className="branch-inline">
       <input
         className={`branch-inline-input tag-inline-input${error ? ' invalid' : ''}`}
+        ref={input}
         autoFocus
         aria-label="Tag name"
         aria-invalid={!!error || undefined}
@@ -44,7 +47,7 @@ export function TagNameInput({ annotated, validate, onSubmit, onCancel }: { anno
         value={name}
         onChange={(e) => setName(e.target.value)}
         onFocus={() => setFocused(true)}
-        onBlur={() => { setFocused(false); if (!name) onCancel(); }}
+        onBlur={() => { setFocused(false); if (!name) cancelWhenLeft(input.current, onCancel); }}
         onKeyDown={(e) => {
           if (escape(e) || e.key !== 'Enter') return;
           e.preventDefault();

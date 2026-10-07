@@ -2,6 +2,7 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { selectCommit } from '../app/graphNav';
+import { useLend } from '../app/lent';
 import { useRepoContext } from '../app/repoContext';
 import { useOps } from '../app/ops';
 import { useRuntime } from '../app/runtime';
@@ -12,6 +13,7 @@ import { useRepoView } from '../repo/store';
 import { useWipCtx } from '../stage/actions';
 import { stagingKey, useCommitting, useStaging, useStagingBusy } from '../stage/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
+import { useToast } from '../ui/toast';
 import { currentOrigin, type Origin } from '../ui/arm/origin';
 import { confirmAction } from '../ui/ConfirmDialog';
 import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';
@@ -274,6 +276,9 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, stop, !operation]);
+  // Ctrl+Enter from outside the message (`commit/keyActions.ts`), set below once the view is known.
+  const keySubmit = useRef<() => void>(() => {});
+  useLend('commit.commit', tabId, ctx ? () => keySubmit.current() : null);
   if (!ctx) return null;
   // UX L: at the "about to commit" stop the box holds the stop's message, not the WIP draft.
   const opBox = !!boxOp || editStaged;
@@ -320,6 +325,14 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
     } finally {
       setCommitting(ctx.repoId, worktree, false);
     }
+  };
+
+  // What the button does; with nothing it can do yet, the keyboard goes to the message, and why.
+  keySubmit.current = () => {
+    if (committing || integrating) return;
+    if (!view.disabled) return void submit();
+    boxRef.current?.querySelector<HTMLInputElement>('.commit-summary')?.focus();
+    if (view.reason) useToast.getState().show(view.reason);
   };
 
   // --- 3C T13: Continue under the box, behind the box's gate (review 4) ---

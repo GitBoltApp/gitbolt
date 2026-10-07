@@ -32,4 +32,21 @@ describe('the default picker (spec #2 §12.1)', () => {
     fireEvent.keyDown(menu, { key: 'Escape' });
     expect(close).toHaveBeenCalled();
   });
+
+  it('a press on the caret that opened it (under the backdrop) closes it, and its click does not reopen it', () => {
+    const close = vi.fn();
+    const reopen = vi.fn();
+    const caret = document.createElement('button');
+    caret.getBoundingClientRect = () => new DOMRect(10, 10, 20, 20);
+    caret.addEventListener('click', reopen);
+    document.body.append(caret);
+    const { container } = render(<DefaultPicker picker={{ title: 'T', options, useValue: () => 'fetchAll', set: vi.fn() }} anchor={caret} onClose={close} />);
+    const backdrop = container.querySelector('.tb-default-picker-backdrop') as HTMLElement;
+    fireEvent.pointerDown(backdrop, { clientX: 15, clientY: 15 });
+    fireEvent.pointerUp(backdrop, { clientX: 15, clientY: 15 });
+    fireEvent.click(caret, { clientX: 15, clientY: 15 });
+    expect(close).toHaveBeenCalledOnce();
+    expect(reopen).not.toHaveBeenCalled();
+    caret.remove();
+  });
 });

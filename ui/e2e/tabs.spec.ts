@@ -136,6 +136,19 @@ test.describe('tabs', () => {
       await page.keyboard.press('Control+w');
       await expect(tabs).toHaveCount(1);
     });
+    await test.step('right-click on empty tab-bar space: Reopen brings the closed tab back; Ctrl+Shift+T after closing again', async () => {
+      const tabs = page.getByRole('tab');
+      await tabs.nth(0).click({ button: 'middle' });
+      await expect(tabs).toHaveCount(1);
+      const bar = (await page.getByRole('tablist', { name: 'Repositories' }).boundingBox())!;
+      await page.mouse.click(bar.x + bar.width - 10, bar.y + bar.height / 2, { button: 'right' });
+      await page.getByRole('menuitem', { name: /^Reopen/ }).click();
+      await expect(tabs).toHaveCount(2);
+      await tabs.nth(0).click({ button: 'middle' });
+      await expect(tabs).toHaveCount(1);
+      await page.keyboard.press('Control+Shift+T');
+      await expect(tabs).toHaveCount(2);
+    });
   });
 
   test('a later launch\'s path (openRequested) opens in a new tab, or focuses the one showing it', async ({ page }) => {

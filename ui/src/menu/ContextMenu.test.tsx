@@ -67,6 +67,48 @@ describe('ContextMenu', () => {
     expect(screen.getByRole('menu')).toBeVisible();
   });
 
+  it('hovering or focusing the row body highlights the variant the row runs; hovering a variant itself does not', () => {
+    const menu = open([
+      { kind: 'action', id: 'del', label: 'Delete', icon: Copy, tooltip: 'row tip', run: () => {}, defaultVariant: 'remote', variants: [
+        { id: 'local', label: 'Local', tooltip: 'local tip', run: () => {}, disabledReason: "Can't delete dev: it's checked out" },
+        { id: 'remote', label: 'Remote', tooltip: 'remote tip', run: () => {} },
+      ] },
+      action('other'),
+    ]);
+    const remote = () => menu.querySelector('[data-variant-id="remote"]')!;
+    const local = () => menu.querySelector('[data-variant-id="local"]')!;
+    // Keyboard focus on the row (it's the first, so active at open).
+    expect(remote()).toHaveAttribute('data-default', 'true');
+    expect(local()).not.toHaveAttribute('data-default');
+    fireEvent.pointerEnter(screen.getByText('OTHER'));
+    expect(remote()).not.toHaveAttribute('data-default');
+    fireEvent.pointerEnter(screen.getByText('Delete'));
+    expect(remote()).toHaveAttribute('data-default', 'true');
+    fireEvent.pointerEnter(local());
+    expect(remote()).not.toHaveAttribute('data-default');
+    fireEvent.pointerLeave(local());
+    expect(remote()).toHaveAttribute('data-default', 'true');
+  });
+
+  it('a disabled variant is visible, shows its reason, runs nothing, and is skipped by the arrows', () => {
+    const local = vi.fn();
+    const remote = vi.fn();
+    const menu = open([{ kind: 'action', id: 'del', label: 'Delete', icon: Copy, tooltip: 'row tip', run: remote, variants: [
+      { id: 'local', label: 'Local', tooltip: 'local tip', run: local, disabledReason: "Can't delete dev: it's checked out" },
+      { id: 'remote', label: 'Remote', tooltip: 'remote tip', run: remote },
+    ] }]);
+    const l = menu.querySelector('[data-variant-id="local"]')!;
+    expect(l).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.pointerEnter(l);
+    expect(screen.getByRole('tooltip')).toHaveTextContent("Can't delete dev: it's checked out");
+    fireEvent.click(l);
+    expect(local).not.toHaveBeenCalled();
+    fireEvent.keyDown(menu, { key: 'ArrowRight' });
+    expect(menu.querySelector('[data-variant-id="remote"]')).toHaveAttribute('data-active', 'true');
+    fireEvent.keyDown(menu, { key: 'ArrowLeft' });
+    expect(menu.querySelector('[data-active="true"][data-variant-id]')).toBeNull();
+  });
+
   // K25: the inline variants (e.g. Copy path's Rel/Abs) are a gapless button group; moving the
   // pointer from one straight into its neighbour must swap the tooltip directly, never hiding it
   // and never showing the row's tooltip in between (the store update a render could batch away).
@@ -501,6 +543,25 @@ describe('ContextMenu: the anchor toggles it', () => {
     expect(useMenu.getState().rows).not.toBeNull();
     press(toggle);
     expect(useMenu.getState().rows).toBeNull();
+  });
+
+  it('the closing click stops there: neither the trigger nor anything above it runs', () => {
+    const side = vi.fn();
+    const parent = vi.fn();
+    render(
+      <div onClick={parent}>
+        <button type="button" onClick={(e) => { openMenuAt(e.currentTarget, [action('one', vi.fn())]); side(); }}>toggle2</button>
+        <ContextMenu />
+      </div>,
+    );
+    const t = screen.getByRole('button', { name: 'toggle2' });
+    press(t);
+    expect(side).toHaveBeenCalledTimes(1);
+    expect(parent).toHaveBeenCalledTimes(1);
+    press(t);
+    expect(useMenu.getState().rows).toBeNull();
+    expect(side).toHaveBeenCalledTimes(1);
+    expect(parent).toHaveBeenCalledTimes(1);
   });
 
   it('opens again on the press after that', async () => {

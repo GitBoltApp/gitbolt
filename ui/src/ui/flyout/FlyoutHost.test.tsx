@@ -4,7 +4,9 @@ import type { TabState } from '../../api/gen/TabState';
 
 // What the app's Esc looks at: the tab's open file and selection.
 const view = vi.hoisted(() => ({ diff: null as unknown, selection: { kind: 'none' } as { kind: string } }));
-vi.mock('../../app/tabStores', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../app/tabStores')>()), tabStore: () => ({ getState: () => view }), useTabView: () => undefined }));
+// The tab's view store, for the flyout's "a file is open" (an open file shows on top of it).
+const files = vi.hoisted(() => ({ store: null as unknown }));
+vi.mock('../../app/tabStores', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../app/tabStores')>()), tabStore: () => ({ getState: () => view }), useTabView: () => (files.store ? { store: files.store } : undefined) }));
 
 const { FlyoutHost } = await import('./FlyoutHost');
 const { FlyoutFrame } = await import('./FlyoutFrame');
@@ -91,6 +93,24 @@ describe('FlyoutHost (spec #4 §5)', () => {
     expect(useAppState.getState().profile.flyoutWidth).toBeNull();
     act(() => useAppState.setState({ profile: { ...useAppState.getState().profile, flyoutWidth: 9999 } }));
     expect(host.style.width).toBe('760px');
+  });
+
+  it('steps aside while a file is open over the graph, and comes back', async () => {
+    const { createStore } = await import('zustand/vanilla');
+    const store = createStore<{ diff: unknown }>(() => ({ diff: null }));
+    files.store = store;
+    try {
+      show();
+      act(() => openFlyout('t', 'demo', { text: 'hello' }));
+      const host = document.querySelector('.flyout-host')!;
+      expect(host).not.toHaveClass('under-file');
+      act(() => store.setState({ diff: { path: 'a.txt' } }));
+      expect(host).toHaveClass('under-file');
+      act(() => store.setState({ diff: null }));
+      expect(host).not.toHaveClass('under-file');
+    } finally {
+      files.store = null;
+    }
   });
 
   it('hides while a center view is on top, and comes back', () => {

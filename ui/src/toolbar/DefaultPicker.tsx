@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { pointInRect, swallowGestureClick } from '../ui/swallowClick';
 import type { ToolbarPicker } from './registry';
 
 /** The caret's default picker (spec #2 §12.1), anchored under the caret. ↑/↓ move, Enter or a
@@ -28,7 +29,14 @@ export function DefaultPicker({ picker, anchor, onClose }: { picker: ToolbarPick
     onClose();
   };
   return (
-    <div className="tb-default-picker-backdrop" onPointerDown={onClose}>
+    <div
+      className="tb-default-picker-backdrop"
+      onPointerDown={(e) => {
+        // A press on the caret that opened it (under the backdrop) toggles it closed: its click mustn't reopen it.
+        if (pointInRect(e, anchor.getBoundingClientRect())) swallowGestureClick((c) => pointInRect(c, anchor.getBoundingClientRect()));
+        onClose();
+      }}
+    >
       <div
         ref={ref}
         className="tb-default-picker"

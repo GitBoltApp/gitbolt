@@ -56,12 +56,21 @@ describe('pull (spec #2 §12.2)', () => {
     expect(useToast.getState().message).toBe('dev and origin/dev have diverged; check out dev first');
   });
 
-  it('the Sync row: only ff-only on a branch that isn\'t checked out; no row without an upstream', () => {
+  it('the Sync row: rebase and merge are disabled (with why) on a branch that isn\'t checked out; no row without an upstream', () => {
     const row = pullRow({ ...main, isHead: false, name: 'dev' }, () => {});
-    expect(row?.kind === 'action' && row.variants?.map((v) => v.id)).toEqual(['ffOnly']);
+    expect(row?.kind === 'action' && row.variants?.map((v) => v.id)).toEqual(['ffOnly', 'rebase', 'merge']);
     const head = pullRow(main, () => {});
     expect(head?.kind === 'action' && head.variants?.map((v) => v.id)).toEqual(['ffOnly', 'rebase', 'merge']);
     expect(pullRow({ ...main, upstream: null }, () => {})).toBeNull();
     expect(pullRow({ ...main, gone: true }, () => {})).toBeNull();
+  });
+});
+
+describe('pullRow variants', () => {
+  it('rebase and merge stay visible but disabled, with why, off the checked-out branch', async () => {
+    const { pullRow } = await import('./pull');
+    const row = pullRow({ name: 'dev', isHead: false, upstream: 'refs/remotes/origin/dev', gone: false } as never, () => {});
+    const v = Object.fromEntries((row?.kind === 'action' ? row.variants ?? [] : []).map((x) => [x.id, x.disabledReason ?? null]));
+    expect(v).toEqual({ ffOnly: null, rebase: "dev isn't checked out: it can only be fast-forwarded", merge: "dev isn't checked out: it can only be fast-forwarded" });
   });
 });

@@ -100,3 +100,10 @@ import '../nav/mrPlaces';
 // --- 5B T4 ---
 import '../nav/repoPlaces';
 // --- end 5B T4 ---
+// --- Shortcuts pass: the keyboard's actions (staging, commit, diff, focus, MR/PR) ---
+import '../stage/keyActions';
+import '../commit/keyActions';
+import '../diff/keyActions';
+import '../repo/focusActions';
+import '../forge/mrview/keyActions';
+// --- end Shortcuts pass ---

@@ -96,7 +96,10 @@ describe('Create branch: inline in the graph row (UX round 1)', () => {
     fireEvent.blur(input);
     expect(useRowEditors.getState().editor).not.toBeNull();
     fireEvent.change(input, { target: { value: '' } });
-    fireEvent.blur(input);
+    act(() => input.focus());
+    // Focus really moving away: checked a frame later (BranchNameInput's cancelWhenLeft).
+    act(() => input.blur());
+    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))); });
     expect(useRowEditors.getState().editor).toBeNull();
   });
   it('waits for a row that renders a few frames late (a loaded machine), no dialog', async () => {

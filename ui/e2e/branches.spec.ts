@@ -23,6 +23,15 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
       await expect(input).toBeHidden();
       expect(git(repo, 'branch', '--list', 'never')).toBe('');
     });
+    await test.step('a click in the input keeps it, focused', async () => {
+      await page.getByRole('button', { name: 'Branch', exact: true }).click();
+      const input = grid(page).getByRole('textbox', { name: 'Branch name' });
+      await expect(input).toBeFocused();
+      await input.click();
+      await expect(input).toBeFocused();
+      await input.press('Escape');
+      await expect(input).toBeHidden();
+    });
     await test.step('an invalid name is refused inline, with its reason', async () => {
       await page.getByRole('button', { name: 'Branch', exact: true }).click();
       const input = grid(page).getByRole('textbox', { name: 'Branch name' });
@@ -88,17 +97,32 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
     expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
   });
 
-  test('Delete Local of a merged branch needs no confirmation; a branch checked out elsewhere has no Local', async ({ page }) => {
+  test('Delete Local of a merged branch needs no confirmation; a branch checked out elsewhere has a disabled Local', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
     await chip(page, 'feature/login').click({ button: 'right' });
     await menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]').click();
     await expect(chip(page, 'feature/login')).toContainText('feature/login'); // the remote one stays
     await expect.poll(() => git(repo, 'branch', '--list', 'feature/login')).toBe('');
-    // hotfix is checked out in wt-hotfix: it can't be deleted, so there's no Local (UX round 1).
+    // hotfix is checked out in wt-hotfix: it can't be deleted, so its Local is disabled.
     await chip(page, 'hotfix').click({ button: 'right' });
     await expect(menu(page)).toBeVisible();
-    await expect(menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]')).toHaveCount(0);
+    await test.step('hotfix has no remote: its Local stays, disabled with its reason', async () => {
+      const local = menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]');
+      await expect(local).toHaveAttribute('aria-disabled', 'true');
+      await local.hover();
+      await expect(page.getByRole('tooltip')).toContainText("Can't delete hotfix: it's checked out in");
+    });
+    await test.step('the checked-out branch with a remote: Local disabled, hovering the row lights Remote', async () => {
+      await page.keyboard.press('Escape');
+      await chip(page, 'main').click({ button: 'right' });
+      const del = menu(page).getByRole('menuitem', { name: 'Delete' });
+      await expect(del.locator('[data-variant-id="local"]')).toHaveAttribute('aria-disabled', 'true');
+      await del.locator('[data-variant-id="local"]').hover();
+      await expect(page.getByRole('tooltip')).toContainText("Can't delete main: it's checked out");
+      await del.locator('.ctx-label').hover();
+      await expect(del.locator('[data-variant-id="remote"]')).toHaveAttribute('data-default', 'true');
+    });
   });
 
   test('Delete Local of an unmerged branch arms its menu row in place (no popover); a second click deletes it', async ({ page }) => {

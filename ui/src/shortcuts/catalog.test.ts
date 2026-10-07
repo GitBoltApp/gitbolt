@@ -1,5 +1,7 @@
+import { Keyboard } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
-import { filterSections, keycaps, type ShortcutSection } from './catalog';
+import { registerActions } from '../app/actions';
+import { filterSections, keycaps, shortcutSections, type ShortcutSection } from './catalog';
 
 const all: ShortcutSection[] = [
   { title: 'Navigation', rows: [{ id: 'a', label: 'Next tab', keys: ['Ctrl+Tab'] }] },
@@ -18,5 +20,16 @@ describe('shortcut catalog', () => {
     expect(filterSections(all, 'diff is open')).toHaveLength(1);
     expect(filterSections(all, 'zzz')).toEqual([]);
     expect(filterSections(all, '')).toBe(all);
+  });
+
+  it('lists every bound action, usable now or not, in its own section if it names one', () => {
+    const off = registerActions([
+      { id: 'x.later', label: 'Stage later', group: 'Repository', section: 'Staging', icon: Keyboard, tooltip: 'Stage', shortcuts: ['Ctrl+Shift+Q'], when: () => false, run: () => {} },
+      { id: 'x.plain', label: 'Plain one', group: 'View', icon: Keyboard, tooltip: 'Plain', shortcuts: ['Ctrl+Shift+Y'], run: () => {} },
+    ]);
+    const sections = shortcutSections();
+    expect(sections.find((s) => s.title === 'Staging')?.rows.map((r) => r.id)).toContain('x.later');
+    expect(sections.find((s) => s.title === 'Navigation')?.rows.map((r) => r.id)).toContain('x.plain');
+    off();
   });
 });

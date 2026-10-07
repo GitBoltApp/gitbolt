@@ -1,6 +1,6 @@
 import type { MenuRow } from './types';
 
-export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'column' | 'sidebar' | 'wip' | 'selection' | 'chip' | 'mr' | 'link';
+export type MenuKind = 'commit' | 'tag' | 'file' | 'folder' | 'monaco' | 'tab' | 'tabbar' | 'column' | 'sidebar' | 'wip' | 'selection' | 'chip' | 'mr' | 'link';
 
 /** Group order per menu. `commit` (branch label / commit) follows spec §7's target table. */
 export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
@@ -13,6 +13,8 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   folder: ['copy', 'open'],
   monaco: ['copy', 'forge', 'open'],
   tab: ['edit', 'close', 'restore', 'repo'],
+  // The tab bar's empty space: Reopen closed tab, then Open repository / Clone.
+  tabbar: ['restore', 'open'],
   column: ['columns'],
   // The sidebar's own items (remote, worktree, stash): 2C's worktree and stash rows first (spec
   // #2 §10, §11), then the read-only rows and "Show in graph" (plan 1C Task 15b). A remote's

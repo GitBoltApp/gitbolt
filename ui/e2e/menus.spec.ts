@@ -229,5 +229,27 @@ test.describe('forge rows (a GitLab remote, fixtures.details) and the Monaco con
       await variant(action(menu, 'Copy location'), /absolute path/).click();
       await copied(page, `${fixtures.details}/src/app.php:5-7`);
     });
+    await test.step('pressing a popup trigger again closes it and does not reopen it: a toolbar caret, then the branch picker', async () => {
+      // Esc out of whatever the last step left, back to the plain graph.
+      await page.keyboard.press('Escape');
+      const caret = page.getByRole('button', { name: 'Fetch options' });
+      // The caret opens the default-action picker (a menu of radio rows), not a context menu.
+      const menu = page.getByRole('menu').filter({ has: page.getByRole('menuitemradio') });
+      await caret.click();
+      await expect(menu).toBeVisible();
+      await expect(caret).toHaveAttribute('aria-expanded', 'true');
+      // The picker's backdrop covers the caret, as for a user: press where the caret is.
+      const at = (await caret.boundingBox())!;
+      await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+      await expect(menu).toBeHidden();
+      await expect(caret).toHaveAttribute('aria-expanded', 'false');
+      const branch = page.getByRole('button', { name: /^Branch: / });
+      const picker = page.getByPlaceholder('Check out a local branch');
+      await branch.click();
+      await expect(picker).toBeVisible();
+      await branch.click();
+      await expect(picker).toBeHidden();
+      await expect(branch).toHaveAttribute('aria-expanded', 'false');
+    });
   });
 });

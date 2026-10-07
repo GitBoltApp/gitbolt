@@ -130,7 +130,7 @@ function SettingsDialog() {
   const density = useDensity((s) => s.density);
   const advanceAfterStage = useFileListPrefs((s) => s.advanceAfterStage);
   const stickyScroll = useEditorSettings((s) => s.settings.stickyScroll);
-  const rootRef = useModalKeys<HTMLDivElement>(true, close);
+  const rootRef = useModalKeys<HTMLDivElement>(true, close, 'Ctrl+,');
   const bodyRef = useRef<HTMLDivElement>(null);
   // The shown tab: the Repository settings are its, and so are the remotes the Hosts list offers.
   const activeTab = useAppState((s) => s.profile.activeTab);
