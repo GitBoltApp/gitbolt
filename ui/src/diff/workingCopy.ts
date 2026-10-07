@@ -57,9 +57,10 @@ export function worktreeFileTarget(t: DiffTarget): DiffTarget {
 
 /** §7.5: a WIP diff (or File View of a WIP file, `worktreeFileTarget`) whose new side is the
  * working-tree file, as loaded text: binary, the large-file prompt, image diffs, deletions and
- * conflicted files stay read-only. */
+ * conflicted files stay read-only, and so does a file shown in its clean form (`filtered`: a
+ * clean filter or `ident` made that text, which isn't the file's). */
 export function isEditableTarget(t: DiffTarget, c: DiffContentsPayload | null): boolean {
-  return t.key.startsWith('{"kind":"wip"') && t.new.kind === 'worktree' && !conflicted(t) && !!c && !c.tooLarge && !c.image && !!c.new && !c.new.binary && c.new.text !== null;
+  return t.key.startsWith('{"kind":"wip"') && t.new.kind === 'worktree' && !conflicted(t) && !!c && !c.tooLarge && !c.image && !!c.new && !c.new.binary && c.new.text !== null && !c.new.filtered;
 }
 
 /** The shown copy is editable: track it (`base` = its loaded bytes' hash). */

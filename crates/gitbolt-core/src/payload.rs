@@ -393,6 +393,12 @@ pub struct BlobPayload {
     /// The loaded bytes' `worktree_id` (2B Deviation 12): the save base of a working-tree side.
     /// `None` when the side wasn't loaded (too large).
     pub hash: Option<String>,
+    /// A working-tree side whose `text` is its clean form, as git compares it, and that form
+    /// differs from the file by more than line endings (a `filter` driver, `ident`): the text
+    /// isn't the file's, so it's read-only. Absent otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub filtered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

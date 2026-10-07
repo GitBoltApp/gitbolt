@@ -38,6 +38,9 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
     await diff.getByRole('toolbar', { name: 'Diff options' }).getByRole('button', { name: 'History', exact: true }).click();
     const view = page.getByRole('region', { name: 'File history' });
     await expect(view.getByRole('heading')).toHaveText('File History: src/story.txt');
+    // Opened from Diff View, it shows each version's Changes; the rest of this step reads the File.
+    await expect(view.getByRole('button', { name: 'Changes', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await view.getByRole('button', { name: 'File', exact: true }).click();
     const commits = view.getByRole('listbox', { name: 'Commits' }).getByRole('option');
     await expect(commits).toHaveCount(4);
     await expect(commits.nth(0)).toContainText('Sharpen the opening');
@@ -172,6 +175,8 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
     const view = page.getByRole('region', { name: 'File history' });
     const commits = view.getByRole('listbox', { name: 'Commits' }).getByRole('option');
     await expect(commits.nth(0)).toHaveAttribute('aria-selected', 'true');
+    // Reopened from Diff View, it's on Changes: start from File to compare the two.
+    await view.getByRole('group', { name: 'History view' }).getByRole('button', { name: 'File' }).click();
     await expect(view.getByTestId('file-view')).toContainText('Once upon a sharper time');
     const top = (await view.locator('.diff-body').boundingBox())!.y;
     await view.getByRole('group', { name: 'History view' }).getByRole('button', { name: 'Changes' }).click();

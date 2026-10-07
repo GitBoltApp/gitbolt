@@ -298,6 +298,29 @@ pub fn wip_staging(r: &TestRepo) {
     r.write("new.txt", "fresh 1\nfresh 2\nfresh 3\n");
 }
 
+/// `core.autocrlf=true`, set after the files were committed with LF, which were then checked out
+/// again, so they're CRLF in the worktree (as on a Windows clone):
+/// - `auto.txt` (10 lines, `line 01`…): line 5 edited (`line 05 edited`), unstaged;
+/// - `same.txt` (10 lines): CRLF only, which `git status` doesn't count as a change;
+/// - `raw.txt` (10 lines, `-text`, committed with CRLF): line 5 edited, its CRLF kept as is.
+pub fn wip_crlf(r: &TestRepo) {
+    r.git(&["config", "user.name", "Ada Lovelace"]);
+    r.git(&["config", "user.email", "ada@example.com"]);
+    let lines = |eol: &str, edited: bool| (1..=10).map(|i| if edited && i == 5 { format!("line 05 edited{eol}") } else { format!("line {i:02}{eol}") }).collect::<String>();
+    r.write(".gitattributes", "raw.txt -text\n");
+    r.write("auto.txt", &lines("\n", false));
+    r.write("same.txt", &lines("\n", false));
+    r.write("raw.txt", &lines("\r\n", false));
+    r.commit_all_as("Base", "Ada Lovelace", "ada@example.com");
+    r.git(&["config", "core.autocrlf", "true"]);
+    for f in ["auto.txt", "same.txt"] {
+        std::fs::remove_file(r.path().join(f)).expect("remove a checked-out file");
+    }
+    r.git(&["checkout", "--", "auto.txt", "same.txt"]);
+    r.write("auto.txt", &lines("\r\n", true));
+    r.write("raw.txt", &lines("\r\n", true));
+}
+
 /// File History and Blame (spec #3 §3.10, e2e flow 5). `story.txt` (8 lines) is started by Ada,
 /// its middle rewritten by Grace, moved under `src/` (line 6 changed) by Linus, and its opening
 /// sharpened by Ada; one unrelated commit sits in between. Blame at HEAD has six groups:
@@ -537,6 +560,18 @@ pub fn rebase_lab(r: &TestRepo) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wip_crlf_is_crlf_on_disk_and_lf_in_the_index() {
+        let r = TestRepo::new();
+        wip_crlf(&r);
+        let disk = std::fs::read_to_string(r.path().join("auto.txt")).unwrap();
+        assert!(disk.starts_with("line 01\r\nline 02\r\n") && disk.contains("line 05 edited\r\n"), "{disk:?}");
+        assert_eq!(r.git(&["show", ":auto.txt"]).lines().next(), Some("line 01"));
+        assert!(!r.git(&["show", ":auto.txt"]).contains('\r'));
+        assert!(std::fs::read_to_string(r.path().join("same.txt")).unwrap().contains("\r\n"));
+        assert_eq!(r.git(&["status", "--porcelain"]), " M auto.txt\n M raw.txt", "a CRLF-only difference isn't a change");
+    }
 
     // --- 2C T10 ---
     #[test]

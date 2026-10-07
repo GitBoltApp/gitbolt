@@ -309,6 +309,27 @@ test.describe('the rendered Markdown diff (5C)', () => {
       await expect.poll(() => md.evaluate((el) => el.scrollTop)).toBe(0);
     });
 
+    await test.step('Previous/Next change go by the scroll: from the end of the page, Previous is the last change above it, centred', async () => {
+      /** How far the diagrams' middle is from the pane's centre line, in px. */
+      const pairOffCentre = () => md.evaluate((el) => {
+        const pane = el.getBoundingClientRect();
+        const pair = el.querySelector('.md-diff-pair')!.getBoundingClientRect();
+        return Math.abs((pair.top + pair.bottom) / 2 - (pane.top + el.clientHeight / 2));
+      });
+      const scrollTop = () => md.evaluate((el) => el.scrollTop);
+      await md.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await page.getByRole('button', { name: 'Previous change' }).click();
+      await expect.poll(pairOffCentre).toBeLessThanOrEqual(2);
+      expect(await scrollTop()).toBeGreaterThan(0);
+      // The code block, near the top: the pane goes to its top, as far as it can.
+      await page.getByRole('button', { name: 'Previous change' }).click();
+      await expect.poll(scrollTop).toBe(0);
+      // On from the code block (the centre line alone would skip the first changes), to the diagrams.
+      await page.getByRole('button', { name: 'Next change' }).click();
+      await expect.poll(pairOffCentre).toBeLessThanOrEqual(2);
+      await md.evaluate((el) => { el.scrollTop = 0; });
+    });
+
     await test.step('Split: old words on the left, new ones on the right, in one aligned row; Inline again', async () => {
       const modes = page.getByRole('group', { name: 'View mode' });
       await modes.getByRole('button', { name: 'Split' }).click();

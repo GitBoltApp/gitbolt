@@ -179,7 +179,7 @@ mod tests {
         // A sparse worktree file far past any limit: only the head is read.
         let root = r.path().canonicalize().unwrap();
         std::fs::File::create(r.path().join("huge.bin")).unwrap().set_len(8 * 1024 * 1024 * 1024).unwrap();
-        let wt = Side::Worktree { root, encoding: None };
+        let wt = Side::Worktree { root, encoding: None, converts: false };
         let h = hex_dump(&repo, &cli(), r.path(), "huge.bin", Side::Absent, wt, HEX_CAP).await.unwrap().new.unwrap();
         assert_eq!((h.size, h.shown), (8 * 1024 * 1024 * 1024, HEX_CAP));
         assert_eq!(h.dump.lines().count(), (HEX_CAP / 16) as usize);
@@ -228,7 +228,7 @@ mod tests {
         // A large worktree binary (sparse: zeros), on the old side, against the text.
         let root = r.path().canonicalize().unwrap();
         std::fs::File::create(r.path().join("wt.bin")).unwrap().set_len(3 * 1024 * 1024).unwrap();
-        let wt = Side::Worktree { root, encoding: None };
+        let wt = Side::Worktree { root, encoding: None, converts: false };
         let mut c = diff_contents(&local, "wt.bin", &wt, &Side::Absent, false).unwrap();
         ungate_binary(&repo, &cli(), r.path(), "wt.bin", &wt, &Side::Absent, &mut c).await.unwrap();
         assert!(!c.too_large && c.old.unwrap().binary);

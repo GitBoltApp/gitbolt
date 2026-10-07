@@ -48,6 +48,7 @@ async fn harness_main() {
                 "merge_lock" => fixtures::merge_lock(&repo),
                 "wip_staging" => fixtures::wip_staging(&repo),
                 "wip_conflict" => fixtures::wip_conflict(&repo),
+                "wip_crlf" => fixtures::wip_crlf(&repo),
                 "sync" => fixtures::sync(&repo),
                 "conflicts" => fixtures::conflicts(&repo),
                 "stack" => fixtures::stack(&repo),
@@ -62,7 +63,7 @@ async fn harness_main() {
             println!("{}", repo.path().display());
         }
         _ => {
-            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|sync|conflicts|stack|rebase60|worktrees|irebase|rebase_lab|file_history> <dir>");
+            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|wip_crlf|sync|conflicts|stack|rebase60|worktrees|irebase|rebase_lab|file_history> <dir>");
             std::process::exit(2);
         }
     }

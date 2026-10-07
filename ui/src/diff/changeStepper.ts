@@ -1,8 +1,9 @@
-export type StepDir = 'next' | 'previous';
+import { revealTop, stepTarget, type StepDir } from './changeNav';
 
-/** Where a stepped-to change sits below the pane's top edge, in px. */
+export type { StepDir };
+
+/** Where a stepped-to change taller than the pane starts below its top edge, in px. */
 export const STEP_MARGIN = 16;
-const SLACK = 4;
 
 let stepper: ((dir: StepDir) => void) | null = null;
 
@@ -40,20 +41,30 @@ export function changeTargets(pane: HTMLElement): HTMLElement[] {
   return outermost(pane).flatMap((el) => (el.classList.contains('md-split-row') ? rowTargets(el) : [el]));
 }
 
+/** The change each pane's last step put it on, and the scroll that left (`stepTarget`'s
+ * `current`), while its changes are the same ones (`count`: a chunk rendering since adds more). */
+const lastStep = new WeakMap<HTMLElement, { index: number; top: number; count: number }>();
+
 /**
- * Scrolls `pane` so the next change below (or the previous one above) its top edge sits
- * STEP_MARGIN px under it. Past the last change it wraps to the first, and before the first to
- * the last, as the diff editor's Next/Previous change do. False when there's no change at all.
- * A large diff renders chunk by chunk (`StreamBody`): a change in a chunk not rendered yet isn't
- * in the pane, so stepping reaches it once its chunk has rendered (a chunk per idle callback).
+ * Scrolls `pane` to the next or previous change, as the diff editor's Next/Previous change do
+ * (`stepTarget`): Next, the first change starting below the pane's centre line; Previous, the last
+ * one ending above it; right after a step, on from the change it went to. The change is centred
+ * (`revealTop`). Past the last change it wraps to the first, and before the first to the last.
+ * False when there's no change at all. A large diff renders chunk by chunk (`StreamBody`): a
+ * change in a chunk not rendered yet isn't in the pane, so stepping reaches it once its chunk has
+ * rendered (a chunk per idle callback).
  */
 export function stepChange(pane: HTMLElement, dir: StepDir): boolean {
-  const top = pane.getBoundingClientRect().top;
-  const ys = changeTargets(pane).map((el) => el.getBoundingClientRect().top - top).sort((a, b) => a - b);
-  if (ys.length === 0) return false;
-  const y = dir === 'next'
-    ? ys.find((v) => v > STEP_MARGIN + SLACK) ?? ys[0]!
-    : [...ys].reverse().find((v) => v < STEP_MARGIN - SLACK) ?? ys.at(-1)!;
-  pane.scrollTop += y - STEP_MARGIN;
+  const origin = pane.getBoundingClientRect().top - pane.scrollTop;
+  const boxes = changeTargets(pane).map((el) => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top - origin, bottom: r.bottom - origin };
+  }).sort((a, b) => a.top - b.top);
+  const last = lastStep.get(pane);
+  const current = last && last.count === boxes.length && Math.abs(pane.scrollTop - last.top) <= 1 ? last.index : null;
+  const i = stepTarget(boxes, { top: pane.scrollTop, height: pane.clientHeight }, dir, current);
+  if (i === null) return false;
+  pane.scrollTop = revealTop(boxes[i]!, pane.clientHeight, STEP_MARGIN);
+  lastStep.set(pane, { index: i, top: pane.scrollTop, count: boxes.length });
   return true;
 }

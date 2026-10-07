@@ -341,6 +341,24 @@ mod tests {
         assert!(leftovers.is_empty());
     }
 
+    /// An autocrlf file's diff shows its clean (LF) text; saving that text, edited, keeps the
+    /// file's CRLF, so git sees only the edit.
+    #[tokio::test]
+    async fn saving_an_autocrlf_files_clean_text_keeps_its_crlf() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        crate::testing::fixtures::wip_crlf(&r);
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let index = r.git(&["rev-parse", ":auto.txt"]);
+        let c = call(&api, "diffContents", json!({ "repo": id, "path": "auto.txt", "old": { "kind": "object", "oid": index }, "new": { "kind": "worktree", "worktree": wt(r.path()) }, "force": false })).await.unwrap();
+        let text = c["new"]["text"].as_str().unwrap().replace("line 07\n", "line 07 saved\n");
+        assert!(!text.contains('\r'));
+        save(&api, id, &r, "auto.txt", &text, c["new"]["hash"].as_str().unwrap()).await.unwrap();
+        assert_eq!(std::fs::read_to_string(r.path().join("auto.txt")).unwrap(), text.replace('\n', "\r\n"));
+        assert_eq!(r.git(&["diff", "--numstat", "--", "auto.txt"]), "2\t2\tauto.txt");
+    }
+
     #[tokio::test]
     async fn a_stale_base_is_refused_and_the_file_is_untouched() {
         let data = tempfile::tempdir().unwrap();

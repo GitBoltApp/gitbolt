@@ -20,7 +20,10 @@ pub enum Side {
     Object(ObjectId),
     Submodule(String),
     AtCommit(ObjectId),
-    Worktree { root: PathBuf, encoding: Option<String> },
+    /// A working-tree file. `converts`: a `text`, `eol`, `crlf`, `ident` or `filter` attribute is
+    /// set, so git's clean conversion may change its bytes (as may `core.autocrlf`, read when the
+    /// file is): a diff against a stored version then compares its clean form (`clean_bytes`).
+    Worktree { root: PathBuf, encoding: Option<String>, converts: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,6 +193,83 @@ pub async fn working_tree_encoding(cli: &GitCli, root: &Path, path: &str) -> Res
     Ok(parse_check_attr(&out.stdout))
 }
 
+/// The attributes that make git's clean conversion change a file's bytes (`-text` turns it off).
+const CONVERTING_ATTRS: [&str; 5] = ["text", "eol", "crlf", "ident", "filter"];
+
+/// What `git check-attr -z working-tree-encoding text eol crlf ident filter -- <path>` says
+/// (`path NUL attr NUL value NUL`, per attribute): the declared encoding, and whether any
+/// converting attribute is set to something other than `unset`.
+pub fn parse_worktree_attrs(out: &[u8]) -> (Option<String>, bool) {
+    let fields: Vec<&[u8]> = out.split(|b| *b == 0).collect();
+    let (mut encoding, mut converts) = (None, false);
+    for triple in fields.chunks(3).filter(|t| t.len() == 3) {
+        let value = String::from_utf8_lossy(triple[2]).trim().to_string();
+        match &*String::from_utf8_lossy(triple[1]) {
+            "working-tree-encoding" => encoding = (!matches!(value.as_str(), "" | "unspecified" | "unset" | "set")).then_some(value),
+            attr if CONVERTING_ATTRS.contains(&attr) => converts |= !matches!(value.as_str(), "" | "unspecified" | "unset"),
+            _ => {}
+        }
+    }
+    (encoding, converts)
+}
+
+/// A worktree path's declared `working-tree-encoding`, and whether a converting attribute is set
+/// (`Side::Worktree`'s `converts`). One `check-attr` for both.
+pub async fn worktree_attrs(cli: &GitCli, root: &Path, path: &str) -> Result<(Option<String>, bool), GbError> {
+    let args = ["check-attr", "-z", "working-tree-encoding"].into_iter().chain(CONVERTING_ATTRS).chain(["--", path]);
+    let out = cli.run(GitInvocation::new(root, args)).await?;
+    Ok(parse_worktree_attrs(&out.stdout))
+}
+
+/// `core.autocrlf` is `true` or `input` in `repo`'s config.
+fn autocrlf_on(repo: &gix::Repository) -> bool {
+    repo.config_snapshot().string("core.autocrlf").is_some_and(|v| matches!(v.to_string().to_ascii_lowercase().as_str(), "true" | "yes" | "on" | "1" | "input"))
+}
+
+/// `bytes`, a worktree file at `path`, as `git add` would store it: git's clean conversion (end of
+/// line per `core.autocrlf` and the `text`/`eol` attributes, `ident`, `working-tree-encoding`, a
+/// `filter` driver's clean command). `None` when nothing changes them.
+///
+/// gix's filter pipeline, a port of git's own (`convert.c`), run on the worktree's repository so
+/// its index and attributes apply. Unlike `git hash-object --path`, it leaves a file alone whose
+/// index copy already has CRs, as `git diff` and `git status` do; and it reads nothing back from
+/// the object database, where `hash-object` would have to write the result to return it.
+pub fn clean_bytes(repo: &gix::Repository, path: &str, bytes: &[u8]) -> Result<Option<Vec<u8>>, GbError> {
+    use std::io::Read as _;
+    let (mut pipeline, index) = repo.filter_pipeline(None).map_err(gix_err)?;
+    let mut out = pipeline.convert_to_git(bytes, Path::new(path), &index).map_err(gix_err)?;
+    if !out.is_changed() {
+        return Ok(None);
+    }
+    let mut clean = Vec::new();
+    out.read_to_end(&mut clean)?;
+    Ok(Some(clean))
+}
+
+/// A worktree file's decoded `text` as git compares it: decoded from its clean form, when an
+/// attribute (`converts`) or `core.autocrlf` (read now, from the worktree's own repository) can
+/// make one. `true` when that differs from the file by more than line endings (the side is then
+/// read-only). A conversion that fails (a filter command that exits non-zero, …) keeps the file's
+/// own text.
+fn clean_text(root: &Path, converts: bool, path: &str, bytes: &[u8], text: String) -> (String, bool) {
+    let clean = match gix::open(root).map_err(gix_err).and_then(|repo| if converts || autocrlf_on(&repo) { clean_bytes(&repo, path, bytes) } else { Ok(None) }) {
+        Ok(Some(clean)) => clean,
+        Ok(None) => return (text, false),
+        Err(e) => {
+            tracing::warn!("a worktree file's clean conversion failed, so its diff shows it as it is: {}", e.message);
+            return (text, false);
+        }
+    };
+    match decode_blob(&clean, None).text {
+        Some(clean) => {
+            let lf = |t: &str| t.replace("\r\n", "\n");
+            let filtered = lf(&clean) != lf(&text);
+            (clean, filtered)
+        }
+        None => (text, false),
+    }
+}
+
 fn not_found(msg: String) -> GbError {
     GbError::new(GbErrorKind::NotFound, msg)
 }
@@ -216,7 +296,7 @@ pub(crate) fn resolve(repo: &gix::Repository, path: &str, side: &Side) -> Result
             let entry = tree.lookup_entry_by_path(path).map_err(gix_err)?.ok_or_else(|| not_found(format!("{path} does not exist at {commit}")))?;
             if entry.mode().is_commit() { Resolved::Text(submodule_text(&entry.object_id().to_string())) } else { Resolved::Blob(entry.object_id()) }
         }
-        Side::Worktree { root, encoding } => {
+        Side::Worktree { root, encoding, .. } => {
             let file = safe_join(root, path)?;
             let meta = std::fs::symlink_metadata(&file).map_err(|_| not_found(format!("{path} not found in the worktree")))?;
             if meta.file_type().is_symlink() {
@@ -284,8 +364,16 @@ pub fn diff_contents(repo: &gix::Repository, path: &str, old: &Side, new: &Side,
 pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Option<&str>, old: &Side, new: &Side, force: bool) -> Result<DiffContentsPayload, GbError> {
     let to_svg = path.rsplit_once('.').is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("svg"));
     let image = is_image_path(path) || (to_svg && old_path.is_some_and(is_image_path));
+    let (old_side, new_side) = (old, new);
     let old = resolve(repo, path, old)?;
     let new = resolve(repo, path, new)?;
+    // A working-tree file compared with a stored version is compared as git compares it: in its
+    // clean form (a symlink never goes through the filters).
+    let clean_at = |side: &Side, this: &Option<Resolved>, other: &Option<Resolved>| match side {
+        Side::Worktree { root, converts, .. } if matches!(this, Some(Resolved::File { .. })) && other.is_some() => Some((root.clone(), *converts)),
+        _ => None,
+    };
+    let (old_clean, new_clean) = (clean_at(old_side, &old, &new), clean_at(new_side, &new, &old));
     let old_size = old.as_ref().map(|r| r.size(repo)).transpose()?;
     let new_size = new.as_ref().map(|r| r.size(repo)).transpose()?;
     let limit = if force { MAX_FORCED_BYTES } else { LARGE_FILE_BYTES };
@@ -296,22 +384,31 @@ pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Optio
     let read = |r: Option<Resolved>| r.filter(|_| !too_large).map(|r| r.bytes(repo, limit)).transpose();
     let (old_bytes, new_bytes) = (read(old)?, read(new)?);
     too_large |= matches!(old_bytes, Some(None)) || matches!(new_bytes, Some(None));
-    let load = |bytes: Option<Option<Loaded>>, size: Option<u64>| -> Option<BlobPayload> {
+    let load = |bytes: Option<Option<Loaded>>, size: Option<u64>, clean: Option<(PathBuf, bool)>| -> Option<BlobPayload> {
         let size = size?;
         let (bytes, declared) = match bytes {
             Some(Some(read)) if !too_large => read,
             // A grown file is at least one byte past the limit now.
             grown_or_skipped => {
                 let size = if matches!(grown_or_skipped, Some(None)) { size.max(limit + 1) } else { size };
-                return Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None, hash: None });
+                return Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None, hash: None, filtered: false });
             }
         };
         let d = decode_blob(&bytes, declared.as_deref());
         let base64 = (d.binary && image).then(|| base64::engine::general_purpose::STANDARD.encode(&bytes));
-        Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text: d.text, base64, hash: Some(worktree_id(&bytes)) })
+        // The file's own encoding, line endings and hash (what a save keeps and checks), with the
+        // text git compares.
+        let (text, filtered) = match (d.text, clean) {
+            (Some(text), Some((root, converts))) => {
+                let (text, filtered) = clean_text(&root, converts, path, &bytes, text);
+                (Some(text), filtered)
+            }
+            (text, _) => (text, false),
+        };
+        Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text, base64, hash: Some(worktree_id(&bytes)), filtered })
     };
-    let old = load(old_bytes, old_size);
-    let new = load(new_bytes, new_size);
+    let old = load(old_bytes, old_size, old_clean);
+    let new = load(new_bytes, new_size, new_clean);
     let eol_only = matches!((&old, &new), (Some(BlobPayload { text: Some(a), .. }), Some(BlobPayload { text: Some(b), .. })) if eol_only_change(a, b));
     Ok(DiffContentsPayload { old, new, too_large, eol_only, image })
 }
@@ -368,6 +465,12 @@ mod tests {
         assert_eq!(parse_check_attr(b"a.txt\0working-tree-encoding\0UTF-16LE\0").as_deref(), Some("UTF-16LE"));
         for v in ["unspecified", "unset", "set"] {
             assert_eq!(parse_check_attr(format!("a.txt\0working-tree-encoding\0{v}\0").as_bytes()), None);
+        }
+        let attrs = |text: &str, filter: &str| format!("a.txt\0working-tree-encoding\0UTF-16LE\0a.txt\0text\0{text}\0a.txt\0eol\0unspecified\0a.txt\0crlf\0unspecified\0a.txt\0ident\0unspecified\0a.txt\0filter\0{filter}\0");
+        assert_eq!(parse_worktree_attrs(attrs("unspecified", "unspecified").as_bytes()), (Some("UTF-16LE".into()), false));
+        assert!(!parse_worktree_attrs(attrs("unset", "unspecified").as_bytes()).1, "-text converts nothing");
+        for (text, filter) in [("set", "unspecified"), ("auto", "unspecified"), ("unspecified", "lfs")] {
+            assert!(parse_worktree_attrs(attrs(text, filter).as_bytes()).1, "{text} {filter}");
         }
     }
 
@@ -455,7 +558,7 @@ mod tests {
     fn worktree_side_reads_files_and_rejects_escapes() {
         let (r, repo) = setup();
         let root = r.path().canonicalize().unwrap();
-        let wt = |enc: Option<&str>| Side::Worktree { root: root.clone(), encoding: enc.map(str::to_string) };
+        let wt = |enc: Option<&str>| Side::Worktree { root: root.clone(), encoding: enc.map(str::to_string), converts: false };
         let manual = diff_contents(&repo, "docs/manual.txt", &Side::Absent, &wt(None), false).unwrap();
         assert!(manual.new.unwrap().text.unwrap().contains("Step four (unstaged)."));
 
@@ -484,7 +587,7 @@ mod tests {
         let (r, repo) = setup();
         let root = r.path().canonicalize().unwrap();
         std::os::unix::fs::symlink(".git", r.path().join("x")).unwrap();
-        let wt = Side::Worktree { root: root.clone(), encoding: None };
+        let wt = Side::Worktree { root: root.clone(), encoding: None, converts: false };
         let err = diff_contents(&repo, "x/config", &Side::Absent, &wt, false).unwrap_err();
         assert_eq!(err.kind, GbErrorKind::InvalidInput, "a symlink to .git must not expose it");
         let err = safe_join(&root, "x/config").unwrap_err();
@@ -528,13 +631,145 @@ mod tests {
         assert!(grown.bytes(&repo, 4).unwrap().is_none());
     }
 
+    /// What git compares a worktree file as: its clean form (`git add`'s), through the requests
+    /// the diff viewer sends.
+    mod clean {
+        use crate::testing::{fixtures, TestRepo};
+        use crate::write::test_support::{api, call, open, repo, wt};
+        use serde_json::{json, Value};
+
+        async fn wip_contents(r: &TestRepo, path: &str) -> Value {
+            let data = tempfile::tempdir().unwrap();
+            let api = api(data.path());
+            let id = open(&api, r).await;
+            let index = r.git(&["rev-parse", &format!(":{path}")]);
+            call(&api, "diffContents", json!({ "repo": id, "path": path, "old": { "kind": "object", "oid": index }, "new": { "kind": "worktree", "worktree": wt(r.path()) }, "force": false })).await.unwrap()
+        }
+
+        fn lines(eol: &str, edited: bool) -> String {
+            (1..=10).map(|i| if edited && i == 5 { format!("line 05 edited{eol}") } else { format!("line {i:02}{eol}") }).collect()
+        }
+
+        /// The text git compares: only the edited line differs from the index. The side still
+        /// reports the file's own line endings and the hash of its bytes (the save base).
+        #[tokio::test]
+        async fn an_autocrlf_files_worktree_side_is_its_clean_text() {
+            let r = TestRepo::new();
+            fixtures::wip_crlf(&r);
+            let c = wip_contents(&r, "auto.txt").await;
+            assert_eq!(c["old"]["text"], lines("\n", false));
+            assert_eq!(c["new"]["text"], lines("\n", true));
+            assert_eq!((c["new"]["eol"].as_str(), c["eolOnly"].as_bool()), (Some("crlf"), Some(false)));
+            let raw = std::fs::read(r.path().join("auto.txt")).unwrap();
+            assert_eq!(c["new"]["hash"], super::worktree_id(&raw));
+            assert_eq!(c["new"].get("filtered"), None, "only line endings were converted: still editable");
+            let same = wip_contents(&r, "same.txt").await;
+            assert_eq!(same["new"]["text"], same["old"]["text"], "CRLF alone isn't a change");
+            assert_eq!(same["eolOnly"], false);
+        }
+
+        /// `-text`: no conversion, so its CRLF stays in the text (and in the index).
+        #[tokio::test]
+        async fn a_minus_text_file_is_compared_byte_for_byte() {
+            let r = TestRepo::new();
+            fixtures::wip_crlf(&r);
+            let c = wip_contents(&r, "raw.txt").await;
+            assert_eq!(c["old"]["text"], lines("\r\n", false));
+            assert_eq!(c["new"]["text"], lines("\r\n", true));
+        }
+
+        /// `.gitattributes` `* text=auto eol=crlf`, no autocrlf: the same clean text; a binary
+        /// file (`text=auto` leaves it alone) keeps its bytes.
+        #[tokio::test]
+        async fn gitattributes_text_auto_eol_crlf() {
+            let r = repo();
+            r.write(".gitattributes", "* text=auto eol=crlf\n");
+            r.write("t.txt", &lines("\n", false));
+            r.write_bytes("b.bin", b"\0bin\r\nary\r\n");
+            r.git(&["add", "."]);
+            r.git(&["commit", "-q", "-m", "attrs"]);
+            std::fs::remove_file(r.path().join("t.txt")).unwrap();
+            r.git(&["checkout", "--", "t.txt"]);
+            assert!(std::fs::read_to_string(r.path().join("t.txt")).unwrap().contains("\r\n"), "checked out as CRLF");
+            r.write("t.txt", &lines("\r\n", true));
+            let c = wip_contents(&r, "t.txt").await;
+            assert_eq!(c["new"]["text"], lines("\n", true));
+            assert_eq!(c["new"]["eol"], "crlf");
+            r.write_bytes("b.bin", b"\0bin\r\nARY\r\n");
+            let b = wip_contents(&r, "b.bin").await;
+            assert_eq!((b["new"]["binary"].as_bool(), b["new"]["size"].as_u64()), (Some(true), Some(11)));
+        }
+
+        /// A file committed with CRLF before autocrlf was set: git leaves its CRs alone (they're
+        /// in the index), so the comparison keeps them too.
+        #[tokio::test]
+        async fn crlf_already_in_the_index_is_not_converted() {
+            let r = repo();
+            r.write("w.txt", &lines("\r\n", false));
+            r.git(&["add", "w.txt"]);
+            r.git(&["commit", "-q", "-m", "w"]);
+            r.git(&["config", "core.autocrlf", "true"]);
+            r.write("w.txt", &lines("\r\n", true));
+            let c = wip_contents(&r, "w.txt").await;
+            assert_eq!(c["new"]["text"], lines("\r\n", true));
+        }
+
+        /// A clean filter (`filter=`) runs as `git add` would run it. Its text isn't the file's
+        /// any more, so the side is marked `filtered` (read-only).
+        #[tokio::test]
+        async fn a_clean_filter_runs_and_marks_the_side_filtered() {
+            let r = repo();
+            r.git(&["config", "filter.redact.clean", "sed s/hunter2/REDACTED/"]);
+            r.git(&["config", "filter.redact.smudge", "cat"]);
+            r.write(".gitattributes", "s.txt filter=redact\n");
+            r.write("s.txt", "user ada\npass hunter2\n");
+            r.git(&["add", "."]);
+            r.git(&["commit", "-q", "-m", "s"]);
+            assert_eq!(r.git(&["show", ":s.txt"]), "user ada\npass REDACTED");
+            r.write("s.txt", "user grace\npass hunter2\n");
+            let c = wip_contents(&r, "s.txt").await;
+            assert_eq!(c["new"]["text"], "user grace\npass REDACTED\n");
+            assert_eq!(c["new"]["filtered"], true);
+        }
+
+        /// `working-tree-encoding`: the text was already decoded from the file's encoding; its
+        /// clean form (UTF-8, LF) is the same text, so the side stays editable.
+        #[tokio::test]
+        async fn a_working_tree_encoding_file_stays_editable() {
+            let r = repo();
+            r.write(".gitattributes", "w16.txt working-tree-encoding=UTF-16LE eol=crlf\n");
+            let utf16 = |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(u16::to_le_bytes).collect() };
+            r.write_bytes("w16.txt", &utf16("h\u{e9}\r\nyo\r\n"));
+            r.git(&["add", "."]);
+            r.git(&["commit", "-q", "-m", "w16"]);
+            r.write_bytes("w16.txt", &utf16("h\u{e9}\r\nyo!\r\n"));
+            let c = wip_contents(&r, "w16.txt").await;
+            assert_eq!(c["old"]["text"], "h\u{e9}\nyo\n");
+            assert_eq!((c["new"]["text"].as_str(), c["new"]["encoding"].as_str()), (Some("h\u{e9}\nyo!\n"), Some("UTF-16LE")));
+            assert_eq!(c["new"].get("filtered"), None);
+        }
+
+        /// The WIP lists are git's: a CRLF-only file isn't listed, the edited one is +1 −1.
+        #[tokio::test]
+        async fn the_unstaged_list_agrees_with_git_status() {
+            let r = TestRepo::new();
+            fixtures::wip_crlf(&r);
+            let data = tempfile::tempdir().unwrap();
+            let api = api(data.path());
+            let id = open(&api, &r).await;
+            let list = call(&api, "fileList", json!({ "repo": id, "spec": { "kind": "wip", "worktree": wt(r.path()), "staged": false } })).await.unwrap();
+            let rows: Vec<(String, u64, u64)> = list["files"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_string(), f["additions"].as_u64().unwrap(), f["deletions"].as_u64().unwrap())).collect();
+            assert_eq!(rows, [("auto.txt".to_string(), 1, 1), ("raw.txt".to_string(), 1, 1)]);
+        }
+    }
+
     #[test]
     fn forced_reads_have_a_hard_ceiling() {
         let (r, repo) = setup();
         let root = r.path().canonicalize().unwrap();
         let huge = std::fs::File::create(r.path().join("huge.txt")).unwrap();
         huge.set_len(MAX_FORCED_BYTES + 1).unwrap(); // sparse: no bytes are written
-        let wt = Side::Worktree { root, encoding: None };
+        let wt = Side::Worktree { root, encoding: None, converts: false };
         let c = diff_contents(&repo, "huge.txt", &Side::Absent, &wt, true).unwrap();
         assert!(c.too_large, "even `force` refuses a side over MAX_FORCED_BYTES");
         let side = c.new.unwrap();

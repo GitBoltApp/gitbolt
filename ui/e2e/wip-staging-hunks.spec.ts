@@ -1,6 +1,8 @@
 import type { Locator } from '@playwright/test';
 import { budgetApplies, expect, test, type Page } from './test';
-import { git } from './fixtures';
+import { rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { git, harnessHttp } from './fixtures';
 import { fileRow, fileRowSelector, openWip, timedClick } from './wip';
 
 /** Hunk mode's hunk header rows (Monaco view zones). */
@@ -36,7 +38,7 @@ test.describe('hunks and lines (spec #2 §7.3)', () => {
   // One repo and page for these (each was a test of its own, paying for a page load and Monaco's
   // start-up): each step's staging is undone after it (the file list's Undo staging, §7.6), and
   // its file closed, so the next starts from the fixture as a test of its own did.
-  test('staging hunks and lines: Inline and Split, Hunk mode\'s rows, a file\'s only hunk, a selection and a deleted line, unstaging and discarding a hunk', async ({ page }) => {
+  test('staging hunks and lines: Inline and Split, Hunk mode\'s rows, a file\'s only hunk, a selection and a deleted line, unstaging and discarding a hunk, an autocrlf file', async ({ page, request }) => {
     const repo = await openWip(page);
     await test.step("Inline and Split modes: no rows between lines; the gutter's + stages one line, the menu a hunk", async () => {
       const staged = () => git(repo, 'diff', '--cached', '--', 'src/app.txt');
@@ -127,6 +129,31 @@ test.describe('hunks and lines (spec #2 §7.3)', () => {
       expect(git(repo, 'diff', '--', 'src/app.txt')).not.toContain('app 05 changed');
       await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
       await expect.poll(() => git(repo, 'diff', '--', 'src/app.txt')).toContain('app 05 changed');
+    });
+    await test.step('core.autocrlf: a CRLF file whose index copy is LF shows its one edited line, and Open in lands on it', async () => {
+      // The core's wip_crlf fixture's auto.txt, made here: a fixture of its own would cost a page load.
+      const lines = (eol: string, edited: boolean) => Array.from({ length: 10 }, (_, i) => (edited && i === 4 ? 'line 05 edited' : `line ${String(i + 1).padStart(2, '0')}`) + eol).join('');
+      writeFileSync(join(repo, 'auto.txt'), lines('\n', false));
+      git(repo, 'add', 'auto.txt');
+      git(repo, 'commit', '-q', '-m', 'auto.txt');
+      git(repo, 'config', 'core.autocrlf', 'true');
+      rmSync(join(repo, 'auto.txt'));
+      git(repo, 'checkout', '--', 'auto.txt');
+      writeFileSync(join(repo, 'auto.txt'), lines('\r\n', true));
+      await fileRow(page, 'unstaged', 'auto.txt').click();
+      await expect(fileRow(page, 'unstaged', 'auto.txt')).toContainText('+1 −1');
+      await mode(page, 'Hunk').click();
+      await expect(zones(page)).toHaveCount(1);
+      await expect(zones(page).first()).toContainText('@@ -2,7 +2,7 @@');
+      await mode(page, 'Inline').click();
+      await expect(modified(page).locator('.view-line').filter({ hasText: 'line 05 edited' })).toBeVisible();
+      await expect(page.locator('.diff-panel .line-insert')).toHaveCount(1);
+      // Open in's line is the first one that differs in the texts compared: the clean (LF) one.
+      const launches = async () => (await (await request.get(`${harnessHttp}/launches`)).json()) as { program: string; args: string[] }[];
+      const before = (await launches()).length;
+      await page.getByRole('region', { name: 'Diff' }).getByRole('button', { name: 'Open in VS Code' }).click();
+      await expect.poll(async () => (await launches()).length).toBe(before + 1);
+      expect((await launches()).at(-1)!.args).toEqual(['-g', `${repo}/auto.txt:5`]);
     });
   });
 

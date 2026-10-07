@@ -10,7 +10,7 @@ vi.mock('../MdMermaid', () => ({ MdMermaid: ({ source }: { source: string }) => 
 const { MarkdownDiff } = await import('./MarkdownDiff');
 const { resetChunkStreams } = await import('../parseAsync');
 const { clearParseCache } = await import('../parse');
-const { changeTargets, stepChange, STEP_MARGIN } = await import('../../diff/changeStepper');
+const { changeTargets, stepChange } = await import('../../diff/changeStepper');
 
 const NEW: FileMarkdownContext = { kind: 'file', tabId: 't', commit: 'b'.repeat(40), path: 'guide.md' };
 const OLD: FileMarkdownContext = { ...NEW, commit: 'a'.repeat(40), path: 'old-guide.md' };
@@ -128,16 +128,17 @@ describe('the split rendered diff (5C)', () => {
     const targets = changeTargets(c);
     expect(targets).toEqual(rows(c).filter((r) => r.hasAttribute('data-diff-mark')));
     expect(targets).toHaveLength(2);
-    // Lay the rows out 100 px apart, the pane at the top.
+    // Lay the 40 px rows out 400 px apart in a 300 px pane, at the top: each change is centred.
     const all = rows(c);
-    all.forEach((r, i) => vi.spyOn(r, 'getBoundingClientRect').mockImplementation(() => ({ top: i * 100 - c.scrollTop } as DOMRect)));
+    all.forEach((r, i) => vi.spyOn(r, 'getBoundingClientRect').mockImplementation(() => ({ top: i * 400 - c.scrollTop, bottom: i * 400 + 40 - c.scrollTop } as DOMRect)));
     vi.spyOn(c, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect);
+    vi.spyOn(c, 'clientHeight', 'get').mockReturnValue(300);
     expect(stepChange(c, 'next')).toBe(true);
-    expect(c.scrollTop).toBe(100 - STEP_MARGIN);
+    expect(c.scrollTop).toBe(420 - 150);
     stepChange(c, 'next');
-    expect(c.scrollTop).toBe(300 - STEP_MARGIN);
+    expect(c.scrollTop).toBe(1220 - 150);
     stepChange(c, 'previous');
-    expect(c.scrollTop).toBe(100 - STEP_MARGIN);
+    expect(c.scrollTop).toBe(420 - 150);
   });
 
   it("a document can't forge a row, a cell, a placeholder or a mark (R17)", async () => {

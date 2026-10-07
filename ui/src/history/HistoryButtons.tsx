@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useRepoContext } from '../app/repoContext';
+import { useDiffPrefs } from '../diff/diffPrefs';
 import { useRepoViewStore, type DiffTarget } from '../repo/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { historyStartOf } from './fromDiff';
@@ -19,7 +20,12 @@ export function HistoryButtons({ target, binary = false }: { target: DiffTarget;
   // Read once per target: the selection that made it doesn't change under an open file.
   const start = useMemo(() => historyStartOf(store.getState(), target), [store, target]);
   const off = start === null || undefined;
-  const open = (blame: boolean) => () => { if (start && !(blame && binary)) openFileHistory(tabId, start, blame); };
+  // From Diff View, File History opens on each version's Changes; from File View, on the File.
+  const open = (blame: boolean) => () => {
+    if (!start || (blame && binary)) return;
+    useDiffPrefs.getState().set({ historyView: target.view === 'diff' ? 'changes' : 'file' });
+    openFileHistory(tabId, start, blame);
+  };
   return (
     <div className="segmented" role="group" aria-label="History">
       <HoverTooltip content={!start ? NO_HISTORY : binary ? NO_BINARY_BLAME : `Show who last changed each line of ${start.path}`}>

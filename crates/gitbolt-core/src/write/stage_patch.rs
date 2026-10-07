@@ -325,6 +325,43 @@ mod tests {
         assert_eq!(blob, "a\nB\nc", "the index holds the cleaned (LF) text");
     }
 
+    /// One line of an autocrlf file checked out as CRLF (the index is LF): only that line reaches
+    /// the index, cleaned, as `git add -p` stages it; the worktree file is untouched.
+    #[tokio::test]
+    async fn one_line_of_an_autocrlf_file_stages_clean() {
+        let data = tempfile::tempdir().unwrap();
+        let r = TestRepo::new();
+        crate::testing::fixtures::wip_crlf(&r);
+        r.write("auto.txt", &(1..=10).map(|i| if matches!(i, 2 | 5) { format!("line {i:02} edited\r\n") } else { format!("line {i:02}\r\n") }).collect::<String>());
+        let disk = std::fs::read(r.path().join("auto.txt")).unwrap();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let h = call(&api, "wipHunks", json!({ "repo": id, "worktree": wt(r.path()), "path": "auto.txt", "staged": false })).await.unwrap();
+        assert_eq!(h["hunks"].as_array().unwrap().len(), 1, "git's diff: two edited lines, one hunk, no CRLF noise");
+        patch(&api, id, &r, "auto.txt", false, json!({ "kind": "lines", "old": [{ "start": 5, "end": 5 }], "new": [{ "start": 5, "end": 5 }] })).await.unwrap();
+        let want: String = (1..=10).map(|i| if i == 5 { "line 05 edited\n".to_string() } else { format!("line {i:02}\n") }).collect();
+        assert_eq!(String::from_utf8(index_bytes(&r, "auto.txt")).unwrap(), want);
+        assert_eq!(std::fs::read(r.path().join("auto.txt")).unwrap(), disk);
+        assert_eq!(r.git(&["diff", "--numstat", "--", "auto.txt"]), "1\t1\tauto.txt", "line 2 is left unstaged");
+    }
+
+    /// `.gitattributes` `eol=crlf` (no autocrlf): a hunk stages clean, like autocrlf's.
+    #[tokio::test]
+    async fn a_hunk_of_an_eol_crlf_file_stages_clean() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        r.write(".gitattributes", "*.txt text eol=crlf\n");
+        r.write("w.txt", "a\nb\nc\n");
+        r.git(&["add", "."]);
+        r.git(&["commit", "-q", "-m", "w"]);
+        r.write("w.txt", "a\r\nB\r\nc\r\n");
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        patch(&api, id, &r, "w.txt", false, json!({ "kind": "hunks", "hunks": [0] })).await.unwrap();
+        assert_eq!(index_bytes(&r, "w.txt"), b"a\nB\nc\n");
+        assert_eq!(r.git(&["status", "--porcelain", "--", "w.txt"]), "M  w.txt", "nothing left unstaged");
+    }
+
     /// An untracked CRLF file with autocrlf: staged as `git add` would store it.
     #[tokio::test]
     async fn an_untracked_crlf_file_with_autocrlf_stages_clean_lines() {

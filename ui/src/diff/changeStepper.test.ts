@@ -45,29 +45,82 @@ describe('the rendered change stepper (5C, R3)', () => {
     expect(changeTargets(p).map((e) => e.id)).toEqual(['n1', 'n3', 'o2', 'para', 'gone']);
   });
 
+  /** A 300 px pane scrolled over changes 20 px tall (or `h`) at the given offsets in its content. */
+  function scrolled(rows: Array<[string | null, number, number?]>) {
+    const p = document.createElement('div');
+    let top = 0;
+    Object.defineProperty(p, 'scrollTop', { get: () => top, set: (v: number) => { top = Math.max(0, v); } });
+    Object.defineProperty(p, 'clientHeight', { get: () => 300 });
+    p.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    for (const [mark, y, h = 20] of rows) {
+      const el = document.createElement('div');
+      if (mark) el.setAttribute('data-diff-mark', mark);
+      el.getBoundingClientRect = () => ({ top: 100 + y - top, bottom: 100 + y + h - top }) as DOMRect;
+      p.append(el);
+    }
+    return p;
+  }
+  /** The scroll that centres a 20 px change at `y` in the 300 px pane. */
+  const centring = (y: number) => y + 10 - 150;
+
   it('steps by position even when targets come out of order (a split row: new side first)', () => {
-    const p = pane([['added', 300], ['removed', 40]]);
+    const p = scrolled([['added', 1000], ['removed', 400]]);
     stepChange(p, 'next');
-    expect(p.scrollTop).toBe(40 - STEP_MARGIN);
+    expect(p.scrollTop).toBe(centring(400));
   });
 
-  it('steps to the next change below the top edge, and the previous one above it', () => {
-    const p = pane([[null, 0], ['added', 40], [null, 200], ['changed', 300]]);
+  it("goes by the scroll: Next the first change starting below the pane's centre line, Previous the last one ending above it, centred", () => {
+    const p = scrolled([[null, 0], ['added', 400], [null, 700], ['changed', 1000]]);
     expect(stepChange(p, 'next')).toBe(true);
-    expect(p.scrollTop).toBe(40 - STEP_MARGIN);
-    const q = pane([['added', -300], [null, -100], ['changed', -50], [null, 10]]);
-    expect(stepChange(q, 'previous')).toBe(true);
-    expect(q.scrollTop).toBe(-50 - STEP_MARGIN);
+    expect(p.scrollTop).toBe(centring(400));
+    stepChange(p, 'next');
+    expect(p.scrollTop).toBe(centring(1000));
+    stepChange(p, 'previous');
+    expect(p.scrollTop).toBe(centring(400));
+    // Scrolled past the last: Previous is the last one above, not the one before the last step.
+    p.scrollTop = 2000;
+    stepChange(p, 'previous');
+    expect(p.scrollTop).toBe(centring(1000));
+    // Between the two (the centre at 750).
+    p.scrollTop = 600;
+    stepChange(p, 'next');
+    expect(p.scrollTop).toBe(centring(1000));
+    p.scrollTop = 600;
+    stepChange(p, 'previous');
+    expect(p.scrollTop).toBe(centring(400));
+  });
+
+  it('a change taller than the pane starts STEP_MARGIN below its top', () => {
+    const p = scrolled([['added', 400, 500]]);
+    stepChange(p, 'next');
+    expect(p.scrollTop).toBe(400 - STEP_MARGIN);
   });
 
   it('wraps: past the last change to the first, before the first to the last', () => {
-    const p = pane([['added', -300], [null, 0], ['changed', -50]]);
+    const p = scrolled([['added', 400], [null, 700], ['changed', 1000]]);
+    p.scrollTop = 2000;
     expect(stepChange(p, 'next')).toBe(true);
-    expect(p.scrollTop).toBe(-300 - STEP_MARGIN);
-    const q = pane([[null, 0], ['added', 40], ['changed', 300]]);
+    expect(p.scrollTop).toBe(centring(400));
+    const q = scrolled([[null, 0], ['added', 400], ['changed', 1000]]);
     expect(stepChange(q, 'previous')).toBe(true);
-    expect(q.scrollTop).toBe(300 - STEP_MARGIN);
-    expect(stepChange(pane([[null, 0]]), 'next')).toBe(false);
+    expect(q.scrollTop).toBe(centring(1000));
+    expect(stepChange(scrolled([[null, 0]]), 'next')).toBe(false);
+  });
+
+  it('on from the change it put the pane on, where the pane could not centre it (the first screen)', () => {
+    // 40 and 100 are both above the centre line of the pane at its top.
+    const p = scrolled([['added', 40], ['changed', 100], ['added', 1000]]);
+    stepChange(p, 'next');
+    expect(p.scrollTop).toBe(centring(1000));
+    stepChange(p, 'next'); // wraps to the first: the pane goes to the top, and can't centre it
+    expect(p.scrollTop).toBe(0);
+    stepChange(p, 'next'); // 100, which the centre line alone would skip
+    expect(p.scrollTop).toBe(0);
+    stepChange(p, 'next');
+    expect(p.scrollTop).toBe(centring(1000));
+    stepChange(p, 'previous');
+    stepChange(p, 'previous');
+    expect(p.scrollTop).toBe(0);
   });
 
   it('holds one stepper; a removal only removes its own', () => {

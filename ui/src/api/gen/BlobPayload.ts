@@ -18,4 +18,10 @@ base64: string | null,
  * The loaded bytes' `worktree_id` (2B Deviation 12): the save base of a working-tree side.
  * `None` when the side wasn't loaded (too large).
  */
-hash: string | null, };
+hash: string | null, 
+/**
+ * A working-tree side whose `text` is its clean form, as git compares it, and that form
+ * differs from the file by more than line endings (a `filter` driver, `ident`): the text
+ * isn't the file's, so it's read-only. Absent otherwise.
+ */
+filtered?: boolean, };

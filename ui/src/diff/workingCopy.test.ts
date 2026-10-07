@@ -37,6 +37,7 @@ describe('the editable working copy (spec #2 §7.5)', () => {
     expect(isEditableTarget(wipTarget, { ...contents('h0'), tooLarge: true })).toBe(false);
     expect(isEditableTarget({ ...wipTarget, status: 'U' }, contents('h0')), 'the merge tool edits a conflict').toBe(false);
     expect(isEditableTarget(wipTarget, { ...contents('h0'), new: null }), 'deleted').toBe(false);
+    expect(isEditableTarget(wipTarget, { ...contents('h0'), new: { ...contents('h0').new!, filtered: true } }), "a clean filter's text isn't the file's").toBe(false);
   });
 
   it("G.2: File View of a staged WIP file loads (and edits) its working-tree file; nothing else changes", () => {
