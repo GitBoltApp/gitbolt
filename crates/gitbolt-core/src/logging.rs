@@ -420,6 +420,6 @@ mod tests {
     #[test]
     fn default_dir_is_under_the_cache_dir() {
         assert_eq!(default_log_dir(), crate::paths::cache_dir().join("logs"));
-        assert!(default_log_dir().ends_with("gitbolt/logs"));
+        assert!(default_log_dir().ends_with(std::path::Path::new(crate::paths::APP_DIR).join("logs")));
     }
 }
