@@ -1,0 +1,110 @@
+# macOS (Apple Silicon): the core, forge and harness tests, and a check of the whole workspace.
+# Pushes to the mac-port branch while the port is in progress. Actions are pinned by commit, as
+# in release.yml.
+name: macOS
+
+on:
+  push:
+    branches: [mac-port]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+# bash with pipefail (the check's tee keeps cargo's status).
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Core, forge and harness tests
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: macos-test
+          cache-bin: false
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: nextest
+
+      - name: Versions
+        run: |
+          sw_vers
+          git --version
+          echo "TMPDIR=$TMPDIR SHELL=$SHELL"
+
+      - name: Tests
+        run: cargo nextest run --profile ci --no-fail-fast -p gitbolt-core -p gitbolt-forge -p gitbolt-harness
+
+      - name: Upload the test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-nextest
+          path: |
+            target/nextest/ci/junit.xml
+            target/nextest/ci/*.log
+          if-no-files-found: warn
+
+  check:
+    name: Workspace check (the app included)
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: macos-check
+          cache-bin: false
+
+      # cmake and ninja: the cef-dll-sys wrapper.
+      - name: Build tools
+        run: |
+          command -v cmake || brew install cmake
+          command -v ninja || brew install ninja
+
+      # tauri's generate_context! embeds ui/dist; a placeholder page is enough to type-check.
+      - name: UI placeholder
+        run: |
+          mkdir -p ui/dist
+          [ -f ui/dist/index.html ] || echo '<!doctype html><title>GitBolt</title>' > ui/dist/index.html
+
+      - name: Check
+        run: cargo check --workspace --all-targets 2>&1 | tee check.log
+
+      - name: Upload the check log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-check
+          path: check.log
+          if-no-files-found: warn

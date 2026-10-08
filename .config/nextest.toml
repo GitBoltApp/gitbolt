@@ -7,3 +7,11 @@ slow-timeout = { period = "60s", terminate-after = 3 }
 # Print the failures again at the end, where they're easy to find.
 final-status-level = "fail"
 failure-output = "final"
+
+# The macOS workflow (.github/workflows/mac-port.yml): run every test and keep a JUnit report
+# (target/nextest/ci/junit.xml) for the run's artifacts.
+[profile.ci]
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
