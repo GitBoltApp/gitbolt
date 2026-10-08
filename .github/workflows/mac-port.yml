@@ -53,8 +53,30 @@ jobs:
           git --version
           echo "TMPDIR=$TMPDIR SHELL=$SHELL"
 
+      # continue-on-error while the port is in progress: a failing run doesn't email its actor;
+      # the summary below lists the failures.
       - name: Tests
+        id: tests
+        continue-on-error: true
         run: cargo nextest run --profile ci --no-fail-fast -p gitbolt-core -p gitbolt-forge -p gitbolt-harness
+
+      - name: Summary
+        if: always()
+        env:
+          OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          python3 - target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY" <<'EOF' || echo "### Tests: $OUTCOME (no report)" >> "$GITHUB_STEP_SUMMARY"
+          import os, sys, xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          print(f"### Tests: {os.environ['OUTCOME']} ({root.get('tests')} run, {root.get('failures')} failed, {root.get('errors')} errors)")
+          for case in root.iter("testcase"):
+              bad = case.find("failure")
+              if bad is None:
+                  bad = case.find("error")
+              if bad is not None:
+                  first = (bad.get("message") or "").splitlines()[:1]
+                  print(f"- `{case.get('classname')} {case.get('name')}` {first[0][:200] if first else ''}")
+          EOF
 
       - name: Upload the test report
         if: always()
@@ -99,7 +121,21 @@ jobs:
           [ -f ui/dist/index.html ] || echo '<!doctype html><title>GitBolt</title>' > ui/dist/index.html
 
       - name: Check
+        id: check
+        continue-on-error: true
         run: cargo check --workspace --all-targets 2>&1 | tee check.log
+
+      - name: Summary
+        if: always()
+        env:
+          OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          {
+            echo "### Workspace check: $OUTCOME"
+            echo '```'
+            grep -E -A6 '^error' check.log | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the check log
         if: always()
