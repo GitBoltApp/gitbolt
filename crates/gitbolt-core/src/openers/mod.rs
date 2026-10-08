@@ -12,7 +12,9 @@
 //! `PATH`, plus the file manager; "Other…" is the system's Open With chooser (`chooser.rs`). On
 //! Windows, launchers on `PATH` (with `PATHEXT`) and in their install folders, the JetBrains
 //! Toolbox, and File Explorer (`win_detect.rs`); the shell's own dialogs and URL handler are in
-//! `win32.rs`. macOS plugs in at the same seams later (spec §4).
+//! `win32.rs`. On macOS, launchers on `PATH` and inside app bundles, the Toolbox, and Finder
+//! (`mac_detect.rs`); links open with `open`. Its Open With chooser and folder picker are still
+//! to come (`None`).
 
 use crate::error::{GbError, GbErrorKind};
 use crate::links::UrlOpener;
@@ -26,6 +28,8 @@ pub mod chooser;
 #[cfg(unix)]
 mod desktop;
 pub mod folder_picker;
+#[cfg(any(target_os = "macos", all(unix, test)))]
+mod mac_detect;
 #[cfg(windows)]
 mod win32;
 #[cfg(any(windows, test))]
@@ -99,6 +103,9 @@ pub enum ArgStyle {
     /// (`Opener::reveal_command`). Explorer reads its own command line, not by the usual rules, so
     /// `launch_command` passes its arguments verbatim (`explorer_args`).
     ExplorerSelect,
+    /// Finder, through `open`: `open <folder>`, and `open -R <file>` to show a file
+    /// (`Opener::reveal_command`).
+    FinderReveal,
     /// A desktop entry's `Exec` arguments, with the file (or folder) at its field code. No line.
     Exec(Vec<ExecArg>),
     /// A known IDE's desktop entry: its `Exec` arguments, the file's place taking the line form.
@@ -162,7 +169,7 @@ impl Opener {
             ArgStyle::JetBrains => (&only_file, Some(LineArgs::JetBrains)),
             ArgStyle::PathColonLine => (&only_file, Some(LineArgs::PathColonLine)),
             ArgStyle::NotepadPlusPlus => (&only_file, Some(LineArgs::NotepadPlusPlus)),
-            ArgStyle::ExplorerSelect => (&only_file, None),
+            ArgStyle::ExplorerSelect | ArgStyle::FinderReveal => (&only_file, None),
             ArgStyle::Exec(parts) => (parts, None),
             ArgStyle::ExecWithLine(parts, l) => (parts, Some(*l)),
             ArgStyle::Template { .. } => unreachable!("handled by the early return above"),
@@ -187,9 +194,14 @@ impl Opener {
     }
 
     /// The argv that shows `file` selected in its folder, for a file manager that can (File
-    /// Explorer); `None` for the others, which open the folder (`command`).
+    /// Explorer, Finder); `None` for the others, which open the folder (`command`).
     pub fn reveal_command(&self, file: &Path) -> Option<LaunchCommand> {
-        (self.style == ArgStyle::ExplorerSelect).then(|| LaunchCommand { program: self.program.clone(), args: vec![os("/select,"), file.as_os_str().to_owned()] })
+        let switch = match self.style {
+            ArgStyle::ExplorerSelect => "/select,",
+            ArgStyle::FinderReveal => "-R",
+            _ => return None,
+        };
+        Some(LaunchCommand { program: self.program.clone(), args: vec![os(switch), file.as_os_str().to_owned()] })
     }
 }
 
@@ -605,12 +617,15 @@ pub fn detect(env: &DetectEnv) -> Vec<Opener> {
 
 /// This OS's openers (the seam other OSes plug into; spec §4). Linux: XDG desktop entries,
 /// Toolbox scripts and `PATH`. Windows: `PATH`, install folders, the Toolbox, File Explorer.
+/// macOS: `PATH`, app bundles, the Toolbox, Finder.
 pub fn detect_system() -> Vec<Opener> {
     #[cfg(target_os = "linux")]
     return detect(&DetectEnv::from_system());
     #[cfg(windows)]
     return win_detect::detect(&win_detect::WinEnv::from_system());
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    return mac_detect::detect(&mac_detect::MacEnv::from_system());
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     return Vec::new();
 }
 
@@ -635,7 +650,12 @@ pub fn system_url_opener(hook: ChildEnvHook) -> Option<UrlOpener> {
         let _ = hook;
         Some(Arc::new(win32::open_url))
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    // macOS: `open <url>`, which hands it to the default browser or mail app.
+    #[cfg(target_os = "macos")]
+    {
+        Some(url_opener_with(PathBuf::from("/usr/bin/open"), hook))
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
         let _ = hook;
         None
@@ -645,8 +665,13 @@ pub fn system_url_opener(hook: ChildEnvHook) -> Option<UrlOpener> {
 /// `system_url_opener`'s pure half, so tests can inject `$PATH` instead of the real one.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn url_opener_using(path: &[PathBuf], hook: ChildEnvHook) -> Option<UrlOpener> {
-    let program = find_in_path(path, "xdg-open")?;
-    Some(Arc::new(move |url: &str| spawn_detached_with(&LaunchCommand { program: program.clone(), args: vec![url.into()] }, &*hook)))
+    Some(url_opener_with(find_in_path(path, "xdg-open")?, hook))
+}
+
+/// `program <url>`, launched like an opener (`hook`, detached).
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+fn url_opener_with(program: PathBuf, hook: ChildEnvHook) -> UrlOpener {
+    Arc::new(move |url: &str| spawn_detached_with(&LaunchCommand { program: program.clone(), args: vec![url.into()] }, &*hook))
 }
 
 /// GitBolt's own environment variables, which must not leak into any child process it starts —
