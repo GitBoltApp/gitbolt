@@ -62,7 +62,11 @@ function Get-Download([string]$url, [string]$file, [string]$sha256) {
     Run curl.exe -fsSL --retry 3 -o "$path.part" $url
     Move-Item -Force "$path.part" $path
   }
-  $actual = (Get-FileHash -Algorithm SHA256 $path).Hash
+  # .NET rather than Get-FileHash: its module doesn't load when Windows PowerShell inherits
+  # PowerShell 7's module path (a pwsh step running `just package-windows`).
+  $stream = [System.IO.File]::OpenRead($path)
+  try { $actual = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($stream)).Replace('-', '') }
+  finally { $stream.Dispose() }
   if ($actual -ne $sha256) {
     Remove-Item -Force $path
     Fail "$file has SHA-256 $actual, expected $sha256 (deleted; run again to download it anew)"

@@ -410,7 +410,10 @@ jobs:
       # signs the path appended to it in place. The script then signs GitBolt.exe and GitBolt.dll
       # with the same certificate (the bootstrap requires it), the NSIS uninstaller and installer,
       # and the MSI. See docs/releasing.md.
+      # Windows PowerShell, not the job's pwsh: package-windows runs powershell.exe, which can't load
+      # its own modules (Get-FileHash) with PowerShell 7's PSModulePath inherited.
       - name: Build the installers
+        shell: powershell
         env:
           GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
