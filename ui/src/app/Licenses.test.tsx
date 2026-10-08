@@ -90,6 +90,19 @@ describe('About > Open source licenses', () => {
     }
   });
 
+  it("on macOS, gives the credits' place in the app bundle", async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
+    try {
+      render(<About />);
+      act(() => useAbout.getState().setOpen(true));
+      fireEvent.click(screen.getByRole('button', { name: 'Open source licenses' }));
+      expect(await screen.findByText('GitBolt.app/Contents/Resources/licenses/CHROMIUM-CREDITS.html.gz')).toBeTruthy();
+      expect(screen.queryByText(/\/usr\/share\/doc/)).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('says so when the build has no notices (a dev build)', async () => {
     vi.stubGlobal('fetch', mockFetch(null));
     render(<About />);

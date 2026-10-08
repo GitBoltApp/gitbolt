@@ -9,8 +9,7 @@ const ACTION_SECTIONS: Record<ActionGroup, string> = {
 };
 const ORDER = ['Repo actions', 'Navigation', 'Edit and search', 'Staging', 'Commit message', 'Diff', 'File history', 'Merge request', 'Rebase editor', 'Help'];
 
-/** 'Ctrl+Shift+T' into its keycaps (a trailing '+' key stays a key). */
-export const keycaps = (chord: string): string[] => chord.split(/\+(?=.)/);
+export { keycaps } from '../ui/platformKeys';
 
 /** Every real binding: the actions with a shortcut (usable now or not: the panel is the reference,
  * so "Stage file" is listed with no file open) plus the declared hints, grouped by section. Built

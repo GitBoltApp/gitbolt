@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
 import { registerKeys, type KeyHandler } from '../ui/keyRouter';
 import { letterOf } from '../ui/keys';
+import { isMac, resolveChord } from '../ui/platformKeys';
 import { actionForCombo, invoke } from './actions';
+import { installNativeMenu } from './nativeMenu';
 
 const CODE_NAMES: Record<string, string> = { Comma: ',', Equal: '=', Minus: '-', Period: '.', Slash: '/', Backquote: '`', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Backslash: '\\' };
 const MODIFIERS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'OS']);
@@ -11,15 +13,18 @@ const FUNCTION_KEY = /^F([1-9]|1[0-2])$/;
 /**
  * "Ctrl+Shift+T" for a Ctrl chord, "F8" / "Shift+F7" for a function key, "Alt+1" for Alt and a
  * digit (the focus keys); '' for anything else (another key without Ctrl, a Super/Meta chord, a
- * lone modifier, IME composition). Alt with an arrow isn't named: Alt+←/→ are Go back / forward
- * (`nav/input.ts`). Letters follow the layout the way 1B's `matchesLetter` does (`letterOf`: by
- * character, else by key position); digits and punctuation by key position, so Shift doesn't
- * rename them.
+ * lone modifier, IME composition). On macOS a Cmd chord is "Cmd+Shift+T" (the primary modifier
+ * there, `Mod` in declarations: `ui/platformKeys.ts`), a Ctrl one stays "Ctrl+Tab", and one with
+ * both is ''. Alt with an arrow isn't named: Alt+←/→ are Go back / forward (`nav/input.ts`).
+ * Letters follow the layout the way 1B's `matchesLetter` does (`letterOf`: by character, else by
+ * key position); digits and punctuation by key position, so Shift (or Option) doesn't rename them.
  */
 export function comboOf(e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey' | 'key' | 'code'> & { isComposing?: boolean }): string {
-  if (e.metaKey || e.isComposing || MODIFIERS.has(e.key)) return '';
+  if (e.isComposing || MODIFIERS.has(e.key)) return '';
+  if (e.metaKey && (e.ctrlKey || !isMac())) return '';
+  const mod = e.metaKey ? 'Cmd' : e.ctrlKey ? 'Ctrl' : null;
   const digit = /^Digit\d$/.test(e.code) ? e.code.slice(5) : null;
-  if (!e.ctrlKey) {
+  if (!mod) {
     if (FUNCTION_KEY.test(e.key)) return [e.altKey && 'Alt', e.shiftKey && 'Shift', e.key].filter(Boolean).join('+');
     return e.altKey && digit ? ['Alt', e.shiftKey && 'Shift', digit].filter(Boolean).join('+') : '';
   }
@@ -28,20 +33,20 @@ export function comboOf(e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'altKey'
   if (letter) key = letter.toUpperCase();
   else if (digit) key = digit;
   else if (CODE_NAMES[e.code]) key = CODE_NAMES[e.code];
-  return ['Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+');
+  return [mod, e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+');
 }
 
 /**
  * Chords the browser (CEF included) would act on itself when nothing in the app takes them:
  * Ctrl+P prints, Ctrl+O opens a file picker, Ctrl+S saves the page (ruling R6), Ctrl+W closes the
- * browser tab (with no tab open, nothing in the app closes). Their default is always prevented,
- * even behind an open menu, whether or not an action is bound to them now.
+ * browser tab (with no tab open, nothing in the app closes); Cmd on macOS. Their default is always
+ * prevented, even behind an open menu, whether or not an action is bound to them now.
  */
-const BROWSER_CHORDS = new Set(['Ctrl+P', 'Ctrl+O', 'Ctrl+S', 'Ctrl+W']);
+const BROWSER_CHORDS = ['Mod+P', 'Mod+O', 'Mod+S', 'Mod+W'];
 
 /** In the key router's `menu` layer: never claims, only stops the browser's own chords. */
 const blockBrowserChords: KeyHandler = (e) => {
-  if (BROWSER_CHORDS.has(comboOf(e))) e.preventDefault();
+  if (BROWSER_CHORDS.map(resolveChord).includes(comboOf(e))) e.preventDefault();
 };
 
 /**
@@ -74,7 +79,15 @@ export function installShortcuts(): () => void {
   };
 }
 
-/** The global Ctrl shortcuts (spec §11.1 table), while the app shell is mounted. */
+/** The global Ctrl shortcuts (spec §11.1 table; Cmd on macOS), and the macOS menu bar's items
+ * (`nativeMenu.ts`), while the app shell is mounted. */
 export function useGlobalShortcuts(): void {
-  useEffect(installShortcuts, []);
+  useEffect(() => {
+    const offKeys = installShortcuts();
+    const offMenu = installNativeMenu();
+    return () => {
+      offKeys();
+      offMenu();
+    };
+  }, []);
 }

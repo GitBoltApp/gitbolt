@@ -47,7 +47,7 @@ const offs = [
   offSyncMenu,
   registerAppSlot('overlay', 'pushUpstream', PushUpstreamPanel),
   registerActions([{
-    id: 'sync.push', label: 'Push', group: 'Repository', icon: ArrowUpFromLine, tooltip: 'Push the current branch', shortcuts: ['Ctrl+Shift+K'],
+    id: 'sync.push', label: 'Push', group: 'Repository', icon: ArrowUpFromLine, tooltip: 'Push the current branch', shortcuts: ['Mod+Shift+K'],
     // In an editor, Monaco's (and VS Code's) Delete line.
     yieldsTo: isTypingOrEditor,
     when: () => { const t = activeTab(); return t?.kind === 'repo' && !!writeCtx(t.id); },

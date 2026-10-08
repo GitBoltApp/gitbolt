@@ -61,8 +61,8 @@ function openOpenFile(blame: boolean) {
   if (start && tab) openFileHistory(tab.id, start, blame);
 }
 const offActions = registerActions([
-  { id: 'history.file', label: 'File history of the open file', group: 'View', section: 'File history', icon: History, tooltip: 'Show the commits that changed the open file', shortcuts: ['Ctrl+Shift+H'], menu: false, when: () => openFileStart() !== null, run: () => openOpenFile(false) },
-  { id: 'history.blame', label: 'Blame the open file', group: 'View', section: 'File history', icon: User, tooltip: 'Show who last changed each line of the open file', shortcuts: ['Ctrl+Shift+B'], menu: false, when: () => openFileStart() !== null, run: () => openOpenFile(true) },
+  { id: 'history.file', label: 'File history of the open file', group: 'View', section: 'File history', icon: History, tooltip: 'Show the commits that changed the open file', shortcuts: ['Mod+Shift+H'], menu: false, when: () => openFileStart() !== null, run: () => openOpenFile(false) },
+  { id: 'history.blame', label: 'Blame the open file', group: 'View', section: 'File history', icon: User, tooltip: 'Show who last changed each line of the open file', shortcuts: ['Mod+Shift+B'], menu: false, when: () => openFileStart() !== null, run: () => openOpenFile(true) },
 ]);
 import.meta.hot?.dispose(offActions);
 

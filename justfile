@@ -156,6 +156,12 @@ package-arch:
 package-windows:
     powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 
+# On macOS: target/release/bundle/dmg/GitBolt_<version>_aarch64.dmg (x64 on an Intel Mac), the
+# release GitBolt.app, ad-hoc signed, beside a link to /Applications; then its checks
+# (scripts/package-macos.sh). Versions as in `just package`.
+package-macos: check-tauri-cli
+    scripts/package-macos.sh
+
 # Installs that package in a throwaway archlinux:latest container and checks it (needs Docker and
 # the network, so `just package` doesn't run it): dependencies, pacman -Qkk, the setuid
 # chrome-sandbox, ldd, and a headless launch. See scripts/check-arch-pkg.sh.

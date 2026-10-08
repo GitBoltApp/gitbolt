@@ -1,0 +1,614 @@
+# macOS (Apple Silicon): the core, forge and harness tests, a check of the whole workspace, the debug
+# app driven over CDP, and the release .dmg installed, launched and updated in place.
+# On demand only: run it from the Actions tab (workflow_dispatch), or label a pull request
+# `macos` (each time the label is added). Actions are pinned by commit, as in release.yml.
+name: macOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions: {}
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+# bash with pipefail (the check's tee keeps cargo's status).
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Core, forge and harness tests
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'macos'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: macos-test
+          cache-bin: false
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: nextest
+
+      - name: Versions
+        run: |
+          sw_vers
+          git --version
+          echo "TMPDIR=$TMPDIR SHELL=$SHELL"
+
+      - name: Tests
+        id: tests
+        run: cargo nextest run --profile ci --no-fail-fast -p gitbolt-core -p gitbolt-forge -p gitbolt-harness
+
+      - name: Summary
+        if: always()
+        env:
+          OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          python3 - target/nextest/ci/junit.xml >> "$GITHUB_STEP_SUMMARY" <<'EOF' || echo "### Tests: $OUTCOME (no report)" >> "$GITHUB_STEP_SUMMARY"
+          import os, sys, xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          print(f"### Tests: {os.environ['OUTCOME']} ({root.get('tests')} run, {root.get('failures')} failed, {root.get('errors')} errors)")
+          for case in root.iter("testcase"):
+              bad = case.find("failure")
+              if bad is None:
+                  bad = case.find("error")
+              if bad is not None:
+                  first = (bad.get("message") or "").splitlines()[:1]
+                  print(f"- `{case.get('classname')} {case.get('name')}` {first[0][:200] if first else ''}")
+          EOF
+
+      - name: Upload the test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-nextest
+          path: |
+            target/nextest/ci/junit.xml
+            target/nextest/ci/*.log
+          if-no-files-found: warn
+
+  check:
+    name: Workspace check (the app included)
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'macos'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: macos-check
+          cache-bin: false
+
+      # cmake and ninja: the cef-dll-sys wrapper.
+      - name: Build tools
+        run: |
+          command -v cmake || brew install cmake
+          command -v ninja || brew install ninja
+
+      # tauri's generate_context! embeds ui/dist; a placeholder page is enough to type-check.
+      - name: UI placeholder
+        run: |
+          mkdir -p ui/dist
+          [ -f ui/dist/index.html ] || echo '<!doctype html><title>GitBolt</title>' > ui/dist/index.html
+
+      - name: Check
+        id: check
+        run: cargo check --workspace --all-targets 2>&1 | tee check.log
+
+      - name: Summary
+        if: always()
+        env:
+          OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          {
+            echo "### Workspace check: $OUTCOME"
+            echo '```'
+            grep -E -A6 '^error' check.log | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the check log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-check
+          path: check.log
+          if-no-files-found: warn
+
+  app:
+    name: The app bundle, launched and driven over CDP
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'macos'
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      # Keep in step with the justfile's check-tauri-cli recipe and release.yml.
+      TAURI_CLI_VERSION: 3.0.0-alpha.4
+      # Where cef-dll-sys downloads the CEF distribution, and where the Tauri CLI finds it
+      # (its own default on macOS).
+      CEF_PATH: /Users/runner/Library/Caches/tauri-cef
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: macos-app
+          cache-bin: false
+          cache-on-failure: true
+
+      - name: Versions
+        id: version
+        run: |
+          sw_vers
+          cef=$(awk '$0 == "name = \"cef\"" { getline; print }' Cargo.lock | sed -n 's/^version = "[^+"]*+\([^"]*\)"$/\1/p')
+          [ -n "$cef" ] || { echo "::error::No CEF version in Cargo.lock's cef entry"; exit 1; }
+          echo "cef=$cef" >> "$GITHUB_OUTPUT"
+          echo "CEF $cef"
+
+      - name: Build tools
+        run: |
+          command -v cmake || brew install cmake
+          command -v ninja || brew install ninja
+
+      - name: Restore the Tauri CLI
+        id: tauri-cli
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: cargo-tauri-${{ env.TAURI_CLI_VERSION }}-macos-15-arm64
+      - name: Install the Tauri CLI
+        if: steps.tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "=$TAURI_CLI_VERSION" --locked
+      - name: Save the Tauri CLI
+        if: steps.tauri-cli.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: ${{ steps.tauri-cli.outputs.cache-primary-key }}
+
+      # Only the CEF archive: cef-dll-sys verifies its checksum and unpacks it.
+      - name: Restore the CEF archive
+        id: cef
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CEF_PATH }}/${{ steps.version.outputs.cef }}/cef_binary_*.tar.bz2
+          key: cef-${{ steps.version.outputs.cef }}-macosarm64
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      # The `fixture` command, for the repositories the app opens.
+      - name: Build the harness
+        run: cargo build -p gitbolt-harness
+
+      - name: Save the CEF archive
+        if: steps.cef.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CEF_PATH }}/${{ steps.version.outputs.cef }}/cef_binary_*.tar.bz2
+          key: ${{ steps.cef.outputs.cache-primary-key }}
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: nextest
+
+      # The vendored runtime's own tests (GITBOLT-PATCH.md), on macOS.
+      - name: Runtime tests
+        id: runtime-tests
+        run: cargo nextest run -p tauri-runtime-cef --lib --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/runtime-tests.log"
+
+      # A debug build with the UI embedded (`cargo tauri build` turns on tauri/custom-protocol),
+      # bundled as GitBolt.app: the framework and the helper apps by the Tauri CLI's bundler,
+      # ad-hoc signed (tauri.macos.conf.json).
+      - name: Build GitBolt.app (debug)
+        id: build
+        working-directory: crates/gitbolt-app
+        run: cargo tauri build --debug --bundles app --verbose 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: The bundle
+        id: bundle
+        if: always() && steps.build.outcome == 'success'
+        run: |
+          app=target/debug/bundle/macos/GitBolt.app
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          mkdir -p out
+          {
+            echo '## Layout'
+            find "$app" -maxdepth 4 -not -path '*/Resources/*' | sed "s|^$app|GitBolt.app|" | sort
+            echo
+            echo '## Info.plist'
+            plutil -p "$app/Contents/Info.plist"
+            echo
+            echo '## Resources'
+            ls -R "$app/Contents/Resources"
+            echo
+            echo '## Helper Info.plist'
+            plutil -p "$app/Contents/Frameworks/GitBolt Helper (Renderer).app/Contents/Info.plist"
+            echo
+            echo '## Signatures'
+            codesign -dv --entitlements - "$app" 2>&1
+            codesign --verify --deep --strict --verbose=2 "$app" 2>&1
+            for h in "$app"/Contents/Frameworks/*.app; do codesign -dv "$h" 2>&1 | grep -E '^(Executable|Identifier|Signature|Authority|TeamIdentifier|CodeDirectory)'; done
+            echo
+            echo '## Sizes'
+            du -sh "$app" "$app"/Contents/Frameworks/* "$app"/Contents/MacOS/*
+          } > out/bundle.txt 2>&1 || true
+          cat out/bundle.txt
+
+      - name: Launch and drive the app
+        id: drive
+        if: always() && steps.bundle.outcome == 'success'
+        env:
+          APP: ${{ steps.bundle.outputs.app }}
+        run: |
+          root="$RUNNER_TEMP/gb"
+          mkdir -p "$root" out/shots
+          repo=$(target/debug/gitbolt-harness fixture basic "$root/basic")
+          second=$(target/debug/gitbolt-harness fixture sync "$root/sync")
+          third=$(target/debug/gitbolt-harness fixture stack "$root/stack")
+          export GITBOLT_DEV_DIRS="$root/dirs" GITBOLT_DEV_CDP_PORT=9333 RUST_LOG=info
+          exe="$APP/Contents/MacOS/GitBolt"
+          "$exe" "$repo" > out/app.log 2>&1 &
+          echo $! > out/app.pid
+          sleep 5
+          set +e
+          # Last, `open -a` of a folder: an Apple Event to the running app, not an argument.
+          node ui/scripts/cdp-smoke.mjs 9333 out/shots "$repo" "$exe" "$second" "$PWD/$APP" "$third" | tee out/smoke.txt
+          status=${PIPESTATUS[0]}
+          screencapture -x out/shots/screen.png || echo "screencapture failed"
+          exit "$status"
+
+      # `sandbox_check(pid, NULL, 0)` is 1 for a process inside a Seatbelt sandbox.
+      - name: Sandbox status
+        if: always() && steps.bundle.outcome == 'success'
+        run: |
+          {
+            echo '## Processes'
+            ps -axo pid,ppid,args | grep -E '[G]itBolt' | cut -c1-400
+            echo
+            echo '## sandbox_check (1: sandboxed)'
+            for pid in $(pgrep -f 'GitBolt'); do
+              python3 -c 'import ctypes,sys; l=ctypes.CDLL("/usr/lib/libSystem.B.dylib"); l.sandbox_check.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int]; print(sys.argv[1], l.sandbox_check(int(sys.argv[1]), None, 0), sys.argv[2])' "$pid" "$(ps -o args= -p "$pid" | cut -c1-200)"
+            done
+          } > out/sandbox.txt 2>&1 || true
+          cat out/sandbox.txt
+
+      - name: Stop the app
+        if: always()
+        run: |
+          [ -f out/app.pid ] && kill "$(cat out/app.pid)" 2>/dev/null || true
+          sleep 3
+          pkill -f 'GitBolt.app' || true
+          tail -n 200 out/app.log 2>/dev/null || true
+
+      - name: Summary
+        if: always()
+        env:
+          BUILD: ${{ steps.build.outcome }}
+          DRIVE: ${{ steps.drive.outcome }}
+          RUNTIME_TESTS: ${{ steps.runtime-tests.outcome }}
+        run: |
+          {
+            echo "### App: runtime tests $RUNTIME_TESTS, build $BUILD, drive $DRIVE"
+            echo '```'
+            cat out/smoke.txt 2>/dev/null || true
+            grep -E 'Summary|FAIL|SIGSEGV' "$RUNNER_TEMP/runtime-tests.log" 2>/dev/null | head -20 || true
+            grep -E '^error|panicked|FATAL|ERROR' "$RUNNER_TEMP/build.log" out/app.log 2>/dev/null | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-app
+          path: |
+            out/
+            ${{ runner.temp }}/build.log
+            ${{ runner.temp }}/runtime-tests.log
+          if-no-files-found: warn
+
+  package:
+    name: The release .dmg, installed, launched and updated
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'macos'
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      # Keep in step with release.yml.
+      TAURI_CLI_VERSION: 3.0.0-alpha.4
+      CARGO_ABOUT_VERSION: 0.9.2
+      CEF_PATH: /Users/runner/Library/Caches/tauri-cef
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: macos-package
+          cache-bin: false
+          cache-on-failure: true
+
+      - name: Versions
+        id: version
+        run: |
+          sw_vers
+          cef=$(awk '$0 == "name = \"cef\"" { getline; print }' Cargo.lock | sed -n 's/^version = "[^+"]*+\([^"]*\)"$/\1/p')
+          [ -n "$cef" ] || { echo "::error::No CEF version in Cargo.lock's cef entry"; exit 1; }
+          echo "cef=$cef" >> "$GITHUB_OUTPUT"
+          echo "CEF $cef"
+
+      - name: Build tools
+        run: |
+          command -v cmake || brew install cmake
+          command -v ninja || brew install ninja
+
+      - name: Restore the cargo tools
+        id: cargo-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/bin/cargo-about
+          key: cargo-tools-tauri-${{ env.TAURI_CLI_VERSION }}-about-${{ env.CARGO_ABOUT_VERSION }}-macos-15-arm64
+      - name: Install the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install tauri-cli --version "=$TAURI_CLI_VERSION" --locked
+          cargo install cargo-about --version "=$CARGO_ABOUT_VERSION" --locked --features cli
+      - name: Save the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/bin/cargo-about
+          key: ${{ steps.cargo-tools.outputs.cache-primary-key }}
+
+      - name: Restore the CEF archive
+        id: cef
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CEF_PATH }}/${{ steps.version.outputs.cef }}/cef_binary_*.tar.bz2
+          key: cef-${{ steps.version.outputs.cef }}-macosarm64
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: just
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      # The release package, as release.yml builds it: the notices, the release GitBolt.app and
+      # the .dmg, and their checks (scripts/package-macos.sh).
+      - name: Build the .dmg
+        id: build
+        run: CARGO_BUILD_JOBS=$(sysctl -n hw.ncpu) just package-macos 2>&1 | tee "$RUNNER_TEMP/package.log"
+
+      - name: Save the CEF archive
+        if: steps.cef.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CEF_PATH }}/${{ steps.version.outputs.cef }}/cef_binary_*.tar.bz2
+          key: ${{ steps.cef.outputs.cache-primary-key }}
+
+      # What a user does: mount it, check it, copy GitBolt.app to /Applications.
+      - name: The .dmg
+        id: dmg
+        if: always() && steps.build.outcome == 'success'
+        run: |
+          dmg=$(ls target/release/bundle/dmg/GitBolt_*_aarch64.dmg)
+          echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
+          mkdir -p out/shots
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
+          {
+            echo '## The disk image'
+            ls -l "$dmg"
+            hdiutil imageinfo "$dmg" | grep -E '^(Format|Format Description):' || true
+            echo
+            echo '## Its volume'
+            ls -la "$mnt"
+            du -sh "$mnt/GitBolt.app"
+            echo
+            echo '## codesign --verify --deep --strict'
+            codesign --verify --deep --strict --verbose=2 "$mnt/GitBolt.app" 2>&1
+            echo
+            echo '## codesign -dv'
+            codesign -dv --verbose=2 "$mnt/GitBolt.app" 2>&1
+            echo
+            echo '## spctl --assess (ad-hoc signed, not notarized: expect "rejected")'
+            spctl --assess --type execute --verbose=4 "$mnt/GitBolt.app" 2>&1 || echo "(exit $?)"
+            spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg" 2>&1 || echo "(exit $?)"
+            echo
+            echo '## Info.plist'
+            plutil -p "$mnt/GitBolt.app/Contents/Info.plist"
+            echo
+            echo '## Contents/Resources'
+            ls -R "$mnt/GitBolt.app/Contents/Resources"
+            echo
+            echo '## Extended attributes (the .dmg, then the app)'
+            xattr -l "$dmg" || true
+            xattr -lr "$mnt/GitBolt.app" | grep -v 'com.apple.cs.' | head -20 || true
+          } > out/dmg.txt 2>&1
+          ditto "$mnt/GitBolt.app" /Applications/GitBolt.app
+          hdiutil detach "$mnt"
+          cat out/dmg.txt
+
+      # A cold launch by `open -a` with a folder (handed over as an Apple Event), then `open -a`
+      # of a second folder to the running app. Release builds refuse CDP: the proof is the
+      # profile's tabs, the log and the screenshots.
+      - name: Launch and open folders
+        id: launch
+        if: always() && steps.dmg.outcome == 'success'
+        env:
+          GIT_AUTHOR_NAME: Smoke Test
+          GIT_AUTHOR_EMAIL: smoke@example.com
+          GIT_COMMITTER_NAME: Smoke Test
+          GIT_COMMITTER_EMAIL: smoke@example.com
+        run: |
+          root="$RUNNER_TEMP/repos"
+          for n in first second; do
+            git init -q -b main "$root/$n"
+            git -C "$root/$n" commit -q --allow-empty -m "The $n repository"
+          done
+          open -a /Applications/GitBolt.app "$root/first"
+          sleep 25
+          screencapture -x out/shots/01-cold-open.png || echo "screencapture failed"
+          open -a /Applications/GitBolt.app "$root/second"
+          sleep 10
+          screencapture -x out/shots/02-open-a-running.png || echo "screencapture failed"
+          support="$HOME/Library/Application Support/GitBolt"
+          {
+            echo '## Profile tabs'
+            for p in "$support"/profiles/*/profile.json; do
+              python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("tabs"), indent=1))' "$p"
+            done
+            echo
+            echo '## Log'
+            cat "$HOME"/Library/Caches/GitBolt/logs/* | grep -E 'asked to open|sandbox|ERROR|WARN' | head -40
+          } > out/launch.txt 2>&1 || true
+          cat out/launch.txt
+          ok=1
+          for n in first second; do
+            grep -q "$root/$n" "$support"/profiles/*/profile.json || { echo "::error::No tab for $root/$n"; ok=0; }
+          done
+          [ "$ok" = 1 ]
+
+      # `sandbox_check(pid, NULL, 0)` is 1 for a process inside a Seatbelt sandbox.
+      - name: Sandbox status
+        id: sandbox
+        if: always() && steps.dmg.outcome == 'success'
+        run: |
+          {
+            echo '## Processes'
+            ps -axo pid,ppid,args | grep -E '[G]itBolt' | cut -c1-300
+            echo
+            echo '## sandbox_check (1: sandboxed)'
+            for pid in $(pgrep -f 'GitBolt'); do
+              python3 -c 'import ctypes,sys; l=ctypes.CDLL("/usr/lib/libSystem.B.dylib"); l.sandbox_check.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int]; print(sys.argv[1], l.sandbox_check(int(sys.argv[1]), None, 0), sys.argv[2])' "$pid" "$(ps -o args= -p "$pid" | cut -c1-160)"
+            done
+          } > out/sandbox.txt 2>&1 || true
+          cat out/sandbox.txt
+          grep -E '^[0-9]+ 1 .*Renderer' out/sandbox.txt >/dev/null || { echo "::error::No sandboxed renderer"; exit 1; }
+
+      # The updater's install, for real: core's DMG_INSTALL script (crates/gitbolt-core/src/
+      # updates/install.rs) over the running app in /Applications, from this .dmg; then Restart's
+      # way of starting it again, and the new bundle's signature.
+      - name: Update in place
+        id: update
+        if: always() && steps.dmg.outcome == 'success'
+        env:
+          DMG: ${{ steps.dmg.outputs.dmg }}
+        run: |
+          script=$(awk '/^pub const DMG_INSTALL/ { f = 1; sub(/.*r#"/, ""); print; next } f { if (/"#;$/) { sub(/"#;$/, ""); print; exit } print }' crates/gitbolt-core/src/updates/install.rs)
+          before=$(stat -f %i /Applications/GitBolt.app)
+          /bin/sh -c "$script" gitbolt-update "$PWD/$DMG" /Applications/GitBolt.app
+          after=$(stat -f %i /Applications/GitBolt.app)
+          [ "$before" != "$after" ] || { echo "::error::The bundle wasn't replaced"; exit 1; }
+          find /Applications -maxdepth 1 -iname '*gitbolt*'
+          if hdiutil info | grep -q gitbolt-update; then echo "::error::Still mounted"; exit 1; fi
+          codesign --verify --deep --strict --verbose=2 /Applications/GitBolt.app
+          if xattr -lr /Applications/GitBolt.app | grep -q quarantine; then echo "::error::Quarantined"; exit 1; fi
+          pgrep -f '/Applications/GitBolt.app/Contents/MacOS/GitBolt' >/dev/null && echo "The running app is still up."
+          # Restart: quit, then start the replaced bundle.
+          pkill -f '/Applications/GitBolt.app/Contents/MacOS/GitBolt' || true
+          sleep 3
+          open -a /Applications/GitBolt.app
+          sleep 20
+          screencapture -x out/shots/03-after-update.png || echo "screencapture failed"
+          pgrep -f '/Applications/GitBolt.app/Contents/MacOS/GitBolt' >/dev/null || { echo "::error::It didn't start again"; exit 1; }
+
+      - name: Stop the app
+        if: always()
+        run: |
+          pkill -f 'GitBolt.app' || true
+          sleep 3
+          pkill -9 -f 'GitBolt.app' || true
+          mkdir -p out
+          cp "$HOME"/Library/Caches/GitBolt/logs/* out/ 2>/dev/null || true
+
+      - name: Summary
+        if: always()
+        env:
+          BUILD: ${{ steps.build.outcome }}
+          DMG: ${{ steps.dmg.outcome }}
+          LAUNCH: ${{ steps.launch.outcome }}
+          SANDBOX: ${{ steps.sandbox.outcome }}
+          UPDATE: ${{ steps.update.outcome }}
+        run: |
+          {
+            echo "### Package: build $BUILD, dmg $DMG, launch $LAUNCH, sandbox $SANDBOX, update $UPDATE"
+            echo '```'
+            grep -E 'package-macos|^error|panicked' "$RUNNER_TEMP/package.log" 2>/dev/null | tail -20 || true
+            grep -E -A3 '^## (codesign --verify|spctl)' out/dmg.txt 2>/dev/null || true
+            cat out/launch.txt out/sandbox.txt 2>/dev/null | head -60 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the screenshots, logs and the .dmg
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-package
+          path: |
+            out/
+            ${{ runner.temp }}/package.log
+            target/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 0

@@ -184,5 +184,5 @@ export function MrForms({ tabId, kind, mr, detail, actions: a }: { tabId: string
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
-  { id: 'key.mrReview', section: 'Merge request', label: 'Submit the review (Comment, Approve or Request changes)', keys: ['Ctrl+Enter'], context: '(in the review composer)', source: 'forge/mrview/MrActions.tsx' },
+  { id: 'key.mrReview', section: 'Merge request', label: 'Submit the review (Comment, Approve or Request changes)', keys: ['Mod+Enter'], context: '(in the review composer)', source: 'forge/mrview/MrActions.tsx' },
 ]);

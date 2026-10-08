@@ -4665,7 +4665,8 @@ mod tests {
             json!({"method": "openUrl", "params": {"url": "https://example.com"}}),
             json!({"method": "listOpeners"}),
             json!({"method": "listOpenersFor", "params": {"repo": id}}),
-            json!({"method": "validateEditorTemplate", "params": {"template": "code {file}"}}),
+            // git: a program every machine running these tests has (`code` may be missing).
+            json!({"method": "validateEditorTemplate", "params": {"template": "git {file}"}}),
             json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "line": null, "opener": "none", "source": null, "fallback": null}}),
             json!({"method": "loadState"}),
             json!({"method": "saveSettings", "params": {"settings": {}}}),
@@ -5074,7 +5075,9 @@ mod tests {
         let open_video = |url: String| api.dispatch(req(serde_json::json!({"method": "forgeOpenVideo", "params": {"repo": id, "url": url, "userAllowed": false}})));
         open_video(clip.into()).await.unwrap();
         let path = std::path::PathBuf::from(opened.lock().unwrap()[0].clone());
-        assert!(path.starts_with(cache.path()) && path.file_name().unwrap() == "screen.mp4", "{path:?}");
+        // Canonical: macOS's temp dir is behind a symlink (`/var` is `/private/var`).
+        let cache_dir = crate::platform::fs::canonicalize(cache.path()).unwrap();
+        assert!(path.starts_with(&cache_dir) && path.file_name().unwrap() == "screen.mp4", "{path:?}");
         assert_eq!(std::fs::read(&path).unwrap(), b"\0\0\0 ftypisom");
         let e = open_video(format!("{clip}2")).await.unwrap_err();
         assert_eq!(e.message, "Couldn't load the video: larger than 100 MB");

@@ -38,6 +38,7 @@ const INSTALL_NOTE: Record<Exclude<InstallKind, 'none'>, string> = {
   arch: 'GitBolt installs the package with pacman; your system asks for your password.',
   nsis: 'The installer opens, and GitBolt closes so it can be replaced.',
   msi: 'Windows Installer opens (and may ask for permission), and GitBolt closes so it can be replaced.',
+  dmg: 'GitBolt copies the new version from the disk image over this one; then restart it.',
 };
 
 /** The dialog's middle: what can be done now, for this install. */

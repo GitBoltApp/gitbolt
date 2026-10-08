@@ -11,7 +11,7 @@ import { Palette, usePalette } from './Palette';
  */
 const offs = [
   registerActions([
-    { id: 'edit.palette', label: 'Command palette', group: 'Edit', icon: Command, tooltip: 'Search actions, branches, files, settings and tabs', shortcuts: ['Ctrl+P'], run: () => usePalette.getState().show() },
+    { id: 'edit.palette', label: 'Command palette', group: 'Edit', icon: Command, tooltip: 'Search actions, branches, files, settings and tabs', shortcuts: ['Mod+P'], run: () => usePalette.getState().show() },
   ]),
   registerAppSlot('overlay', 'palette.dialog', Palette),
   registerToolbarButton({ action: 'edit.palette', label: 'Actions', placement: 'end', order: 10 }),

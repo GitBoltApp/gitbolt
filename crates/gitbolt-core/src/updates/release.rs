@@ -68,6 +68,8 @@ pub fn newest_update<'a>(releases: &'a [GhRelease], current: &Version, include_p
 /// - arch: `GitBolt-<pkgver>-1-x86_64.pkg.tar.zst`, where pkgver drops the pre-release's `-`
 ///   (`0.3.0-rc.1` → `0.3.0rc.1`, scripts/arch-pkg.py);
 /// - nsis: `GitBolt_<version>_x64-setup.exe`; msi: `GitBolt_<version>_x64.msi`;
+/// - dmg: `GitBolt_<version>_<arch>.dmg`, this machine's: `aarch64` (Apple Silicon) or `x64`
+///   (Intel, which has no release yet), as Tauri's bundler names them;
 /// - none for a build from source.
 pub fn asset_name(kind: InstallKind, version: &Version) -> Option<String> {
     let v = version.without_build();
@@ -76,9 +78,13 @@ pub fn asset_name(kind: InstallKind, version: &Version) -> Option<String> {
         InstallKind::Arch => Some(format!("GitBolt-{}-1-x86_64.pkg.tar.zst", v.replacen('-', "", 1))),
         InstallKind::Nsis => Some(format!("GitBolt_{v}_x64-setup.exe")),
         InstallKind::Msi => Some(format!("GitBolt_{v}_x64.msi")),
+        InstallKind::Dmg => Some(format!("GitBolt_{v}_{DMG_ARCH}.dmg")),
         InstallKind::Unpackaged => None,
     }
 }
+
+/// The `.dmg` architecture this build takes.
+const DMG_ARCH: &str = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" };
 
 /// `sha256sum`'s output: file name → lowercase hex digest. Binary-mode names (`*name`) count
 /// too; anything else on a line is ignored.
@@ -191,6 +197,8 @@ mod tests {
         assert_eq!(asset_name(InstallKind::Arch, &rc).as_deref(), Some("GitBolt-0.3.0rc.1-1-x86_64.pkg.tar.zst"));
         assert_eq!(asset_name(InstallKind::Nsis, &rel).as_deref(), Some("GitBolt_0.3.0_x64-setup.exe"));
         assert_eq!(asset_name(InstallKind::Msi, &rel).as_deref(), Some("GitBolt_0.3.0_x64.msi"));
+        let dmg = if cfg!(target_arch = "aarch64") { "GitBolt_0.3.0-rc.1_aarch64.dmg" } else { "GitBolt_0.3.0-rc.1_x64.dmg" };
+        assert_eq!(asset_name(InstallKind::Dmg, &rc).as_deref(), Some(dmg));
         assert_eq!(asset_name(InstallKind::Unpackaged, &rel), None);
     }
 

@@ -24,7 +24,7 @@ const repoTab = () => {
 const offs = [
   registerActions([
     {
-      id: 'repo.fetch', label: 'Fetch all', group: 'Repository', icon: ICONS.fetch, tooltip: 'Fetch every remote of the current repository', shortcuts: ['Ctrl+L'],
+      id: 'repo.fetch', label: 'Fetch all', group: 'Repository', icon: ICONS.fetch, tooltip: 'Fetch every remote of the current repository', shortcuts: ['Mod+L'],
       // GitKraken's Fetch all. In the editable working copy, Monaco's Expand line selection.
       yieldsTo: isTypingTarget,
       when: () => !!repoTab(),

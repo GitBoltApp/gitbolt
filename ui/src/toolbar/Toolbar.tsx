@@ -10,8 +10,9 @@ import { DefaultPicker } from './DefaultPicker';
 import { RepoButton } from './RepoButton';
 import { useToolbarButtons, type ToolbarButton } from './registry';
 import './toolbar.css';
+import { displayChord } from '../ui/platformKeys';
 
-const tooltipOf = (a: Action) => (a.shortcuts?.[0] ? `${a.tooltip} (${a.shortcuts[0]})` : a.tooltip);
+const tooltipOf = (a: Action) => (a.shortcuts?.[0] ? `${a.tooltip} (${displayChord(a.shortcuts[0])})` : a.tooltip);
 const usable = (a: Action) => !a.when || a.when();
 const notBusy = () => false;
 const noView = () => null;

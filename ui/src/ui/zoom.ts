@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { registerKeys } from './keyRouter';
+import { hasPrimaryMod } from './platformKeys';
 import { registerKeyHints } from '../shortcuts/hints';
 
 /**
@@ -32,9 +33,9 @@ export function parseZoom(raw: string | null): number | null {
 }
 
 /** The zoom a keydown asks for: 1 (in), -1 (out), 0 (reset), or null for any other key. Shift is
- * allowed, since Ctrl++ is Ctrl+Shift+= on most layouts. */
+ * allowed, since Ctrl++ is Ctrl+Shift+= on most layouts. Cmd on macOS (`hasPrimaryMod`). */
 export function zoomDirection(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'altKey' | 'metaKey'>): 1 | -1 | 0 | null {
-  if (!e.ctrlKey || e.altKey || e.metaKey) return null;
+  if (!hasPrimaryMod(e) || e.altKey) return null;
   if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') return 1;
   if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') return -1;
   if (e.key === '0' || e.code === 'Numpad0') return 0;
@@ -126,7 +127,7 @@ export function installZoom(apply: (pct: number) => void = applyWebviewZoom): ()
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
-  { id: 'key.zoomIn', section: 'Navigation', label: 'Zoom in', keys: ['Ctrl+='], source: 'ui/zoom.ts' },
-  { id: 'key.zoomOut', section: 'Navigation', label: 'Zoom out', keys: ['Ctrl+-'], source: 'ui/zoom.ts' },
-  { id: 'key.zoomReset', section: 'Navigation', label: 'Reset zoom', keys: ['Ctrl+0'], source: 'ui/zoom.ts' },
+  { id: 'key.zoomIn', section: 'Navigation', label: 'Zoom in', keys: ['Mod+='], source: 'ui/zoom.ts' },
+  { id: 'key.zoomOut', section: 'Navigation', label: 'Zoom out', keys: ['Mod+-'], source: 'ui/zoom.ts' },
+  { id: 'key.zoomReset', section: 'Navigation', label: 'Reset zoom', keys: ['Mod+0'], source: 'ui/zoom.ts' },
 ]);

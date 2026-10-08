@@ -353,6 +353,26 @@ wrap_context_menu_handler! {
 #[cfg(test)]
 pub(crate) static NAME_LOOKUP: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// GitBolt patch (tests only): on macOS nothing links CEF's framework (the app loads it from its
+/// bundle at startup), and a call into CEF before that is a null function pointer. A test that
+/// looks a name up loads it first, from the distribution the build used (build.rs). A no-op
+/// elsewhere, where the test binary links libcef.
+#[cfg(test)]
+pub(crate) fn load_cef_for_tests() {
+  #[cfg(target_os = "macos")]
+  {
+    static LOADED: std::sync::Once = std::sync::Once::new();
+    LOADED.call_once(|| {
+      let dir = option_env!("GITBOLT_TEST_CEF_DIR").expect("the CEF distribution (build.rs)");
+      let framework = format!("{dir}/Chromium Embedded Framework.framework/Chromium Embedded Framework");
+      let path = std::ffi::CString::new(framework.as_str()).unwrap();
+      // SAFETY: a NUL-terminated path that outlives the call. The framework stays loaded.
+      assert_eq!(cef::load_library(Some(unsafe { &*path.as_ptr() })), 1, "couldn't load {framework}");
+      let _ = cef::api_hash(cef::sys::CEF_API_VERSION_LAST, 0);
+    });
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -426,6 +446,7 @@ mod tests {
   #[test]
   fn every_name_resolves_to_a_command_id_in_this_cef_build() {
     let _lookup = NAME_LOOKUP.lock().unwrap_or_else(|e| e.into_inner());
+    load_cef_for_tests();
     for name in BROWSER_ONLY_COMMANDS.iter().chain(DEVTOOLS_COMMANDS) {
       let id = unsafe { cef_id_for_command_id_name(name.as_ptr()) };
       assert_ne!(id, UNKNOWN_COMMAND_ID, "{name:?} is unknown to this CEF build");

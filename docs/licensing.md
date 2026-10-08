@@ -25,6 +25,8 @@ every package carries them, generated fresh by each `just package`.
   `/usr/share/doc/gitbolt` (Arch's location for license files). Its `license` lines are MIT, the
   licenses in the two notices files' summaries, `BSD-3-Clause` and `LicenseRef-SCOWL`.
 - The Windows installers put them in `licenses\` in the install folder.
+- On macOS they're inside the app, in `GitBolt.app/Contents/Resources/licenses/`
+  (`crates/gitbolt-app/packaging/macos/dmg.conf.json`).
 - In the app, **Help > About GitBolt > Open source licenses** shows all of them except the
   Chromium credits, which are too large to embed in the app; the page gives their installed path instead.
   The UI build copies the files into `ui/dist/licenses/`, which the app embeds, so they're in a
@@ -45,7 +47,8 @@ so the notices can't go stale.
    - **Rust:** `cargo about generate` (cargo-about 0.9.2) produces JSON for `gitbolt-app`'s graph:
      the crates it links on `x86_64-unknown-linux-gnu` (`x86_64-pc-windows-msvc` for the Windows
      installers: `scripts/package-windows.ps1` runs the script in Git for Windows' bash, which
-     passes that target), without dev-only or build-time crates and
+     passes that target; `aarch64-apple-darwin` for the `.dmg`, from `scripts/package-macos.sh`
+     on a Mac), without dev-only or build-time crates and
      without GitBolt's own workspace crates (the harness isn't in the graph at all). Then
      `scripts/notices.py` groups it and writes the text file. cargo-about was chosen over
      `cargo-bundle-licenses` or a script over `cargo metadata` because it does the hard parts
@@ -54,7 +57,8 @@ so the notices can't go stale.
      and filters the graph by target and dependency kind.
      Install it once: `cargo install cargo-about --version 0.9.2 --locked --features cli`.
    - **CEF and Chromium:** from the CEF distribution `cargo tauri` builds against, in
-     `~/.cache/tauri-cef/<version>/` (`%LOCALAPPDATA%\tauri-cef` on Windows, or `$CEF_PATH`),
+     `~/.cache/tauri-cef/<version>/` (`%LOCALAPPDATA%\tauri-cef` on Windows,
+     `~/Library/Caches/tauri-cef` on macOS, or `$CEF_PATH`),
      with the version taken from the `cef`
      crate in `Cargo.lock`. The build's unpacked copy keeps only `CREDITS.html`, so `LICENSE.txt`
      is read from the downloaded archive beside it. On a machine that hasn't built the app yet,
@@ -72,7 +76,8 @@ so the notices can't go stale.
 
 `.deb` packaging takes the files from `target/licenses/` and `ui/dist/licenses/` (the `files`
 map in `crates/gitbolt-app/tauri.conf.json`); `scripts/check-deb.sh`, `scripts/package-arch.sh`
-and `scripts/check-arch-pkg.sh` fail if any of them is missing or empty.
+and `scripts/check-arch-pkg.sh` fail if any of them is missing or empty, as
+`scripts/package-macos.sh` does for the `.dmg`'s app.
 
 ## Windows packaging tools
 

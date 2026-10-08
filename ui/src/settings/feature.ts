@@ -11,7 +11,7 @@ import { useSettingsUi } from './schema';
  */
 const offActions = registerActions([
   {
-    id: 'file.settings', label: 'Settings', group: 'File', icon: Settings, tooltip: 'App, profile and repository settings', shortcuts: ['Ctrl+,'],
+    id: 'file.settings', label: 'Settings', group: 'File', icon: Settings, tooltip: 'App, profile and repository settings', shortcuts: ['Mod+,'],
     run: () => useSettingsUi.getState().show(),
   },
 ]);

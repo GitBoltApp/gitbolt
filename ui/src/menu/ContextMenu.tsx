@@ -8,6 +8,7 @@ import { pressedAnchor, runMenuRowHook, useMenu } from './menuStore';
 import { placeMenu, placeSubmenu } from './position';
 import type { MenuRow, Variant } from './types';
 import './menu.css';
+import { displayChord } from '../ui/platformKeys';
 
 declare global {
   interface Window { __gbMenuLatency?: number }
@@ -518,7 +519,7 @@ export function ContextMenu() {
           >
             <Icon size={14} className="ctx-icon" aria-hidden />
             <span className="ctx-label">{r.label}</span>
-            {r.kind === 'action' && r.shortcut && <span className="ctx-shortcut">{r.shortcut}</span>}
+            {r.kind === 'action' && r.shortcut && <span className="ctx-shortcut">{displayChord(r.shortcut)}</span>}
             {r.kind === 'submenu' && <ChevronRight size={12} className="ctx-chevron" aria-hidden />}
             {r.kind === 'action' && r.variants && (
               <span className="ctx-variants">

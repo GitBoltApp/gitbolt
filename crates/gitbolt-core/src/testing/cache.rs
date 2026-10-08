@@ -90,15 +90,24 @@ fn key() -> &'static str {
     })
 }
 
-/// The complete entry for `name`, built first if missing.
+/// An entry is complete once its `state` file is in: a CI cache restore can bring back a folder
+/// without it, which is rebuilt rather than used.
+fn complete(entry: &Path) -> bool {
+    entry.join("state").is_file()
+}
+
+/// The complete entry for `name`, built first if missing or partial.
 fn entry(dir: &Path, name: &str, build: fn(&TestRepo)) -> PathBuf {
     let entry = dir.join(format!("{name}-{}", key()));
-    if entry.is_dir() {
+    if complete(&entry) {
         return entry;
     }
     let lock = std::fs::File::create(dir.join(format!("{name}.lock"))).expect("create the fixture cache lock");
     lock.lock().expect("lock the fixture cache");
-    if !entry.is_dir() {
+    if !complete(&entry) {
+        if entry.exists() {
+            std::fs::remove_dir_all(&entry).expect("remove a partial fixture cache entry");
+        }
         let tmp = tempfile::Builder::new().prefix(".build-").tempdir_in(dir).expect("fixture build dir");
         let root = tmp.path().join("root");
         let mut repo = TestRepo::init_at(&root);
@@ -192,6 +201,19 @@ fn rewrite(bytes: &[u8], rewrites: &[(Vec<u8>, Vec<u8>)]) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    /// A partial entry (a folder without its `state`, as a CI cache restore can leave) is rebuilt,
+    /// not read.
+    #[test]
+    fn a_partial_entry_is_rebuilt() {
+        let dir = tempfile::tempdir().unwrap();
+        let partial = dir.path().join(format!("partial-{}", super::key()));
+        std::fs::create_dir_all(partial.join("root")).unwrap();
+        let e = super::entry(dir.path(), "partial", |r| r.write("a.txt", "a\n"));
+        assert_eq!(e, partial);
+        assert!(super::complete(&e), "rebuilt with its state");
+        assert!(e.join("root/repo/a.txt").is_file(), "the fixture built anew");
+    }
+
     use super::*;
     use crate::testing::fixtures;
     use crate::testing::state::RepoState;

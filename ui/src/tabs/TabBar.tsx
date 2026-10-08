@@ -19,6 +19,7 @@ import { useTabUi, type TabBarEnv, type TabEnv, type TabTarget } from './tabMenu
 import { useTabDrag } from './useTabDrag';
 import { isWindowBlur, refocusWhenWindowReturns } from '../ui/windowBlur';
 import './tabs.css';
+import { displayChord } from '../ui/platformKeys';
 
 function RenameInput({ tab }: { tab: TabState }) {
   const stop = useTabUi((s) => s.stopRename);
@@ -94,7 +95,7 @@ export function TabBar() {
   return (
     <div className="tab-bar">
       <HamburgerMenu />
-      <HoverTooltip content="Open repository (Ctrl+O)">
+      <HoverTooltip content={`Open repository (${displayChord('Mod+O')})`}>
         <button type="button" className="tab-bar-btn" aria-label="Open repository" onClick={() => runAction('file.openRepo')}>
           <FolderPlus size={16} aria-hidden />
         </button>
@@ -150,7 +151,7 @@ export function TabBar() {
         })}
       </div>
       <NotificationsBell />
-      <HoverTooltip content="Settings (Ctrl+,)">
+      <HoverTooltip content={`Settings (${displayChord('Mod+,')})`}>
         <button type="button" className="tab-bar-btn" aria-label="Settings" onClick={() => runAction('file.settings')}>
           <Settings size={16} aria-hidden />
         </button>

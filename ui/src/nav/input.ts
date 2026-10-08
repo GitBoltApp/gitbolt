@@ -1,6 +1,7 @@
 import { runAction } from '../app/actions';
 import { registerKeys, type KeyHandler } from '../ui/keyRouter';
 import { isEditableTarget } from '../ui/keys';
+import { isMac } from '../ui/platformKeys';
 
 /** `MouseEvent.button` of the side buttons ("buttons 4/5" on the mouse). */
 export const BACK_BUTTON = 3;
@@ -21,12 +22,21 @@ export function navSuppressed(target: EventTarget | null): boolean {
 
 const go = (dir: 'back' | 'forward') => runAction(dir === 'back' ? 'nav.back' : 'nav.forward');
 
-/** Alt+← / Alt+→, in the key router's `app` layer: an open menu or modal claims keys first. */
+/** The direction a key press asks for: Alt+← / Alt+→, and on macOS also ⌘[ / ⌘] (Safari's, Finder's). */
+function navDirection(e: KeyboardEvent): 'back' | 'forward' | null {
+  if (e.shiftKey || e.ctrlKey) return null;
+  if (e.altKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return e.key === 'ArrowLeft' ? 'back' : 'forward';
+  if (e.metaKey && !e.altKey && isMac() && (e.code === 'BracketLeft' || e.code === 'BracketRight')) return e.code === 'BracketLeft' ? 'back' : 'forward';
+  return null;
+}
+
+/** Alt+← / Alt+→ (and ⌘[ / ⌘] on macOS), in the key router's `app` layer: an open menu or modal
+ * claims keys first. */
 export const navKeys: KeyHandler = (e) => {
-  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
-  if (navSuppressed(e.target)) return;
+  const dir = navDirection(e);
+  if (!dir || navSuppressed(e.target)) return;
   e.preventDefault();
-  go(e.key === 'ArrowLeft' ? 'back' : 'forward');
+  go(dir);
   return 'handled';
 };
 

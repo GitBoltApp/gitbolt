@@ -115,5 +115,5 @@ function Form({ req }: { req: Req }) {
 export const offCreateStackDialog = registerAppSlot('overlay', 'createStack', CreateStackDialog);
 
 registerKeyHints([
-  { id: 'key.stackCreate', section: 'Merge request', label: 'Create the stack of merge/pull requests', keys: ['Ctrl+Enter'], context: '(in the Create stack dialog)', source: 'forge/stack/CreateStackDialog.tsx' },
+  { id: 'key.stackCreate', section: 'Merge request', label: 'Create the stack of merge/pull requests', keys: ['Mod+Enter'], context: '(in the Create stack dialog)', source: 'forge/stack/CreateStackDialog.tsx' },
 ]);

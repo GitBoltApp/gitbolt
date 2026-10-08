@@ -23,6 +23,7 @@ import { CommitIdentityLine } from './CommitIdentity';
 import { clearWipDraft, draftKey, draftMessage, EMPTY_DRAFT, splitMessage, useWipDraft, type WipDraft } from './draft';
 import { useCommitBox } from './store';
 import { toastRebaseOutcome } from '../irebase/outcome';
+import { displayChord } from '../ui/platformKeys';
 
 const files = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;
 
@@ -398,7 +399,7 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
         )}
         <CommitIdentityLine repoId={ctx.repoId} worktree={worktree} />
       </div>
-      <HoverTooltip content={view.reason ?? `${view.label} (Ctrl+Enter)`}>
+      <HoverTooltip content={view.reason ?? `${view.label} (${displayChord('Mod+Enter')})`}>
         <button type="button" className="commit-button commit-positive" aria-disabled={blocked} aria-busy={committing} onClick={() => void submit()}>
           {committing && <Loader2 className="spin" size={13} aria-hidden />}
           {view.label}

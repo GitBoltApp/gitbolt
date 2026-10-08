@@ -24,7 +24,7 @@ const sidebarTab = () => {
 
 const offActions = registerActions([
   {
-    id: 'edit.filterSidebar', label: 'Filter sidebar', group: 'Edit', icon: ListFilter, tooltip: 'Focus the sidebar filter', shortcuts: ['Ctrl+Alt+F'],
+    id: 'edit.filterSidebar', label: 'Filter sidebar', group: 'Edit', icon: ListFilter, tooltip: 'Focus the sidebar filter', shortcuts: ['Mod+Alt+F'],
     when: () => !!sidebarTab(),
     run: () => {
       const t = activeTab()!;
@@ -34,7 +34,7 @@ const offActions = registerActions([
     },
   },
   {
-    id: 'view.toggleSidebar', label: 'Toggle sidebar', group: 'View', icon: PanelLeft, tooltip: 'Switch the sidebar between full and icon strip', shortcuts: ['Ctrl+B'],
+    id: 'view.toggleSidebar', label: 'Toggle sidebar', group: 'View', icon: PanelLeft, tooltip: 'Switch the sidebar between full and icon strip', shortcuts: ['Mod+B'],
     when: () => !!sidebarTab(),
     // Over a file view, it's the strip's (>): leave the view, expanded (UX R2.3).
     run: () => {

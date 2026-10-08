@@ -8,6 +8,7 @@ import { useRuntime, type TabRuntime } from './runtime';
 import { useAppState } from './state';
 import { tabStore } from './tabStores';
 import type { RepoViewStore } from '../repo/store';
+import { resolveChord } from '../ui/platformKeys';
 
 /**
  * The one registry of app actions: the hamburger menu (spec §6.1), the global shortcuts (§11.1,
@@ -25,8 +26,9 @@ export interface Action {
   section?: string;
   icon: LucideIcon;
   tooltip: string;
-  /** `comboOf` names, e.g. `Ctrl+Shift+T`. The first is the one menus show. When several
-   * usable actions share a combo, the first registered takes it. */
+  /** `comboOf` names, e.g. `Mod+Shift+T` (`Mod`: Cmd on macOS, Ctrl elsewhere; registering
+   * resolves it, `ui/platformKeys.ts`). The first is the one menus show. When several usable
+   * actions share a combo, the first registered takes it. */
   shortcuts?: string[];
   /** The file whose own key handler takes this action's keys (F7 in `diff/changeKeys.ts`, Alt+←
    * in `nav/input.ts`): its `shortcuts` are then display names, which the Ctrl dispatcher never
@@ -61,9 +63,13 @@ export function subscribeActions(fn: () => void): () => void {
   return () => { listeners.delete(fn); };
 }
 
+/** Registers `list`, resolving each `Mod` shortcut in place to the platform's modifier. */
 export function registerActions(list: Action[]): () => void {
   for (const a of list) if (registry.has(a.id)) throw new Error(`action ${a.id} is already registered`);
-  for (const a of list) registry.set(a.id, a);
+  for (const a of list) {
+    if (a.shortcuts) a.shortcuts = a.shortcuts.map(resolveChord);
+    registry.set(a.id, a);
+  }
   changed();
   return () => {
     for (const a of list) if (registry.get(a.id) === a) registry.delete(a.id);

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "mainBinaryName": "GitBolt",
+  "bundle": {
+    "targets": ["app"],
+    "resources": {
+      "dictionaries/en-US-10-1.bdic": "dictionaries/en-US-10-1.bdic"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-",
+      "infoPlist": "packaging/macos/Info.plist"
+    }
+  }
+}

@@ -15,7 +15,7 @@ import { openFind } from './findStore';
  */
 const offActions = registerActions([
   {
-    id: 'edit.find', label: 'Find in graph', group: 'Edit', icon: Search, tooltip: 'Find commits by message, SHA or path', shortcuts: ['Ctrl+F'],
+    id: 'edit.find', label: 'Find in graph', group: 'Edit', icon: Search, tooltip: 'Find commits by message, SHA or path', shortcuts: ['Mod+F'],
     // A repo tab showing a graph (an unborn repo's "No commits yet" has none to search).
     when: () => (activeStore()?.getState().graph.rows.length ?? 0) > 0,
     run: () => {

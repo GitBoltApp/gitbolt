@@ -196,4 +196,25 @@ mod tests {
         // The server hangs up: the abandoned read ends (the runtime waits for it at the end).
         hold.lock().unwrap().clear();
     }
+
+    /// A package GitBolt downloads itself carries no quarantine flag: macOS adds one only for
+    /// sandboxed apps, or those whose Info.plist asks (`LSFileQuarantineEnabled`), and GitBolt is
+    /// neither. So the `.dmg` update's GitBolt.app isn't translocated or re-checked by Gatekeeper.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_download_on_macos_carries_no_quarantine_flag() {
+        let s = TestServer::start(|_, _| Canned { status: 200, headers: vec![("Content-Type".into(), "application/x-apple-diskimage".into())], body: b"a fictional disk image".to_vec() });
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("GitBolt_0.3.0_aarch64.dmg.1.part");
+        let url = format!("{}/web/GitBoltApp/gitbolt/releases/download/v0.3.0/GitBolt_0.3.0_aarch64.dmg", s.base);
+        releases_at(&s).download(&url, &part, Arc::new(|_| {}), Arc::new(AtomicBool::new(false))).await.unwrap();
+        // As core keeps a verified download.
+        let dmg = dir.path().join("GitBolt_0.3.0_aarch64.dmg");
+        std::fs::rename(&part, &dmg).unwrap();
+        let out = std::process::Command::new("xattr").arg("-l").arg(&dmg).output().unwrap();
+        let attrs = String::from_utf8_lossy(&out.stdout);
+        println!("xattr -l of the download: {attrs:?}");
+        assert!(out.status.success());
+        assert!(!attrs.contains("com.apple.quarantine"), "{attrs}");
+    }
 }

@@ -468,7 +468,7 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let r = TestRepo::new();
         topic(&r);
-        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "main"]);
+        r.git(&["-c", "sequence.editor=sed -i.orig 1s/^pick/edit/", "rebase", "-q", "-i", "main"]);
         let api = api(data.path());
         let id = open(&api, &r).await;
         let head = r.git(&["rev-parse", "HEAD"]);

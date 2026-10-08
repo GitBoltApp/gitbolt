@@ -1,8 +1,8 @@
 # Release: `just release <version>` commits the version bump and tags it v<version>; pushing them
 # together (git push origin main v<version>, or GitBolt's Push with "Push tags with branches")
-# runs one build, on main: it builds the .deb and the Arch package on Linux and the two Windows
-# installers (NSIS and MSI, unsigned for now), checks them, and uploads them with SHA256SUMS to a
-# draft GitHub release for review. Building on main matters for speed: only
+# runs one build, on main: it builds the .deb and the Arch package on Linux, the two Windows
+# installers (NSIS and MSI, unsigned for now) and the macOS .dmg (Apple Silicon, ad-hoc signed),
+# checks them, and uploads them with SHA256SUMS to a draft GitHub release for review. Building on main matters for speed: only
 # main's runs save caches (a tag's run can restore main's but not another tag's), so each release
 # warms the next one, while GitHub keeps the caches (7 days unused).
 #
@@ -454,9 +454,142 @@ jobs:
           compression-level: 0
           overwrite: true
 
+  macos:
+    name: Build the macOS disk image
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: macos-15 # Apple Silicon: the aarch64 .dmg (no Intel build yet)
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      # Where cef-dll-sys downloads the CEF distribution, and where the Tauri CLI finds it (its
+      # own default on macOS).
+      CEF_PATH: /Users/runner/Library/Caches/tauri-cef
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      # The tag's version, or tauri.conf.json's for a dry run: package-version.sh checks that
+      # GITBOLT_RELEASE_VERSION is a release version equal to tauri.conf.json's. The CEF version
+      # keys its cache.
+      - name: Version
+        id: version
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          conf=$(jq -er .version crates/gitbolt-app/tauri.conf.json)
+          v=${TAG#v}
+          [ -n "$v" ] || v=$conf
+          cef=$(awk '$0 == "name = \"cef\"" { getline; print }' Cargo.lock | sed -n 's/^version = "[^+"]*+\([^"]*\)"$/\1/p')
+          [ -n "$cef" ] || { echo "::error::No CEF version in Cargo.lock's cef entry"; exit 1; }
+          { echo "version=$v"; echo "cef=$cef"; } >> "$GITHUB_OUTPUT"
+          echo "Version $v, CEF $cef"
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-macos
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # cmake and ninja: the cef-dll-sys wrapper.
+      - name: Build tools
+        run: |
+          command -v cmake || brew install cmake
+          command -v ninja || brew install ninja
+
+      # The Tauri CLI and cargo-about (the license notices), compiled once per version pair.
+      - name: Restore the cargo tools
+        id: cargo-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/bin/cargo-about
+          key: cargo-tools-tauri-${{ env.TAURI_CLI_VERSION }}-about-${{ env.CARGO_ABOUT_VERSION }}-macos-15-arm64
+      - name: Install the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install tauri-cli --version "=$TAURI_CLI_VERSION" --locked
+          cargo install cargo-about --version "=$CARGO_ABOUT_VERSION" --locked --features cli
+      - name: Save the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/bin/cargo-about
+          key: ${{ steps.cargo-tools.outputs.cache-primary-key }}
+
+      # Only the CEF archive, as in the build job (cef-dll-sys verifies and unpacks it).
+      - name: Restore the CEF archive
+        id: cef
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CEF_PATH }}/${{ steps.version.outputs.cef }}/cef_binary_*.tar.bz2
+          key: cef-${{ steps.version.outputs.cef }}-macosarm64
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: just
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      # `just package-macos`: the notices, the release GitBolt.app (ad-hoc signed, with the
+      # install-kind marker and the notices in Contents/Resources) and the .dmg, then their checks:
+      # the signature, inside the mounted image too, and the Applications link.
+      #
+      # Signing and notarization (none yet): a Developer ID identity would replace tauri.macos.conf.json's
+      # ad-hoc "-" (APPLE_SIGNING_IDENTITY and a keychain from secrets), then `xcrun notarytool`
+      # and `stapler` on the .dmg. See docs/releasing.md.
+      - name: Build the disk image
+        env:
+          GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: CARGO_BUILD_JOBS=$(sysctl -n hw.ncpu) just package-macos
+
+      - name: Save the CEF archive
+        if: steps.cef.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CEF_PATH }}/${{ steps.version.outputs.cef }}/cef_binary_*.tar.bz2
+          key: ${{ steps.cef.outputs.cache-primary-key }}
+
+      - name: Collect the disk image and its checksum
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dmg=target/release/bundle/dmg/GitBolt_${VERSION}_aarch64.dmg
+          [ -f "$dmg" ] || { echo "::error::Missing $dmg: $(ls target/release/bundle/dmg)"; exit 1; }
+          mkdir -p dist-macos
+          cp "$dmg" dist-macos/
+          # sha256sum's format, so the release job checks and merges it with the others.
+          (cd dist-macos && shasum -a 256 -- *.dmg > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitbolt-${{ steps.version.outputs.version }}-macos
+          path: dist-macos/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          overwrite: true
+
   release:
     name: Draft the GitHub release
-    needs: [plan, build, windows]
+    needs: [plan, build, windows, macos]
     if: needs.plan.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -473,14 +606,19 @@ jobs:
         with:
           name: gitbolt-${{ needs.build.outputs.version }}-windows
           path: dist-windows
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: gitbolt-${{ needs.build.outputs.version }}-macos
+          path: dist-macos
 
       # Each job's checksums, then one SHA256SUMS for all the packages.
       - name: Verify SHA256SUMS
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
           (cd dist-windows && sha256sum -c SHA256SUMS)
-          mv dist-windows/*.exe dist-windows/*.msi dist/
-          cat dist-windows/SHA256SUMS >> dist/SHA256SUMS
+          (cd dist-macos && sha256sum -c SHA256SUMS)
+          mv dist-windows/*.exe dist-windows/*.msi dist-macos/*.dmg dist/
+          cat dist-windows/SHA256SUMS dist-macos/SHA256SUMS >> dist/SHA256SUMS
           (cd dist && sha256sum -c SHA256SUMS && cat SHA256SUMS)
 
       # Artifact attestations need a public repository, or GitHub Enterprise Cloud for a private
@@ -495,6 +633,7 @@ jobs:
             dist/*.pkg.tar.zst
             dist/*.exe
             dist/*.msi
+            dist/*.dmg
 
       # Creates the draft, or on a re-run updates it and replaces its assets (--clobber). A
       # release that's already published is left alone: the run fails instead.
@@ -506,7 +645,7 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          assets=(dist/*.deb dist/*.pkg.tar.zst dist/*.exe dist/*.msi dist/SHA256SUMS)
+          assets=(dist/*.deb dist/*.pkg.tar.zst dist/*.exe dist/*.msi dist/*.dmg dist/SHA256SUMS)
           if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$draft" != true ]; then
               echo "::error::The release $TAG is already published; not replacing its assets."

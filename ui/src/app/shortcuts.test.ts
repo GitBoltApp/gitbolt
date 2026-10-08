@@ -1,5 +1,5 @@
 import { Undo2 } from 'lucide-react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { comboOf } from './shortcuts';
 
 const ev = (init: Partial<KeyboardEvent> & { key: string; code?: string }) => ({ ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, code: '', ...init }) as KeyboardEvent;
@@ -57,6 +57,52 @@ describe('shortcutKeys and yieldsTo (spec #2 §5.5)', () => {
     expect(key(input)).toBeUndefined();
     expect(run).not.toHaveBeenCalled();
     expect(key(document.body)).toBe('handled');
+    expect(run).toHaveBeenCalledTimes(1);
+    off();
+  });
+});
+
+describe('on macOS', () => {
+  const MAC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+  afterEach(() => vi.restoreAllMocks());
+  const onMac = () => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(MAC_UA);
+
+  it('comboOf names Cmd chords Cmd, and keeps Ctrl chords Ctrl', () => {
+    onMac();
+    expect(comboOf(ev({ key: 'n', code: 'KeyN', metaKey: true, shiftKey: true }))).toBe('Cmd+Shift+N');
+    expect(comboOf(ev({ key: 'ß', code: 'KeyS', metaKey: true, altKey: true }))).toBe('Cmd+Alt+S'); // Option changes the character
+    expect(comboOf(ev({ key: ',', code: 'Comma', metaKey: true }))).toBe('Cmd+,');
+    expect(comboOf(ev({ key: '1', code: 'Digit1', metaKey: true }))).toBe('Cmd+1');
+    expect(comboOf(ev({ key: 'Tab', code: 'Tab', ctrlKey: true }))).toBe('Ctrl+Tab');
+    expect(comboOf(ev({ key: 'F8', code: 'F8' }))).toBe('F8');
+    expect(comboOf(ev({ key: 'w', code: 'KeyW', ctrlKey: true, metaKey: true }))).toBe('');
+    expect(comboOf(ev({ key: 'Meta', code: 'MetaLeft', metaKey: true }))).toBe('');
+  });
+
+  it('a Mod shortcut is Cmd: Cmd+B runs it, Ctrl+B does not', async () => {
+    onMac();
+    const { registerActions } = await import('./actions');
+    const { shortcutKeys } = await import('./shortcuts');
+    const run = vi.fn();
+    const off = registerActions([{ id: 't.mod', label: 'Mod', group: 'View', icon: Undo2, tooltip: 'Mod', shortcuts: ['Mod+B'], run }]);
+    const press = (init: KeyboardEventInit) => shortcutKeys(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', ...init }));
+    expect(press({ ctrlKey: true })).toBeUndefined();
+    expect(run).not.toHaveBeenCalled();
+    expect(press({ metaKey: true })).toBe('handled');
+    expect(run).toHaveBeenCalledTimes(1);
+    off();
+  });
+});
+
+describe('a Mod shortcut on Linux', () => {
+  it('is Ctrl, stored as Ctrl', async () => {
+    const { registerActions, getAction } = await import('./actions');
+    const { shortcutKeys } = await import('./shortcuts');
+    const run = vi.fn();
+    const off = registerActions([{ id: 't.modLinux', label: 'Mod', group: 'View', icon: Undo2, tooltip: 'Mod', shortcuts: ['Mod+Shift+B'], run }]);
+    expect(getAction('t.modLinux')?.shortcuts).toEqual(['Ctrl+Shift+B']);
+    expect(shortcutKeys(new KeyboardEvent('keydown', { key: 'B', code: 'KeyB', metaKey: true, shiftKey: true }))).toBeUndefined();
+    expect(shortcutKeys(new KeyboardEvent('keydown', { key: 'B', code: 'KeyB', ctrlKey: true, shiftKey: true }))).toBe('handled');
     expect(run).toHaveBeenCalledTimes(1);
     off();
   });

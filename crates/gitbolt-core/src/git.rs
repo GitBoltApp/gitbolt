@@ -421,8 +421,10 @@ impl GitCli {
         let outcome = tokio::select! {
             biased;
             _ = async { match &cancel { Some(t) => t.cancelled().await, None => std::future::pending().await } } => Outcome::Cancelled,
-            r = child.wait() => Outcome::Done(r),
+            // Capped before Done: the reader closes stdout once it has enough, and git may die of
+            // SIGPIPE before this select runs (macOS, often); that exit is the cap's, not a failure.
             _ = async { if (&mut full_rx).await.is_err() { std::future::pending::<()>().await } } => Outcome::Capped,
+            r = child.wait() => Outcome::Done(r),
             _ = async { match inv.timeout { Some(d) => tokio::time::sleep(d).await, None => std::future::pending().await } } => Outcome::TimedOut(inv.timeout.unwrap_or_default()),
         };
         if !matches!(outcome, Outcome::Done(_)) {

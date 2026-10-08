@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { basename, dirname, examplePath, joinPath } from './osPath';
+import { describe, expect, it, vi } from 'vitest';
+import { basename, dirname, examplePath, joinPath, osKind } from './osPath';
 
 describe('osPath', () => {
   it('basename', () => {
@@ -28,5 +28,16 @@ describe('osPath', () => {
     expect(examplePath('repos', 'linux')).toBe('/home/you/repos');
     expect(examplePath('repos/project', 'windows')).toBe('C:\\Users\\you\\repos\\project');
     expect(examplePath('.gitconfig-work', 'windows')).toBe('C:\\Users\\you\\.gitconfig-work');
+    expect(examplePath('repos/project', 'macos')).toBe('/Users/you/repos/project');
+  });
+  it('osKind reads the user agent', () => {
+    const ua = vi.spyOn(navigator, 'userAgent', 'get');
+    ua.mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36');
+    expect(osKind()).toBe('macos');
+    ua.mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36');
+    expect(osKind()).toBe('windows');
+    ua.mockReturnValue('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36');
+    expect(osKind()).toBe('linux');
+    ua.mockRestore();
   });
 });

@@ -11,9 +11,9 @@
 #   LICENSE                       GitBolt's license
 #   DICTIONARY-en-US-LICENSE.txt  the spell-check dictionary's source and license (SCOWL), a copy
 #                                 of crates/gitbolt-app/dictionaries/en-US-LICENSE.txt
-# `just package` runs this before building, and scripts/package-windows.ps1 in Git for Windows'
-# bash (the Windows graph and CEF build, with Python as $PYTHON); docs/licensing.md describes the
-# whole flow.
+# `just package` runs this before building, scripts/package-windows.ps1 in Git for Windows'
+# bash (the Windows graph and CEF build, with Python as $PYTHON), and scripts/package-macos.sh on
+# macOS (this Mac's architecture); docs/licensing.md describes the whole flow.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
@@ -24,9 +24,17 @@ command -v cargo-about >/dev/null ||
 mkdir -p "$out"
 python=${PYTHON:-python3}
 # The graph and the CEF build of the platform the package is for: about.toml's targets (Linux),
-# or Windows' in Git for Windows' bash.
+# Windows' in Git for Windows' bash, or this Mac's. The Tauri CLI's CEF folder is
+# ~/Library/Caches/tauri-cef on macOS.
+cef_cache=${XDG_CACHE_HOME:-$HOME/.cache}/tauri-cef
 case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*) target=(--target x86_64-pc-windows-msvc) cef_platform=windows_x86_64 ;;
+  Darwin)
+    case "$(uname -m)" in
+      arm64) target=(--target aarch64-apple-darwin) cef_platform=macos_aarch64 ;;
+      *) target=(--target x86_64-apple-darwin) cef_platform=macos_x86_64 ;;
+    esac
+    cef_cache=$HOME/Library/Caches/tauri-cef ;;
   *) target=() cef_platform=linux_x86_64 ;;
 esac
 
@@ -39,7 +47,7 @@ rm "$out/about.json"
 # CEF and Chromium: the distribution `cargo tauri` builds against. It sets CEF_PATH to
 # $CEF_PATH or ~/.cache/tauri-cef, and cef-dll-sys unpacks CEF <version> into <that>/<version>/.
 ver=$("$python" "$here/notices.py" cef-version "$root/Cargo.lock")
-base=${CEF_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/tauri-cef}
+base=${CEF_PATH:-$cef_cache}
 cef_dir=$base/$ver/cef_$cef_platform
 [ -f "$base/CREDITS.html" ] && [ ! -d "$base/$ver" ] && cef_dir=$base # CEF_PATH = an unpacked distribution
 if [ ! -f "$cef_dir/CREDITS.html" ]; then

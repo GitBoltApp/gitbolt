@@ -21,9 +21,15 @@ export function joinPath(base: string, rel: string): string {
   return `${b}${sep}${sep === '\\' ? rel.replace(/\//g, '\\') : rel}`;
 }
 
-export type OsKind = 'windows' | 'linux';
-export const osKind = (): OsKind => (typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'linux');
+export type OsKind = 'windows' | 'macos' | 'linux';
+export function osKind(): OsKind {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  if (/Windows/i.test(ua)) return 'windows';
+  return /Macintosh|Mac OS X/i.test(ua) ? 'macos' : 'linux';
+}
 
-/** A placeholder path for the platform: `examplePath('repos')` is `/home/you/repos` or `C:\Users\you\repos`. */
-export const examplePath = (rel: string, os: OsKind = osKind()): string =>
-  os === 'windows' ? `C:\\Users\\you\\${rel.replace(/\//g, '\\')}` : `/home/you/${rel}`;
+/** A placeholder path for the platform: `examplePath('repos')` is `/home/you/repos`, `/Users/you/repos` or `C:\Users\you\repos`. */
+export function examplePath(rel: string, os: OsKind = osKind()): string {
+  if (os === 'windows') return `C:\\Users\\you\\${rel.replace(/\//g, '\\')}`;
+  return os === 'macos' ? `/Users/you/${rel}` : `/home/you/${rel}`;
+}

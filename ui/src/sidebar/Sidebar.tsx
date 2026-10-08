@@ -18,6 +18,7 @@ import { PanelDivider } from './PanelDivider';
 import { registerSidebarFilter } from './sidebarNav';
 import { SidebarPanel } from './SidebarPanel';
 import './sidebar.css';
+import { displayChord } from '../ui/platformKeys';
 
 const NO_WEIGHTS: Record<string, number> = {};
 export const DEFAULT_SIDEBAR_W = 240;
@@ -159,12 +160,12 @@ export function Sidebar() {
   return (
     <aside ref={asideRef} className="sidebar" style={{ width }} aria-label="Sidebar" {...zone}>
       <div className="sb-filter">
-        <HoverTooltip content="Collapse sidebar (Ctrl+B)">
+        <HoverTooltip content={`Collapse sidebar (${displayChord('Mod+B')})`}>
           <button type="button" className="sb-collapse" aria-label="Collapse sidebar" onClick={() => updateProfile((p) => ({ ...p, sidebarNarrow: true }))}><ChevronLeft size={14} /></button>
         </HoverTooltip>
         <input
           ref={filterRef}
-          placeholder="Filter (Ctrl+Alt+F)"
+          placeholder={`Filter (${displayChord('Mod+Alt+F')})`}
           aria-label="Filter branches"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}

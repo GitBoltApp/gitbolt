@@ -9,6 +9,7 @@ import { useOpenUi } from '../open/openUi';
 import { flushSaves, useAppState } from './state';
 import { guardTabClose } from '../diff/workingCopy';
 import { activateTab, closeTab, cycleTab, openBlankTab, reopenClosed } from './tabs';
+import { isMac } from '../ui/platformKeys';
 
 /**
  * The shell's own actions: tabs (spec §6.2) and the current repo. Features register theirs in
@@ -44,7 +45,7 @@ export function openRepoFolder(repoId: number, worktree: string): void {
 
 const off = registerActions([
   {
-    id: 'file.openRepo', label: 'Open repository…', group: 'File', icon: FolderPlus, tooltip: 'Open the Open Repository screen in a new tab', shortcuts: ['Ctrl+O'],
+    id: 'file.openRepo', label: 'Open repository…', group: 'File', icon: FolderPlus, tooltip: 'Open the Open Repository screen in a new tab', shortcuts: ['Mod+O'],
     run: () => update((p) => openBlankTab(p).profile),
   },
   {
@@ -59,12 +60,12 @@ const off = registerActions([
   // file is open"): with a file open it closes that file, else the tab — one or the other per
   // press, never both. Registered first, so it takes the chord while a file is open.
   {
-    id: 'file.closeFile', label: 'Close file', group: 'File', icon: FileX, tooltip: 'Close the open file and go back to the graph', shortcuts: ['Ctrl+W'],
+    id: 'file.closeFile', label: 'Close file', group: 'File', icon: FileX, tooltip: 'Close the open file and go back to the graph', shortcuts: ['Mod+W'],
     when: () => activeStore()?.getState().diff != null,
     run: () => activeStore()?.getState().closeDiff(),
   },
   {
-    id: 'file.closeTab', label: 'Close tab', group: 'File', icon: X, tooltip: 'Close the current tab', shortcuts: ['Ctrl+W'],
+    id: 'file.closeTab', label: 'Close tab', group: 'File', icon: X, tooltip: 'Close the current tab', shortcuts: ['Mod+W'],
     when: () => !!activeTab(),
     run: () => {
       const t = activeTab();
@@ -72,7 +73,7 @@ const off = registerActions([
     },
   },
   {
-    id: 'file.reopenTab', label: 'Reopen closed tab', group: 'File', icon: RotateCcw, tooltip: 'Reopen the most recently closed tab', shortcuts: ['Ctrl+Shift+T'],
+    id: 'file.reopenTab', label: 'Reopen closed tab', group: 'File', icon: RotateCcw, tooltip: 'Reopen the most recently closed tab', shortcuts: ['Mod+Shift+T'],
     when: () => useAppState.getState().profile.closedTabs.length > 0,
     run: reopenLastClosed,
   },
@@ -88,23 +89,23 @@ const off = registerActions([
     },
   },
   {
-    id: 'view.nextTab', label: 'Next tab', group: 'View', icon: ArrowRightToLine, tooltip: 'Switch to the next tab', shortcuts: ['Ctrl+Tab', 'Ctrl+PageDown'],
+    id: 'view.nextTab', label: 'Next tab', group: 'View', icon: ArrowRightToLine, tooltip: 'Switch to the next tab', shortcuts: ['Ctrl+Tab', 'Ctrl+PageDown', ...(isMac() ? ['Cmd+Shift+]'] : [])],
     when: () => tabCount() > 1,
     run: () => update((p) => cycleTab(p, 1)),
   },
   {
-    id: 'view.prevTab', label: 'Previous tab', group: 'View', icon: ArrowLeftToLine, tooltip: 'Switch to the previous tab', shortcuts: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
+    id: 'view.prevTab', label: 'Previous tab', group: 'View', icon: ArrowLeftToLine, tooltip: 'Switch to the previous tab', shortcuts: ['Ctrl+Shift+Tab', 'Ctrl+PageUp', ...(isMac() ? ['Cmd+Shift+['] : [])],
     when: () => tabCount() > 1,
     run: () => update((p) => cycleTab(p, -1)),
   },
-  // Ctrl+1…8 go to that tab, Ctrl+9 to the last one, as in browsers. Not in the hamburger.
+  // Ctrl+1…8 (⌘1…8 on macOS) go to that tab, Ctrl+9 to the last one, as in browsers. Not in the hamburger.
   ...Array.from({ length: 8 }, (_, i): Action => ({
-    id: `view.tab${i + 1}`, label: `Go to tab ${i + 1}`, group: 'View', icon: ArrowRightToLine, tooltip: `Switch to tab ${i + 1}`, shortcuts: [`Ctrl+${i + 1}`], menu: false,
+    id: `view.tab${i + 1}`, label: `Go to tab ${i + 1}`, group: 'View', icon: ArrowRightToLine, tooltip: `Switch to tab ${i + 1}`, shortcuts: [`Mod+${i + 1}`], menu: false,
     when: () => tabCount() > i,
     run: () => update((p) => (p.tabs[i] ? activateTab(p, p.tabs[i].id) : p)),
   })),
   {
-    id: 'view.lastTab', label: 'Go to the last tab', group: 'View', icon: ArrowRightToLine, tooltip: 'Switch to the last tab', shortcuts: ['Ctrl+9'], menu: false,
+    id: 'view.lastTab', label: 'Go to the last tab', group: 'View', icon: ArrowRightToLine, tooltip: 'Switch to the last tab', shortcuts: ['Mod+9'], menu: false,
     when: () => tabCount() > 1,
     run: () => update((p) => (p.tabs.length ? activateTab(p, p.tabs[p.tabs.length - 1].id) : p)),
   },

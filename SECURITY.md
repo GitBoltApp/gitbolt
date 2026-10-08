@@ -31,6 +31,11 @@ current code; each point names where to look.
   (`scripts/package-windows.ps1` checks the versions match). A release build without the broker
   refuses to start. A debug build stays on `Auto`: a plain `gitbolt.exe`, as `cargo build` makes
   it, runs unsandboxed and logs a warning.
+- On macOS, the helper apps in `GitBolt.app/Contents/Frameworks` enter Chromium's Seatbelt
+  sandbox through the framework's `libcef_sandbox.dylib` before they load the framework itself.
+  This works with the bundle ad-hoc signed (no Apple identity). GitBolt only runs from its
+  bundle there, which always ships the library: a helper without it fails to start rather than
+  run unsandboxed.
 - The `.deb` and Arch packages ship Chromium's `chrome-sandbox` helper owned by root with the
   setuid bit (mode 4755). The packaging checks fail the build otherwise (`scripts/check-deb.sh`,
   `scripts/package-arch.sh`). For development builds, see [docs/dev-setup.md](docs/dev-setup.md).
@@ -169,7 +174,7 @@ GitBolt can download and install its own updates from GitHub Releases
   token. A package is fetched only from `github.com/GitBoltApp/gitbolt/releases/download/`, and
   a redirect is followed only to GitHub's asset storage (`objects.githubusercontent.com`,
   `release-assets.githubusercontent.com`), over https, through the same HTTP client (TLS, proxy,
-  timeouts) as the forge API. The download goes to `~/.cache/gitbolt/updates/` (0700; `%LOCALAPPDATA%\gitbolt\updates` on Windows).
+  timeouts) as the forge API. The download goes to `~/.cache/gitbolt/updates/` (0700; `%LOCALAPPDATA%\gitbolt\updates` on Windows, `~/Library/Caches/GitBolt/updates` on macOS).
 - **What `SHA256SUMS` proves.** It catches a corrupted or swapped download, but it comes from the
   same release, so it only proves the file is the one published there. **The packages aren't
   code-signed yet.** For a stronger check, GitHub's build provenance attestations tie each
@@ -183,10 +188,16 @@ GitBolt can download and install its own updates from GitHub Releases
   `pkexec pacman -U --noconfirm <package>` as an argument list (no shell), so your desktop's
   polkit prompt asks for the password; GitBolt never sees it and never uses `sudo` itself. If
   `pkexec` is missing or you cancel, it shows the `sudo` command to run yourself. On Windows it
-  starts the installer (the NSIS setup, or `msiexec /i` for the MSI) and quits.
+  starts the installer (the NSIS setup, or `msiexec /i` for the MSI) and quits. On macOS it runs a
+  fixed script as you (`/bin/sh -c`, the two paths as arguments, never spliced into it): it mounts
+  the `.dmg` read-only and unbrowsed, copies its GitBolt.app with `ditto` beside the running one
+  and swaps them by rename, never asking for an administrator password; where the app's folder
+  isn't writable it shows the manual steps instead. GitBolt's downloads carry no quarantine flag
+  (it isn't App Sandboxed and doesn't set `LSFileQuarantineEnabled`), so Gatekeeper doesn't check
+  the copy again: `SHA256SUMS` is the check, as on the other platforms.
 - **Which package.** Each package names how it was installed in an `install-kind` file beside the
-  binary (`deb`, `arch`, `nsis` or `msi`); a build from source has none and is only offered the
-  release page.
+  binary (`deb`, `arch`, `nsis` or `msi`), or in the bundle's `Contents/Resources` (`dmg`); a build
+  from source has none and is only offered the release page.
 
 ### Test-only code
 

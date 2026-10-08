@@ -36,8 +36,8 @@ import.meta.hot?.dispose(() => { for (const off of offs) off(); });
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
   { id: 'key.rb.action', section: 'Rebase editor', label: 'Pick / Reword / Squash / Fixup / Drop / Edit', keys: ['P', 'R', 'S', 'F', 'D', 'E'], context: '(when a row is selected)', source: 'irebase/RebaseEditor.tsx' },
-  { id: 'key.rb.move', section: 'Rebase editor', label: 'Move row', keys: ['Ctrl+Up', 'Ctrl+Down'], source: 'irebase/RebaseEditor.tsx' },
+  { id: 'key.rb.move', section: 'Rebase editor', label: 'Move row', keys: ['Mod+Up', 'Mod+Down'], source: 'irebase/RebaseEditor.tsx' },
   { id: 'key.rb.msg', section: 'Rebase editor', label: 'Edit message', keys: ['Enter'], context: '(when a row is selected)', source: 'irebase/RebaseEditor.tsx' },
-  { id: 'key.rb.save', section: 'Rebase editor', label: 'Save the plan', keys: ['Ctrl+Enter'], source: 'irebase/RebaseEditor.tsx' },
+  { id: 'key.rb.save', section: 'Rebase editor', label: 'Save the plan', keys: ['Mod+Enter'], source: 'irebase/RebaseEditor.tsx' },
   { id: 'key.rb.cancel', section: 'Rebase editor', label: 'Cancel', keys: ['Esc'], source: 'irebase/RebaseEditor.tsx' },
 ]);

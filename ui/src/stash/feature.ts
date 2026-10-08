@@ -39,14 +39,14 @@ const popView = ({ tabId }: RepoCtx): ButtonView => {
 const offs = [
   registerActions([
     {
-      id: 'stash.push', label: 'Stash', group: 'Repository', icon: StashIcon, tooltip: 'Stash every change, named from the WIP message', shortcuts: ['Ctrl+Alt+S'],
+      id: 'stash.push', label: 'Stash', group: 'Repository', icon: StashIcon, tooltip: 'Stash every change, named from the WIP message', shortcuts: ['Mod+Alt+S'],
       // Ctrl+Alt is AltGr on Windows: typed text never runs it.
       yieldsTo: isTypingTarget,
       when: () => dirty(activeRuntime()),
       run: () => { const c = writeCtx(); if (c) void stashPushFor(c); },
     },
     {
-      id: 'stash.pop', label: 'Pop', group: 'Repository', icon: ArchiveRestore, tooltip: 'Apply the newest stash and delete it', shortcuts: ['Ctrl+Alt+P'],
+      id: 'stash.pop', label: 'Pop', group: 'Repository', icon: ArchiveRestore, tooltip: 'Apply the newest stash and delete it', shortcuts: ['Mod+Alt+P'],
       yieldsTo: isTypingTarget,
       when: () => !!newest(activeRuntime()),
       // The oid is read at the click, so a Pop that waits in the queue acts on the stash clicked.

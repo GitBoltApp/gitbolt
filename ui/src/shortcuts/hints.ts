@@ -1,3 +1,5 @@
+import { resolveChord } from '../ui/platformKeys';
+
 /**
  * Metadata for keys that are NOT app actions (`registerActions` shortcuts carry their own label and
  * group): the Esc handlers, F7, zoom, the rebase editor's letters, the message fields. Each key
@@ -9,7 +11,8 @@ export interface KeyHint {
   /** The panel section heading. */
   section: string;
   label: string;
-  /** Display chords, e.g. 'Shift+F7'; one keycap group each. */
+  /** Display chords, e.g. 'Shift+F7' or 'Mod+S' (resolved when registered, as actions' are); one
+   * keycap group each. */
   keys: string[];
   /** "(when in message input)"-style note for keys that only work in a context. */
   context?: string;
@@ -20,7 +23,10 @@ export interface KeyHint {
 const hints = new Map<string, KeyHint>();
 
 export function registerKeyHints(list: KeyHint[]): () => void {
-  for (const h of list) hints.set(h.id, h);
+  for (const h of list) {
+    h.keys = h.keys.map(resolveChord);
+    hints.set(h.id, h);
+  }
   return () => { for (const h of list) if (hints.get(h.id) === h) hints.delete(h.id); };
 }
 

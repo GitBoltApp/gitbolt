@@ -69,6 +69,11 @@ export default function Licenses() {
             Chromium&apos;s own credits are installed with GitBolt, gzipped (extract them to open in a browser), in its install folder:
             <code>licenses\CHROMIUM-CREDITS.html.gz</code>
           </p>
+        ) : osKind() === 'macos' ? (
+          <p className="licenses-note">
+            Chromium&apos;s own credits are inside the app, gzipped (view them with `zcat` or extract them to open in a browser):
+            <code>GitBolt.app/Contents/Resources/licenses/CHROMIUM-CREDITS.html.gz</code>
+          </p>
         ) : (
           <p className="licenses-note">
             Chromium&apos;s own credits are installed with the package, gzipped (view them with `zcat` or extract them to open in a browser):

@@ -404,5 +404,5 @@ export function CreateMrFlyout({ tabId, props: { branch }, close: closeFrame }: 
 }
 
 registerKeyHints([
-  { id: 'key.mrCreate', section: 'Merge request', label: 'Create the merge/pull request', keys: ['Ctrl+Enter'], context: '(when writing the title or description)', source: 'forge/create/CreateMrFlyout.tsx' },
+  { id: 'key.mrCreate', section: 'Merge request', label: 'Create the merge/pull request', keys: ['Mod+Enter'], context: '(when writing the title or description)', source: 'forge/create/CreateMrFlyout.tsx' },
 ]);

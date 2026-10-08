@@ -2,7 +2,8 @@
 
 A release is a tag. `just release <version>` prepares the release commit and tag locally;
 pushing them starts [.github/workflows/release.yml](../.github/workflows/release.yml), which
-builds the `.deb`, the Arch package and the two Windows installers, checks them, and uploads
+builds the `.deb`, the Arch package, the two Windows installers and the macOS `.dmg`, checks
+them, and uploads
 them to a **draft** GitHub release. You review the draft and publish it. Nothing is published
 automatically.
 
@@ -50,7 +51,7 @@ automatically.
 
 4. **Review the draft** under Releases. It's titled "GitBolt 0.1.0-alpha.1" and has the
    changelog section as its notes, plus the `.deb`, the `.pkg.tar.zst`, the Windows
-   `-setup.exe` and `.msi`, and `SHA256SUMS`. A
+   `-setup.exe` and `.msi`, the macOS `.dmg`, and `SHA256SUMS`. A
    version with a pre-release part (`-alpha.1`, `-rc.2`) is marked pre-release. Edit the notes
    if needed, and install the packages from the draft to try them.
 
@@ -69,6 +70,7 @@ package `SHA256SUMS` doesn't list is never installed.
 | Arch | `GitBolt-<pkgver>-1-x86_64.pkg.tar.zst` (`<pkgver>`: the version without the pre-release's `-`) |
 | Windows (NSIS) | `GitBolt_<version>_x64-setup.exe` |
 | Windows (MSI) | `GitBolt_<version>_x64.msi` |
+| macOS | `GitBolt_<version>_aarch64.dmg` (Apple Silicon; an Intel Mac takes `GitBolt_<version>_x64.dmg`, which no release has yet) |
 | all | `SHA256SUMS` (`sha256sum` output listing each package) |
 
 The tag stays `v<version>`, and the release's body (the CHANGELOG section) is what the update
@@ -84,11 +86,17 @@ can't know):
   `scripts/package-arch.sh` rewrites it to `arch`;
 - the NSIS installer writes `install-kind` = `nsis` beside `GitBolt.exe`, and the MSI installs
   `packaging/windows/install-kind-msi` (`msi`) there; `scripts/package-windows.ps1` checks the
-  MSI has it.
+  MSI has it;
+- the `.dmg`'s GitBolt.app has `Contents/Resources/install-kind` = `dmg` (the bundle's place for
+  its files: `crates/gitbolt-app/packaging/install-kind-dmg`, through
+  `packaging/macos/dmg.conf.json`, which only `just package-macos` passes, so a plain
+  `cargo tauri build` bundle counts as a build from source); `scripts/package-macos.sh` checks it.
+  An update mounts the new `.dmg` and copies its `GitBolt.app` over the running bundle, so the
+  image must keep holding `GitBolt.app` at its top level.
 
-No file: a build from source, which is only offered the release page. `just package` and
-`just package-windows` also bake the stamped version in (`GITBOLT_BUILD_VERSION`), which the
-status bar and the update check use.
+No file: a build from source, which is only offered the release page. `just package`,
+`just package-windows` and `just package-macos` also bake the stamped version in
+(`GITBOLT_BUILD_VERSION`), which the status bar and the update check use.
 
 ## Versions
 
@@ -132,7 +140,7 @@ the workflow does; it must equal `tauri.conf.json`'s version.
 
 ## What the workflow does
 
-After Plan (see [Which run builds](#which-run-builds)), the Linux build and the Windows build run
+After Plan (see [Which run builds](#which-run-builds)), the Linux, Windows and macOS builds run
 side by side, then the release job:
 
 1. **Build** (read-only access to the repository):
@@ -153,7 +161,12 @@ side by side, then the release job:
    and Visual Studio's Ninja; runs `just package-windows` with `GITBOLT_RELEASE_VERSION` set (see
    [Windows installers](#windows-installers)), and keeps both installers and their checksums as
    a workflow artifact.
-3. **Release** (`contents: write`): verifies both jobs' checksums and merges them into one
+3. **macOS** (`macos-15`, Apple Silicon, read-only): stable Rust, Node 22, `just`, CMake and
+   Ninja, `tauri-cli` and cargo-about; runs `just package-macos` with `GITBOLT_RELEASE_VERSION`
+   set (see [macOS disk image](#macos-disk-image)), and keeps the `.dmg` and its checksum as a
+   workflow artifact. Its caches (cargo, the two cargo tools, the CEF archive) are saved from main
+   only, as the others are.
+4. **Release** (`contents: write`): verifies the three jobs' checksums and merges them into one
    `SHA256SUMS`, adds build provenance attestations for every package (see below), and creates
    the draft release, or updates it on a re-run.
 
@@ -220,6 +233,39 @@ sha256 /f <certificate>`). With it set, `package-windows.ps1` signs, in order:
 In the workflow, set it in the "Build the installers" step of the Windows job, from a secret (the
 step's comment marks the place).
 
+## macOS disk image
+
+`just package-macos` (on a Mac; `scripts/package-macos.sh`) builds the release `GitBolt.app` and
+`target/release/bundle/dmg/GitBolt_<version>_aarch64.dmg` with the Tauri CLI's own bundlers: the
+`.dmg` holds `GitBolt.app` and a link to `/Applications`. The app is CEF's layout (the framework
+and the helper apps in `Contents/Frameworks`; docs/dev-setup.md), with the spell-check
+dictionary, the `install-kind` marker and the license notices in `Contents/Resources`, and an
+`Info.plist` that declares folders as a document type (Open With). The script then checks the
+signature (`codesign --verify --deep --strict`), the marker, the notices and the document type,
+in the bundle and again in the mounted image.
+
+**Signing.** The app is **ad-hoc signed** (`signingIdentity: "-"` in `tauri.macos.conf.json`),
+inside out by the bundler, with the hardened runtime and CEF's entitlements; the `.dmg` itself
+isn't signed. Gatekeeper rejects it (`spctl --assess` says "rejected"), so a downloaded copy
+needs `xattr -dr com.apple.quarantine /Applications/GitBolt.app` or **Open Anyway** once
+(README.md). An update downloaded by GitBolt itself carries no quarantine flag, so it needs
+neither. The hook for real signing: a Developer ID Application identity in place of `"-"`
+(the Tauri CLI reads `APPLE_SIGNING_IDENTITY` and a certificate from `APPLE_CERTIFICATE` /
+`APPLE_CERTIFICATE_PASSWORD`), then notarization (`xcrun notarytool submit --wait` and
+`xcrun stapler staple` on the `.dmg`; the CLI does both given `APPLE_ID`, `APPLE_PASSWORD` and
+`APPLE_TEAM_ID`). Set them in the macOS job's "Build the disk image" step from secrets (its
+comment marks the place). That needs an Apple Developer Program membership.
+
+**Versions.** `CFBundleShortVersionString` and `CFBundleVersion` are the package version as is
+(`0.4.0-rc.1`, or a local build's stamp): macOS shows it in Finder and nothing compares it, since
+the updater uses GitBolt's own version.
+
+**Intel Macs.** Not built yet: the release has only the `aarch64` `.dmg`. An Intel build would
+be a second, separate `GitBolt_<version>_x64.dmg` (the updater already picks its own
+architecture's), cross-compiled on the same runner with CEF's x64 distribution. A universal app
+would need both CEF distributions, two builds, and `lipo` on the app, every helper and the
+framework's libraries, doubling the download for everyone.
+
 ## Dry run
 
 Actions → Release → **Run workflow**, on main, with the tag left empty. It builds and checks the
@@ -267,8 +313,9 @@ runner; public ones get 4 vCPUs, roughly halving the compile steps):
 | Release job | 1 min | 1 min |
 | **Total** | **about 50–75 min** | **about 20–30 min** |
 
-The job's timeout is 120 minutes. The Windows job runs at the same time and takes about as long
-(its Rust build is the longest step); on a private repository its minutes count double.
+The job's timeout is 120 minutes. The Windows and macOS jobs run at the same time and take about
+as long (their Rust builds are the longest steps); on a private repository Windows minutes count
+double and macOS minutes ten times.
 
 The repository is private, so the runs count against the account's included Actions minutes
 (Linux runners at a 1× rate: 2,000 minutes a month on GitHub Free, 3,000 on Team). A release is

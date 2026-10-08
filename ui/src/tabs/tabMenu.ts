@@ -14,6 +14,7 @@ import { ICONS } from '../menu/icons';
 import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
 import { useToast } from '../ui/toastStore';
+import { resolveChord } from '../ui/platformKeys';
 
 /** Which tab's rename input shows (`TabBar`'s double-click / the tab menu's Rename). */
 export const useTabUi = create<{ renaming: string | null; startRename(id: string): void; stopRename(): void }>((set) => ({
@@ -44,7 +45,7 @@ registerMenu<TabTarget, TabEnv>({
 registerMenu<TabTarget, TabEnv>({
   id: 'tab.close', kind: 'tab', group: 'close', order: 0,
   rows: ({ tab, index }, env) => [
-    row('tab.close', 'Close', ICONS.close, 'Close this tab', () => guardTabClose([tab.id], () => update((p) => closeTab(p, tab.id))), { shortcut: 'Ctrl+W' }),
+    row('tab.close', 'Close', ICONS.close, 'Close this tab', () => guardTabClose([tab.id], () => update((p) => closeTab(p, tab.id))), { shortcut: resolveChord('Mod+W') }),
     row('tab.closeOthers', 'Close others', ICONS.closeOthers, 'Close every other tab', () => guardTabClose(tabIds().filter((id) => id !== tab.id), () => update((p) => closeOthers(p, tab.id))), env.tabCount > 1 ? {} : { disabledReason: 'This is the only tab' }),
     row('tab.closeRight', 'Close to the right', ICONS.closeRight, 'Close the tabs to the right of this one', () => guardTabClose(tabIds().slice(index + 1), () => update((p) => closeToRight(p, tab.id))), index < env.tabCount - 1 ? {} : { disabledReason: 'No tabs to the right' }),
   ],
@@ -56,7 +57,7 @@ registerMenu<TabTarget, TabEnv>({
   // Reopen and Ctrl+Shift+T are the one function.
   rows: (_t, env) => [row(
     'tab.reopen', 'Reopen closed tab', ICONS.reopen, 'Reopen the most recently closed tab', reopenLastClosed,
-    env.closedCount > 0 ? { shortcut: 'Ctrl+Shift+T' } : { shortcut: 'Ctrl+Shift+T', disabledReason: 'No recently closed tabs' },
+    env.closedCount > 0 ? { shortcut: resolveChord('Mod+Shift+T') } : { shortcut: resolveChord('Mod+Shift+T'), disabledReason: 'No recently closed tabs' },
   )],
 });
 
@@ -89,14 +90,14 @@ registerMenu<null, TabBarEnv>({
   rows: (_t, { lastClosed }) => [row(
     'tabbar.reopen', lastClosed ? `Reopen ${lastClosed.alias ?? basename(lastClosed.path)}` : 'Reopen closed tab', ICONS.reopen,
     'Reopen the most recently closed tab', reopenLastClosed,
-    lastClosed ? { shortcut: 'Ctrl+Shift+T' } : { shortcut: 'Ctrl+Shift+T', disabledReason: 'No recently closed tabs' },
+    lastClosed ? { shortcut: resolveChord('Mod+Shift+T') } : { shortcut: resolveChord('Mod+Shift+T'), disabledReason: 'No recently closed tabs' },
   )],
 });
 
 registerMenu<null, TabBarEnv>({
   id: 'tabbar.open', kind: 'tabbar', group: 'open', order: 0,
   rows: () => [
-    row('tabbar.openRepo', 'Open repository…', ICONS.openRepo, 'Open the Open Repository screen in a new tab', () => runAction('file.openRepo'), { shortcut: 'Ctrl+O' }),
+    row('tabbar.openRepo', 'Open repository…', ICONS.openRepo, 'Open the Open Repository screen in a new tab', () => runAction('file.openRepo'), { shortcut: resolveChord('Mod+O') }),
     row('tabbar.clone', 'Clone repository…', ICONS.clone, 'Clone a repository into a new tab', () => runAction('file.clone')),
   ],
 });

@@ -19,7 +19,7 @@ const offs = [
   ...offBranchMenus,
   offUpstreamPicker,
   registerActions([{
-    id: 'branch.create', label: 'Branch', group: 'Repository', icon: GitBranchPlus, tooltip: 'Create a branch at HEAD', shortcuts: ['Ctrl+Shift+N'],
+    id: 'branch.create', label: 'Branch', group: 'Repository', icon: GitBranchPlus, tooltip: 'Create a branch at HEAD', shortcuts: ['Mod+Shift+N'],
     when: () => !!writeCtx() && !!activeRuntime()?.graph?.head.target,
     run: () => {
       const ctx = writeCtx();

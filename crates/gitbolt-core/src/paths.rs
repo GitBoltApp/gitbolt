@@ -7,18 +7,25 @@
 use crate::platform::fs as pfs;
 use std::path::{Path, PathBuf};
 
+/// The app's folder name in each base folder: `GitBolt` on macOS (its `~/Library/Application
+/// Support` and `~/Library/Caches` hold apps by their names), `gitbolt` elsewhere.
+#[cfg(target_os = "macos")]
+pub const APP_DIR: &str = "GitBolt";
+#[cfg(not(target_os = "macos"))]
+pub const APP_DIR: &str = "gitbolt";
+
 pub fn home_dir() -> Option<PathBuf> {
     dirs::home_dir().filter(|p| p.is_absolute())
 }
 
-/// `~/.config/gitbolt` (`%APPDATA%\gitbolt`)
+/// `~/.config/gitbolt` (`%APPDATA%\gitbolt`, `~/Library/Application Support/GitBolt`)
 pub fn config_dir() -> PathBuf {
-    base_in(dev_dirs(), "config", dirs::config_dir).unwrap_or_else(std::env::temp_dir).join("gitbolt")
+    base_in(dev_dirs(), "config", dirs::config_dir).unwrap_or_else(std::env::temp_dir).join(APP_DIR)
 }
 
-/// `~/.cache/gitbolt` (`%LOCALAPPDATA%\gitbolt`)
+/// `~/.cache/gitbolt` (`%LOCALAPPDATA%\gitbolt`, `~/Library/Caches/GitBolt`)
 pub fn cache_dir() -> PathBuf {
-    cache_base().unwrap_or_else(std::env::temp_dir).join("gitbolt")
+    cache_base().unwrap_or_else(std::env::temp_dir).join(APP_DIR)
 }
 
 /// The user's cache folder (`~/.cache`, `%LOCALAPPDATA%`), if there's one.
@@ -29,7 +36,7 @@ pub fn cache_base() -> Option<PathBuf> {
 /// `~/.local/share/gitbolt` (`%LOCALAPPDATA%\gitbolt`; spec #2 §5.1): the undo journal and temp
 /// index files. Only `gitbolt-app` points the `Api` here; the harness and tests use a temp dir.
 pub fn data_dir() -> PathBuf {
-    base_in(dev_dirs(), "data", dirs::data_local_dir).unwrap_or_else(std::env::temp_dir).join("gitbolt")
+    base_in(dev_dirs(), "data", dirs::data_local_dir).unwrap_or_else(std::env::temp_dir).join(APP_DIR)
 }
 
 /// Debug builds only: `GITBOLT_DEV_DIRS=<absolute dir>` puts the config, cache and data folders
@@ -106,9 +113,19 @@ mod tests {
     fn locations_are_absolute_and_namespaced() {
         for dir in [super::config_dir(), super::cache_dir(), super::data_dir()] {
             assert!(dir.is_absolute(), "{}", dir.display());
-            assert!(dir.ends_with("gitbolt"), "{}", dir.display());
+            assert!(dir.ends_with(super::APP_DIR), "{}", dir.display());
         }
         assert!(super::runtime_dir().unwrap().is_absolute());
+    }
+
+    /// The longest socket name bound in the runtime dir (the instance's) still fits a Unix
+    /// socket address: 104 bytes with its NUL on macOS, whose runtime dir is in its long
+    /// per-user `$TMPDIR` (`/var/folders/…/T/gitbolt-<uid>`).
+    #[cfg(unix)]
+    #[test]
+    fn the_runtime_dir_leaves_room_for_the_sockets() {
+        let longest = super::runtime_dir().unwrap().join(format!("gitbolt-instance-{:016x}.sock", u64::MAX));
+        assert!(longest.as_os_str().len() < 104, "{}", longest.display());
     }
 
     #[test]

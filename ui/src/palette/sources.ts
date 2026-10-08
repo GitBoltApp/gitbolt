@@ -9,11 +9,12 @@ import { checkoutLocal, checkoutRemote } from '../branches/checkout';
 import { openFileHistory } from '../history/open';
 import { useToast } from '../ui/toastStore';
 import type { PaletteEntry } from './search';
+import { displayChord } from '../ui/platformKeys';
 
 export function actionEntries(): PaletteEntry[] {
   return availableActions()
     .filter((a) => a.id !== 'edit.palette')
-    .map((a): PaletteEntry => ({ id: `action:${a.id}`, group: 'action', label: a.label, detail: a.shortcuts?.[0], run: () => invoke(a) }));
+    .map((a): PaletteEntry => ({ id: `action:${a.id}`, group: 'action', label: a.label, detail: a.shortcuts?.[0] && displayChord(a.shortcuts[0]), run: () => invoke(a) }));
 }
 
 export function refEntries(tabId: string): PaletteEntry[] {

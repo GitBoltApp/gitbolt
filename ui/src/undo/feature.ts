@@ -16,6 +16,7 @@ import { confirmAction } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 import { journalKey, useJournal } from './store';
+import { displayChord } from '../ui/platformKeys';
 
 const shortRef = (name: string) => name.replace(/^refs\/(heads|remotes|tags)\//, '');
 // HEAD's values are a branch (`refs/heads/x`) when it's on one, else a commit id.
@@ -196,7 +197,7 @@ const view =(which: 'undo' | 'redo') => ({ repoId, worktree }: RepoCtx): ButtonV
   const s = useJournal((st) => st.states[journalKey(repoId, worktree)]);
   const top = which === 'undo' ? s?.undo : s?.redo;
   const blocked = which === 'undo' ? s?.undoBlocked : s?.redoBlocked;
-  const key = which === 'undo' ? 'Ctrl+Z' : 'Ctrl+Shift+Z';
+  const key = displayChord(which === 'undo' ? 'Mod+Z' : 'Mod+Shift+Z');
   const reason = blocked ?? (top ? null : which === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
   return { tooltip: reason ?? `${which === 'undo' ? 'Undo' : 'Redo'} ${top!.label} (${key})`, disabled: !!reason };
 };
@@ -209,13 +210,13 @@ const usable = (which: 'undo' | 'redo') => () => {
 // The getters keep the palette's and the hamburger's rows current ("Undo commit "Fix x"").
 const actions: Action[] = [
   {
-    id: 'edit.undo', group: 'Edit', icon: Undo2, shortcuts: ['Ctrl+Z'], yieldsTo: ownsUndo, when: usable('undo'),
+    id: 'edit.undo', group: 'Edit', icon: Undo2, shortcuts: ['Mod+Z'], yieldsTo: ownsUndo, when: usable('undo'),
     get label() { const t = stateOf(target())?.undo; return t ? `Undo ${t.label}` : 'Undo'; },
     get tooltip() { const s = stateOf(target()); return s?.undoBlocked ?? (s?.undo ? `Undo ${s.undo.label}` : 'Nothing to undo'); },
     run: () => { const ctx = target(); return ctx ? undo(ctx) : undefined; },
   },
   {
-    id: 'edit.redo', group: 'Edit', icon: Redo2, shortcuts: ['Ctrl+Shift+Z'], yieldsTo: ownsUndo, when: usable('redo'),
+    id: 'edit.redo', group: 'Edit', icon: Redo2, shortcuts: ['Mod+Shift+Z'], yieldsTo: ownsUndo, when: usable('redo'),
     get label() { const t = stateOf(target())?.redo; return t ? `Redo ${t.label}` : 'Redo'; },
     get tooltip() { const s = stateOf(target()); return s?.redoBlocked ?? (s?.redo ? `Redo ${s.redo.label}` : 'Nothing to redo'); },
     run: () => { const ctx = target(); return ctx ? redo(ctx) : undefined; },

@@ -6,6 +6,7 @@ import { registerKeys } from '../ui/keyRouter';
 import { useFocusTrap } from '../ui/useFocusTrap';
 import { escapeDisarms } from '../ui/arm/store';
 import { comboOf } from './shortcuts';
+import { resolveChord } from '../ui/platformKeys';
 
 /**
  * The open dialogs, oldest first. Only the topmost one acts on keys (one owner per key, R6): an
@@ -73,8 +74,8 @@ export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => 
         e.preventDefault();
         return 'handled';
       }
-      // The shortcut that opened it (Settings' Ctrl+,, the palette's Ctrl+P) toggles it closed.
-      if (isDismissKey(e) || (toggleCombo !== undefined && comboOf(e) === toggleCombo)) {
+      // The shortcut that opened it (Settings' Mod+,, the palette's Mod+P) toggles it closed.
+      if (isDismissKey(e) || (toggleCombo !== undefined && comboOf(e) === resolveChord(toggleCombo))) {
         close();
         e.preventDefault();
         return 'handled';

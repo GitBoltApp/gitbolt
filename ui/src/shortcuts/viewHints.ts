@@ -28,8 +28,8 @@ registerKeyHints([
   h('files.filterLeave', 'File list', 'Clear the file filter', ['Esc'], 'files/FilesFilter.tsx', '(when in the filter input)'),
   h('files.create', 'File list', 'Create the file / cancel', ['Enter', 'Esc'], 'files/CreateFileInput.tsx', '(when naming a new file)'),
   // Staging undo (stage/feature.ts)
-  h('stage.undo', 'Staging', 'Undo the last staging action', ['Ctrl+Z'], 'stage/feature.ts', '(when in the diff view or WIP file list)'),
-  h('stage.redo', 'Staging', 'Redo the staging action', ['Ctrl+Shift+Z'], 'stage/feature.ts', '(when in the diff view or WIP file list)'),
+  h('stage.undo', 'Staging', 'Undo the last staging action', ['Mod+Z'], 'stage/feature.ts', '(when in the diff view or WIP file list)'),
+  h('stage.redo', 'Staging', 'Redo the staging action', ['Mod+Shift+Z'], 'stage/feature.ts', '(when in the diff view or WIP file list)'),
   // Sidebar (sidebar/SidebarPanel.tsx, sidebar/Sidebar.tsx)
   h('sb.move', 'Sidebar', 'Previous / next row', ['Up', 'Down'], 'sidebar/SidebarPanel.tsx', '(when the sidebar has focus)'),
   h('sb.ends', 'Sidebar', 'First / last row', ['Home', 'End'], 'sidebar/SidebarPanel.tsx', '(when the sidebar has focus)'),
@@ -47,7 +47,7 @@ registerKeyHints([
   h('pal.close', 'Command palette', 'Close', ['Esc'], 'app/modalKeys.ts', '(when the palette is open)'),
   // Merge tool (conflicts/MergeTool.tsx)
   h('merge.step', 'Merge tool', 'Next / previous conflict', ['F7', 'Shift+F7'], 'conflicts/MergeTool.tsx'),
-  h('merge.save', 'Merge tool', 'Save the result', ['Ctrl+S'], 'conflicts/MergeTool.tsx'),
+  h('merge.save', 'Merge tool', 'Save the result', ['Mod+S'], 'conflicts/MergeTool.tsx'),
   h('merge.toggle', 'Merge tool', 'Toggle the conflict at the cursor', ['Space'], 'conflicts/MergeTool.tsx', '(when the cursor is in a conflict)'),
   // Tabs (tabs/TabBar.tsx)
   h('tabs.rename', 'Navigation', 'Commit / cancel a tab rename', ['Enter', 'Esc'], 'tabs/TabBar.tsx', '(when renaming a tab)'),
@@ -57,5 +57,5 @@ registerKeyHints([
   h('menu.move', 'Dialogs and menus', 'Move in a menu', ['Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Enter'], 'menu/ContextMenu.tsx', '(when a menu is open)'),
   // Image diff (image/ImageDiff.tsx)
   h('img.swipe', 'Diff', 'Move the swipe handle', ['Left', 'Right'], 'image/ImageDiff.tsx', '(when the swipe handle has focus)'),
-  h('diff.save', 'Diff', 'Save the working copy', ['Ctrl+S'], 'diff/DiffPanel.tsx', '(when editing a file)'),
+  h('diff.save', 'Diff', 'Save the working copy', ['Mod+S'], 'diff/DiffPanel.tsx', '(when editing a file)'),
 ]);

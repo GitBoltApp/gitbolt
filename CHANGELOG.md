@@ -5,6 +5,15 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **macOS:** GitBolt runs on Macs with Apple Silicon (macOS 12 or later), from a `.dmg`: drag it
+  to Applications. It's ad-hoc signed, not notarized, so the first launch needs
+  `xattr -dr com.apple.quarantine /Applications/GitBolt.app` or System Settings › Privacy &
+  Security › **Open Anyway**. Chromium runs sandboxed, as elsewhere. Shortcuts use ⌘, with a
+  native menu bar. Folders open in a tab from Finder's Open With, the Dock icon or
+  `open -a GitBolt <folder>`. Updates replace the app in place, then **Restart GitBolt**.
+
 ### Security
 
 - **Dependencies:** KaTeX 0.16.47 to 0.18.10 (prototype pollution could bypass `trust`) and the

@@ -109,11 +109,16 @@ struct Setup {
 }
 
 fn setup(kind: InstallKind, current: &str, source: Arc<FakeSource>) -> Setup {
+    setup_at(kind, current, source, |_| "/usr/share/GitBolt/gitbolt".into())
+}
+
+/// `setup`, with the running binary at `exe(<the test's temp dir>)`.
+fn setup_at(kind: InstallKind, current: &str, source: Arc<FakeSource>, exe: impl FnOnce(&Path) -> PathBuf) -> Setup {
     let dir = tempfile::tempdir().unwrap();
     let runner = Arc::new(FakeRunner { answer: Mutex::new(Some(0)), ..Default::default() });
     let bus = EventBus::new();
     let events = bus.subscribe();
-    let cfg = UpdateConfig { source: source.clone(), runner: runner.clone(), dir: dir.path().join("updates"), kind, exe: Some("/usr/share/GitBolt/gitbolt".into()) };
+    let cfg = UpdateConfig { source: source.clone(), runner: runner.clone(), dir: dir.path().join("updates"), kind, exe: Some(exe(dir.path())) };
     Setup { updates: Arc::new(Updates::new(cfg, current, bus)), source, runner, dir, events }
 }
 
@@ -347,6 +352,77 @@ async fn windows_installers_start_and_gitbolt_quits() {
         assert!(s.runner.ran.lock().unwrap().is_empty());
         assert_eq!(s.runner.quits.load(Ordering::SeqCst), 1);
     }
+}
+
+/// A downloaded and verified `.dmg` update, the app running from `exe(<temp dir>)`.
+async fn dmg_ready(exe: impl FnOnce(&Path) -> PathBuf) -> (Setup, PathBuf) {
+    let name = super::release::asset_name(InstallKind::Dmg, &super::version::Version::parse("0.3.0").unwrap()).unwrap();
+    let mut releases = deb_release();
+    releases[0].assets = vec![asset(&name), asset("SHA256SUMS")];
+    let source = FakeSource::with(releases, &format!("{}  {name}\n", sha(PAYLOAD)));
+    source.files.lock().unwrap().insert(format!("https://downloads.example/{name}"), PAYLOAD.to_vec());
+    let s = setup_at(InstallKind::Dmg, "0.2.0", source, exe);
+    s.updates.check(false, 1).await.unwrap();
+    s.updates.start_download().unwrap();
+    assert!(matches!(settled(&s.updates).await, UpdateState::Ready { .. }), "{:?}", s.updates.state());
+    let file = s.dir.path().join("updates").join(name);
+    (s, file)
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dmg_replaces_the_running_bundle_then_restarts_it() {
+    let (s, file) = dmg_ready(|dir| dir.join("Applications/GitBolt.app/Contents/MacOS/GitBolt")).await;
+    let app = s.dir.path().join("Applications/GitBolt.app");
+    std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+    assert_eq!(s.updates.install().await.unwrap(), InstallOutcome::Installed);
+    let ran = s.runner.ran.lock().unwrap().clone();
+    assert_eq!(ran, [install_command(InstallKind::Dmg, &file, Some(&app)).unwrap()], "the script over this bundle, as this user");
+    assert!(s.runner.spawned.lock().unwrap().is_empty() && s.runner.quits.load(Ordering::SeqCst) == 0, "GitBolt stays open until Restart");
+    s.updates.restart().unwrap();
+    assert_eq!(s.runner.spawned.lock().unwrap()[0], relaunch_command(&app.join("Contents/MacOS/GitBolt"), std::process::id()));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dmg_install_fails_with_the_disk_image_to_open() {
+    let (s, file) = dmg_ready(|dir| dir.join("Applications/GitBolt.app/Contents/MacOS/GitBolt")).await;
+    std::fs::create_dir_all(s.dir.path().join("Applications/GitBolt.app")).unwrap();
+    *s.runner.answer.lock().unwrap() = Some(1);
+    let InstallOutcome::Manual { command, reason, output } = s.updates.install().await.unwrap() else { panic!() };
+    assert_eq!(command, format!("open {}", super::install::quote(&file.display().to_string())));
+    assert_eq!(reason, "The install failed (exit 1).", "no word of pkexec");
+    assert!(output.is_some());
+    *s.runner.answer.lock().unwrap() = None;
+    let InstallOutcome::Manual { reason, .. } = s.updates.install().await.unwrap() else { panic!() };
+    assert!(reason.starts_with("Couldn't run the install: "), "{reason}");
+    assert!(matches!(s.updates.state(), UpdateState::Ready { .. }));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_bundle_gitbolt_cant_replace_gets_the_manual_steps() {
+    // Not in a bundle at all (a bare binary).
+    let (s, file) = dmg_ready(|dir| dir.join("target/release/GitBolt")).await;
+    let InstallOutcome::Manual { command, reason, .. } = s.updates.install().await.unwrap() else { panic!() };
+    assert_eq!(command, format!("open {}", super::install::quote(&file.display().to_string())));
+    assert!(reason.contains("isn't running from GitBolt.app") && reason.ends_with("drag GitBolt to Applications, replacing the old one."), "{reason}");
+    assert!(s.runner.ran.lock().unwrap().is_empty());
+
+    // In a folder this user can't write to, as /Applications without admin rights.
+    if nix::unistd::geteuid().is_root() {
+        return;
+    }
+    let (s, _) = dmg_ready(|dir| dir.join("Applications/GitBolt.app/Contents/MacOS/GitBolt")).await;
+    let apps = s.dir.path().join("Applications");
+    std::fs::create_dir_all(apps.join("GitBolt.app")).unwrap();
+    crate::platform::fs::set_mode(&apps, 0o555).unwrap();
+    let got = s.updates.install().await.unwrap();
+    crate::platform::fs::set_mode(&apps, 0o755).unwrap();
+    let InstallOutcome::Manual { reason, .. } = got else { panic!("{got:?}") };
+    assert!(reason.starts_with(&format!("GitBolt can't write to {}", apps.display())), "{reason}");
+    assert!(s.runner.ran.lock().unwrap().is_empty());
+    assert!(matches!(s.updates.state(), UpdateState::Ready { .. }));
 }
 
 #[tokio::test]

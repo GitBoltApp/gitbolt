@@ -20,7 +20,7 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 
 ![GitBolt: the commit graph with four repository tabs and a selected commit's details](docs/images/screenshot.webp)
 
-> **Status:** early (0.x). Usable day to day on Linux and Windows, but expect rough edges.
+> **Status:** early (0.x). Usable day to day on Linux and Windows, and new on macOS; expect rough edges.
 
 ## Platforms
 
@@ -28,7 +28,7 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 |---|---|
 | Linux | Supported: `.deb` and Arch Linux packages |
 | Windows | Supported (10 and 11): an installer (per user) and an MSI (per machine) |
-| macOS | Planned |
+| macOS | Supported (12 or later, Apple Silicon): a `.dmg`. Intel Macs aren't built yet |
 
 ## Installing
 
@@ -40,9 +40,15 @@ Download the package for your system from the
 - **Windows:** run `GitBolt_<version>_x64-setup.exe` (installs for you, no administrator rights)
   or `GitBolt_<version>_x64.msi` (installs for all users). They aren't code-signed yet, so
   Windows SmartScreen warns the first time: **More info** › **Run anyway**.
+- **macOS (Apple Silicon):** open `GitBolt_<version>_aarch64.dmg` and drag GitBolt to
+  Applications. The app is ad-hoc signed, not signed with an Apple Developer ID or notarized, so
+  the first launch is blocked ("Apple could not verify…"). Either run
+  `xattr -dr com.apple.quarantine /Applications/GitBolt.app` once, or try to open it, then
+  go to System Settings › Privacy & Security and click **Open Anyway**.
 
 GitBolt needs Git 2.40 or newer on your `PATH` (on Windows,
-[Git for Windows](https://gitforwindows.org/)). `SHA256SUMS` in each release lists the files'
+[Git for Windows](https://gitforwindows.org/); on macOS, Xcode's command line tools or Homebrew's
+`git`). `SHA256SUMS` in each release lists the files'
 checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 
 ## Features
@@ -109,13 +115,13 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 | AI commit messages and summaries | ✅ | ❌ |
 | Issue trackers (Jira, Trello, …) | ✅ | ❌ |
 | Cloud workspaces and team features | ✅ | ❌ |
-| Windows and macOS | ✅ | 🟡 Windows; macOS planned |
+| Windows and macOS | ✅ | ✅ (macOS: Apple Silicon only) |
 | License | Proprietary; free for local and public repos | MIT |
 
 ### What GitBolt doesn't do
 
-- **Planned:** macOS builds, Forgejo, and adding inline review comments.
-- **Not there yet:** Git LFS, Git Flow, submodule commands, and hiding or soloing branches.
+- **Planned:** Forgejo, and adding inline review comments.
+- **Not there yet:** Intel Macs, Git LFS, Git Flow, submodule commands, and hiding or soloing branches.
 - **Not planned:** an integrated terminal, AI features, issue tracker integrations, and Bitbucket,
   Azure DevOps or GitHub Enterprise Server support. Use the tools you already have for those.
 
@@ -129,7 +135,10 @@ desktop's polkit prompt (`pkexec apt install` or `pkexec pacman -U`); then **Res
 starts the new version. If it can't ask, it shows the command to run in a terminal. On Arch you
 can say you use an AUR helper instead, and it shows that command. On Windows, **Install** starts
 the installer you installed with (the setup `.exe` or the `.msi`) and GitBolt closes so it can be
-replaced. A build from source only links to the release page.
+replaced. On macOS, **Install** copies the new GitBolt.app from the `.dmg` over the one you run
+(no password), then **Restart GitBolt**; if GitBolt can't write to its folder, it says to open the
+`.dmg` and drag GitBolt to Applications yourself. A build from source only links to the release
+page.
 
 Help › **Check for updates** checks at once. Settings › **Updates** turns the automatic check off,
 or includes pre-releases. [PRIVACY.md](PRIVACY.md) says what the check sends, and
@@ -151,6 +160,7 @@ cd ui && npm ci && cd ..
 just dev          # run in development mode
 just package      # build the .deb (and `just package-arch` for Arch Linux)
 just package-windows  # on Windows: the installer and the MSI (see docs/dev-setup.md)
+just package-macos    # on a Mac: the .dmg
 just test         # Rust and UI unit tests
 just e2e          # end-to-end tests (Playwright)
 ```

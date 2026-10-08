@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import type { Panel } from './model';
 import { SectionIcon } from './SectionIcon';
+import { displayChord } from '../ui/platformKeys';
 
 /** Spec §6.4 narrow mode: a vertical strip, a (>) button on top that expands the sidebar, then
  * one icon per panel with its (filtered) count below it. Clicking an icon expands the sidebar
@@ -9,7 +10,7 @@ import { SectionIcon } from './SectionIcon';
 export function NarrowStrip({ panels, onExpand, onPick }: { panels: Panel[]; onExpand(): void; onPick(sectionId: string): void }) {
   return (
     <aside className="sidebar-narrow" aria-label="Sidebar (collapsed)">
-      <HoverTooltip content="Expand sidebar (Ctrl+B)">
+      <HoverTooltip content={`Expand sidebar (${displayChord('Mod+B')})`}>
         <button type="button" className="sn-expand" aria-label="Expand sidebar" onClick={onExpand}><ChevronRight size={14} /></button>
       </HoverTooltip>
       {panels.map((p) => (

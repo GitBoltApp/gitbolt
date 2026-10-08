@@ -43,18 +43,18 @@ function wipLists() {
 
 const off = registerActions([
   {
-    id: 'stage.file', label: 'Stage file', group: 'Repository', section: 'Staging', icon: FilePlus, tooltip: 'Stage the open file', shortcuts: ['Ctrl+Shift+S'], menu: false,
+    id: 'stage.file', label: 'Stage file', group: 'Repository', section: 'Staging', icon: FilePlus, tooltip: 'Stage the open file', shortcuts: ['Mod+Shift+S'], menu: false,
     when: () => openWipFile()?.staged === false,
     run: () => { const o = openWipFile(); if (o) void stagePaths(o.ctx, pathsOf([o.file])); },
   },
   // The same chord: the open file is in one list or the other, never both.
   {
-    id: 'stage.unstageFile', label: 'Unstage file', group: 'Repository', section: 'Staging', icon: FileMinus, tooltip: 'Move the open file back to Unstaged', shortcuts: ['Ctrl+Shift+S'], menu: false,
+    id: 'stage.unstageFile', label: 'Unstage file', group: 'Repository', section: 'Staging', icon: FileMinus, tooltip: 'Move the open file back to Unstaged', shortcuts: ['Mod+Shift+S'], menu: false,
     when: () => openWipFile()?.staged === true,
     run: () => { const o = openWipFile(); if (o) void unstageFiles(o.ctx, [o.file as FileChange]); },
   },
   {
-    id: 'stage.hunk', group: 'Repository', section: 'Staging', icon: SquareSplitVertical, shortcuts: ['Ctrl+Shift+D'], menu: false,
+    id: 'stage.hunk', group: 'Repository', section: 'Staging', icon: SquareSplitVertical, shortcuts: ['Mod+Shift+D'], menu: false,
     get label() { return `${openWipFile()?.staged ? 'Unstage' : 'Stage'} the hunk or lines at the cursor`; },
     get tooltip() { return 'The lines selected in the diff, else the hunk the cursor is in (F7 moves it to the next change)'; },
     when: () => lentHandler('stage.hunk') !== null,

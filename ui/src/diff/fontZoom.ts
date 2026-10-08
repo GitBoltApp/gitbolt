@@ -70,7 +70,7 @@ export function installFontZoom(): () => void {
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
-  { id: 'key.textSizeIn', section: 'Diff', label: 'Larger text (over a file or diff; also Ctrl+wheel)', keys: ['Ctrl+='], source: 'diff/fontZoom.ts' },
-  { id: 'key.textSizeOut', section: 'Diff', label: 'Smaller text (over a file or diff)', keys: ['Ctrl+-'], source: 'diff/fontZoom.ts' },
-  { id: 'key.textSizeReset', section: 'Diff', label: 'Reset the text size (over a file or diff)', keys: ['Ctrl+0'], source: 'diff/fontZoom.ts' },
+  { id: 'key.textSizeIn', section: 'Diff', label: 'Larger text (over a file or diff; also Ctrl+wheel)', keys: ['Mod+='], source: 'diff/fontZoom.ts' },
+  { id: 'key.textSizeOut', section: 'Diff', label: 'Smaller text (over a file or diff)', keys: ['Mod+-'], source: 'diff/fontZoom.ts' },
+  { id: 'key.textSizeReset', section: 'Diff', label: 'Reset the text size (over a file or diff)', keys: ['Mod+0'], source: 'diff/fontZoom.ts' },
 ]);

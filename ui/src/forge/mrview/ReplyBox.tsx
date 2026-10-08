@@ -84,6 +84,6 @@ export function ThreadReply({ tabId, kind, number, d }: { tabId: string; kind: F
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
-  { id: 'key.mrReply', section: 'Merge request', label: 'Send the comment or reply', keys: ['Ctrl+Enter'], context: '(when writing a comment)', source: 'forge/mrview/ReplyBox.tsx' },
-  { id: 'key.mrReplyResolve', section: 'Merge request', label: 'Reply and resolve the thread (or unresolve it)', keys: ['Ctrl+Shift+Enter'], context: '(when replying in a resolvable thread)', source: 'forge/mrview/ReplyBox.tsx' },
+  { id: 'key.mrReply', section: 'Merge request', label: 'Send the comment or reply', keys: ['Mod+Enter'], context: '(when writing a comment)', source: 'forge/mrview/ReplyBox.tsx' },
+  { id: 'key.mrReplyResolve', section: 'Merge request', label: 'Reply and resolve the thread (or unresolve it)', keys: ['Mod+Shift+Enter'], context: '(when replying in a resolvable thread)', source: 'forge/mrview/ReplyBox.tsx' },
 ]);

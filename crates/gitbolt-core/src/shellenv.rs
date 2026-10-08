@@ -10,6 +10,10 @@
 //! shell sees and what the capture returns. `PRIVATE_ENV` is also dropped from the result, in
 //! case the user's shell setup exports one itself.
 //!
+//! macOS: an app started from Finder or the Dock gets launchd's bare `PATH` (no Homebrew), which
+//! is exactly what the capture fixes; the shell is `$SHELL` (zsh by default), else the account's
+//! own login shell.
+//!
 //! Windows has no login shell to ask: an app started from the Start menu already has the user's
 //! environment, so nothing is captured and git inherits the process environment.
 
@@ -55,6 +59,8 @@ impl ShellEnv {
     fn login_shell(hook: Option<ChildEnvHook>) -> Arc<Self> {
         // Windows: no capture (see the module docs), even with a `SHELL` from Git Bash or MSYS.
         let shell = if cfg!(unix) { std::env::var_os("SHELL").map(PathBuf::from) } else { None };
+        #[cfg(target_os = "macos")]
+        let shell = shell.or_else(account_shell);
         Arc::new(Self { shell, timeout: CAPTURE_TIMEOUT, hook, cell: OnceCell::new() })
     }
 
@@ -98,6 +104,12 @@ impl ShellEnv {
     pub async fn warm(self: Arc<Self>) {
         let _ = self.get().await;
     }
+}
+
+/// The account's login shell (its directory record), for an app launched without `$SHELL`.
+#[cfg(target_os = "macos")]
+fn account_shell() -> Option<PathBuf> {
+    nix::unistd::User::from_uid(nix::unistd::getuid()).ok().flatten().map(|u| u.shell).filter(|s| s.is_absolute())
 }
 
 async fn capture(shell: &Path, timeout: Duration, hook: Option<&ChildEnvHook>) -> Option<Vec<(OsString, OsString)>> {
@@ -290,7 +302,7 @@ mod tests {
     /// (or SIGTTOU) when it touches the tty and stops, and every git command waits the full
     /// timeout. CI has no controlling tty to reproduce that stop, so this checks the mechanism:
     /// the shell's session id is its own pid (`/proc/<pid>/stat` field 6).
-    #[cfg(unix)] // a #!/bin/sh fake shell
+    #[cfg(target_os = "linux")] // the session id from /proc
     #[tokio::test]
     async fn the_capture_shell_leads_its_own_session() {
         let dir = tempfile::tempdir().unwrap();
@@ -300,6 +312,21 @@ mod tests {
         );
         let vars = ShellEnv::with_shell(shell, Duration::from_secs(2)).get().await.expect("captured");
         assert_eq!(get(&vars, "GB_SID").unwrap(), get(&vars, "GB_PID").unwrap());
+    }
+
+    /// A real shell and the system's own `env -0` (BSD's on macOS): the capture parses.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn captures_from_the_system_shell() {
+        let vars = ShellEnv::with_shell("/bin/sh".into(), Duration::from_secs(5)).get().await.expect("captured");
+        assert!(get(&vars, "PATH").is_some_and(|p| !p.is_empty()), "no PATH in the captured environment");
+    }
+
+    /// The account's own shell stands in for a missing `$SHELL` (an app started from the Dock).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_account_shell_is_known() {
+        assert!(account_shell().is_some_and(|s| s.is_file()));
     }
 
     /// A background job the rc files started that keeps the shell's stdout open doesn't stall

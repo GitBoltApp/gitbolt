@@ -8,6 +8,7 @@ import { changeKeysOn } from './changeKeysOn';
 import { useDiffPrefs, type DiffMode } from './diffPrefs';
 import { isMarkdownTarget } from './markdownFiles';
 import { clearMarkdownOverride, markdownViewOf } from './markdownOverride';
+import { isMac } from '../ui/platformKeys';
 
 /**
  * The diff's keys as app actions, so the palette and the Keyboard Shortcuts panel have them:
@@ -47,12 +48,12 @@ const MODES: Array<[DiffMode, string, typeof Rows2]> = [['hunk', 'Hunk', SquareS
 
 const actions: Action[] = [
   ...MODES.map(([mode, name, icon], i): Action => ({
-    id: `diff.mode.${mode}`, label: `${name} diff view`, group: 'View', section: 'Diff', icon, tooltip: `Show the diff as ${name}`, shortcuts: [`Ctrl+Shift+${i + 1}`], menu: false,
+    id: `diff.mode.${mode}`, label: `${name} diff view`, group: 'View', section: 'Diff', icon, tooltip: `Show the diff as ${name}`, shortcuts: [isMac() ? `Mod+Alt+${i + 1}` : `Mod+Shift+${i + 1}`], menu: false,
     when: () => openDiff()?.view === 'diff',
     run: () => useDiffPrefs.getState().set({ mode }),
   })),
   {
-    id: 'diff.toggleRendered', label: 'Toggle Source / Rendered', group: 'View', section: 'Diff', icon: Type, tooltip: 'Switch the open Markdown file between its source and its rendered view', shortcuts: ['Ctrl+Shift+V'], menu: false,
+    id: 'diff.toggleRendered', label: 'Toggle Source / Rendered', group: 'View', section: 'Diff', icon: Type, tooltip: 'Switch the open Markdown file between its source and its rendered view', shortcuts: ['Mod+Shift+V'], menu: false,
     when: () => { const d = openDiff(); return !!d && isMarkdownTarget(d); },
     // In a text box (or the editable working copy) it's Paste as plain text.
     yieldsTo: isTypingTarget,

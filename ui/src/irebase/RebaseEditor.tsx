@@ -22,6 +22,7 @@ import { inspectBase, useBaseInspected, useInspectSelection } from './inspect';
 import { editSession, editState, redoPlan, sessionOf, undoPlan, useRebaseSessions } from './session';
 import { cancelRebase, flattenWarning, reloadRebase, startRebase } from './start';
 import './editor.css';
+import { displayChord } from '../ui/platformKeys';
 
 const short = (oid: string) => oid.slice(0, 7);
 const NO_STATE = { selected: [], base: { oid: '' } } as unknown as EditorState;
@@ -202,10 +203,10 @@ export function RebaseEditor({ tabId }: CenterViewProps<object>) {
         {state.merges > 0 && <span role="note" className="irebase-warn"><TriangleAlert size={13} aria-hidden="true" /> {flattenWarning(state.merges)}</span>}
         {(prediction.status === 'off' || prediction.status === 'failed') && <span className="irebase-note">{prediction.note}</span>}
         <span className="irebase-history">
-          <HoverTooltip content={editing ? FINISH_MESSAGE : 'Undo the last plan change (Ctrl+Z)'}>
+          <HoverTooltip content={editing ? FINISH_MESSAGE : `Undo the last plan change (${displayChord('Mod+Z')})`}>
             <button type="button" className="icon-button" aria-label="Undo plan change" aria-disabled={!!editing || !session.past?.length} onClick={() => undoPlan(tabId)}><Undo2 size={15} aria-hidden="true" /></button>
           </HoverTooltip>
-          <HoverTooltip content={editing ? FINISH_MESSAGE : 'Redo the plan change (Ctrl+Shift+Z)'}>
+          <HoverTooltip content={editing ? FINISH_MESSAGE : `Redo the plan change (${displayChord('Mod+Shift+Z')})`}>
             <button type="button" className="icon-button" aria-label="Redo plan change" aria-disabled={!!editing || !session.future?.length} onClick={() => redoPlan(tabId)}><Redo2 size={15} aria-hidden="true" /></button>
           </HoverTooltip>
         </span>
@@ -231,7 +232,7 @@ export function RebaseEditor({ tabId }: CenterViewProps<object>) {
         </li>
       </ol>
       <footer className="irebase-footer">
-        <span className="irebase-keys">P Pick · R Reword · S Squash · F Fixup · D Drop · E Edit · Ctrl+↑/↓ Move · Enter Message · Esc Cancel</span>
+        <span className="irebase-keys">P Pick · R Reword · S Squash · F Fixup · D Drop · E Edit · {displayChord('Mod+↑')}/↓ Move · Enter Message · Esc Cancel</span>
         <button type="button" className="commit-neutral" aria-disabled={!edited} onClick={() => edited && editState(tabId, reset)}>Reset</button>
         <button ref={cancelButton} type="button" className="commit-neutral" onClick={() => void cancelRebase(tabId)}>Cancel</button>
         <HoverTooltip content={why[0] ?? `Rebase ${state.branch} onto ${state.base.name}`}>

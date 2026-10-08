@@ -19,7 +19,7 @@ pub mod version;
 use crate::error::{GbError, GbErrorKind};
 use crate::events::{AppEvent, EventBus};
 use crate::forge::ForgeFuture;
-use install::{install_command, manual_command, relaunch_command, InstallCommand, InstallKind};
+use install::{app_bundle, bundle_replaceable, install_command, manual_command, relaunch_command, InstallCommand, InstallKind};
 use release::{asset_name, check_sum, newest_update, sha256_file, GhRelease, SumCheck, SUMS_ASSET};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -92,7 +92,7 @@ pub enum UpdateState {
     /// Downloaded and verified.
     Ready { release: UpdateRelease },
     Installing { release: UpdateRelease },
-    /// Installed over this one (Linux): Restart GitBolt starts the new version.
+    /// Installed over this one (Linux, macOS): Restart GitBolt starts the new version.
     Installed { release: UpdateRelease },
     Failed { message: String, release: Option<UpdateRelease> },
 }
@@ -416,7 +416,19 @@ impl Updates {
             return Err(GbError::other(message));
         }
         let kind = self.cfg.kind;
-        let cmd = install_command(kind, &file).ok_or_else(|| not_ready("This build has no package to install"))?;
+        let bundle = self.cfg.exe.as_deref().and_then(app_bundle);
+        if kind == InstallKind::Dmg {
+            let cannot = match &bundle {
+                None => Some("GitBolt isn't running from GitBolt.app, so it can't replace it.".to_string()),
+                Some(b) if !bundle_replaceable(b) => Some(format!("GitBolt can't write to {}, so it can't replace itself there.", b.parent().unwrap_or(b).display())),
+                Some(_) => None,
+            };
+            if let Some(why) = cannot {
+                let reason = format!("{why} Open the disk image and drag GitBolt to Applications, replacing the old one.");
+                return Ok(InstallOutcome::Manual { command: manual_command(kind, &file).unwrap_or_default(), reason, output: None });
+            }
+        }
+        let cmd = install_command(kind, &file, bundle.as_deref()).ok_or_else(|| not_ready("This build has no package to install"))?;
         {
             let mut inner = self.lock();
             self.set(&mut inner, UpdateState::Installing { release: release.clone() });
@@ -435,20 +447,23 @@ impl Updates {
         let ran = self.cfg.runner.run(&cmd).await;
         let manual = manual_command(kind, &file).unwrap_or_default();
         let mut output = None;
+        // deb and arch run through pkexec; a .dmg's script runs as this user.
+        let pkexec = matches!(kind, InstallKind::Deb | InstallKind::Arch);
         let reason = match ran {
             Ok(out) if out.code == Some(0) => {
                 let mut inner = self.lock();
                 self.set(&mut inner, UpdateState::Installed { release });
                 return Ok(InstallOutcome::Installed);
             }
-            Ok(out) if matches!(out.code, Some(126 | 127)) => "GitBolt couldn't get permission to install it: the password prompt was cancelled, or there's no polkit agent to ask.".to_string(),
+            Ok(out) if pkexec && matches!(out.code, Some(126 | 127)) => "GitBolt couldn't get permission to install it: the password prompt was cancelled, or there's no polkit agent to ask.".to_string(),
             Ok(out) => {
                 output = Some(install_output(&crate::redact::redact(&out.output))).filter(|o| !o.is_empty());
                 let code = out.code.map_or("a signal".to_string(), |c| format!("exit {c}"));
                 format!("The install failed ({code}).")
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "pkexec isn't installed, so GitBolt can't ask for the password itself.".to_string(),
-            Err(e) => format!("Couldn't start pkexec: {e}"),
+            Err(e) if pkexec && e.kind() == std::io::ErrorKind::NotFound => "pkexec isn't installed, so GitBolt can't ask for the password itself.".to_string(),
+            Err(e) if pkexec => format!("Couldn't start pkexec: {e}"),
+            Err(e) => format!("Couldn't run the install: {e}"),
         };
         tracing::warn!(target: "gitbolt_core::updates", "the update didn't install: {reason} {}", output.as_deref().unwrap_or(""));
         let mut inner = self.lock();

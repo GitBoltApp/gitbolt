@@ -208,6 +208,6 @@ export function NoteEditor({ tabId, kind, number, d, n, onDone }: { tabId: strin
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
-  { id: 'key.mrNoteSave', section: 'Merge request', label: 'Save the edited comment', keys: ['Ctrl+Enter'], context: '(when editing a comment)', source: 'forge/mrview/NoteActions.tsx' },
+  { id: 'key.mrNoteSave', section: 'Merge request', label: 'Save the edited comment', keys: ['Mod+Enter'], context: '(when editing a comment)', source: 'forge/mrview/NoteActions.tsx' },
   { id: 'key.mrNoteCancel', section: 'Merge request', label: 'Cancel the edit, or close the reaction picker', keys: ['Esc'], context: '(when editing a comment or picking a reaction)', source: 'forge/mrview/NoteActions.tsx' },
 ]);

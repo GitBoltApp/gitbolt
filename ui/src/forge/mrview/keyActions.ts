@@ -12,8 +12,8 @@ import { isTypingTarget } from '../../ui/keys';
 const lent = (id: string) => ({ when: () => lentHandler(id) !== null, run: () => lentHandler(id)?.(), yieldsTo: isTypingTarget });
 
 const off = registerActions([
-  { id: 'mr.approve', label: 'Approve the MR/PR', group: 'Repository', section: 'Merge request', icon: Check, tooltip: 'Approve the open merge request or pull request', shortcuts: ['Ctrl+Shift+A'], menu: false, ...lent('mr.approve') },
-  { id: 'mr.merge', label: 'Merge the MR/PR', group: 'Repository', section: 'Merge request', icon: GitMerge, tooltip: 'Merge the open merge request or pull request', shortcuts: ['Ctrl+Shift+M'], menu: false, ...lent('mr.merge') },
-  { id: 'mr.openInBrowser', label: 'Open the MR/PR in the browser', group: 'Repository', section: 'Merge request', icon: ExternalLink, tooltip: 'Open the open merge request or pull request on its forge', shortcuts: ['Ctrl+Shift+O'], menu: false, ...lent('mr.openInBrowser') },
+  { id: 'mr.approve', label: 'Approve the MR/PR', group: 'Repository', section: 'Merge request', icon: Check, tooltip: 'Approve the open merge request or pull request', shortcuts: ['Mod+Shift+A'], menu: false, ...lent('mr.approve') },
+  { id: 'mr.merge', label: 'Merge the MR/PR', group: 'Repository', section: 'Merge request', icon: GitMerge, tooltip: 'Merge the open merge request or pull request', shortcuts: ['Mod+Shift+M'], menu: false, ...lent('mr.merge') },
+  { id: 'mr.openInBrowser', label: 'Open the MR/PR in the browser', group: 'Repository', section: 'Merge request', icon: ExternalLink, tooltip: 'Open the open merge request or pull request on its forge', shortcuts: ['Mod+Shift+O'], menu: false, ...lent('mr.openInBrowser') },
 ]);
 import.meta.hot?.dispose(off);

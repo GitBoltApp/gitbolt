@@ -16,11 +16,12 @@ use gitbolt_core::openers::{detect_system, spawn_detached_with, system_url_opene
 use gitbolt_forge::gravatar::{Gravatar, DEFAULT_BASE_URL};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use tauri::{Emitter, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tauri_runtime_cef::Cef;
 use tokio::sync::broadcast::error::RecvError;
 
 mod desktop;
+mod menu;
 mod window_state;
 
 #[tauri::command]
@@ -54,12 +55,13 @@ const APP_VERSION: &str = match option_env!("GITBOLT_BUILD_VERSION") {
 type QuitSlot = Arc<OnceLock<Box<dyn Fn() + Send + Sync>>>;
 
 /// Updates from GitHub Releases (`gitbolt_core::updates`): downloads in the cache's `updates`
-/// folder, the install kind from the `install-kind` file each package puts beside the binary
-/// (`GitBolt.exe` on Windows, which loads this DLL); none: a build from source.
+/// folder, the install kind from the `install-kind` file each package puts in the resources
+/// folder: beside the binary (`GitBolt.exe` on Windows, which loads this DLL), or the bundle's
+/// `Contents/Resources` on macOS; none: a build from source.
 fn update_config(child_env: ChildEnvHook, quit: QuitSlot) -> gitbolt_core::updates::UpdateConfig {
     use gitbolt_core::updates::install::detect_install_kind;
     let exe = std::env::current_exe().ok();
-    let kind = detect_install_kind(exe.as_deref().and_then(Path::parent));
+    let kind = detect_install_kind(exe.as_deref().and_then(resources_dir).as_deref());
     gitbolt_core::updates::UpdateConfig {
         source: Arc::new(gitbolt_forge::updates::GitHubReleases::github()),
         runner: Arc::new(gitbolt_core::updates::SystemRunner {
@@ -97,11 +99,11 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook, quit:
     };
     match paths::cache_base() {
         Some(cache) => api
-            .with_open_cache(cache.join("gitbolt").join("open"))
-            .with_avatars(Arc::new(Gravatar::new(cache.join("gitbolt").join("avatars"), DEFAULT_BASE_URL)) as Arc<dyn AvatarProvider>)
+            .with_open_cache(cache.join(gitbolt_core::paths::APP_DIR).join("open"))
+            .with_avatars(Arc::new(Gravatar::new(cache.join(gitbolt_core::paths::APP_DIR).join("avatars"), DEFAULT_BASE_URL)) as Arc<dyn AvatarProvider>)
             // --- 4A T10: forge accounts (spec #4 §3.2): the system keyring, else the 0600 file ---
             .with_forge(
-                Arc::new(gitbolt_forge::connector::Forge::new(gitbolt_forge::connector::ForgeConfig { overrides: Default::default(), only_overrides: false, avatar_dir: Some(cache.join("gitbolt").join("forge-avatars")) })),
+                Arc::new(gitbolt_forge::connector::Forge::new(gitbolt_forge::connector::ForgeConfig { overrides: Default::default(), only_overrides: false, avatar_dir: Some(cache.join(gitbolt_core::paths::APP_DIR).join("forge-avatars")) })),
                 Arc::new(gitbolt_forge::tokens::SystemTokenStore::system(paths::data_dir().join("forge-tokens"))),
             ),
             // --- end 4A T10 ---
@@ -188,11 +190,29 @@ fn bring_to_front<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     }
 }
 
+/// The folders among what macOS asks the app to open (`RunEvent::Opened`, from AppKit's
+/// `application:openURLs:`): Finder's Open With, a folder dropped on the Dock icon, and
+/// `open -a GitBolt <folder>` all come this way, never as a launch argument. Only `file:` URLs of
+/// existing folders, without the trailing `/` a folder's URL has; anything else is left alone.
+fn opened_folders(urls: &[tauri::Url]) -> Vec<PathBuf> {
+    urls.iter().filter(|u| u.scheme() == "file").filter_map(|u| u.to_file_path().ok()).filter(|p| p.is_dir()).map(|p| p.components().collect()).collect()
+}
+
 /// The spell-check dictionary: Chromium's own en-US one, under the name Chromium 152 looks for
 /// (docs/licensing.md has its source and license).
 const DICTIONARY: &str = "en-US-10-1.bdic";
 
-/// Where the dictionary is: `dictionaries/` beside the binary, where the packages install it
+/// Where the packages put the app's own files: beside the binary, or on macOS the bundle's
+/// `Contents/Resources` (tauri.macos.conf.json).
+fn resources_dir(exe: &Path) -> Option<PathBuf> {
+    let dir = exe.parent()?;
+    if cfg!(target_os = "macos") {
+        return dir.parent().map(|contents| contents.join("Resources"));
+    }
+    Some(dir.to_path_buf())
+}
+
+/// Where the dictionary is: `dictionaries/` in the resources folder, where the packages install it
 /// (`/usr/share/GitBolt/dictionaries/`, tauri.conf.json), or, in a debug build, this crate's
 /// copy. None (a release build run from `target/`) leaves Chromium without one: no spell check.
 fn bundled_dictionary(exe_dir: Option<&Path>) -> Option<PathBuf> {
@@ -238,7 +258,7 @@ fn cef_runtime() -> Cef {
         .profile_preference_value("spellcheck.dictionaries", vec!["en-US"])
         .profile_preference("spellcheck.use_spelling_service", false);
     let exe = std::env::current_exe().ok();
-    let cef = match bundled_dictionary(exe.as_deref().and_then(Path::parent)) {
+    let cef = match bundled_dictionary(exe.as_deref().and_then(resources_dir).as_deref()) {
         Some(dictionary) => cef.bundled_dictionary(dictionary),
         None => cef,
     };
@@ -247,8 +267,10 @@ fn cef_runtime() -> Cef {
     // namespaces; `Required` refuses to start there instead. Windows sandboxes only under CEF's
     // bootstrap (`RunWinMain` below): a release build refuses to start without it, as the
     // packages always ship the bootstrap; a debug build stays on `Auto`, so a plain
-    // `gitbolt.exe` from `cargo build` still runs, unsandboxed with a warning.
-    #[cfg(any(target_os = "linux", all(windows, not(debug_assertions))))]
+    // `gitbolt.exe` from `cargo build` still runs, unsandboxed with a warning. macOS sandboxes
+    // its helpers itself (`libcef_sandbox.dylib`, in the bundle's framework), so `Auto` keeps
+    // it there too; a release build says so outright.
+    #[cfg(any(target_os = "linux", all(any(windows, target_os = "macos"), not(debug_assertions))))]
     let cef = cef.sandbox(tauri_runtime_cef::SandboxPolicy::Required);
     // A throwaway instance's Chromium profile goes with its other folders (`GITBOLT_DEV_DIRS`,
     // debug builds only; paths.rs).
@@ -351,7 +373,8 @@ pub fn run() {
     // build. Leaked, as Tauri keeps its own for the process's life.
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(8 * 1024 * 1024).build().expect("the async runtime");
     tauri::async_runtime::set(Box::leak(Box::new(runtime)).handle().clone());
-    tauri::Builder::default()
+    // macOS's menu bar (menu.rs); no menu elsewhere.
+    menu::attach(tauri::Builder::default())
         // Never in caret-browsing mode, even if "Turn on" was once clicked in Chrome's F7
         // dialog (Chrome keeps it in the profile). The F7 command itself is blocked in the
         // vendored runtime (vendor/tauri-runtime-cef/GITBOLT-PATCH.md). Not `show_dialog=false`:
@@ -463,7 +486,7 @@ pub fn run() {
                 let _ = warm.dispatch(Request::ListOpeners).await;
             });
             if let Some(cache) = paths::cache_base() {
-                std::thread::spawn(move || open_copy::clean(&cache.join("gitbolt").join("open"), open_copy::MAX_AGE));
+                std::thread::spawn(move || open_copy::clean(&cache.join(gitbolt_core::paths::APP_DIR).join("open"), open_copy::MAX_AGE));
             }
             Ok(())
         })
@@ -485,6 +508,18 @@ pub fn run() {
                     handle.exit(code);
                 });
                 return;
+            }
+            // macOS hands folders to the app (running, or launching for them) as Apple Events,
+            // not arguments: each opens in a tab as a later launch's path does (R19), queued if
+            // the page isn't listening yet.
+            if let tauri::RunEvent::Opened { urls } = &event {
+                for folder in opened_folders(urls) {
+                    tracing::info!("asked to open {}", folder.display());
+                    exit_api.request_open(folder.to_string_lossy().into_owned());
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    bring_to_front(&window);
+                }
             }
             if let tauri::RunEvent::Exit = event {
                 if let Err(e) = exit_store.flush_now() {
@@ -634,6 +669,31 @@ mod tests {
         std::fs::write(dir.join("dictionaries").join(DICTIONARY), b"BDic").unwrap();
         assert_eq!(bundled_dictionary(Some(&dir)), Some(dir.join("dictionaries").join(DICTIONARY)));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The packages' files are beside the binary, except in a macOS bundle (`Contents/MacOS`),
+    /// whose files are in `Contents/Resources`.
+    #[test]
+    fn the_resources_are_beside_the_binary_or_in_the_bundles_resources() {
+        let exe = Path::new("/x/GitBolt.app/Contents/MacOS/GitBolt");
+        let want = if cfg!(target_os = "macos") { "/x/GitBolt.app/Contents/Resources" } else { "/x/GitBolt.app/Contents/MacOS" };
+        assert_eq!(resources_dir(exe), Some(PathBuf::from(want)));
+    }
+
+    /// What Finder or `open -a` hands over: only existing folders, by `file:` URL.
+    #[test]
+    fn only_folders_handed_over_by_file_url_open() {
+        let dir = std::env::temp_dir().join(format!("gitbolt-app-opened-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notes.txt");
+        std::fs::write(&file, "x").unwrap();
+        let url = |p: &Path| tauri::Url::from_file_path(p).unwrap();
+        let folder: tauri::Url = format!("{}/", url(&dir)).parse().unwrap();
+        let urls = [folder, url(&file), url(&dir.join("gone")), "https://example.com/repo".parse().unwrap(), "gitbolt://open".parse().unwrap()];
+        let got = opened_folders(&urls);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(got, [dir]);
+        assert!(opened_folders(&[]).is_empty());
     }
 
     /// I2 regression: `OpenUrl` must go through `child_env`, the same hook an opener launch

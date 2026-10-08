@@ -1040,7 +1040,7 @@ mod tests {
         let r = TestRepo::new();
         r.commit("base");
         r.commit("second");
-        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        r.git(&["-c", "sequence.editor=sed -i.orig 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
         r.write("extra.txt", "x\n");
         r.git(&["add", "extra.txt"]);
         let api = api(data.path());
@@ -1297,7 +1297,7 @@ mod tests {
     }
 
     /// Fix round 1 (3): a changed path that isn't UTF-8 keeps everything, as before UX N.
-    #[cfg(unix)] // non-UTF-8 file names exist only on Unix
+    #[cfg(all(unix, not(target_os = "macos")))] // non-UTF-8 file names: not on Windows, and APFS refuses them (EILSEQ)
     #[tokio::test]
     async fn a_non_utf8_path_keeps_everything() {
         use std::os::unix::ffi::OsStrExt;

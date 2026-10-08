@@ -323,64 +323,84 @@ struct Watches {
 }
 
 impl Watches {
-    fn add(&mut self, p: &Path, mode: RecursiveMode) -> bool {
-        if self.full {
-            return false;
-        }
-        let res = match self.max {
-            Some(max) if self.applied.len() >= max => Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch)),
-            _ => self.w.watch(p, mode),
-        };
-        match res {
-            Ok(()) => true,
-            // A directory removed since it was listed (a deleted untracked folder, a checkout).
-            Err(notify::Error { kind: notify::ErrorKind::PathNotFound, .. }) => {
-                tracing::debug!("not watching {} (gone)", p.display());
-                false
-            }
-            Err(notify::Error { kind: notify::ErrorKind::MaxFilesWatch, .. }) => {
-                tracing::warn!(
-                    "the inotify watch limit is reached ({} watches in this repo): changes may be missed, so status is re-read on every refresh (raise fs.inotify.max_user_watches)",
-                    self.applied.len()
-                );
-                self.full = true;
-                false
-            }
-            Err(e) => {
-                tracing::warn!("cannot watch {}: {e}", p.display());
-                false
-            }
-        }
-    }
-
-    /// Unwatches what `next` drops and watches what it adds (until the limit, if hit).
+    /// Unwatches what `next` drops and watches what it adds (until the limit, if hit), as one
+    /// batch: FSEvents (macOS) restarts its stream once per batch rather than once per path.
     fn sync(&mut self, next: &WatchPlan) {
         let gone: Vec<PathBuf> = self.applied.recursive.difference(&next.recursive).chain(self.applied.flat.difference(&next.flat)).cloned().collect();
+        let recursive: Vec<PathBuf> = next.recursive.difference(&self.applied.recursive).cloned().collect();
+        let flat: Vec<PathBuf> = next.flat.difference(&self.applied.flat).cloned().collect();
+        if gone.is_empty() && ((recursive.is_empty() && flat.is_empty()) || self.full) {
+            return;
+        }
+        let Self { w, applied, max, full } = self;
+        let mut paths = w.paths_mut();
         for p in gone {
-            let _ = self.w.unwatch(&p);
-            self.applied.recursive.remove(&p);
-            self.applied.flat.remove(&p);
+            let _ = paths.remove(&p);
+            applied.recursive.remove(&p);
+            applied.flat.remove(&p);
         }
-        for p in next.recursive.difference(&self.applied.recursive.clone()) {
-            if self.add(p, RecursiveMode::Recursive) {
-                self.applied.recursive.insert(p.clone());
+        for p in recursive {
+            if add(&mut *paths, full, applied.len(), *max, &p, RecursiveMode::Recursive) {
+                applied.recursive.insert(p);
             }
         }
-        for p in next.flat.difference(&self.applied.flat.clone()) {
-            if self.add(p, RecursiveMode::NonRecursive) {
-                self.applied.flat.insert(p.clone());
+        for p in flat {
+            if add(&mut *paths, full, applied.len(), *max, &p, RecursiveMode::NonRecursive) {
+                applied.flat.insert(p);
             }
+        }
+        if let Err(e) = paths.commit() {
+            tracing::warn!("cannot update the watches: {e}");
         }
     }
 
-    /// A folder was deleted or renamed away: its watches (and its subfolders') died with it, so
-    /// they're dropped here, and the next `sync` watches the folder again if it's back.
-    fn forget(&mut self, gone: &Path) {
-        let dead: Vec<PathBuf> = self.applied.flat.iter().chain(&self.applied.recursive).filter(|p| p.starts_with(gone)).cloned().collect();
+    /// Folders were deleted or renamed away: their watches (and their subfolders') died with
+    /// them, so they're dropped here, and the next `sync` watches a folder again if it's back.
+    fn forget<'a>(&mut self, gone: impl IntoIterator<Item = &'a PathBuf>) {
+        let gone: Vec<&PathBuf> = gone.into_iter().collect();
+        let dead: Vec<PathBuf> = self.applied.flat.iter().chain(&self.applied.recursive).filter(|p| gone.iter().any(|g| p.starts_with(g))).cloned().collect();
+        if dead.is_empty() {
+            return;
+        }
+        let mut paths = self.w.paths_mut();
         for p in dead {
-            let _ = self.w.unwatch(&p);
+            let _ = paths.remove(&p);
             self.applied.flat.remove(&p);
             self.applied.recursive.remove(&p);
+        }
+        if let Err(e) = paths.commit() {
+            tracing::warn!("cannot update the watches: {e}");
+        }
+    }
+}
+
+/// Watches `p` in `paths`' batch, unless the watch limit was hit (`full`, or `watched` reached
+/// the test knob `max`).
+fn add(paths: &mut dyn notify::PathsMut, full: &mut bool, watched: usize, max: Option<usize>, p: &Path, mode: RecursiveMode) -> bool {
+    if *full {
+        return false;
+    }
+    let res = match max {
+        Some(max) if watched >= max => Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch)),
+        _ => paths.add(p, mode),
+    };
+    match res {
+        Ok(()) => true,
+        // A directory removed since it was listed (a deleted untracked folder, a checkout).
+        Err(notify::Error { kind: notify::ErrorKind::PathNotFound, .. }) => {
+            tracing::debug!("not watching {} (gone)", p.display());
+            false
+        }
+        Err(notify::Error { kind: notify::ErrorKind::MaxFilesWatch, .. }) => {
+            tracing::warn!(
+                "the inotify watch limit is reached ({watched} watches in this repo): changes may be missed, so status is re-read on every refresh (raise fs.inotify.max_user_watches)"
+            );
+            *full = true;
+            false
+        }
+        Err(e) => {
+            tracing::warn!("cannot watch {}: {e}", p.display());
+            false
         }
     }
 }
@@ -914,9 +934,7 @@ impl Loop {
 
     async fn handle(&mut self, batch: Batch) {
         let rebased = self.take_absorbed();
-        for g in batch.gone.iter().chain(&batch.vanished) {
-            self.watches.forget(g);
-        }
+        self.watches.forget(batch.gone.iter().chain(&batch.vanished));
         let mut kinds = batch.kinds;
         let mut status = batch.status;
         let mut topology = BTreeSet::new();
@@ -2259,7 +2277,7 @@ mod tests {
     }
 
     /// What the UI asks after a `repoChanged`: the graph, and (refs, HEAD) the sidebar at once.
-    #[cfg(unix)] // helper of Unix-only tests
+    #[cfg(target_os = "linux")] // helper of the Linux-only timing tests
     async fn ui_refresh(api: &Api, id: u32, side: bool) {
         let graph = call(api, serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}));
         if side {
@@ -2272,7 +2290,7 @@ mod tests {
 
     /// One save: one status, one pair of numstats for the lists, and the graph the UI reloads
     /// then runs no git process at all.
-    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
+    #[cfg(target_os = "linux")] // exact git-run counts in a time window: inotify's timing (Windows' notifications and macOS's FSEvents batch changes differently)
     #[tokio::test(flavor = "multi_thread")]
     async fn a_single_save_runs_one_status_and_the_graph_reload_none() {
         let r = TestRepo::new();
@@ -2347,7 +2365,7 @@ mod tests {
     /// A worktree the tab doesn't show (an agent editing and building in a linked worktree):
     /// its status runs at most every `INACTIVE_INTERVAL` while its events keep coming, once more
     /// when they stop, and no WIP lists (numstat) are computed for it, only its counts.
-    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
+    #[cfg(target_os = "linux")] // exact git-run counts in a time window: inotify's timing (Windows' notifications and macOS's FSEvents batch changes differently)
     #[tokio::test(flavor = "multi_thread")]
     async fn a_busy_inactive_worktree_is_throttled_and_gets_counts_only() {
         let r = TestRepo::new();
@@ -2438,7 +2456,7 @@ mod tests {
     }
 
     /// The UI reads both lists of a WIP row at once: one status and one pair of numstats.
-    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
+    #[cfg(target_os = "linux")] // exact git-run counts in a time window: inotify's timing (Windows' notifications and macOS's FSEvents batch changes differently)
     #[tokio::test(flavor = "multi_thread")]
     async fn concurrent_reads_of_a_worktrees_lists_share_one_computation() {
         let r = TestRepo::new();
@@ -2452,7 +2470,7 @@ mod tests {
     }
 
     /// A fetch moves refs only: no status and no lists.
-    #[cfg(unix)] // exact git-run counts in a time window (Windows' change notifications arrive differently; watcher tuning there is phase 2)
+    #[cfg(target_os = "linux")] // exact git-run counts in a time window: inotify's timing (Windows' notifications and macOS's FSEvents batch changes differently)
     #[tokio::test(flavor = "multi_thread")]
     async fn a_refs_only_change_runs_no_status() {
         let r = TestRepo::new();

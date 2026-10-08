@@ -21,7 +21,7 @@ const offs = [
   // possible while the button fetches. In an editor, Monaco's (and VS Code's) Select all
   // occurrences.
   registerActions([{
-    id: 'sync.pull', label: 'Pull', group: 'Repository', icon: ArrowDownToLine, tooltip: "Pull the current branch's upstream", shortcuts: ['Ctrl+Shift+L'],
+    id: 'sync.pull', label: 'Pull', group: 'Repository', icon: ArrowDownToLine, tooltip: "Pull the current branch's upstream", shortcuts: ['Mod+Shift+L'],
     yieldsTo: isTypingOrEditor,
     when: () => pullCtx() !== null,
     run: () => {

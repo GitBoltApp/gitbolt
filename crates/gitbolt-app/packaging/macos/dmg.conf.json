@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "dictionaries/en-US-10-1.bdic": "dictionaries/en-US-10-1.bdic",
+      "packaging/install-kind-dmg": "install-kind",
+      "../../LICENSE": "licenses/LICENSE",
+      "../../target/licenses/THIRD-PARTY-NOTICES-rust.txt": "licenses/THIRD-PARTY-NOTICES-rust.txt",
+      "../../ui/dist/licenses/THIRD-PARTY-NOTICES-ui.txt": "licenses/THIRD-PARTY-NOTICES-ui.txt",
+      "../../target/licenses/CEF-LICENSE.txt": "licenses/CEF-LICENSE.txt",
+      "../../target/licenses/CHROMIUM-CREDITS.html.gz": "licenses/CHROMIUM-CREDITS.html.gz",
+      "dictionaries/en-US-LICENSE.txt": "licenses/DICTIONARY-en-US-LICENSE.txt"
+    }
+  }
+}

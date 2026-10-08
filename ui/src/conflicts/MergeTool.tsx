@@ -24,6 +24,7 @@ import { emptyPicks, nextRegion, regionLines, sideHasLines, sideState, takeAll, 
 import { leaveResolved } from './leaveResolved';
 import { NonTextConflict } from './NonTextConflict';
 import './mergeTool.css';
+import { displayChord, resolveChord } from '../ui/platformKeys';
 
 const sameLines = (a: string[], b: string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
 const toast = (m: string) => useToast.getState().show(m, { error: true });
@@ -220,7 +221,7 @@ export function MergeTool({ ctx, path, onResolved, initial }: { ctx: WriteCtx; p
   useKeys('app', (e) => {
     // Ctrl+S arrives prevented already: the menu layer stops the browser's own Save page on it
     // (`blockBrowserChords`), so its `defaultPrevented` says nothing about another taker.
-    const ctrlS = comboOf(e) === 'Ctrl+S';
+    const ctrlS = comboOf(e) === resolveChord('Mod+S');
     if ((e.defaultPrevented && !ctrlS) || root.current?.checkVisibility?.() === false) return;
     if (ctrlS) {
       e.preventDefault();
@@ -297,7 +298,7 @@ export function MergeTool({ ctx, path, onResolved, initial }: { ctx: WriteCtx; p
           </div>
           {/* Saved with conflicts left, it arms in place (spec §ui confirms, board D). */}
           <div className="merge-output-end" data-arm-grow="left">
-            <HoverTooltip content={deleted ? `${path} was deleted on disk` : 'Save (Ctrl+S)'}><button type="button" className="merge-save" aria-disabled={deleted || undefined} disabled={saving} onClick={() => { if (!deleted) void save(); }}>Save and mark resolved</button></HoverTooltip>
+            <HoverTooltip content={deleted ? `${path} was deleted on disk` : `Save (${displayChord('Mod+S')})`}><button type="button" className="merge-save" aria-disabled={deleted || undefined} disabled={saving} onClick={() => { if (!deleted) void save(); }}>Save and mark resolved</button></HoverTooltip>
           </div>
         </header>
         <div ref={outputEl} className="merge-editor" />

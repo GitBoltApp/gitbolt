@@ -14,12 +14,13 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { setZoom, useZoom, ZOOM_STEPS } from '../ui/zoom';
 import { UpdatePill } from '../updates/UpdatePill';
 import './statusbar.css';
+import { displayChord, resolveChord } from '../ui/platformKeys';
 
 /** Spec §12.3: the zoom steps, the current one first in focus. */
 function zoomRows(current: number): MenuRow[] {
   return ZOOM_STEPS.map((z) => ({
     kind: 'action', id: `zoom.${z}`, label: `${z}%`, icon: z === current ? Check : ZoomIn,
-    tooltip: z === current ? 'The current zoom' : `Zoom to ${z}%`, shortcut: z === 100 ? 'Ctrl+0' : undefined, run: () => setZoom(z),
+    tooltip: z === current ? 'The current zoom' : `Zoom to ${z}%`, shortcut: z === 100 ? resolveChord('Mod+0') : undefined, run: () => setZoom(z),
   }));
 }
 
@@ -96,7 +97,7 @@ export function StatusBar() {
   const cancel = (op: number) => { void api.cancelOp(op).catch(() => {}); };
   return (
     <footer className="status-bar">
-      <HoverTooltip content="Zoom (Ctrl+= / Ctrl+-)">
+      <HoverTooltip content={`Zoom (${displayChord('Mod+=')} / ${displayChord('Mod+-')})`}>
         <button type="button" className="sb-item sb-button" aria-label={`Zoom ${zoom}%`} aria-haspopup="menu" onClick={(e) => openMenuAt(e.currentTarget, zoomRows(zoom), `zoom.${zoom}`, undefined, 'Zoom')}>
           {zoom}%
         </button>
@@ -133,7 +134,7 @@ export function StatusBar() {
       {skipped && <span className="sb-item sb-warn"><TriangleAlert size={12} aria-hidden /> {skipped}</span>}
       <span className="sb-spacer" />
       <UpdatePill />
-      <HoverTooltip content="Keyboard shortcuts (Ctrl+/)">
+      <HoverTooltip content={`Keyboard shortcuts (${displayChord('Mod+/')})`}>
         <button type="button" className="sb-item sb-button" aria-label="Keyboard shortcuts" onClick={() => runAction('help.shortcuts')}>
           <Keyboard size={12} aria-hidden />
         </button>

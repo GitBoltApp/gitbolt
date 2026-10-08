@@ -3,6 +3,7 @@ import { comboOf } from '../app/shortcuts';
 import { registerKeys, type KeyHandler } from '../ui/keyRouter';
 import { isEditableTarget } from '../ui/keys';
 import { stagingRedo, stagingUndo } from './actions';
+import { resolveChord } from '../ui/platformKeys';
 
 /**
  * Spec #2 §7.6: Ctrl+Z / Ctrl+Shift+Z with focus in the diff view or the WIP file list are
@@ -21,14 +22,14 @@ export function stagingKeyTarget(target: EventTarget | null): boolean {
 
 export const stagingKeys: KeyHandler = (e) => {
   const combo = comboOf(e);
-  if ((combo !== 'Ctrl+Z' && combo !== 'Ctrl+Shift+Z') || !stagingKeyTarget(e.target)) return;
+  if ((combo !== resolveChord('Mod+Z') && combo !== resolveChord('Mod+Shift+Z')) || !stagingKeyTarget(e.target)) return;
   const tab = activeTab();
   const s = activeStore()?.getState();
   const sel = s?.panel?.selection;
   if (!tab || !s || sel?.kind !== 'wip') return;
   e.preventDefault();
   const ctx = { tabId: tab.id, repoId: s.repo, worktree: sel.worktree };
-  void (combo === 'Ctrl+Z' ? stagingUndo(ctx) : stagingRedo(ctx));
+  void (combo === resolveChord('Mod+Z') ? stagingUndo(ctx) : stagingRedo(ctx));
   return 'handled';
 };
 

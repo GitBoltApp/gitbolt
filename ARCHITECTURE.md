@@ -298,10 +298,11 @@ faster (20 s, backing off to 2 min). A failed poll keeps the data shown.
 `gitbolt-core/src/updates/` checks GitHub Releases for a newer version (SemVer; a local build's
 `+<stamp>` doesn't count), downloads the package for the install kind into the cache, keeps it only
 if the release's `SHA256SUMS` matches, and installs it (`pkexec apt`/`pacman` on Linux, the
-installer on Windows). The fetching is `gitbolt-forge/src/updates.rs`, through the forge HTTP
-client without a token; the commands run through an `UpdateRunner` the app supplies (the harness
-only records them). The install kind comes from `install-kind` beside the binary, which the
-packages write (docs/releasing.md). The UI's pill and dialog are in `ui/src/updates/`; progress
+installer on Windows, a copy of the `.dmg`'s GitBolt.app over the running bundle on macOS). The
+fetching is `gitbolt-forge/src/updates.rs`, through the forge HTTP client without a token; the
+commands run through an `UpdateRunner` the app supplies (the harness only records them). The
+install kind comes from `install-kind` beside the binary (in `Contents/Resources` on macOS),
+which the packages write (docs/releasing.md). The UI's pill and dialog are in `ui/src/updates/`; progress
 arrives as `updateChanged` events.
 
 ## Settings, profiles and logs

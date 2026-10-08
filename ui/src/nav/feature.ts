@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { activeTab, registerActions } from '../app/actions';
+import { isMac } from '../ui/platformKeys';
 import { navBack, navForward } from './history';
 import { installNavInput } from './input';
 
@@ -14,7 +15,7 @@ const offActions = registerActions([
     group: 'View',
     icon: ArrowLeft,
     tooltip: 'Back to the previous MR/PR, file or commit you visited',
-    shortcuts: ['Alt+Left', 'Mouse back'],
+    shortcuts: [...(isMac() ? ['Cmd+['] : []), 'Alt+Left', 'Mouse back'],
     keysBy: 'nav/input.ts',
     when: inRepoTab,
     run: () => {
@@ -28,7 +29,7 @@ const offActions = registerActions([
     group: 'View',
     icon: ArrowRight,
     tooltip: 'Forward to the next MR/PR, file or commit you visited',
-    shortcuts: ['Alt+Right', 'Mouse forward'],
+    shortcuts: [...(isMac() ? ['Cmd+]'] : []), 'Alt+Right', 'Mouse forward'],
     keysBy: 'nav/input.ts',
     when: inRepoTab,
     run: () => {

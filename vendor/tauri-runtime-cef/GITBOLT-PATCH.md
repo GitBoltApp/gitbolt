@@ -300,6 +300,9 @@ dictionaries` (a missing, the same or a different dictionary; a missing bundled 
 `configuration_tests::bundled_dictionaries_are_kept_in_order`, and
 `context_menu::tests::spelling_suggestions_stay_and_googles_spelling_service_goes`.
 
+- macOS (below): `build.rs` passes the CEF distribution's path to the crate's own tests, and
+  `context_menu.rs`'s `load_cef_for_tests` loads the framework from it (tests only).
+
 No other files differ from the published 3.0.0-alpha.5 crate (its `Cargo.lock` is not vendored).
 
 ## A resolver-blocking `--host-resolver-rules` isn't warned about
@@ -330,3 +333,38 @@ Checked on Windows 11 with CEF 152.0.6, the app as `gitbolt_app.dll` under `boot
 no process has `--no-sandbox`; the renderers and the storage service run at Untrusted
 integrity with restricted tokens and the GPU process at Low (all Medium and unrestricted as a
 plain `.exe`). Test: `the_windows_broker_is_reported_as_unavailable_only_on_windows`.
+
+## macOS
+
+The patches above build and run on macOS (Apple Silicon, macOS 15, CEF 152.0.6) with no
+change to the runtime's own code; checked on GitHub's `macos-15` runner
+(`.github/workflows/mac-port.yml`, job `app`), which bundles `GitBolt.app`, launches it and
+drives it over CDP.
+
+- **Platform-specific patches stay gated:** the #3002 workaround and the WM_TAKE_FOCUS redirect
+  are Linux/BSD only (GLib and X11; `external_message_pump/linux.rs`, `platform/linux/focus.rs`,
+  and their `gdk4-x11` dependency, which is a Linux/BSD target dependency). The Windows broker
+  is `cfg(windows)`; on macOS `windows_sandbox_info()` is null and
+  `windows_sandbox_unavailable()` false, as before.
+- **The rest is platform-neutral** and runs on macOS as on Linux: the command block list and the
+  context menu names (same IDC table), the key-log diagnostic, the dictionaries, the resolver
+  rules switch, the component updater switch.
+- **The reserved-chord table is Ctrl-based** (`keyboard.rs`, `gitbolt_passes_to_page`). On
+  macOS Chrome's reserved shortcuts are Cmd ones (Cmd+W, Cmd+Q…), so the table matches nothing
+  that Chrome would reserve there; the Cmd shortcuts and the menu bar are separate work.
+- **The sandbox** is upstream's: a helper loads `libcef_sandbox.dylib` from the bundle's
+  framework and calls `cef_sandbox_initialize` before loading the framework
+  (`run_cef_helper_process`), unless its browser process passed `--no-sandbox`. With the bundle
+  ad-hoc signed (`codesign -s -`, hardened runtime, the CEF entitlements the Tauri CLI adds),
+  every helper runs inside Seatbelt: `sandbox_check(pid, NULL, 0)` is 1 for the GPU, network,
+  storage and renderer processes, 0 for the browser process.
+- **Test-only: the framework for the unit tests** (`build.rs`, `context_menu.rs`'s
+  `load_cef_for_tests`). Nothing links CEF on macOS: an app loads the framework from its bundle
+  at startup (`LibraryLoader`), so a test binary that calls into CEF hit a null function
+  pointer (SIGSEGV). `build.rs` also passes the distribution's path to this crate's own build
+  (`GITBOLT_TEST_CEF_DIR`), and the two name-resolution tests load the framework from it first,
+  once; a no-op on Linux and Windows. All 113 lib tests pass on the runner.
+
+Files: `build.rs` (one `rustc-env` line), `src/cef_impl/client/context_menu.rs`
+(`load_cef_for_tests`, called by its name-resolution test) and `src/cef_impl/client/command.rs`
+(the same call in its own).

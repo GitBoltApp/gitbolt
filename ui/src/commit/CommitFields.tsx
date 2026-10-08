@@ -90,7 +90,7 @@ export function CommitFields({ value, onChange, onSubmit, onEscape, disabled = f
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
-  { id: 'key.commit', section: 'Commit message', label: 'Commit', keys: ['Ctrl+Enter'], context: '(when in message input)', source: 'commit/CommitFields.tsx' },
+  { id: 'key.commit', section: 'Commit message', label: 'Commit', keys: ['Mod+Enter'], context: '(when in message input)', source: 'commit/CommitFields.tsx' },
   { id: 'key.msgNext', section: 'Commit message', label: 'Summary to description', keys: ['Enter'], context: '(when in the summary)', source: 'commit/CommitFields.tsx' },
   { id: 'key.msgBlur', section: 'Commit message', label: 'Leave the message input', keys: ['Esc'], context: '(when in message input)', source: 'commit/CommitFields.tsx' },
 ]);

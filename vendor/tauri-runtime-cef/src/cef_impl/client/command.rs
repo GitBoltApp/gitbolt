@@ -465,6 +465,7 @@ mod tests {
   fn every_gitbolt_name_resolves_to_a_command_id_in_this_cef_build() {
     // The lookup works offline, without CEF initialized; an unknown name is -1.
     let _lookup = super::super::context_menu::NAME_LOOKUP.lock().unwrap_or_else(|e| e.into_inner());
+    super::super::context_menu::load_cef_for_tests();
     assert_eq!(unsafe { cef::sys::cef_id_for_command_id_name(c"IDC_NOT_A_COMMAND".as_ptr()) }, -1);
     for name in gitbolt_blocked_names(true) {
       let id = unsafe { cef::sys::cef_id_for_command_id_name(name.as_ptr()) };

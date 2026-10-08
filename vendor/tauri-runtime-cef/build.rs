@@ -13,5 +13,9 @@ fn main() {
   println!("cargo:rerun-if-env-changed=DEP_CEF_DLL_WRAPPER_CEF_DIR");
   if let Ok(cef_dir) = std::env::var("DEP_CEF_DLL_WRAPPER_CEF_DIR") {
     println!("cargo:cef_dir={cef_dir}");
+    // GitBolt patch: the same path for this crate's own unit tests. On macOS nothing links the
+    // framework (an app loads it from its bundle), so a test that calls into CEF loads it from
+    // there first (`cef_impl::client::context_menu::load_cef_for_tests`).
+    println!("cargo:rustc-env=GITBOLT_TEST_CEF_DIR={cef_dir}");
   }
 }

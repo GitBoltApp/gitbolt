@@ -1,8 +1,9 @@
 import { useId, useRef, useState } from 'react';
 import './branchInput.css';
+import { displayChord } from '../ui/platformKeys';
 
 /** The hint under the input while the name is fine (or empty). */
-export const BRANCH_INPUT_HINT = 'Enter: create and check out · Ctrl+Enter: create only · Esc: cancel';
+export const BRANCH_INPUT_HINT = `Enter: create and check out · ${displayChord('Mod+Enter')}: create only · Esc: cancel`;
 
 /** An empty inline input's blur: cancel once focus has really moved elsewhere in the app. Not a
  * blur the input gets straight back (CEF's webview refocusing on a click in it), nor the window

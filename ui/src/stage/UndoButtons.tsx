@@ -5,6 +5,7 @@ import type { WriteCtx } from '../write/client';
 import { loadStaging, stagingRedo, stagingUndo, useWipCtx } from './actions';
 import { ActionIcon } from './RowActions';
 import { COMMIT_QUEUED, stagingKey, useCommitting, useStaging } from './store';
+import { displayChord } from '../ui/platformKeys';
 
 /** A button's tooltip and state (spec #2 §7.6). */
 export function stagingView(s: StagingUndoState | undefined, which: 'undo' | 'redo', committing: boolean): { tooltip: string; disabled: boolean } {
@@ -12,7 +13,7 @@ export function stagingView(s: StagingUndoState | undefined, which: 'undo' | 're
   if (s?.off) return { tooltip: s.off, disabled: true };
   const label = which === 'undo' ? s?.undo : s?.redo;
   if (!label) return { tooltip: `Nothing to ${which} in staging`, disabled: true };
-  return { tooltip: `${which === 'undo' ? 'Undo' : 'Redo'} ${label} (${which === 'undo' ? 'Ctrl+Z' : 'Ctrl+Shift+Z'})`, disabled: false };
+  return { tooltip: `${which === 'undo' ? 'Undo' : 'Redo'} ${label} (${displayChord(which === 'undo' ? 'Mod+Z' : 'Mod+Shift+Z')})`, disabled: false };
 }
 
 /** Undo and Redo for the staging log, in the diff toolbar (WIP diffs) and the WIP file list's

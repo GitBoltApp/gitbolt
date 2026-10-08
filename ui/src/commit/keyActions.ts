@@ -12,7 +12,7 @@ import { isTypingTarget } from '../ui/keys';
  */
 const off = registerActions([
   {
-    id: 'commit.commit', label: 'Commit', group: 'Repository', section: 'Commit message', icon: GitCommitHorizontal, tooltip: 'Commit with the message in the commit box', shortcuts: ['Ctrl+Enter'], menu: false,
+    id: 'commit.commit', label: 'Commit', group: 'Repository', section: 'Commit message', icon: GitCommitHorizontal, tooltip: 'Commit with the message in the commit box', shortcuts: ['Mod+Enter'], menu: false,
     when: () => lentHandler('commit.commit') !== null,
     yieldsTo: (t) => isTypingTarget(t) || (t instanceof Element && t.closest('[role="dialog"]') !== null),
     run: () => lentHandler('commit.commit')?.(),

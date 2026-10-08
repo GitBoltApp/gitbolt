@@ -53,7 +53,7 @@ function PaletteDialog() {
 
   // The dialog claims every key in the router's `menu` layer (Esc, Tab trap), so the input's own
   // onKeyDown never sees one; the list keys come through a second handler in the same layer.
-  const ref = useModalKeys<HTMLDivElement>(true, close, 'Ctrl+P');
+  const ref = useModalKeys<HTMLDivElement>(true, close, 'Mod+P');
   // What's on screen: set on commit, so a render React set aside (or hasn't committed yet) never
   // stands in for the list Enter acts on.
   const live = useRef({ results, cursor, run, query, deferred, all });

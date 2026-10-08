@@ -46,6 +46,7 @@ import { wipHunkZones } from './wipHunks';
 import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty, saveWorkingCopy, suspendCopy, trackCopy, useWorkingCopy, worktreeFileTarget } from './workingCopy';
 import './diff.css';
 import { ArrowGlyph } from '../ui/ArrowGlyph';
+import { displayChord, resolveChord } from '../ui/platformKeys';
 
 /** The target's contents. A cached (e.g. prefetched) file is ready on the first render, so
  * Up/Down through prefetched files never shows a loading frame. */
@@ -150,7 +151,7 @@ export function DiffHeader({ target, encoding, note, onClose, busy = false, dirt
       <DiffPath target={target} />
       {encoding && <span className="diff-encoding" data-testid="diff-encoding">{encoding}</span>}
       {note}
-      {onSave && <HoverTooltip content="Save (Ctrl+S)"><button type="button" className="text-button diff-save" disabled={!dirty} onClick={onSave}>Save</button></HoverTooltip>}
+      {onSave && <HoverTooltip content={`Save (${displayChord('Mod+S')})`}><button type="button" className="text-button diff-save" disabled={!dirty} onClick={onSave}>Save</button></HoverTooltip>}
       <HoverTooltip content="Close (Esc)"><button type="button" className="icon-button" aria-label="Close diff" onClick={onClose}><X size={14} /></button></HoverTooltip>
       {busy && <div className="diff-progress" role="progressbar" aria-label="Loading diff" />}
     </header>
@@ -385,7 +386,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   const onEdit = useCallback(() => markDirty(tabId), [tabId]);
   useEffect(() => installLeaveGuard(tabId, store), [tabId, store]);
   useEffect(() => registerKeys('app', (e) => {
-    if (comboOf(e) !== 'Ctrl+S' || !useWorkingCopy.getState().copies[tabId]) return;
+    if (comboOf(e) !== resolveChord('Mod+S') || !useWorkingCopy.getState().copies[tabId]) return;
     e.preventDefault();
     void saveWorkingCopy(tabId);
     return 'handled';

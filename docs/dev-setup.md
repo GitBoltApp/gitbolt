@@ -480,3 +480,49 @@ Windows and Node.
   --locked --features cli`) and the .NET SDK (WiX is a .NET tool); NSIS, WiX and rcedit are
   downloaded into `target\windows-tools` on first use. docs/releasing.md has the details, the
   versions and the signing hook.
+
+## macOS
+
+The app builds and runs on macOS (Apple Silicon checked, macOS 12 or later), but only as
+`GitBolt.app`: CEF loads its framework and starts its helper processes from inside the bundle, so
+a bare `target/debug/GitBolt` can't start. Needs Xcode's command line tools, CMake, Ninja, Node
+and the pinned Tauri CLI (`cargo install tauri-cli --version =3.0.0-alpha.4 --locked`).
+
+- **The bundle:** `cd crates/gitbolt-app && cargo tauri build --debug --bundles app` (or without
+  `--debug`) makes `target/<profile>/bundle/macos/GitBolt.app`, with the UI embedded. The Tauri
+  CLI does the whole layout (`tauri.macos.conf.json` adds to `tauri.conf.json`):
+  - `Contents/MacOS/GitBolt`, the app (`mainBinaryName`, so the helpers are named after it);
+  - `Contents/Frameworks/Chromium Embedded Framework.framework`, copied from the distribution
+    `cef-dll-sys` downloaded into `CEF_PATH` (`~/Library/Caches/tauri-cef` by default);
+  - `Contents/Frameworks/GitBolt Helper.app` and its `(GPU)`, `(Renderer)`, `(Plugin)` and
+    `(Alerts)` siblings: one small helper executable, which the bundler compiles against the
+    app's own `cef` crate (`target/tauri-cef-helper`) and copies into each, with its
+    `Info.plist`;
+  - `Contents/Resources/dictionaries/en-US-10-1.bdic`, the spell-check dictionary;
+  - an ad-hoc signature (`signingIdentity: "-"`), inside out, with the hardened runtime and the
+    entitlements CEF needs (JIT, unsigned executable memory, no library validation);
+  - `Info.plist` with the folder document type (`packaging/macos/Info.plist`, merged in).
+- **The package:** `just package-macos` builds the release bundle and
+  `target/release/bundle/dmg/GitBolt_<version>_aarch64.dmg`, then checks both
+  (`scripts/package-macos.sh`; docs/releasing.md, "macOS disk image"). It needs cargo-about too,
+  for the license notices.
+- **Folders from Finder:** macOS hands folders to the app as Apple Events (Open With, a folder
+  dropped on the Dock icon, `open -a <bundle> <folder>`), which arrive as Tauri's
+  `RunEvent::Opened` and open in a tab like a later launch's path. A launch argument still works
+  when the binary is started directly.
+- **The sandbox:** the helpers enter Chromium's Seatbelt sandbox, ad-hoc signed as they are; a
+  release build asks for it outright (`SandboxPolicy::Required`, SECURITY.md).
+- **A throwaway instance driven over CDP** (debug builds only), as on Windows:
+  `GITBOLT_DEV_DIRS=<absolute dir> GITBOLT_DEV_CDP_PORT=9333 GitBolt.app/Contents/MacOS/GitBolt
+  <repo>`, then `node ui/scripts/cdp-smoke.mjs 9333 <out dir> <repo>` (Playwright's
+  `connectOverCDP`) opens the graph, a commit, its diff and a fetch, with a screenshot of each.
+  The single-instance and askpass sockets are in `$TMPDIR`.
+- **No Mac at hand:** `.github/workflows/mac-port.yml` (on demand: run it from the Actions tab,
+  or `gh workflow run mac-port.yml --ref <branch>`) runs the core, forge and harness tests, a
+  workspace check, and job `app`: it builds the debug bundle, launches it on the runner's own
+  screen, drives it with `cdp-smoke.mjs` (a second launch and `open -a` of a folder included),
+  lists the bundle, its signatures and each process's sandbox state, and uploads the screenshots
+  (`macos-app`). Job `package` builds the release `.dmg` with `just package-macos`, copies its
+  app to `/Applications`, launches it with `open -a` on a folder and opens a second one, checks
+  the tabs (in the profile, since a release build refuses CDP) and the sandbox, then runs the
+  updater's install over the running app from the same `.dmg` (`macos-package`, with the `.dmg`).

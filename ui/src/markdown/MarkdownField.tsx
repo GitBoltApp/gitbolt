@@ -5,6 +5,7 @@ import type { MarkdownContext, MdFlavor } from './types';
 import { useCompletion } from './useCompletion';
 import { useEmojiProvider, useMentionProvider } from './providers';
 import './field.css';
+import { displayChord } from '../ui/platformKeys';
 
 export const PREVIEW_DEBOUNCE_MS = 150;
 
@@ -109,7 +110,7 @@ export function MarkdownField({ value, onChange, label, flavor, context, placeho
       </div>
       <div className="md-field-foot">
         <MarkdownMark />
-        <span>Markdown supported · Ctrl+Shift+P to preview</span>
+        <span>Markdown supported · {displayChord('Mod+Shift+P')} to preview</span>
       </div>
     </div>
   );
@@ -127,5 +128,5 @@ function MarkdownMark() {
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.
 registerKeyHints([
-  { id: 'key.mdPreview', section: 'Markdown', label: 'Switch between Write and Preview', keys: ['Ctrl+Shift+P'], context: '(when writing a comment or description)', source: 'markdown/MarkdownField.tsx' },
+  { id: 'key.mdPreview', section: 'Markdown', label: 'Switch between Write and Preview', keys: ['Mod+Shift+P'], context: '(when writing a comment or description)', source: 'markdown/MarkdownField.tsx' },
 ]);
