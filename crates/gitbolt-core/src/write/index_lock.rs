@@ -14,11 +14,20 @@ use std::time::UNIX_EPOCH;
 /// catches libgit2-based tools), or a `git`/`git-*` process whose cwd or `GIT_DIR` is inside
 /// `common_dir` or one of its worktrees. Reads `/proc`; a process we can't read (another user's)
 /// is skipped, so this can't see those: the mtime/inode check and the user's confirmation remain.
+/// macOS has no `/proc`: `lsof` answers the same questions, except `GIT_DIR`.
 fn live_git_process(lock: &Path, common_dir: &Path) -> Option<u32> {
     let me = std::process::id();
     let worktrees = linked_worktree_roots(common_dir);
     let main_root = common_dir.parent().map(Path::to_path_buf);
     let inside = |p: &Path| p.starts_with(common_dir) || main_root.as_ref().is_some_and(|m| p.starts_with(m)) || worktrees.iter().any(|w| p.starts_with(w));
+    #[cfg(target_os = "macos")]
+    return lsof_git_process(lock, me, &inside);
+    #[cfg(not(target_os = "macos"))]
+    proc_git_process(lock, me, &inside)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn proc_git_process(lock: &Path, me: u32, inside: &dyn Fn(&Path) -> bool) -> Option<u32> {
     for entry in std::fs::read_dir("/proc").ok()?.flatten() {
         let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
         if pid == me {
@@ -43,6 +52,29 @@ fn live_git_process(lock: &Path, common_dir: &Path) -> Option<u32> {
         let env = std::fs::read(proc.join("environ")).unwrap_or_default();
         if env.split(|b| *b == 0).any(|kv| kv.strip_prefix(b"GIT_DIR=").is_some_and(|v| inside(Path::new(std::str::from_utf8(v).unwrap_or(""))))) {
             return Some(pid);
+        }
+    }
+    None
+}
+
+/// `live_git_process` through `lsof`: a process with `lock` open, then a `git`/`git-*` process
+/// whose cwd is inside the repository. No answer (no `lsof`, or it fails) is no process.
+#[cfg(target_os = "macos")]
+fn lsof_git_process(lock: &Path, me: u32, inside: &dyn Fn(&Path) -> bool) -> Option<u32> {
+    let lsof = |args: &[&std::ffi::OsStr]| std::process::Command::new("/usr/sbin/lsof").args(args).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    let holders = lsof(&["-w".as_ref(), "-t".as_ref(), "--".as_ref(), lock.as_os_str()]).unwrap_or_default();
+    if let Some(pid) = holders.lines().filter_map(|l| l.trim().parse::<u32>().ok()).find(|p| *p != me) {
+        return Some(pid);
+    }
+    // `-F pcn`: a `p<pid>` line, then its `c<command>` and its cwd's `n<path>`.
+    let cwds = lsof(&["-w", "-a", "-c", "git", "-d", "cwd", "-F", "pcn"].map(std::ffi::OsStr::new)).unwrap_or_default();
+    let (mut pid, mut git) = (None, false);
+    for line in cwds.lines() {
+        match line.split_at_checked(1) {
+            Some(("p", v)) => (pid, git) = (v.parse::<u32>().ok().filter(|p| *p != me), false),
+            Some(("c", v)) => git = v == "git" || v.starts_with("git-"),
+            Some(("n", v)) if git && inside(Path::new(v)) => return pid,
+            _ => {}
         }
     }
     None
@@ -179,14 +211,18 @@ mod tests {
         assert!(lock.exists());
     }
 
-    #[cfg(unix)] // finds lock holders through /proc
+    #[cfg(unix)] // finds lock holders through /proc (lsof on macOS)
     #[tokio::test]
     async fn a_process_holding_the_lock_open_blocks_removal() {
         let (_r, api, id, lock) = setup().await;
-        let mut child = std::process::Command::new("sh").arg("-c").arg(format!("exec 3<'{}'; exec sleep 30", crate::platform::fs::to_git_path(&lock))).spawn().unwrap();
-        let holds = |pid: u32| std::fs::read_dir(format!("/proc/{pid}/fd")).map(|d| d.flatten().any(|f| std::fs::read_link(f.path()).is_ok_and(|t| t == lock))).unwrap_or(false);
+        let opened = lock.with_extension("opened");
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("exec 3<'{}'; : > '{}'; exec sleep 30", crate::platform::fs::to_git_path(&lock), crate::platform::fs::to_git_path(&opened)))
+            .spawn()
+            .unwrap();
         for _ in 0..200 {
-            if holds(child.id()) {
+            if opened.exists() {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
