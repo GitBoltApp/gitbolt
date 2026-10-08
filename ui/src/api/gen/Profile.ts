@@ -4,9 +4,19 @@ import type { EditorChoice } from "./EditorChoice";
 import type { HostKind } from "./HostKind";
 import type { RecentRepo } from "./RecentRepo";
 import type { RepoSettings } from "./RepoSettings";
+import type { SavedTabGroup } from "./SavedTabGroup";
+import type { TabGroup } from "./TabGroup";
 import type { TabState } from "./TabState";
 
 export type Profile = { version: number, id: string, name: string, color: string, tabs: Array<TabState>, activeTab: string | null, 
+/**
+ * The tab strip's groups; a profile saved before them has none.
+ */
+tabGroups: Array<TabGroup>, 
+/**
+ * Groups closed with "Save and close group", oldest first.
+ */
+savedGroups: Array<SavedTabGroup>, 
 /**
  * Oldest first; Ctrl+Shift+T pops the last.
  */

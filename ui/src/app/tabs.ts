@@ -44,6 +44,17 @@ export function openRepoTab(p: Profile, path: string, worktree: string | null = 
   return { profile: insertAfterActive(p, { id, kind: 'repo', path, alias: null, worktree }), tabId: id };
 }
 
+/**
+ * Where a folder that a launch, Finder or a second launch asks to open goes: the tab already
+ * showing it (focused); else the active tab when it's an Open tab (a fresh start's only tab, which
+ * the open turns into the repo); else a new tab after the active one.
+ */
+export function tabForPath(p: Profile, path: string, id = newTabId()): { profile: Profile; tabId: string } {
+  const active = p.tabs.find((t) => t.id === p.activeTab);
+  if (active?.kind === 'open' && !p.tabs.some((t) => sameTab(t, path, null))) return { profile: p, tabId: active.id };
+  return openRepoTab(p, path, null, id);
+}
+
 export function openBlankTab(p: Profile, id = newTabId()): { profile: Profile; tabId: string } {
   return { profile: insertAfterActive(p, { id, kind: 'open', path: null, alias: null, worktree: null }), tabId: id };
 }
@@ -118,12 +129,15 @@ export function activateTab(p: Profile, id: string): Profile {
   return p.tabs.some((t) => t.id === id) ? { ...p, activeTab: id } : p;
 }
 
-/** The tab `delta` places from the active one, wrapping (Ctrl+Tab / Ctrl+Shift+Tab). */
+/** The tab `delta` places from the active one, wrapping (Ctrl+Tab / Ctrl+Shift+Tab). The tabs of
+ * a collapsed group are skipped, except the active one (the strip doesn't show them). */
 export function cycleTab(p: Profile, delta: number): Profile {
-  const n = p.tabs.length;
+  const hidden = new Set((p.tabGroups ?? []).filter((g) => g.collapsed).flatMap((g) => g.tabs));
+  const shown = p.tabs.filter((t) => t.id === p.activeTab || !hidden.has(t.id));
+  const n = shown.length;
   if (n === 0) return p;
-  const i = Math.max(0, activeIndex(p));
-  return { ...p, activeTab: p.tabs[(((i + delta) % n) + n) % n].id };
+  const i = Math.max(0, shown.findIndex((t) => t.id === p.activeTab));
+  return { ...p, activeTab: shown[(((i + delta) % n) + n) % n].id };
 }
 
 /** Moves `path` to the top of the recent list (spec §13): pinned entries are all kept, the rest

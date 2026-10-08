@@ -12,7 +12,7 @@ import { dropForge } from '../forge/mrStore';
 import { closeFlyout } from '../ui/flyout/flyout';
 import { dropTabView, feedTabView } from './tabStores';
 import { withActiveSidebar } from '../worktrees/active';
-import { basename, openRepoTab, setTabRepo, touchRecent } from './tabs';
+import { basename, setTabRepo, tabForPath, touchRecent } from './tabs';
 
 /** One tab's loaded repo (not persisted: the profile holds only the tab's path). */
 export interface TabRuntime {
@@ -220,8 +220,8 @@ export function tabsForRepo(repoId: number): string[] {
 
 /**
  * Opens `path` in `tabId` (an Open tab, which becomes the repo tab only once the open succeeds, so
- * a failure leaves the Open screen showing the error), or in a new tab after the active one (or
- * focuses the tab that already shows it).
+ * a failure leaves the Open screen showing the error), or where `tabForPath` puts it: the tab that
+ * already shows it, the active Open tab, or a new tab after the active one.
  */
 export async function openPathInTab(path: string, tabId?: string): Promise<void> {
   const app = useAppState.getState();
@@ -230,7 +230,8 @@ export async function openPathInTab(path: string, tabId?: string): Promise<void>
     app.setProfile({ ...app.profile, activeTab: id });
   } else {
     // No worktree yet: the backend names the one `path` is in on open (`RepoSummary.worktree`).
-    const r = openRepoTab(app.profile, path, null);
+    // An active Open tab takes it (a fresh start opens the folder in its only tab).
+    const r = tabForPath(app.profile, path);
     app.setProfile(r.profile);
     id = r.tabId;
   }

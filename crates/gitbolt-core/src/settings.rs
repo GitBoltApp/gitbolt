@@ -204,6 +204,44 @@ pub struct ClosedTab {
     pub index: u32,
 }
 
+/// A group of tabs in the tab strip (Firefox-style). Its tabs stay next to each other, in the
+/// strip's order (`tabs` mirrors it); collapsed, the strip shows only its chip (and the active tab,
+/// when it's one of them).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct TabGroup {
+    pub id: String,
+    /// Empty: unnamed (the chip shows only its colour).
+    pub name: String,
+    /// A palette colour's name (`blue`, `purple`, …): the UI maps it to the theme's colour.
+    pub color: String,
+    pub collapsed: bool,
+    /// Member tab ids, in strip order.
+    pub tabs: Vec<String>,
+}
+
+/// One tab of a saved group: the repo (and worktree) it showed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct SavedTab {
+    pub path: String,
+    pub alias: Option<String>,
+    pub worktree: Option<String>,
+}
+
+/// A group closed with "Save and close group", listed in the tab bar's Saved groups menu to reopen.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+#[ts(export)]
+pub struct SavedTabGroup {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub tabs: Vec<SavedTab>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
@@ -292,6 +330,10 @@ pub struct Profile {
     pub color: String,
     pub tabs: Vec<TabState>,
     pub active_tab: Option<String>,
+    /// The tab strip's groups; a profile saved before them has none.
+    pub tab_groups: Vec<TabGroup>,
+    /// Groups closed with "Save and close group", oldest first.
+    pub saved_groups: Vec<SavedTabGroup>,
     /// Oldest first; Ctrl+Shift+T pops the last.
     pub closed_tabs: Vec<ClosedTab>,
     /// Newest first.
@@ -334,6 +376,8 @@ impl Default for Profile {
             color: "#4d88ff".into(),
             tabs: Vec::new(),
             active_tab: None,
+            tab_groups: Vec::new(),
+            saved_groups: Vec::new(),
             closed_tabs: Vec::new(),
             recent: Vec::new(),
             repos_folder: None,
@@ -861,6 +905,39 @@ mod tests {
         assert_eq!(t.worktree, None);
         let t = TabState { worktree: Some("/r-x".into()), ..t };
         assert_eq!(serde_json::to_value(&t).unwrap()["worktree"], "/r-x");
+    }
+
+    #[test]
+    fn a_profile_saved_before_tab_groups_loads_with_none() {
+        let mut v = serde_json::to_value(Profile::default()).unwrap();
+        v.as_object_mut().unwrap().remove("tabGroups");
+        v.as_object_mut().unwrap().remove("savedGroups");
+        let p: Profile = serde_json::from_value(v).unwrap();
+        assert!(p.tab_groups.is_empty());
+        assert!(p.saved_groups.is_empty());
+    }
+
+    #[test]
+    fn tab_groups_and_saved_groups_round_trip_through_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SettingsStore::open(dir.path());
+        let mut p = store.active_profile();
+        p.tabs = ["t1", "t2"].iter().map(|id| TabState { id: (*id).into(), path: Some(format!("/r/{id}")), ..Default::default() }).collect();
+        p.tab_groups = vec![TabGroup { id: "g1".into(), name: "Backend".into(), color: "blue".into(), collapsed: true, tabs: vec!["t1".into(), "t2".into()] }];
+        p.saved_groups = vec![SavedTabGroup {
+            id: "g2".into(),
+            name: String::new(),
+            color: "red".into(),
+            tabs: vec![SavedTab { path: "/r/a".into(), alias: Some("A".into()), worktree: None }],
+        }];
+        store.save_profile(p.clone()).unwrap();
+        store.flush_now().unwrap();
+        let file = read(&dir.path().join("profiles/default/profile.json"));
+        assert_eq!(file["tabGroups"][0]["collapsed"], true);
+        assert_eq!(file["savedGroups"][0]["tabs"][0]["path"], "/r/a");
+        let again = SettingsStore::open(dir.path()).active_profile();
+        assert_eq!(again.tab_groups, p.tab_groups);
+        assert_eq!(again.saved_groups, p.saved_groups);
     }
 
     #[test]

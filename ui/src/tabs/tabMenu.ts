@@ -1,7 +1,11 @@
-import type { LucideIcon } from 'lucide-react';
+import { Archive, Group, Layers, Trash2, Ungroup, type LucideIcon } from 'lucide-react';
 import { create } from 'zustand';
 import { errorMessage } from '../api/client';
 import type { Profile } from '../api/gen/Profile';
+import type { SavedTabGroup } from '../api/gen/SavedTabGroup';
+import { addToGroup, deleteSavedGroup, groupOf, newGroupWith, removeFromGroup, reopenSavedGroup } from '../app/tabGroups';
+import { confirmAction } from '../ui/ConfirmDialog';
+import { colorLabel, groupLabel } from './groupUi';
 import type { TabState } from '../api/gen/TabState';
 import { copyText } from '../api/transport';
 import { runAction } from '../app/actions';
@@ -40,6 +44,24 @@ const row = (id: string, label: string, icon: LucideIcon, tooltip: string, run: 
 registerMenu<TabTarget, TabEnv>({
   id: 'tab.rename', kind: 'tab', group: 'edit', order: 0,
   rows: ({ tab }) => [row('tab.rename', 'Rename…', ICONS.rename, 'Give this tab a display name (the repository is unchanged)', () => useTabUi.getState().startRename(tab.id))],
+});
+
+// Tab groups from the keyboard as well as by drag: into a new group or an existing one, or out.
+registerMenu<TabTarget, TabEnv>({
+  id: 'tab.group', kind: 'tab', group: 'group', order: 0,
+  rows: ({ tab }) => {
+    const p = useAppState.getState().profile;
+    const own = groupOf(p, tab.id);
+    const others = p.tabGroups.filter((g) => g !== own);
+    return [
+      row('tab.newGroup', 'Add to new group', Group, 'Start a new tab group with this tab', () => update((q) => newGroupWith(q, tab.id))),
+      ...(others.length ? [{
+        kind: 'submenu' as const, id: 'tab.addToGroup', label: 'Add to group', icon: Layers, tooltip: 'Move this tab into a tab group',
+        rows: others.map((g) => row(`tab.addToGroup.${g.id}`, groupLabel(g), Layers, `Move this tab to the end of ${groupLabel(g)}`, () => update((q) => addToGroup(q, tab.id, g.id)))),
+      }] : []),
+      ...(own ? [row('tab.removeFromGroup', 'Remove from group', Ungroup, `Take this tab out of ${groupLabel(own)}`, () => update((q) => removeFromGroup(q, tab.id)))] : []),
+    ];
+  },
 });
 
 registerMenu<TabTarget, TabEnv>({
@@ -81,9 +103,9 @@ registerMenu<TabTarget, TabEnv>({
   },
 });
 
-// The tab bar's empty-space menu: Reopen <name> (the same function as Ctrl+Shift+T), then Open
-// repository and Clone (the registry's own actions).
-export interface TabBarEnv { lastClosed: { path: string; alias: string | null } | null }
+// The tab bar's empty-space menu: Reopen <name> (the same function as Ctrl+Shift+T) and the saved
+// groups, then Open repository and Clone (the registry's own actions).
+export interface TabBarEnv { lastClosed: { path: string; alias: string | null } | null; savedGroups?: SavedTabGroup[] }
 
 registerMenu<null, TabBarEnv>({
   id: 'tabbar.reopen', kind: 'tabbar', group: 'restore', order: 0,
@@ -92,6 +114,30 @@ registerMenu<null, TabBarEnv>({
     'Reopen the most recently closed tab', reopenLastClosed,
     lastClosed ? { shortcut: resolveChord('Mod+Shift+T') } : { shortcut: resolveChord('Mod+Shift+T'), disabledReason: 'No recently closed tabs' },
   )],
+});
+
+// "Save and close group" keeps a group here: picking it reopens it as a group; its trash
+// variant deletes it, armed on the row first.
+registerMenu<null, TabBarEnv>({
+  id: 'tabbar.savedGroups', kind: 'tabbar', group: 'restore', order: 1,
+  when: (_t, { savedGroups }) => !!savedGroups?.length,
+  rows: (_t, { savedGroups }) => [{
+    kind: 'submenu', id: 'tabbar.savedGroups', label: 'Saved groups', icon: Archive, tooltip: 'Groups closed with "Save and close group"',
+    rows: savedGroups!.map((s) => {
+      const name = s.name || colorLabel(s.color);
+      const n = s.tabs.length;
+      return row(`tabbar.savedGroup.${s.id}`, `${name} (${n} tab${n === 1 ? '' : 's'})`, Layers, `Reopen ${name}: ${s.tabs.map((t) => t.alias ?? basename(t.path)).join(', ')}`,
+        () => update((p) => reopenSavedGroup(p, s.id)), {
+          variants: [{
+            id: 'delete', icon: Trash2, tooltip: `Delete the saved group ${name}`,
+            run: () => {
+              void confirmAction({ arm: `Click again to delete ${name}`, danger: true, title: 'Delete saved group?', body: `Forgets ${name} and its ${n} tab${n === 1 ? '' : 's'}.`, confirmLabel: 'Delete' })
+                .then((ok) => { if (ok) update((p) => deleteSavedGroup(p, s.id)); });
+            },
+          }],
+        });
+    }),
+  }],
 });
 
 registerMenu<null, TabBarEnv>({

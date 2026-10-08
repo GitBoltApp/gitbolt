@@ -52,6 +52,9 @@ registerKeyHints([
   // Tabs (tabs/TabBar.tsx)
   h('tabs.rename', 'Navigation', 'Commit / cancel a tab rename', ['Enter', 'Esc'], 'tabs/TabBar.tsx', '(when renaming a tab)'),
   h('tabs.activate', 'Navigation', 'Activate the focused tab', ['Enter', 'Space'], 'tabs/TabBar.tsx', '(when a tab has focus)'),
+  h('tabs.groupToggle', 'Navigation', 'Collapse / expand the tab group', ['Enter', 'Space'], 'tabs/GroupChip.tsx', '(when a group chip has focus)'),
+  h('tabs.groupMenu', 'Navigation', 'Tab group menu (colour, name, actions)', ['Shift+F10', 'Menu'], 'tabs/GroupMenu.tsx', '(when a group chip has focus)'),
+  h('tabs.groupList', 'Navigation', 'List the group\'s tabs; move, switch, close', ['Down', 'Up', 'Enter', 'Esc'], 'tabs/GroupChip.tsx', '(when a group chip has focus)'),
   // Dialogs and menus (app/modalKeys.ts, menu/ContextMenu.tsx, ui/Select.tsx)
   h('dlg.close', 'Dialogs and menus', 'Close the dialog / menu', ['Esc'], 'app/modalKeys.ts'),
   h('menu.move', 'Dialogs and menus', 'Move in a menu', ['Up', 'Down', 'Left', 'Right', 'Home', 'End', 'Enter'], 'menu/ContextMenu.tsx', '(when a menu is open)'),

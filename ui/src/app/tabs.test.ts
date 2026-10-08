@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Profile } from '../api/gen/Profile';
 import { EMPTY_PROFILE } from './state';
-import { basename, closeOthers, closeTab, closeToRight, cycleTab, MAX_CLOSED, MAX_RECENT, moveTab, openBlankTab, openRepoTab, renameTab, reopenClosed, setTabRepo, tabLabel, touchRecent } from './tabs';
+import { basename, closeOthers, closeTab, closeToRight, cycleTab, MAX_CLOSED, MAX_RECENT, moveTab, openBlankTab, openRepoTab, tabForPath, renameTab, reopenClosed, setTabRepo, tabLabel, touchRecent } from './tabs';
 
 const withTabs = (...paths: string[]): Profile => {
   let p: Profile = { ...EMPTY_PROFILE, id: 'default' };
@@ -158,5 +158,28 @@ describe('basename', () => {
     expect(basename('C:\\Users\\dev\\repos\\app\\')).toBe('app');
     expect(basename('C:/Users/dev/repos/app')).toBe('app');
     expect(basename('\\\\server\\share\\app')).toBe('app');
+  });
+});
+
+describe('tabForPath (a launch, Finder or a second launch asks to open a folder)', () => {
+  it('uses the active Open tab instead of adding one beside it: a fresh start shows only the repo', () => {
+    const fresh = openBlankTab({ ...EMPTY_PROFILE, tabs: [] }, 'o1').profile;
+    const r = tabForPath({ ...fresh, activeTab: 'o1' }, '/a', 'new');
+    expect(r.tabId).toBe('o1');
+    expect(r.profile.tabs.map((t) => t.id)).toEqual(['o1']);
+  });
+
+  it('focuses a tab already showing it, even with an Open tab active', () => {
+    let p = openRepoTab(EMPTY_PROFILE, '/a', null, 'ta').profile;
+    p = openBlankTab(p, 'o1').profile;
+    const r = tabForPath({ ...p, activeTab: 'o1' }, '/a', 'new');
+    expect([r.tabId, r.profile.activeTab]).toEqual(['ta', 'ta']);
+  });
+
+  it('adds a tab after a repo tab, as before', () => {
+    const p = openRepoTab(EMPTY_PROFILE, '/a', null, 'ta').profile;
+    const r = tabForPath(p, '/b', 'tb');
+    expect(r.tabId).toBe('tb');
+    expect(r.profile.tabs.map((t) => t.id)).toEqual(['ta', 'tb']);
   });
 });

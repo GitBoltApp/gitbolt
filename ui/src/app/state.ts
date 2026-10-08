@@ -6,6 +6,7 @@ import type { ProfileMeta } from '../api/gen/ProfileMeta';
 import type { RepoSettings } from '../api/gen/RepoSettings';
 import type { StatePayload } from '../api/gen/StatePayload';
 import { debounce } from '../util/debounce';
+import { normalizeGroups } from './tabGroups';
 
 /**
  * Mirrors `AppSettings::default()` (Rust); replaced by the backend's copy on load. View
@@ -18,7 +19,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 /** Mirrors `Profile::default()` (Rust). */
 export const EMPTY_PROFILE: Profile = {
-  version: 1, id: '', name: '', color: '#4d88ff', tabs: [], activeTab: null, closedTabs: [], recent: [], reposFolder: null, reposFolders: null,
+  version: 1, id: '', name: '', color: '#4d88ff', tabs: [], activeTab: null, tabGroups: [], savedGroups: [], closedTabs: [], recent: [], reposFolder: null, reposFolders: null,
   editor: null, extraGitconfig: null, hostOverrides: {}, sidebarWidth: 240, sidebarNarrow: false, sidebarPanels: {}, rightPanelWidth: null, flyoutWidth: null, repos: {},
 };
 export const EMPTY_REPO_SETTINGS: RepoSettings = { pin: null, columns: null, hiddenColumns: [], sidebarSort: {}, collapsed: [], editor: null, mrFilter: null, forgeTargetRemote: null };
@@ -51,7 +52,8 @@ interface AppState {
   renameProfile(name: string, color: string): void;
 }
 
-const fromState = (st: StatePayload) => ({ settings: st.settings, profile: st.profile, profiles: st.profiles });
+// A profile from before tab groups gets none; groups that went stale (a tab gone) are fixed up.
+const fromState = (st: StatePayload) => ({ settings: st.settings, profile: normalizeGroups(st.profile), profiles: st.profiles });
 
 /** App settings and the active profile (spec §14.1), backed by the core's store. */
 export const useAppState = create<AppState>((set, get) => ({
@@ -71,8 +73,10 @@ export const useAppState = create<AppState>((set, get) => ({
     set({ settings });
     saveSettings(settings);
   },
-  setProfile(profile) {
-    if (profile === get().profile) return;
+  setProfile(next) {
+    if (next === get().profile) return;
+    // Whatever changed the tabs (a close, a dedupe), the groups follow.
+    const profile = normalizeGroups(next);
     set({ profile });
     saveProfile(profile);
   },

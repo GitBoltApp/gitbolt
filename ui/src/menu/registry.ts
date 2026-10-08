@@ -12,8 +12,8 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   file: ['stage', 'conflict', 'restore', 'copy', 'forge', 'open', 'view', 'history'],
   folder: ['copy', 'open'],
   monaco: ['copy', 'forge', 'open'],
-  tab: ['edit', 'close', 'restore', 'repo'],
-  // The tab bar's empty space: Reopen closed tab, then Open repository / Clone.
+  tab: ['edit', 'group', 'close', 'restore', 'repo'],
+  // The tab bar's empty space: Reopen closed tab and Saved groups, then Open repository / Clone.
   tabbar: ['restore', 'open'],
   column: ['columns'],
   // The sidebar's own items (remote, worktree, stash): 2C's worktree and stash rows first (spec

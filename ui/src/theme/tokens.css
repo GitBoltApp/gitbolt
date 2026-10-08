@@ -180,5 +180,20 @@ body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var
 }
 /* ---- end lane D block ---- */
 
+/* ---- Tab group colours (tabs/tabs.css; themes.ts sets each theme's, by its kind): readable on
+   the tab bar, with the ink that reads on each. ---- */
+:root {
+  --tg-ink: #14161a;
+  --tg-blue: #5b9cff;
+  --tg-purple: #b48cff;
+  --tg-cyan: #3fc8d8;
+  --tg-orange: #ff9e4a;
+  --tg-yellow: #f2c94c;
+  --tg-pink: #ff7ab8;
+  --tg-green: #5fd17f;
+  --tg-gray: #a6aab1;
+  --tg-red: #ff6b6b;
+}
+
 /* Controls are not text: no selecting button labels, toggles, tabs, menu items or checkbox labels. */
 button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="switch"], [role="radio"], label, summary, .icon-button { user-select: none; -webkit-user-select: none; }

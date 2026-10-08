@@ -58,6 +58,9 @@ const DERIVED_TOKENS = [
   'purple',
   // A switch's track, on and off (ui/Switch.tsx); its knob is --text-on-accent.
   'switch-on', 'switch-off',
+  // Tab groups' nine colours and the ink on them (tabs/tabs.css): brighter on a dark theme,
+  // deeper on a light one, the same across the themes of a kind.
+  'tg-ink', 'tg-blue', 'tg-purple', 'tg-cyan', 'tg-orange', 'tg-yellow', 'tg-pink', 'tg-green', 'tg-gray', 'tg-red',
 ] as const;
 
 /** Every colour custom property a theme sets on :root. */
@@ -116,6 +119,19 @@ function diffColors(c: Pick<CoreColors, 'green' | 'red'>, light: boolean) {
   };
 }
 
+/** Tab groups' colours (tabs/tabs.css), by the theme's kind: readable on its tab bar, with the ink
+ * that reads on each. */
+const GROUP_COLORS = {
+  dark: {
+    'tg-ink': '#14161a', 'tg-blue': '#5b9cff', 'tg-purple': '#b48cff', 'tg-cyan': '#3fc8d8', 'tg-orange': '#ff9e4a',
+    'tg-yellow': '#f2c94c', 'tg-pink': '#ff7ab8', 'tg-green': '#5fd17f', 'tg-gray': '#a6aab1', 'tg-red': '#ff6b6b',
+  },
+  light: {
+    'tg-ink': '#ffffff', 'tg-blue': '#1a62d6', 'tg-purple': '#7c4ddb', 'tg-cyan': '#0b7f8f', 'tg-orange': '#b85500',
+    'tg-yellow': '#8a6500', 'tg-pink': '#bf2c76', 'tg-green': '#23803a', 'tg-gray': '#5f646c', 'tg-red': '#c42e2a',
+  },
+} as const;
+
 /** The derived tokens, from the core ones: tints of the text colour and the accent blue, the
  * status colours from the palette, and black shadows (lighter on a light theme). */
 function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
@@ -161,6 +177,7 @@ function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
     purple: light ? '#8250df' : '#a371f7',
     'switch-on': c.blue,
     'switch-off': alpha(fg, light ? 0.24 : 0.16),
+    ...GROUP_COLORS[kind],
   };
 }
 
@@ -199,6 +216,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'md-diff-ins-block': 'rgba(92, 184, 92, 0.16)', 'md-diff-del-block': 'rgba(217, 65, 61, 0.16)',
       'forge-gitlab': '#e2432a', 'forge-github': '#6e5494', purple: '#a371f7',
       'switch-on': '#4d88ff', 'switch-off': 'rgba(255, 255, 255, 0.16)',
+      ...GROUP_COLORS.dark,
     },
     graph: ['#15a0bf', '#0669f7', '#8e00c2', '#c517b6', '#d90171', '#cd0101', '#f25d2e', '#f2ca33', '#7bd938', '#2ece9d'],
     // White initials on every lane, its yellow included (1C's look, kept as is).
