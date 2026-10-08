@@ -68,7 +68,13 @@ async fn checks_downloads_verifies_and_records_the_install() {
     let out = call(&h.api, "updateInstall").await.unwrap();
     assert_eq!(out["outcome"], "manual", "{out}");
     assert!(out["command"].as_str().unwrap().starts_with("sudo apt install "), "{out}");
-    assert_eq!(h.launches.all(), [json!({"program": "pkexec", "args": ["apt", "install", "-y", format!("./{DEB}")]})]);
+    // By its absolute path: pkexec doesn't keep the working directory.
+    let launches = h.launches.all();
+    assert_eq!(launches.len(), 1, "{launches:?}");
+    assert_eq!(launches[0]["program"], "pkexec");
+    let args: Vec<&str> = launches[0]["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+    assert_eq!(args[..3], ["apt", "install", "-y"]);
+    assert!(std::path::Path::new(args[3]).is_absolute() && args[3].ends_with(&format!("updates/{DEB}")), "{args:?}");
     assert_eq!(call(&h.api, "updateStatus").await.unwrap()["state"], "ready");
 
     // Pre-releases when the setting says so.
