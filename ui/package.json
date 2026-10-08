@@ -21,8 +21,7 @@
     "hast-util-to-jsx-runtime": "2.3.6",
     "lucide-react": "^1.48.0",
     "mdast-util-find-and-replace": "3.0.3",
-    "mermaid": "12.1.0",
-    "monaco-editor": "0.57.0",
+    "mermaid": "12.1.0",    "monaco-editor": "0.57.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "rehype-raw": "7.0.0",
@@ -51,5 +50,9 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "dompurify": "^3.4.16",
+    "katex": "^0.18.2"
   }
 }
