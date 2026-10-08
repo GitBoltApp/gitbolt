@@ -317,6 +317,10 @@ mod tests {
         assert_eq!(recv(&mut got).await.as_deref().map(Path::new), Some(want.as_path()));
     }
 
+    /// Not on macOS: its peer credentials (`LOCAL_PEERCRED`) are only readable while the peer is
+    /// connected, and this one gave up waiting for its ack before the instance served, so the
+    /// user check refuses it there.
+    #[cfg(not(target_os = "macos"))]
     #[tokio::test]
     async fn a_request_sent_before_the_first_instance_serves_is_answered_once_it_does() {
         let rt = tempfile::tempdir().unwrap();
@@ -441,14 +445,18 @@ mod tests {
         let claims: Vec<Claim> = launches.into_iter().map(|t| t.join().unwrap()).collect();
         assert_eq!(claims.iter().filter(|c| matches!(c, Claim::Primary(_))).count(), 1, "{claims:?}");
         assert_eq!(claims.iter().filter(|c| matches!(c, Claim::Forwarded)).count(), 7, "{claims:?}");
-        // The forwarded paths are all waiting in the one instance's socket.
-        let first = claims.into_iter().find_map(|c| if let Claim::Primary(p) = c { Some(p) } else { None }).unwrap();
-        let mut got = collect(&first);
-        let mut paths = Vec::new();
-        for _ in 0..7 {
-            paths.push(recv(&mut got).await.unwrap());
+        // The forwarded paths are all waiting in the one instance's socket. (Not on macOS: their
+        // senders are gone, and so are their peer credentials; see the test above.)
+        #[cfg(not(target_os = "macos"))]
+        {
+            let first = claims.into_iter().find_map(|c| if let Claim::Primary(p) = c { Some(p) } else { None }).unwrap();
+            let mut got = collect(&first);
+            let mut paths = Vec::new();
+            for _ in 0..7 {
+                paths.push(recv(&mut got).await.unwrap());
+            }
+            assert_eq!(paths.len(), 7);
         }
-        assert_eq!(paths.len(), 7);
     }
 
     #[tokio::test]

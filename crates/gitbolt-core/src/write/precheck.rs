@@ -849,7 +849,7 @@ mod tests {
 
     /// Safety review M4: a directory whose name isn't UTF-8 reaches the disk check as its bytes,
     /// so a repository in it is found (a lossy name would have missed the path).
-    #[cfg(unix)] // non-UTF-8 file names exist only on Unix
+    #[cfg(all(unix, not(target_os = "macos")))] // non-UTF-8 file names: not on Windows, and APFS refuses them (EILSEQ)
     #[test]
     fn a_non_utf8_directory_name_is_checked_as_bytes() {
         use std::os::unix::ffi::OsStrExt;

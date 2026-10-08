@@ -1871,7 +1871,7 @@ mod tests {
 
     /// Review 1: a Stop while the autostash is restored, after the restore ran: the write fails,
     /// and the new entry (in the undone one's place) stays.
-    #[cfg(unix)] // the filter reads /proc/$PPID/cmdline
+    #[cfg(unix)] // the filter reads its parent's command line (/proc, or ps on macOS)
     #[tokio::test]
     async fn a_stop_restoring_the_autostash_keeps_the_new_entry() {
         let data = tempfile::tempdir().unwrap();
@@ -1889,9 +1889,9 @@ mod tests {
         // The restore of `notes` makes t.slow stat-dirty; the stash apply's index refresh then
         // cleans it, and its clean filter hangs when `git stash apply` runs it, until the Stop.
         let t_slow = r.path().join("t.slow");
-        r.git(&["config", "filter.toucher.smudge", &format!("touch -d 2001-01-01 {}; cat", crate::platform::fs::to_git_path(&t_slow))]);
+        r.git(&["config", "filter.toucher.smudge", &format!("touch -t 200101010000 {}; cat", crate::platform::fs::to_git_path(&t_slow))]);
         r.git(&["config", "filter.toucher.clean", "cat"]);
-        r.git(&["config", "filter.slow.clean", "case \"$(tr '\\0' ' ' < /proc/$PPID/cmdline)\" in *\"stash apply\"*) sleep 30;; esac; cat"]);
+        r.git(&["config", "filter.slow.clean", "if [ -r /proc/$PPID/cmdline ]; then c=$(tr '\\0' ' ' < /proc/$PPID/cmdline); else c=$(ps -o command= -p $PPID); fi; case \"$c\" in *\"stash apply\"*) sleep 30;; esac; cat"]);
         r.git(&["config", "filter.slow.smudge", "cat"]);
         let mut rx = api.subscribe();
         let stop = async {

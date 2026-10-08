@@ -1033,7 +1033,7 @@ mod tests {
         let r = TestRepo::new();
         r.commit("base");
         r.commit("second");
-        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        r.git(&["-c", "sequence.editor=sed -i.orig 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
         let (api, _data) = api();
         let id = open(&api, r.path()).await;
         let res = api.dispatch(Request::RebaseControl { repo: id, worktree: wt(r.path()), action: RebaseAction::Continue, message: Some("second, renamed".into()) }).await.unwrap();
@@ -1049,7 +1049,7 @@ mod tests {
         let r = TestRepo::new();
         r.commit("base");
         r.commit("second");
-        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        r.git(&["-c", "sequence.editor=sed -i.orig 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
         r.git(&["commit", "-q", "--allow-empty", "-m", "split piece"]);
         let (api, _data) = api();
         let id = open(&api, r.path()).await;

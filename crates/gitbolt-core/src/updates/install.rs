@@ -199,7 +199,7 @@ mod tests {
         // The script waits for the pid, then execs the binary; neither is spliced into it.
         assert!(c.args[1].contains(r#"kill -0 "$1""#) && c.args[1].ends_with(r#"exec "$2""#));
         #[cfg(unix)]
-        let out = std::process::Command::new(&c.program).args(&c.args[..2]).args(["x", "999999999", "/bin/true"]).output().unwrap();
+        let out = std::process::Command::new(&c.program).args(&c.args[..2]).args(["x", "999999999", "true"]).output().unwrap();
         #[cfg(unix)]
         assert!(out.status.success());
     }

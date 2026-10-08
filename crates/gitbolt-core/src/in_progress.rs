@@ -335,7 +335,7 @@ mod tests {
         let r = TestRepo::new();
         r.commit("base");
         r.commit("second");
-        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        r.git(&["-c", "sequence.editor=sed -i.orig 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
         let made = r.git(&["rev-parse", "HEAD"]);
         r.git(&["commit", "-q", "--amend", "-m", "reworded at the stop"]);
         match read(r.path()).unwrap() {
@@ -359,7 +359,7 @@ mod tests {
         r.commit("base");
         r.commit("first");
         r.commit("second");
-        r.git(&["-c", "sequence.editor=sed -i 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
+        r.git(&["-c", "sequence.editor=sed -i.orig 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
         let made = r.git(&["rev-parse", "HEAD"]);
         let base = r.git(&["rev-parse", "HEAD~1"]);
         let git_dir = r.path().join(".git");

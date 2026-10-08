@@ -111,6 +111,16 @@ mod tests {
         assert!(super::runtime_dir().unwrap().is_absolute());
     }
 
+    /// The longest socket name bound in the runtime dir (the instance's) still fits a Unix
+    /// socket address: 104 bytes with its NUL on macOS, whose runtime dir is in its long
+    /// per-user `$TMPDIR` (`/var/folders/…/T/gitbolt-<uid>`).
+    #[cfg(unix)]
+    #[test]
+    fn the_runtime_dir_leaves_room_for_the_sockets() {
+        let longest = super::runtime_dir().unwrap().join(format!("gitbolt-instance-{:016x}.sock", u64::MAX));
+        assert!(longest.as_os_str().len() < 104, "{}", longest.display());
+    }
+
     #[test]
     fn the_private_fallback_refuses_a_file_and_reuses_a_folder() {
         let tmp = tempfile::tempdir().unwrap();
