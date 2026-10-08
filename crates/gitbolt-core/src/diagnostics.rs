@@ -58,14 +58,33 @@ pub fn tilde_home(text: &str, home: Option<&Path>) -> String {
     }
 }
 
-/// `PRETTY_NAME` from /etc/os-release, the kernel release and the architecture.
+/// `PRETTY_NAME` from /etc/os-release, the kernel release and the architecture. macOS: its
+/// version and build, from SystemVersion.plist.
 pub fn os_description() -> String {
+    #[cfg(target_os = "macos")]
+    if let Some(desc) = std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok().and_then(|p| macos_description(&p)) {
+        return desc;
+    }
     let pretty = std::fs::read_to_string("/etc/os-release")
         .ok()
         .and_then(|t| t.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_string())))
         .unwrap_or_else(|| std::env::consts::OS.to_string());
     let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| s.trim().to_string()).unwrap_or_default();
     format!("{pretty} (Linux {kernel}, {})", std::env::consts::ARCH)
+}
+
+/// `macOS <ProductVersion> (<ProductBuildVersion>, <arch>)` from a SystemVersion.plist.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn macos_description(plist: &str) -> Option<String> {
+    let value = |key: &str| {
+        let rest = &plist[plist.find(&format!("<key>{key}</key>"))?..];
+        let start = rest.find("<string>")? + "<string>".len();
+        let len = rest[start..].find("</string>")?;
+        Some(rest[start..start + len].trim().to_string())
+    };
+    let version = value("ProductVersion")?;
+    let build = value("ProductBuildVersion").unwrap_or_default();
+    Some(format!("macOS {version} ({build}, {})", std::env::consts::ARCH))
 }
 
 /// The session type, noting that the CEF runtime always draws through X11 (spec §4.1).
@@ -103,6 +122,20 @@ mod tests {
         let ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.83 Safari/537.36";
         assert_eq!(chromium_version(ua), Some("152.0.7977.83"));
         assert_eq!(chromium_version("Mozilla/5.0 Firefox/140.0"), None);
+    }
+
+    #[test]
+    fn reads_the_macos_version_from_its_plist() {
+        let plist = "<?xml version=\"1.0\"?>\n<plist version=\"1.0\">\n<dict>\n\t<key>ProductBuildVersion</key>\n\t<string>24F74</string>\n\t<key>ProductName</key>\n\t<string>macOS</string>\n\t<key>ProductVersion</key>\n\t<string>15.5</string>\n</dict>\n</plist>\n";
+        assert_eq!(macos_description(plist), Some(format!("macOS 15.5 (24F74, {})", std::env::consts::ARCH)));
+        assert_eq!(macos_description("<plist/>"), None);
+    }
+
+    /// On macOS the real plist reads.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn this_macs_version_is_described() {
+        assert!(os_description().starts_with("macOS "), "{}", os_description());
     }
 
     #[test]
