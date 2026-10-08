@@ -97,11 +97,11 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook, quit:
     };
     match paths::cache_base() {
         Some(cache) => api
-            .with_open_cache(cache.join("gitbolt").join("open"))
-            .with_avatars(Arc::new(Gravatar::new(cache.join("gitbolt").join("avatars"), DEFAULT_BASE_URL)) as Arc<dyn AvatarProvider>)
+            .with_open_cache(cache.join(gitbolt_core::paths::APP_DIR).join("open"))
+            .with_avatars(Arc::new(Gravatar::new(cache.join(gitbolt_core::paths::APP_DIR).join("avatars"), DEFAULT_BASE_URL)) as Arc<dyn AvatarProvider>)
             // --- 4A T10: forge accounts (spec #4 §3.2): the system keyring, else the 0600 file ---
             .with_forge(
-                Arc::new(gitbolt_forge::connector::Forge::new(gitbolt_forge::connector::ForgeConfig { overrides: Default::default(), only_overrides: false, avatar_dir: Some(cache.join("gitbolt").join("forge-avatars")) })),
+                Arc::new(gitbolt_forge::connector::Forge::new(gitbolt_forge::connector::ForgeConfig { overrides: Default::default(), only_overrides: false, avatar_dir: Some(cache.join(gitbolt_core::paths::APP_DIR).join("forge-avatars")) })),
                 Arc::new(gitbolt_forge::tokens::SystemTokenStore::system(paths::data_dir().join("forge-tokens"))),
             ),
             // --- end 4A T10 ---
@@ -463,7 +463,7 @@ pub fn run() {
                 let _ = warm.dispatch(Request::ListOpeners).await;
             });
             if let Some(cache) = paths::cache_base() {
-                std::thread::spawn(move || open_copy::clean(&cache.join("gitbolt").join("open"), open_copy::MAX_AGE));
+                std::thread::spawn(move || open_copy::clean(&cache.join(gitbolt_core::paths::APP_DIR).join("open"), open_copy::MAX_AGE));
             }
             Ok(())
         })
