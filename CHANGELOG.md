@@ -5,6 +5,12 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **Dependencies:** KaTeX 0.16.47 to 0.18.10 (prototype pollution could bypass `trust`) and the
+  DOMPurify copy bundled with Monaco 3.4.15 to 3.4.16 (`IN_PLACE` advisories), both pinned with
+  npm overrides. GitBolt used neither vulnerable feature.
+
 ## [0.3.0] - 2026-10-07
 
 ### Added

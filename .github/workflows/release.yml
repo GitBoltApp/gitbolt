@@ -437,7 +437,7 @@ jobs:
           $files = @("GitBolt_${env:VERSION}_x64-setup.exe", "GitBolt_${env:VERSION}_x64.msi")
           New-Item -ItemType Directory -Force dist-windows | Out-Null
           foreach ($f in $files) {
-            if (-not (Test-Path "$out/$f")) { throw "Missing $f in $out: $((Get-ChildItem $out).Name -join ', ')" }
+            if (-not (Test-Path "$out/$f")) { throw "Missing $f in ${out}: $((Get-ChildItem $out).Name -join ', ')" }
             Copy-Item "$out/$f" dist-windows/
           }
           # sha256sum's format, so the release job checks and merges it with the Linux one.
