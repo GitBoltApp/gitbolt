@@ -2036,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-app"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gitbolt-core",
  "gitbolt-forge",
@@ -2054,7 +2054,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
@@ -2084,7 +2084,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-forge"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
  "gitbolt-core",
@@ -2102,7 +2102,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-harness"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "axum",
  "base64 0.23.1",

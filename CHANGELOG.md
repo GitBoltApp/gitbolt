@@ -5,6 +5,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-08
+
 ### Added
 
 - **macOS:** GitBolt runs on Macs with Apple Silicon (macOS 12 or later), from a `.dmg`: drag it
