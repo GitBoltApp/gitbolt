@@ -13,6 +13,27 @@ All notable changes to GitBolt are listed here, newest first. The format follows
   Security › **Open Anyway**. Chromium runs sandboxed, as elsewhere. Shortcuts use ⌘, with a
   native menu bar. Folders open in a tab from Finder's Open With, the Dock icon or
   `open -a GitBolt <folder>`. Updates replace the app in place, then **Restart GitBolt**.
+- **Tab groups:** drop a tab onto another to group them. A coloured chip names the group: click
+  it to collapse the group, drag it to move the group, hover it for a list of its tabs, and
+  right-click it for its colour, name, New tab in group, Save and close group, Ungroup tabs and
+  Delete group. The group's tabs share a coloured line along their top. Drag a tab into or out
+  of a group to join or leave it; a tab's menu also has Add to new group, Add to group and
+  Remove from group. Saved groups reopen from the tab bar's right-click menu, and groups are
+  kept with your tabs.
+- Double-clicking the tab bar's empty space opens Open repository.
+- **Front matter:** a Markdown file's leading YAML (`---`) or TOML (`+++`) front matter renders
+  as a table of keys and values, and the rendered diff shows a changed value word by word.
+
+### Changed
+
+- A rendered Markdown diff opens at its first change, as the source diff does.
+- A folder opened when GitBolt starts (or from a second launch) takes the empty Open repository
+  tab instead of opening beside it.
+
+### Fixed
+
+- After closing a file in a long history, part of the graph's lanes stayed blank until you
+  scrolled.
 
 ### Security
 
