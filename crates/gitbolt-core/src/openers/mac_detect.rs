@@ -10,7 +10,7 @@
 //! reads the real environment on macOS.
 
 use super::{find_in_path, is_executable, ArgStyle, ExecArg, Opener, OpenerKind, JETBRAINS};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Where detection looks. `from_system` reads the real environment; tests build their own.
 pub struct MacEnv {
@@ -113,6 +113,7 @@ pub fn detect(env: &MacEnv) -> Vec<Opener> {
 mod tests {
     use super::*;
     use crate::openers::tests::{args, executable};
+    use std::path::Path;
 
     fn env(root: &Path) -> MacEnv {
         MacEnv {
