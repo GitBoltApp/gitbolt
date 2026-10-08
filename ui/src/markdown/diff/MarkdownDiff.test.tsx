@@ -38,6 +38,23 @@ describe('<MarkdownDiff> (5C)', () => {
     expect(screen.queryByRole('note')).toBeNull();
   });
 
+  it('front matter: a changed value diffs in its row, an added key is an added row; split view lines the rows up', () => {
+    const was = '---\nname: repo-tests\ndescription: Helps run the unit tests.\n---\n\nBody.\n';
+    const now = '---\nname: repo-tests\ndescription: Helps run the e2e tests.\nowner: tools\n---\n\nBody.\n';
+    const { container, unmount } = render(<MarkdownDiff old={was} new={now} flavor="github" context={NEW} oldContext={OLD} />);
+    const table = container.querySelector('table.md-frontmatter')!;
+    expect([...table.querySelectorAll('tr')].map((r) => r.getAttribute('data-diff-mark'))).toEqual([null, 'changed', 'added']);
+    expect(table.querySelector('tr[data-diff-mark="changed"] td del')).toHaveTextContent('unit');
+    expect(table.querySelector('tr[data-diff-mark="changed"] td ins')).toHaveTextContent('e2e');
+    expect(table.querySelector('tr[data-diff-mark="changed"] th')).toHaveTextContent('description');
+    unmount();
+    const split = render(<MarkdownDiff old={was} new={now} flavor="github" context={NEW} oldContext={OLD} split />).container;
+    const [old, neu] = [...split.querySelectorAll('.md-split-row')[0]!.children];
+    expect([...old!.querySelectorAll('tr')].map((r) => r.textContent!.trim())).toEqual(['namerepo-tests', 'descriptionHelps run the unit tests.', '']);
+    expect(old!.querySelectorAll('tr.md-split-empty-row')).toHaveLength(1);
+    expect([...neu!.querySelectorAll('tr')].map((r) => r.textContent)).toEqual(['namerepo-tests', 'descriptionHelps run the e2e tests.', 'ownertools']);
+  });
+
   it('an LF to CRLF change marks nothing removed or added', () => {
     const { container } = render(<MarkdownDiff old={v1} new={v1.replace(/\n/g, '\r\n')} flavor="github" context={NEW} oldContext={OLD} />);
     expect(container.querySelector('[data-diff-mark]')).toBeNull();

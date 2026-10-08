@@ -501,13 +501,13 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   }, [scrollRef]);
 
   // Runs again each time <Activity> shows the graph (its effects are re-created), so returning
-  // from a diff lands where the user left off.
+  // from a diff lands where the user left off. The canvas syncs even when the offset was kept: its
+  // own effect ran before this ref was attached again, and drew nothing (GraphCanvas syncBand).
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && el.scrollTop !== lastScroll.current) {
-      el.scrollTop = lastScroll.current;
-      canvas.current?.sync();
-    }
+    if (!el) return;
+    if (el.scrollTop !== lastScroll.current) el.scrollTop = lastScroll.current;
+    canvas.current?.sync();
   }, [scrollRef]);
 
   const select = useCallback((i: number, mods: SelectMods = PLAIN) => {

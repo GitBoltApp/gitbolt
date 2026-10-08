@@ -24,6 +24,12 @@ describe('markdown.css (spec #5 §3.1)', () => {
     expect(rule('.md .md-diff-del code')).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-del-text\)/);
   });
 
+  it('front matter: compact keys, values that wrap in the rest of the width', () => {
+    expect(rule('.md .md-frontmatter th')).toMatch(/white-space:\s*nowrap/);
+    expect(rule('.md .md-frontmatter td')).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(rule('.md table.md-frontmatter')).toMatch(/width:\s*100%/);
+  });
+
   it('fits images to the width and keeps their aspect ratio (no shift when they load)', () => {
     expect(rule('.md-img')).toMatch(/max-width:\s*100%/);
     expect(rule('.md-img')).toMatch(/height:\s*auto/);

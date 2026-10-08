@@ -1,6 +1,6 @@
 import type { Element, ElementContent, Root as HastRoot } from 'hast';
 import { toJsxRuntime, type Components, type Jsx } from 'hast-util-to-jsx-runtime';
-import type { Code, ListItem, Root, TableRow } from 'mdast';
+import type { Code, ListItem, Root, Table, TableRow } from 'mdast';
 import { Fragment, useContext, type ComponentProps, type ReactNode } from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import rehypeRaw from 'rehype-raw';
@@ -83,6 +83,19 @@ export function toSafeHast(tree: Root): SafeHast {
       if (node.data?.gbDiff) el.properties.dataGbDiff = tag(node.data.gbDiff);
       if (node.data?.gbEmpty) el.properties.dataGbDiff = tag('empty');
       return el;
+    },
+    // A file's front matter (`remarkFrontmatterTable`): a row per key, the key a row header.
+    table: (state: State, node: Table) => {
+      if (!node.data?.gbFrontmatter) return defaultHandlers.table(state, node);
+      const rows = node.children.map((r): Element => {
+        const [key, value] = r.children;
+        const props: Element['properties'] = {};
+        if (r.data?.gbDiff) props.dataGbDiff = tag(r.data.gbDiff);
+        if (r.data?.gbEmpty) props.dataGbDiff = tag('empty');
+        const cell = (tagName: 'th' | 'td', c: typeof key): Element => ({ type: 'element', tagName, properties: {}, children: c ? (state.all(c) as ElementContent[]) : [] });
+        return { type: 'element', tagName: 'tr', properties: props, children: [cell('th', key), cell('td', value)] };
+      });
+      return { type: 'element', tagName: 'table', properties: { dataGbFm: tag(node.data.gbFrontmatter) }, children: [{ type: 'element', tagName: 'tbody', properties: {}, children: rows }] } satisfies Element;
     },
     code: (state: State, node: Code) => {
       const pre = defaultHandlers.code(state, node);
@@ -191,6 +204,13 @@ export function componentsFor(ctx: MarkdownContext, refs: MdReferenceNode[], non
       const mark = markOf(raw);
       const ok = mark !== null && mark in MARK_LABEL;
       return <li {...(plain as ComponentProps<'li'>)} className={ok ? `md-diff-${mark}` : undefined} data-diff-mark={ok ? mark : undefined}>{ok && mark === 'removed' ? onOldSide(children) : children}</li>;
+    },
+    table: ({ node: _node, children, ...rest }) => {
+      const { 'data-gb-fm': fm, ...plain } = rest as Record<string, unknown>;
+      if (typeof fm === 'string' && (fm === `${nonce}:yaml` || fm === `${nonce}:toml`)) {
+        return <table className="md-frontmatter" data-frontmatter={fm.slice(nonce.length + 1)}><caption>Front matter</caption>{children}</table>;
+      }
+      return <table {...(plain as ComponentProps<'table'>)}>{children}</table>;
     },
     tr: ({ node: _node, children, ...rest }) => {
       const { 'data-gb-diff': raw, ...plain } = rest as Record<string, unknown>;

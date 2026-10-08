@@ -249,7 +249,9 @@ marked.
 
 **Rendered Markdown** (`ui/src/markdown/`) is used for `.md` files, their diffs, and MR/PR text:
 1. **Parse**: unified with `remark-parse` and `remark-gfm`, plus GitBolt's plugins for emoji,
-   issue/MR references, heading ids and an autolink guard (`parse.ts`). Up to 16 KiB parses on the main
+   issue/MR references, heading ids and an autolink guard (`parse.ts`). A file's YAML (`---`) or
+   TOML (`+++`) front matter becomes a key/value table (`remark-frontmatter`, then `yaml` or
+   `smol-toml`; `plugins/frontmatter.ts`); MR/PR text keeps it as typed, as the forges do. Up to 16 KiB parses on the main
    thread in an idle callback; longer texts parse in a Web Worker (`parse.worker.ts`) and arrive in
    chunks that render progressively.
 2. **Sanitize**: `remark-rehype`, `rehype-raw` (inline HTML becomes real nodes), then

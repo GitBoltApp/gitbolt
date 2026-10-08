@@ -10,7 +10,7 @@ import { clearParseCache, parseMarkdown } from './parse';
 import type { MdFlavor } from './types';
 
 export type ParseRequest =
-  | { id: number; kind?: 'parse'; text: string; flavor: MdFlavor }
+  | { id: number; kind?: 'parse'; text: string; flavor: MdFlavor; frontmatter?: boolean }
   /** 5C: the rendered diff of `old` → `text`. */
   | { id: number; kind: 'diff'; old: string; text: string; flavor: MdFlavor };
 /** `tooLarge`: a diff whose alignment gave up (the view falls back to Source, R14). */
@@ -23,7 +23,7 @@ const post = (m: ParseReply) => (globalThis as unknown as { postMessage(m: unkno
   const { id } = r;
   try {
     if (HAS_SHORTCODE.test(r.text) || (r.kind === 'diff' && HAS_SHORTCODE.test(r.old))) await loadEmoji().catch(() => {});
-    const chunks = r.kind === 'diff' ? diffChunks(r.old, r.text, r.flavor) : splitChunks(parseMarkdown(r.text, r.flavor));
+    const chunks = r.kind === 'diff' ? diffChunks(r.old, r.text, r.flavor) : splitChunks(parseMarkdown(r.text, r.flavor, r.frontmatter === true));
     clearParseCache(); // the main thread keeps the chunks; the worker keeps nothing
     if (!chunks) { post({ id, error: 'too large', tooLarge: true }); return; }
     chunks.forEach((chunk, index) => post({ id, index, chunk, last: index === chunks.length - 1 }));

@@ -26,6 +26,9 @@ const host = vi.hoisted(() => ({
   fileScrollTop: vi.fn(() => 0), setFileScrollTop: vi.fn(), fileViewState: vi.fn(() => null), restoreFileViewState: vi.fn(),
 }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
+// mdOpen.test.ts covers where the open goes; here, when it happens.
+const opens = vi.hoisted(() => ({ hold: vi.fn((_pane: HTMLElement) => () => {}) }));
+vi.mock('./mdOpen', () => ({ holdFirstChange: opens.hold }));
 vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null } }));
 vi.mock('../markdown/fileLinks', () => ({}));
 // T5's renderer is tested by T5: here, what Diff View hands it.
@@ -256,6 +259,25 @@ describe('DiffTextBody', () => {
     rerender(<RepoViewContext value={store}><DiffTextBody identity="b" {...props} path="b.md" /></RepoViewContext>);
     expect(screen.getByTestId('markdown-diff')).toBe(pane);
     expect(pane.scrollTop).toBe(0);
+  });
+
+  it('a rendered diff opens at its first change: once per file shown or switch to Rendered, not when a line is asked for', async () => {
+    opens.hold.mockClear();
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    const props = { path: 'a.md', oldPath: null, original: 'a\n', modified: 'b\n', language: 'markdown', markdown: { old: P, new: C } };
+    const { rerender } = render(<RepoViewContext value={store}><DiffTextBody identity="a" {...props} /></RepoViewContext>);
+    await screen.findByTestId('md-diff');
+    expect(opens.hold).toHaveBeenCalledTimes(1);
+    expect(opens.hold).toHaveBeenLastCalledWith(screen.getByTestId('markdown-diff'));
+    rerender(<RepoViewContext value={store}><DiffTextBody identity="a" {...props} modified={'b, edited\n'} /></RepoViewContext>);
+    expect(opens.hold).toHaveBeenCalledTimes(1);
+    rerender(<RepoViewContext value={store}><DiffTextBody identity="b" {...props} path="b.md" /></RepoViewContext>);
+    expect(opens.hold).toHaveBeenCalledTimes(2);
+    act(() => useDiffPrefs.getState().set({ markdownView: 'source' }));
+    act(() => useDiffPrefs.getState().set({ markdownView: 'rendered' }));
+    expect(opens.hold).toHaveBeenCalledTimes(3);
+    rerender(<RepoViewContext value={store}><DiffTextBody identity="c" {...props} path="c.md" line={{ side: 'modified', line: 12 }} /></RepoViewContext>);
+    expect(opens.hold).toHaveBeenCalledTimes(3);
   });
 
   it("Rendered hides what follows the editor (a WIP diff's hunk actions); Source shows it again", async () => {

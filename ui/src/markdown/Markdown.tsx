@@ -83,8 +83,12 @@ export function StreamBody({ stream, text, context, old, split, className }: { s
   );
 }
 
+/** A file's front matter renders (as a table); a description's or a comment's stays as typed. */
+const hasFrontmatter = (c: MarkdownContext) => c.kind === 'file';
+
 function Progressive({ text, flavor, context, className }: { text: string; flavor: MdFlavor; context: MarkdownContext; className: string }) {
-  const stream = useMemo(() => chunkStream(text, flavor), [text, flavor]);
+  const fm = hasFrontmatter(context);
+  const stream = useMemo(() => chunkStream(text, flavor, fm), [text, flavor, fm]);
   return <StreamBody stream={stream} text={text} context={context} className={className} />;
 }
 
@@ -98,16 +102,17 @@ function Rendered({ text, flavor, context, className }: { text: string; flavor: 
   // A short body with shortcodes waits (as plain text) for the emoji map, once.
   const waitEmoji = needsEmoji && !emojiTried;
   const emoji = emojiReady();
+  const fm = hasFrontmatter(context);
   // Kept with the body: a re-render (a poll tick) never parses again, even once the shared LRU
   // has moved on (a PR with more bodies than it holds).
   const tree = useMemo(
-    () => (!small ? null : peekParsed(text, flavor) ?? (waitEmoji ? null : parseMarkdown(text, flavor))),
+    () => (!small ? null : peekParsed(text, flavor, fm) ?? (waitEmoji ? null : parseMarkdown(text, flavor, fm))),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `emoji` changes what the parse gives
-    [text, flavor, small, waitEmoji, emoji],
+    [text, flavor, fm, small, waitEmoji, emoji],
   );
   if (small) return tree ? <Whole tree={tree} context={context} className={className} /> : <PlainBody text={text} className={className} />;
   // Long bodies always stream (their chunks are kept by `chunkStream`, not the parse LRU).
-  return <Progressive key={`${flavor}\0${text}`} text={text} flavor={flavor} context={context} className={className} />;
+  return <Progressive key={`${flavor}\0${fm ? 1 : 0}\0${text}`} text={text} flavor={flavor} context={context} className={className} />;
 }
 
 /** Rendered Markdown (spec §3.1): plain text over `maxBytes`; a body that fails shows as plain

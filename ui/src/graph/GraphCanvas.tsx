@@ -116,6 +116,14 @@ export const GraphCanvas = memo(function GraphCanvas({ rows, scroller, width, he
  * changed: it's redrawn, in place); otherwise draws a fresh band around the viewport. */
 function syncBand(l: Live, scroller: RefObject<HTMLElement | null> | undefined, force: boolean): void {
   if (!l.paint || l.height <= 0) return;
+  // The scroller's ref isn't attached yet: <Activity> showing the graph again runs this layout
+  // effect before it re-attaches its parent's refs, so there's no offset to draw at (taking it
+  // as 0 drew the band at the top, off screen, until the next scroll). Nothing drawn now holds:
+  // GraphView syncs once the ref is back.
+  if (scroller && !scroller.current) {
+    l.band = null;
+    return;
+  }
   const top = scroller?.current?.scrollTop ?? 0;
   const b = l.band;
   const keep = b !== null && bandCovers(b, top, l.height);

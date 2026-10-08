@@ -12,7 +12,7 @@ const base = defaultSchema.attributes ?? {};
  * `language-*` on code, no accesskey/tabindex/style or form attributes, `id`/`name` prefixed `user-content-`, links
  * `http(s)`/`mailto`/relative, images also `data:` (narrowed to raster images by
  * `rehypeSafeUrls`), and these stripped with their contents. `data-gb-ref` on `span` carries a
- * reference through, and `data-gb-diff`, `data-gb-lines`, `data-gb-words` and `data-gb-note` (5C) a diff mark (render.tsx checks
+ * reference through, `data-gb-fm` on `table` front matter, and `data-gb-diff`, `data-gb-lines`, `data-gb-words` and `data-gb-note` (5C) a diff mark (render.tsx checks
  * their nonce). */
 export const MD_SCHEMA: Schema = {
   ...defaultSchema,
@@ -28,6 +28,8 @@ export const MD_SCHEMA: Schema = {
     div: [...without(base.div, ['className']), 'dataGbDiff', 'dataGbNote'],
     li: [...without(base.li, ['className']), 'dataGbDiff', 'value'],
     tr: [...without(base.tr, ['className']), 'dataGbDiff'],
+    // A file's front matter table (the override checks its nonce).
+    table: [...without(base.table, ['className']), 'dataGbFm'],
   },
   protocols: { ...defaultSchema.protocols, href: ['http', 'https', 'mailto'], src: ['http', 'https', 'data'] },
   clobberPrefix: 'user-content-',

@@ -679,11 +679,18 @@ test.describe('file list and diff takeover', () => {
   });
 });
 
-test('Esc returns to the graph with its selection and scroll position unchanged', async ({ page }) => {
+test('Esc and ← return to the graph with its selection and scroll position unchanged, its lanes drawn', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 500 });
   await page.goto(openUrl(fixtures.longHistory));
   const grid = page.getByRole('grid', { name: 'Commit graph' });
   await expect(grid).toBeVisible();
+  // The canvas's drawn band (lanes and nodes) covers the viewport, with no scroll event since the
+  // graph showed again: it used to stay at the top, off screen, until the next scroll.
+  const lanesDrawn = () => grid.evaluate((g) => {
+    const c = g.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!;
+    const top = parseFloat(c.style.top);
+    return top <= g.scrollTop && top + c.getBoundingClientRect().height >= g.scrollTop + g.clientHeight;
+  });
   await grid.evaluate((el) => { el.scrollTop = 600; });
   await page.getByRole('row').filter({ hasText: 'Commit 30' }).click();
   const top = await grid.evaluate((el) => el.scrollTop);
@@ -695,5 +702,14 @@ test('Esc returns to the graph with its selection and scroll position unchanged'
   await expect(grid).toBeVisible();
   await expect(grid).toBeFocused();
   expect(await grid.evaluate((el) => el.scrollTop)).toBe(top);
+  expect(await lanesDrawn()).toBe(true);
   await expect(page.getByRole('row').filter({ hasText: 'Commit 30' })).toHaveAttribute('aria-selected', 'true');
+  await test.step('→ opens the file, ← closes it: the same', async () => {
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await expect(grid).toBeFocused();
+    expect(await grid.evaluate((el) => el.scrollTop)).toBe(top);
+    expect(await lanesDrawn()).toBe(true);
+  });
 });

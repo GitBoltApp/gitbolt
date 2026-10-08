@@ -30,6 +30,13 @@
 .md th, .md td { padding: 4px 10px; border: 1px solid var(--section-border); }
 .md th { font-weight: 600; }
 .md tr:nth-child(2n) { background: var(--panel-bg1); }
+/* A file's front matter: keys on the left (compact, muted), values wrapping in the rest of the
+   width, on a tint that sets it apart as metadata. `:where` keeps the diff's row marks winning. */
+.md table.md-frontmatter { display: table; width: 100%; background: var(--panel-bg1); font-size: 0.92em; }
+.md table.md-frontmatter caption { padding: 0 0 2px; text-align: left; font-size: 0.85em; color: var(--text-secondary); }
+.md .md-frontmatter th { width: 1%; white-space: nowrap; text-align: left; vertical-align: top; color: var(--text-secondary); }
+.md .md-frontmatter td { white-space: pre-line; overflow-wrap: anywhere; }
+.md :where(.md-frontmatter) tr:nth-child(2n) { background: none; }
 .md code { padding: 0.15em 0.35em; border-radius: 4px; background: var(--app-bg0); font: 0.92em var(--font-mono); }
 .md pre { padding: 8px 10px; overflow-x: auto; border-radius: 6px; background: var(--app-bg0); font: 0.92em/1.45 var(--font-mono); white-space: pre; }
 .md pre code { padding: 0; background: none; font: inherit; }
@@ -135,7 +142,7 @@
 .md > .md-split-row:first-child > .md-split-cell > :first-child, .md > .md-chunk:first-child > .md-split-row:first-child > .md-split-cell > :first-child { margin-top: 0; }
 /* A block only the other side has: a hatched placeholder, as the text diff's Split draws. */
 .md-split-empty { margin-bottom: 10px; border-radius: 2px; background: repeating-linear-gradient(-45deg, var(--diff-diagonal-fill) 0 2px, transparent 2px 8px); }
-.md tr.md-split-empty-row > td { background: repeating-linear-gradient(-45deg, var(--diff-diagonal-fill) 0 2px, transparent 2px 8px); }
+.md tr.md-split-empty-row > :is(td, th) { background: repeating-linear-gradient(-45deg, var(--diff-diagonal-fill) 0 2px, transparent 2px 8px); }
 /* A list or blockquote split into rows continues into the next one. */
 .md-split-joined > .md-split-cell > :is(ul, ol, blockquote) { margin-bottom: 0; }
 .md-split-joined + .md-split-row > .md-split-cell > :is(ul, ol) > li:first-child { margin-top: 2px; }

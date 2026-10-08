@@ -31,6 +31,19 @@ class FakeWorker {
 afterEach(() => { vi.unstubAllGlobals(); resetChunkStreams(); FakeWorker.sent = []; FakeWorker.made = []; FakeWorker.fail = null; });
 
 describe('chunkStream (ruling 21)', () => {
+  it('a file’s front matter: its own stream, asked of the worker, a table in the first chunk', async () => {
+    const text = `---\nname: repo-tests\n---\n\n${big}`;
+    const file = chunkStream(text, 'github', true);
+    const body = chunkStream(text, 'github');
+    expect(file).not.toBe(body);
+    await vi.waitFor(() => expect(file.done && body.done).toBe(true));
+    expect([file.chunks[0]!.children[0]!.type, body.chunks[0]!.children[0]!.type]).toEqual(['table', 'thematicBreak']);
+    resetChunkStreams();
+    vi.stubGlobal('Worker', FakeWorker);
+    chunkStream(text, 'github', true);
+    expect(FakeWorker.sent[0]).toMatchObject({ frontmatter: true });
+  });
+
   it('parses off the main thread and streams one chunk per message, then keeps the result', async () => {
     vi.stubGlobal('Worker', FakeWorker);
     const s = chunkStream(big, 'github');

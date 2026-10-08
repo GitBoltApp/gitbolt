@@ -64,3 +64,40 @@ describe('<Markdown> (spec #5 §3.1)', () => {
     await waitFor(() => expect(document.body).toHaveTextContent('Done 🎉'));
   });
 });
+
+describe('<Markdown> front matter', () => {
+  const file = { kind: 'file', tabId: 't', commit: 'worktree', path: 'skills/repo-tests/SKILL.md' } as const;
+  const SKILL = '---\nname: repo-tests\ndescription: Helps choose and run the tests. <script>alert(1)</script> <b>bold</b>\ntags: [build, test]\n---\n\n# Repo tests\n';
+
+  it('a file’s front matter is a key/value table, its values text', () => {
+    const { container } = render(<Markdown flavor="github" context={file} text={SKILL} />);
+    const table = screen.getByRole('table', { name: 'Front matter' });
+    expect(table).toHaveClass('md-frontmatter');
+    expect([...table.querySelectorAll('tr')].map((r) => [...r.children].map((c) => `${c.tagName}:${c.textContent}`))).toEqual([
+      ['TH:name', 'TD:repo-tests'],
+      ['TH:description', 'TD:Helps choose and run the tests. <script>alert(1)</script> <b>bold</b>'],
+      ['TH:tags', 'TD:[ build, test ]'],
+    ]);
+    expect(table.querySelector('td code')).toHaveTextContent('[ build, test ]');
+    expect(container.querySelector('script, b')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Repo tests');
+  });
+
+  it('malformed front matter is a code block', () => {
+    const { container } = render(<Markdown flavor="github" context={file} text={'---\nname: [oops\n---\n'} />);
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(container.querySelector('pre, .md-code')).toHaveTextContent('name: [oops');
+  });
+
+  it('a forged front matter mark is an ordinary table', () => {
+    const { container } = render(<Markdown flavor="github" context={file} text={'<table data-gb-fm="0000000000000000:yaml"><tr><td>x</td></tr></table>'} />);
+    expect(container.querySelector('table')).not.toHaveClass('md-frontmatter');
+    expect(container.querySelector('caption')).toBeNull();
+  });
+
+  it('a description or comment keeps a leading --- block as typed (as GitHub and GitLab do)', () => {
+    render(<Markdown flavor="github" context={ctx} text={'---\nname: x\n---\n'} />);
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('name: x');
+  });
+});

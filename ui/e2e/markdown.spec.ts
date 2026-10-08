@@ -244,8 +244,12 @@ test.describe('the rendered Markdown diff (5C)', () => {
       // An unchanged appendix: the pane scrolls, for the overview ruler.
       + Array.from({ length: 40 }, (_, i) => `\nAppendix paragraph ${i + 1} keeps the page long.\n`).join('');
     const v2 = v1.replace('Setup', 'Install').replace('once', 'twice').replace('- configure\n', '- configure\n- verify\n').replace('8080', '9090').replace('A-->B', 'A-->C');
-    const repo = docsRepo({ 'guide.md': v1 }, 'Add guide');
+    // A long file with front matter, edited far down: it opens at that change.
+    const l1 = '---\nname: release-checklist\ndescription: The steps a release goes through.\n---\n\n# Release checklist\n'
+      + Array.from({ length: 60 }, (_, i) => `\nStep ${i + 1} of the release checklist stays as it was.\n`).join('');
+    const repo = docsRepo({ 'guide.md': v1, 'long.md': l1 }, 'Add guide');
     writeFileSync(join(repo, 'guide.md'), v2);
+    writeFileSync(join(repo, 'long.md'), l1.replace('Step 50 of the release checklist stays as it was.', 'Step 50 of the release checklist now runs twice.'));
     git(repo, 'commit', '-qam', 'Edit guide');
     await page.goto(openUrl(repo));
     await page.getByRole('row').filter({ hasText: 'Edit guide' }).first().click();
@@ -364,6 +368,21 @@ test.describe('the rendered Markdown diff (5C)', () => {
       await page.keyboard.press('Control+0');
       await expect.poll(size).toBe('13px');
       await expect(page.locator('html')).toHaveAttribute('data-zoom', '100');
+    });
+
+    await test.step('a file whose first change is far down opens with it centred; its front matter is a table', async () => {
+      await page.locator('[role="option"][data-path="long.md"]').click();
+      await expect(md.locator('table.md-frontmatter th')).toHaveText(['name', 'description']);
+      const change = md.locator('[data-diff-mark]');
+      await expect(change).toHaveCount(1);
+      await expect(change.locator('ins')).toHaveText(['now', 'runs', 'twice']);
+      const offCentre = () => change.evaluate((el) => {
+        const pane = el.closest('[data-testid="markdown-diff"]')!;
+        const r = el.getBoundingClientRect();
+        return Math.abs((r.top + r.bottom) / 2 - (pane.getBoundingClientRect().top + pane.clientHeight / 2));
+      });
+      await expect.poll(offCentre).toBeLessThanOrEqual(2);
+      expect(await md.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
     });
 
     // Source: the text diff and its view modes again.

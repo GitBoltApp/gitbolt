@@ -100,7 +100,10 @@ untrusted text (`ui/src/markdown/`).
   - `id` and `name` get a `user-content-` prefix;
   - links may only be `http`, `https`, `mailto` or relative. `data:` images are allowed only as
     base64 PNG, GIF, JPEG or WebP.
-- Issue references, and the marks a rendered diff adds, carry a random nonce made for each
+- A file's front matter is parsed as plain data (YAML's core schema: no custom tags, a capped
+  alias expansion; or TOML), and its values render as text, never as Markdown or HTML. A block
+  that doesn't parse shows as a code block.
+- Issue references, the front matter table, and the marks a rendered diff adds, carry a random nonce made for each
   render. A value the document writes itself doesn't match the nonce and is dropped, so a
   document can't forge them (`render.tsx`).
 - Links are rendered without an `href`, so the webview never navigates. A click goes through the

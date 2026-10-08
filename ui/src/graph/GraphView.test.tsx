@@ -1,6 +1,6 @@
 import { Activity } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { GraphView } from './GraphView';
 import { formatDate } from '../format/date';
 import { METRICS } from './metrics';
@@ -624,6 +624,28 @@ describe('GraphView columns: aria, persistence, canvas clip', () => {
     fireEvent.scroll(grid);
     // The 600 px viewport's band (band.ts): its row less half a viewport of whole rows.
     expect(canvas.style.top).toBe(`${Math.floor(3000 / rowH) * rowH - Math.ceil(300 / rowH) * rowH}px`);
+  });
+
+  it('shown again by <Activity> (a closed diff), the canvas draws its band at the kept scroll offset, with no scroll event', () => {
+    // Reshown, the canvas's layout effect runs before React re-attaches the scroll element's ref
+    // (a parent's): it drew the band at the top, and nothing redrew it until the next scroll.
+    const rows = Array.from({ length: 400 }, (_, i) => ({ ...graph.rows[1], id: String(i).padStart(40, '0') }));
+    const view = (mode: 'visible' | 'hidden') => <Activity mode={mode}><GraphView graph={{ ...graph, rows, labels: [] }} repoId="/repo" /></Activity>;
+    // Laid out unless <Activity> hides it (display: none), as a browser reports it.
+    const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')!;
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get(this: HTMLElement) { return this.closest('[style*="display: none"]') ? null : document.body; } });
+    onTestFinished(() => { Object.defineProperty(HTMLElement.prototype, 'offsetParent', saved); });
+    const { rerender } = render(view('visible'));
+    const grid = screen.getByRole('grid', { name: 'Commit graph' });
+    const canvas = screen.getByTestId('graph-canvas');
+    grid.scrollTop = 3000;
+    fireEvent.scroll(grid);
+    const band = `${Math.floor(3000 / METRICS.rowH) * METRICS.rowH - Math.ceil(300 / METRICS.rowH) * METRICS.rowH}px`;
+    expect(canvas.style.top).toBe(band);
+    rerender(view('hidden'));
+    rerender(view('visible'));
+    expect(grid.scrollTop).toBe(3000);
+    expect(canvas.style.top).toBe(band);
   });
 });
 

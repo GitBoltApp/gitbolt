@@ -89,7 +89,7 @@ function kindOf(n: RootContent): string {
   switch (n.type) {
     case 'code': return n.lang === 'mermaid' ? 'mermaid' : `code:${n.lang ?? ''}`;
     case 'list': return n.ordered ? 'ol' : 'ul';
-    case 'table': return `table:${n.align?.length ?? 0}`;
+    case 'table': return n.data?.gbFrontmatter ? 'frontmatter' : `table:${n.align?.length ?? 0}`;
     default: return n.type;
   }
 }
@@ -169,7 +169,7 @@ function looselyAlike(a: string, b: string): boolean {
   return x !== '' && y !== '' && (x.startsWith(y) || y.startsWith(x));
 }
 
-const ALWAYS = new Set(['ul', 'ol', 'blockquote', 'mermaid']);
+const ALWAYS = new Set(['ul', 'ol', 'blockquote', 'mermaid', 'frontmatter']);
 const BY_TEXT = new Set(['paragraph', 'heading', 'listItem', 'tableRow']);
 /** Whether `a` and `b` pair as one changed block. `only`: they're the gap's only removed and only
  * added unit, so two headings of one level, or two short blocks, pair whatever their text. */

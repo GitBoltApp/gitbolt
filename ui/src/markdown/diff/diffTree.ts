@@ -2,7 +2,7 @@ import type { Blockquote, Code, Definition, FootnoteDefinition, Heading, Image, 
 import { EXIT, visit } from 'unist-util-visit';
 import { parseMarkdown } from '../parse';
 import type { MdFlavor } from '../types';
-import { ALIGN_TIMEOUT_MS, alignUnits, blockKey, flowUnits, GaveUp, left, unitOf, WORD_DIFF_MAX_CHARS, type Op, type Unit } from './blocks';
+import { ALIGN_TIMEOUT_MS, alignUnits, blockKey, flowUnits, GaveUp, left, plainText, unitOf, WORD_DIFF_MAX_CHARS, type Op, type Unit } from './blocks';
 import type { DiffBlockNode, DiffMark } from './nodes';
 import { codeLines, inlineDiff } from './words';
 
@@ -127,6 +127,7 @@ function changed(o: RootContent, n: RootContent, c: Ctx): RootContent[] {
     const l = diffList(o as List, n, c);
     return n.ordered && ((o as List).start ?? 1) !== (n.start ?? 1) ? noted(l, 'Start number changed') : [l];
   }
+  if (n.type === 'table' && n.data?.gbFrontmatter) return [diffFrontmatter(o as Table, n, c)];
   if (n.type === 'table') {
     const t = diffTable(o as Table, n, c);
     if (!t) return replaced();
@@ -217,6 +218,21 @@ function diffTable(o: Table, n: Table, c: Ctx): Table | null {
     if (op.op === 'same') rows.push(op.new.nodes[0] as TableRow);
     else if (op.op === 'added') { c.changes++; const r = op.new.nodes[0] as TableRow; rows.push({ ...r, data: { ...r.data, gbDiff: 'added' } }); }
     else if (op.op === 'removed') { c.changes++; const r = oldSide(op.old.nodes[0] as TableRow, c); rows.push({ ...r, data: { ...r.data, gbDiff: 'removed' } }); }
+    else { c.changes++; rows.push(changedRow(op.old.nodes[0] as TableRow, op.new.nodes[0] as TableRow, c)); }
+  }
+  return { ...n, children: rows };
+}
+
+/** Two front matter tables (`remarkFrontmatterTable`), their rows lined up by key: a kept key
+ * whose value changed diffs it within its row; an added or removed key (a renamed one too) is an
+ * added or removed row. */
+function diffFrontmatter(o: Table, n: Table, c: Ctx): Table {
+  const keyed = (r: TableRow): Unit => ({ ...unitOf([r], 'frontmatterRow'), key: plainText(r.children[0]!) });
+  const rows: TableRow[] = [];
+  for (const op of align(o.children.map(keyed), n.children.map(keyed), c)) {
+    if (op.op === 'added') { c.changes++; const r = op.new.nodes[0] as TableRow; rows.push({ ...r, data: { ...r.data, gbDiff: 'added' } }); }
+    else if (op.op === 'removed') { c.changes++; const r = oldSide(op.old.nodes[0] as TableRow, c); rows.push({ ...r, data: { ...r.data, gbDiff: 'removed' } }); }
+    else if (blockKey(op.old.nodes) === blockKey(op.new.nodes)) rows.push(op.new.nodes[0] as TableRow);
     else { c.changes++; rows.push(changedRow(op.old.nodes[0] as TableRow, op.new.nodes[0] as TableRow, c)); }
   }
   return { ...n, children: rows };
@@ -319,8 +335,8 @@ export function diffTrees(old: Root, neu: Root, opts: { timeout?: number } = {})
   return { root: { type: 'root', children, data: { gbChanges: c.changes } }, changes: c.changes, gaveUp: false };
 }
 
-/** Both texts parsed (5A's cached parse) and diffed. An added file is `old = ''`, a deleted one
- * `neu = ''` (R6). */
+/** Both texts parsed (5A's cached parse, with their front matter: they're files) and diffed. An
+ * added file is `old = ''`, a deleted one `neu = ''` (R6). */
 export function diffMarkdown(old: string, neu: string, flavor: MdFlavor): DiffResult {
-  return diffTrees(parseMarkdown(old, flavor), parseMarkdown(neu, flavor));
+  return diffTrees(parseMarkdown(old, flavor, true), parseMarkdown(neu, flavor, true));
 }

@@ -8,6 +8,7 @@ import { useDiffPrefs } from './diffPrefs';
 import type { DiffSides } from './markdownDiffSides';
 import { markSlow, PRECHECK_BYTES, TOO_LARGE_TO_RENDER, useDiffTooLarge } from './markdownFiles';
 import { MdDiffFrame } from './MdDiffRuler';
+import { holdFirstChange } from './mdOpen';
 import { useNarrowPane } from './narrowPane';
 import { MdFontPx } from '../markdown/fontPx';
 import { editorFontVar, useEditorFontPx } from './fontZoom';
@@ -92,6 +93,17 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
     paneFile.current = identity;
     if (pane.current) pane.current.scrollTop = 0;
   }, [identity]);
+  // A file's rendered diff opens at its first change, as the source diff does (`holdFirstChange`):
+  // once per file shown (or per switch to Rendered), never on a refresh or an edit of it. A line
+  // asked for (a note's `file:line`) wins: the open leaves the pane where it is.
+  const opened = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!rendered) { opened.current = null; return; }
+    if (opened.current === identity) return;
+    opened.current = identity;
+    if (line || !pane.current) return;
+    return holdFirstChange(pane.current);
+  }, [rendered, identity, line]);
   // R3: Previous/Next change (and F7) step through the rendered changes.
   useEffect(() => (rendered ? setChangeStepper((dir) => { if (pane.current) stepChange(pane.current, dir); }) : undefined), [rendered]);
   // The diff mode applies (5C): Split shows it side by side, unless the pane is too narrow.

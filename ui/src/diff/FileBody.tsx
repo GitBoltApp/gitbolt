@@ -77,7 +77,7 @@ export function FileBody({ identity, path, text, language, onShown, editable = f
   // §3.1: a long file is parsed once, off the main thread, timed once (`useParseBudget`).
   const key = renderKey(navKey, shownText);
   const needsCheck = rendered && shownText.length > PRECHECK_BYTES;
-  const waiting = useParseBudget(key, needsCheck, () => import('../markdown/parseAsync').then((m) => () => m.chunkStream(shownText, flavor)));
+  const waiting = useParseBudget(key, needsCheck, () => import('../markdown/parseAsync').then((m) => () => m.chunkStream(shownText, flavor, true)));
   const fileText = useRef(text);
   fileText.current = text;
   useEffect(() => {

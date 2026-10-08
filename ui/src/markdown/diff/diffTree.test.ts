@@ -331,6 +331,45 @@ describe('diffMarkdown (5C)', () => {
     });
   });
 
+  describe('front matter: a row per key', () => {
+    const FM = (body: string) => `---\n${body}\n---\n\n# Repo tests\n`;
+    const BASE = 'name: repo-tests\ndescription: Helps choose and run the unit tests.\nowner: tools';
+
+    it('is the files’ own: a changed value diffs its words within its row', () => {
+      const r = d(FM(BASE), FM(BASE.replace('the unit tests', 'the e2e tests')));
+      expect(summary(r.root)).toEqual(['row:changed', 'del:unit', 'ins:e2e']);
+      expect(r.changes).toBe(1);
+      const t = r.root.children[0] as Table;
+      expect(t.data?.gbFrontmatter).toBe('yaml');
+      expect(t.children.map((row) => plainText(row.children[0]!))).toEqual(['name', 'description', 'owner']);
+    });
+
+    it('rows pair by key, however much the value changed', () => {
+      expect(summary(d(FM('owner: tools'), FM('owner: platform group')).root)).toEqual(['row:changed', 'del:tools', 'ins:platform group']);
+    });
+
+    it('an added or removed key is an added or removed row, where it is (or was)', () => {
+      const r = d(FM(BASE), FM('name: repo-tests\nversion: 2\ndescription: Helps choose and run the unit tests.'));
+      expect(summary(r.root)).toEqual(['row:added', 'row:removed']);
+      expect(r.changes).toBe(2);
+      expect((r.root.children[0] as Table).children.map((row) => plainText(row))).toEqual(['name\nrepo-tests', 'version\n2', 'description\nHelps choose and run the unit tests.', 'owner\ntools']);
+    });
+
+    it('a renamed key is a removed row and an added one, never a word change', () => {
+      const r = d(FM('team: tools'), FM('owner: tools'));
+      expect(summary(r.root)).toEqual(['row:removed', 'row:added']);
+    });
+
+    it('unchanged front matter marks nothing; front matter added to a file is an added block', () => {
+      expect(summary(d(FM(BASE), FM(BASE).replace('Repo tests', 'Repo checks')).root)).toEqual(['changed:heading', 'del:tests', 'ins:checks']);
+      expect(summary(d('# Repo tests\n', FM(BASE)).root)).toEqual(['added:table']);
+    });
+
+    it('front matter that stops parsing is its code block removed and its table added', () => {
+      expect(summary(d(FM(BASE), FM('name: [repo-tests')).root)).toEqual(['removed:table', 'added:code']);
+    });
+  });
+
   it('reports a gave-up alignment instead of a tree', () => {
     clearParseCache();
     expect(diffTrees(parseMarkdown('One.', 'github'), parseMarkdown('Two.', 'github'), { timeout: -1 }).gaveUp).toBe(true);

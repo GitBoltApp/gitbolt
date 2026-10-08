@@ -35,11 +35,14 @@ class Stream implements ChunkStream {
   readonly flavor: MdFlavor;
   /** A diff's old text (5C); `null` for a plain parse. */
   readonly old: string | null;
-  constructor(key: string, text: string, flavor: MdFlavor, old: string | null = null) {
+  /** A plain parse's front matter renders (`parseMarkdown`); a diff's always does (a file's). */
+  readonly frontmatter: boolean;
+  constructor(key: string, text: string, flavor: MdFlavor, old: string | null = null, frontmatter = false) {
     this.key = key;
     this.text = text;
     this.flavor = flavor;
     this.old = old;
+    this.frontmatter = frontmatter;
   }
   get watched(): boolean { return this.fns.size > 0; }
   /** The last subscriber leaving a parse still going abandons it, unless one comes back within
@@ -59,7 +62,7 @@ class Stream implements ChunkStream {
 
 /** A stream's chunks, worked out on the main thread: a parse, or (5C) a diff. `null`: the diff's
  * alignment gave up. */
-const chunksOf = (s: Stream): Root[] | null => (s.old === null ? splitChunks(parseMarkdown(s.text, s.flavor)) : diffChunks(s.old, s.text, s.flavor));
+const chunksOf = (s: Stream): Root[] | null => (s.old === null ? splitChunks(parseMarkdown(s.text, s.flavor, s.frontmatter)) : diffChunks(s.old, s.text, s.flavor));
 const sourceChars = (s: Stream) => s.text.length + (s.old?.length ?? 0);
 
 /** Large texts are kept with their chunks: a poll or a reopened view renders without parsing. */
@@ -123,7 +126,7 @@ function theWorker(): Worker | null {
 function post(w: Worker, s: Stream): void {
   const id = ++nextId;
   inFlight.set(id, s);
-  w.postMessage((s.old === null ? { id, text: s.text, flavor: s.flavor } : { id, kind: 'diff', old: s.old, text: s.text, flavor: s.flavor }) satisfies ParseRequest);
+  w.postMessage((s.old === null ? { id, text: s.text, flavor: s.flavor, frontmatter: s.frontmatter } : { id, kind: 'diff', old: s.old, text: s.text, flavor: s.flavor }) satisfies ParseRequest);
 }
 
 /**
@@ -170,9 +173,9 @@ function streamFor(key: string, make: () => Stream): ChunkStream {
 /** `text`'s chunks, parsed off the main thread; one stream per text, kept for the session's
  * recent large documents. Streams are keyed by a hash of their texts (`textKey`), never the texts
  * themselves: a key that concatenates them would copy megabytes. */
-export function chunkStream(text: string, flavor: MdFlavor): ChunkStream {
-  const key = `${flavor}\0${textKey(text)}`;
-  return streamFor(key, () => new Stream(key, text, flavor));
+export function chunkStream(text: string, flavor: MdFlavor, frontmatter = false): ChunkStream {
+  const key = `${flavor}\0${frontmatter ? 1 : 0}\0${textKey(text)}`;
+  return streamFor(key, () => new Stream(key, text, flavor, null, frontmatter));
 }
 
 /** 5C: the rendered diff of `old` → `neu` as chunks (the first carries `gbChanges`), aligned and
