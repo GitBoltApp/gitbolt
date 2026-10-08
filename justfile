@@ -67,8 +67,9 @@ e2e-shots *args:
     cd ui && GITBOLT_E2E_SHOTS=1 npx playwright test --project=chromium e2e/themes.spec.ts e2e/zoom.spec.ts {{args}}
 
 # The README's screenshot, docs/images/screenshot.webp: the made-up repos of scripts/showcase-repo.sh
-# in four tabs, a commit selected, 1600x1000 (ui/e2e/readme-screenshot.spec.ts; skipped by
-# `just e2e`). Reduced to 256 colours with Pillow, then oxipng or optipng when installed.
+# in seven tabs in three groups (Web collapsed); driftwood on the harness's fake GitHub with three open PRs, a
+# linked worktree, Stashes collapsed, a commit selected with its files as a tree; 1600x1000
+# (ui/e2e/readme-screenshot.spec.ts; skipped by `just e2e`). Reduced to 256 colours with Pillow, then oxipng or optipng when installed.
 readme-screenshot:
     #!/usr/bin/env bash
     set -euo pipefail

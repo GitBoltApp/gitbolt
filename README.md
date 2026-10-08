@@ -18,7 +18,7 @@ It's built with a Rust core (using [gitoxide](https://github.com/GitoxideLabs/gi
 and the `git` CLI for writes, so your hooks, config and credentials behave exactly as they do in a
 terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) runtime.
 
-![GitBolt: the commit graph with four repository tabs and a selected commit's details](docs/images/screenshot.webp)
+![GitBolt: the commit graph with repository tabs in three tab groups, branches with their GitHub pull requests, a second worktree, and a selected commit's files as a tree](docs/images/screenshot.webp)
 
 > **Status:** early (0.x). Usable day to day on Linux and Windows, and new on macOS; expect rough edges.
 

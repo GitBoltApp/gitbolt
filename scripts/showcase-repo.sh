@@ -6,9 +6,10 @@
 # DIR/driftwood is a fictional read-later app with about 200 commits by eight people over five
 # months: `main` and a long-lived `develop`, feature branches merged back with merge commits,
 # release branches tagged v0.1.0 to v1.2.0, a hotfix merged into both, branches still open, a
-# local bare `origin` (DIR/.remotes) that some branches are ahead of or behind, a stash and
-# uncommitted changes. DIR/docs-site, DIR/infra and DIR/mobile-app are small repos for the other
-# tabs. Every name, email and repo is made up.
+# local bare `origin` (DIR/.remotes) that some branches are ahead of or behind, a stash,
+# uncommitted changes, and a linked worktree for feature/reader-mode (DIR/driftwood-reader) with
+# changes of its own. DIR/docs-site, DIR/infra, DIR/mobile-app and the rest are small repos for the
+# other tabs. Every name, email and repo is made up.
 #
 # Deterministic: fixed identities, dates and contents, git config isolated from yours, so every
 # run gives the same commit hashes. Re-running resets DIR, which must be empty, missing, or carry
@@ -21,7 +22,9 @@ if [ -e "$dir" ] && [ -n "$(ls -A "$dir")" ] && [ ! -f "$dir/$marker" ]; then
   echo "$dir isn't empty and has no $marker marker; leaving it alone" >&2
   exit 1
 fi
-rm -rf "${dir:?}/driftwood" "${dir:?}/docs-site" "${dir:?}/infra" "${dir:?}/mobile-app" "${dir:?}/.remotes"
+for r in driftwood driftwood-reader docs-site infra mobile-app browser-extension design-system status-page .remotes; do
+  rm -rf "${dir:?}/$r"
+done
 mkdir -p "$dir/.remotes"
 touch "$dir/$marker"
 dir=$(cd "$dir" && pwd)
@@ -508,7 +511,7 @@ EOF
 # The remote: everything so far is pushed, the merged branches long gone.
 git init -q --bare -b main "$dir/.remotes/driftwood.git"
 git remote add origin "$dir/.remotes/driftwood.git"
-git push -q -u origin main develop feature/offline-sync feature/reader-mode feature/saved-searches
+git push -q -u origin main develop feature/offline-sync feature/reader-mode feature/saved-searches fix/import-encoding
 git push -q origin --tags
 
 # A colleague pushes to feature/reader-mode (so the local branch is behind), while offline-sync
@@ -535,6 +538,13 @@ edit web/offline/replay.ts "Back off after repeated failures"
 edit web/sw.ts "Skip the cache for API requests"
 git add web/sw.ts
 printf 'export const BACKOFF_MS = [1_000, 5_000, 30_000];\n' > web/offline/backoff.ts
+
+# Reader mode checked out in a linked worktree next to the repo, with a change under way there too.
+git worktree add -q "$dir/driftwood-reader" feature/reader-mode
+pushd "$dir/driftwood-reader" > /dev/null
+edit web/pages/Reader.css "Add a sepia theme"
+edit web/components/ReaderControls.tsx "Offer the sepia theme in the controls"
+popd > /dev/null
 
 # --- the other tabs: small repos -----------------------------------------------------------------
 
@@ -580,4 +590,30 @@ c share-sheet sofia "Pick tags before saving" src/screens/TagSheet.tsx
 c main priya "Open articles in the reader" src/screens/Reader.tsx
 c share-sheet sofia "Confirm with a toast" src/share.ts
 
-echo "showcase ready in $dir: driftwood ($(git -C "$dir/driftwood" rev-list --all --count) commits), docs-site, infra, mobile-app"
+clock=0
+at "2026-08-20 10:00"
+new_repo "$dir/browser-extension"
+printf '# Driftwood for the browser\n\nSave the page you are reading to Driftwood.\n' > README.md
+git add -A; tick; as sofia commit -q -m "Initial commit"
+c main sofia "Save the current page from the toolbar" src/popup.ts src/background.ts
+c main jonah "Reuse the mobile app's API client" src/api.ts
+c main sofia "Show saved pages with a badge" src/background.ts
+
+clock=0
+at "2026-07-14 10:00"
+new_repo "$dir/design-system"
+printf '# Driftwood design system\n\nColours, type and components shared by the web and mobile apps.\n' > README.md
+git add -A; tick; as priya commit -q -m "Initial commit"
+c main priya "Add the colour tokens" tokens/colors.json
+c main priya "Add the type scale" tokens/type.json
+c main elena "Document the button variants" docs/buttons.md
+
+clock=0
+at "2026-06-24 10:00"
+new_repo "$dir/status-page"
+printf '# status\n\nThe public status page for the Driftwood demo instance.\n' > README.md
+git add -A; tick; as luca commit -q -m "Initial commit"
+c main luca "Check the API every minute" checks/api.yaml
+c main tomas "Post incidents from the on-call bot" bot/incidents.ts
+
+echo "showcase ready in $dir: driftwood ($(git -C "$dir/driftwood" rev-list --all --count) commits), docs-site, infra, mobile-app, browser-extension, design-system, status-page"
