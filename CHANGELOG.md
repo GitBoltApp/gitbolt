@@ -5,6 +5,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-07
+
 ### Added
 
 - **Windows:** GitBolt builds, runs and installs on Windows 10 and 11: an NSIS installer (per user,
