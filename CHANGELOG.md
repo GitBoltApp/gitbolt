@@ -5,6 +5,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-09
+
 ### Added
 
 - **Inline review comments** on GitHub and GitLab. Open an MR's or PR's **Compare**, and a **+**
