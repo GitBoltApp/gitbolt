@@ -32,6 +32,7 @@ const EXEMPT: Record<string, string> = {
   'tabs/useTabDrag.ts': 'drag cancel (Esc)',
   'irebase/rowDrag.ts': 'drag cancel (Esc)',
   'irebase/chipDrag.ts': 'drag cancel (Esc)',
+  'diff/monaco/reviewGutter.ts': 'drag cancel (Esc)',
   'irebase/ChipColumn.tsx': 'chip focus keys inside the rebase editor',
   'auth/AuthModal.tsx': 'dialog keys (Esc / Enter / Tab)',
   'settings/SettingsView.tsx': 'settings form keys',

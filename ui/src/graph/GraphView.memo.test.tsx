@@ -12,7 +12,8 @@ vi.mock('./RefLabels', () => ({ RefLabels: () => { renders.n++; return null; } }
 // Counts GraphView renders (the canvas re-renders with the view; it isn't memoized).
 const views = vi.hoisted(() => ({ n: 0 }));
 vi.mock('./GraphCanvas', () => ({ GraphCanvas: () => { views.n++; return null; } }));
-vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}) }));
+// RepoView's details panel reaches the forge poller (review badges), whose platform asks inTauri.
+vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 // Counts how often the per-graph branch membership (F7) is computed.
 const membershipCalls = vi.hoisted(() => ({ n: 0 }));
 vi.mock('./membership', async (importOriginal) => {

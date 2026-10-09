@@ -1,5 +1,6 @@
-import { ArrowDown, ArrowUp, Columns2, FileDown, FileUp, Rows2, SquareSplitVertical, Type } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, Columns2, FileDown, FileUp, MessageSquarePlus, Rows2, SquareSplitVertical, Type } from 'lucide-react';
 import { activeStore, registerActions, type Action } from '../app/actions';
+import { lentHandler } from '../app/lent';
 import { splitConflicted } from '../details/conflicted';
 import { displayedOrder } from '../files/fileListPrefs';
 import type { DiffTarget, FileSection, PanelContent } from '../repo/store';
@@ -8,6 +9,7 @@ import { changeKeysOn } from './changeKeysOn';
 import { useDiffPrefs, type DiffMode } from './diffPrefs';
 import { isMarkdownTarget } from './markdownFiles';
 import { clearMarkdownOverride, markdownViewOf } from './markdownOverride';
+import { withBlockComment } from './review/blockComment';
 import { isMac } from '../ui/platformKeys';
 
 /**
@@ -46,6 +48,9 @@ function stepFile(dir: 1 | -1): void {
 
 const MODES: Array<[DiffMode, string, typeof Rows2]> = [['hunk', 'Hunk', SquareSplitVertical], ['inline', 'Inline', Rows2], ['split', 'Split', Columns2]];
 
+/** An action the open diff lends (`useLend`): usable while it does. */
+const lentAction = (id: string) => ({ when: () => lentHandler(id) !== null, run: () => lentHandler(id)?.() });
+
 const actions: Action[] = [
   ...MODES.map(([mode, name, icon], i): Action => ({
     id: `diff.mode.${mode}`, label: `${name} diff view`, group: 'View', section: 'Diff', icon, tooltip: `Show the diff as ${name}`, shortcuts: [isMac() ? `Mod+Alt+${i + 1}` : `Mod+Shift+${i + 1}`], menu: false,
@@ -76,6 +81,21 @@ const actions: Action[] = [
     id: 'diff.prevChange', label: 'Previous change', group: 'View', section: 'Diff', icon: ArrowUp, tooltip: 'Go to the previous change in the diff', shortcuts: ['Shift+F7', 'Shift+Up'], keysBy: 'diff/changeKeys.ts', menu: false,
     when: changeKeysOn,
     run: () => import('./DiffToolbar').then((m) => m.goToChange('previous')),
+  },
+  // Review comments (spec 2026-10-08 §2): review mode lends these (`diff/review/ReviewMode.tsx`).
+  // Over a review's rendered Markdown diff it comments on a block (`RenderedReview`).
+  withBlockComment({
+    id: 'review.comment', label: 'Comment on the line or selection', group: 'View', section: 'Diff', icon: MessageSquarePlus, tooltip: "Comment on the cursor's line, or the selected lines, of the merge request's diff", shortcuts: ['Mod+Alt+C'], menu: false,
+    ...lentAction('review.comment'),
+    yieldsTo: isTypingTarget,
+  }),
+  {
+    id: 'review.nextThread', label: 'Next thread', group: 'View', section: 'Diff', icon: ChevronsDown, tooltip: "Go to the next comment thread in the merge request's diff", shortcuts: ['F9'], menu: false,
+    ...lentAction('review.nextThread'),
+  },
+  {
+    id: 'review.prevThread', label: 'Previous thread', group: 'View', section: 'Diff', icon: ChevronsUp, tooltip: "Go to the previous comment thread in the merge request's diff", shortcuts: ['Shift+F9'], menu: false,
+    ...lentAction('review.prevThread'),
   },
   {
     id: 'diff.nextFile', label: 'Next file', group: 'View', section: 'Diff', icon: FileDown, tooltip: 'Open the next file in the file list', shortcuts: ['F8'], menu: false,

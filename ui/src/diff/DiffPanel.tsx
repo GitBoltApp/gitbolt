@@ -42,6 +42,7 @@ import { highlightLanguage } from './language';
 import { loadMonacoHost } from './monaco/load';
 import { loadedHost, TextDiff } from './TextDiff';
 import { HunkActions, wipSideOf } from './hunkActions';
+import { ReviewMode } from './review/ReviewMode';
 import { wipHunkZones } from './wipHunks';
 import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty, saveWorkingCopy, suspendCopy, trackCopy, useWorkingCopy, worktreeFileTarget } from './workingCopy';
 import './diff.css';
@@ -282,8 +283,9 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
           <DiffTextBody
             identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified} language={language} line={target.line}
             onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined}
-            // Spec #2 §7.3: hunk and line buttons on a WIP text diff (in Source only, R8).
-            after={wip ? <HunkActions target={target} /> : null}
+            // Spec #2 §7.3: hunk and line buttons on a WIP text diff (in Source only, R8); spec
+            // 2026-10-08 §2: review mode on an MR's Compare.
+            after={wip ? <HunkActions target={target} /> : <ReviewMode target={target} />}
             markdown={mdDiff ? { old: oldSide, new: fileCommitOf({ selection }, target) } : null}
           />
         )}
@@ -316,7 +318,7 @@ export const editorOwnsEscape = () =>
     .some((root) => [...root.querySelectorAll<HTMLElement>(ESCAPE_OWNERS)].some(isShown));
 
 /** Targets inside the zone that use ← themselves. */
-const OWNS_ARROWS = '.monaco-host, .hex-view, input, textarea, select, [role="slider"]';
+const OWNS_ARROWS = '.monaco-host, .review-layer, .hex-view, input, textarea, select, [role="slider"]';
 /** Targets a click leaves alone: controls, and the editor (Monaco focuses itself). */
 /** Alt+4 (`repo/focusActions.ts`): the editor, when one shows, so the keys scroll and select in
  * it; else the panel. */
@@ -325,7 +327,7 @@ const focusEditor = (el: HTMLElement): HTMLElement => {
   return el;
 };
 
-const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .hex-view, .md-rendered, .md-diff-ruler';
+const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .review-layer, .hex-view, .md-rendered, .md-diff-ruler';
 
 /**
  * The center-panel takeover (spec §10.1). The graph stays mounted, hidden, underneath.

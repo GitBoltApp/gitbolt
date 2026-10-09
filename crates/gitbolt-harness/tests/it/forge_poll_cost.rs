@@ -123,7 +123,7 @@ pub fn github_seed(seed: &mut ForgeSeed, head: &str, running: bool) {
         pulls.push(FakePull {
             checks: vec![check(running && i % 8 == 0)],
             requested_reviewers: if i % 4 == 0 { vec!["octocat".into()] } else { vec!["hubot".into()] },
-            reviews: if i % 3 == 0 { vec![FakeReview { id: 1000 + i, user: "hubot".into(), state: "APPROVED".into(), body: String::new(), submitted_at: "2026-10-03T08:00:00Z".into() }] } else { vec![] },
+            reviews: if i % 3 == 0 { vec![FakeReview { id: 1000 + i, user: "hubot".into(), state: "APPROVED".into(), body: String::new(), submitted_at: "2026-10-03T08:00:00Z".into(), ..Default::default() }] } else { vec![] },
             labels: vec!["backend".into()],
             ..pull(100 + i, format!("feat-{i:02}"), "open")
         });
@@ -420,4 +420,25 @@ async fn the_poll_cost_on_a_big_gitlab_repo_without_etags() {
     assert_eq!((steps[2].total, count(&steps[2], "updated_after")), (1, 1), "(b): the probe only: {:?}", steps[2].by);
     assert_eq!(steps[3].total, 2, "(c): the probe, then the list: {:?}", steps[3].by);
     assert_eq!(steps[4].total, 10, "(f): a probe a minute");
+}
+
+/// The review session's refresh in each poll (`refreshReview`): its drafts (the diff only when
+/// the head moved). Pinned per forge, so a request more shows: GitLab asks the MR and its draft
+/// notes; GitHub the PR and its reviews (and the user once). Nothing changed: all 304s.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_review_session_refresh_costs_a_fixed_few_requests() {
+    for (kind, start, steady) in [("gitlab", 2, 2), ("github", 3, 2)] {
+        let s = setup(kind, false).await;
+        poll(&s, "activate", "all", None).await;
+        s.h.forge.clear_requests();
+        let drafts = json!({"method": "forgeReviewDrafts", "params": {"repo": s.id, "number": 105}});
+        s.h.forge.advance();
+        ok(&s.h.api, drafts.clone()).await;
+        let first = take(&s, "review session starts");
+        s.h.forge.advance();
+        ok(&s.h.api, drafts).await;
+        let again = take(&s, "review session refresh, nothing changed");
+        assert_eq!(first.total, start, "{kind}: {:?}", first.by);
+        assert_eq!((again.total, again.not_modified), (steady, steady), "{kind}: {:?}", again.by);
+    }
 }

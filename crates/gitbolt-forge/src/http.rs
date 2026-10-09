@@ -211,8 +211,9 @@ pub fn body_message(body: &[u8]) -> Option<String> {
         other if !other.is_string() => Some(other.to_string()),
         _ => None,
     })?;
-    // --- 4C T1: GitHub's "Validation Failed" says what failed in `errors[].message` ---
-    let detail: Vec<&str> = v["errors"].as_array().map(|a| a.iter().filter_map(|e| e["message"].as_str()).collect()).unwrap_or_default();
+    // --- 4C T1: GitHub's "Validation Failed" says what failed in `errors[].message`, or in
+    // `errors[]` itself as plain strings ("User can only have one pending review per pull request") ---
+    let detail: Vec<&str> = v["errors"].as_array().map(|a| a.iter().filter_map(|e| e.as_str().or_else(|| e["message"].as_str())).map(str::trim).filter(|m| !m.is_empty()).collect()).unwrap_or_default();
     let said = if detail.is_empty() { said } else { format!("{said}: {}", detail.join("; ")) };
     // --- end 4C T1 ---
     Some(redact(&said).chars().take(200).collect())
@@ -1074,6 +1075,15 @@ mod tests {
         assert!(!format!("{e:?}").contains(TOKEN));
     }
 
+    #[tokio::test]
+    async fn a_write_sends_its_json_body_and_a_read_none() {
+        let s = TestServer::start(|_, _| Canned::json(200, "{}"));
+        let c = client(&s.base);
+        c.send_json(Method::Post, "/projects/1/merge_requests/12/draft_notes", &serde_json::json!({"note": "Why?"})).await.unwrap();
+        c.get("/user").await.unwrap();
+        assert_eq!(*s.bodies.lock().unwrap(), [r#"{"note":"Why?"}"#, ""]);
+    }
+
     /// GitHub answers a conditional GET's 304 with `Content-Encoding: gzip` and no body: the 304
     /// answers from the cache, and nothing tries to unzip a body that doesn't exist.
     #[tokio::test]
@@ -1413,6 +1423,11 @@ mod tests {
         );
         assert_eq!(body_message(br#"{"message": "Validation Failed", "errors": [{"resource": "PullRequest", "field": "head", "code": "missing_field"}]}"#).as_deref(), Some("Validation Failed"));
         assert_eq!(body_message(br#"{"message": ["", " "]}"#), None);
+        // GitHub may list the reasons as plain strings.
+        assert_eq!(
+            body_message(br#"{"message": "Unprocessable Entity", "errors": ["User can only have one pending review per pull request"]}"#).as_deref(),
+            Some("Unprocessable Entity: User can only have one pending review per pull request")
+        );
         assert_eq!(status_error("gitlab.example.com", 409, br#"{"message": ["a", "b"]}"#).message, "gitlab.example.com: a; b");
     }
     // --- end 4C T1 ---

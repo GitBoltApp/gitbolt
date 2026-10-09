@@ -4,6 +4,7 @@ import type { ForgeMrDetail } from '../api/gen/ForgeMrDetail';
 import type { ForgePipeline } from '../api/gen/ForgePipeline';
 import type { GbError } from '../api/gen/GbError';
 import type { RateLimitState } from '../api/gen/RateLimitState';
+import type { ReviewDiff } from '../api/gen/ReviewDiff';
 import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { clampFetchInterval } from '../settings/schema';
@@ -13,6 +14,8 @@ import { openFlyout, shownFlyout } from '../ui/flyout/flyout';
 import { forgeOf, forgeScratch, keepSame, knownMr, sameJson, MR_FLYOUT, patchForge, upstreamRefsOf, writeEpoch, type MrViewArgs, type TabForge } from './mrStore';
 import { backoffMs, type PollOutcome, type PollReason } from './poller';
 import { mappedRemotes } from './projects';
+import { patchReview, settleReview } from './review/lifetime';
+import { commentableIndex } from './review/model';
 
 /** A hover card's detail is asked again once it's this old. */
 export const DETAIL_MAX_AGE_MS = 60_000;
@@ -105,7 +108,8 @@ const polling = new Map<string, Promise<PollOutcome>>();
  * One poll of a tab (spec #4 §3.4; `createForgePoller` decides when):
  * - except `fast`: the repo's target project (asked of the forges again on `activate`), the
  *   badges (`forgeBranchMrs` with the local branches' upstreams);
- * - always: the sidebar section's list, and the MR/PR open in the flyout.
+ * - always: the sidebar section's list, and the MR/PR open in the flyout;
+ * - except `fast`: the tab's review session (its MR and drafts, `refreshReview`).
  * Each part fails alone: badges that couldn't refresh keep theirs and say so, and the list is
  * still asked. A failure keeps what's shown, says so (`error`), and waits: the failure backoff,
  * or until a rate limit's reset, as the outcome's floor. A low rate-limit budget slows the next
@@ -193,6 +197,11 @@ async function pollOnce(tabId: string, reason: PollReason): Promise<PollOutcome>
     const open = forgeOf(tabId).openMr;
     // The open MR's own failure is in `detailErrors`; it doesn't fail the badges and the list.
     if (open !== null) await refreshMr(tabId, open).catch(() => {});
+    // The tab's review session: its MR's threads (when it isn't the one open), then its drafts.
+    // Not on a fast poll (a running pipeline's): POLL_COST paces those without them.
+    const reviewing = reason === 'fast' ? undefined : forgeOf(tabId).review?.number;
+    if (reviewing !== undefined && reviewing !== open) await refreshMr(tabId, reviewing).catch(() => {});
+    if (reviewing !== undefined) await refreshReview(tabId);
     if (gone()) return IDLE;
     const pace = ratePacing(list.rateLimit, Date.now());
     if (partial !== null) {
@@ -254,6 +263,41 @@ export async function refreshMr(tabId: string, number: number): Promise<void> {
     failed(tabId, number, e);
     throw e;
   }
+}
+
+/** The tab's review session, now (spec §1 "Refreshes"): the user's drafts every time, the diff's
+ * refs and commentable lines once per set of refs (the author pushed, or the target branch
+ * changed: read again). Never throws: a
+ * failure is the session's `error`, what's shown stays (a diff that fails keeps the last refs and
+ * lines; the drafts read still counts). An answer that may predate a write's is dropped. Then the
+ * session is settled (`settleReview`). */
+export async function refreshReview(tabId: string): Promise<void> {
+  const repo = repoOf(tabId);
+  const s = forgeOf(tabId).review;
+  if (repo === undefined || !s) return;
+  const epoch = writeEpoch(tabId);
+  try {
+    const state = await api.forgeReviewDrafts(repo, s.number);
+    const asked = state.refs && `${s.number} ${state.refs.baseSha} ${state.refs.startSha} ${state.refs.headSha}`;
+    let diff: ReviewDiff | null = null;
+    let diffError: string | null = null;
+    if (asked && asked !== forgeScratch.reviewRefs.get(tabId)) {
+      try {
+        diff = await api.forgeReviewDiff(repo, s.number);
+      } catch (e) {
+        diffError = errorMessage(e);
+      }
+    }
+    if (repoOf(tabId) === undefined || writeEpoch(tabId) !== epoch) return;
+    if (diff && asked && forgeOf(tabId).review?.number === s.number) forgeScratch.reviewRefs.set(tabId, asked);
+    patchReview(tabId, s.number, (cur) => ({
+      drafts: keepSame(cur.drafts, state.drafts), pendingReview: state.pendingReview, canDraft: state.canDraft, error: diffError, loaded: true,
+      ...(diff && { refs: keepSame(cur.refs, diff.refs), files: Object.fromEntries(diff.files.map((f) => [f.path, commentableIndex(f)])), diffHead: diff.refs.headSha }),
+    }));
+  } catch (e) {
+    patchReview(tabId, s.number, () => ({ error: errorMessage(e) }));
+  }
+  settleReview(tabId);
 }
 
 /** A hover card's detail: unless one younger than `maxAgeMs` is loaded; one request at a time. */

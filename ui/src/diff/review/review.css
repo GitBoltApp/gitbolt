@@ -1,0 +1,26 @@
+/* Review comments in the source diff (spec 2026-10-08 §2): the cards under the lines. */
+.review-card { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; padding: 8px 10px; border: 1px solid var(--section-border); border-radius: 8px; background: var(--panel-bg1); color: var(--text-normal); font-family: var(--font-ui); font-size: 12px; user-select: text; }
+.review-card > * { min-width: 0; }
+.review-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.review-toggle { all: unset; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 3px; cursor: pointer; color: var(--text-secondary); }
+.review-toggle > svg { transition: transform var(--motion-fast); }
+.review-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.review-toggle:focus-visible, .review-icon:focus-visible { outline: 2px solid var(--focus-outline); }
+.review-icon { all: unset; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; color: var(--text-secondary); }
+.review-icon:hover { background: var(--control-hover-bg); color: var(--text-normal); }
+.review-excerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.review-dim { color: var(--text-secondary); font-size: 11px; }
+.review-chip { padding: 0 6px; border-radius: 2em; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.review-chip.pending { background: color-mix(in srgb, var(--yellow) 22%, transparent); color: var(--text-selected); }
+.review-chip.outdated { background: var(--control-bg); color: var(--text-secondary); }
+.review-chip.resolved { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.review-error { margin: 0; color: var(--red); overflow-wrap: anywhere; }
+/* The MR view's thread, inside the card: the card is its frame. */
+.review-thread .mr-discussion { border: 0; background: none; }
+.review-box .md-field .md-field-body > textarea { min-height: 4.5em; }
+/* Unavailable but hoverable (its tooltip says why): Suggest change on the old side. */
+.review-box button.mr-button:not(.primary)[aria-disabled="true"] { color: var(--text-disabled); cursor: default; }
+.review-box button.mr-button:not(.primary)[aria-disabled="true"]:hover { background: var(--control-bg); }
+/* Over the editor's top edge (the body is positioned), clear of the find widget at its top right:
+ * one appearing (a poll can bring it) moves no line. */
+.diff-banner.review-banner { position: absolute; z-index: 2; top: 6px; left: 12px; max-width: max(200px, calc(100% - 470px)); box-sizing: border-box; display: flex; align-items: center; gap: 8px; border: 1px solid var(--section-border); border-radius: 6px; background: color-mix(in srgb, var(--yellow) 18%, var(--panel-bg1)); box-shadow: 0 1px 4px var(--shadow-popup); }

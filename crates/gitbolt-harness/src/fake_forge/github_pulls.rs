@@ -35,6 +35,10 @@ pub struct FakeReview {
     pub state: String,
     pub body: String,
     pub submitted_at: String,
+    // --- review comments ---
+    /// The head a pending review was started on.
+    pub commit_id: String,
+    // --- end review comments ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -82,6 +86,11 @@ pub struct FakeReviewComment {
     // --- comment actions ---
     pub reactions: Vec<FakeReaction>,
     // --- end comment actions ---
+    // --- review comments ---
+    /// Its review's id (`pull_request_review_id`); a pending review's comments are its author's
+    /// alone.
+    pub review: Option<u64>,
+    // --- end review comments ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -130,7 +139,22 @@ pub struct FakePull {
     /// Review threads (by their first comment's id) resolved, and by whom (a login).
     pub resolved_threads: Vec<FakeResolvedThread>,
     // --- end comment actions ---
+    // --- review comments ---
+    /// `/files`: each changed file and its patch.
+    pub files: Vec<FakePrFile>,
+    // --- end review comments ---
 }
+
+// --- review comments ---
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FakePrFile {
+    pub filename: String,
+    pub previous_filename: Option<String>,
+    /// `None`: GitHub sent none (a large file).
+    pub patch: Option<String>,
+}
+// --- end review comments ---
 
 // --- comment actions ---
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -206,6 +230,7 @@ pub fn default_pulls() -> Vec<FakePull> {
             reactions: vec![],
             start_line: None,
             start_side: None,
+            review: None,
         };
     vec![
         FakePull {
@@ -220,6 +245,7 @@ pub fn default_pulls() -> Vec<FakePull> {
                     state: "CHANGES_REQUESTED".into(),
                     body: "Please add a test.".into(),
                     submitted_at: "2026-10-03T08:00:00Z".into(),
+                    ..Default::default()
                 },
                 FakeReview {
                     id: 32,
@@ -227,6 +253,7 @@ pub fn default_pulls() -> Vec<FakePull> {
                     state: "APPROVED".into(),
                     body: "Looks good now.".into(),
                     submitted_at: "2026-10-04T08:00:00Z".into(),
+                    ..Default::default()
                 },
             ],
             comments: vec![FakeComment {
@@ -252,6 +279,7 @@ pub fn default_pulls() -> Vec<FakePull> {
                     Some(51),
                 ),
             ],
+            files: vec![FakePrFile { filename: "README.md".into(), previous_filename: None, patch: Some("@@ -1 +1,2 @@\n Readme\n+Second line".into()) }],
             ..pull(3, "Dev work", "dev", "monalisa", "2026-10-04")
         },
         FakePull {
@@ -337,7 +365,8 @@ pub fn pull_json(st: &ForgeState, p: &FakePull, base: &str, single: bool) -> Val
 }
 
 fn review_json(st: &ForgeState, r: &FakeReview, base: &str) -> Value {
-    json!({ "id": r.id, "user": user_json(st, &r.user, base), "state": r.state, "body": r.body, "submitted_at": r.submitted_at })
+    let submitted = if r.submitted_at.is_empty() { Value::Null } else { Value::from(r.submitted_at.as_str()) };
+    json!({ "id": r.id, "node_id": format!("PRR_{}", r.id), "user": user_json(st, &r.user, base), "state": r.state, "body": r.body, "submitted_at": submitted, "commit_id": r.commit_id })
 }
 
 // --- comment actions: each comment's reactions summary and its `html_url` (`pull`: the PR's) ---
@@ -429,7 +458,8 @@ fn comment_json(st: &ForgeState, c: &FakeComment, base: &str, pull: &str) -> Val
 
 fn review_comment_json(st: &ForgeState, c: &FakeReviewComment, base: &str, pull: &str) -> Value {
     json!({
-        "id": c.id, "user": user_json(st, &c.user, base), "body": c.body, "created_at": c.created_at, "path": c.path,
+        "id": c.id, "node_id": format!("PRRC_{}", c.id), "pull_request_review_id": c.review,
+        "user": user_json(st, &c.user, base), "body": c.body, "created_at": c.created_at, "path": c.path,
         "line": c.line, "original_line": c.line, "side": c.side, "diff_hunk": c.diff_hunk, "in_reply_to_id": c.in_reply_to,
         "start_line": c.start_line, "original_start_line": c.start_line, "start_side": c.start_side,
         "html_url": format!("{pull}#discussion_r{}", c.id), "reactions": summary_json(&c.reactions),
@@ -572,10 +602,129 @@ fn auto_merge(st: &mut ForgeState, r: &FakeRequest, vars: &Value, enable: bool) 
 }
 // --- end auto-merge ---
 
+// --- review comments ---
+/// Whether `line` on `side` (`LEFT`/`RIGHT`) is a line of `path`'s patch in `p` (GitHub: "must
+/// be part of the diff").
+fn in_diff(p: &FakePull, path: &str, side: &str, line: u32) -> bool {
+    use gitbolt_core::forge::DiffSide;
+    let want = if side == "LEFT" { DiffSide::Old } else { DiffSide::New };
+    let Some(patch) = p.files.iter().find(|f| f.filename == path).and_then(|f| f.patch.as_deref()) else { return false };
+    gitbolt_core::forge::review::commentable_lines(patch).iter().any(|l| l.side() == want && l.number() == line)
+}
+
+fn patch_of(p: &FakePull, path: &str) -> String {
+    p.files.iter().find(|f| f.filename == path).and_then(|f| f.patch.clone()).unwrap_or_default()
+}
+
+fn gql_error(m: impl Into<String>) -> Reply {
+    Reply::json(json!({ "errors": [{ "message": m.into() }] }))
+}
+
+/// Whether `me` sees review comment `c` of `p`: someone else's pending review is private. The
+/// user's own pending comments are listed (as GitHub may), so the provider must skip them itself.
+fn visible(p: &FakePull, c: &FakeReviewComment, me: &str) -> bool {
+    !c.review.is_some_and(|rid| p.reviews.iter().any(|x| x.id == rid && x.state == "PENDING" && x.user != me))
+}
+
+/// `x` is `me`'s pending review `rid`.
+fn my_pending(x: &FakeReview, rid: Option<u64>, me: &str) -> bool {
+    Some(x.id) == rid && x.state == "PENDING" && x.user == me
+}
+
+/// The pending review's GraphQL mutations (`github.rs`'s consts), by node id: `PR_<n>`, `PRR_<id>`,
+/// `PRRC_<id>`. Only the review's author touches it. `None`: not one of them.
+fn review_mutation(st: &mut ForgeState, r: &FakeRequest, query: &str, v: &Value) -> Option<Reply> {
+    let me = login(r);
+    let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    let num = |id: String, prefix: &str| id.strip_prefix(prefix).and_then(|x| x.parse::<u64>().ok());
+    let unknown = |id: String| gql_error(format!("Could not resolve to a node with the global id of '{id}'"));
+    let pulls = &mut st.seed.github.pulls;
+    if query.contains("addPullRequestReviewThread") {
+        let rid = num(s("review"), "PRR_");
+        let Some(p) = pulls.iter_mut().find(|p| p.reviews.iter().any(|x| my_pending(x, rid, &me))) else { return Some(unknown(s("review"))) };
+        let (path, side) = (s("path"), s("side"));
+        let line = v["line"].as_u64().unwrap_or(0) as u32;
+        let start = v["startLine"].as_u64().map(|n| n as u32);
+        let start_side = v["startSide"].as_str().map(str::to_string);
+        // As GitHub: no thread, and the review it was for stays, even one just started for it.
+        if !in_diff(p, &path, &side, line) || start.is_some_and(|n| !in_diff(p, &path, start_side.as_deref().unwrap_or(&side), n)) {
+            return Some(Reply::json(json!({ "data": { "addPullRequestReviewThread": { "thread": null } }, "errors": [{ "message": "Pull request review thread line must be part of the diff" }] })));
+        }
+        let c = FakeReviewComment { id: next_id(p), user: me.clone(), body: s("body"), created_at: WRITE_TIME.into(), path: path.clone(), line: Some(line), side: side.clone(), diff_hunk: patch_of(p, &path), in_reply_to: None, start_line: start, start_side: start_side.clone(), reactions: vec![], review: rid };
+        p.review_comments.push(c.clone());
+        let start_diff_side = start.map(|_| start_side.clone().unwrap_or_else(|| side.clone()));
+        let thread = json!({ "id": format!("PRRT_{}", c.id), "path": path, "line": line, "startLine": start, "diffSide": side, "startDiffSide": start_diff_side, "isOutdated": false, "comments": { "nodes": [{ "id": format!("PRRC_{}", c.id), "body": c.body }] } });
+        return Some(Reply::json(json!({ "data": { "addPullRequestReviewThread": { "thread": thread } } })));
+    }
+    if query.contains("addPullRequestReview") {
+        let Some(p) = pulls.iter_mut().find(|p| format!("PR_{}", p.number) == s("pr")) else { return Some(unknown(s("pr"))) };
+        if p.reviews.iter().any(|x| x.state == "PENDING" && x.user == me) {
+            return Some(gql_error("User can only have one pending review per pull request"));
+        }
+        let id = next_id(p);
+        p.reviews.push(FakeReview { id, user: me.clone(), state: "PENDING".into(), commit_id: s("commit"), ..Default::default() });
+        return Some(Reply::json(json!({ "data": { "addPullRequestReview": { "pullRequestReview": { "id": format!("PRR_{id}") } } } })));
+    }
+    if query.contains("updatePullRequestReviewComment") {
+        let cid = num(s("id"), "PRRC_");
+        let Some(c) = pulls.iter_mut().flat_map(|p| p.review_comments.iter_mut()).find(|c| Some(c.id) == cid && c.user == me) else { return Some(unknown(s("id"))) };
+        c.body = s("body");
+        return Some(Reply::json(json!({ "data": { "updatePullRequestReviewComment": { "pullRequestReviewComment": { "id": s("id"), "body": c.body } } } })));
+    }
+    if query.contains("deletePullRequestReviewComment") {
+        let cid = num(s("id"), "PRRC_");
+        for p in pulls.iter_mut() {
+            if let Some(k) = p.review_comments.iter().position(|c| Some(c.id) == cid && c.user == me) {
+                p.review_comments.remove(k);
+                return Some(Reply::json(json!({ "data": { "deletePullRequestReviewComment": { "clientMutationId": null } } })));
+            }
+        }
+        return Some(unknown(s("id")));
+    }
+    if query.contains("deletePullRequestReview") {
+        let rid = num(s("review"), "PRR_");
+        for p in pulls.iter_mut() {
+            if let Some(k) = p.reviews.iter().position(|x| my_pending(x, rid, &me)) {
+                p.reviews.remove(k);
+                p.review_comments.retain(|c| c.review != rid);
+                return Some(Reply::json(json!({ "data": { "deletePullRequestReview": { "clientMutationId": null } } })));
+            }
+        }
+        return Some(unknown(s("review")));
+    }
+    if query.contains("submitPullRequestReview") {
+        let rid = num(s("review"), "PRR_");
+        let state = match s("event").as_str() {
+            "APPROVE" => "APPROVED",
+            "REQUEST_CHANGES" => "CHANGES_REQUESTED",
+            "COMMENT" => "COMMENTED",
+            _ => return Some(gql_error("Argument 'event' on InputObject 'SubmitPullRequestReviewInput' has an invalid value")),
+        };
+        for p in pulls.iter_mut() {
+            if let Some(x) = p.reviews.iter_mut().find(|x| my_pending(x, rid, &me)) {
+                x.state = state.into();
+                x.body = v["body"].as_str().unwrap_or_default().into();
+                x.submitted_at = WRITE_TIME.into();
+                p.requested_reviewers.retain(|u| *u != me);
+                p.updated_at = WRITE_TIME.into();
+                return Some(Reply::json(json!({ "data": { "submitPullRequestReview": { "pullRequestReview": { "id": s("review"), "state": state } } } })));
+            }
+        }
+        return Some(unknown(s("review")));
+    }
+    None
+}
+// --- end review comments ---
+
 fn graphql(st: &mut ForgeState, r: &FakeRequest) -> Reply {
     let b = body_of(r);
     let query = b["query"].as_str().unwrap_or_default();
     let id = b["variables"]["id"].as_str().unwrap_or_default().to_string();
+    // --- review comments ---
+    if let Some(reply) = review_mutation(st, r, query, &b["variables"]) {
+        return reply;
+    }
+    // --- end review comments ---
     if query.contains("statusCheckRollup") {
         return rollups(st, &b["variables"]);
     }
@@ -601,7 +750,8 @@ fn graphql(st: &mut ForgeState, r: &FakeRequest) -> Reply {
         let v = &b["variables"];
         let repo = format!("{}/{}", v["owner"].as_str().unwrap_or_default(), v["name"].as_str().unwrap_or_default());
         let pr = st.seed.github.pulls.iter().find(|p| p.repo == repo && Some(p.number) == v["number"].as_u64());
-        let nodes: Vec<Value> = pr.map(|p| p.review_comments.iter().filter(|c| c.in_reply_to.is_none()).map(|c| {
+        let me = login(r);
+        let nodes: Vec<Value> = pr.map(|p| p.review_comments.iter().filter(|c| c.in_reply_to.is_none() && visible(p, c, &me)).map(|c| {
             let res = p.resolved_threads.iter().find(|t| t.root == c.id);
             json!({ "id": format!("PRRT_{}", c.id), "isResolved": res.is_some(), "resolvedBy": res.map_or(Value::Null, |t| json!({ "login": t.by })), "comments": { "nodes": [{ "databaseId": c.id }] } })
         }).collect()).unwrap_or_default();
@@ -719,27 +869,29 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             None => not_found(),
         },
         ("GET", ["pulls", num, "reviews"]) => match index(st, num) {
-            Some(i) => Reply::page(
-                st.seed.github.pulls[i]
-                    .reviews
-                    .iter()
-                    .map(|x| review_json(st, x, &base))
-                    .collect(),
-                r,
-                &here,
-            ),
+            Some(i) => {
+                let me = login(r);
+                Reply::page(
+                    st.seed.github.pulls[i]
+                        .reviews
+                        .iter()
+                        // A pending review is its author's alone.
+                        .filter(|x| x.state != "PENDING" || x.user == me)
+                        .map(|x| review_json(st, x, &base))
+                        .collect(),
+                    r,
+                    &here,
+                )
+            }
             None => not_found(),
         },
         ("GET", ["pulls", num, "comments"]) => match index(st, num) {
-            Some(i) => Reply::page(
-                st.seed.github.pulls[i]
-                    .review_comments
-                    .iter()
-                    .map(|x| review_comment_json(st, x, &base, &pull_url(&st.seed.github.pulls[i], &base)))
-                    .collect(),
-                r,
-                &here,
-            ),
+            Some(i) => {
+                let me = login(r);
+                let p = &st.seed.github.pulls[i];
+                let url = pull_url(p, &base);
+                Reply::page(p.review_comments.iter().filter(|c| visible(p, c, &me)).map(|x| review_comment_json(st, x, &base, &url)).collect(), r, &here)
+            }
             None => not_found(),
         },
         ("GET", ["issues", num, "comments"]) => match index(st, num) {
@@ -789,7 +941,60 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 json!({ "state": combined, "statuses": statuses.iter().map(|s| json!({ "context": s.context, "state": s.state })).collect::<Vec<_>>() }),
             )
         }
+        // --- review comments ---
+        ("GET", ["pulls", num, "files"]) => match index(st, num) {
+            Some(i) => {
+                let files: Vec<Value> = st.seed.github.pulls[i].files.iter().map(|f| {
+                    let mut v = json!({ "sha": null, "filename": f.filename, "status": if f.previous_filename.is_some() { "renamed" } else { "modified" }, "additions": 1, "deletions": 0, "changes": 1 });
+                    if let Some(p) = &f.previous_filename { v["previous_filename"] = p.clone().into(); }
+                    if let Some(p) = &f.patch { v["patch"] = p.clone().into(); }
+                    v
+                }).collect();
+                Reply::page(files, r, &here)
+            }
+            None => not_found(),
+        },
+        ("GET", ["pulls", num, "reviews", rid, "comments"]) => match index(st, num) {
+            Some(i) => {
+                let me = login(r);
+                let p = &st.seed.github.pulls[i];
+                let Some(rv) = p.reviews.iter().find(|x| x.id.to_string() == *rid && (x.state != "PENDING" || x.user == me)) else { return Some(not_found()) };
+                let url = pull_url(p, &base);
+                Reply::page(p.review_comments.iter().filter(|c| c.review == Some(rv.id)).map(|x| review_comment_json(st, x, &base, &url)).collect(), r, &here)
+            }
+            None => not_found(),
+        },
+        // --- end review comments ---
         // --- 4B T5: writes ---
+        // --- review comments: Comment now ---
+        ("POST", ["pulls", num, "comments"]) => match index(st, num) {
+            Some(i) => {
+                let b = body_of(r);
+                let me = login(r);
+                let invalid = |m: &str| Reply::status(422, json!({ "message": "Validation Failed", "errors": [{ "message": m }] }));
+                let p = &st.seed.github.pulls[i];
+                // github.com lists this reason as a plain string, not an `{message}` object.
+                if p.reviews.iter().any(|x| x.state == "PENDING" && x.user == me) {
+                    return Some(Reply::status(422, json!({ "message": "Unprocessable Entity", "errors": ["User can only have one pending review per pull request"] })));
+                }
+                let (Some(body), Some(path), Some(line)) = (b["body"].as_str(), b["path"].as_str(), b["line"].as_u64()) else { return Some(invalid("body, path and line are required")) };
+                if b["commit_id"].as_str().is_none_or(str::is_empty) {
+                    return Some(invalid("commit_id is required"));
+                }
+                let (line, side) = (line as u32, b["side"].as_str().unwrap_or("RIGHT").to_string());
+                let start = b["start_line"].as_u64().map(|n| n as u32);
+                let start_side = b["start_side"].as_str().map(str::to_string);
+                if !in_diff(p, path, &side, line) || start.is_some_and(|n| !in_diff(p, path, start_side.as_deref().unwrap_or(&side), n)) {
+                    return Some(invalid("pull_request_review_thread.line must be part of the diff"));
+                }
+                let c = FakeReviewComment { id: next_id(p), user: me, body: body.into(), created_at: WRITE_TIME.into(), path: path.into(), line: Some(line), side, diff_hunk: patch_of(p, path), in_reply_to: None, start_line: start, start_side, reactions: vec![], review: None };
+                st.seed.github.pulls[i].review_comments.push(c.clone());
+                st.seed.github.pulls[i].updated_at = WRITE_TIME.into();
+                Reply::status(201, review_comment_json(st, &c, &base, &pull_url(&st.seed.github.pulls[i], &base)))
+            }
+            None => not_found(),
+        },
+        // --- end review comments ---
         ("POST", ["issues", num, "comments"]) => match index(st, num) {
             Some(i) => {
                 let Some(body) = body_of(r)["body"].as_str().map(str::to_string) else { return Some(Reply::status(422, json!({ "message": "Validation Failed" }))) };
@@ -824,7 +1029,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 };
                 let me = login(r);
                 let p = &mut st.seed.github.pulls[i];
-                let review = FakeReview { id: next_id(p), user: me.clone(), state: state.into(), body, submitted_at: WRITE_TIME.into() };
+                let review = FakeReview { id: next_id(p), user: me.clone(), state: state.into(), body, submitted_at: WRITE_TIME.into(), ..Default::default() };
                 p.reviews.push(review.clone());
                 p.requested_reviewers.retain(|u| *u != me);
                 Reply::json(review_json(st, &review, &base))

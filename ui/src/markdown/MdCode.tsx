@@ -96,3 +96,16 @@ export function MdCode({ code, lang, marks, words }: MdCodeProps) {
     </div>
   );
 }
+
+/** A review comment's suggested change (spec 2026-10-08: GitHub's ```suggestion, GitLab's
+ * ```suggestion:-N+M): the lines it puts in, as added lines. The lines they replace are the
+ * thread's own, right above it in the diff and in its snippet on the timeline. */
+export function MdSuggestion({ code }: { code: string }) {
+  return (
+    <figure className="md-suggestion">
+      <figcaption>Suggested change</figcaption>
+      {/* An empty one takes the lines out. */}
+      {code === '' ? <p className="md-suggestion-note">Removes these lines</p> : <MdCode code={code} lang={null} marks={'+'.repeat(code.split('\n').length)} />}
+    </figure>
+  );
+}

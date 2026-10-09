@@ -1,5 +1,6 @@
+import { retryNote, retryPlan, type Sent } from '../review/retry';
 import { Bell, BellOff, Check, ChevronDown, CircleCheck, EllipsisVertical, Link, Loader2, MessageSquareWarning, Pencil, GitPullRequestDraft, GitPullRequest } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLend } from '../../app/lent';
 import { api } from '../../api/client';
 import { copyText } from '../../api/transport';
@@ -18,6 +19,8 @@ import { forgeName, mrRef } from '../labels';
 import { useForge } from '../mrStore';
 import { EditMr } from './EditMr';
 import { forgeWrite, setMrSubscribed, toggleMrDraft } from './writes';
+import { resumeReview, submitReview, useReview } from '../review/session';
+import { clearDraft, draftKey, setDraft, useReplyDrafts } from './drafts';
 
 /** What Request changes does on GitLab (said in the composer): its REST API has no review state;
  * newer servers' GraphQL sets the reviewer's (`mergeRequestRequestChanges`). */
@@ -29,49 +32,102 @@ const REVIEW_MODES: Array<{ event: ReviewEvent; label: string; placeholder: stri
   { event: 'requestChanges', label: 'Request changes', placeholder: 'What should change?' },
 ];
 
+/** The forge took the pending comments, then refused a later write (the approval, the summary,
+ * Request changes: GitLab's are separate calls, and which one failed isn't known): what went in. */
+/** What a review that went in says (the toast): `published`, the pending comments it sent with
+ * it (null: none were pending). `fallback`: a GitLab with no Changes requested state took Request
+ * changes as a comment and a withdrawn approval. */
+export function reviewSaid(event: ReviewEvent, ref: string, fallback: boolean, published: number | null): string {
+  const sent = published ? (published === 1 ? '1 comment' : `${published} comments`) : null;
+  if (event === 'comment') return sent ? `Sent your review of ${ref} with ${sent}` : `Commented on ${ref}`;
+  const and = sent ? `Published ${sent} and ` : '';
+  if (event === 'approve') return sent ? `${and}approved ${ref}` : `Approved ${ref}`;
+  if (fallback) return `${sent ? `${and}commented` : 'Commented'} on ${ref}. This GitLab has no Changes requested state, so your approval was withdrawn instead.`;
+  return sent ? `${and}requested changes on ${ref}` : `Requested changes on ${ref}`;
+}
+
+export function partialText(kind: ForgeKind, published: number, error: string): string {
+  const went = published === 0 ? 'Your pending review was published' : published === 1 ? 'Your comment was published' : `Your ${published} comments were published`;
+  return `${went}, but ${forgeName(kind)} refused the rest: ${error}`;
+}
+
 /**
  * The review composer ("Review…", as GitHub's review dialog): Comment, Approve or Request
  * changes, and a message, optional to approve. The submit names the mode. One write (GitHub: one
- * review; GitLab: the note, the approval, the reviewer state). Ctrl+Enter submits.
+ * review; GitLab: the note, the approval, the reviewer state). Ctrl+Enter submits. With a review
+ * pending in the tab's session (spec 2026-10-08 §4), it sends the pending comments with it
+ * (`submitReview`), the message optional then; if the forge took the comments but refused the
+ * event, it stays open, says what went through, and keeps the message for another try (§7).
+ * The message is kept as a draft until it's sent (`drafts.ts`); Cancel drops it. The top bar's
+ * Submit review… shows it too (`SubmitPopover`).
  */
-function ReviewComposer({ tabId, kind, mr, onDone }: { tabId: string; kind: ForgeKind; mr: ForgeMr; onDone: () => void }) {
+export function ReviewComposer({ tabId, kind, number, onDone }: { tabId: string; kind: ForgeKind; number: number; onDone: () => void }) {
   const [event, setEvent] = useState<ReviewEvent>('comment');
-  const [text, setText] = useState('');
+  const key = draftKey(tabId, number, 'review');
+  const text = useReplyDrafts((s) => s.text[key] ?? '');
   const [busy, setBusy] = useState(false);
-  const ref = mrRef(kind, mr.number);
+  const [partial, setPartial] = useState<string | null>(null);
+  // What the last part-way answer said already went in: a retry skips it (`retryPlan`).
+  const [sent, setSent] = useState<Sent | null>(null);
+  // Unmounted under a send (the MR view's Review… pressed again): a part-way result is a toast then.
+  const live = useRef(true);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  const session = useReview(tabId);
+  // A review left pending outside the session (`resumeReview`; the MR view's open reads it too).
+  useEffect(() => { void resumeReview(tabId, number); }, [tabId, number]);
+  const mine = session?.number === number ? session : null;
+  const pending = mine?.drafts.length ?? 0;
+  const withPending = pending > 0 || (mine?.pendingReview ?? null) !== null;
+  const ref = mrRef(kind, number);
   const mode = REVIEW_MODES.find((m) => m.event === event)!;
-  const ready = !busy && (event === 'approve' || text.trim() !== '');
+  const ready = !busy && (event === 'approve' || text.trim() !== '' || pending > 0);
+  const failure = event === 'comment' ? `Couldn't comment on ${ref}` : event === 'approve' ? `Couldn't approve ${ref}` : `Couldn't request changes on ${ref}`;
+  const done = (message: string) => { clearDraft(key); useToast.getState().show(message); onDone(); };
+  const cancel = () => { clearDraft(key); onDone(); };
   const send = async () => {
     setBusy(true);
-    const failure = event === 'comment' ? `Couldn't comment on ${ref}` : event === 'approve' ? `Couldn't approve ${ref}` : `Couldn't request changes on ${ref}`;
-    const out = await forgeWrite(tabId, failure, (repo) => api.forgeReview(repo, mr.number, { event, body: text }));
+    setPartial(null);
+    const plan = retryPlan(event, text, sent);
+    if (withPending) {
+      const out = await submitReview(tabId, plan);
+      setBusy(false);
+      if (!out.ok) return void useToast.getState().show(`${failure}: ${out.error}`, { error: true });
+      if (out.value.eventError) {
+        const now = { bodyPosted: out.value.bodyPosted || !!sent?.bodyPosted, eventSent: out.value.eventSent || !!sent?.eventSent };
+        const said = partialText(kind, out.value.published, out.value.eventError) + retryNote(now);
+        setSent(now);
+        return live.current ? setPartial(said) : void useToast.getState().show(said, { error: true });
+      }
+      return done(reviewSaid(event, ref, out.value.fallback, out.value.published));
+    }
+    const out = await forgeWrite(tabId, failure, (repo) => api.forgeReview(repo, number, plan));
     setBusy(false);
-    if (!out) return;
-    const said = event === 'comment' ? `Commented on ${ref}` : event === 'approve' ? `Approved ${ref}` : out.value.fallback ? `Commented on ${ref} and withdrew your approval: this GitLab has no Changes requested state` : `Requested changes on ${ref}`;
-    useToast.getState().show(said);
-    onDone();
+    if (out) done(reviewSaid(event, ref, out.value.fallback, null));
   };
+  const placeholder = pending > 0 && event !== 'approve' ? 'A summary (optional)' : mode.placeholder;
   return (
-    <form className="mr-reply mr-review" aria-label="Review" onSubmit={(e) => { e.preventDefault(); if (ready) void send(); }}>
+    <form className="mr-reply mr-review" aria-label="Review" aria-busy={busy || undefined} onSubmit={(e) => { e.preventDefault(); if (ready) void send(); }}>
       <div className="mr-review-modes" role="radiogroup" aria-label="Review as">
         {REVIEW_MODES.map((m) => (
           <label key={m.event} className="mr-review-mode" data-event={m.event}>
-            <input type="radio" name={`review-${mr.number}`} value={m.event} checked={event === m.event} disabled={busy} onChange={() => setEvent(m.event)} />
+            <input type="radio" name={`review-${number}`} value={m.event} checked={event === m.event} disabled={busy} onChange={() => { setEvent(m.event); setSent(null); }} />
             {m.label}
           </label>
         ))}
       </div>
       <textarea
         aria-label="Message"
-        placeholder={mode.placeholder}
+        placeholder={placeholder}
         value={text}
         autoFocus
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => setDraft(key, e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (ready) void send(); } }}
       />
+      {withPending && <p className="mr-form-note">{pending === 0 ? `Sends your pending review on ${forgeName(kind)}` : `Sends your ${pending === 1 ? 'pending comment' : `${pending} pending comments`} with it`}</p>}
       {kind === 'gitlab' && event === 'requestChanges' && <p className="mr-form-note">{GITLAB_CHANGES_NOTE}</p>}
+      {partial && <p role="alert" className="mr-form-note">{partial}</p>}
       <div className="mr-form-row">
-        <button type="button" className="mr-button" onClick={onDone}>Cancel</button>
+        <button type="button" className="mr-button" onClick={cancel}>Cancel</button>
         <button type="submit" className={`mr-button primary${event === 'requestChanges' ? ' warn' : ''}`} disabled={!ready}>{busy ? 'Sending…' : mode.label}</button>
       </div>
     </form>
@@ -177,7 +233,7 @@ export function StatusActions({ actions: a, children }: { actions: MrActionsStat
 /** The Request changes composer or the Edit form, under the header. */
 export function MrForms({ tabId, kind, mr, detail, actions: a }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null; actions: MrActionsState }) {
   if (!a.live) return null;
-  if (a.mode === 'review') return <ReviewComposer tabId={tabId} kind={kind} mr={mr} onDone={() => a.setMode('none')} />;
+  if (a.mode === 'review') return <ReviewComposer tabId={tabId} kind={kind} number={mr.number} onDone={() => a.setMode('none')} />;
   if (a.mode === 'edit') return <EditMr tabId={tabId} mr={mr} detail={detail} focus={a.editFocus} onDone={() => a.setMode('none')} />;
   return null;
 }

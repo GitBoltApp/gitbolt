@@ -4,7 +4,7 @@ import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}), loadMrDetail: vi.fn(async () => {}), openMrView: vi.fn() }));
 vi.mock('../poll', () => poll);
-const api = vi.hoisted(() => ({ forgeLabels: vi.fn(async () => [{ name: 'ui', color: '#1f75cb', description: null }]), forgeSearchUsers: vi.fn(async () => []), openUrl: vi.fn(async () => null), forgeImage: vi.fn(async () => ({ kind: 'found', mime: 'image/png', base64: 'iVBORw==' })), forgeProjectSettings: vi.fn(() => new Promise(() => {})), forgePeopleLimits: vi.fn(() => new Promise(() => {})) }));
+const api = vi.hoisted(() => ({ forgeLabels: vi.fn(async () => [{ name: 'ui', color: '#1f75cb', description: null }]), forgeSearchUsers: vi.fn(async () => []), openUrl: vi.fn(async () => null), forgeImage: vi.fn(async () => ({ kind: 'found', mime: 'image/png', base64: 'iVBORw==' })), forgeProjectSettings: vi.fn(() => new Promise(() => {})), forgePeopleLimits: vi.fn(() => new Promise(() => {})), forgeReviewDrafts: vi.fn(async () => ({ refs: null, drafts: [] as unknown[], pendingReview: null as string | null, canDraft: true })) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: String }));
 const note = vi.hoisted(() => ({ openNoteFile: vi.fn(async () => {}) }));
 vi.mock('./openNote', () => note);
@@ -309,6 +309,19 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(forgeOf('t').openMr).toBe(12);
     unmount();
     expect(forgeOf('t').openMr).toBeNull();
+  });
+
+  it('a review left pending on it (a restart, the web page) is picked up once per open: the chip and Review… send it', async () => {
+    api.forgeReviewDrafts.mockResolvedValueOnce({ refs: null, drafts: [{ id: '5', body: 'Why?', replyTo: null, position: null }], pendingReview: null, canDraft: true });
+    show();
+    await waitFor(() => expect(forgeOf('t').review?.number).toBe(12));
+    expect(api.forgeReviewDrafts).toHaveBeenCalledTimes(1);
+    expect(api.forgeReviewDrafts).toHaveBeenCalledWith(4, 12);
+    expect(forgeOf('t').review?.drafts.map((d) => d.id)).toEqual(['5']);
+    // A poll that changes the MR reads nothing more.
+    act(() => patchForge('t', { details: { 12: { value: { ...detail, description: 'Edited' }, at: 2 } } }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+    expect(api.forgeReviewDrafts).toHaveBeenCalledTimes(1);
   });
 
   it("says it's loading, or why it couldn't load", () => {

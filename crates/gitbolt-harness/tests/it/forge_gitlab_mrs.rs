@@ -144,7 +144,7 @@ async fn a_multi_line_diff_note_has_its_range_and_its_lines() {
         author: "grace".into(),
         body: "These go together.".into(),
         created_at: "2026-10-04T09:20:00Z".into(),
-        position: Some(FakePosition { new_path: "src/lib.rs".into(), old_path: "src/lib.rs".into(), new_line: Some(5), old_line: Some(2), start }),
+        position: Some(FakePosition { new_path: "src/lib.rs".into(), old_path: "src/lib.rs".into(), new_line: Some(5), old_line: Some(2), start, ..Default::default() }),
         ..Default::default()
     };
     let discussion = |id: &str, n| FakeDiscussion { id: id.into(), notes: vec![n], resolvable: true, ..Default::default() };

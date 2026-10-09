@@ -105,12 +105,14 @@ vi.mock('./setup', () => {
         mouseUps.push(cb);
         return { dispose() {} };
       },
-      onDidLayoutChange: () => ({ dispose() {} }),
+      layoutListeners: new Set<Listener>(),
+      onDidLayoutChange: (cb: Listener) => { ed.layoutListeners.add(cb); return { dispose: () => ed.layoutListeners.delete(cb) }; },
+      createDecorationsCollection: () => ({ set: vi.fn(), clear: vi.fn() }),
       // View zones added through the API (the hunk header rows): their place, ordinal and node, and
       // whether the editor had rendered since its last model when each was added.
       apiZones: new Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>(),
       renderedSinceModel: false,
-      changeViewZones: (cb: (acc: { addZone(z: { afterLineNumber: number; heightInPx: number; ordinal?: number; domNode: HTMLElement }): string; removeZone(id: string): void }) => void) => {
+      changeViewZones: (cb: (acc: { addZone(z: { afterLineNumber: number; heightInPx: number; ordinal?: number; domNode: HTMLElement }): string; removeZone(id: string): void; layoutZone(id: string): void }) => void) => {
         cb({
           addZone: (z) => {
             const id = `z${ed.apiZones.size + 1}-${Math.random()}`;
@@ -118,6 +120,7 @@ vi.mock('./setup', () => {
             return id;
           },
           removeZone: (id) => void ed.apiZones.delete(id),
+          layoutZone: () => {},
         });
       },
       getSelection: vi.fn((): unknown => null),
@@ -129,7 +132,7 @@ vi.mock('./setup', () => {
         if (ed.scrollTop !== before) ed.scrolled();
       }),
       render: vi.fn(() => { ed.renderedSinceModel = true; }),
-      getLayoutInfo: () => ({ height: 500, contentWidth: 800, verticalScrollbarWidth: 10 }),
+      getLayoutInfo: () => ({ height: 500, contentLeft: 60, contentWidth: 800, verticalScrollbarWidth: 10 }),
       getOption: () => 19,
       focus: vi.fn(),
       hasTextFocus: vi.fn(() => false),
@@ -245,7 +248,7 @@ const copyText = vi.hoisted(() => vi.fn(async (_text: string) => {}));
 vi.mock('../../api/transport', () => ({ copyText }));
 vi.mock('shiki/wasm', () => ({ default: {} }));
 
-interface FakeCodeEditor { setPosition: ReturnType<typeof vi.fn>; setSelection: ReturnType<typeof vi.fn>; apiZones: Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>; isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; getPosition: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
+interface FakeCodeEditor { setPosition: ReturnType<typeof vi.fn>; setSelection: ReturnType<typeof vi.fn>; apiZones: Map<string, { after: number; height: number; ordinal?: number; domNode: HTMLElement; renderedFirst: boolean }>; isHidden(n: number): boolean; collecting: boolean; pendingScroll: boolean; scrollListeners: ((e: unknown) => void)[]; getContentHeight(): number; getBottomForLineNumber(n: number): number; getTopForPosition(n: number): number; getVisibleRanges(): { startLineNumber: number; endLineNumber: number }[]; zones: { after: number; height: number }[]; hidden: [number, number][]; heights: Record<number, number>; sizeListeners: ((e: unknown) => void)[]; scrollTop: number; inputs: ((e: unknown) => void)[]; getTopForLineNumber(n: number, includeViewZones?: boolean): number; getScrollHeight(): number; menus: ((e: unknown) => void)[]; mouseUps: ((e: unknown) => void)[]; focus: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn>; getPosition: ReturnType<typeof vi.fn>; findRun: ReturnType<typeof vi.fn>; updateOptions: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn>; setScrollTop: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn>; layoutListeners: Set<(e: unknown) => void> }
 interface FakeViewModel { model: { original: { text: string; dispose: ReturnType<typeof vi.fn> }; modified: { text: string; dispose: ReturnType<typeof vi.fn> } }; computed: boolean; dispose: ReturnType<typeof vi.fn>; finish(): void }
 interface FakeState {
   defined: Set<string>;
@@ -1054,6 +1057,92 @@ describe('MonacoHost', () => {
     // A show without rows (another diff) clears them.
     await host.showDiff(diffReq('b.txt', 'plaintext', hunk));
     expect(mod.apiZones.size).toBe(0);
+  });
+
+  it('review cards (spec 2026-10-08 §2): laid with the diff before it renders, its own file only, in a layer beside the editor; Split moves an old-side card to the old editor', async () => {
+    const { host, state } = await fresh();
+    const box = document.createElement('div');
+    host.attachDiff(box);
+    const placed = vi.fn();
+    host.setReviewZones({ path: 'a.txt', items: [{ key: 't:1', side: 'modified', line: 4, startLine: null, stop: true }, { key: 'd:2', side: 'original', line: 9, startLine: null, stop: true }], placed });
+    // Outside Monaco's own element (and its key handling): beside it in the view's box.
+    expect(box.querySelector(':scope > .review-layer')).not.toBeNull();
+    expect(box.querySelector('.monaco-host .review-layer')).toBeNull();
+    // Old line 9 was deleted: Inline shows it in the block after new line 8.
+    state.lineChanges = [{ originalStartLineNumber: 9, originalEndLineNumber: 9, modifiedStartLineNumber: 8, modifiedEndLineNumber: 0 }];
+    await host.showDiff(diffReq('a.txt'));
+    const { original, modified } = state.diffs[0];
+    expect([...modified.apiZones.values()].map((z) => [z.after, z.renderedFirst, (z.ordinal ?? 0) > 10001])).toEqual([[4, false, true], [8, false, true]]);
+    expect([...(placed.mock.lastCall?.[0] as Map<string, HTMLElement>).keys()]).toEqual(['t:1', 'd:2']);
+    host.setDiffPrefs({ ...prefs, mode: 'split' });
+    expect([...modified.apiZones.values()].map((z) => z.after)).toEqual([4]);
+    expect([...original.apiZones.values()].map((z) => z.after)).toEqual([9]);
+    // Another file: none of these cards.
+    await host.showDiff(diffReq('b.txt'));
+    expect(modified.apiZones.size + original.apiZones.size).toBe(0);
+    expect(host.goToReviewZone('next')).toBeNull();
+    host.setReviewZones(null);
+  });
+
+  it('no review: its layer, zones and listeners leave the shared editor, so later diffs carry none of it; the next review brings them back', async () => {
+    const { host, state } = await fresh();
+    const box = document.createElement('div');
+    host.attachDiff(box);
+    await host.showDiff(diffReq('a.txt'));
+    const { original, modified } = state.diffs[0];
+    const listening = () => original.layoutListeners.size + modified.layoutListeners.size;
+    const before = listening();
+    host.setReviewZones({ path: 'a.txt', items: [{ key: 't:1', side: 'modified', line: 4, startLine: null, stop: true }], placed: vi.fn() });
+    expect(box.querySelector(':scope > .review-layer')).not.toBeNull();
+    expect(modified.apiZones.size).toBe(1);
+    expect(listening()).toBe(before + 2);
+    host.setReviewZones(null);
+    expect(box.querySelector('.review-layer')).toBeNull();
+    expect(modified.apiZones.size).toBe(0);
+    expect(listening()).toBe(before);
+    // Another diff (a commit's), then another review.
+    await host.showDiff(diffReq('b.txt'));
+    expect(box.querySelector('.review-layer')).toBeNull();
+    host.setReviewZones({ path: 'b.txt', items: [{ key: 't:2', side: 'modified', line: 1, startLine: null, stop: true }], placed: vi.fn() });
+    expect(box.querySelector(':scope > .review-layer')).not.toBeNull();
+    expect(modified.apiZones.size).toBe(1);
+    host.setReviewZones(null);
+  });
+
+  it('review cards hide and show with the diff they are over: re-attached for another diff, they wait for it too (H6)', async () => {
+    const { host } = await fresh();
+    const first = document.createElement('div');
+    host.attachDiff(first);
+    await host.showDiff(diffReq('a.txt'));
+    host.setReviewZones({ path: 'a.txt', items: [], placed: vi.fn() });
+    host.detachDiff(first);
+    const second = document.createElement('div');
+    const b = { ...diffReq('a.txt'), modified: 'another commit\n' };
+    host.attachDiff(second, b);
+    const layer = second.querySelector<HTMLElement>(':scope > .review-layer')!;
+    expect([layer.style.visibility, layer.hasAttribute('inert')]).toEqual(['hidden', true]);
+    await host.showDiff(b);
+    expect([layer.style.visibility, layer.hasAttribute('inert')]).toEqual(['', false]);
+    host.setReviewZones(null);
+  });
+
+  it("diffLines() is the selection's lines on the side holding the keyboard, else the cursor's; diffLineText() reads a side's lines", async () => {
+    const { host, state } = await fresh();
+    expect(host.diffLines()).toBeNull();
+    host.attachDiff(document.createElement('div'));
+    await host.showDiff(diffReq('a.txt'));
+    const m = state.diffs[0].modified as unknown as { getSelection: ReturnType<typeof vi.fn> };
+    // A selection ending at column 1 of a line covers the lines above it only.
+    m.getSelection.mockReturnValue({ startLineNumber: 3, endLineNumber: 6, endColumn: 1 });
+    expect(host.diffLines()).toEqual({ side: 'modified', start: 3, end: 5 });
+    m.getSelection.mockReturnValue({ startLineNumber: 7, endLineNumber: 7, endColumn: 4 });
+    expect(host.diffLines()).toEqual({ side: 'modified', start: 7, end: 7 });
+    // Split's old editor holding the keyboard: its selection, on the old side.
+    const o = state.diffs[0].original as unknown as { getSelection: ReturnType<typeof vi.fn>; hasTextFocus: ReturnType<typeof vi.fn> };
+    o.hasTextFocus.mockReturnValue(true);
+    o.getSelection.mockReturnValue({ startLineNumber: 2, endLineNumber: 4, endColumn: 9 });
+    expect(host.diffLines()).toEqual({ side: 'original', start: 2, end: 4 });
+    expect(host.diffLineText('original', 1, 2)).toEqual(['a.txt old', 'a.txt old']);
   });
 
   it('a click on a deleted line (Inline, Hunk) copies it, Shift+click the whole deleted block; with a toast', async () => {

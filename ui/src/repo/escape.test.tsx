@@ -42,6 +42,20 @@ describe('useAppEscape (J4)', () => {
     view.unmount();
   });
 
+  it('leaves Esc to an area that owns it (data-owns-escape: review cards, a comment box\'s Preview)', () => {
+    const { store, view } = mount(() => false);
+    act(() => store.getState().openFile(target));
+    const area = document.createElement('div');
+    area.setAttribute('data-owns-escape', '');
+    const pane = area.appendChild(document.createElement('div'));
+    pane.tabIndex = 0;
+    document.body.append(area);
+    expect(fireEvent.keyDown(pane, { key: 'Escape' })).toBe(true);
+    expect(store.getState().diff).not.toBeNull();
+    area.remove();
+    view.unmount();
+  });
+
   it('asks the owners only while the store has a file open, never inferring it from the DOM', () => {
     const owns = vi.fn(() => true);
     const { store, button, view } = mount(owns);

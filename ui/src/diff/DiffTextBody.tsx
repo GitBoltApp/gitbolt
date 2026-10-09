@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRepoContext } from '../app/repoContext';
 import { forgeOf } from '../forge/mrStore';
 import { MarkdownDiff } from '../markdown/lazy';
@@ -8,13 +8,14 @@ import { useDiffPrefs } from './diffPrefs';
 import type { DiffSides } from './markdownDiffSides';
 import { markSlow, PRECHECK_BYTES, TOO_LARGE_TO_RENDER, useDiffTooLarge } from './markdownFiles';
 import { MdDiffFrame } from './MdDiffRuler';
-import { holdFirstChange } from './mdOpen';
+import { holdFirstChange, holdLine } from './mdOpen';
 import { useNarrowPane } from './narrowPane';
 import { MdFontPx } from '../markdown/fontPx';
 import { editorFontVar, useEditorFontPx } from './fontZoom';
 import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
 import type { DiffLine, HunkZoneRequest } from './monaco/host';
 import { useParseBudget } from './parseBudget';
+import { RenderedReview, RenderedReviewNote } from './review/RenderedReview';
 import { loadedHost, TextDiff } from './TextDiff';
 
 /**
@@ -84,6 +85,10 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
     loadedHost()?.layout();
   }, [rendered]);
   const pane = useRef<HTMLDivElement>(null);
+  // The pane as state too: `RenderedReview` inside it reads it in its own effects, which run
+  // before a parent's ref is set (review comments, spec 2026-10-08 §3).
+  const [paneEl, setPaneEl] = useState<HTMLDivElement | null>(null);
+  const paneRef = useCallback((el: HTMLDivElement | null) => { pane.current = el; setPaneEl(el); }, []);
   // Another file's diff starts at its top: the pane stays mounted from file to file. The rendered
   // diff isn't a navigation place (R15), so no back/forward scroll restore relies on it; the same
   // file shown again (a refresh, an edit) keeps its place.
@@ -95,14 +100,17 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   }, [identity]);
   // A file's rendered diff opens at its first change, as the source diff does (`holdFirstChange`):
   // once per file shown (or per switch to Rendered), never on a refresh or an edit of it. A line
-  // asked for (a note's `file:line`) wins: the open leaves the pane where it is.
-  const opened = useRef<string | null>(null);
+  // asked for (a note's `file:line`) opens at its block instead (`holdLine`), each time one is.
+  // "Each time" is by reference: `line` is the diff target's own (`DiffTarget.line`), the same
+  // object across re-renders and refreshes, and a new one only when a line is asked for again.
+  const opened = useRef<DiffLine | string | null>(null);
   useLayoutEffect(() => {
     if (!rendered) { opened.current = null; return; }
-    if (opened.current === identity) return;
-    opened.current = identity;
-    if (line || !pane.current) return;
-    return holdFirstChange(pane.current);
+    const want = line ?? identity;
+    if (opened.current === want) return;
+    opened.current = want;
+    if (!pane.current) return;
+    return line ? holdLine(pane.current, line) : holdFirstChange(pane.current);
   }, [rendered, identity, line]);
   // R3: Previous/Next change (and F7) step through the rendered changes.
   useEffect(() => (rendered ? setChangeStepper((dir) => { if (pane.current) stepChange(pane.current, dir); }) : undefined), [rendered]);
@@ -127,15 +135,20 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
       {!rendered && after}
       {isMd && (
         <MdDiffFrame pane={pane} active={rendered} split={splitPicked && !narrow}>
-          <div ref={pane} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1} data-font-zoom="" style={editorFontVar(fontPx)}>
+          <div ref={paneRef} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1} data-font-zoom="" style={editorFontVar(fontPx)}>
             {rendered && ctx && (waiting
               ? <div className="diff-message" aria-busy="true">Rendering…</div>
               : (
                 <Suspense fallback={<div className="diff-message" aria-busy="true">Loading…</div>}>
-                  <MdFontPx value={fontPx}><MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} split={splitPicked && !narrow} onTooLarge={onTooLarge} /></MdFontPx>
+                  <MdFontPx value={fontPx}>
+                    <RenderedReview tabId={tabId} path={path} pane={paneEl} modified={shownNew}>
+                      <MarkdownDiff old={original} new={shownNew} flavor={flavor} context={ctx.new} oldContext={ctx.old} split={splitPicked && !narrow} onTooLarge={onTooLarge} />
+                    </RenderedReview>
+                  </MdFontPx>
                 </Suspense>
               ))}
           </div>
+          {rendered && <RenderedReviewNote tabId={tabId} path={path} />}
         </MdDiffFrame>
       )}
     </>

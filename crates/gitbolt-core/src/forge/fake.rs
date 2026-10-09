@@ -60,6 +60,11 @@ pub(crate) struct FakeProvider {
       pub images: Mutex<HashMap<String, ForgeImage>>,
       pub videos: Mutex<HashMap<String, ForgeImage>>,
       // --- end 5A T1 ---
+    // --- review comments ---
+    /// MR → its diff (`review_diff`) and its pending drafts (`review_drafts`).
+    pub review_diffs: Mutex<HashMap<u64, ReviewDiff>>,
+    pub drafts: Mutex<HashMap<u64, Vec<ReviewDraft>>>,
+    // --- end review comments ---
     // --- MR round 2 ---
     /// What `people_limits` answers.
     pub limits: Mutex<PeopleLimits>,
@@ -84,6 +89,9 @@ impl FakeProvider {
               images: Mutex::default(),
               videos: Mutex::default(),
               // --- end 5A T1 ---
+            // --- review comments ---
+            review_diffs: Mutex::default(), drafts: Mutex::default(),
+            // --- end review comments ---
             limits: Mutex::default(), edit_error: Mutex::default(),
         }
     }
@@ -304,6 +312,65 @@ impl ForgeProvider for FakeProvider {
         let found = self.videos.lock().unwrap().get(url).cloned()?;
         Some(Box::pin(async move { Ok(found) }))
     }
+    // --- review comments ---
+    fn review_diff<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ReviewDiff> {
+        self.call(format!("review_diff {number}"));
+        Box::pin(async move { self.review_diffs.lock().unwrap().get(&number).cloned().ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("Not found on {}", self.host))) })
+    }
+    fn review_drafts<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ReviewDrafts> {
+        self.call(format!("review_drafts {number}"));
+        Box::pin(async move { Ok(ReviewDrafts { refs: Some(fake_refs()), drafts: self.drafts.lock().unwrap().get(&number).cloned().unwrap_or_default(), pending_review: None, can_draft: true }) })
+    }
+    fn add_draft<'a>(&'a self, _project: &'a ForgeProject, number: u64, c: &'a NewReviewComment) -> ForgeFuture<'a, ReviewDraft> {
+        self.call(format!("add_draft {number} {}:{} {}", c.anchor.path, c.anchor.end.number(), c.body));
+        Box::pin(async move {
+            let mut all = self.drafts.lock().unwrap();
+            let list = all.entry(number).or_default();
+            // A line's number on its side: (new, old).
+            let at = |l: &ReviewLine| match l.side() {
+                DiffSide::New => (Some(l.number()), None),
+                DiffSide::Old => (None, Some(l.number())),
+            };
+            let (line, old_line) = at(&c.anchor.end);
+            let (start_line, start_old_line) = c.anchor.start.as_ref().map_or((None, None), at);
+            let position = DiffPosition { path: c.anchor.path.clone(), old_path: None, line, old_line, snippet: None, start_line, start_old_line, head_sha: Some(c.refs.head_sha.clone()), outdated: false };
+            let d = ReviewDraft { id: format!("draft-{}", list.len() + 1), body: c.body.clone(), position: Some(position), reply_to: None };
+            list.push(d.clone());
+            Ok(d)
+        })
+    }
+    fn edit_draft<'a>(&'a self, _project: &'a ForgeProject, number: u64, id: &'a str, body: &'a str) -> ForgeFuture<'a, ReviewDraft> {
+        self.call(format!("edit_draft {number} {id} {body}"));
+        Box::pin(async move {
+            let mut all = self.drafts.lock().unwrap();
+            let d = all.entry(number).or_default().iter_mut().find(|d| d.id == id).ok_or_else(|| GbError::new(GbErrorKind::NotFound, format!("Not found on {}", self.host)))?;
+            d.body = body.into();
+            Ok(ReviewDraft { id: id.into(), body: body.into(), position: None, reply_to: None })
+        })
+    }
+    fn delete_draft<'a>(&'a self, _project: &'a ForgeProject, number: u64, id: &'a str) -> ForgeFuture<'a, ()> {
+        self.call(format!("delete_draft {number} {id}"));
+        Box::pin(async move {
+            self.drafts.lock().unwrap().entry(number).or_default().retain(|d| d.id != id);
+            Ok(())
+        })
+    }
+    fn submit_review<'a>(&'a self, _project: &'a ForgeProject, number: u64, review: &'a ReviewSubmit) -> ForgeFuture<'a, SubmitOutcome> {
+        self.call(format!("submit_review {number} {:?} {}", review.event, review.body));
+        Box::pin(async move {
+            self.drafts.lock().unwrap().remove(&number);
+            Ok(SubmitOutcome::default())
+        })
+    }
+    fn discard_review<'a>(&'a self, _project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, u32> {
+        self.call(format!("discard_review {number}"));
+        Box::pin(async move { Ok(self.drafts.lock().unwrap().remove(&number).map_or(0, |l| l.len() as u32)) })
+    }
+    fn comment_now<'a>(&'a self, _project: &'a ForgeProject, number: u64, c: &'a NewReviewComment) -> ForgeFuture<'a, ForgeDiscussion> {
+        self.call(format!("comment_now {number} {}:{} {}", c.anchor.path, c.anchor.end.number(), c.body));
+        Box::pin(async move { Ok(ForgeDiscussion { id: "d-now".into(), notes: vec![], resolvable: true, resolved: false, resolved_by: None }) })
+    }
+    // --- end review comments ---
 }
 
 // --- 4B T1 ---
@@ -327,6 +394,13 @@ pub(crate) fn mr(number: u64, source_project: &str, branch: &str, state: MrState
     }
 }
 // --- end 4B T1 ---
+
+// --- review comments ---
+/// The diff refs the fake answers: base `b…`, head `h…`.
+pub(crate) fn fake_refs() -> DiffRefs {
+    DiffRefs { base_sha: "b".repeat(40), start_sha: "b".repeat(40), head_sha: "h".repeat(40) }
+}
+// --- end review comments ---
 
 /// Hands out providers by token: a known token (for that host) gets its provider, any other a
 /// rejecting one. Counts connects.

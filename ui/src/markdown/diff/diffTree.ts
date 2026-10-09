@@ -3,13 +3,13 @@ import { EXIT, visit } from 'unist-util-visit';
 import { parseMarkdown } from '../parse';
 import type { MdFlavor } from '../types';
 import { ALIGN_TIMEOUT_MS, alignUnits, blockKey, flowUnits, GaveUp, left, plainText, unitOf, WORD_DIFF_MAX_CHARS, type Op, type Unit } from './blocks';
-import type { DiffBlockNode, DiffMark } from './nodes';
+import type { DiffBlockNode, DiffMark, SrcLines } from './nodes';
 import { codeLines, inlineDiff } from './words';
 
 export interface DiffResult { root: Root; changes: number; gaveUp: boolean }
 /** `deadline`: the whole diff's one deadline (a `Date.now()` time, R14), set as it starts.
  * `refs`: the old side's link definitions whose URL or title changed, by identifier. */
-interface Ctx { changes: number; deadline: number; refs: ReadonlyMap<string, Definition> }
+interface Ctx { changes: number; deadline: number; refs: ReadonlyMap<string, Definition>; /** The next source block's id. */ blocks: number }
 
 const block = (mark: DiffMark, nodes: readonly RootContent[], note?: string): DiffBlockNode =>
   ({ type: 'diffBlock', mark, children: [...nodes] as DiffBlockNode['children'], ...(note !== undefined ? { note } : {}) });
@@ -68,6 +68,48 @@ function oldSide<T extends RootContent>(n: T, c: Ctx): T {
   return copy;
 }
 
+// --- review comments: source lines (spec 2026-10-08 §3) ---
+/** `nodes`' source lines, from the first one's start to the last one's end; null without positions. */
+function linesOf(nodes: readonly Nodes[] | null): [number, number] | null {
+  const a = nodes?.[0]?.position?.start.line;
+  const b = nodes?.[nodes.length - 1]?.position?.end.line;
+  return a !== undefined && b !== undefined ? [a, b] : null;
+}
+
+/** Containers whose items or blocks get their own lines when the container is the same on both
+ * sides, or wholly added or removed. */
+const NESTED = new Set(['list', 'listItem', 'blockquote']);
+
+/** Child `i` of `nodes`' one node, as a one-node list (null: none). */
+function childOf(nodes: readonly Nodes[] | null, i: number): Nodes[] | null {
+  const p = nodes?.length === 1 ? nodes[0] : undefined;
+  const k = p && 'children' in p ? (p.children as Nodes[])[i] : undefined;
+  return k ? [k] : null;
+}
+
+/**
+ * A copy of `n` carrying its source lines (`gbSrc`): `neu` and `old` are what it shows on each
+ * side, as parsed (null: that side hasn't it). `deep`: `n` is the same on both sides (or wholly
+ * added or removed), so a list's items and an item's or a blockquote's blocks get theirs too,
+ * walking both sides in step. A node with no position on either side comes back as it is.
+ */
+function sourced<T extends Nodes>(n: T, neu: readonly Nodes[] | null, old: readonly Nodes[] | null, c: Ctx, deep = false): T {
+  const gbSrc: SrcLines = { id: c.blocks++, new: linesOf(neu), old: linesOf(old) };
+  if (!gbSrc.new && !gbSrc.old) return n;
+  const kids = deep && NESTED.has(n.type) && 'children' in n
+    ? (n.children as Nodes[]).map((k, i) => sourced(k, childOf(neu, i), childOf(old, i), c, true))
+    : null;
+  return { ...n, ...(kids ? { children: kids } : {}), data: { ...n.data, gbSrc } } as T;
+}
+
+/** Wholly added blocks, each with its lines, in one marked block with theirs. */
+const addedBlock = (nodes: readonly RootContent[], c: Ctx): DiffBlockNode =>
+  sourced(block('added', nodes.map((x) => sourced(x, [x], null, c, true))), nodes, null, c);
+/** Wholly removed blocks, as the old side shows them, each with its old lines. */
+const removedBlock = (nodes: readonly RootContent[], c: Ctx): DiffBlockNode =>
+  sourced(block('removed', nodes.map((x) => sourced(oldSide(x, c), null, [x], c, true))), null, nodes, c);
+// --- end review comments ---
+
 /** `alignUnits` under the diff's deadline: past it, the whole diff gives up (`GaveUp`). */
 function align(old: readonly Unit[], neu: readonly Unit[], c: Ctx): Op[] {
   const ops = alignUnits(old, neu, c.deadline);
@@ -82,18 +124,23 @@ function diffFlow(old: readonly RootContent[], neu: readonly RootContent[], c: C
   const ops = align(flowUnits(old), flowUnits(neu), c);
   const out: RootContent[] = [];
   for (const op of ops) {
-    if (op.op === 'same') out.push(...op.new.nodes);
-    else if (op.op === 'added') { c.changes++; out.push(block('added', op.new.nodes)); }
-    else if (op.op === 'removed') { c.changes++; out.push(block('removed', op.old.nodes.map((x) => oldSide(x, c)))); }
-    else if (op.old.nodes.length !== 1 || op.new.nodes.length !== 1) { c.changes += 2; out.push(block('removed', op.old.nodes.map((x) => oldSide(x, c))), block('added', op.new.nodes)); }
-    else out.push(...changed(op.old.nodes[0]!, op.new.nodes[0]!, c));
+    if (op.op === 'same') out.push(...op.new.nodes.map((x, k) => sourced(x, [x], [op.old.nodes[k]!], c, true)));
+    else if (op.op === 'added') { c.changes++; out.push(addedBlock(op.new.nodes, c)); }
+    else if (op.op === 'removed') { c.changes++; out.push(removedBlock(op.old.nodes, c)); }
+    else if (op.old.nodes.length !== 1 || op.new.nodes.length !== 1) { c.changes += 2; out.push(removedBlock(op.old.nodes, c), addedBlock(op.new.nodes, c)); }
+    else {
+      const [o, n] = [op.old.nodes[0]!, op.new.nodes[0]!];
+      // A changed pair's lines: the new side's, the old side's beside them. One `changed` split
+      // into a removed and an added block already carries its own.
+      out.push(...changed(o, n, c).map((x) => (x.data?.gbSrc ? x : sourced(x, [n], [o], c))));
+    }
   }
   return out;
 }
 
 /** A changed pair (`alignUnits` paired them, so they're of the same kind). */
 function changed(o: RootContent, n: RootContent, c: Ctx): RootContent[] {
-  const replaced = (): RootContent[] => { c.changes += 2; return [block('removed', [oldSide(o, c)]), block('added', [n])]; };
+  const replaced = (): RootContent[] => { c.changes += 2; return [removedBlock([o], c), addedBlock([n], c)]; };
   if (n.type === 'paragraph' || n.type === 'heading') {
     const merged = inlineDiff((o as Paragraph | Heading).children, n.children, c.deadline);
     if (!merged) return replaced();
@@ -158,15 +205,15 @@ function diffList(o: List, n: List, c: Ctx): List {
   for (const op of ops) {
     if (op.op === 'same') {
       const it = op.new.nodes[0] as ListItem;
-      items.push(mark(it, undefined, num(n, ni, it), op.old.nodes[0] as ListItem));
+      items.push(sourced(mark(it, undefined, num(n, ni, it), op.old.nodes[0] as ListItem), [it], op.old.nodes, c, true));
     } else if (op.op === 'added') {
       c.changes++;
       const it = op.new.nodes[0] as ListItem;
-      items.push(mark(it, 'added', num(n, ni, it)));
+      items.push(sourced(mark(it, 'added', num(n, ni, it)), [it], null, c, true));
     } else if (op.op === 'removed') {
       c.changes++;
       const it = op.old.nodes[0] as ListItem;
-      items.push(mark(oldSide(it, c), 'removed', num(o, oi, it)));
+      items.push(sourced(mark(oldSide(it, c), 'removed', num(o, oi, it)), null, [it], c, true));
     } else {
       const a = op.old.nodes[0] as ListItem;
       const b = op.new.nodes[0] as ListItem;
@@ -176,14 +223,14 @@ function diffList(o: List, n: List, c: Ctx): List {
       // inline (a wrapper would push a task's checkbox onto its own line, and loosen a tight list).
       const only = kids.length === 1 && kids[0]!.type === 'diffBlock' ? kids[0] : null;
       if (only && only.mark === 'changed' && only.children.length === 1 && only.children[0]!.type === 'paragraph') {
-        items.push(mark({ ...b, children: [only.children[0]] }, 'changed', num(n, ni, b), a));
+        items.push(sourced(mark({ ...b, children: [only.children[0]] }, 'changed', num(n, ni, b), a), [b], [a], c));
         continue;
       }
       // The innermost marked node counts and carries the bar: an item whose content holds marks
       // stays unmarked. Only a change of the item's own (a ticked checkbox) marks the item.
       const own = c.changes === before && (a.checked ?? null) !== (b.checked ?? null);
       if (own) c.changes++;
-      items.push(mark({ ...b, children: kids as ListItem['children'] }, own ? 'changed' : undefined, num(n, ni, b), a));
+      items.push(sourced(mark({ ...b, children: kids as ListItem['children'] }, own ? 'changed' : undefined, num(n, ni, b), a), [b], [a], c));
     }
   }
   return { ...n, children: items };
@@ -277,7 +324,7 @@ function diffDefinitions(old: Root, neu: Root, merged: readonly RootContent[], c
   for (const [id, n] of now.notes) {
     const o = was.notes.get(id);
     if (!cited.has(id)) notes.push(n);
-    else if (!o) { c.changes++; notes.push({ ...n, children: [block('added', n.children)] as FootnoteDefinition['children'] }); }
+    else if (!o) { c.changes++; notes.push({ ...n, children: [addedBlock(n.children as RootContent[], c)] as FootnoteDefinition['children'] }); }
     else {
       const before = c.changes;
       const kids = diffFlow(o.children, n.children, c);
@@ -288,7 +335,7 @@ function diffDefinitions(old: Root, neu: Root, merged: readonly RootContent[], c
     if (now.notes.has(id)) continue;
     if (!cited.has(id)) { notes.push(o); continue; }
     c.changes++;
-    notes.push({ ...o, children: [block('removed', o.children.map((x) => oldSide(x, c)))] as FootnoteDefinition['children'] });
+    notes.push({ ...o, children: [removedBlock(o.children as RootContent[], c)] as FootnoteDefinition['children'] });
   }
   return [...links, ...notes];
 }
@@ -313,7 +360,7 @@ function charsOf(n: Nodes): number {
  */
 export function diffTrees(old: Root, neu: Root, opts: { timeout?: number } = {}): DiffResult {
   const deadline = Date.now() + (opts.timeout ?? ALIGN_TIMEOUT_MS);
-  const c: Ctx = { changes: 0, deadline, refs: changedLinks(definitionsIn(old).links, definitionsIn(neu).links) };
+  const c: Ctx = { changes: 0, deadline, refs: changedLinks(definitionsIn(old).links, definitionsIn(neu).links), blocks: 0 };
   let merged: RootContent[];
   try {
     left(c.deadline);

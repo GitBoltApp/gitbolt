@@ -1,0 +1,17 @@
+/* Review comments (spec 2026-10-08 §4, §5): the top bar's chip, its Submit review… popover, and
+   the file list's badges. */
+.tb-review { flex: 0 1 auto; min-width: 0; }
+/* A narrow bar: the value truncates first; the caret stays whole. */
+.tb-review .tb-picker { flex: 0 1 auto; }
+.tb-review .tb-caret, .tb-review .tb-value svg { flex: none; }
+.tb-review-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tb-review .tb-value { color: var(--text-normal); }
+.tb-review[data-problem] .tb-value, .tb-review-warn { color: var(--orange); }
+.review-submit { position: fixed; z-index: 850; width: min(440px, calc(100vw - 16px)); box-sizing: border-box; padding: 10px; background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow-popup); }
+/* Submit review…'s pending comments on no line of the diff, above the composer. */
+.review-loose { display: flex; flex-direction: column; max-height: 40vh; overflow: auto; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--section-border); }
+.review-loose-head { margin: 0; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.review-badge { all: unset; flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 0 5px; height: 16px; border-radius: 8px; font-size: 10px; line-height: 16px; color: var(--text-secondary); background: var(--panel-bg1); box-shadow: inset 0 0 0 1px var(--section-border); cursor: pointer; }
+/* A hovered or selected row's own background is --hover-row/--selected-row: the badge's differs. */
+.review-badge[data-unresolved] { color: var(--text-on-accent); background: var(--blue); }
+.review-badge:hover { color: var(--text-selected); }

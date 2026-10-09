@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   forgeMrDetail: vi.fn(),
   forgeMrDiscussions: vi.fn(),
   forgeCachedMrs: vi.fn(),
+  forgeReviewDrafts: vi.fn(),
+  forgeReviewDiff: vi.fn(),
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: (e: unknown) => (e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)) }));
 const flyout = vi.hoisted(() => ({ openFlyout: vi.fn(), shownFlyout: vi.fn((): { kind: string; props: unknown } | null => null) }));
@@ -60,6 +62,24 @@ describe('pollForge (spec #4 §3.4)', () => {
     expect([f.details[12]?.value.mr.number, f.discussions[12], f.error, f.failures]).toEqual([12, [], null, 0]);
     expect(f.updatedAt).not.toBeNull();
     expect(out).toEqual({ runningPipeline: true, serverIntervalMs: 30_000, pipelineKey: `5:${'5'.padStart(40, '0')}` });
+  });
+
+  it("reads the tab's review session's MR and drafts too, when its MR isn't the one open", async () => {
+    patchForge('t', { review: { number: 12, kind: 'gitlab', compare: null, refs: null, files: {}, diffHead: null, drafts: [], pendingReview: null, canDraft: true, closed: false, error: null, loaded: false } });
+    api.forgeReviewDrafts.mockResolvedValue({ refs: null, drafts: [], pendingReview: null, canDraft: true });
+    await pollForge('t', 'timer');
+    expect(api.forgeMrDetail).toHaveBeenCalledWith(4, 12);
+    expect(api.forgeMrDiscussions).toHaveBeenCalledWith(4, 12);
+    expect(api.forgeReviewDrafts).toHaveBeenCalledWith(4, 12);
+    expect(api.forgeReviewDiff).not.toHaveBeenCalled();
+  });
+
+  it('a fast poll (a running pipeline\'s) leaves the review session to the next full one', async () => {
+    patchForge('t', { kind: 'gitlab', review: { number: 12, kind: 'gitlab', compare: null, refs: null, files: {}, diffHead: null, drafts: [], pendingReview: null, canDraft: true, closed: false, error: null, loaded: false } });
+    await pollForge('t', 'fast');
+    expect(api.forgeMrList).toHaveBeenCalled();
+    expect(api.forgeReviewDrafts).not.toHaveBeenCalled();
+    expect(api.forgeMrDetail).not.toHaveBeenCalled();
   });
 
   it('after an account change the next poll asks the forges again, once', async () => {

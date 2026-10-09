@@ -10,8 +10,10 @@ const polling = vi.hoisted(() => ({ notifyForgeWrite: vi.fn() }));
 vi.mock('../usePolling', () => polling);
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}) }));
 vi.mock('../poll', () => poll);
+const review = vi.hoisted(() => ({ session: null as null | { number: number; drafts: Array<{ id: string }>; pendingReview: string | null }, submitReview: vi.fn(), resumeReview: vi.fn(async () => {}) }));
+vi.mock('../review/session', () => ({ useReview: () => review.session, submitReview: review.submitReview, resumeReview: review.resumeReview }));
 
-const { MrForms, ReviewButtons, StatusActions, useMrActions } = await import('./MrActions');
+const { MrForms, partialText, ReviewButtons, reviewSaid, StatusActions, useMrActions } = await import('./MrActions');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { useRuntime } = await import('../../app/runtime');
 const { useToast } = await import('../../ui/toastStore');
@@ -23,6 +25,7 @@ const { disarm } = await import('../../ui/arm/store');
 const { setOrigin } = await import('../../ui/arm/origin');
 const { armClock, press } = await import('../../ui/arm/armTesting');
 const { detailOf, mrOf, user } = await import('../testMrs');
+const { useReplyDrafts } = await import('./drafts');
 
 /** The three places the actions live in the view: the APPROVALS box's buttons, the status line's,
  * and the forms under the header. */
@@ -54,6 +57,8 @@ const approve = () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  review.session = null;
+  useReplyDrafts.setState({ text: {} });
   useForge.setState({ byTab: {} });
   patchForge('t', { kind: 'gitlab', remote: 'origin', me: 'ada', details: { 12: { value: detail, at: 1 } } });
   useRuntime.setState({ tabs: { t: { repo: { id: 4 } } as never } });
@@ -197,7 +202,7 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     mode(form, 'Request changes');
     message(form, 'Rename it');
     fireEvent.click(within(form).getByRole('button', { name: 'Request changes' }));
-    await waitFor(() => expect(useToast.getState().message).toBe('Commented on !12 and withdrew your approval: this GitLab has no Changes requested state'));
+    await waitFor(() => expect(useToast.getState().message).toBe('Commented on !12. This GitLab has no Changes requested state, so your approval was withdrawn instead.'));
   });
 
   it('GitHub: no GitLab note', () => {
@@ -205,6 +210,83 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     const form = openReview();
     mode(form, 'Request changes');
     expect(form).not.toHaveTextContent('withdraws your approval');
+  });
+
+  it("opening the composer picks up a review left pending outside the session (a restart, the web page)", () => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    expect(review.resumeReview).toHaveBeenCalledWith('t', 12);
+  });
+
+  it('with a review pending, the composer sends the pending comments with it, a message optional', async () => {
+    review.session = { number: 12, drafts: [{ id: '5' }, { id: '6' }], pendingReview: null };
+    review.submitReview.mockResolvedValueOnce({ ok: true, value: { published: 2, eventError: null, bodyPosted: false, eventSent: false, fallback: false } });
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    const form = screen.getByRole('form', { name: 'Review' });
+    expect(form).toHaveTextContent('Sends your 2 pending comments with it');
+    fireEvent.click(within(form).getByRole('button', { name: 'Comment' }));
+    await waitFor(() => expect(form).not.toBeInTheDocument());
+    expect(review.submitReview).toHaveBeenCalledWith('t', { event: 'comment', body: '' });
+    expect(api.forgeReview).not.toHaveBeenCalled();
+    expect(useToast.getState().message).toBe('Sent your review of !12 with 2 comments');
+  });
+
+  it('when the forge takes the comments but refuses the approval, it stays open and says what went through', async () => {
+    review.session = { number: 12, drafts: [{ id: '5' }], pendingReview: null };
+    review.submitReview.mockResolvedValueOnce({ ok: true, value: { published: 1, eventError: 'gitlab.example.com refused: 403 Forbidden', bodyPosted: false, eventSent: false, fallback: false } });
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    const form = screen.getByRole('form', { name: 'Review' });
+    fireEvent.click(within(form).getByRole('radio', { name: 'Approve' }));
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Message' }), { target: { value: 'Nice.' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Approve' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Your comment was published, but GitLab refused the rest: gitlab.example.com refused: 403 Forbidden');
+    expect(within(form).getByRole('textbox', { name: 'Message' })).toHaveValue('Nice.');
+  });
+
+  it("a part-way review says what's known: the comments went in, the forge refused the rest", () => {
+    expect(partialText('gitlab', 2, 'gitlab.example.com refused: 403 Forbidden')).toBe('Your 2 comments were published, but GitLab refused the rest: gitlab.example.com refused: 403 Forbidden');
+    expect(partialText('gitlab', 0, 'x')).toBe('Your pending review was published, but GitLab refused the rest: x');
+  });
+
+  it('a review sent with its pending comments says so in plain sentences', () => {
+    expect(reviewSaid('requestChanges', '!12', true, 2)).toBe('Published 2 comments and commented on !12. This GitLab has no Changes requested state, so your approval was withdrawn instead.');
+    expect(reviewSaid('requestChanges', '!12', false, 1)).toBe('Published 1 comment and requested changes on !12');
+    expect(reviewSaid('approve', '!12', false, 2)).toBe('Published 2 comments and approved !12');
+    expect(reviewSaid('approve', '!12', false, null)).toBe('Approved !12');
+    // GitHub's pending review with no comment: nothing to count.
+    expect(reviewSaid('comment', '#12', false, 0)).toBe('Commented on #12');
+  });
+
+  it("a part-way review that answers once the composer is closed says so in a toast", async () => {
+    review.session = { number: 12, drafts: [{ id: '5' }], pendingReview: null };
+    let answer!: (v: unknown) => void;
+    review.submitReview.mockReturnValueOnce(new Promise((r) => { answer = r; }));
+    const toast = vi.spyOn(useToast.getState(), 'show');
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    const form = screen.getByRole('form', { name: 'Review' });
+    fireEvent.click(within(form).getByRole('radio', { name: 'Approve' }));
+    fireEvent.click(within(form).getByRole('button', { name: 'Approve' }));
+    expect(form).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    expect(form).not.toBeInTheDocument();
+    await act(async () => answer({ ok: true, value: { published: 1, eventError: 'gitlab.example.com refused: 403 Forbidden', bodyPosted: false, eventSent: false, fallback: false } }));
+    expect(toast).toHaveBeenCalledWith('Your comment was published, but GitLab refused the rest: gitlab.example.com refused: 403 Forbidden', { error: true });
+    toast.mockRestore();
+  });
+
+  it('a message is kept until sent: closing the composer keeps it, Cancel drops it', () => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Half a thought' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Half a thought');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
   });
   // --- end MR round 2 ---
 

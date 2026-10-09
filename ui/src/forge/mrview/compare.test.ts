@@ -12,6 +12,12 @@ vi.mock('../../app/tabStores', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../app/tabStores')>()),
   tabStore: () => graph.store,
 }));
+const review = vi.hoisted(() => ({ startReview: vi.fn(async () => {}) }));
+vi.mock('../review/session', () => review);
+const poll = vi.hoisted(() => ({ refreshReview: vi.fn(async (_tabId: string) => {}) }));
+vi.mock('../poll', () => poll);
+const reviewMode = vi.hoisted(() => ({ preloadReviewMode: vi.fn(async () => ({})) }));
+vi.mock('../../diff/review/ReviewMode', () => reviewMode);
 
 const { compareMr } = await import('./compare');
 const { patchForge, useForge } = await import('../mrStore');
@@ -43,6 +49,9 @@ describe("the branch card's Compare", () => {
     expect(await compareMr('t', 'gitlab', mr, detailOf(mr, { baseSha: FORGE_BASE }))).toBe(true);
     expect(api.mergeBase).toHaveBeenCalledWith(4, FORGE_BASE, head);
     expect(compareCommits).toHaveBeenCalledWith(BASE, head);
+    expect(review.startReview).toHaveBeenCalledWith('t', 'gitlab', 12, { from: BASE, to: head });
+    // Review mode's cards start loading with the session.
+    expect(reviewMode.preloadReviewMode).toHaveBeenCalled();
     expect(fetching.runFetch).not.toHaveBeenCalled();
   });
 
@@ -70,6 +79,27 @@ describe("the branch card's Compare", () => {
     expect(useRuntime.getState().tabs.t?.limit).toBe(3100);
     expect(fetching.runFetch).not.toHaveBeenCalled();
     expect(compareCommits).toHaveBeenCalledWith(BASE, head);
+  });
+
+  it("the tab's review of the MR compares at its diff refs, read again first, newer than the cached detail: Compare again lands on the current head", async () => {
+    const NEW = 'n'.repeat(40);
+    const REVIEW_BASE = 'r'.repeat(40);
+    graph.store.setState({ indexById: new Map([[head, 0], [NEW, 1], [BASE, 5]]) });
+    patchForge('t', { review: { number: 12, kind: 'gitlab', compare: { from: BASE, to: head }, refs: { baseSha: BASE, startSha: BASE, headSha: head }, files: {}, diffHead: head, drafts: [], pendingReview: null, canDraft: true, closed: false, error: null, loaded: true } });
+    // The forge, read now: the author pushed.
+    poll.refreshReview.mockImplementationOnce(async () => patchForge('t', (f) => ({ review: { ...f.review!, refs: { baseSha: REVIEW_BASE, startSha: REVIEW_BASE, headSha: NEW }, diffHead: NEW } })));
+    expect(await compareMr('t', 'gitlab', mr, detailOf(mr, { baseSha: FORGE_BASE }))).toBe(true);
+    expect(poll.refreshReview).toHaveBeenCalledWith('t');
+    expect(api.mergeBase).toHaveBeenCalledWith(4, REVIEW_BASE, NEW);
+    expect(compareCommits).toHaveBeenCalledWith(BASE, NEW);
+    expect(review.startReview).toHaveBeenCalledWith('t', 'gitlab', 12, { from: BASE, to: NEW });
+    // Another MR's review: the detail's head, as before.
+    vi.clearAllMocks();
+    const other = mrOf(13);
+    graph.store.setState({ indexById: new Map([[other.headSha!, 0], [BASE, 5]]) });
+    expect(await compareMr('t', 'gitlab', other, detailOf(other))).toBe(true);
+    expect(compareCommits).toHaveBeenCalledWith(BASE, other.headSha);
+    expect(poll.refreshReview).not.toHaveBeenCalled();
   });
 
   it('says why when the base or the head is out of reach', async () => {

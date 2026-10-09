@@ -19,6 +19,8 @@ const FILES = [
   'history/HistoryButtons.tsx',
   'irebase/RebaseEditor.tsx',
   'irebase/ChipColumn.tsx',
+  'diff/review/CommentBox.tsx',
+  'diff/monaco/reviewGutter.ts',
 ];
 
 describe('no native title tooltips', () => {
@@ -27,6 +29,8 @@ describe('no native title tooltips', () => {
     // `title=` as a JSX attribute on a DOM element; component props (HeaderCell's `title="GRAPH"`,
     // EditorLoadError's `title`) start with an uppercase tag.
     const hits = [...src.matchAll(/<([a-z][\w-]*)\b[^<>]*?\stitle=/g)].map((m) => m[0].slice(0, 60));
-    expect(hits).toEqual([]);
+    // Built in the DOM (Monaco's overlay widgets): `el.title = …` or `setAttribute('title', …)`.
+    const dom = [...src.matchAll(/\.title\s*=(?!=)|setAttribute\(\s*['"]title['"]/g)].map((m) => m[0]);
+    expect([...hits, ...dom]).toEqual([]);
   });
 });

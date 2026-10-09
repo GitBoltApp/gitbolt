@@ -33,6 +33,9 @@ const within = (t: Element | null, selector: string) => t?.closest(selector) != 
  * `isContentEditable`), whose Esc is its own. Monaco's input textarea isn't one: its Esc goes
  * through the editor's owner. */
 const isTextInput = (t: Element | null) => isEditableTarget(t) && !within(t, '.monaco-editor, .monaco-host');
+/** An area whose Esc is its own (`data-owns-escape`: review mode's cards, a comment box with its
+ * Preview), as a text box's: it handles the key itself. */
+const ownsEscape = (t: Element | null) => isTextInput(t) || within(t, '[data-owns-escape]');
 
 /**
  * The view's Esc (spec §11.1, feedback J4), from wherever the focus is: the file list, the diff,
@@ -54,7 +57,8 @@ const isTextInput = (t: Element | null) => isEditableTarget(t) && !within(t, '.m
  *   only while the store has a file open. A claim marks the key (`markEditorKey`) and leaves it
  *   to Monaco;
  * - `app`, registered here: the action. It leaves alone a key typed in one of the app's own text
- *   boxes (not Monaco's), and a key `defaultPrevented` before it got here — the router runs in
+ *   boxes (not Monaco's) or in an area that owns its Esc (`data-owns-escape`), and a key
+ *   `defaultPrevented` before it got here — the router runs in
  *   the window's capture phase, ahead of the page's own handlers, so only a higher router layer
  *   (menu, tooltip, overlay) could have claimed it first.
  * Neither acts while `root` (the view) isn't shown: plan 1C keeps hidden tabs' views mounted in
@@ -81,7 +85,7 @@ export function useAppEscape(store: RepoViewStore, root?: RefObject<HTMLElement 
       if (viewOwnsEscape()) return;
       if (!mine(e)) return;
       const target = e.target instanceof Element ? e.target : null;
-      if (isTextInput(target)) return;
+      if (ownsEscape(target)) return;
       const s = store.getState();
       if (s.diff || within(target, '[data-focus-zone="files"]')) s.closeDiff();
       else if (s.selection.kind === 'compare' || s.selection.kind === 'compareWorktree' || s.selection.kind === 'multi') {

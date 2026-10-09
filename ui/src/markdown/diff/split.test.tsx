@@ -1,4 +1,6 @@
 import { render, screen } from '@testing-library/react';
+import type { Blockquote, List, ListItem, Nodes } from 'mdast';
+import { visit } from 'unist-util-visit';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileMarkdownContext, MdCodeProps, MdImageProps, MdLinkProps } from '../types';
 
@@ -11,6 +13,8 @@ const { MarkdownDiff } = await import('./MarkdownDiff');
 const { resetChunkStreams } = await import('../parseAsync');
 const { clearParseCache } = await import('../parse');
 const { changeTargets, stepChange } = await import('../../diff/changeStepper');
+const { diffMarkdown } = await import('./diffTree');
+const { splitTree } = await import('./split');
 
 const NEW: FileMarkdownContext = { kind: 'file', tabId: 't', commit: 'b'.repeat(40), path: 'guide.md' };
 const OLD: FileMarkdownContext = { ...NEW, commit: 'a'.repeat(40), path: 'old-guide.md' };
@@ -173,5 +177,43 @@ describe('the split rendered diff (5C)', () => {
     const changed = c.querySelector('.md-split-row[data-diff-mark="changed"]')!;
     expect(cells(changed as HTMLElement)[0].querySelector('del')).toHaveTextContent('3');
     expect(cells(changed as HTMLElement)[1].querySelector('ins')).toHaveTextContent('three');
+  });
+});
+
+describe('the split view and source lines (review comments)', () => {
+  it("a changed list's rows don't repeat the list's lines: its items carry theirs", () => {
+    clearParseCache();
+    const split = splitTree(diffMarkdown('- one\n- two\n', '- one\n- two\n- three\n', 'github').root);
+    const lists: List[] = [];
+    visit(split, 'list', (l: List) => { lists.push(l); });
+    const items: ListItem[] = [];
+    visit(split, 'listItem', (i: ListItem) => { items.push(i); });
+    expect(lists.length).toBeGreaterThan(1);
+    expect(lists.every((l) => l.data?.gbSrc === undefined)).toBe(true);
+    expect(items.length).toBeGreaterThan(2);
+    expect(items.every((i) => i.data?.gbSrc !== undefined)).toBe(true);
+  });
+
+  it("a changed blockquote's rows don't repeat its lines: its blocks carry theirs", () => {
+    clearParseCache();
+    const split = splitTree(diffMarkdown('> Kept.\n>\n> Old words.\n', '> Kept.\n>\n> New words.\n\n> Added.\n', 'github').root);
+    const quotes: Nodes[] = [];
+    visit(split, 'blockquote', (q: Nodes) => { quotes.push(q); });
+    const paras: Nodes[] = [];
+    visit(split, 'blockquote', (q: Blockquote) => { paras.push(...q.children.filter((k) => k.type === 'paragraph' || k.type === 'diffBlock')); });
+    // The changed quote is split into rows, each a copy of it without its lines; the added one,
+    // whole, keeps them.
+    expect(quotes.filter((q) => q.data?.gbSrc === undefined).length).toBeGreaterThan(1);
+    expect(quotes.filter((q) => q.data?.gbSrc !== undefined)).toHaveLength(1);
+    expect(paras.length).toBeGreaterThan(2);
+    expect(paras.every((p) => p.data?.gbSrc !== undefined)).toBe(true);
+  });
+
+  it("a changed diagram's halves carry its lines, each column its own side's", () => {
+    const c = split('Intro.\n\n```mermaid\ngraph TD\n  A-->B\n```\n', 'Intro.\n\nMore.\n\n```mermaid\ngraph TD\n  A-->C\n```\n');
+    const row = rows(c).find((r) => r.querySelector('[data-testid="mermaid"]'))!;
+    const [old, neu] = cells(row).map((x) => x.querySelector<HTMLElement>('[data-src-id]'));
+    expect([old!.getAttribute('data-src-old'), old!.getAttribute('data-src-new')]).toEqual(['3-6', null]);
+    expect([neu!.getAttribute('data-src-new'), neu!.getAttribute('data-src-old')]).toEqual(['5-8', null]);
   });
 });

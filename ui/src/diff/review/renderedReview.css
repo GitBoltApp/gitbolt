@@ -1,0 +1,6 @@
+/* Review comments in the rendered Markdown diff (spec 2026-10-08 §3): the "+" left of a hovered
+   block, floating over the pane's padding (no layout shift). A pane child, so it outranks
+   `.md-rendered > *`'s centring. */
+.md-diff-pane { position: relative; }
+.md-diff-pane > .md-block-plus { all: unset; position: absolute; z-index: 2; display: grid; place-items: center; width: 18px; height: 18px; margin: 0; border-radius: 4px; background: var(--blue); color: var(--text-on-accent); cursor: pointer; }
+.md-diff-pane > .md-block-plus:focus-visible { outline: 1px solid var(--text-selected); }

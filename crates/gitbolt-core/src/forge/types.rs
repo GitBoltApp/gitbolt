@@ -431,6 +431,18 @@ pub struct DiffPosition {
     pub start_line: Option<u32>,
     #[serde(default)]
     pub start_old_line: Option<u32>,
+    // --- review comments ---
+    /// The MR head the position is against (GitLab's `position.head_sha`); `None` where the
+    /// forge doesn't say (GitHub: `outdated` says it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub head_sha: Option<String>,
+    /// The forge couldn't carry it to the MR's head (GitHub's `line: null`): its lines are the
+    /// original commit's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub outdated: bool,
+    // --- end review comments ---
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -540,6 +552,172 @@ pub struct ThreadState {
     pub resolved_by: Option<String>,
 }
 // --- end comment actions ---
+
+// --- review comments ---
+/// A side of an MR's diff: the old one (removed lines) or the new one (added and unchanged lines).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum DiffSide {
+    Old,
+    New,
+}
+
+/// How a line of an MR's diff changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum LineKind {
+    Added,
+    Removed,
+    Context,
+}
+
+/// One line of an MR's diff that takes a review comment (`review::commentable_lines`). Its
+/// numbers are GitLab's diff parser's: an added line's `old_line` is the old line it comes
+/// before, a removed line's `new_line` the new line it comes before. Only GitLab's line codes
+/// read those; a position names a line by its own sides (`position_lines`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReviewLine {
+    pub kind: LineKind,
+    pub old_line: u32,
+    pub new_line: u32,
+}
+
+impl ReviewLine {
+    /// The side a comment on it is on: a removed line's is the old one, the others' the new one.
+    pub fn side(&self) -> DiffSide {
+        if self.kind == LineKind::Removed { DiffSide::Old } else { DiffSide::New }
+    }
+
+    /// Its number on `side()`.
+    pub fn number(&self) -> u32 {
+        match self.side() {
+            DiffSide::Old => self.old_line,
+            DiffSide::New => self.new_line,
+        }
+    }
+
+    /// (old, new) as a position names them: an added line has no old number, a removed one no
+    /// new one, an unchanged one both (GitLab: https://docs.gitlab.com/api/discussions/).
+    pub fn position_lines(&self) -> (Option<u32>, Option<u32>) {
+        match self.kind {
+            LineKind::Added => (None, Some(self.new_line)),
+            LineKind::Removed => (Some(self.old_line), None),
+            LineKind::Context => (Some(self.old_line), Some(self.new_line)),
+        }
+    }
+}
+
+/// The commits an MR's diff is between, as the forge reports them: GitLab's `diff_refs`
+/// (https://docs.gitlab.com/api/merge_requests/); GitHub's base and head (`start_sha` is the base).
+/// GitHub's `base_sha` is the base branch's tip when the PR was last updated, not the merge base
+/// its files diff from: only `head_sha` names a commit of the diff there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DiffRefs {
+    pub base_sha: String,
+    pub start_sha: String,
+    pub head_sha: String,
+}
+
+/// Where a new review comment goes: `end`, or the range from `start` down to `end`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReviewAnchor {
+    /// The file's path at the head.
+    pub path: String,
+    /// Its path at the base (the same unless it was renamed).
+    pub old_path: String,
+    pub start: Option<ReviewLine>,
+    pub end: ReviewLine,
+}
+
+/// A review comment to write: where, what, and the diff it was written against.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct NewReviewComment {
+    pub anchor: ReviewAnchor,
+    pub body: String,
+    pub refs: DiffRefs,
+}
+
+/// One file of the MR's diff as the forge has it, with the lines that take a comment.
+/// `too_large`: the forge sent no diff for it (GitHub's large files, GitLab's `too_large` or
+/// `collapsed`), so none of its lines does here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReviewFile {
+    pub path: String,
+    pub old_path: String,
+    pub lines: Vec<ReviewLine>,
+    pub too_large: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReviewDiff {
+    pub refs: DiffRefs,
+    pub files: Vec<ReviewFile>,
+}
+
+/// One of the user's pending review comments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReviewDraft {
+    /// GitHub: the comment's node id (`PRRC_…`, what GraphQL's edits take); GitLab: the draft
+    /// note's id.
+    pub id: String,
+    pub body: String,
+    /// `None`: a draft on no line (GitLab's general draft, or a draft reply).
+    pub position: Option<DiffPosition>,
+    /// The discussion a draft reply answers (GitLab's `discussion_id`, GitHub's `thread-<id>`).
+    pub reply_to: Option<String>,
+}
+
+/// The user's pending review on an MR.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReviewDrafts {
+    /// `None`: the forge hasn't worked the diff out yet (GitLab right after a create).
+    pub refs: Option<DiffRefs>,
+    pub drafts: Vec<ReviewDraft>,
+    /// GitHub's pending review (its node id), which can exist with no comment; `None` on GitLab.
+    pub pending_review: Option<String>,
+    /// Add to review works on this forge (GitLab from 16.3).
+    pub can_draft: bool,
+}
+
+/// How a review with its drafts went in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SubmitOutcome {
+    /// The drafts the review published.
+    pub published: u32,
+    /// GitLab: the drafts went in but the event after them (approve, request changes, the
+    /// summary) was refused: why.
+    pub event_error: Option<String>,
+    /// The summary note (GitHub: the review body) went in. A retry must not post it again.
+    #[serde(default)]
+    pub body_posted: bool,
+    /// The event itself went in (GitLab: the approval, or the approval withdrawn). With
+    /// `event_error` set, only the summary is left to send.
+    #[serde(default)]
+    pub event_sent: bool,
+    /// As `ReviewOutcome::fallback`.
+    pub fallback: bool,
+}
+// --- end review comments ---
 
 /// The sidebar list's filter (spec #4 §2 "MR/PR list").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -817,6 +995,29 @@ mod tests {
         assert!(v.get("reactions").is_none() && v.get("webUrl").is_none());
     }
     // --- end comment actions ---
+
+    // --- review comments ---
+    #[test]
+    fn review_types_serialize_as_the_ui_reads_them() {
+        let l = ReviewLine { kind: LineKind::Context, old_line: 3, new_line: 4 };
+        assert_eq!(serde_json::to_value(l).unwrap(), json!({"kind": "context", "oldLine": 3, "newLine": 4}));
+        assert_eq!(serde_json::to_value(DiffSide::Old).unwrap(), "old");
+        let p: DiffPosition = serde_json::from_value(json!({"path": "a", "oldPath": null, "line": 1, "oldLine": null, "snippet": null})).unwrap();
+        assert_eq!((p.head_sha.clone(), p.outdated), (None, false), "a position from an older GitBolt's cache still loads");
+        let v = serde_json::to_value(&p).unwrap();
+        assert!(v.get("headSha").is_none() && v.get("outdated").is_none(), "{v}");
+        let out = SubmitOutcome { published: 2, event_error: Some("refused".into()), body_posted: true, event_sent: false, fallback: false };
+        assert_eq!(serde_json::to_value(out).unwrap(), json!({"published": 2, "eventError": "refused", "bodyPosted": true, "eventSent": false, "fallback": false}));
+    }
+
+    #[test]
+    fn a_line_is_on_its_own_side_and_a_position_names_only_its_sides() {
+        let (add, del, ctx) = (ReviewLine { kind: LineKind::Added, old_line: 3, new_line: 2 }, ReviewLine { kind: LineKind::Removed, old_line: 2, new_line: 2 }, ReviewLine { kind: LineKind::Context, old_line: 3, new_line: 4 });
+        assert_eq!((add.side(), add.number(), add.position_lines()), (DiffSide::New, 2, (None, Some(2))));
+        assert_eq!((del.side(), del.number(), del.position_lines()), (DiffSide::Old, 2, (Some(2), None)));
+        assert_eq!((ctx.side(), ctx.number(), ctx.position_lines()), (DiffSide::New, 4, (Some(3), Some(4))));
+    }
+    // --- end review comments ---
 
     #[test]
     fn a_people_change_adds_after_the_kept_ones_once_each() {

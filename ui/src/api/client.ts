@@ -146,6 +146,13 @@ import type { StackView } from './gen/StackView';
 // --- 5A T1 ---
 import type { ForgeImage } from './gen/ForgeImage';
 // --- end 5A T1 ---
+// --- review comments ---
+import type { NewReviewComment } from './gen/NewReviewComment';
+import type { ReviewDiff } from './gen/ReviewDiff';
+import type { ReviewDraft } from './gen/ReviewDraft';
+import type { ReviewDrafts } from './gen/ReviewDrafts';
+import type { SubmitOutcome } from './gen/SubmitOutcome';
+// --- end review comments ---
 // --- end 2D T20 ---
 
 const handlers = new Set<EventHandler>();
@@ -512,6 +519,20 @@ export const api = {
   forgeDeleteNote: (repo: number, number: number, note: NoteRef) => call<null>({ method: 'forgeDeleteNote', params: { repo, number, note } }),
   forgeResolve: (repo: number, number: number, discussion: string, resolved: boolean) => call<ThreadState>({ method: 'forgeResolve', params: { repo, number, discussion, resolved } }),
   // --- end comment actions ---
+  // --- review comments (spec 2026-10-08 §6) ---
+  /** The MR/PR's diff as the forge has it, with each file's commentable lines. */
+  forgeReviewDiff: (repo: number, number: number) => call<ReviewDiff>({ method: 'forgeReviewDiff', params: { repo, number } }),
+  /** The user's pending review: its drafts and the diff refs. */
+  forgeReviewDrafts: (repo: number, number: number) => call<ReviewDrafts>({ method: 'forgeReviewDrafts', params: { repo, number } }),
+  forgeAddDraft: (repo: number, number: number, comment: NewReviewComment) => call<ReviewDraft>({ method: 'forgeAddDraft', params: { repo, number, comment } }),
+  /** The draft with its new body (no position: keep the one you have). */
+  forgeEditDraft: (repo: number, number: number, id: string, body: string) => call<ReviewDraft>({ method: 'forgeEditDraft', params: { repo, number, id, body } }),
+  forgeDeleteDraft: (repo: number, number: number, id: string) => call<null>({ method: 'forgeDeleteDraft', params: { repo, number, id } }),
+  forgeSubmitReview: (repo: number, number: number, review: ReviewSubmit) => call<SubmitOutcome>({ method: 'forgeSubmitReview', params: { repo, number, review } }),
+  /** How many drafts went. */
+  forgeDiscardReview: (repo: number, number: number) => call<number>({ method: 'forgeDiscardReview', params: { repo, number } }),
+  forgeCommentNow: (repo: number, number: number, comment: NewReviewComment) => call<ForgeDiscussion>({ method: 'forgeCommentNow', params: { repo, number, comment } }),
+  // --- end review comments ---
   forgeMerge: (repo: number, number: number, options: MergeOptions) => call<ForgeMr>({ method: 'forgeMerge', params: { repo, number, options } }),
   forgeSetAutoMerge: (repo: number, number: number, options: MergeOptions) => call<ForgeMr>({ method: 'forgeSetAutoMerge', params: { repo, number, options } }),
   forgeCancelAutoMerge: (repo: number, number: number) => call<ForgeMr>({ method: 'forgeCancelAutoMerge', params: { repo, number } }),

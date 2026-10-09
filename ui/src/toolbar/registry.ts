@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import { create } from 'zustand';
 import type { RepoCtx } from '../app/repoContext';
 import type { MenuRow } from '../menu/types';
@@ -65,4 +66,19 @@ export function registerToolbarButton(b: ToolbarButton): () => void {
     return { buttons: [...s.buttons, b].sort((x, y) => x.order - y.order) };
   });
   return () => useToolbarButtons.setState((s) => ({ buttons: s.buttons.filter((x) => x !== b) }));
+}
+
+/** A chip right of the branch picker, from its own feature's module (review comments'
+ * "Reviewing !12 · 3 pending"). It renders nothing when it doesn't apply. */
+export interface ToolbarChip { id: string; order: number; Component: ComponentType }
+
+export const useToolbarChips = create<{ chips: ToolbarChip[] }>(() => ({ chips: [] }));
+
+/** Adds a chip; returns its removal (release it on a hot update, as `registerActions`). */
+export function registerToolbarChip(c: ToolbarChip): () => void {
+  useToolbarChips.setState((s) => {
+    if (s.chips.some((x) => x.id === c.id)) throw new Error(`toolbar chip ${c.id} is already registered`);
+    return { chips: [...s.chips, c].sort((x, y) => x.order - y.order) };
+  });
+  return () => useToolbarChips.setState((s) => ({ chips: s.chips.filter((x) => x !== c) }));
 }

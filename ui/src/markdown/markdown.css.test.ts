@@ -70,8 +70,8 @@ describe('markdown.css (spec #5 §3.1)', () => {
   });
 
   it("tints an added or removed code block over its own ground; a changed one's line marks span the block", () => {
-    const added = rule('.md :is(.md-diff-block.md-diff-added, li.md-diff-added) :is(pre, code:not(pre code))');
-    const removed = rule('.md :is(.md-diff-block.md-diff-removed, li.md-diff-removed) :is(pre, code:not(pre code))');
+    const added = rule('.md :is(.md-diff-block.md-diff-added, li.md-diff-added) :is(pre, code:not(pre code)):not(.md-block-slot *)');
+    const removed = rule('.md :is(.md-diff-block.md-diff-removed, li.md-diff-removed) :is(pre, code:not(pre code)):not(.md-block-slot *)');
     expect(added).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-ins-block\), var\(--md-diff-ins-block\)\)/);
     expect(removed).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-del-block\), var\(--md-diff-del-block\)\)/);
     // The pre's own padding is 10px a side: the line's ground reaches through it.
@@ -96,5 +96,15 @@ describe('markdown.css (spec #5 §3.1)', () => {
     // The list's indent plus the block bar's 12px; a block directly in an item takes the same x.
     expect(rule('.md li[data-diff-mark]::before, .md li > .md-diff-block::before')).toMatch(/left:\s*calc\(-1 \* var\(--md-list-indent\) - 12px\)/);
     expect(rule('.md li[data-diff-mark]::before')).not.toMatch(/left:/);
+  });
+
+  it("review slots (spec 2026-10-08 §3): a pair's spans both columns; one in a changed block or item takes neither its tint nor its bar", () => {
+    expect(rule('.md-diff-pair > .md-block-slot')).toMatch(/grid-column:\s*1 \/ -1/);
+    const inChange = rule('.md :is(.md-diff-block, li[data-diff-mark]) > .md-block-slot');
+    expect(inChange).toMatch(/background:\s*var\(--app-bg0\)/);
+    expect(inChange).toMatch(/z-index:\s*1/);
+    // Over the bar: left by the bar's offset, its content back in place.
+    expect(rule('.md .md-diff-block > .md-block-slot')).toMatch(/margin-left:\s*-12px;\s*padding-left:\s*12px/);
+    expect(rule('.md li[data-diff-mark] > .md-block-slot, .md li > .md-diff-block > .md-block-slot')).toMatch(/margin-left:\s*calc\(-1 \* var\(--md-list-indent\) - 12px\)/);
   });
 });

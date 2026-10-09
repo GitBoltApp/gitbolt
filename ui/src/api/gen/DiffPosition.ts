@@ -8,4 +8,14 @@ export type DiffPosition = { path: string, oldPath: string | null, line: number 
  * A multi-line note's first line, as `line` / `old_line` are its last (GitLab's `line_range`,
  * GitHub's `start_line`): `None` for a single-line note.
  */
-startLine: number | null, startOldLine: number | null, };
+startLine: number | null, startOldLine: number | null, 
+/**
+ * The MR head the position is against (GitLab's `position.head_sha`); `None` where the
+ * forge doesn't say (GitHub: `outdated` says it).
+ */
+headSha?: string, 
+/**
+ * The forge couldn't carry it to the MR's head (GitHub's `line: null`): its lines are the
+ * original commit's.
+ */
+outdated?: boolean, };

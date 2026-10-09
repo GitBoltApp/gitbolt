@@ -17,7 +17,7 @@ const fileHistory = vi.hoisted(() => vi.fn());
 vi.mock('../api/client', () => ({ api: { fileHistory, avatar: vi.fn(async () => null) }, errorMessage: (e: unknown) => String(e) }));
 vi.mock('./BlameGutter', () => ({ BlameLayer: ({ row, onPick }: { row: { sha: string }; onPick(sha: string, g: boolean): void }) => <button type="button" data-testid="blame-stub" onClick={(e) => onPick(e.ctrlKey ? 'zz9999' : 'c3', e.altKey)}>{row.sha}</button> }));
 const copyText = vi.hoisted(() => vi.fn(async (_t: string) => {}));
-vi.mock('../api/transport', () => ({ copyText }));
+vi.mock('../api/transport', () => ({ copyText, inTauri: () => false }));
 const selectCommit = vi.hoisted(() => vi.fn(() => true));
 vi.mock('../app/graphNav', () => ({ selectCommit }));
 vi.mock('../diff/FileView', () => ({ FileView: ({ path, text }: { path: string; text: string }) => <pre data-testid="file-view" data-path={path}>{text}</pre> }));

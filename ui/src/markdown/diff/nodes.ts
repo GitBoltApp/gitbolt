@@ -21,7 +21,14 @@ export interface SplitRowNode extends Parent { type: 'splitRow'; mark: DiffMark 
 /** One side of a split row; `empty`: a placeholder for a block only the other side has. */
 export interface SplitCellNode extends Parent { type: 'splitCell'; side: 'old' | 'new'; empty?: true; children: Array<BlockContent | DefinitionContent> }
 
+/** A rendered diff block's source lines (review comments, spec 2026-10-08 §3): its first and
+ * last line on each side that has it (1-based, inclusive; null: that side hasn't it), and `id`,
+ * which names it in the rendered page (`data-src-id`). */
+export interface SrcLines { id: number; new: [number, number] | null; old: [number, number] | null }
+
 declare module 'mdast' {
+  /** `gbSrc` (review comments): the block's source lines (`diffTree.ts`). */
+  interface Data { gbSrc?: SrcLines }
   interface RootContentMap { diffBlock: DiffBlockNode; diffPair: DiffPairNode; diffIns: DiffInsNode; diffDel: DiffDelNode; splitRow: SplitRowNode; splitCell: SplitCellNode }
   interface BlockContentMap { diffBlock: DiffBlockNode; diffPair: DiffPairNode }
   interface PhrasingContentMap { diffIns: DiffInsNode; diffDel: DiffDelNode }

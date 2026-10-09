@@ -10,6 +10,8 @@ import { deletedLineAt, LineGutter, type LineGutterSpec } from './lineGutter';
 import { captureAnchor, restoreAnchor, revealRange, type ScrollAnchor } from './scrollAnchor';
 import { openTop, revealTop, stepTarget, type ChangeBox } from '../changeNav';
 import { overflowLayer } from './overflow';
+import { ReviewGutter, type ReviewGutterSpec } from './reviewGutter';
+import { ReviewZones, type ReviewZoneSpec } from './reviewZones';
 import { monaco } from './setup';
 import { useAppState } from '../../app/state';
 import { bindEditorTheme, currentEditorTheme } from '../../theme/editorThemes';
@@ -26,6 +28,10 @@ export interface DiffShowRequest {
 }
 export type { LineGutterSpec };
 export type { FileMargin };
+export type { ReviewZoneItem, ReviewZoneSpec } from './reviewZones';
+export type { ReviewGutterSpec } from './reviewGutter';
+/** Lines of one side of the diff (`start` to `end`, 1-based). */
+export interface DiffLines { side: 'original' | 'modified'; start: number; end: number }
 export type { HexShowRequest, HexView } from './hexPanes';
 /** A hunk's header row (spec #2 §7.3): after modified line `after` (0: above line 1). */
 export interface HunkZone { after: number }
@@ -138,6 +144,20 @@ export interface MonacoHost {
   /** The diff editor's cursor: its line, on the side holding the keyboard, else the new side
    * (where Next/Previous change puts it). `null` while no diff is attached. */
   diffCursor(): { side: 'original' | 'modified'; line: number } | null;
+  /** Review mode's cards (spec 2026-10-08 §2): a view zone under each item's line, its card in a
+   * layer over the editor (`spec.placed` gets the cards' nodes). Laid with each show of
+   * `spec.path` (before it renders), and again on a mode change or a recompute; `null` removes them. */
+  setReviewZones(spec: ReviewZoneSpec | null): void;
+  /** Review mode's "+" in the glyph margin, on the lines that take a comment; `null` removes it. */
+  setReviewGutter(spec: ReviewGutterSpec | null): void;
+  /** The selection's lines on the side holding the keyboard (else the new side), or the cursor's
+   * line when nothing is selected. `null` while no diff is attached. */
+  diffLines(): DiffLines | null;
+  /** Lines `start` to `end` of a side, as shown (`null` with no diff shown). */
+  diffLineText(side: 'original' | 'modified', start: number, end: number): string[] | null;
+  /** Next: the first review card (thread or draft) starting below the view's centre; Previous:
+   * the last one ending above it; centred. Wraps. Its key, or `null` with none. */
+  goToReviewZone(direction: 'next' | 'previous'): string | null;
   /** A binary's hex view (UX round 2, lane K) in `el`: editors of its own, hex | text per side,
    * until `dispose` (which the view calls when `el` goes). While it's on screen, Next/Previous
    * change, `focus` and `openFind` act on it, and the context menu is this host's. */
@@ -293,6 +313,11 @@ class Host implements MonacoHost {
   private zoneNodes: HTMLElement[] = [];
   private zoneWidthSub: { dispose(): void } | null = null;
   private gutter: LineGutter | null = null;
+  /** Review mode's cards (once a view asks), the spec asked for (kept for an editor not created
+   * yet), and its gutter. */
+  private review: ReviewZones | null = null;
+  private reviewSpec: ReviewZoneSpec | null = null;
+  private reviewGutter: ReviewGutter | null = null;
   private selSubs: { dispose(): void }[] = [];
   private fileEditSub: { dispose(): void } | null = null;
   /** The hex view on screen, if any (`hexView`). */
@@ -320,11 +345,12 @@ class Host implements MonacoHost {
 
   attachDiff(el: HTMLElement, next?: DiffContent): void {
     this.diffSeq++;
-    hideUnless(this.diffEl, this.diffShown, next, sameDiff);
+    this.hideDiff(!!this.diffShown && !!next && !sameDiff(this.diffShown, next));
     // A previous box never detached (a kept panel unmounted while hidden, J16): stop observing it.
     if (this.diffBox && this.diffBox !== el) this.ro.unobserve(this.diffBox);
     this.diffBox = el;
     el.appendChild(this.diffEl);
+    if (this.review) el.appendChild(this.review.layer);
     this.ro.observe(el);
     if (!this.diff) {
       this.diff = monaco.editor.createDiffEditor(this.diffEl, { ...diffEditorOptions(this.prefs, this.menu === null, sticky(), fontSize()), theme: currentEditorTheme(), overflowWidgetsDomNode: overflowLayer() });
@@ -335,6 +361,8 @@ class Host implements MonacoHost {
         // once the last one is in, the hold only waits for late relayouts (word wrap).
         if (this.anchor && this.pendingDiffs > 0 && --this.pendingDiffs === 0) this.holdFor(ANCHOR_HOLD_MS);
         this.onRelayout();
+        // A recompute (Ignore whitespace) moves an old line's card in Inline and Hunk.
+        this.review?.relayout();
       });
       this.wireMenu(this.diff.getOriginalEditor(), 'original');
       this.wireMenu(this.diff.getModifiedEditor(), 'modified');
@@ -359,13 +387,14 @@ class Host implements MonacoHost {
         if (!MODIFIER_KEYS.has(e.key)) this.dropAnchor();
       }, { capture: true });
     }
+    if (this.reviewSpec && !this.review) this.setReviewZones(this.reviewSpec);
     this.layout();
   }
 
   keepDiff(el: HTMLElement, next: DiffContent): boolean {
     if (!this.diff || this.diffEl.parentElement !== el) return false;
     this.diffSeq++;
-    hideUnless(this.diffEl, this.diffShown, next, sameDiff);
+    this.hideDiff(!!this.diffShown && !!next && !sameDiff(this.diffShown, next));
     return true;
   }
 
@@ -374,6 +403,7 @@ class Host implements MonacoHost {
     this.ro.unobserve(el);
     if (this.diffBox === el) this.diffBox = null;
     if (this.diffEl.parentElement === el) el.removeChild(this.diffEl);
+    if (this.review?.layer.parentElement === el) el.removeChild(this.review.layer);
   }
 
   /** A failed show un-hides the editor: the view's error UI (and its Retry) takes over. Not a
@@ -383,7 +413,7 @@ class Host implements MonacoHost {
     try {
       await this.presentDiff(req, seq);
     } catch (e) {
-      if (seq === this.diffSeq) setHidden(this.diffEl, false);
+      if (seq === this.diffSeq) this.hideDiff(false);
       throw e;
     }
   }
@@ -418,9 +448,13 @@ class Host implements MonacoHost {
     // A new presentation: whatever place a prefs change was keeping is gone.
     this.dropAnchor();
     this.clearHunkZones();
+    // Zones belong to the view a model change replaces.
+    this.review?.clear();
     ed.setModel(view);
     this.hunkZones = req.hunkZones ? { req: req.hunkZones, zones } : null;
     this.layHunkZones();
+    // Review mode's cards, in this frame too.
+    this.review?.shown(req.path, this.prefs.mode);
     // A save's reload keeps its place (below); any other show opens at the first change, before
     // the next frame renders, so the diff shows up already there.
     const kept = this.keptView?.diff && this.keptView.diffPath === req.path ? this.keptView.diff : null;
@@ -432,7 +466,7 @@ class Host implements MonacoHost {
     ed.getOriginalEditor().render(true);
     ed.getModifiedEditor().render(true);
     this.diffShown = { path: req.path, original: req.original, modified: req.modified };
-    setHidden(this.diffEl, false);
+    this.hideDiff(false);
     this.diffView?.dispose();
     for (const m of this.diffModels) m.dispose();
     this.diffView = view;
@@ -565,7 +599,10 @@ class Host implements MonacoHost {
     const modeChanged = prefs.mode !== this.prefs.mode;
     this.prefs = prefs;
     this.diff?.updateOptions(diffEditorOptions(prefs, this.menu === null, sticky(), fontSize()));
-    if (modeChanged && this.diffModels.length) this.layHunkZones();
+    if (modeChanged && this.diffModels.length) {
+      this.layHunkZones();
+      this.review?.shown(this.diffPath, prefs.mode);
+    }
   }
 
   /** Removes the hunk header rows. */
@@ -643,6 +680,75 @@ class Host implements MonacoHost {
     const side = ed.getOriginalEditor().hasTextFocus() ? 'original' : 'modified';
     const pos = (side === 'original' ? ed.getOriginalEditor() : ed.getModifiedEditor()).getPosition();
     return pos ? { side, line: pos.lineNumber } : null;
+  }
+
+  /** Hides the diff editor while it holds another diff than the view's (`hideUnless`), and review
+   * mode's cards over it with it. */
+  private hideDiff(hidden: boolean): void {
+    setHidden(this.diffEl, hidden);
+    if (this.review) setHidden(this.review.layer, hidden);
+  }
+
+  setReviewZones(spec: ReviewZoneSpec | null): void {
+    this.reviewSpec = spec;
+    // No review: its cards' layer and listeners go, so the diffs shown next (file history, a
+    // commit) carry none of it. The next review makes them again.
+    if (!spec) {
+      this.review?.dispose();
+      this.review = null;
+      return;
+    }
+    if (!this.diff) return;
+    if (!this.review) {
+      const review = new ReviewZones(this.diff);
+      this.review = review;
+      if (this.diffBox) this.diffBox.appendChild(review.layer);
+      setHidden(review.layer, this.diffEl.hasAttribute('inert'));
+      // Input in a card is the user taking over, as in the editor (`attachDiff`).
+      const drop = () => this.dropAnchor();
+      for (const type of ['pointerdown', 'wheel', 'keydown'] as const) review.layer.addEventListener(type, drop, { capture: true, passive: true });
+      review.shown(this.diffModels.length ? this.diffPath : null, this.prefs.mode);
+    }
+    this.review.set(spec);
+  }
+
+  setReviewGutter(spec: ReviewGutterSpec | null): void {
+    // As the cards (`setReviewZones`): no review, no + and none of its listeners on the editor.
+    if (!spec) {
+      this.reviewGutter?.dispose();
+      this.reviewGutter = null;
+      return;
+    }
+    if (!this.diff) return;
+    (this.reviewGutter ??= new ReviewGutter(this.diff)).set(spec);
+  }
+
+  diffLines(): DiffLines | null {
+    const ed = this.diff;
+    if (!ed || !this.diffEl.parentElement) return null;
+    const side = ed.getOriginalEditor().hasTextFocus() ? 'original' : 'modified';
+    const s = (side === 'original' ? ed.getOriginalEditor() : ed.getModifiedEditor()).getSelection();
+    if (!s) return null;
+    // A selection ending at column 1 of the next line covers the line above only.
+    const end = s.endColumn === 1 && s.endLineNumber > s.startLineNumber ? s.endLineNumber - 1 : s.endLineNumber;
+    return { side, start: s.startLineNumber, end };
+  }
+
+  diffLineText(side: 'original' | 'modified', start: number, end: number): string[] | null {
+    const ed = this.diff;
+    const model = (side === 'original' ? ed?.getOriginalEditor() : ed?.getModifiedEditor())?.getModel();
+    if (!model || !this.diffModels.length) return null;
+    const out: string[] = [];
+    for (let n = Math.max(1, start); n <= Math.min(end, model.getLineCount()); n++) out.push(model.getLineContent(n));
+    return out;
+  }
+
+  goToReviewZone(direction: 'next' | 'previous'): string | null {
+    const ed = this.diff;
+    if (!ed || !this.review) return null;
+    // The user's own move, as Next/Previous change: a kept place mustn't pull the view back.
+    this.dropAnchor();
+    return this.review.goTo(direction, REVEAL_CONTEXT_LINES * ed.getModifiedEditor().getOption(monaco.editor.EditorOption.lineHeight));
   }
 
   attachFile(el: HTMLElement, next?: FileContent): void {

@@ -1,4 +1,4 @@
-import type { Definition, Heading, List, Nodes, Root, Table } from 'mdast';
+import type { Definition, Heading, List, ListItem, Nodes, Root, Table } from 'mdast';
 import { visit } from 'unist-util-visit';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { splitChunks } from '../chunks';
@@ -373,5 +373,64 @@ describe('diffMarkdown (5C)', () => {
   it('reports a gave-up alignment instead of a tree', () => {
     clearParseCache();
     expect(diffTrees(parseMarkdown('One.', 'github'), parseMarkdown('Two.', 'github'), { timeout: -1 }).gaveUp).toBe(true);
+  });
+});
+
+describe('source lines (review comments, spec 2026-10-08 §3)', () => {
+  /** Each top-level block's kind (a marked block's mark) and its lines on each side. */
+  const lines = (root: Root) => root.children.filter((n) => n.type !== 'definition').map((n) => [n.type === 'diffBlock' ? n.mark : n.type, n.data?.gbSrc?.new ?? null, n.data?.gbSrc?.old ?? null]);
+
+  it("same blocks keep both sides' lines, removed ones the old side's, added ones the new side's", () => {
+    expect(lines(d('# Title\n\nOld para.\n\nKept para.\n', '# Title\n\nKept para.\n\nA new para here.\n').root)).toEqual([
+      ['heading', [1, 1], [1, 1]], ['removed', null, [3, 3]], ['paragraph', [3, 3], [5, 5]], ['added', [5, 5], null],
+    ]);
+  });
+
+  it('front matter is a block: its table carries the front matter\'s lines, so a thread on a key shows under it', () => {
+    const fm = (owner: string) => `---\nname: repo-tests\nowner: ${owner}\n---\n\n# Repo tests\n`;
+    expect(lines(d(fm('tools'), fm('tools')).root)).toEqual([['table', [1, 4], [1, 4]], ['heading', [6, 6], [6, 6]]]);
+    expect(lines(d(fm('tools'), fm('platform')).root)).toEqual([['table', [1, 4], [1, 4]], ['heading', [6, 6], [6, 6]]]);
+  });
+
+  it("a changed block's lines are the new side's, with the old side's beside them", () => {
+    expect(lines(d('Run the tool once.\n', 'Intro.\n\nRun the tool twice.\n').root)).toEqual([['added', [1, 1], null], ['changed', [3, 3], [1, 1]]]);
+  });
+
+  it("a changed list's items get their own lines: kept ones on both sides, an added one on the new side", () => {
+    const r = d('- one\n- two\n', 'Intro.\n\n- one\n- two\n- three\n').root;
+    const list = r.children.find((n): n is List => n.type === 'list')!;
+    expect([list.data?.gbSrc?.new, list.data?.gbSrc?.old]).toEqual([[3, 5], [1, 2]]);
+    expect(list.children.map((i: ListItem) => [plainText(i), i.data?.gbSrc?.new ?? null, i.data?.gbSrc?.old ?? null])).toEqual([['one', [3, 3], [1, 1]], ['two', [4, 4], [2, 2]], ['three', [5, 5], null]]);
+  });
+
+  it("an unchanged list's items get lines on both sides, walking both in step", () => {
+    const list = d('- a\n- b\n', '# T\n\n- a\n- b\n').root.children.find((n): n is List => n.type === 'list')!;
+    expect(list.children.map((i) => [i.data?.gbSrc?.new, i.data?.gbSrc?.old])).toEqual([[[3, 3], [1, 1]], [[4, 4], [2, 2]]]);
+  });
+
+  it('every block has its own id, and the parsed trees are left as they were', () => {
+    clearParseCache();
+    const old = parseMarkdown('- a\n- b\n\nText.\n', 'github', true);
+    const neu = parseMarkdown('- a\n- c\n\nText!\n', 'github', true);
+    const ids: number[] = [];
+    visit(diffTrees(old, neu).root, (n: Nodes) => { if (n.data?.gbSrc) ids.push(n.data.gbSrc.id); });
+    expect(ids.length).toBeGreaterThan(3);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const tree of [old, neu]) visit(tree, (n: Nodes) => { expect(n.data?.gbSrc).toBeUndefined(); });
+  });
+
+  it('a wholly added or removed footnote carries its lines', () => {
+    const noteBlock = (r: Root) => {
+      const note = r.children.find((n) => n.type === 'footnoteDefinition')!;
+      const b = note.children[0] as unknown as DiffBlockNode;
+      return [b.mark, b.data?.gbSrc?.new ?? null, b.data?.gbSrc?.old ?? null, b.children[0]!.data?.gbSrc?.new ?? b.children[0]!.data?.gbSrc?.old ?? null];
+    };
+    expect(noteBlock(d('Text.\n', 'Text.[^n]\n\n[^n]: A note.\n').root)).toEqual(['added', [3, 3], null, [3, 3]]);
+    expect(noteBlock(d('Gone.[^n]\n\n[^n]: A note.\n', 'Other text.\n').root)).toEqual(['removed', null, [3, 3], [3, 3]]);
+  });
+
+  it('chunks keep the lines (the streamed diff renders them too)', () => {
+    const chunks = splitChunks(d('Para one.\n', 'Para one.\n\nPara two.\n').root);
+    expect(chunks.flatMap((c) => c.children.map((n) => n.data?.gbSrc?.new ?? null))).toEqual([[1, 1], [3, 3]]);
   });
 });

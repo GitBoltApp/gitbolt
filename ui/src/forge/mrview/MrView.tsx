@@ -32,6 +32,7 @@ import { MrForms, ReviewButtons, StatusActions, useMrActions } from './MrActions
 import { ReplyBox } from './ReplyBox';
 import { StackPanel } from '../stack/StackPanel';
 // --- end 4B T13 ---
+import { resumeReview } from '../review/session';
 import './mrview.css';
 
 /**
@@ -110,7 +111,8 @@ export function MrView({ tabId, props, close }: FlyoutProps<MrViewArgs>) {
   useEffect(() => {
     patchForge(tabId, { openMr: number });
     // A beat of grace: arrowing down the sidebar's list opens each row in turn; only the one it rests on loads.
-    const t = setTimeout(() => { void refreshMr(tabId, number).catch(() => {}); }, REFRESH_GRACE_MS);
+    // A review left pending on it (a restart, the web page) is picked up once per open (`resumeReview`).
+    const t = setTimeout(() => { void refreshMr(tabId, number).catch(() => {}); void resumeReview(tabId, number); }, REFRESH_GRACE_MS);
     return () => { clearTimeout(t); patchForge(tabId, (cur) => (cur.openMr === number ? { openMr: null } : {})); };
   }, [tabId, number]);
   const detail = details[number]?.value ?? null;

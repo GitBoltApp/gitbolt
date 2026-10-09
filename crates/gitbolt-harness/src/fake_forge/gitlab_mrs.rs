@@ -21,6 +21,8 @@ pub struct FakePosition {
     /// A multi-line note's first line, (new, old): its `line_range` starts there and ends at
     /// `new_line` / `old_line`.
     pub start: Option<(Option<u32>, Option<u32>)>,
+    /// The head its position is against; empty: none said.
+    pub head_sha: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -51,6 +53,67 @@ pub struct FakeAward {
     pub user: String,
 }
 // --- end comment actions ---
+
+// --- review comments ---
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FakeDraftNote {
+    pub id: u64,
+    /// A username.
+    pub author: String,
+    pub note: String,
+    /// As the client sent it (GitLab answers it back).
+    pub position: Option<Value>,
+}
+
+fn me(r: &FakeRequest) -> String {
+    r.token.as_ref().map(|t| t.user.username.clone()).unwrap_or_default()
+}
+
+fn next_note_id(st: &ForgeState) -> u64 {
+    st.seed.gitlab.merge_requests.iter().flat_map(|m| m.discussions.iter()).flat_map(|d| d.notes.iter()).map(|n| n.id).max().unwrap_or(0).max(1000) + 1
+}
+
+fn draft_json(st: &ForgeState, iid: u64, d: &FakeDraftNote) -> Value {
+    // A GitLab that drops a position answers GitLab's shape for none: every field null.
+    let none = json!({ "position_type": "text", "base_sha": null, "start_sha": null, "head_sha": null, "old_path": null, "new_path": null, "old_line": null, "new_line": null, "line_range": null });
+    let position = if d.position.is_none() && st.seed.gitlab.drafts_drop_position { none } else { json!(d.position) };
+    json!({ "id": d.id, "author_id": person(st, &d.author).id, "merge_request_id": 10_000 + iid, "resolve_discussion": false, "discussion_id": null, "note": d.note, "commit_id": null, "line_code": null, "position": position })
+}
+
+/// A position GitLab takes on MR `m`: text, its three SHAs, its last line one of the file's diff
+/// lines (an unchanged line naming both numbers), and a `line_range` whose ends are lines too,
+/// with their line codes. GitLab's refusal (a 400) otherwise.
+fn check_position(m: &FakeMergeRequest, p: &Value) -> Result<FakePosition, Reply> {
+    use gitbolt_core::forge::review::{commentable_lines, line_code};
+    let refused = || Reply::status(400, json!({ "message": "400 Bad request - Note {:line_code=>[\"can't be blank\", \"must be a valid line code\"]}" }));
+    let s = |k: &str| p[k].as_str().unwrap_or_default().to_string();
+    if s("position_type") != "text" || ["base_sha", "start_sha", "head_sha"].iter().any(|k| s(k).is_empty()) {
+        return Err(refused());
+    }
+    // The SHAs must be the MR's own diff refs, when it has them.
+    if !m.base_sha.is_empty() && (s("base_sha") != m.base_sha || s("start_sha") != m.base_sha || s("head_sha") != m.head_sha) {
+        return Err(refused());
+    }
+    let new_path = s("new_path");
+    let Some(d) = m.diffs.iter().find(|d| d.new_path == new_path) else { return Err(refused()) };
+    let lines = commentable_lines(&d.diff);
+    let num = |v: &Value| v.as_u64().map(|n| n as u32);
+    let find = |v: &Value| lines.iter().copied().find(|l| l.position_lines() == (num(&v["old_line"]), num(&v["new_line"])));
+    let end = find(p).ok_or_else(refused)?;
+    let mut start = None;
+    if !p["line_range"].is_null() {
+        let (a, b) = (&p["line_range"]["start"], &p["line_range"]["end"]);
+        let (first, last) = (find(a).ok_or_else(refused)?, find(b).ok_or_else(refused)?);
+        let coded = |v: &Value, l: gitbolt_core::forge::ReviewLine| v["line_code"].as_str() == Some(line_code(&new_path, &l).as_str());
+        if last != end || !coded(a, first) || !coded(b, last) {
+            return Err(refused());
+        }
+        start = Some((num(&a["new_line"]), num(&a["old_line"])));
+    }
+    Ok(FakePosition { new_path, old_path: s("old_path"), new_line: num(&p["new_line"]), old_line: num(&p["old_line"]), start, head_sha: s("head_sha") })
+}
+// --- end review comments ---
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -121,6 +184,10 @@ pub struct FakeMergeRequest {
     pub subscribers: Vec<String>,
     /// Usernames whose reviewer state is requested changes (`mergeRequestRequestChanges`).
     pub changes_requested_by: Vec<String>,
+    // --- review comments ---
+    /// Draft notes, each its author's own (only they see it).
+    pub draft_notes: Vec<FakeDraftNote>,
+    // --- end review comments ---
     // --- end MR round 2 ---
 }
 
@@ -143,7 +210,7 @@ pub fn default_mrs() -> Vec<FakeMergeRequest> {
         ..Default::default()
     };
     let note = |id: u64, author: &str, body: &str, at: &str| FakeNote { id, author: author.into(), body: body.into(), created_at: at.into(), system: false, position: None, awards: vec![] };
-    let readme = FakePosition { new_path: "README.md".into(), old_path: "README.md".into(), new_line: Some(2), old_line: None, start: None };
+    let readme = FakePosition { new_path: "README.md".into(), old_path: "README.md".into(), new_line: Some(2), old_line: None, start: None, ..Default::default() };
     vec![
         FakeMergeRequest {
             description: "Adds the dev work.\n\nCloses #3.".into(),
@@ -375,7 +442,7 @@ fn note_json(st: &ForgeState, n: &FakeNote, resolvable: bool, resolved: bool, ba
                 "new_line": new, "old_line": old,
             });
             let range = p.start.map_or(Value::Null, |s| json!({ "start": at(s), "end": at((p.new_line, p.old_line)) }));
-            json!({ "position_type": "text", "new_path": p.new_path, "old_path": p.old_path, "new_line": p.new_line, "old_line": p.old_line, "line_range": range })
+            json!({ "position_type": "text", "new_path": p.new_path, "old_path": p.old_path, "new_line": p.new_line, "old_line": p.old_line, "line_range": range, "head_sha": if p.head_sha.is_empty() { Value::Null } else { Value::from(p.head_sha.as_str()) } })
         }),
         "resolvable": resolvable, "resolved": resolved,
     })
@@ -698,6 +765,93 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             }
         }
         // --- end 5A T3 ---
+        // --- review comments: draft notes (the token user's own) and positioned threads ---
+        ("GET", ["merge_requests", iid, "draft_notes"]) => match index(st, iid) {
+            Some(i) => {
+                let me = me(r);
+                let m = &st.seed.gitlab.merge_requests[i];
+                Reply::page(m.draft_notes.iter().filter(|d| d.author == me).map(|d| draft_json(st, m.iid, d)).collect(), r, &here)
+            }
+            None => not_found(),
+        },
+        ("POST", ["merge_requests", iid, "draft_notes", "bulk_publish"]) => match index(st, iid) {
+            Some(i) => {
+                let me = me(r);
+                let first = next_note_id(st);
+                let m = &st.seed.gitlab.merge_requests[i];
+                let mine: Vec<(String, Option<FakePosition>)> = m.draft_notes.iter().filter(|d| d.author == me).map(|d| (d.note.clone(), d.position.as_ref().and_then(|p| check_position(m, p).ok()))).collect();
+                let m = &mut st.seed.gitlab.merge_requests[i];
+                m.draft_notes.retain(|d| d.author != me);
+                for (id, (body, position)) in (first..).zip(mine) {
+                    let note = FakeNote { id, author: me.clone(), body, created_at: WRITE_TIME.into(), system: false, position, awards: vec![] };
+                    m.discussions.push(FakeDiscussion { id: format!("d{id}"), notes: vec![note], resolvable: true, resolved: false, resolved_by: None });
+                }
+                m.updated_at = WRITE_TIME.into();
+                Reply::no_content()
+            }
+            None => not_found(),
+        },
+        ("POST", ["merge_requests", iid, "draft_notes"]) => match index(st, iid) {
+            Some(i) => {
+                let b = body_of(r);
+                let Some(note) = b["note"].as_str().map(str::to_string) else { return Some(bad_request()) };
+                let position = if st.seed.gitlab.drafts_drop_position || b["position"].is_null() {
+                    None
+                } else {
+                    if let Err(refused) = check_position(&st.seed.gitlab.merge_requests[i], &b["position"]) {
+                        return Some(refused);
+                    }
+                    Some(b["position"].clone())
+                };
+                let id = st.seed.gitlab.merge_requests.iter().flat_map(|m| m.draft_notes.iter()).map(|d| d.id).max().unwrap_or(0).max(2000) + 1;
+                let d = FakeDraftNote { id, author: me(r), note, position };
+                st.seed.gitlab.merge_requests[i].draft_notes.push(d.clone());
+                Reply::status(201, draft_json(st, st.seed.gitlab.merge_requests[i].iid, &d))
+            }
+            None => not_found(),
+        },
+        ("PUT", ["merge_requests", iid, "draft_notes", did]) => match index(st, iid) {
+            Some(i) => {
+                let me = me(r);
+                let Some(note) = body_of(r)["note"].as_str().map(str::to_string) else { return Some(bad_request()) };
+                let Some(d) = st.seed.gitlab.merge_requests[i].draft_notes.iter_mut().find(|d| d.id.to_string() == *did && d.author == me) else { return Some(not_found()) };
+                d.note = note;
+                let d = d.clone();
+                Reply::json(draft_json(st, st.seed.gitlab.merge_requests[i].iid, &d))
+            }
+            None => not_found(),
+        },
+        ("DELETE", ["merge_requests", iid, "draft_notes", did]) => match index(st, iid) {
+            Some(i) => {
+                let me = me(r);
+                let drafts = &mut st.seed.gitlab.merge_requests[i].draft_notes;
+                match drafts.iter().position(|d| d.id.to_string() == *did && d.author == me) {
+                    Some(k) => {
+                        drafts.remove(k);
+                        Reply::no_content()
+                    }
+                    None => not_found(),
+                }
+            }
+            None => not_found(),
+        },
+        ("POST", ["merge_requests", iid, "discussions"]) => match index(st, iid) {
+            Some(i) => {
+                let b = body_of(r);
+                let Some(body) = b["body"].as_str().map(str::to_string) else { return Some(bad_request()) };
+                let position = match check_position(&st.seed.gitlab.merge_requests[i], &b["position"]) {
+                    Ok(p) => p,
+                    Err(refused) => return Some(refused),
+                };
+                let id = next_note_id(st);
+                let note = FakeNote { id, author: me(r), body, created_at: WRITE_TIME.into(), system: false, position: Some(position), awards: vec![] };
+                let d = FakeDiscussion { id: format!("d{id}"), notes: vec![note], resolvable: true, resolved: false, resolved_by: None };
+                st.seed.gitlab.merge_requests[i].discussions.push(d.clone());
+                Reply::status(201, discussion_json(st, &d, &base))
+            }
+            None => not_found(),
+        },
+        // --- end review comments ---
         _ => return None,
     };
     Some(reply)

@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import type { Element } from 'hast';
-import type { Code, List, Paragraph, Root, RootContent, Table } from 'mdast';
+import type { Code, Heading, List, Paragraph, Root, RootContent, Table } from 'mdast';
 import { describe, expect, it, vi } from 'vitest';
 import type { FileMarkdownContext, MdCodeProps, MdImageProps, MdLinkProps } from './types';
 
@@ -11,6 +11,8 @@ vi.mock('./MdCode', () => ({ MdCode: ({ code, marks, words }: MdCodeProps) => <p
 vi.mock('./MdMermaid', () => ({ MdMermaid: ({ source }: { source: string }) => <pre data-testid="mermaid">{source}</pre> }));
 const { renderTree, toSafeHast } = await import('./render');
 const { clearParseCache, parseMarkdown } = await import('./parse');
+const { BlockSlotContext } = await import('./blockSlot');
+type Sides = import('./blockSlot').SrcSides;
 
 const NEW: FileMarkdownContext = { kind: 'file', tabId: 't', commit: 'b'.repeat(40), path: 'docs/guide.md' };
 const OLD: FileMarkdownContext = { kind: 'file', tabId: 't', commit: 'a'.repeat(40), path: 'docs/old-guide.md' };
@@ -123,5 +125,88 @@ describe('rendering a diff tree (5C)', () => {
     const { hast, nonce } = toSafeHast(root({ type: 'diffBlock', mark: 'added', children: blocks('Hi.') as Paragraph[] }));
     const div = hast.children.find((n): n is Element => n.type === 'element' && n.tagName === 'div')!;
     expect(div.properties.dataGbDiff).toBe(`${nonce}:added`);
+  });
+});
+
+describe('source lines and slots (review comments, spec 2026-10-08 §3)', () => {
+  const withLines = <T extends RootContent>(n: T, id: number, neu: [number, number] | null, old: [number, number] | null): T => ({ ...n, data: { ...n.data, gbSrc: { id, new: neu, old } } });
+
+  it('a block carries its lines as data-src-* attributes, only in a rendered diff', () => {
+    const [h, p] = blocks('# Title\n\nSome text.') as [Heading, Paragraph];
+    const tree = root(withLines(h, 1, [1, 1], [1, 1]), { type: 'diffBlock', mark: 'added', children: [withLines(p, 2, [3, 3], null)] });
+    const c = show(tree);
+    expect(c.querySelector('h1')).toHaveAttribute('data-src-id', '1');
+    expect(c.querySelector('h1')).toHaveAttribute('data-src-new', '1-1');
+    expect(c.querySelector('h1')).toHaveAttribute('data-src-old', '1-1');
+    expect(c.querySelector('p')).toHaveAttribute('data-src-new', '3-3');
+    expect(c.querySelector('p')).not.toHaveAttribute('data-src-old');
+    expect(show(tree, false).querySelector('[data-src-id]')).toBeNull();
+  });
+
+  it("a document's own data-gb-src or data-src-* never reach the page", () => {
+    const c = show(root(...blocks('<p data-gb-src="x:9:1-2:" data-src-id="9" data-src-new="1-2">forged</p>')));
+    expect(c).toHaveTextContent('forged');
+    expect(c.querySelector('[data-src-id], [data-src-new], [data-gb-src]')).toBeNull();
+  });
+
+  it('nor on a list item, a div or a table, the tags whose overrides read them too', () => {
+    const forged = '<div data-gb-src="x:9:1-2:" data-src-id="9">in a div</div>\n\n<ul><li data-gb-src="x:9:1-2:" data-src-new="1-2">in an item</li></ul>\n\n'
+      + '<table data-gb-src="x:9:1-2:" data-src-old="1-2"><tr><td>in a table</td></tr></table>';
+    const c = show(root(...blocks(forged)));
+    expect(c).toHaveTextContent('in a div');
+    expect(c).toHaveTextContent('in an item');
+    expect(c).toHaveTextContent('in a table');
+    expect(c.querySelector('[data-src-id], [data-src-new], [data-src-old], [data-gb-src]')).toBeNull();
+    expect(c.querySelector('[data-review-slot]')).toBeNull();
+  });
+
+  it("outside a rendered diff no block carries data-gb-src, the tree's or the document's own", () => {
+    const [h, p] = blocks('# Title\n\nSome text.') as [Heading, Paragraph];
+    const forged = blocks('<p data-gb-src="x:9:1-2:">forged</p>\n\n<ul><li data-gb-src="x:1:1-1:">item</li></ul>');
+    const c = show(root(withLines(h, 1, [1, 1], [1, 1]), withLines(p, 2, [3, 3], null), ...forged), false);
+    expect(c).toHaveTextContent('forged');
+    expect(c.querySelector('h1')).toHaveTextContent('Title');
+    expect(c.querySelector('[data-gb-src], [data-src-id]')).toBeNull();
+  });
+
+  it("in the split view each column carries its own side's lines", () => {
+    const [p] = blocks('Kept.') as [Paragraph];
+    const c = render(<div>{renderTree(root(withLines(p, 4, [2, 2], [1, 1])), NEW, { old: OLD, split: true })}</div>).container;
+    const [old, neu] = [...c.querySelectorAll('p')];
+    expect([old!.getAttribute('data-src-old'), old!.getAttribute('data-src-new')]).toEqual(['1-1', null]);
+    expect([neu!.getAttribute('data-src-new'), neu!.getAttribute('data-src-old')]).toEqual(['2-2', null]);
+  });
+
+  it('a block shows what the review has for it right under it (inside a list item); nothing without a review', () => {
+    const [p, list] = blocks('Some text.\n\n- item') as [Paragraph, List];
+    const tree = root(withLines(p, 5, [1, 1], null), { ...list, children: [withLines(list.children[0]!, 6, [3, 3], [3, 3])] });
+    const slots = { render: (id: number, sides: Sides) => <span>{`slot ${id} ${sides.new ? 'new' : ''}${sides.old ? 'old' : ''}`}</span> };
+    const c = render(<BlockSlotContext value={slots}><div>{renderTree(tree, NEW, { old: OLD })}</div></BlockSlotContext>).container;
+    expect(c.querySelector('p + [data-review-slot]')).toHaveTextContent('slot 5 new');
+    expect(c.querySelector('li > [data-review-slot]')).toHaveTextContent('slot 6 newold');
+    expect(show(tree).querySelector('[data-review-slot]')).toBeNull();
+  });
+
+  it("front matter's table is a block: its lines, and its slot under it", () => {
+    clearParseCache();
+    const [fm] = parseMarkdown('---\nowner: tools\n---\n', 'github', true).children as [Table];
+    const slots = { render: (id: number) => <span>{`slot ${id}`}</span> };
+    const c = render(<BlockSlotContext value={slots}><div>{renderTree(root(withLines(fm, 3, [1, 3], [1, 3])), NEW, { old: OLD })}</div></BlockSlotContext>).container;
+    expect(c.querySelector('table.md-frontmatter')?.getAttribute('data-src-new')).toBe('1-3');
+    expect(c.querySelector('table.md-frontmatter + [data-review-slot]')).toHaveTextContent('slot 3');
+  });
+
+  it('a block the review has nothing for gets no slot box (null, false or an empty list)', () => {
+    const [p] = blocks('Some text.') as [Paragraph];
+    for (const nothing of [null, undefined, false, []]) {
+      const c = render(<BlockSlotContext value={{ render: () => nothing }}><div>{renderTree(root(withLines(p, 5, [1, 1], null)), NEW, { old: OLD })}</div></BlockSlotContext>).container;
+      expect(c.querySelector('[data-review-slot]')).toBeNull();
+    }
+  });
+
+  it('a code block sits in a box carrying its lines', () => {
+    const [code] = blocks('```js\nlet a = 1;\n```') as [Code];
+    const c = show(root(withLines(code, 7, [1, 3], null)));
+    expect(c.querySelector('.md-src-code[data-src-new="1-3"] [data-testid="code"]')).toHaveTextContent('let a = 1;');
   });
 });

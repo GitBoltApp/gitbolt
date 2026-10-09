@@ -25,6 +25,9 @@ pub mod cache;
 pub mod image;
 pub use image::{image_host, ForgeImage};
 // --- end 5A T1 ---
+// --- review comments ---
+pub mod review;
+// --- end review comments ---
 
 pub use provider::*;
 pub use types::*;

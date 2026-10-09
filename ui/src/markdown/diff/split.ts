@@ -1,6 +1,6 @@
 import type { Code, Heading, List, ListItem, Nodes, Parent, Root, RootContent, TableRow } from 'mdast';
 import { htmlDepth } from '../chunks';
-import type { DiffMark, SplitCellNode, SplitRowNode } from './nodes';
+import type { DiffBlockNode, DiffMark, DiffPairNode, SplitCellNode, SplitRowNode } from './nodes';
 
 type Side = 'old' | 'new';
 /** One aligned unit of the split view: what each side shows (`null`: a placeholder). */
@@ -20,6 +20,22 @@ const kids = (n: Parent, side: Side) => (n.children as Nodes[]).flatMap((c) => s
 const emptyRow = (r: TableRow): TableRow =>
   ({ type: 'tableRow', data: { gbEmpty: true }, children: r.children.map(() => ({ type: 'tableCell', children: [{ type: 'text', value: ' ' }] })) });
 
+/** A copy of `n` without its source lines (review comments): a container split into rows is
+ * copied into each row, and its lines belong to none of them (its items and blocks carry theirs). */
+function bare<T extends Nodes>(n: T): T {
+  if (!n.data?.gbSrc) return n;
+  const { gbSrc: _lines, ...data } = n.data;
+  return { ...n, data } as T;
+}
+
+/** A changed diagram's half (`0`: removed, `1`: added) carrying the pair's source lines: each
+ * column shows its own side's (review comments). */
+function half(pair: DiffPairNode, i: 0 | 1): DiffBlockNode {
+  const b = pair.children[i];
+  const gbSrc = pair.data?.gbSrc;
+  return gbSrc ? { ...b, data: { ...b.data, gbSrc } } : b;
+}
+
 /**
  * A merged node (`diffTree`) as one side shows it: the other side's words, blocks, items and
  * code lines left out (a table row becomes a blank placeholder row, to keep the rows lined up), a
@@ -30,7 +46,7 @@ function sided(n: Nodes, side: Side): Nodes[] {
   const other: DiffMark = side === 'old' ? 'added' : 'removed';
   switch (n.type) {
     case 'diffBlock': return n.mark === other ? [] : [{ ...n, children: kids(n, side) } as Nodes];
-    case 'diffPair': return sided(n.children[side === 'old' ? 0 : 1], side);
+    case 'diffPair': return sided(half(n, side === 'old' ? 0 : 1), side);
     case 'diffIns': return side === 'old' ? [] : [{ ...n, children: kids(n, side) } as Nodes];
     case 'diffDel': return side === 'new' ? [] : [{ ...n, children: kids(n, side) } as Nodes];
     case 'listItem': {
@@ -94,7 +110,7 @@ function listRows(list: List): Row[] {
     else rows.push(rowFor([it as RootContent]));
   }
   flush();
-  return within(rows, (items) => ({ ...list, children: items as ListItem[] }));
+  return within(rows, (items) => bare({ ...list, children: items as ListItem[] }));
 }
 
 function nodeRows(n: RootContent): Row[] {
@@ -103,9 +119,9 @@ function nodeRows(n: RootContent): Row[] {
       if (n.mark === 'added') return [{ mark: 'added', old: null, neu: [n] }];
       if (n.mark === 'removed') return [{ mark: 'removed', old: sideOf([n], 'old'), neu: null }];
       return [rowFor([n])];
-    case 'diffPair': return [{ mark: 'changed', old: [n.children[0]], neu: [n.children[1]] }];
+    case 'diffPair': return [{ mark: 'changed', old: [half(n, 0)], neu: [half(n, 1)] }];
     case 'list': return hasMarks(n) ? listRows(n) : [rowFor([n])];
-    case 'blockquote': return hasMarks(n) ? within(flowRows(n.children), (children) => ({ ...n, children: children as typeof n.children })) : [rowFor([n])];
+    case 'blockquote': return hasMarks(n) ? within(flowRows(n.children), (children) => bare({ ...n, children: children as typeof n.children })) : [rowFor([n])];
     default: return [rowFor([n])];
   }
 }

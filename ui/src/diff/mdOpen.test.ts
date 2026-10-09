@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STEP_MARGIN } from './changeStepper';
-import { firstChangeTop, holdFirstChange, OPEN_HOLD_MS } from './mdOpen';
+import { firstChangeTop, holdFirstChange, holdLine, OPEN_HOLD_MS } from './mdOpen';
 
 /** A 600 px pane (test-setup's clientHeight) whose blocks sit at the given offsets in its content,
  * `[mark, top, height]`; `at` moves one later (a late relayout). */
@@ -90,5 +90,29 @@ describe('holdFirstChange', () => {
     holdFirstChange(p)();
     await vi.advanceTimersByTimeAsync(20);
     expect(p.scrollTop).toBe(0);
+  });
+});
+
+describe('holdLine (review comments: a note opens the rendered diff at its line)', () => {
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance', 'Date'] }); });
+  afterEach(() => { vi.useRealTimers(); document.body.innerHTML = ''; });
+
+  it("waits for the line's block to render (a later chunk), then goes to it", async () => {
+    const p = document.createElement('div');
+    let top = 0;
+    Object.defineProperty(p, 'scrollTop', { get: () => top, set: (v: number) => { top = Math.max(0, v); } });
+    p.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    document.body.append(p);
+    const stop = holdLine(p, { side: 'modified', line: 7 });
+    await vi.advanceTimersByTimeAsync(20);
+    expect(top).toBe(0);
+    const el = document.createElement('p');
+    el.dataset.srcId = '3';
+    el.dataset.srcNew = '6-8';
+    el.getBoundingClientRect = () => ({ top: 100 + 2000 - top, bottom: 100 + 2040 - top }) as DOMRect;
+    p.append(el);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(top).toBe(2000 + 20 - 300);
+    stop();
   });
 });

@@ -12,8 +12,8 @@ const base = defaultSchema.attributes ?? {};
  * `language-*` on code, no accesskey/tabindex/style or form attributes, `id`/`name` prefixed `user-content-`, links
  * `http(s)`/`mailto`/relative, images also `data:` (narrowed to raster images by
  * `rehypeSafeUrls`), and these stripped with their contents. `data-gb-ref` on `span` carries a
- * reference through, `data-gb-fm` on `table` front matter, and `data-gb-diff`, `data-gb-lines`, `data-gb-words` and `data-gb-note` (5C) a diff mark (render.tsx checks
- * their nonce). */
+ * reference through, `data-gb-fm` on `table` front matter, and `data-gb-diff`, `data-gb-lines`, `data-gb-words` and `data-gb-note` (5C) a diff mark, and `data-gb-src` (review comments) a block's source
+ * lines (render.tsx checks their nonce). */
 export const MD_SCHEMA: Schema = {
   ...defaultSchema,
   tagNames: [...new Set([...(defaultSchema.tagNames ?? []), 'details', 'summary', 'kbd', 'sub', 'sup', 'br', 'del', 'ins', 'picture', 'source'])],
@@ -21,15 +21,19 @@ export const MD_SCHEMA: Schema = {
   attributes: {
     ...Object.fromEntries(Object.entries(base).map(([tag, list]) => [tag, without(list, ['className'])])),
     '*': without(base['*'], ['className', 'accessKey', 'tabIndex', 'style', 'action', 'method', 'encType', 'accept', 'acceptCharset']),
-    code: [['className', /^language-[\w+#.-]+$/], 'dataGbLines', 'dataGbWords'],
+    // Review comments: a rendered diff's block carries its source lines (`data-gb-src`); the
+    // overrides check its nonce.
+    ...Object.fromEntries(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote', 'pre', 'hr'].map((t) => [t, [...without(base[t], ['className']), 'dataGbSrc']])),
+    // A `:` only in GitLab's suggestion fence (`suggestion:-1+0`, spec 2026-10-08).
+    code: [['className', /^language-(?:[\w+#.-]+|suggestion:-\d+\+\d+)$/], 'dataGbLines', 'dataGbWords'],
     source: ['srcSet', 'media', 'type'],
     // `data-gb-*` carry a reference or (5C) a diff mark through; the overrides check their nonce.
     span: ['dataGbRef', 'dataGbDiff'],
-    div: [...without(base.div, ['className']), 'dataGbDiff', 'dataGbNote'],
-    li: [...without(base.li, ['className']), 'dataGbDiff', 'value'],
+    div: [...without(base.div, ['className']), 'dataGbDiff', 'dataGbNote', 'dataGbSrc'],
+    li: [...without(base.li, ['className']), 'dataGbDiff', 'value', 'dataGbSrc'],
     tr: [...without(base.tr, ['className']), 'dataGbDiff'],
     // A file's front matter table (the override checks its nonce).
-    table: [...without(base.table, ['className']), 'dataGbFm'],
+    table: [...without(base.table, ['className']), 'dataGbFm', 'dataGbSrc'],
   },
   protocols: { ...defaultSchema.protocols, href: ['http', 'https', 'mailto'], src: ['http', 'https', 'data'] },
   clobberPrefix: 'user-content-',

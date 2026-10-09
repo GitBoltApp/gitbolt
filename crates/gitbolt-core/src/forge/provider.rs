@@ -315,6 +315,41 @@ pub trait ForgeProvider: Send + Sync {
     fn set_draft<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _draft: bool) -> ForgeFuture<'a, ForgeMr> {
         unsupported("Changing draft status")
     }
+    // --- review comments (spec 2026-10-08 §6) ---
+    /// The MR's diff as the forge has it, with the lines each file takes comments on.
+    fn review_diff<'a>(&'a self, _project: &'a ForgeProject, _number: u64) -> ForgeFuture<'a, ReviewDiff> {
+        unsupported("Commenting on lines")
+    }
+    /// The user's pending review: its drafts and the diff refs; `can_draft` true (the hub knows
+    /// GitLab's version).
+    fn review_drafts<'a>(&'a self, _project: &'a ForgeProject, _number: u64) -> ForgeFuture<'a, ReviewDrafts> {
+        unsupported("Commenting on lines")
+    }
+    /// Adds a line comment to the user's pending review (GitHub starts one when none is).
+    fn add_draft<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _comment: &'a NewReviewComment) -> ForgeFuture<'a, ReviewDraft> {
+        unsupported("Commenting on lines")
+    }
+    /// The draft with its new body, as the forge answered (no position: the caller keeps its own).
+    fn edit_draft<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _id: &'a str, _body: &'a str) -> ForgeFuture<'a, ReviewDraft> {
+        unsupported("Commenting on lines")
+    }
+    fn delete_draft<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _id: &'a str) -> ForgeFuture<'a, ()> {
+        unsupported("Commenting on lines")
+    }
+    /// Sends the pending review with `review`'s event and summary (without one pending: the
+    /// review alone). `published` is left at 0: the hub counted the drafts before.
+    fn submit_review<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _review: &'a ReviewSubmit) -> ForgeFuture<'a, SubmitOutcome> {
+        unsupported("Commenting on lines")
+    }
+    /// Deletes the pending review and its drafts: how many drafts went.
+    fn discard_review<'a>(&'a self, _project: &'a ForgeProject, _number: u64) -> ForgeFuture<'a, u32> {
+        unsupported("Commenting on lines")
+    }
+    /// A line comment now, outside any review: its new thread.
+    fn comment_now<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _comment: &'a NewReviewComment) -> ForgeFuture<'a, ForgeDiscussion> {
+        unsupported("Commenting on lines")
+    }
+    // --- end review comments ---
     // --- 4C ---
     fn create_mr<'a>(&'a self, _project: &'a ForgeProject, _req: &'a CreateMr) -> ForgeFuture<'a, CreateOutcome> {
         unsupported("Creating a merge request")

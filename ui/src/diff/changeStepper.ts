@@ -15,8 +15,10 @@ export function setChangeStepper(fn: (dir: StepDir) => void): () => void {
 }
 export const changeStepper = () => stepper;
 
+/** Marked elements of `root` outside any other marked one; a review slot's content (a thread's
+ * suggestion diff) is never a change. */
 const outermost = (root: Element): HTMLElement[] =>
-  [...root.querySelectorAll<HTMLElement>('[data-diff-mark]')].filter((el) => el.parentElement?.closest('[data-diff-mark]') === root.closest('[data-diff-mark]'));
+  [...root.querySelectorAll<HTMLElement>('[data-diff-mark]')].filter((el) => !el.closest('[data-review-slot]') && el.parentElement?.closest('[data-diff-mark]') === root.closest('[data-diff-mark]'));
 
 /** A split row's own changes. A row that holds one marked block (a changed paragraph, code
  * block, diagram pair) or that one side only has is the change itself. A row that holds a
@@ -41,6 +43,24 @@ export function changeTargets(pane: HTMLElement): HTMLElement[] {
   return outermost(pane).flatMap((el) => (el.classList.contains('md-split-row') ? rowTargets(el) : [el]));
 }
 
+/** Where a change's own content ends, in the viewport, leaving out the review slots under its
+ * blocks (threads, drafts, comment boxes: not the change). A block's slot comes last in it, after
+ * its content, which ends where the slot starts; a slot deeper in (a split row's cells, a list's
+ * items) is left out the same way, level by level. */
+function contentBottom(el: Element): number {
+  if (!el.querySelector('[data-review-slot]')) return el.getBoundingClientRect().bottom;
+  const last = el.lastElementChild;
+  if (last?.hasAttribute('data-review-slot')) return last.getBoundingClientRect().top;
+  return Math.max(el.getBoundingClientRect().top, ...[...el.children].map(contentBottom));
+}
+
+/** A change's box in the viewport, as the stepper, the ruler and the open measure it: without the
+ * review slots in it (`contentBottom`), so a thread under a changed block doesn't make it taller. */
+export function changeBox(el: HTMLElement): { top: number; bottom: number } {
+  const top = el.getBoundingClientRect().top;
+  return { top, bottom: Math.max(top, contentBottom(el)) };
+}
+
 /** The change each pane's last step put it on, and the scroll that left (`stepTarget`'s
  * `current`), while its changes are the same ones (`count`: a chunk rendering since adds more). */
 const lastStep = new WeakMap<HTMLElement, { index: number; top: number; count: number }>();
@@ -57,7 +77,7 @@ const lastStep = new WeakMap<HTMLElement, { index: number; top: number; count: n
 export function stepChange(pane: HTMLElement, dir: StepDir): boolean {
   const origin = pane.getBoundingClientRect().top - pane.scrollTop;
   const boxes = changeTargets(pane).map((el) => {
-    const r = el.getBoundingClientRect();
+    const r = changeBox(el);
     return { top: r.top - origin, bottom: r.bottom - origin };
   }).sort((a, b) => a.top - b.top);
   const last = lastStep.get(pane);

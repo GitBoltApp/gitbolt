@@ -88,10 +88,13 @@ export function freshFixture(name: FixtureName): string {
 
 /** git against fixture repos only, isolated from the developer's config (no signing prompts).
  * GIT_OPTIONAL_LOCKS=0: a test's reads (a `status` polled while the app writes) never take the
- * index lock, which made the app's own write fail ("Repository is locked"). */
-export function git(cwd: string, ...args: string[]): string {
+ * index lock, which made the app's own write fail ("Repository is locked"). `{ cwd, input }`:
+ * `input` on its standard input (`hash-object --stdin`, `mktree`). */
+export function git(at: string | { cwd: string; input: string }, ...args: string[]): string {
+  const { cwd, input } = typeof at === 'string' ? { cwd: at, input: undefined } : at;
   return execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
     cwd,
+    input,
     encoding: 'utf8',
     env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0', GIT_AUTHOR_NAME: 'E2E', GIT_AUTHOR_EMAIL: 'e2e@example.com', GIT_COMMITTER_NAME: 'E2E', GIT_COMMITTER_EMAIL: 'e2e@example.com' },
   }).trim();

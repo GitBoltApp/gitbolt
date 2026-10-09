@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changeTargets, setChangeStepper, changeStepper, STEP_MARGIN, stepChange } from './changeStepper';
+import { changeBox, changeTargets, setChangeStepper, changeStepper, STEP_MARGIN, stepChange } from './changeStepper';
 
 /** A pane whose children sit at the given offsets from its top (jsdom has no layout). */
 function pane(rows: Array<[string | null, number]>, nested?: [number, string]) {
@@ -132,5 +132,41 @@ describe('the rendered change stepper (5C, R3)', () => {
     expect(changeStepper()).toBe(b);
     offB();
     expect(changeStepper()).toBeNull();
+  });
+});
+
+describe('review slots', () => {
+  it("a review slot's content (a thread's suggestion diff) is never a change", () => {
+    const pane = document.createElement('div');
+    pane.innerHTML = '<div data-diff-mark="added"></div><div data-review-slot=""><div data-diff-mark="changed"></div></div>';
+    expect(changeTargets(pane)).toHaveLength(1);
+  });
+
+  it("a change's box leaves out the cards under its blocks: an added block, an item, a split row's cells", () => {
+    const at = (el: Element | null, top: number, bottom: number) => { (el as HTMLElement).getBoundingClientRect = () => ({ top, bottom }) as DOMRect; };
+    const pane = document.createElement('div');
+    pane.innerHTML = `
+      <div data-diff-mark="added" id="block"><p>New</p><div data-review-slot="">card</div></div>
+      <ul><li data-diff-mark="added" id="item">Item<ul><li>Inner</li></ul><div data-review-slot="">card</div></li></ul>
+      <div class="md-split-row" data-diff-mark="changed" id="row">
+        <div class="md-split-cell" id="old"><p>Old</p></div>
+        <div class="md-split-cell" id="new"><p>New</p><div data-review-slot="">card</div></div>
+      </div>
+      <div data-diff-mark="removed" id="plain"><p>Gone</p></div>`;
+    const $ = (id: string) => pane.querySelector<HTMLElement>(`#${id}`)!;
+    at($('block'), 0, 300);
+    at($('block').lastElementChild, 40, 300);
+    expect(changeBox($('block'))).toEqual({ top: 0, bottom: 40 });
+    at($('item'), 400, 700);
+    at($('item').lastElementChild, 460, 700);
+    expect(changeBox($('item'))).toEqual({ top: 400, bottom: 460 });
+    // The row: the furthest its cells' own content reaches.
+    at($('row'), 800, 1200);
+    at($('old'), 800, 900);
+    at($('new'), 800, 1200);
+    at($('new').lastElementChild, 860, 1200);
+    expect(changeBox($('row'))).toEqual({ top: 800, bottom: 900 });
+    at($('plain'), 1300, 1340);
+    expect(changeBox($('plain'))).toEqual({ top: 1300, bottom: 1340 });
   });
 });

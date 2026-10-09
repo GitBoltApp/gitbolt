@@ -90,6 +90,8 @@ import '../forge/stack/createFeature';
 // --- 4D T8 ---
 import '../forge/stack/afterMergeFeature';
 // --- end 4D T8 ---
+// Review comments (spec 2026-10-08 §4): the top bar's review chip and Submit review….
+import '../forge/review/feature';
 
 // --- 5B T2 ---
 import '../nav/feature';

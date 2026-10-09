@@ -1,5 +1,7 @@
 import { openTop, type ChangeBox } from './changeNav';
-import { changeTargets, STEP_MARGIN } from './changeStepper';
+import { changeBox, changeTargets, STEP_MARGIN } from './changeStepper';
+import type { DiffLine } from './monaco/host';
+import { blockTop } from './review/renderedBlocks';
 
 /** How long the open keeps its change in place after the content last relaid out. */
 export const OPEN_HOLD_MS = 2000;
@@ -13,20 +15,20 @@ export function firstChangeTop(pane: HTMLElement): number | null {
   const origin = pane.getBoundingClientRect().top - pane.scrollTop;
   let first: ChangeBox | null = null;
   for (const el of changeTargets(pane)) {
-    const r = el.getBoundingClientRect();
+    const r = changeBox(el);
     if (!first || r.top - origin < first.top) first = { top: r.top - origin, bottom: r.bottom - origin };
   }
   return first && openTop(first, pane.clientHeight, STEP_MARGIN);
 }
 
 /**
- * Opens `pane`'s rendered diff at its first change (`firstChangeTop`), once it has rendered, and
+ * Holds `pane` at `where` (a scroll top; null: not rendered yet) once it can be placed, and
  * holds it there through late relayouts (images, diagrams, chunks laying out, a font zoom) as the
  * source diff's open does, until the content has been still for OPEN_HOLD_MS or the user scrolls.
  * The browser's own scroll anchoring is off meanwhile: any scroll but ours is the user's. Returns
  * its stop.
  */
-export function holdFirstChange(pane: HTMLElement): () => void {
+function holdAt(pane: HTMLElement, where: (pane: HTMLElement) => number | null): () => void {
   let placed: number | null = null;
   let placing = false;
   let frame = 0;
@@ -35,7 +37,7 @@ export function holdFirstChange(pane: HTMLElement): () => void {
   pane.style.overflowAnchor = 'none';
   const place = () => {
     frame = 0;
-    const top = firstChangeTop(pane);
+    const top = where(pane);
     if (top === null) return;
     placing = true;
     pane.scrollTop = top;
@@ -68,3 +70,12 @@ export function holdFirstChange(pane: HTMLElement): () => void {
   schedule();
   return stop;
 }
+
+/** Opens `pane`'s rendered diff at its first change (`firstChangeTop`), held through late
+ * relayouts. Returns its stop. */
+export const holdFirstChange = (pane: HTMLElement): (() => void) => holdAt(pane, firstChangeTop);
+
+/** Review comments (spec 2026-10-08 §3): opens `pane`'s rendered diff at the block holding line
+ * `at` (a note's `file:line`, a file badge's thread), held as the first change is: a block in a
+ * chunk that renders later is waited for. Returns its stop. */
+export const holdLine = (pane: HTMLElement, at: DiffLine): (() => void) => holdAt(pane, (p) => blockTop(p, at));

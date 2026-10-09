@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useTheme } from '../theme/store';
 import { THEMES } from '../theme/themes';
-import { changeTargets } from './changeStepper';
+import { changeBox, changeTargets } from './changeStepper';
 import { dragScrollTop, markKind, markRects, RULER_WIDTH, rulerColors, scrollTopAt, sliderOf, wheelPixels, type RulerKind, type RulerMark } from './mdRuler';
 
 const MEASURE_GAP_MS = 100;
@@ -58,8 +58,8 @@ export function MdDiffFrame({ pane, active, split, children }: { pane: RefObject
       for (const t of changeTargets(el)) {
         const kind: RulerKind | null = markKind(t.dataset.diffMark);
         if (!kind) continue;
-        const r = t.getBoundingClientRect();
-        marks.push({ top: r.top - origin, height: r.height, kind });
+        const r = changeBox(t);
+        marks.push({ top: r.top - origin, height: r.bottom - r.top, kind });
       }
       visible = el.clientHeight;
       content = el.scrollHeight;

@@ -9,6 +9,9 @@ import type { RepoViewStore } from '../../repo/store';
 import { useToast } from '../../ui/toastStore';
 import { mrName } from '../labels';
 import { forgeOf } from '../mrStore';
+import { refreshReview } from '../poll';
+import { startReview } from '../review/session';
+import { preloadReviewMode } from '../../diff/review/ReviewMode';
 
 /** How long Compare waits for the graph to show a just-fetched head. */
 export const GRAPH_WAIT_MS = 5000;
@@ -62,10 +65,16 @@ async function loadInGraph(tabId: string, repo: number, store: RepoViewStore, sh
 export async function compareMr(tabId: string, kind: ForgeKind, mr: ForgeMr, detail: ForgeMrDetail | null): Promise<boolean> {
   const say = (m: string) => { useToast.getState().show(m); return false; };
   const noun = mrName(kind).toLowerCase();
-  const head = detail?.mr.headSha ?? mr.headSha;
+  // The tab's review of this MR: its diff refs, read again now, are the forge's own for its
+  // positions, and can be newer than the cached detail. Compared there, the Compare is the
+  // review's (Compare again lands on the head the forge reports, not on the stale one again).
+  if (forgeOf(tabId).review?.number === mr.number) await refreshReview(tabId);
+  const f = forgeOf(tabId);
+  const refs = f.review?.number === mr.number ? f.review.refs : null;
+  const head = refs?.headSha ?? detail?.mr.headSha ?? mr.headSha;
   const repo = useRuntime.getState().tabs[tabId]?.repo?.id;
   const store = tabStore(tabId);
-  const remote = forgeOf(tabId).remote;
+  const remote = f.remote;
   if (repo === undefined || !store || !head) return say(`The ${noun}'s head isn't known yet`);
   if ((await loadInGraph(tabId, repo, store, [head])) === 'missing') {
     if (!remote) return say(`The ${noun}'s commits aren't in this repository`);
@@ -77,10 +86,14 @@ export async function compareMr(tabId: string, kind: ForgeKind, mr: ForgeMr, det
   const tip = remote ? rt?.sidebar?.remotes.find((g) => g.name === remote)?.branches.find((b) => b.name === mr.targetBranch)?.target : undefined;
   // The forge's base may not be fetched (GitHub's is the target's tip when the PR last changed).
   let base: string | null = null;
-  for (const from of [detail?.baseSha, tip]) {
+  for (const from of [refs?.baseSha, detail?.baseSha, tip]) {
     if (from && !base) base = await api.mergeBase(repo, from, head).catch(() => null);
   }
   if (!base) return say(`The ${noun}'s base isn't in this repository: fetch first`);
   if ((await loadInGraph(tabId, repo, store, [base, head])) === 'missing' || !store.getState().compareCommits(base, head)) return say(`The ${noun}'s base isn't in the graph's history`);
+  // Spec 2026-10-08 §1: the MR's Compare is where its review happens.
+  void startReview(tabId, kind, mr.number, { from: base, to: head });
+  // Its cards' code, so the first file opened in it doesn't wait for it.
+  preloadReviewMode().catch(() => {});
   return true;
 }

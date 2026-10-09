@@ -10,7 +10,7 @@ vi.mock('../branches/checkout', () => ({ checkoutLocal }));
 
 await import('./feature');
 const { Toolbar } = await import('./Toolbar');
-const { registerToolbarButton } = await import('./registry');
+const { registerToolbarButton, registerToolbarChip } = await import('./registry');
 const { registerActions } = await import('../app/actions');
 const { RepoContext } = await import('../app/repoContext');
 const { useRuntime } = await import('../app/runtime');
@@ -40,6 +40,16 @@ describe('Toolbar (spec §6.3)', () => {
       graph: { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'aaaaaaaaaa', detached: false, unborn: false }, truncated: false, worktrees: [] },
       sidebar: { locals: [branch('main', 'aaaaaaaaaa', { isHead: true }), branch('feature/login', 'bbbbbbbbbb', { ahead: 2, behind: 1 })], remotes: [], worktrees: [], stashes: [], tags: [] },
     });
+  });
+
+  it('a registered chip sits right of the branch picker', () => {
+    const off = registerToolbarChip({ id: 'test.chip', order: 0, Component: () => <button type="button">Reviewing !12 · 1 pending</button> });
+    renderToolbar();
+    const branch = screen.getByRole('button', { name: 'Branch: main' });
+    const chip = screen.getByRole('button', { name: 'Reviewing !12 · 1 pending' });
+    expect(branch.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chip.closest('.tb-start')).not.toBeNull();
+    off();
   });
 
   it('shows the repository and its current branch', () => {

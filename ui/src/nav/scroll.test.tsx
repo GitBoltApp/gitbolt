@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyScrollWhenReady, BLOCK_WAIT_MS, blockPosOf, noteScroll, PENDING_MS, registerScrollSource, SCROLL_WAIT_MS, scrollBlockOf, scrollOf, scrollToAnchorWhenReady, scrollToBlockWhenReady, setPendingScroll, takePendingScroll, useScrollPlace } from './scroll';
+import { applyScrollWhenReady, BLOCK_WAIT_MS, blockPosOf, markdownBlocks, noteScroll, PENDING_MS, registerScrollSource, SCROLL_WAIT_MS, scrollBlockOf, scrollOf, scrollToAnchorWhenReady, scrollToBlockWhenReady, setPendingScroll, takePendingScroll, useScrollPlace } from './scroll';
 
 const tall = (el: HTMLElement, scrollHeight: number) => Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scrollHeight });
 const box = (scrollHeight: number) => {
@@ -185,6 +185,12 @@ describe('a long Markdown document (chunks with estimated heights)', () => {
     tall(screen.getByTestId('doc'), 3000);
     rerender(<LongDoc chunks={0} chunkHeight={600} />);
     await waitFor(() => expect(screen.getByTestId('doc').scrollTop).toBe(700));
+  });
+
+  it("a review's slot under a block isn't a block (its threads would shift the count)", () => {
+    const el = box(1000);
+    el.innerHTML = '<div class="md"><div class="md-chunk"><p>one</p><div class="md-block-slot" data-review-slot="">a thread</div><p>two</p></div></div>';
+    expect(markdownBlocks(el).map((b) => b.textContent)).toEqual(['one', 'two']);
   });
 
   it('a wheel before the block arrives stops the restore', () => {

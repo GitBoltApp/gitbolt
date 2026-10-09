@@ -16,8 +16,11 @@ export interface LineGutterSpec {
   onLine(side: Side, line: number): void;
 }
 
+/** The lines a gutter button takes, by side (`old`: old-side numbers, `new`: new-side ones). */
+export interface GutterLines { old: ReadonlySet<number>; new: ReadonlySet<number> }
+
 /** A line the button sits on: its side and number, and its top in the editor's box. */
-interface Hit { side: Side; line: number; top: number }
+export interface Hit { side: Side; line: number; top: number }
 
 /**
  * The old line under `clientY` in an Inline/Hunk deleted-lines zone (`zoneId`, after modified line
@@ -40,6 +43,27 @@ export function deletedLineAt(diff: MonacoNs.editor.IDiffEditor, ed: MonacoNs.ed
   let first = at;
   while (segments.length && first > 0 && lineOfSegment(segments, lines, first - 1) === idx) first--;
   return { line: change.originalStartLineNumber + idx, top: box.top - root.getBoundingClientRect().top + first * lh };
+}
+
+/**
+ * The line of `lines` under a pointer event in `ed` (the `side` editor of `diff`): one of that
+ * editor's lines (its text or its margin), or, in Inline and Hunk mode, an old line in one of the
+ * modified editor's deleted-lines zones. Null anywhere else.
+ */
+export function gutterHit(diff: MonacoNs.editor.IDiffEditor, side: Side, ed: MonacoNs.editor.ICodeEditor, e: MonacoNs.editor.IEditorMouseEvent, lines: GutterLines): Hit | null {
+  const T = monaco.editor.MouseTargetType;
+  const t = e.target;
+  const onLine = t.type === T.GUTTER_GLYPH_MARGIN || t.type === T.GUTTER_LINE_NUMBERS || t.type === T.GUTTER_LINE_DECORATIONS || t.type === T.CONTENT_TEXT || t.type === T.CONTENT_EMPTY;
+  if (onLine && t.position) {
+    const n = t.position.lineNumber;
+    if (!(side === 'original' ? lines.old : lines.new).has(n)) return null;
+    return { side, line: n, top: ed.getTopForLineNumber(n) - ed.getScrollTop() };
+  }
+  if (side === 'modified' && (t.type === T.GUTTER_VIEW_ZONE || t.type === T.CONTENT_VIEW_ZONE)) {
+    const d = deletedLineAt(diff, ed, t.detail.viewZoneId, t.detail.afterLineNumber, e.event.posy);
+    return d && lines.old.has(d.line) ? { side: 'original', line: d.line, top: d.top } : null;
+  }
+  return null;
 }
 
 /**
@@ -115,22 +139,7 @@ export class LineGutter {
       if (s && at && s.disabled === null) s.onLine(at.side, at.line);
     });
     const T = monaco.editor.MouseTargetType;
-    const onLine = new Set<number>([T.GUTTER_GLYPH_MARGIN, T.GUTTER_LINE_NUMBERS, T.GUTTER_LINE_DECORATIONS, T.CONTENT_TEXT, T.CONTENT_EMPTY]);
-    const locate = (e: MonacoNs.editor.IEditorMouseEvent): Hit | null => {
-      const s = this.spec;
-      const t = e.target;
-      if (!s) return null;
-      if (onLine.has(t.type) && t.position) {
-        const n = t.position.lineNumber;
-        if (!(side === 'original' ? s.old : s.new).has(n)) return null;
-        return { side, line: n, top: ed.getTopForLineNumber(n) - ed.getScrollTop() };
-      }
-      if (side === 'modified' && (t.type === T.GUTTER_VIEW_ZONE || t.type === T.CONTENT_VIEW_ZONE)) {
-        const d = deletedLineAt(this.diff, ed, t.detail.viewZoneId, t.detail.afterLineNumber, e.event.posy);
-        return d && s.old.has(d.line) ? { side: 'original', line: d.line, top: d.top } : null;
-      }
-      return null;
-    };
+    const locate = (e: MonacoNs.editor.IEditorMouseEvent): Hit | null => (this.spec ? gutterHit(this.diff, side, ed, e, this.spec) : null);
     this.subs.push(
       ed.onMouseMove((e) => {
         // Over the button itself: it stays.

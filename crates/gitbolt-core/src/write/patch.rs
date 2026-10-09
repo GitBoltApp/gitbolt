@@ -62,6 +62,35 @@ impl ParsedHunk {
         let pick = |k: Kind, f: fn(&Line) -> u32| self.lines.iter().filter(|l| l.kind == k).map(f).collect();
         crate::hunks::Hunk { old_start: self.old_start, old_lines: self.old_lines, new_start: self.new_start, new_lines: self.new_lines, del: pick(Kind::Del, |l| l.old), add: pick(Kind::Add, |l| l.new) }
     }
+
+    /// Each line in order with GitLab's diff parser's numbers (`ReviewLine`): an added line keeps
+    /// the old line it comes before, a removed one the new line it comes before, counted from the
+    /// header's starts as written (a new file's `-0,0` gives its lines old line 0).
+    pub(crate) fn numbered(&self) -> Vec<(crate::forge::LineKind, u32, u32)> {
+        use crate::forge::LineKind;
+        let (mut old, mut new) = (self.old_start, self.new_start);
+        self.lines
+            .iter()
+            .map(|l| {
+                let at = (old, new);
+                let kind = match l.kind {
+                    Kind::Context => {
+                        (old, new) = (old + 1, new + 1);
+                        LineKind::Context
+                    }
+                    Kind::Del => {
+                        old += 1;
+                        LineKind::Removed
+                    }
+                    Kind::Add => {
+                        new += 1;
+                        LineKind::Added
+                    }
+                };
+                (kind, at.0, at.1)
+            })
+            .collect()
+    }
 }
 
 /// The refusal for a binary diff.

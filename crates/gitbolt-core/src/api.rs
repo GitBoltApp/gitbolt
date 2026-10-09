@@ -957,6 +957,62 @@ pub enum Request {
         resolved: bool,
     },
     // --- end comment actions ---
+    // --- review comments ---
+    /// The MR's diff as the forge has it, with each file's commentable lines: `ReviewDiff`.
+    ForgeReviewDiff {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+    },
+    /// The user's pending review (its drafts, the diff refs): `ReviewDrafts`.
+    ForgeReviewDrafts {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+    },
+    /// Adds a line comment to the user's pending review: `ReviewDraft`.
+    ForgeAddDraft {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        comment: crate::forge::NewReviewComment,
+    },
+    /// A draft's new body: `ReviewDraft` (no position: keep the one you have).
+    ForgeEditDraft {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        id: String,
+        body: String,
+    },
+    /// `null`.
+    ForgeDeleteDraft {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        id: String,
+    },
+    /// Sends the pending review with its event and summary: `SubmitOutcome`.
+    ForgeSubmitReview {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        review: crate::forge::ReviewSubmit,
+    },
+    /// Deletes the pending review: how many drafts went (`number`).
+    ForgeDiscardReview {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+    },
+    /// A line comment now, outside the review: its `ForgeDiscussion`.
+    ForgeCommentNow {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        comment: crate::forge::NewReviewComment,
+    },
+    // --- end review comments ---
     /// Merges it on the forge (spec §3.5: no optimistic UI): the merged `ForgeMr`.
     ForgeMerge {
         repo: u32,
@@ -1065,6 +1121,8 @@ impl Request {
             Request::ForgeSetAutoMerge { .. } | Request::ForgeCancelAutoMerge { .. } => false,
             Request::ForgeReview { .. } | Request::ForgePeopleLimits { .. } | Request::ForgeSetSubscribed { .. } => false,
             Request::ForgeReact { .. } | Request::ForgeEditNote { .. } | Request::ForgeDeleteNote { .. } | Request::ForgeResolve { .. } => false,
+            Request::ForgeReviewDiff { .. } | Request::ForgeReviewDrafts { .. } | Request::ForgeAddDraft { .. } | Request::ForgeEditDraft { .. } | Request::ForgeDeleteDraft { .. }
+            | Request::ForgeSubmitReview { .. } | Request::ForgeDiscardReview { .. } | Request::ForgeCommentNow { .. } => false,
             // --- 5A T1 ---
             Request::ForgeImage { .. } | Request::ForgeVideo { .. } | Request::ForgeOpenVideo { .. } => false,
             // --- end 5A T1 ---
@@ -2599,6 +2657,41 @@ impl Api {
                 to_json(self.forge_hub()?.resolve(&self.store, &list, number, discussion, resolved).await?)
             }
             // --- end comment actions ---
+            // --- review comments ---
+            Request::ForgeReviewDiff { repo, number } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.review_diff(&self.store, &list, number).await?)
+            }
+            Request::ForgeReviewDrafts { repo, number } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.review_drafts(&self.store, &list, number).await?)
+            }
+            Request::ForgeAddDraft { repo, number, comment } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.add_draft(&self.store, &list, number, comment).await?)
+            }
+            Request::ForgeEditDraft { repo, number, id, body } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.edit_draft(&self.store, &list, number, id, body).await?)
+            }
+            Request::ForgeDeleteDraft { repo, number, id } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                self.forge_hub()?.delete_draft(&self.store, &list, number, id).await?;
+                to_json(())
+            }
+            Request::ForgeSubmitReview { repo, number, review } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.submit_review(&self.store, &list, number, review).await?)
+            }
+            Request::ForgeDiscardReview { repo, number } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.discard_review(&self.store, &list, number).await?)
+            }
+            Request::ForgeCommentNow { repo, number, comment } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.comment_now(&self.store, &list, number, comment).await?)
+            }
+            // --- end review comments ---
             Request::ForgeMerge { repo, number, options } => {
                 let list = self.forge_remotes_of(&*self.handle(repo)?);
                 // --- 4D T4: dependents first, so deleting the branch can't close them (Ruling 12) ---
@@ -4582,6 +4675,7 @@ mod tests {
         let wt = crate::platform::fs::canonicalize(r.path()).unwrap().display().to_string();
         let root = r.root().display().to_string();
         use serde_json::json;
+        let review_comment = json!({"anchor": {"path": "a.txt", "oldPath": "a.txt", "start": null, "end": {"kind": "added", "oldLine": 1, "newLine": 1}}, "body": "x", "refs": {"baseSha": "b", "startSha": "b", "headSha": "h"}});
         vec![
             // --- 4B T1 ---
             json!({"method": "forgeMrList", "params": {"repo": id, "filter": "all"}}),
@@ -4607,6 +4701,16 @@ mod tests {
             json!({"method": "forgeResolve", "params": {"repo": id, "number": 1, "discussion": "d1", "resolved": true}}),
             json!({"method": "mergeBase", "params": {"repo": id, "a": r.git(&["rev-parse", "HEAD"]), "b": r.git(&["rev-parse", "HEAD~1"])}}),
             // --- end 4B T1 ---
+            // --- review comments ---
+            json!({"method": "forgeReviewDiff", "params": {"repo": id, "number": 1}}),
+            json!({"method": "forgeReviewDrafts", "params": {"repo": id, "number": 1}}),
+            json!({"method": "forgeAddDraft", "params": {"repo": id, "number": 1, "comment": review_comment.clone()}}),
+            json!({"method": "forgeEditDraft", "params": {"repo": id, "number": 1, "id": "1", "body": "x"}}),
+            json!({"method": "forgeDeleteDraft", "params": {"repo": id, "number": 1, "id": "1"}}),
+            json!({"method": "forgeSubmitReview", "params": {"repo": id, "number": 1, "review": {"event": "comment", "body": "x"}}}),
+            json!({"method": "forgeDiscardReview", "params": {"repo": id, "number": 1}}),
+            json!({"method": "forgeCommentNow", "params": {"repo": id, "number": 1, "comment": review_comment}}),
+            // --- end review comments ---
             // --- 5A T1 ---
             json!({"method": "forgeImage", "params": {"repo": id, "url": "https://github.com/user-attachments/assets/1b2c3d4e-0000-4000-8000-00000000abcd", "userAllowed": false}}),
             json!({"method": "forgeVideo", "params": {"repo": id, "url": "https://github.com/user-attachments/assets/1b2c3d4e-0000-4000-8000-00000000abcd", "userAllowed": false}}),
@@ -4883,7 +4987,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage", "forgeVideo", "forgeOpenVideo", "updateCheck", "updateDownload", "updateInstall", "updateRestart"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeReviewDiff", "forgeReviewDrafts", "forgeAddDraft", "forgeEditDraft", "forgeDeleteDraft", "forgeSubmitReview", "forgeDiscardReview", "forgeCommentNow", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage", "forgeVideo", "forgeOpenVideo", "updateCheck", "updateDownload", "updateInstall", "updateRestart"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {
@@ -5143,6 +5247,37 @@ mod tests {
         assert_eq!(merged["state"], "merged");
         assert!(fake.calls().iter().any(|c| c == "merge 12 Some(true)"));
     }
+
+    // --- review comments ---
+    #[tokio::test]
+    async fn forge_review_requests_reach_the_repos_target_project() {
+        use crate::forge::fake::{fake_refs, project, FakeConnector, FakeProvider, MemTokens};
+        use crate::forge::{ForgeKind, TokenStorage};
+        use serde_json::json;
+        const TOKEN: &str = "glpat-FAKE-test-token";
+        let p = FakeProvider::new(ForgeKind::GitLab, "gitlab.example.com");
+        p.projects.lock().unwrap().insert("group/project".into(), project("gitlab.example.com", "group/project", None, 1));
+        let conn = Arc::new(FakeConnector::default());
+        let fake = conn.add(TOKEN, p);
+        let api = api().with_forge(conn, MemTokens::new(TokenStorage::Keyring));
+        api.dispatch(req(json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": TOKEN}}))).await.unwrap();
+        let r = TestRepo::new();
+        r.commit("a");
+        r.git(&["remote", "add", "origin", "https://gitlab.example.com/group/project.git"]);
+        let id = open(&api, &r).await as u32;
+        let comment = |body: &str| json!({"anchor": {"path": "README.md", "oldPath": "README.md", "start": null, "end": {"kind": "added", "oldLine": 2, "newLine": 2}}, "body": body, "refs": serde_json::to_value(fake_refs()).unwrap()});
+        let draft = api.dispatch(req(json!({"method": "forgeAddDraft", "params": {"repo": id, "number": 12, "comment": comment("Why?")}}))).await.unwrap();
+        assert_eq!(draft["position"]["line"], 2);
+        let state = api.dispatch(req(json!({"method": "forgeReviewDrafts", "params": {"repo": id, "number": 12}}))).await.unwrap();
+        assert_eq!((state["drafts"].as_array().unwrap().len(), state["canDraft"].as_bool()), (1, Some(true)));
+        let out = api.dispatch(req(json!({"method": "forgeSubmitReview", "params": {"repo": id, "number": 12, "review": {"event": "comment", "body": ""}}}))).await.unwrap();
+        assert_eq!(out, json!({"published": 1, "eventError": null, "bodyPosted": false, "eventSent": false, "fallback": false}));
+        let e = api.dispatch(req(json!({"method": "forgeCommentNow", "params": {"repo": id, "number": 12, "comment": comment(" ")}}))).await.unwrap_err();
+        assert_eq!(e.message, "Write a comment first");
+        assert_eq!(api.dispatch(req(json!({"method": "forgeDiscardReview", "params": {"repo": id, "number": 12}}))).await.unwrap(), json!(0));
+        assert!(["add_draft 12 README.md:2 Why?", "submit_review 12 Comment "].iter().all(|c| fake.calls().iter().any(|x| x == c)), "{:?}", fake.calls());
+    }
+    // --- end review comments ---
 
     #[tokio::test]
     async fn merge_base_answers_the_common_ancestor_or_null() {

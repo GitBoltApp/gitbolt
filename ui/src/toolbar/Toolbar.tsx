@@ -8,7 +8,7 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { BranchPicker } from './BranchPicker';
 import { DefaultPicker } from './DefaultPicker';
 import { RepoButton } from './RepoButton';
-import { useToolbarButtons, type ToolbarButton } from './registry';
+import { useToolbarButtons, useToolbarChips, type ToolbarButton } from './registry';
 import './toolbar.css';
 import { displayChord } from '../ui/platformKeys';
 
@@ -74,12 +74,14 @@ function ToolbarButtonView({ b, ctx }: { b: ToolbarButton; ctx: RepoCtx }) {
 
 /**
  * The repo tab's toolbar (spec §6.3), in the tab's `toolbar` slot. #1 shows only the controls that
- * work: the repository, the branch picker, then the registered buttons (`registry.ts`): Fetch
- * here; Search and Actions join from find's and the palette's own modules.
+ * work: the repository, the branch picker and any chips (`registerToolbarChip`), then the
+ * registered buttons (`registry.ts`): Fetch here; Search and Actions join from find's and the
+ * palette's own modules.
  */
 export function Toolbar() {
   const ctx = useRepoContext();
   const buttons = useToolbarButtons((s) => s.buttons);
+  const chips = useToolbarChips((s) => s.chips);
   // DOM order is the visual order: the centre group, then the end group at the far right.
   const center = buttons.filter((b) => (b.placement ?? 'center') === 'center');
   const end = buttons.filter((b) => b.placement === 'end');
@@ -92,6 +94,7 @@ export function Toolbar() {
       <div className="tb-group tb-start">
         <RepoButton />
         <BranchPicker />
+        {chips.map(({ id, Component }) => <Component key={id} />)}
       </div>
       <div className="tb-group tb-center">{center.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}</div>
       <div className="tb-group tb-end">{end.map((b) => <ToolbarButtonView key={b.action} b={b} ctx={ctx} />)}</div>

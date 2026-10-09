@@ -150,9 +150,10 @@ function RepliesRow({ replies, open, toggle }: { replies: ForgeNote[]; open: boo
 /** One discussion as a card: the diff note's `file:line` (which opens the file) and snippet, its
  * first comment, its replies (a resolved thread's folded by default; the user's choice kept for
  * the session), and Reply at the bottom while unfolded. `firstBody`: the timeline's count of
- * comment bodies before this thread; `rendered`: how many render yet. */
-export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBody = 0, rendered = Infinity }: {
-  tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion; firstBody?: number; rendered?: number;
+ * comment bodies before this thread; `rendered`: how many render yet. `showWhere` (default true): its
+ * `file:line` and snippet; a card at its line in the diff (review mode) leaves them out. */
+export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBody = 0, rendered = Infinity, showWhere = true }: {
+  tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion; firstBody?: number; rendered?: number; showWhere?: boolean;
 }) {
   const key = foldKey(tabId, mr.number, d.id);
   const chosen = useThreadFolds((s) => s.open[key]);
@@ -166,12 +167,12 @@ export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBo
   return (
     <article className="mr-discussion" aria-label={`Thread by ${notes[0]!.author.name}`} data-resolved={d.resolved || undefined}>
       <Note tabId={tabId} kind={kind} mr={mr} d={d} n={notes[0]!} first deferred={firstBody >= rendered} where={
-        (pos && (
+        showWhere && pos ? (
                 <div className="mr-pos">
                   <button type="button" className="mr-link mr-where" onClick={() => void openNoteFile(tabId, kind, mr, pos)}>{noteWhere(pos)}</button>
                   {pos.snippet && <pre className="mr-snippet">{pos.snippet}</pre>}
                 </div>
-              ))
+              ) : undefined
       } />
       {replies.length > 0 && <RepliesRow replies={replies} open={open} toggle={() => setFold(key, !open)} />}
       {open && rest.map((n) => (n.system

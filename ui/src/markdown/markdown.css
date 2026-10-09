@@ -122,13 +122,18 @@
 .md-diff-pair > .md-diff-removed .md-mermaid { border: 2px solid var(--status-deleted); border-radius: 6px; }
 .md-diff-pair > .md-diff-added .md-mermaid { border: 2px solid var(--status-added); border-radius: 6px; }
 /* An added or removed block's own grounds (code, inline code) would hide its tint: the tint is
-   layered over them, so code still looks like code. */
-.md :is(.md-diff-block.md-diff-added, li.md-diff-added) :is(pre, code:not(pre code)) { background-image: linear-gradient(var(--md-diff-ins-block), var(--md-diff-ins-block)); }
-.md :is(.md-diff-block.md-diff-removed, li.md-diff-removed) :is(pre, code:not(pre code)) { background-image: linear-gradient(var(--md-diff-del-block), var(--md-diff-del-block)); }
+   layered over them, so code still looks like code. Not a review slot's (a card's code). */
+.md :is(.md-diff-block.md-diff-added, li.md-diff-added) :is(pre, code:not(pre code)):not(.md-block-slot *) { background-image: linear-gradient(var(--md-diff-ins-block), var(--md-diff-ins-block)); }
+.md :is(.md-diff-block.md-diff-removed, li.md-diff-removed) :is(pre, code:not(pre code)):not(.md-block-slot *) { background-image: linear-gradient(var(--md-diff-del-block), var(--md-diff-del-block)); }
 /* A changed code block's line marks run the full width of the block, through its padding. */
 .md-code-line { display: block; width: max-content; min-width: 100%; margin: 0 -10px; padding: 0 10px; }
 .md-code-add { background: var(--md-diff-ins-block); }
 .md-code-del { background: var(--md-diff-del-block); }
+/* A review comment's suggested change (spec 2026-10-08): the lines it puts in, under a caption. */
+.md-suggestion { margin: 0 0 8px; border: 1px solid var(--section-border); border-radius: 6px; overflow: hidden; }
+.md-suggestion > figcaption { padding: 3px 8px; border-bottom: 1px solid var(--section-border); color: var(--text-secondary); font-size: 11px; }
+.md-suggestion .md-code { margin: 0; border-radius: 0; }
+.md .md-suggestion-note { margin: 0; padding: 4px 8px; color: var(--text-secondary); font-style: italic; }
 /* A changed line's changed words, over its tint (Monaco's inline diff); the code keeps its colours. */
 .md-code-word-add { background: var(--md-diff-ins-text); border-radius: 2px; }
 .md-code-word-del { background: var(--md-diff-del-text); border-radius: 2px; }
@@ -146,3 +151,20 @@
 /* A list or blockquote split into rows continues into the next one. */
 .md-split-joined > .md-split-cell > :is(ul, ol, blockquote) { margin-bottom: 0; }
 .md-split-joined + .md-split-row > .md-split-cell > :is(ul, ol) > li:first-child { margin-top: 2px; }
+
+/* Review comments (spec 2026-10-08 §3): a code block's box (it carries the block's lines), and
+   what shows under a block (threads, drafts, a comment box). */
+.md .md-src-code { min-width: 0; max-width: 100%; margin: 0 0 10px; }
+/* The box keeps the block's bottom margin: the code block inside it adds none, unless a slot
+   follows it (then it spaces the slot like any block's). */
+.md .md-src-code > :is(.md-code, .md-mermaid, pre):last-child { margin-bottom: 0; }
+.md-block-slot { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+/* A changed diagram pair's slot: under both columns. */
+.md-diff-pair > .md-block-slot { grid-column: 1 / -1; }
+/* A slot inside a changed block or item isn't part of the change: on the pane's ground, over the
+   block's tint and its change bar (it reaches left over the bar, in the margin the bar sits in);
+   the tint over code leaves its cards' code out (above). The stepper and the ruler measure the
+   change without it (`changeBox`). */
+.md :is(.md-diff-block, li[data-diff-mark]) > .md-block-slot { position: relative; z-index: 1; background: var(--app-bg0); }
+.md .md-diff-block > .md-block-slot { margin-left: -12px; padding-left: 12px; }
+.md li[data-diff-mark] > .md-block-slot, .md li > .md-diff-block > .md-block-slot { margin-left: calc(-1 * var(--md-list-indent) - 12px); padding-left: calc(var(--md-list-indent) + 12px); }

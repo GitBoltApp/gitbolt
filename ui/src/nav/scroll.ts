@@ -115,8 +115,9 @@ export function applyScrollWhenReady(el: HTMLElement, top: number): () => void {
 }
 
 /** The top-level blocks of the long (chunked) Markdown documents in `el`, in order; empty for a
- * short document (rendered whole: its `scrollTop` is exact). */
-export const markdownBlocks = (el: HTMLElement): HTMLElement[] => [...el.querySelectorAll<HTMLElement>('.md > .md-chunk > *')];
+ * short document (rendered whole: its `scrollTop` is exact). A review's slot under a block (its
+ * threads and drafts) isn't one. */
+export const markdownBlocks = (el: HTMLElement): HTMLElement[] => [...el.querySelectorAll<HTMLElement>('.md > .md-chunk > :not(.md-block-slot)')];
 
 /** `el`'s first visible block of a long Markdown document, and how far past its top `el` is
  * scrolled; `null` for a short one. A binary search: a few layout reads, however long. */

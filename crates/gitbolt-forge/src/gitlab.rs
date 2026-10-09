@@ -387,7 +387,7 @@ pub mod json {
         // where it ends is a single line.
         let start = &v["line_range"]["start"];
         let (start_line, start_old_line) = Some((num(&start["new_line"]), num(&start["old_line"]))).filter(|s| *s != (line, old_line)).unwrap_or_default();
-        Some(DiffPosition { path, old_path, line, old_line, snippet: None, start_line, start_old_line })
+        Some(DiffPosition { path, old_path, line, old_line, snippet: None, start_line, start_old_line, head_sha: text(&v["head_sha"]), outdated: false })
     }
 
     pub fn note(v: &Value) -> Option<ForgeNote> {
@@ -592,6 +592,70 @@ pub mod json {
         })
     }
     // --- end 4C T3 ---
+    // --- review comments ---
+    use gitbolt_core::forge::review::{commentable_lines, line_code};
+
+    /// A single MR's `diff_refs`; `None` until GitLab has worked the diff out.
+    pub fn diff_refs(v: &Value) -> Option<DiffRefs> {
+        let r = &v["diff_refs"];
+        Some(DiffRefs { base_sha: text(&r["base_sha"])?, start_sha: text(&r["start_sha"])?, head_sha: text(&r["head_sha"])? })
+    }
+
+    /// The MR's `/diffs`, each file with its commentable lines. `too_large` / `collapsed`
+    /// (GitLab 18.4+): no diff came, so no line takes a comment here.
+    pub fn review_files(diffs: &[Value]) -> Vec<ReviewFile> {
+        diffs
+            .iter()
+            .filter_map(|d| {
+                let path = text(&d["new_path"]).or_else(|| text(&d["old_path"]))?;
+                let too_large = d["too_large"].as_bool() == Some(true) || d["collapsed"].as_bool() == Some(true);
+                let lines = if too_large { Vec::new() } else { commentable_lines(d["diff"].as_str().unwrap_or_default()) };
+                Some(ReviewFile { old_path: text(&d["old_path"]).unwrap_or_else(|| path.clone()), lines, too_large, path })
+            })
+            .collect()
+    }
+
+    /// `old_line` / `new_line` for the sides a line is on (an added line has no old one).
+    fn put_lines(o: &mut serde_json::Map<String, Value>, l: &ReviewLine) {
+        let (old, new) = l.position_lines();
+        if let Some(n) = old {
+            o.insert("old_line".into(), n.into());
+        }
+        if let Some(n) = new {
+            o.insert("new_line".into(), n.into());
+        }
+    }
+
+    /// One end of a `line_range`: its line code, `type` ("new" for an added line, otherwise
+    /// "old", as the discussions API asks) and its lines.
+    fn range_end(path: &str, l: &ReviewLine) -> Value {
+        let mut o = serde_json::Map::new();
+        o.insert("line_code".into(), line_code(path, l).into());
+        o.insert("type".into(), (if l.kind == LineKind::Added { "new" } else { "old" }).into());
+        put_lines(&mut o, l);
+        Value::Object(o)
+    }
+
+    /// A comment's `position` (draft notes and diff threads take the same): the three diff refs,
+    /// both paths, the last line's sides, and for a range its `line_range`.
+    pub fn position_json(c: &NewReviewComment) -> Value {
+        let a = &c.anchor;
+        let mut o = serde_json::Map::new();
+        for (k, v) in [("position_type", "text"), ("base_sha", c.refs.base_sha.as_str()), ("start_sha", c.refs.start_sha.as_str()), ("head_sha", c.refs.head_sha.as_str()), ("old_path", a.old_path.as_str()), ("new_path", a.path.as_str())] {
+            o.insert(k.into(), v.into());
+        }
+        put_lines(&mut o, &a.end);
+        if let Some(s) = &a.start {
+            o.insert("line_range".into(), serde_json::json!({ "start": range_end(&a.path, s), "end": range_end(&a.path, &a.end) }));
+        }
+        Value::Object(o)
+    }
+
+    /// A draft note (`/draft_notes`); one without a usable `position` is on no line.
+    pub fn draft(v: &Value) -> Option<ReviewDraft> {
+        Some(ReviewDraft { id: v["id"].as_u64()?.to_string(), body: v["note"].as_str().unwrap_or_default().to_string(), position: position(&v["position"]), reply_to: text(&v["discussion_id"]) })
+    }
+    // --- end review comments ---
 }
 
 // --- 4B T2: merge requests (reads) ---
@@ -600,6 +664,65 @@ pub const MR_PER_PAGE: u32 = 100;
 pub const OPEN_PAGES: usize = 5;
 pub const DISCUSSION_PAGES: usize = 5;
 pub const DIFF_PAGES: usize = 3;
+
+// --- review comments ---
+/// A review's diff reads at most this many pages of 100 files; its drafts this many of 100.
+pub const REVIEW_DIFF_PAGES: usize = 10;
+pub const DRAFT_PAGES: usize = 5;
+
+/// GitLab answers a comment it won't take with a 400 naming the note's fields. One about the
+/// position (`position`, `line_code`, a line) is said as a refusal of the line; any other in
+/// neutral words. Both in GitLab's words, made plain where they're a validation hash.
+fn line_refused(e: GbError) -> GbError {
+    if e.kind == GbErrorKind::Other && e.message.contains("HTTP 400") {
+        let said = e.message.split_once(": ").map_or("", |(_, m)| m);
+        let lower = said.to_lowercase();
+        let about_line = ["position", "line_code", "line code", "line"].iter().any(|w| lower.contains(w));
+        let said = plain_validation(said).unwrap_or_else(|| said.to_string());
+        let sep = if said.is_empty() { "" } else { ": " };
+        let what = if about_line { "GitLab won't take a comment on that line" } else { "GitLab refused the comment" };
+        return GbError::new(GbErrorKind::InvalidInput, format!("{what}{sep}{said}"));
+    }
+    e
+}
+
+/// GitLab's validation errors as Ruby prints them (`Note {:line_code=>["can't be blank"],
+/// :position=>["is incomplete"]}`, or Ruby 3.4's `{line_code: [...]}`) in plain words: "line
+/// code can't be blank; position is incomplete". `None` when `said` isn't one.
+fn plain_validation(said: &str) -> Option<String> {
+    let inner = said.get(said.find('{')? + 1..said.rfind('}')?)?;
+    let mut rest = inner.trim();
+    let mut parts = Vec::new();
+    while !rest.is_empty() {
+        // A key: `:name=>`, `name:`, or `"name"=>` / `"name":`.
+        let r = rest.trim_start_matches(':').trim_start_matches('"');
+        let end = r.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))?;
+        let (key, after) = r.split_at(end);
+        let after = after.trim_start_matches('"').trim_start();
+        let after = after.strip_prefix("=>").or_else(|| after.strip_prefix(':'))?.trim_start();
+        // Its messages: `["a", "b"]`.
+        let mut list = after.strip_prefix('[')?;
+        let mut said = Vec::new();
+        loop {
+            list = list.trim_start().trim_start_matches(',').trim_start();
+            if let Some(r) = list.strip_prefix(']') {
+                list = r;
+                break;
+            }
+            let body = list.strip_prefix('"')?;
+            let close = body.find('"')?;
+            said.push(&body[..close]);
+            list = &body[close + 1..];
+        }
+        if key.is_empty() || said.is_empty() {
+            return None;
+        }
+        parts.push(format!("{} {}", key.replace('_', " "), said.join(", ")));
+        rest = list.trim_start().trim_start_matches(',').trim_start();
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+// --- end review comments ---
 
 impl GitLabProvider {
     /// The token's user, asked once.
@@ -809,6 +932,14 @@ impl GitLabProvider {
     fn mr_url(project: &ForgeProject, number: u64) -> String {
         format!("/projects/{}/merge_requests/{number}", project.id)
     }
+
+    /// `…/draft_notes/<id>`; an id that isn't a number is never asked.
+    fn draft_url(project: &ForgeProject, number: u64, id: &str) -> Result<String, GbError> {
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(GbError::new(GbErrorKind::InvalidInput, "GitLab has no such draft"));
+        }
+        Ok(format!("{}/draft_notes/{id}", Self::mr_url(project, number)))
+    }
 }
 // --- end 4B T2 ---
 
@@ -922,6 +1053,32 @@ impl GitLabProvider {
     /// One GraphQL request (`/api/graphql`); the answer, `errors` and all.
     async fn graphql(&self, query: &str, variables: Value) -> Result<Value, GbError> {
         self.gql.send_json(Method::Post, &self.gql_url, &json!({ "query": query, "variables": variables })).await?.json(&self.host)
+    }
+
+    /// GitLab's request changes, step by step (its REST API has no review state, ruling 6): the
+    /// summary note when there is one, then the user's approval withdrawn (not approved, a 404,
+    /// is fine), then with `set_state` the reviewer state set to requested changes (GraphQL's
+    /// `mergeRequestRequestChanges`; a server without it, or one that refuses it, leaves it at
+    /// that: `fallback`). `out` says which parts went in, so after a refused step a retry sends
+    /// only what's left. The composer's review, the pending review's submit and the plain
+    /// request changes all go through here.
+    async fn request_changes_steps(&self, project: &ForgeProject, number: u64, body: &str, set_state: bool, out: &mut SubmitOutcome) -> Result<(), GbError> {
+        let url = Self::mr_url(project, number);
+        if !body.trim().is_empty() {
+            self.http.send_json(Method::Post, &format!("{url}/notes"), &json!({ "body": body })).await?;
+            out.body_posted = true;
+        }
+        match self.http.send_json(Method::Post, &format!("{url}/unapprove"), &json!({})).await {
+            Ok(_) => {}
+            Err(e) if e.kind == GbErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        out.event_sent = true;
+        if set_state {
+            let set = self.graphql(REQUEST_CHANGES_MUTATION, json!({ "path": project.path, "iid": number.to_string() })).await;
+            out.fallback = !set.is_ok_and(|v| json::mutation_ok(&v, "mergeRequestRequestChanges"));
+        }
+        Ok(())
     }
     // --- end MR round 2 ---
 
@@ -1266,17 +1423,7 @@ impl ForgeProvider for GitLabProvider {
     /// GitLab's REST API has no review state (ruling 6): the comment, then the user's approval
     /// withdrawn. Not approved (a 404) is fine.
     fn request_changes<'a>(&'a self, project: &'a ForgeProject, number: u64, body: &'a str) -> ForgeFuture<'a, ()> {
-        Box::pin(async move {
-            let url = Self::mr_url(project, number);
-            if !body.trim().is_empty() {
-                self.http.send_json(Method::Post, &format!("{url}/notes"), &json!({ "body": body })).await?;
-            }
-            match self.http.send_json(Method::Post, &format!("{url}/unapprove"), &json!({})).await {
-                Ok(_) => Ok(()),
-                Err(e) if e.kind == GbErrorKind::NotFound => Ok(()),
-                Err(e) => Err(e),
-            }
-        })
+        Box::pin(async move { self.request_changes_steps(project, number, body, false, &mut SubmitOutcome::default()).await })
     }
 
     // --- MR round 2 ---
@@ -1289,9 +1436,9 @@ impl ForgeProvider for GitLabProvider {
             if review.event != ReviewEvent::RequestChanges {
                 return review_by_parts(self, project, number, review).await;
             }
-            self.request_changes(project, number, &review.body).await?;
-            let set = self.graphql(REQUEST_CHANGES_MUTATION, json!({ "path": project.path, "iid": number.to_string() })).await;
-            Ok(ReviewOutcome { fallback: !set.is_ok_and(|v| json::mutation_ok(&v, "mergeRequestRequestChanges")) })
+            let mut out = SubmitOutcome::default();
+            self.request_changes_steps(project, number, &review.body, true, &mut out).await?;
+            Ok(ReviewOutcome { fallback: out.fallback })
         })
     }
 
@@ -1452,6 +1599,128 @@ impl ForgeProvider for GitLabProvider {
     }
     // --- end 4B T3 ---
     // --- end 4B ---
+    // --- review comments ---
+    fn review_diff<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ReviewDiff> {
+        Box::pin(async move {
+            let url = Self::mr_url(project, number);
+            let mr: Value = self.http.get(&url).await?.json(&self.host)?;
+            let refs = json::diff_refs(&mr).ok_or_else(|| GbError::new(GbErrorKind::InvalidInput, format!("GitLab hasn't worked out !{number}'s diff yet: try again in a moment")))?;
+            let diffs = self.http.get_pages(&format!("{url}/diffs?per_page=100"), REVIEW_DIFF_PAGES).await?;
+            Ok(ReviewDiff { refs, files: json::review_files(&diffs) })
+        })
+    }
+
+    /// A 404 on the drafts (the MR itself was found) is a GitLab without the list: no drafts, and
+    /// none to add, rather than an error that fails the session's poll.
+    fn review_drafts<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, ReviewDrafts> {
+        Box::pin(async move {
+            let url = Self::mr_url(project, number);
+            let mr: Value = self.http.get(&url).await?.json(&self.host)?;
+            let refs = json::diff_refs(&mr);
+            let list = match self.http.get_pages(&format!("{url}/draft_notes?per_page=100"), DRAFT_PAGES).await {
+                Ok(list) => list,
+                Err(e) if e.kind == GbErrorKind::NotFound => return Ok(ReviewDrafts { refs, drafts: Vec::new(), pending_review: None, can_draft: false }),
+                Err(e) => return Err(e),
+            };
+            Ok(ReviewDrafts { refs, drafts: list.iter().filter_map(json::draft).collect(), pending_review: None, can_draft: true })
+        })
+    }
+
+    /// A draft note with the comment's position. A GitLab that drops the position (before 16.3)
+    /// keeps a general draft instead: that one is deleted again and the write refused.
+    fn add_draft<'a>(&'a self, project: &'a ForgeProject, number: u64, comment: &'a NewReviewComment) -> ForgeFuture<'a, ReviewDraft> {
+        Box::pin(async move {
+            let url = format!("{}/draft_notes", Self::mr_url(project, number));
+            let r = self.http.send_json(Method::Post, &url, &json!({ "note": comment.body, "position": json::position_json(comment) })).await.map_err(line_refused)?;
+            let d = json::draft(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "draft note"))?;
+            if d.position.is_none() {
+                if let Err(e) = self.http.delete(&format!("{url}/{}", d.id)).await {
+                    tracing::warn!("couldn't take back draft {} on {}, kept without its line: {}", d.id, self.host, e.message);
+                }
+                return Err(GbError::new(GbErrorKind::InvalidInput, gitbolt_core::forge::review::OLD_GITLAB_DRAFTS));
+            }
+            Ok(d)
+        })
+    }
+
+    /// No position in the answer, as GitHub's: the caller keeps its own (an edit doesn't move it).
+    fn edit_draft<'a>(&'a self, project: &'a ForgeProject, number: u64, id: &'a str, body: &'a str) -> ForgeFuture<'a, ReviewDraft> {
+        Box::pin(async move {
+            let r = self.http.send_json(Method::Put, &Self::draft_url(project, number, id)?, &json!({ "note": body })).await?;
+            let d = json::draft(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "draft note"))?;
+            Ok(ReviewDraft { position: None, ..d })
+        })
+    }
+
+    fn delete_draft<'a>(&'a self, project: &'a ForgeProject, number: u64, id: &'a str) -> ForgeFuture<'a, ()> {
+        Box::pin(async move {
+            self.http.delete(&Self::draft_url(project, number, id)?).await?;
+            Ok(())
+        })
+    }
+
+    /// `bulk_publish`, then the event as the composer sends it (`review`): approve, request
+    /// changes, the summary. Once the drafts are in, a refused event is said in the outcome, not
+    /// as a failure (the drafts can't be sent twice).
+    fn submit_review<'a>(&'a self, project: &'a ForgeProject, number: u64, review: &'a ReviewSubmit) -> ForgeFuture<'a, SubmitOutcome> {
+        Box::pin(async move {
+            self.http.send_json(Method::Post, &format!("{}/draft_notes/bulk_publish", Self::mr_url(project, number)), &json!({})).await?;
+            let mut out = SubmitOutcome::default();
+            let has_body = !review.body.trim().is_empty();
+            if review.event == ReviewEvent::Comment && !has_body {
+                return Ok(out);
+            }
+            // The event's parts one by one, so the outcome says which went in (a retry sends
+            // only what is left).
+            let note = NewNote { discussion: None, body: review.body.clone() };
+            let r: Result<(), GbError> = async {
+                match review.event {
+                    ReviewEvent::Comment => {
+                        self.reply(project, number, &note).await?;
+                        out.body_posted = true;
+                        out.event_sent = true;
+                    }
+                    ReviewEvent::Approve => {
+                        self.approve(project, number).await?;
+                        out.event_sent = true;
+                        if has_body {
+                            self.reply(project, number, &note).await?;
+                            out.body_posted = true;
+                        }
+                    }
+                    ReviewEvent::RequestChanges => self.request_changes_steps(project, number, &review.body, true, &mut out).await?,
+                }
+                Ok(())
+            }
+            .await;
+            if let Err(e) = r {
+                out.event_error = Some(e.message);
+            }
+            Ok(out)
+        })
+    }
+
+    fn discard_review<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, u32> {
+        Box::pin(async move {
+            let url = format!("{}/draft_notes", Self::mr_url(project, number));
+            let ids: Vec<u64> = self.http.get_pages(&format!("{url}?per_page=100"), DRAFT_PAGES).await?.iter().filter_map(|d| d["id"].as_u64()).collect();
+            for (done, id) in ids.iter().enumerate() {
+                if let Err(e) = self.http.delete(&format!("{url}/{id}")).await {
+                    return Err(GbError::new(e.kind, format!("Deleted {done} of {} pending comments: {}", ids.len(), e.message)));
+                }
+            }
+            Ok(ids.len() as u32)
+        })
+    }
+
+    fn comment_now<'a>(&'a self, project: &'a ForgeProject, number: u64, comment: &'a NewReviewComment) -> ForgeFuture<'a, ForgeDiscussion> {
+        Box::pin(async move {
+            let url = format!("{}/discussions", Self::mr_url(project, number));
+            let r = self.http.send_json(Method::Post, &url, &json!({ "body": comment.body, "position": json::position_json(comment) })).await.map_err(line_refused)?;
+            json::discussion(&r.json(&self.host)?).ok_or_else(|| unreadable(&self.host, "discussion"))
+        })
+    }
+    // --- end review comments ---
     // --- 4C ---
     // --- 4C T3: create, people, labels, templates ---
     fn create_mr<'a>(&'a self, project: &'a ForgeProject, req: &'a CreateMr) -> ForgeFuture<'a, CreateOutcome> {
@@ -1888,4 +2157,210 @@ mod tests {
         assert_eq!(d.notes.iter().map(|n| (n.id.as_str(), n.system)).collect::<Vec<_>>(), [("1", false), ("2", true), ("3", false)]);
         assert!(d.resolvable && !d.resolved);
     }
+
+    // --- review comments ---
+    fn rl(kind: LineKind, old: u32, new: u32) -> ReviewLine {
+        ReviewLine { kind, old_line: old, new_line: new }
+    }
+
+    fn review_comment(start: Option<ReviewLine>, end: ReviewLine) -> NewReviewComment {
+        let refs = DiffRefs { base_sha: "b".into(), start_sha: "s".into(), head_sha: "h".into() };
+        NewReviewComment { anchor: ReviewAnchor { path: "README.md".into(), old_path: "README.md".into(), start, end }, body: "Both?".into(), refs }
+    }
+
+    #[test]
+    fn a_refused_comment_blames_the_line_only_when_gitlab_does_in_plain_words() {
+        let refused = |body: &str| super::line_refused(crate::http::status_error("gitlab.example.com", 400, body.as_bytes())).message;
+        assert_eq!(
+            refused(r#"{"message": "400 Bad request - Note {:line_code=>[\"can't be blank\", \"must be a valid line code\"], :position=>[\"is incomplete\"]}"}"#),
+            "GitLab won't take a comment on that line: line code can't be blank, must be a valid line code; position is incomplete"
+        );
+        assert_eq!(refused(r#"{"message": "400 Bad request - Note {line_code: [\"can't be blank\"]}"}"#), "GitLab won't take a comment on that line: line code can't be blank", "Ruby 3.4's hash");
+        assert_eq!(refused(r#"{"error": "position is invalid"}"#), "GitLab won't take a comment on that line: position is invalid");
+        assert_eq!(refused(r#"{"message": "400 Bad request - Note {:note=>[\"is too long (maximum is 1000000 characters)\"]}"}"#), "GitLab refused the comment: note is too long (maximum is 1000000 characters)");
+        assert_eq!(refused(r#"{"message": "400 Bad request - something odd"}"#), "GitLab refused the comment: 400 Bad request - something odd");
+        assert_eq!(refused(""), "GitLab refused the comment");
+        let forbidden = crate::http::status_error("gitlab.example.com", 403, br#"{"message": "403 Forbidden"}"#);
+        assert_eq!(super::line_refused(forbidden.clone()).message, forbidden.message, "not a 400: as it came");
+    }
+
+    #[test]
+    fn a_position_names_each_lines_sides_and_a_range_with_its_line_codes() {
+        let range = review_comment(Some(rl(LineKind::Context, 1, 1)), rl(LineKind::Added, 2, 2));
+        assert_eq!(json::position_json(&range), json!({
+            "position_type": "text", "base_sha": "b", "start_sha": "s", "head_sha": "h", "old_path": "README.md", "new_path": "README.md", "new_line": 2,
+            "line_range": {
+                "start": {"line_code": "8ec9a00bfd09b3190ac6b22251dbb1aa95a0579d_1_1", "type": "old", "old_line": 1, "new_line": 1},
+                "end": {"line_code": "8ec9a00bfd09b3190ac6b22251dbb1aa95a0579d_2_2", "type": "new", "new_line": 2},
+            },
+        }));
+        let removed = json::position_json(&review_comment(None, rl(LineKind::Removed, 3, 2)));
+        assert_eq!((removed["old_line"].clone(), removed.get("new_line"), removed.get("line_range")), (json!(3), None, None));
+        let unchanged = json::position_json(&review_comment(None, rl(LineKind::Context, 4, 5)));
+        assert_eq!((unchanged["old_line"].clone(), unchanged["new_line"].clone()), (json!(4), json!(5)), "an unchanged line names both");
+    }
+
+    #[test]
+    fn the_diff_refs_files_and_drafts_read_from_gitlabs_answers() {
+        assert_eq!(json::diff_refs(&json!({"diff_refs": {"base_sha": "b", "start_sha": "s", "head_sha": "h"}})), Some(DiffRefs { base_sha: "b".into(), start_sha: "s".into(), head_sha: "h".into() }));
+        assert_eq!(json::diff_refs(&json!({"diff_refs": null})), None);
+        let files = json::review_files(&[
+            json!({"old_path": "old.md", "new_path": "README.md", "diff": "@@ -1 +1,2 @@\n Readme\n+Second line\n"}),
+            json!({"old_path": "big.bin", "new_path": "big.bin", "diff": "", "too_large": true}),
+        ]);
+        assert_eq!((files[0].path.as_str(), files[0].old_path.as_str(), files[0].lines.len(), files[0].too_large), ("README.md", "old.md", 2, false));
+        assert_eq!((files[1].lines.len(), files[1].too_large), (0, true));
+        let d = json::draft(&json!({"id": 5, "note": "Both?", "discussion_id": null, "position": {"new_path": "README.md", "old_path": "README.md", "new_line": 2, "old_line": null, "head_sha": "h", "line_range": null}})).unwrap();
+        assert_eq!((d.id.as_str(), d.body.as_str(), d.position.as_ref().unwrap().line, d.position.as_ref().unwrap().head_sha.as_deref()), ("5", "Both?", Some(2), Some("h")));
+        assert_eq!(json::draft(&json!({"id": 6, "note": "General", "position": null})).unwrap().position, None);
+        let none = json!({"id": 7, "note": "General", "position": {"position_type": "text", "base_sha": null, "start_sha": null, "head_sha": null, "old_path": null, "new_path": null, "old_line": null, "new_line": null, "line_range": null}});
+        assert_eq!(json::draft(&none).unwrap().position, None, "GitLab's all-null position is no position");
+    }
+
+    fn served_review(answer: impl Fn(&str) -> crate::test_server::Canned + Send + Sync + 'static) -> (crate::test_server::TestServer, super::GitLabProvider, ForgeProject) {
+        let s = crate::test_server::TestServer::start(move |_, head| answer(head.lines().next().unwrap_or_default()));
+        let ep = crate::endpoints::HostEndpoints { api: format!("{}/api/v4", s.base), web: s.base.clone(), avatars: None };
+        let p = super::GitLabProvider::new("gitlab.example.com", &ep, gitbolt_core::redact::Secret::new("glpat-FAKE-test-token"), None);
+        let (_other, _, project) = served();
+        (s, p, project)
+    }
+
+    #[tokio::test]
+    async fn a_draft_goes_in_with_its_position_and_one_an_older_gitlab_drops_is_taken_back() {
+        use crate::test_server::Canned;
+        let (s, p, project) = served_review(|line| {
+            if line.starts_with("post /api/v4/projects/1/merge_requests/12/draft_notes ") {
+                Canned::json(201, r#"{"id": 5, "note": "Both?", "position": null}"#)
+            } else if line.starts_with("delete ") {
+                Canned { status: 204, headers: vec![], body: vec![] }
+            } else {
+                Canned::json(404, r#"{"message": "404 Not found"}"#)
+            }
+        });
+        let c = review_comment(Some(rl(LineKind::Context, 1, 1)), rl(LineKind::Added, 2, 2));
+        assert_eq!(p.add_draft(&project, 12, &c).await.unwrap_err().message, gitbolt_core::forge::review::OLD_GITLAB_DRAFTS);
+        assert_eq!(lines(&s), ["post /api/v4/projects/1/merge_requests/12/draft_notes", "delete /api/v4/projects/1/merge_requests/12/draft_notes/5"]);
+        let sent: serde_json::Value = serde_json::from_str(&s.bodies.lock().unwrap()[0]).unwrap();
+        assert_eq!((sent["note"].clone(), sent["position"]["line_range"]["start"]["type"].clone()), (json!("Both?"), json!("old")));
+    }
+
+    #[tokio::test]
+    async fn submitting_publishes_the_drafts_then_says_when_the_approve_was_refused() {
+        use crate::test_server::Canned;
+        let (s, p, project) = served_review(|line| {
+            if line.starts_with("post /api/v4/projects/1/merge_requests/12/draft_notes/bulk_publish ") {
+                Canned { status: 204, headers: vec![], body: vec![] }
+            } else if line.starts_with("post /api/v4/projects/1/merge_requests/12/approve ") {
+                Canned::json(403, r#"{"message": "403 Forbidden"}"#)
+            } else {
+                Canned::json(404, r#"{"message": "404 Not found"}"#)
+            }
+        });
+        let out = p.submit_review(&project, 12, &ReviewSubmit { event: ReviewEvent::Approve, body: String::new() }).await.unwrap();
+        assert!(out.event_error.as_deref().is_some_and(|e| e.contains("403 Forbidden")), "{out:?}");
+        assert_eq!(lines(&s), ["post /api/v4/projects/1/merge_requests/12/draft_notes/bulk_publish", "post /api/v4/projects/1/merge_requests/12/approve"]);
+        // Comment with no summary: the drafts alone.
+        p.submit_review(&project, 12, &ReviewSubmit { event: ReviewEvent::Comment, body: String::new() }).await.unwrap();
+        assert_eq!(lines(&s).len(), 3);
+        // Request changes and a Comment with a summary: the drafts first, then the event.
+        let before = lines(&s).len();
+        p.submit_review(&project, 12, &ReviewSubmit { event: ReviewEvent::RequestChanges, body: "Please fix".into() }).await.unwrap();
+        p.submit_review(&project, 12, &ReviewSubmit { event: ReviewEvent::Comment, body: "Summary".into() }).await.unwrap();
+        let all = lines(&s);
+        let bulk = "post /api/v4/projects/1/merge_requests/12/draft_notes/bulk_publish";
+        assert_eq!(all[before], bulk);
+        assert!(all[before + 1].starts_with("post /api/v4/projects/1/merge_requests/12/"), "{all:?}");
+        assert_eq!(all[before + 2], bulk);
+        assert!(all[before + 3].starts_with("post /api/v4/projects/1/merge_requests/12/") && all.len() == before + 4, "{all:?}");
+    }
+
+    #[tokio::test]
+    async fn the_outcome_says_whether_the_summary_went_in_when_the_event_part_failed() {
+        use crate::test_server::Canned;
+        let ok = || Canned { status: 204, headers: vec![], body: vec![] };
+        let base = "post /api/v4/projects/1/merge_requests/12/";
+        // Approve went in, the summary note was refused: the note is still owed.
+        let (_s, p, project) = served_review(move |line| {
+            if line.starts_with(&format!("{base}draft_notes/bulk_publish ")) || line.starts_with(&format!("{base}approve ")) {
+                ok()
+            } else {
+                Canned::json(403, r#"{"message": "403 Forbidden"}"#)
+            }
+        });
+        let out = p.submit_review(&project, 12, &ReviewSubmit { event: ReviewEvent::Approve, body: "LGTM".into() }).await.unwrap();
+        assert!(out.event_error.is_some() && !out.body_posted && out.event_sent, "{out:?}");
+        // The note went in, the unapprove was refused: the event is still owed.
+        let (_s, p, project) = served_review(move |line| {
+            if line.starts_with(&format!("{base}draft_notes/bulk_publish ")) {
+                ok()
+            } else if line.starts_with(&format!("{base}notes ")) {
+                Canned::json(201, r#"{"id": 9, "body": "Fix", "author": {"id": 3, "username": "ada", "name": "Ada"}}"#)
+            } else {
+                Canned::json(403, r#"{"message": "403 Forbidden"}"#)
+            }
+        });
+        let out = p.submit_review(&project, 12, &ReviewSubmit { event: ReviewEvent::RequestChanges, body: "Fix".into() }).await.unwrap();
+        assert!(out.event_error.is_some() && out.body_posted && !out.event_sent, "{out:?}");
+    }
+
+    #[tokio::test]
+    async fn request_changes_takes_the_same_steps_from_the_composer_and_the_pending_review() {
+        use crate::test_server::Canned;
+        let answer = |line: &str| {
+            if line.contains("/unapprove ") {
+                Canned::json(404, r#"{"message": "404 Not Found"}"#)
+            } else if line.starts_with("post /api/graphql ") {
+                Canned::json(200, r#"{"data": {"mergeRequestRequestChanges": {"errors": []}}}"#)
+            } else {
+                Canned::json(201, r#"{"id": 9, "body": "Fix", "author": {"id": 3, "username": "ada", "name": "Ada"}}"#)
+            }
+        };
+        let review = ReviewSubmit { event: ReviewEvent::RequestChanges, body: "Fix".into() };
+        let (s, p, project) = served_review(answer);
+        assert!(!p.review(&project, 12, &review).await.unwrap().fallback);
+        let composer = lines(&s);
+        let (s, p, project) = served_review(answer);
+        let out = p.submit_review(&project, 12, &review).await.unwrap();
+        assert_eq!((out.body_posted, out.event_sent, out.fallback, out.event_error), (true, true, false, None));
+        let submitted = lines(&s);
+        assert_eq!(submitted[0], "post /api/v4/projects/1/merge_requests/12/draft_notes/bulk_publish");
+        assert_eq!(submitted[1..], composer[..], "the drafts, then the composer's steps");
+        assert_eq!(composer.len(), 3, "the note, the approval withdrawn, the state: {composer:?}");
+    }
+
+    #[tokio::test]
+    async fn a_gitlab_without_the_drafts_list_has_none_and_takes_none() {
+        use crate::test_server::Canned;
+        let mr = r#"{"iid": 12, "diff_refs": {"base_sha": "b", "start_sha": "s", "head_sha": "h"}}"#;
+        let (_s, p, project) = served_review(move |line| {
+            if line.starts_with("get /api/v4/projects/1/merge_requests/12 ") {
+                Canned::json(200, mr)
+            } else {
+                Canned::json(404, r#"{"message": "404 Not Found"}"#)
+            }
+        });
+        let d = p.review_drafts(&project, 12).await.unwrap();
+        assert_eq!((d.drafts.len(), d.can_draft, d.refs.map(|r| r.head_sha)), (0, false, Some("h".to_string())));
+        // The MR itself not found is still an error.
+        let (_s, p, project) = served_review(|_| Canned::json(404, r#"{"message": "404 Not Found"}"#));
+        assert_eq!(p.review_drafts(&project, 12).await.unwrap_err().kind, gitbolt_core::error::GbErrorKind::NotFound);
+    }
+
+    #[tokio::test]
+    async fn discarding_deletes_each_draft_and_says_how_far_it_got() {
+        use crate::test_server::Canned;
+        let (_s, p, project) = served_review(|line| {
+            if line.starts_with("get /api/v4/projects/1/merge_requests/12/draft_notes?per_page=100 ") {
+                Canned::json(200, r#"[{"id": 5, "note": "a"}, {"id": 6, "note": "b"}]"#)
+            } else if line.starts_with("delete /api/v4/projects/1/merge_requests/12/draft_notes/5 ") {
+                Canned { status: 204, headers: vec![], body: vec![] }
+            } else {
+                Canned::json(403, r#"{"message": "403 Forbidden"}"#)
+            }
+        });
+        let e = p.discard_review(&project, 12).await.unwrap_err();
+        assert!(e.message.starts_with("Deleted 1 of 2 pending comments: "), "{}", e.message);
+        assert_eq!(p.delete_draft(&project, 12, "5/../x").await.unwrap_err().kind, gitbolt_core::error::GbErrorKind::InvalidInput);
+    }
+    // --- end review comments ---
 }

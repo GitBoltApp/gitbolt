@@ -27,8 +27,8 @@ const host = vi.hoisted(() => ({
 }));
 vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
 // mdOpen.test.ts covers where the open goes; here, when it happens.
-const opens = vi.hoisted(() => ({ hold: vi.fn((_pane: HTMLElement) => () => {}) }));
-vi.mock('./mdOpen', () => ({ holdFirstChange: opens.hold }));
+const opens = vi.hoisted(() => ({ hold: vi.fn((_pane: HTMLElement) => () => {}), line: vi.fn((_pane: HTMLElement, _at: unknown) => () => {}) }));
+vi.mock('./mdOpen', () => ({ holdFirstChange: opens.hold, holdLine: opens.line }));
 vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null } }));
 vi.mock('../markdown/fileLinks', () => ({}));
 // T5's renderer is tested by T5: here, what Diff View hands it.
@@ -263,6 +263,7 @@ describe('DiffTextBody', () => {
 
   it('a rendered diff opens at its first change: once per file shown or switch to Rendered, not when a line is asked for', async () => {
     opens.hold.mockClear();
+    opens.line.mockClear();
     const store = createRepoViewStore(1, '/r', graph, fakeServices());
     const props = { path: 'a.md', oldPath: null, original: 'a\n', modified: 'b\n', language: 'markdown', markdown: { old: P, new: C } };
     const { rerender } = render(<RepoViewContext value={store}><DiffTextBody identity="a" {...props} /></RepoViewContext>);
@@ -277,6 +278,11 @@ describe('DiffTextBody', () => {
     act(() => useDiffPrefs.getState().set({ markdownView: 'rendered' }));
     expect(opens.hold).toHaveBeenCalledTimes(3);
     rerender(<RepoViewContext value={store}><DiffTextBody identity="c" {...props} path="c.md" line={{ side: 'modified', line: 12 }} /></RepoViewContext>);
+    expect(opens.hold).toHaveBeenCalledTimes(3);
+    // A note's line opens the rendered diff at its block; the same file at another line goes there too.
+    expect(opens.line).toHaveBeenLastCalledWith(screen.getByTestId('markdown-diff'), { side: 'modified', line: 12 });
+    rerender(<RepoViewContext value={store}><DiffTextBody identity="c" {...props} path="c.md" line={{ side: 'modified', line: 30 }} /></RepoViewContext>);
+    expect(opens.line).toHaveBeenCalledTimes(2);
     expect(opens.hold).toHaveBeenCalledTimes(3);
   });
 

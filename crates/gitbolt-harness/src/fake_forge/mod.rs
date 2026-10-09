@@ -145,6 +145,10 @@ pub struct GitLabSeed {
     /// nor `mergeRequestRequestChanges`.
     pub old_graphql: bool,
     // --- end MR round 2 ---
+    // --- review comments ---
+    /// A GitLab before 16.3: a draft note's `position` is ignored (it becomes a general draft).
+    pub drafts_drop_position: bool,
+    // --- end review comments ---
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -419,6 +423,7 @@ pub fn default_seed(base: &str) -> ForgeSeed {
             private_uploads: false,
             old_graphql: false,
             // --- end 5A T3 ---
+            drafts_drop_position: false,
         },
         github: GitHubSeed {
             tokens: vec![

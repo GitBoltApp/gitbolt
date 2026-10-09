@@ -4,6 +4,7 @@ import type { CommitDetailsPayload } from '../api/gen/CommitDetailsPayload';
 import type { DiffSpec } from '../api/gen/DiffSpec';
 import { copyText } from '../api/transport';
 import { FileList } from '../files/FileList';
+import { useReviewRowBadge } from '../forge/review/ReviewBadge';
 import { useAppState } from '../app/state';
 import { formatDate } from '../format/date';
 import { shortSha } from '../format/sha';
@@ -188,13 +189,16 @@ function ParentPicker({ panel }: { panel: PanelContent }) {
 const allFilesCommitFor = (spec: DiffSpec) => (spec.kind === 'commit' ? spec.id : spec.kind === 'compare' ? spec.to : null);
 
 function FileSectionView({ section }: { section: FileSection }) {
+  const { tabId } = useRepoContext();
+  // Review comments (spec 2026-10-08 §5): the review Compare's files carry their threads' badges.
+  const badges = useReviewRowBadge(tabId, section.spec);
   const label = section.title ?? 'Changed files';
   const list = section.list;
   return (
     <section className="file-section" aria-label={label}>
       {section.title && <h3 className="file-section-title">{section.title}{list.status === 'ready' && ` (${list.data.files.length})`}</h3>}
       {list.status === 'ready' ? (
-        <FileList list={list.data} spec={section.spec} label={label} allFilesCommit={allFilesCommitFor(section.spec)} />
+        <FileList list={list.data} spec={section.spec} label={label} allFilesCommit={allFilesCommitFor(section.spec)} renderActions={badges} />
       ) : list.status === 'error' ? (
         <div role="alert" className="file-section-status">{list.message}</div>
       ) : null}

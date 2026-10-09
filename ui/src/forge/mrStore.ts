@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { DiffRefs } from '../api/gen/DiffRefs';
 import type { ForgeDiscussion } from '../api/gen/ForgeDiscussion';
 import type { ForgeKind } from '../api/gen/ForgeKind';
 import type { ForgeMr } from '../api/gen/ForgeMr';
@@ -7,11 +8,42 @@ import type { ForgeProject } from '../api/gen/ForgeProject';
 import type { LocalBranch } from '../api/gen/LocalBranch';
 import type { MrFilter } from '../api/gen/MrFilter';
 import type { MrList } from '../api/gen/MrList';
+import type { ReviewDraft } from '../api/gen/ReviewDraft';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
+import type { CommentableFile } from './review/model';
 
 /** The MR/PR view's flyout kind (T12 registers it) and its props. */
 export const MR_FLYOUT = 'mr';
 export interface MrViewArgs { number: number }
+
+// --- review comments ---
+/** A tab's review of one MR/PR (spec 2026-10-08 §1): what its Compare's diff needs to take and
+ * show comments. Compare starts it (`startReview`), the poll refreshes it (`refreshReview`), and
+ * it ends once neither its Compare nor a pending draft keeps it (`settleReview`). */
+export interface ReviewSession {
+  number: number;
+  kind: ForgeKind;
+  /** The local compare it belongs to (the merge base → the head), as Compare opened it. */
+  compare: { from: string; to: string } | null;
+  /** The MR's diff refs as the forge reports them now (GitLab needs all three in a position). */
+  refs: DiffRefs | null;
+  /** Each file's commentable lines, by its new path, for the head `diffHead`. */
+  files: Record<string, CommentableFile>;
+  diffHead: string | null;
+  /** The user's pending comments, read from the forge. */
+  drafts: ReviewDraft[];
+  /** GitHub's pending review (its node id), which can exist with no draft. */
+  pendingReview: string | null;
+  /** Add to review works (GitLab from 16.3); else Comment now only. */
+  canDraft: boolean;
+  /** The MR merged or closed while drafts were pending. */
+  closed: boolean;
+  /** The last refresh's failure; what's shown stays. */
+  error: string | null;
+  /** The first refresh answered (until then nothing is known to be pending). */
+  loaded: boolean;
+}
+// --- end review comments ---
 
 /** One tab's forge state (spec #4 §4 "4B"), kept in memory: the poller fills it. */
 export interface TabForge {
@@ -58,11 +90,13 @@ export interface TabForge {
   cachedAt: number | null;
   /** Failed polls in a row (the backoff). */
   failures: number;
+  /** The tab's review session, if one is open. */
+  review: ReviewSession | null;
 }
 
 export const EMPTY_FORGE: TabForge = {
   kind: null, remote: null, project: null, mapped: [], target: null, targetChosen: false, remoteErrors: {}, ownerAvatars: {}, me: null, byRef: {}, history: {}, upstreams: {}, filter: 'all', list: null,
-  details: {}, detailErrors: {}, discussions: {}, openMr: null, updatedAt: null, error: null, limitedUntil: null, cachedAt: null, failures: 0,
+  details: {}, detailErrors: {}, discussions: {}, openMr: null, updatedAt: null, error: null, limitedUntil: null, cachedAt: null, failures: 0, review: null,
 };
 
 export const useForge = create<{ byTab: Record<string, TabForge> }>(() => ({ byTab: {} }));
@@ -80,7 +114,7 @@ export const keepSame = <T,>(old: T, next: T): T => (sameJson(old, next) ? old :
 /** Load bookkeeping outside the store (it must not re-render anything): per MR (`<tab>:<n>`),
  * `loading` and `freshAt`; per tab, `writes` (the write epoch: GitBolt forge writes answered so
  * far) and `activatedAt` (the last full `activate` poll, which outlives the tab's pollers). */
-export const forgeScratch = { loading: new Map<string, Promise<void>>(), freshAt: new Map<string, number>(), writes: new Map<string, number>(), activatedAt: new Map<string, number>(), /** Tabs whose next poll asks the forges again (an account was added or removed). */ recheck: new Set<string>() };
+export const forgeScratch = { loading: new Map<string, Promise<void>>(), freshAt: new Map<string, number>(), writes: new Map<string, number>(), activatedAt: new Map<string, number>(), /** Tabs whose next poll asks the forges again (an account was added or removed). */ recheck: new Set<string>(), /** A tab's review session's Compare watch (`watchCompare`). */ reviewUnsub: new Map<string, () => void>(), /** The refs (`<number> <base> <start> <head>`, as the drafts read reported them) a tab's review diff was last read for (`refreshReview`). */ reviewRefs: new Map<string, string>() };
 
 /** The tab's write epoch: a read that started under an older one may predate a write's answer. */
 export const writeEpoch = (tabId: string): number => forgeScratch.writes.get(tabId) ?? 0;
@@ -96,6 +130,9 @@ export function dropForge(tabId: string): void {
     return { byTab };
   });
   for (const m of [forgeScratch.loading, forgeScratch.freshAt]) for (const k of [...m.keys()]) if (k.startsWith(`${tabId}:`)) m.delete(k);
+  forgeScratch.reviewUnsub.get(tabId)?.();
+  forgeScratch.reviewUnsub.delete(tabId);
+  forgeScratch.reviewRefs.delete(tabId);
   forgeScratch.writes.delete(tabId);
   forgeScratch.activatedAt.delete(tabId);
   forgeScratch.recheck.delete(tabId);

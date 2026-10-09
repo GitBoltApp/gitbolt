@@ -121,7 +121,11 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
       const head = git(repo, 'rev-parse', 'origin/dev');
       const base = git(repo, 'merge-base', 'origin/main', 'origin/dev');
       const seed = await forgeSeed(request);
-      Object.assign(mrs(seed).find((x) => x.iid === 12)!, { headSha: head, baseSha: git(repo, 'rev-parse', 'origin/main') });
+      // The review's commentable lines (spec 2026-10-08): GitLab's /diffs for !12 are this compare's
+      // own, for its first file that adds lines.
+      const file = git(repo, 'diff', '--numstat', base, head).split('\n').map((l) => l.split('\t')).find(([added]) => Number(added) > 0)![2]!;
+      const patch = git(repo, 'diff', '-U3', base, head, '--', file);
+      Object.assign(mrs(seed).find((x) => x.iid === 12)!, { headSha: head, baseSha: git(repo, 'rev-parse', 'origin/main'), diffs: [{ oldPath: file, newPath: file, diff: `${patch.slice(patch.indexOf('@@'))}\n` }] });
       await setForgeSeed(request, seed);
       await reopen();
       const bar = view.getByRole('region', { name: 'Branches' });
@@ -134,6 +138,55 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
       await expect(graph.locator('[role="row"][aria-selected="true"]')).toHaveCount(2);
       // Its click didn't toggle the commit list.
       await expect(bar.getByRole('list', { name: 'Commits' })).toHaveCount(0);
+    });
+
+    await test.step("review mode: a line's + opens a comment, Add to review shows it Pending, Delete arms first (spec 2026-10-08 §2)", async () => {
+      const base = git(repo, 'merge-base', 'origin/main', 'origin/dev');
+      const head = git(repo, 'rev-parse', 'origin/dev');
+      const file = git(repo, 'diff', '--numstat', base, head).split('\n').map((l) => l.split('\t')).find(([added]) => Number(added) > 0)![2]!;
+      const patch = git(repo, 'diff', '-U3', base, head, '--', file);
+      // The first added line's new number.
+      let line = 0;
+      for (const l of patch.split('\n')) {
+        const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(l);
+        if (hunk) { line = Number(hunk[1]); continue; }
+        if (!line) continue;
+        if (l.startsWith('+')) break;
+        if (!l.startsWith('-')) line++;
+      }
+      await page.locator(`[role="option"][data-path="${file}"], [role="treeitem"][data-path="${file}"]`).first().click();
+      const panel = page.locator('.diff-panel');
+      const markdown = panel.getByRole('group', { name: 'Markdown view' });
+      if (file.endsWith('.md')) await markdown.getByRole('button', { name: 'Source' }).click();
+      await panel.locator('.editor.modified .margin-view-overlays .line-numbers').filter({ hasText: new RegExp(`^${line}$`) }).hover();
+      await panel.locator('.review-glyph:visible').click();
+      const box = panel.getByRole('form', { name: 'New comment' });
+      await box.getByRole('textbox', { name: 'Comment' }).fill('Why this line?');
+      await box.getByRole('button', { name: 'Add to review' }).click();
+      await expect(box).toBeHidden();
+      const pending = panel.getByRole('article', { name: 'Pending comment' });
+      await expect(pending).toContainText('Pending');
+      await expect(pending).toContainText('Why this line?');
+      expect((await forgeRequests(request)).some((r) => r.method === 'POST' && r.path === '/api/v4/projects/42/merge_requests/12/draft_notes')).toBe(true);
+      // The card stays right under its line through mode switches (only its spacer moves).
+      const lineNo = panel.locator('.editor.modified .margin-view-overlays .line-numbers').filter({ hasText: new RegExp(`^${line}$`) });
+      const gap = async () => {
+        const [l, c] = [await lineNo.boundingBox(), await pending.boundingBox()];
+        return l && c ? Math.round(c.y - (l.y + l.height)) : null;
+      };
+      const modes = page.getByRole('group', { name: 'View mode' });
+      for (const mode of ['Split', 'Hunk', 'Inline']) {
+        await modes.getByRole('button', { name: mode, exact: true }).click();
+        await expect.poll(gap).toBeGreaterThanOrEqual(0);
+        await expect.poll(gap).toBeLessThanOrEqual(12);
+      }
+      await pending.getByRole('button', { name: 'Delete' }).click();
+      await confirmArmed(armedOverlay(page, 'Click again to delete the pending comment'));
+      await expect(pending).toBeHidden();
+      await expect.poll(async () => ((mrs(await forgeSeed(request)).find((x) => x.iid === 12) as { draftNotes?: unknown[] }).draftNotes ?? []).length).toBe(0);
+      if (file.endsWith('.md')) await markdown.getByRole('button', { name: 'Rendered' }).click();
+      await panel.getByRole('button', { name: 'Close diff' }).click();
+      await expect(view).toBeVisible();
     });
 
     await test.step('GitLab Free keeps one reviewer: the toast names who it kept, then + swaps', async () => {
@@ -252,6 +305,63 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
       await expect.poll(async () => (await mr12()).discussions.find((d) => d.id === 'd2')?.resolved).toBe(true);
     });
     // --- end comment actions ---
+
+    // --- review comments (plan 3): the rendered diff, the file list's badge, the chip ---
+    await test.step('a block comment in the rendered diff: the badge and the chip count it, Submit review… sends it', async () => {
+      // !12 now brings a Markdown file too: a commit on origin/dev, its diff added to the Compare
+      // step's seed.
+      const blob = git({ cwd: repo, input: '# Review notes\n\nReadme\nSecond line\n' }, 'hash-object', '-w', '--stdin');
+      const tree = git({ cwd: repo, input: `${git(repo, 'ls-tree', 'origin/dev')}\n100644 blob ${blob}\tNOTES.md\n` }, 'mktree');
+      const head = git(repo, 'commit-tree', tree, '-p', 'origin/dev', '-m', 'Review notes');
+      git(repo, 'update-ref', 'refs/remotes/origin/dev', head);
+      const seed = await forgeSeed(request);
+      const mr = mrs(seed).find((x) => x.iid === 12)!;
+      Object.assign(mr, { headSha: head, diffs: [...(mr.diffs as unknown[]), { oldPath: 'NOTES.md', newPath: 'NOTES.md', diff: '@@ -0,0 +1,4 @@\n+# Review notes\n+\n+Readme\n+Second line\n' }] });
+      await setForgeSeed(request, seed);
+      // Esc first leaves the compare (the graph has the keys), then closes the view.
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('compare-header')).toBeHidden();
+      await page.keyboard.press('Escape');
+      await expect(view).toBeHidden();
+      await page.getByRole('complementary', { name: 'Sidebar', exact: true }).getByRole('region', { name: 'Merge requests', exact: true }).getByRole('treeitem', { name: '!12 Dev work' }).click();
+      const bar = view.getByRole('region', { name: 'Branches' });
+      // The new head loaded: the card counts what it brings.
+      await expect(bar).toContainText('2 commits');
+      await bar.getByRole('button', { name: 'Compare' }).click();
+      await expect(page.getByTestId('compare-header')).toContainText(head.slice(0, 6));
+
+      const row = page.locator('.file-row[data-path="NOTES.md"]');
+      await row.click();
+      const pane = page.getByTestId('markdown-diff');
+      // A real pointer's way to the "+": from the block, left across the gap to it, a frame per
+      // step (Chromium coalesces the moves of one frame into one pointermove).
+      const para = (await pane.locator('[data-src-new="3-4"]').first().boundingBox())!;
+      const y = para.y + para.height / 2;
+      await page.mouse.move(para.x + 20, y);
+      const plus = pane.getByRole('button', { name: 'Comment on lines 3–4' });
+      const at = (await plus.boundingBox())!;
+      for (let x = para.x + 20; x > at.x + at.width / 2; x -= 3) {
+        await page.mouse.move(x, y);
+        await page.evaluate(() => new Promise(requestAnimationFrame));
+        expect(await plus.count(), `the "+" at x=${x}`).toBe(1);
+      }
+      await page.mouse.click(at.x + at.width / 2, y);
+      const box = pane.getByRole('form', { name: 'New comment' });
+      await box.getByRole('textbox', { name: 'Comment' }).fill('Worth a sentence on why?');
+      await box.getByRole('button', { name: 'Add to review' }).click();
+      await expect(row.getByRole('button', { name: '1 pending' })).toBeVisible();
+      const chip = page.getByRole('button', { name: 'Reviewing !12 · 1 pending' });
+      await expect(chip).toBeVisible();
+
+      await page.keyboard.press('Control+Alt+R');
+      const submit = page.getByRole('dialog', { name: 'Submit your review of !12' });
+      await submit.getByRole('button', { name: 'Comment', exact: true }).click();
+      await expect(chip).toBeHidden();
+      expect((await forgeRequests(request)).some((r) => r.method === 'POST' && r.path === '/api/v4/projects/42/merge_requests/12/draft_notes/bulk_publish')).toBe(true);
+      // The file closes; the view comes back with the comment on its timeline.
+      await page.locator('.diff-panel').getByRole('button', { name: 'Close diff' }).click();
+      await expect(view.getByRole('region', { name: 'Activity' })).toContainText('Worth a sentence on why?');
+    });
 
     const log = (await forgeRequests(request)).slice(logBefore);
     const mrCalls = log.filter((r) => r.path.includes('/merge_requests/12/'));

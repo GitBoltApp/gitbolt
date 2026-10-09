@@ -291,7 +291,7 @@ impl ForgeHub {
     }
 
     /// After a write to the target: what the cache keeps of its lists may predate it.
-    fn wrote(&self, t: &MrTarget) {
+    pub(crate) fn wrote(&self, t: &MrTarget) {
         self.cache.forget_lists(&cache_key(&t.key, &t.project.path));
     }
 
@@ -490,16 +490,12 @@ impl ForgeHub {
     }
 
     // --- MR round 2 ---
-    /// A review from the composer. Request changes and Comment need a message; Approve doesn't.
+    /// A review from the composer, its message as `check_review_message` needs it.
     pub async fn review(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, review: ReviewSubmit) -> Result<ReviewOutcome, GbError> {
-        if review.body.trim().is_empty() {
-            match review.event {
-                ReviewEvent::RequestChanges => return Err(refuse("Say what to change first")),
-                ReviewEvent::Comment => return Err(refuse("Write a comment first")),
-                ReviewEvent::Approve => {}
-            }
-        }
+        use crate::forge::review::check_review_message;
+        check_review_message(&review, 0, None)?;
         let t = self.mr_target(store, remotes).await?;
+        check_review_message(&review, 0, Some(t.provider.kind()))?;
         let r = t.provider.review(&t.project, number, &review).await;
         self.record(&t.key, &r);
         if r.is_ok() {
@@ -669,12 +665,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_composer_needs_a_message_to_comment_or_request_changes_but_not_to_approve() {
+    async fn the_composer_needs_a_message_to_comment_but_not_to_approve_or_retry_gitlab_request_changes() {
         let (p, hub, store, remotes) = setup().await;
         p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
         let review = |event, body: &str| ReviewSubmit { event, body: body.into() };
         assert_eq!(hub.review(&store, &remotes, 12, review(ReviewEvent::Comment, " ")).await.unwrap_err().message, "Write a comment first");
-        assert_eq!(hub.review(&store, &remotes, 12, review(ReviewEvent::RequestChanges, "")).await.unwrap_err().message, "Say what to change first");
+        // Refused before the target is looked for: no remote at all says the same.
+        assert_eq!(hub.review(&store, &[], 12, review(ReviewEvent::Comment, " ")).await.unwrap_err().message, "Write a comment first");
+        assert_ne!(hub.review(&store, &[], 12, review(ReviewEvent::RequestChanges, "")).await.unwrap_err().message, "Say what to change first", "that one needs the forge's kind");
+        // GitLab's request changes with no message is a retry whose summary already went in
+        // (`SubmitOutcome::body_posted`): just the approval withdrawn. The composer itself
+        // never sends one empty.
+        hub.review(&store, &remotes, 12, review(ReviewEvent::RequestChanges, "")).await.unwrap();
         hub.review(&store, &remotes, 12, review(ReviewEvent::Approve, "")).await.unwrap();
         hub.review(&store, &remotes, 12, review(ReviewEvent::Approve, "Nice")).await.unwrap();
         let calls = p.calls();

@@ -54,6 +54,12 @@ describe('the sanitizer (spec #5 §6)', () => {
     expect(elements(t).filter((e) => e.tagName === 'li' || e.tagName === 'ul').map((e) => e.properties.className)).toEqual([undefined, undefined]);
   });
 
+  it("lets a `:` through in GitLab's suggestion fence only (spec 2026-10-08), not in any other language", () => {
+    const langs = (md: string) => elements(safe(md)).filter((e) => e.tagName === 'code').map((e) => e.properties.className);
+    expect(langs('```suggestion:-1+0\nx\n```\n\n```suggestion\ny\n```')).toEqual([['language-suggestion:-1+0'], ['language-suggestion']]);
+    expect(langs('```js:file.js\nx\n```\n\n```suggestion:x\ny\n```')).toEqual([[], []]);
+  });
+
   it('gives headings GitHub’s slugs and footnotes ids their #links reach', () => {
     const t = safe('## What / why\n\n## What / why\n\nNote[^1].\n\n[^1]: The note.');
     expect(elements(t).filter((e) => e.tagName === 'h2' && e.properties.id).map((e) => e.properties.id)).toEqual(['user-content-what--why', 'user-content-what--why-1', 'user-content-footnote-label']);

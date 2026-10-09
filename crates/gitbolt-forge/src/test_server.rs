@@ -28,6 +28,8 @@ pub(crate) struct TestServer {
     pub base: String,
     pub heads: Arc<Mutex<Vec<String>>>,
     pub hits: Arc<AtomicUsize>,
+    /// Each request's body, as text, in order: `bodies[i]` is `heads[i]`'s.
+    pub bodies: Arc<Mutex<Vec<String>>>,
 }
 
 impl TestServer {
@@ -41,11 +43,12 @@ impl TestServer {
         let listener = TcpListener::bind(addr).unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let (heads, hits) = (Arc::new(Mutex::new(Vec::new())), Arc::new(AtomicUsize::new(0)));
+        let bodies = Arc::new(Mutex::new(Vec::new()));
         let answer = Arc::new(answer);
-        let (h2, n2) = (heads.clone(), hits.clone());
+        let (h2, n2, b2) = (heads.clone(), hits.clone(), bodies.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
-                let (heads, hits, answer) = (h2.clone(), n2.clone(), answer.clone());
+                let (heads, hits, bodies, answer) = (h2.clone(), n2.clone(), b2.clone(), answer.clone());
                 std::thread::spawn(move || {
                     let mut stream = stream.unwrap();
                     let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -65,7 +68,11 @@ impl TestServer {
                     let mut body = vec![0; length];
                     let _ = reader.read_exact(&mut body);
                     let n = hits.fetch_add(1, Ordering::SeqCst);
-                    heads.lock().unwrap().push(head.clone());
+                    // Both pushed under `heads`' lock, so a request's head and body share an index.
+                    let mut heads = heads.lock().unwrap();
+                    heads.push(head.clone());
+                    bodies.lock().unwrap().push(String::from_utf8_lossy(&body).into_owned());
+                    drop(heads);
                     let c = answer(n, &head);
                     let mut out = format!("HTTP/1.1 {} X\r\nContent-Length: {}\r\nConnection: close\r\n", c.status, c.body.len());
                     for (k, v) in &c.headers {
@@ -78,7 +85,7 @@ impl TestServer {
                 });
             }
         });
-        Self { base, heads, hits }
+        Self { base, heads, hits, bodies }
     }
 
     pub fn hits(&self) -> usize {
