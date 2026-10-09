@@ -29,7 +29,7 @@ const row = (i: number, lane: number) => ({ id: String(i).padStart(40, '0'), kin
 const graph: GraphPayload = {
   rows: [row(0, 0), row(1, 5)],
   labels: [{ row: 0, name: 'main', local: 'refs/heads/main', remotes: [], tag: false, isHead: true, worktree: null, checkedOut: null }],
-  maxLanes: 6, pinnedRef: null, head: { branch: 'refs/heads/main', target: '0'.repeat(40), detached: false, unborn: false }, truncated: false, worktrees: [],
+  maxLanes: 6, pinnedRefs: [], head: { branch: 'refs/heads/main', target: '0'.repeat(40), detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 const need = lanesWidth(6, METRICS);
 const cell = (col: string, r = 0) => screen.getAllByRole('row')[r].querySelector<HTMLElement>(`[data-col="${col}"]`);

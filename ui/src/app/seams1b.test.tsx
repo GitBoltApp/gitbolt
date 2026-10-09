@@ -12,7 +12,7 @@ import { fetchCommitMessage, listTreeFiles, openFileView, startCompare, useDiffO
 import { dropTabView, useTabViews } from './tabStores';
 
 const row = (id: string, time: number, wip = false): RowPayload => ({ id, kind: wip ? 'wip' : 'commit', lane: 0, color: 0, segments: [], summary: id, bodyFirstLine: '', authorName: 'A', authorEmail: '', authorTime: time, committerTime: time, parents: [], mrRefs: [], wip: wip ? { worktreePath: '/r', worktreeName: null, added: 0, modified: 0, deleted: 0, conflicted: 0 } as RowPayload['wip'] : null });
-const graph: GraphPayload = { rows: [row('wip:/r', 0, true), row('c2', 20), row('c1', 10)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [row('wip:/r', 0, true), row('c2', 20), row('c1', 10)], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [] };
 
 function register(tabId: string) {
   const services = fakeServices({

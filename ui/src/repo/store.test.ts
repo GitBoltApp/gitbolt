@@ -15,7 +15,7 @@ const row = (id: string, kind: RowPayload['kind'] = 'commit', wip: RowPayload['w
 });
 const graph: GraphPayload = {
   rows: [row('wip:/r', 'wip', { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 }), row(A), row(B), row(C)],
-  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [],
+  labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 const details = (id: string): CommitDetailsPayload => ({ id, parents: [], author: { name: 'Ada', email: 'ada@example.com', time: 0 }, committer: { name: 'Ada', email: 'ada@example.com', time: 0 }, coAuthors: [], signed: false });
 const message = (id: string): CommitMessage => ({ id, summary: id.slice(0, 1), body: `body of ${id.slice(0, 1)}` });

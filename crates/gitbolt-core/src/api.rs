@@ -3729,12 +3729,12 @@ mod tests {
         let id = open(&api, &r).await;
         let graph = |pin: serde_json::Value| req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null, "pin": pin}}));
         let auto = api.dispatch(graph(serde_json::json!({"kind": "auto"}))).await.unwrap();
-        assert!(auto["pinnedRef"].is_string());
-        assert!(api.dispatch(graph(serde_json::json!({"kind": "off"}))).await.unwrap()["pinnedRef"].is_null());
+        assert_eq!(auto["pinnedRefs"], serde_json::json!(["refs/heads/main", "refs/remotes/origin/main"]));
+        assert_eq!(api.dispatch(graph(serde_json::json!({"kind": "off"}))).await.unwrap()["pinnedRefs"], serde_json::json!([]));
         let hotfix = api.dispatch(graph(serde_json::json!({"kind": "ref", "name": "refs/heads/hotfix"}))).await.unwrap();
-        assert_eq!(hotfix["pinnedRef"], "refs/heads/hotfix");
+        assert_eq!(hotfix["pinnedRefs"], serde_json::json!(["refs/heads/hotfix"]), "no upstream: alone");
         let absent = api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}))).await.unwrap();
-        assert_eq!(absent["pinnedRef"], auto["pinnedRef"], "no pin is the default trunk");
+        assert_eq!(absent["pinnedRefs"], auto["pinnedRefs"], "no pin is the default trunk");
     }
 
     #[tokio::test]
@@ -5151,16 +5151,17 @@ mod tests {
         r.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
         r.git(&["update-ref", "refs/remotes/upstream/main", "HEAD"]);
         r.git(&["branch", "-q", "--set-upstream-to", "origin/main", "main"]);
+        r.git(&["branch", "-q", "--track", "up", "upstream/main"]);
         let id = open(&api, &r).await as u32;
         let pinned = || async { api.dispatch(req(serde_json::json!({"method": "graph", "params": {"repo": id, "limit": null}}))).await.unwrap() };
-        let trunk = |g: serde_json::Value| (g["pinnedRef"].clone(), g["pinnedRemote"].clone());
-        assert_eq!(trunk(pinned().await), (serde_json::json!("refs/heads/main"), serde_json::json!("refs/remotes/upstream/main")), "no forge data yet: upstream is the root by convention");
+        let trunk = |g: serde_json::Value| g["pinnedRefs"].clone();
+        assert_eq!(trunk(pinned().await), serde_json::json!(["refs/heads/up", "refs/remotes/upstream/main"]), "no forge data yet: upstream is the root by convention");
         let mut events = api.subscribe();
         let projects = || api.dispatch(req(serde_json::json!({"method": "forgeRepoProjects", "params": {"repo": id, "refresh": false}})));
         projects().await.unwrap();
         let refreshes = |rx: &mut broadcast::Receiver<AppEvent>| std::iter::from_fn(|| rx.try_recv().ok()).filter(|e| matches!(e, AppEvent::RefsUpdated { repo } if *repo == id)).count();
         assert_eq!(refreshes(&mut events), 1, "the fork data moved the trunk: one refresh");
-        assert_eq!(trunk(pinned().await), (serde_json::json!("refs/heads/main"), serde_json::json!("refs/remotes/origin/main")), "origin is the root: main stands for origin/main");
+        assert_eq!(trunk(pinned().await), serde_json::json!(["refs/heads/main", "refs/remotes/origin/main"]), "origin is the root: main, tracking origin/main, with it");
         projects().await.unwrap();
         assert_eq!(refreshes(&mut events), 0, "nothing new: no refresh");
     }

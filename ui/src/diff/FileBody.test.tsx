@@ -52,7 +52,7 @@ vi.mock('../markdown/parseAsync', () => ({
   },
 }));
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const C = 'c'.repeat(40);
 const spec = { kind: 'commit' as const, id: C, parent: 0 };
 const blob = (text: string | null, binary = false): BlobPayload => ({ size: text?.length ?? 8, binary, encoding: binary ? '' : 'UTF-8', eol: 'lf', text, base64: null, hash: text === null ? null : 'h1' });

@@ -12,10 +12,12 @@ describe('graphIndex: once per payload, shared by the graph view and the menus',
     const byRow = labelsByRowOf(labels);
     expect(labelsByRowOf(labels)).toBe(byRow);
     expect(labelsByRowOf([...labels])).not.toBe(byRow);
-    const m = membershipOf(rows, byRow, null);
+    const m = membershipOf(rows, byRow, []);
     expect(m[1]?.name).toBe('main');
-    expect(membershipOf(rows, byRow, null)).toBe(m);
-    expect(membershipOf(rows, byRow, 'refs/heads/main')).not.toBe(m);
-    expect(membershipOf([...rows], byRow, null)).not.toBe(m);
+    expect(membershipOf(rows, byRow, [])).toBe(m);
+    expect(membershipOf(rows, byRow, ['refs/heads/main'])).not.toBe(m);
+    // The same pins in a new array (a new payload's): still the same.
+    expect(membershipOf(rows, byRow, ['refs/heads/main'])).toBe(membershipOf(rows, byRow, ['refs/heads/main']));
+    expect(membershipOf([...rows], byRow, [])).not.toBe(m);
   });
 });

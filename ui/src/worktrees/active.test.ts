@@ -10,7 +10,7 @@ const label = (row: number, name: string, checkedOut: string | null, isHead = fa
 const graph = (): GraphPayload => ({
   rows: [{ id: 'wip:/r' }, { id: 'aaa' }, { id: 'bbb' }, { id: 'ccc' }] as GraphPayload['rows'],
   labels: [label(1, 'main', '/r', true), label(2, 'x', '/r-x'), label(3, 'y', null)],
-  maxLanes: 1, pinnedRef: null, truncated: false,
+  maxLanes: 1, pinnedRefs: [], truncated: false,
   head: { branch: 'refs/heads/main', target: 'aaa', detached: false, unborn: false },
   openWorktree: '/r',
   worktrees: [wt('/r', 'refs/heads/main', 'aaa', true), wt('/r-x', 'refs/heads/x', 'bbb'), wt('/r-d', null, 'ccc')],

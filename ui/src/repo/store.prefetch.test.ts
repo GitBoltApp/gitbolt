@@ -13,7 +13,7 @@ const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((c) => c.repeat(40));
 const row = (id: string): RowPayload => ({
   id, kind: 'commit', lane: 0, color: 0, segments: [], summary: id.slice(0, 1), bodyFirstLine: '', authorName: 'Ada', authorEmail: 'ada@example.com', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null,
 });
-const graph: GraphPayload = { rows: ids.map(row), labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: ids[0], detached: false, unborn: false }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: ids.map(row), labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: ids[0], detached: false, unborn: false }, truncated: false, worktrees: [] };
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const details = (id: string, committer: string, coAuthors: string[] = []): CommitDetailsPayload => ({
   id, parents: [], signed: true,

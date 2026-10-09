@@ -361,7 +361,7 @@ export function GraphView({ graph, repoId, messages, selected: controlled, alsoS
   // The checked-out branch's row: HEAD's label sorts first on its row (J21).
   const headRow = useMemo(() => [...labelsByRow].find(([, ls]) => ls[0]?.isHead)?.[0] ?? -1, [labelsByRow]);
   // Once per graph (linear): the branch each non-tip commit belongs to (F7).
-  const membership = useMemo(() => membershipOf(graph.rows, labelsByRow, graph.pinnedRef, graph.pinnedRemote ?? null), [graph.rows, labelsByRow, graph.pinnedRef, graph.pinnedRemote]);
+  const membership = useMemo(() => membershipOf(graph.rows, labelsByRow, graph.pinnedRefs), [graph.rows, labelsByRow, graph.pinnedRefs]);
   const membershipRef = useRef(membership);
   membershipRef.current = membership;
   // J22: a branch chip hovered for 500 ms dims the text of every row outside that branch (its

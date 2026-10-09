@@ -30,7 +30,7 @@ const A = 'a'.repeat(40), B = 'b'.repeat(40);
 const never = () => new Promise<never>(() => {});
 const commit = (id: string, summary: string): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: 'grace@example.com', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
 const wipRow: RowPayload = { ...commit('wip:/r', ''), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 1, deleted: 0, renamed: 0, conflicted: 0 } };
-const graph: GraphPayload = { rows: [wipRow, commit(A, 'Second'), commit(B, 'First')], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [wipRow, commit(A, 'Second'), commit(B, 'First')], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] };
 const file = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'object', oid: B }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...paths: string[]): FileListPayload => ({ files: paths.map(file), added: paths.length, deleted: 0 });
 

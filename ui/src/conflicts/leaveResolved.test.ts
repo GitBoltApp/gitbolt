@@ -7,7 +7,7 @@ import { fakeServices } from '../repo/testServices';
 import { wipKey } from '../repo/wipLists';
 import { leaveResolved } from './leaveResolved';
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'a'.repeat(40), detached: false, unborn: false }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: 'a'.repeat(40), detached: false, unborn: false }, truncated: false, worktrees: [] };
 const spec = { kind: 'wip' as const, worktree: '/r', staged: false };
 const change = (path: string, status = 'U'): FileChange => ({ path, oldPath: null, status, additions: null, deletions: null, old: { kind: 'absent' }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...files: FileChange[]): FileListPayload => ({ files, added: 0, deleted: 0 });

@@ -37,7 +37,7 @@ describe('Toolbar (spec §6.3)', () => {
     useRuntime.getState().patch('t', {
       status: 'ready',
       repo: { id: 4, path: '/r', name: 'gitbolt', worktree: '/r' },
-      graph: { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'aaaaaaaaaa', detached: false, unborn: false }, truncated: false, worktrees: [] },
+      graph: { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: 'refs/heads/main', target: 'aaaaaaaaaa', detached: false, unborn: false }, truncated: false, worktrees: [] },
       sidebar: { locals: [branch('main', 'aaaaaaaaaa', { isHead: true }), branch('feature/login', 'bbbbbbbbbb', { ahead: 2, behind: 1 })], remotes: [], worktrees: [], stashes: [], tags: [] },
     });
   });

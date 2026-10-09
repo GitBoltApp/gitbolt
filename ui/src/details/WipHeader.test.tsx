@@ -20,7 +20,7 @@ const change = (path: string): FileListPayload['files'][number] => ({ path, oldP
 const loaded = (...paths: string[]) => fakeServices({ files: new Loader(async (): Promise<FileListPayload> => ({ files: paths.map(change), added: 0, deleted: 0 }), new Lru(8)) });
 
 const wipRow = (wip: WipPayload): RowPayload => ({ id: `wip:${wip.worktreePath}`, kind: 'wip', lane: 0, color: 0, segments: [], summary: '', bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip });
-const graphOf = (...rows: RowPayload[]): GraphPayload => ({ rows, labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] });
+const graphOf = (...rows: RowPayload[]): GraphPayload => ({ rows, labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] });
 
 async function renderSelected(graph: GraphPayload, index: number, ...paths: string[]) {
   const store = createRepoViewStore(1, '/r', graph, loaded(...paths));

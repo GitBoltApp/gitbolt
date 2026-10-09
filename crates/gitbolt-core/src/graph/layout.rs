@@ -22,7 +22,9 @@ pub enum Parent {
 pub struct LayoutNode {
     pub parents: Vec<Parent>,
     pub kind: NodeKind,
-    pub pinned: bool,
+    /// The pinned lane this node is forced into: 0 for the trunk's first-parent chain, 1 for a
+    /// pinned pair's second chain (a remote branch diverged from its local one).
+    pub pinned: Option<u16>,
     /// Committer time (`i64::MAX` for a WIP row). Only the stash rule reads it: a commit
     /// a stash reached first goes to a branch whose chain is newer than the stash.
     pub time: i64,
@@ -128,16 +130,16 @@ fn first_free(lanes: &[Option<Lane>], min: usize) -> usize {
 /// at a time from one `LayoutState` gives exactly the single pass (spec §8.2 "Continuation").
 pub(crate) struct LayoutState {
     lanes: Vec<Option<Lane>>,
-    /// 1 when lane 0 is reserved for the pinned trunk.
-    min_free: usize,
+    /// The pinned lanes (see `layout`): lane `k` is kept for its pinned chain through row
+    /// `reserved[k]`.
+    reserved: Vec<u32>,
     max_lanes: usize,
 }
 
 impl LayoutState {
-    /// `reserve_trunk`: a pinned ref was chosen, so lane 0 belongs to its first-parent chain from
-    /// the first row on, even before (or without) a pinned commit in the window.
-    pub(crate) fn new(reserve_trunk: bool) -> Self {
-        LayoutState { lanes: Vec::new(), min_free: usize::from(reserve_trunk), max_lanes: 0 }
+    /// `reserved`: see `layout`.
+    pub(crate) fn new(reserved: &[u32]) -> Self {
+        LayoutState { lanes: Vec::new(), reserved: reserved.to_vec(), max_lanes: 0 }
     }
 
     /// The widest the lanes have been so far.
@@ -164,7 +166,8 @@ impl LayoutState {
 
     /// Lays out row `r`, which must come after every row pushed so far.
     pub(crate) fn push(&mut self, r: u32, node: &LayoutNode) -> GraphRow {
-        let min_free = self.min_free;
+        // The lanes still kept for their pinned chains: nothing else opens in them.
+        let min_free = self.reserved.iter().take_while(|&&until| r <= until).count();
         let lanes = &mut self.lanes;
         let me = Wait::Row(r);
         let mut home = None;
@@ -181,8 +184,8 @@ impl LayoutState {
             }
         }
         debug_assert_eq!(home.is_some(), awaited, "row {r}: an awaited commit has exactly one home lane");
-        let lane = if node.pinned {
-            0
+        let lane = if let Some(pinned) = node.pinned {
+            usize::from(pinned)
         } else if let Some((h, _)) = home {
             h
         } else {
@@ -242,7 +245,7 @@ impl LayoutState {
             let target = if k == 0 {
                 debug_assert!(
                     lanes.get(lane).copied().flatten().is_none_or(|l| l.wait == wait),
-                    "lane {lane} already waits for a different parent; pinned nodes must form one first-parent chain"
+                    "lane {lane} already waits for a different parent; each pinned lane's nodes must form one first-parent chain"
                 );
                 lane
             } else {
@@ -303,20 +306,24 @@ impl LayoutState {
 ///   merges keeps its lane and the branches forked from it curve in from either side.
 /// - A home a stash set goes to a later first-parent child whose chain is newer than the stash.
 ///
-/// More rules on top: pinned commits always take lane 0; a solid merge line never joins a dashed
-/// WIP lane; a root commit's lane is freed for the next branch; lines to parents outside the
-/// window run off the bottom.
+/// More rules on top: pinned commits always take their pinned lane; a solid merge line never
+/// joins a dashed WIP lane; a root commit's lane is freed for the next branch; lines to parents
+/// outside the window run off the bottom.
 ///
-/// Rows must be in display order with every parent row below its children. `reserve_trunk`
-/// comes from the pinned-ref choice, not from the window, so a truncated window lays out as
-/// the prefix of a longer one.
+/// `reserved` keeps the pinned lanes left of every other: lane `k` is reserved through row
+/// `reserved[k]` (inclusive), so no other branch opens in it. The trunk's lane 0 is reserved for
+/// the whole window (`u32::MAX`), from the pinned-ref choice rather than the window, so a
+/// truncated window lays out as the prefix of a longer one; a diverged pair's lane 1 through its
+/// chain's last row, after which the lane frees up. Empty: nothing is pinned.
 ///
-/// Invariant: the pinned nodes form a single first-parent chain (each pinned commit's
-/// first parent is the next pinned commit, down to the root or an outside parent). The
-/// first-parent binding debug-asserts this: a pinned commit's own lane must be free, or
-/// already waiting for that same parent, when it binds its first parent.
-pub fn layout(nodes: &[LayoutNode], reserve_trunk: bool) -> Layout {
-    let mut state = LayoutState::new(reserve_trunk);
+/// Rows must be in display order with every parent row below its children.
+///
+/// Invariant: each pinned lane's nodes form a single first-parent chain (each one's first
+/// parent is the next one, down to the root, an outside parent, or, for lane 1, a lane-0
+/// node). The first-parent binding debug-asserts this: a pinned commit's own lane must be
+/// free, or already waiting for that same parent, when it binds its first parent.
+pub fn layout(nodes: &[LayoutNode], reserved: &[u32]) -> Layout {
+    let mut state = LayoutState::new(reserved);
     let rows = nodes.iter().enumerate().map(|(r, n)| state.push(r as u32, n)).collect();
     Layout { rows, max_lanes: state.max_lanes() }
 }

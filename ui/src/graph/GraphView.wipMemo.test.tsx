@@ -19,7 +19,7 @@ it('typing a WIP draft re-renders neither the other rows nor the WIP row itself'
       { ...base, id: 'wip:/r', kind: 'wip', summary: '// WIP', wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } },
       ...[0, 1, 2].map((i) => ({ ...base, id: String(i).padStart(40, '0'), kind: 'commit' as const, summary: `c${i}`, wip: null })),
     ],
-    labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
+    labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
   };
   render(<GraphView graph={graph} repoId="/r" />);
   const before = renders.n;

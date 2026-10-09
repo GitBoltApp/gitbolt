@@ -17,7 +17,7 @@ vi.mock('../stage/actions', async (orig) => ({
 import { WipSections } from './WipSections';
 
 const file = (path: string, extra: Partial<FileChange> = {}): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'worktree', worktree: '/r' }, submodule: false, ...extra });
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const sections = (...unstaged: FileChange[]): FileSection[] => [
   { title: 'Unstaged', spec: { kind: 'wip', worktree: '/r', staged: false }, list: { status: 'ready', data: { files: unstaged, added: 0, deleted: 0 } } },
   { title: 'Staged', spec: { kind: 'wip', worktree: '/r', staged: true }, list: { status: 'ready', data: { files: [], added: 0, deleted: 0 } } },

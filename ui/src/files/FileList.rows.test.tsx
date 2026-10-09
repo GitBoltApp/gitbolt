@@ -27,7 +27,7 @@ const change = (path: string, status = 'M'): FileChange => ({
 });
 const list = { files: [change('a.txt', 'A'), change('b.txt', 'D'), change('c.txt', 'M'), change('src/d.txt', 'M')], added: 4, deleted: 2 };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 
 function setup() {
   const store = createRepoViewStore(1, '/r', graph, fakeServices());

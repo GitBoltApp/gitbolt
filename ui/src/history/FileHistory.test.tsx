@@ -29,7 +29,7 @@ vi.mock('../diff/hex', async (orig) => ({
 }));
 const { FileHistory } = await import('./FileHistory');
 
-const graph = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] } as unknown as GraphPayload;
+const graph = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] } as unknown as GraphPayload;
 const text = (t: string): DiffContentsPayload => ({ old: null, new: { size: t.length, binary: false, encoding: 'UTF-8', eol: 'lf', text: t, base64: null, hash: null }, tooLarge: false, eolOnly: false, image: false } as unknown as DiffContentsPayload);
 const binarySide = { size: 4, binary: true, encoding: null, eol: null, text: null, base64: null, hash: null };
 const contents = new Loader(async (k: string) => {

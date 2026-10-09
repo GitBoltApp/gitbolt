@@ -17,7 +17,7 @@ const wipRow = (path: string) => row(`wip:${path}`, 'wip', { worktreePath: path,
 // Rows: 0 WIP, 1 A, 2 B, 3 C, 4 D, 5 E.
 const graph: GraphPayload = {
   rows: [wipRow('/r'), row(A), row(B), row(C), row(D), row(E)],
-  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [],
+  labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const change = (path: string, status: string): FileChange => ({ path, oldPath: null, status, additions: 1, deletions: 0, old: { kind: 'object', oid: B }, new: { kind: 'object', oid: A }, submodule: false });

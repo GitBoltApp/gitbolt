@@ -16,6 +16,11 @@ fn outside_id(name: &str) -> ObjectId {
 
 /// Rows get descending committer times (row 0 newest), as in the real display order.
 fn build(spec: &[(&str, &[&str])], pinned: &[&str]) -> Vec<LayoutNode> {
+    build_pair(spec, pinned, &[])
+}
+
+/// `build` with a pinned pair: `pinned` in lane 0, `second` in lane 1.
+fn build_pair(spec: &[(&str, &[&str])], pinned: &[&str], second: &[&str]) -> Vec<LayoutNode> {
     let index: HashMap<&str, usize> = spec.iter().enumerate().map(|(i, (n, _))| (*n, i)).collect();
     spec.iter()
         .enumerate()
@@ -33,22 +38,36 @@ fn build(spec: &[(&str, &[&str])], pinned: &[&str]) -> Vec<LayoutNode> {
             } else {
                 NodeKind::Commit
             },
-            pinned: pinned.contains(name),
+            pinned: if pinned.contains(name) {
+                Some(0)
+            } else if second.contains(name) {
+                Some(1)
+            } else {
+                None
+            },
             time: (spec.len() - row) as i64,
         })
         .collect()
 }
 
-/// Whether a pinned trunk is laid out: in these tests, whenever any row is pinned (the app passes
-/// the pinned-ref choice instead).
-fn reserves_trunk(nodes: &[LayoutNode]) -> bool {
-    nodes.iter().any(|n| n.pinned)
+/// The pinned lanes' reservations (`layout`'s `reserved`): in these tests lane 0 is reserved
+/// whenever any row is pinned to it (the app passes the pinned-ref choice instead), lane 1
+/// through its chain's last row.
+fn reserves_trunk(nodes: &[LayoutNode]) -> Vec<u32> {
+    let mut reserved = Vec::new();
+    if nodes.iter().any(|n| n.pinned == Some(0)) {
+        reserved.push(u32::MAX);
+        if let Some(last) = nodes.iter().rposition(|n| n.pinned == Some(1)) {
+            reserved.push(last as u32);
+        }
+    }
+    reserved
 }
 
 /// `layout()` plus a mandatory continuity check: no test may forget to verify that the
 /// graph's lines never break or gap.
 fn checked_layout(nodes: &[LayoutNode]) -> Layout {
-    let l = layout(nodes, reserves_trunk(nodes));
+    let l = layout(nodes, &reserves_trunk(nodes));
     if let Err(e) = check_continuity(&l, nodes) {
         panic!("continuity violated: {e}");
     }
@@ -172,6 +191,31 @@ fn pinned_commits_own_lane_zero_even_when_a_feature_is_newer() {
     assert_ne!(l.rows[2].lane, 0);
 }
 
+/// A diverged pinned pair: the local chain (`m1`) in lane 0, the remote's own commits (`o2`,
+/// `o1`) in lane 1, both left of a newer branch `t`, which can't take lane 1 even above the
+/// remote's tip. Below the remote's last commit lane 1 frees up: the tip `s` takes it.
+#[test]
+fn a_diverged_pair_pins_lanes_zero_and_one() {
+    let spec: &[(&str, &[&str])] = &[("t", &["b"]), ("o2", &["o1"]), ("m1", &["b"]), ("o1", &["b"]), ("b", &["a"]), ("s", &["a"]), ("a", &[])];
+    let nodes = build_pair(spec, &["m1", "b", "a"], &["o2", "o1"]);
+    assert_eq!(reserves_trunk(&nodes), [u32::MAX, 3]);
+    let l = checked_layout(&nodes);
+    let lanes: Vec<u16> = l.rows.iter().map(|r| r.lane).collect();
+    assert_eq!(lanes, [2, 1, 0, 1, 0, 1, 0]);
+    assert_eq!(render(&l, &nodes, spec), "    *  t\n  * |  o2\n* | |  m1\n| * |  o1\n*-/-/  b in:1,2\n| *    s\n*-/    a in:1\n");
+}
+
+/// A pinned pair whose tips are one chain (behind or ahead): one pinned chain from the newer
+/// tip, through the older one, all in lane 0; nothing is reserved past lane 0.
+#[test]
+fn a_pair_on_one_chain_shares_lane_zero() {
+    let spec: &[(&str, &[&str])] = &[("f", &["o1"]), ("o2", &["o1"]), ("o1", &["m"]), ("m", &[])];
+    let nodes = build(spec, &["o2", "o1", "m"]);
+    assert_eq!(reserves_trunk(&nodes), [u32::MAX]);
+    let lanes: Vec<u16> = checked_layout(&nodes).rows.iter().map(|r| r.lane).collect();
+    assert_eq!(lanes, [1, 0, 0, 0]);
+}
+
 #[test]
 fn wip_segments_are_dashed_until_the_head_commit() {
     let spec: &[(&str, &[&str])] = &[("wip", &["h"]), ("x", &["h"]), ("h", &[])];
@@ -279,7 +323,7 @@ fn seg(from: u16, to: u16, half: Half) -> Segment {
 }
 
 fn node(parents: Vec<Parent>) -> LayoutNode {
-    LayoutNode { parents, kind: NodeKind::Commit, pinned: false, time: 0 }
+    LayoutNode { parents, kind: NodeKind::Commit, pinned: None, time: 0 }
 }
 
 #[test]
@@ -366,12 +410,24 @@ fn random_dag(seed: u64) -> Vec<LayoutNode> {
         parents[i] = ps;
     }
 
-    let mut pinned = vec![false; n];
+    let mut pinned: Vec<Option<u16>> = vec![None; n];
     let tips: Vec<usize> = (0..n).filter(|&i| !stash[i]).collect();
     let tip = (!tips.is_empty() && rng.chance(70)).then(|| tips[rng.below(tips.len() as u32) as usize]);
     let mut cur = tip;
     while let Some(i) = cur {
-        pinned[i] = true;
+        pinned[i] = Some(0);
+        cur = match parents[i].first() {
+            Some(Parent::Row(p)) => Some(*p as usize),
+            _ => None,
+        };
+    }
+    // Sometimes a diverged pair: a second tip off the trunk's chain pins its own first-parent
+    // chain in lane 1, down to where it meets the trunk's.
+    let off_trunk: Vec<usize> = tips.iter().copied().filter(|&i| pinned[i].is_none()).collect();
+    let tip2 = (tip.is_some() && !off_trunk.is_empty() && rng.chance(50)).then(|| off_trunk[rng.below(off_trunk.len() as u32) as usize]);
+    let mut cur = tip2;
+    while let Some(i) = cur.filter(|&i| pinned[i].is_none()) {
+        pinned[i] = Some(1);
         cur = match parents[i].first() {
             Some(Parent::Row(p)) => Some(*p as usize),
             _ => None,
@@ -391,11 +447,13 @@ fn random_dag(seed: u64) -> Vec<LayoutNode> {
         row += 1;
     }
     let mut nodes = Vec::with_capacity(row as usize);
-    let mut tip_wip_pinned = false;
+    let mut tip_wip_pinned = [false; 2];
     let mut wip_on = |i: usize, nodes: &mut Vec<LayoutNode>| {
-        let pin = tip == Some(i) && !tip_wip_pinned;
-        tip_wip_pinned |= pin;
-        nodes.push(LayoutNode { parents: vec![Parent::Row(row_of[i])], kind: NodeKind::Wip, pinned: pin, time: i64::MAX });
+        let lane = [tip, tip2].iter().position(|&t| t == Some(i)).filter(|&k| !tip_wip_pinned[k]);
+        if let Some(k) = lane {
+            tip_wip_pinned[k] = true;
+        }
+        nodes.push(LayoutNode { parents: vec![Parent::Row(row_of[i])], kind: NodeKind::Wip, pinned: lane.map(|k| k as u16), time: i64::MAX });
     };
     if let Some(c) = current {
         wip_on(c, &mut nodes);
@@ -418,19 +476,22 @@ fn random_dag(seed: u64) -> Vec<LayoutNode> {
 fn fuzz_random_dags_keep_every_line_continuous() {
     let mut kinds = [0usize; 4];
     let mut pinned_wip = 0usize;
+    let mut pairs = 0usize;
     for seed in 1..=1000u64 {
         let nodes = random_dag(seed);
         for n in &nodes {
             kinds[n.kind as usize] += 1;
-            pinned_wip += usize::from(n.pinned && n.kind == NodeKind::Wip);
+            pinned_wip += usize::from(n.pinned.is_some() && n.kind == NodeKind::Wip);
         }
-        let lay = layout(&nodes, reserves_trunk(&nodes));
+        pairs += usize::from(nodes.iter().any(|n| n.pinned == Some(1)));
+        let lay = layout(&nodes, &reserves_trunk(&nodes));
         if let Err(e) = check_continuity(&lay, &nodes) {
             panic!("seed {seed}: continuity violated: {e}");
         }
     }
-    // The generator really exercises every node kind, and pinned WIP rows.
+    // The generator really exercises every node kind, pinned WIP rows and diverged pairs.
     assert!(kinds.iter().all(|&k| k > 0) && pinned_wip > 0, "node kinds generated: {kinds:?}, pinned WIP rows: {pinned_wip}");
+    assert!(pairs > 100, "{pairs} diverged pairs");
 }
 
 // ---- K79: the column rule (home lane, lower-lane takeover, merge lock) ----
@@ -522,9 +583,10 @@ fn a_root_frees_its_lane_for_the_next_branch() {
 /// lists instead of a lane vector: a commit takes its reserved column, else the lowest free one;
 /// a first-parent child in a lower column takes the reservation over unless a merge child has
 /// locked it; a merge reserves new parents in the lowest free column. Plus the further rules:
-/// a root frees its column, pinned rows in column 0 (others from 1), a WIP row never takes a
-/// reservation over, and a merge line never joins a dashed (WIP) waiting column.
-fn reference_columns(nodes: &[LayoutNode], reserve_trunk: bool) -> Vec<usize> {
+/// a root frees its column, pinned rows in their pinned column (the others right of the
+/// columns still reserved for pinned chains), a WIP row never takes a reservation over, and a
+/// merge line never joins a dashed (WIP) waiting column.
+fn reference_columns(nodes: &[LayoutNode], reserved: &[u32]) -> Vec<usize> {
     use std::collections::{HashMap, HashSet};
     #[derive(Clone, Copy)]
     struct Res {
@@ -532,8 +594,7 @@ fn reference_columns(nodes: &[LayoutNode], reserve_trunk: bool) -> Vec<usize> {
         stash: bool,
         newest: Option<i64>,
     }
-    let min = usize::from(reserve_trunk);
-    let take = |used: &mut HashSet<usize>| {
+    let take = |used: &mut HashSet<usize>, min: usize| {
         let c = (min..).find(|c| !used.contains(c)).unwrap();
         used.insert(c);
         c
@@ -545,11 +606,15 @@ fn reference_columns(nodes: &[LayoutNode], reserve_trunk: bool) -> Vec<usize> {
     let mut out = Vec::new();
     for (r, n) in nodes.iter().enumerate() {
         let me = Parent::Row(r as u32);
+        let min = reserved.iter().take_while(|&&until| r as u32 <= until).count();
         for (c, _) in waiters.remove(&me).unwrap_or_default() {
             used.remove(&c);
         }
         let s = res.remove(&me);
-        let col = if n.pinned { 0 } else { s.map_or_else(|| take(&mut used), |s| s.col) };
+        let col = match n.pinned {
+            Some(k) => usize::from(k),
+            None => s.map_or_else(|| take(&mut used, min), |s| s.col),
+        };
         used.insert(col);
         let wip = n.kind == NodeKind::Wip;
         let stash = n.kind == NodeKind::Stash;
@@ -565,7 +630,7 @@ fn reference_columns(nodes: &[LayoutNode], reserve_trunk: bool) -> Vec<usize> {
             } else if let Some(&(c, _)) = w.iter().filter(|(_, dashed)| !dashed).min() {
                 c
             } else {
-                take(&mut used)
+                take(&mut used, min)
             };
             if !w.iter().any(|&(c, _)| c == line) {
                 w.push((line, wip));
@@ -604,7 +669,7 @@ fn columns_match_the_reference_model_on_random_histories() {
         let nodes = random_dag(seed);
         let l = checked_layout(&nodes);
         let lanes: Vec<usize> = l.rows.iter().map(|r| usize::from(r.lane)).collect();
-        assert_eq!(lanes, reference_columns(&nodes, reserves_trunk(&nodes)), "seed {seed}");
+        assert_eq!(lanes, reference_columns(&nodes, &reserves_trunk(&nodes)), "seed {seed}");
         rows += nodes.len();
     }
     assert!(rows > 10_000, "{rows} rows compared");
@@ -635,7 +700,7 @@ fn windowed(n: &LayoutNode, end: usize) -> LayoutNode {
 /// sees the parents past its end as outside, and before the next chunk the lanes waiting for
 /// them are resolved to the now-loaded rows.
 fn chunked(nodes: &[LayoutNode], size: usize) -> Vec<GraphRow> {
-    let mut state = super::layout::LayoutState::new(reserves_trunk(nodes));
+    let mut state = super::layout::LayoutState::new(&reserves_trunk(nodes));
     let mut rows = Vec::with_capacity(nodes.len());
     for start in (0..nodes.len()).step_by(size) {
         let end = (start + size).min(nodes.len());
@@ -653,14 +718,14 @@ fn chunked(nodes: &[LayoutNode], size: usize) -> Vec<GraphRow> {
 fn chunked_layout_equals_the_single_pass() {
     for seed in 1..=1000u64 {
         let nodes = random_dag(seed);
-        let whole = layout(&nodes, reserves_trunk(&nodes)).rows;
+        let whole = layout(&nodes, &reserves_trunk(&nodes)).rows;
         for size in 1..=9 {
             assert_eq!(chunked(&nodes, size), whole, "seed {seed}, chunks of {size}");
         }
     }
     for seed in 1..=10u64 {
         let nodes = wave_history(seed, 30);
-        let whole = layout(&nodes, false).rows;
+        let whole = layout(&nodes, &[]).rows;
         for size in [1, 7, 50, 333] {
             assert_eq!(chunked(&nodes, size), whole, "wave seed {seed}, chunks of {size}");
         }
@@ -675,11 +740,11 @@ fn a_truncated_window_is_the_prefix_of_the_whole() {
     for seed in 1..=1000u64 {
         let nodes = random_dag(seed);
         let reserve = reserves_trunk(&nodes);
-        let whole = layout(&nodes, reserve).rows;
+        let whole = layout(&nodes, &reserve).rows;
         for k in 1..nodes.len() {
             let window: Vec<LayoutNode> = nodes[..k].iter().map(|n| windowed(n, k)).collect();
-            cut_above_pin += usize::from(reserve && !reserves_trunk(&window));
-            assert_eq!(layout(&window, reserve).rows[..], whole[..k], "seed {seed}, cut at {k}");
+            cut_above_pin += usize::from(!reserve.is_empty() && reserves_trunk(&window).is_empty());
+            assert_eq!(layout(&window, &reserve).rows[..], whole[..k], "seed {seed}, cut at {k}");
         }
     }
     assert!(cut_above_pin > 1000, "{cut_above_pin} cuts above the pinned chain");
@@ -781,7 +846,7 @@ fn wave_history(seed: u64, waves: usize) -> Vec<LayoutNode> {
         .map(|&i| {
             let parents: Vec<Parent> = commits[i].1.iter().map(|&p| Parent::Row(row_of[p])).collect();
             let kind = if parents.len() > 1 { NodeKind::Merge } else { NodeKind::Commit };
-            LayoutNode { parents, kind, pinned: false, time: commits[i].0 }
+            LayoutNode { parents, kind, pinned: None, time: commits[i].0 }
         })
         .collect()
 }

@@ -12,13 +12,11 @@ pub struct GraphPayload {
     pub rows: Vec<RowPayload>,
     pub labels: Vec<RefLabel>,
     pub max_lanes: u16,
-    pub pinned_ref: Option<String>,
-    /// The remote counterpart of a pinned local branch: the default pick's remote trunk (the
-    /// branch it stands for), an explicit pin's upstream. Absent when the pin is a remote ref,
-    /// has no upstream, or there's no pin. Branch membership ranks it right after the trunk.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub pinned_remote: Option<String>,
+    /// The pinned refs, local first: the chosen pin (the default trunk or an explicit one) and
+    /// its pair, a local branch's upstream or the local branch tracking a remote one. Their
+    /// commits are laid out at the left (lane 0, and lane 1 for a diverged pair's remote).
+    /// Only refs whose commit is in the window; empty when nothing is pinned.
+    pub pinned_refs: Vec<String>,
     pub head: HeadPayload,
     pub truncated: bool,
     /// The open worktree (the one this tab opened), spelled as its WIP row's

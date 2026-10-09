@@ -30,7 +30,7 @@ const { Toast } = await import('../ui/Toast');
 
 const change = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false });
 const list = { files: [change('README.md'), change('src/app.php')], added: 2, deleted: 2 };
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const GITLAB: RemotePayload[] = [{ name: 'origin', host: 'gitlab.example.com', path: 'acme/shop', hostKind: 'gitlab' }];
 const COMMIT = 'c'.repeat(40);
 

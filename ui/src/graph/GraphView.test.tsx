@@ -26,7 +26,7 @@ const graph: GraphPayload = {
     { id: 'b'.repeat(40), kind: 'commit', lane: 0, color: 0, segments: [], summary: 'First', bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: '', authorTime: 1_767_225_000, committerTime: 1_767_225_000, parents: [], mrRefs: [], wip: null },
   ],
   labels: [{ row: 0, name: 'main', local: 'refs/heads/main', remotes: [], tag: false, isHead: true, worktree: null, checkedOut: null }],
-  maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'a'.repeat(40), detached: false, unborn: false }, truncated: false, worktrees: [],
+  maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: 'a'.repeat(40), detached: false, unborn: false }, truncated: false, worktrees: [],
 };
 
 beforeEach(() => useDensity.setState({ density: DEFAULT_DENSITY }));

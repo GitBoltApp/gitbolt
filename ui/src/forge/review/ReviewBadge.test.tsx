@@ -10,7 +10,7 @@ const { patchForge, useForge } = await import('../mrStore');
 const { createRepoViewStore, RepoViewContext, targetFor } = await import('../../repo/store');
 const { fakeServices } = await import('../../repo/testServices');
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const BASE = 'b'.repeat(40);
 const HEAD = 'h'.repeat(40);
 const SPEC: DiffSpec = { kind: 'compare', from: BASE, to: HEAD };

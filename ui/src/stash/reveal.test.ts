@@ -15,7 +15,7 @@ import { revealRestored, stashPaths } from './reveal';
 
 const commit = (id: string): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary: id, bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
 const wipRow: RowPayload = { ...commit('wip:/r'), kind: 'wip', wip: { worktreePath: '/r', worktreeName: null, modified: 2, added: 0, deleted: 0, renamed: 0, conflicted: 0 } };
-const graphOf = (rows: RowPayload[]): GraphPayload => ({ rows, labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'a', detached: false, unborn: false }, truncated: false, worktrees: [] } as unknown as GraphPayload);
+const graphOf = (rows: RowPayload[]): GraphPayload => ({ rows, labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: 'a', detached: false, unborn: false }, truncated: false, worktrees: [] } as unknown as GraphPayload);
 const file = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...paths: string[]): FileListPayload => ({ files: paths.map(file), added: 0, deleted: 0 });
 

@@ -23,7 +23,7 @@ const draft = (over: Partial<MergeDraft> = {}): MergeDraft => ({
   picks: { 0: { current: [true], incoming: [false] } }, text: 'one\nc\n', spans: [{ id: 0, from: 4, to: 6 }], edited: [], typed: false, ...over,
 });
 const stale = { kind: 'Stale', message: 'a.txt changed on disk', commandId: null, stderr: null };
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("the merge tool's kept work (spec #2 §13.3)", () => {

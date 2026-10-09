@@ -37,7 +37,7 @@ const hexSide = (src: { kind: string }, path: string) => (src.kind === 'absent' 
 const hexDump = vi.hoisted(() => vi.fn());
 vi.mock('../api/client', async (actual) => ({ ...(await actual<typeof import('../api/client')>()), api: { listOpeners: async () => [], openIn: async () => null, hexDump } }));
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
 const blob = (text: string | null, encoding = 'UTF-8', binary = false): BlobPayload => ({ size: text?.length ?? 8, binary, encoding, eol: 'lf', text, base64: null, hash: null });
 const sized = (p: Partial<BlobPayload>): BlobPayload => ({ size: 10, binary: false, encoding: 'UTF-8', eol: 'lf', text: 'x\n', base64: null, hash: null, ...p });

@@ -25,7 +25,7 @@ const { NOT_COMMENTABLE } = await import('./ReviewMode');
 const { detailOf, mrOf } = await import('../../forge/testMrs');
 const { boxesOf, openBox, useReviewUi } = await import('./store');
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const BASE = 'b'.repeat(40);
 const HEAD = 'h'.repeat(40);
 const ctx = (o: number, n: number) => ({ kind: 'context' as const, oldLine: o, newLine: n });

@@ -207,7 +207,7 @@ describe('the interactive rebase editor (spec #3 §4.1)', () => {
 
   it('UX R2.2: the selected row shows in the details panel (the tab\'s selection); the base row shows the base', () => {
     const grow = (c: string): RowPayload => ({ id: oid(c), kind: 'commit', lane: 0, color: 0, segments: [], summary: c, bodyFirstLine: '', authorName: 'Ada', authorEmail: 'ada@example.com', authorTime: 1, committerTime: 1, parents: [], mrRefs: [], wip: null });
-    const graph: GraphPayload = { rows: ['e', 'd', 'c', 'b', 'a', '0'].map(grow), labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/topic', target: oid('e'), detached: false, unborn: false }, truncated: false, worktrees: [] };
+    const graph: GraphPayload = { rows: ['e', 'd', 'c', 'b', 'a', '0'].map(grow), labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/topic', target: oid('e'), detached: false, unborn: false }, truncated: false, worktrees: [] };
     const store = createRepoViewStore(1, '/r', graph, fakeServices());
     useTabViews.setState({ views: { t1: { repo: 1, services: fakeServices(), store } } });
     const shown = () => { const sel = store.getState().selection; return sel.kind === 'commit' ? sel.id : sel.kind; };

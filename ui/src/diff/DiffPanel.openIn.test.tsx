@@ -29,7 +29,7 @@ const { fakeServices } = await import('../repo/testServices');
 const { resetOpenersForTests } = await import('../openIn/openers');
 const { DiffPanel } = await import('./DiffPanel');
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const blob = (text: string): BlobPayload => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null, hash: null });
 const change: FileChange = { path: 'src/app.php', oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false };
 const contents: DiffContentsPayload = { old: blob('a\nb\nc\n'), new: blob('a\nb\nC\n'), tooLarge: false, eolOnly: false, image: false };

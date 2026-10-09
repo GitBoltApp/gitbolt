@@ -19,7 +19,7 @@ const change = (path: string, status = 'M', additions: number | null = 2): FileC
 });
 const list = { files: [change('docs/manual.txt', 'R'), change('logo.png', 'M', null), change('src/app.php')], added: 4, deleted: 2 };
 const spec = { kind: 'commit' as const, id: 'c'.repeat(40), parent: 0 };
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 
 function setup(services: RepoServices = fakeServices({ treeFiles: new Loader(async () => ['docs/manual.txt', 'logo.png', 'src/app.php', 'zzz.txt'], new Lru(2)) })) {
   const store = createRepoViewStore(1, '/r', graph, services);

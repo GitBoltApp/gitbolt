@@ -42,7 +42,7 @@ vi.mock('../diff/hex', async (orig) => ({
 }));
 const { FileHistory } = await import('./FileHistory');
 
-const graph = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] } as unknown as GraphPayload;
+const graph = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] } as unknown as GraphPayload;
 const P0 = 'p0';
 const side = (path: string, s: BlobSource) => (s.kind === 'atCommit' ? `${path}@${s.commit}` : s.kind === 'object' ? `${path}#${s.oid}` : null);
 const blob = (text: string) => ({ size: text.length, binary: false, encoding: 'UTF-8', eol: 'lf', text, base64: null, hash: null });

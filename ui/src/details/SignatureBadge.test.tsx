@@ -8,7 +8,7 @@ import { createRepoViewStore, RepoViewContext } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 import { SignatureBadge } from './SignatureBadge';
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const verified: SignaturePayload = { kind: 'verified', signer: 'ada@example.com', key: 'SHA256:k', fingerprint: 'SHA256:k', trust: 'fully', detail: null };
 
 function renderBadge(fetch: (id: string) => Promise<SignaturePayload>, id: string, signed: boolean) {

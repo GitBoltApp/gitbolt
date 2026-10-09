@@ -15,7 +15,7 @@ const wipRow = (path: string, name: string | null, counts: Counts) => ({
 });
 const commit = { ...base, id: 'a'.repeat(40), kind: 'commit' as const, summary: 'c0', wip: null };
 const payload = (...rows: ReturnType<typeof wipRow>[]): GraphPayload => ({
-  rows: [...rows, commit], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
+  rows: [...rows, commit], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
 });
 const input = (i = 0) => screen.getAllByPlaceholderText('// WIP')[i] as HTMLInputElement;
 

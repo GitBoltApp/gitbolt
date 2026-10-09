@@ -43,8 +43,10 @@
         }
       ],
       "name": "main behind origin/main, feature off origin/main",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -53,6 +55,107 @@
           "lane": 1,
           "parents": [
             "O2"
+          ]
+        },
+        {
+          "color": 0,
+          "id": "O2",
+          "kind": "commit",
+          "lane": 0,
+          "parents": [
+            "O1"
+          ]
+        },
+        {
+          "color": 0,
+          "id": "O1",
+          "kind": "commit",
+          "lane": 0,
+          "parents": [
+            "M"
+          ]
+        },
+        {
+          "color": 0,
+          "id": "M",
+          "kind": "commit",
+          "lane": 0,
+          "parents": [
+            "base"
+          ]
+        },
+        {
+          "color": 0,
+          "id": "base",
+          "kind": "commit",
+          "lane": 0,
+          "parents": []
+        }
+      ]
+    },
+    {
+      "labels": [
+        {
+          "checkedOut": null,
+          "isHead": false,
+          "local": "refs/heads/feature",
+          "name": "feature",
+          "remotes": [],
+          "row": 0,
+          "tag": false,
+          "upstreamMismatch": "origin/main",
+          "worktree": null
+        },
+        {
+          "checkedOut": null,
+          "isHead": true,
+          "local": "refs/heads/main",
+          "name": "main",
+          "remotes": [],
+          "row": 1,
+          "tag": false,
+          "worktree": null
+        },
+        {
+          "checkedOut": null,
+          "isHead": false,
+          "local": null,
+          "name": "main",
+          "remotes": [
+            {
+              "fullName": "refs/remotes/origin/main",
+              "host": null,
+              "hostKind": "generic",
+              "remote": "origin"
+            }
+          ],
+          "row": 2,
+          "tag": false,
+          "worktree": null
+        }
+      ],
+      "name": "main diverged from origin/main, feature off origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
+      "rows": [
+        {
+          "color": 2,
+          "id": "F",
+          "kind": "commit",
+          "lane": 2,
+          "parents": [
+            "O2"
+          ]
+        },
+        {
+          "color": 0,
+          "id": "M",
+          "kind": "commit",
+          "lane": 0,
+          "parents": [
+            "base"
           ]
         },
         {
@@ -69,15 +172,6 @@
           "id": "O1",
           "kind": "commit",
           "lane": 1,
-          "parents": [
-            "M"
-          ]
-        },
-        {
-          "color": 0,
-          "id": "M",
-          "kind": "commit",
-          "lane": 0,
           "parents": [
             "base"
           ]
@@ -122,8 +216,10 @@
         }
       ],
       "name": "stale fast-forwarded branch left on the trunk",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 0,
@@ -185,8 +281,10 @@
         }
       ],
       "name": "hotfix from origin/main committed after main's unpushed M1",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -262,8 +360,10 @@
         }
       ],
       "name": "upstream/main one commit ahead (fork workflow)",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/upstream/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -316,8 +416,9 @@
         }
       ],
       "name": "local-only repo (no remote) pins main: hotfix off main's tip, main checked out",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": null,
+      "pinnedRefs": [
+        "refs/heads/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -370,8 +471,7 @@
         }
       ],
       "name": "unpinned repo (no remote, no main): hotfix off work's tip, work checked out",
-      "pinnedRef": null,
-      "pinnedRemote": null,
+      "pinnedRefs": [],
       "rows": [
         {
           "color": 0,
@@ -438,8 +538,10 @@
         }
       ],
       "name": "feature/main off pinned main's tip",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -516,8 +618,10 @@
         }
       ],
       "name": "feature tip on its own lane after main merged its pushed part",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 0,
@@ -596,8 +700,10 @@
         }
       ],
       "name": "main ahead of pinned origin/main",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 0,
@@ -674,8 +780,10 @@
         }
       ],
       "name": "feature tip merged back, then continued",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -763,8 +871,10 @@
         }
       ],
       "name": "hotfix off pinned main's tip",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -831,8 +941,10 @@
         }
       ],
       "name": "remote-only branch off pinned main's tip",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,
@@ -892,8 +1004,10 @@
         }
       ],
       "name": "dirty feature checked out, older than pinned main",
-      "pinnedRef": "refs/heads/main",
-      "pinnedRemote": "refs/remotes/origin/main",
+      "pinnedRefs": [
+        "refs/heads/main",
+        "refs/remotes/origin/main"
+      ],
       "rows": [
         {
           "color": 1,

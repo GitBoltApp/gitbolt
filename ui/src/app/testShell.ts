@@ -8,7 +8,7 @@ import { fakeServices } from '../repo/testServices';
 import { EMPTY_PROFILE, useAppState } from './state';
 import { useTabViews } from './tabStores';
 
-export const EMPTY_GRAPH: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+export const EMPTY_GRAPH: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 
 const repoTab = (id: string): TabState => ({ id, kind: 'repo', path: `/${id}`, alias: null });
 

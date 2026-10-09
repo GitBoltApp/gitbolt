@@ -19,7 +19,7 @@ const [A, B, C] = ['a', 'b', 'c'].map((ch) => ch.repeat(40));
 const row = (id: string, parents: string[] = []): RowPayload => ({
   id, kind: parents.length > 1 ? 'merge' : 'commit', lane: 0, color: 0, segments: [], summary: `Fix ${id[0]}`, bodyFirstLine: '', authorName: '', authorEmail: '', authorTime: 0, committerTime: 0, parents, mrRefs: [], wip: null,
 });
-const graph = { rows: [row(A, [B, C]), row(B), row(C)], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] } as unknown as GraphPayload;
+const graph = { rows: [row(A, [B, C]), row(B), row(C)], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] } as unknown as GraphPayload;
 const ids = (rows: MenuRow[]) => rows.flatMap((r) => (r.kind === 'action' ? [r.id] : r.kind === 'separator' ? ['|'] : []));
 const action = (id: string): MenuRow => ({ kind: 'action', id, label: id, icon: Copy, tooltip: id, run: () => {} });
 

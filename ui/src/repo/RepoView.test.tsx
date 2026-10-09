@@ -32,7 +32,7 @@ HTMLCanvasElement.prototype.getContext = (() => null) as never;
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);
 const row = (id: string, summary: string, parents: string[]): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: 'grace@example.com', authorTime: 1_767_225_600, committerTime: 1_767_225_600, parents, mrRefs: [], wip: null });
-const graph: GraphPayload = { rows: [row(A, 'Second', [B]), row(B, 'First', [])], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [row(A, 'Second', [B]), row(B, 'First', [])], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] };
 const details = (id: string, parents: string[]): CommitDetailsPayload => ({
   id, parents, coAuthors: [], signed: false,
   author: { name: 'Grace Hopper', email: 'grace@example.com', time: 1_767_225_600 },

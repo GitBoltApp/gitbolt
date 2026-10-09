@@ -6,7 +6,7 @@ let release: () => void = () => {};
 let gate = true;
 const payload = (ids: string[] = []): GraphPayload => ({
   rows: ids.map((id) => ({ id, kind: 'commit', lane: 0, color: 0, parents: [], summary: id, bodyFirstLine: '', authorName: 'a', authorEmail: 'a@x', committerTime: 0, wip: null, mrRefs: [] }) as unknown as GraphPayload['rows'][number]),
-  labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
+  labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [],
 });
 let nextGraph = payload();
 const api = vi.hoisted(() => ({

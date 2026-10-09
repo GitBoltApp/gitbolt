@@ -10,7 +10,7 @@ vi.mock('./monaco/load', () => ({ loadMonacoHost: async () => host }));
 const { DiffToolbar, goToChange, RENDERED_HUNK_TIP, RENDERED_WHITESPACE_TIP, RENDERED_WRAP_TIP } = await import('./DiffToolbar');
 const { setChangeStepper } = await import('./changeStepper');
 
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 const target = targetFor({ path: 'guide.md', oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object', oid: 'a'.repeat(40) }, new: { kind: 'object', oid: 'b'.repeat(40) }, submodule: false }, { kind: 'commit', id: 'c'.repeat(40), parent: 0 });
 const button = (name: string) => screen.getByRole('button', { name });
 const bar = (rendered: boolean) => render(<RepoViewContext value={createRepoViewStore(1, '/r', graph, fakeServices())}><DiffToolbar target={target} canDiff canStep textTools rendered={rendered} /></RepoViewContext>);

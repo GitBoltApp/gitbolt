@@ -32,7 +32,7 @@ const label = (r: number, name: string, local: boolean, remotes: ReturnType<type
 // wip → c0 (main, origin/main) → c1 → c2 ; topic (local only) at t0, origin/topic at t1 ; lone at l0
 const graphOf = (labels: RefLabel[]): GraphPayload => ({
   rows: [row('wip', ['c0'], '/wt/main'), row('c0', ['c1']), row('c1', ['c2']), row('c2', []), row('t0', ['t1']), row('t1', ['c2']), row('l0', ['c2'])],
-  labels, maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: 'c0', detached: false, unborn: false }, truncated: false, worktrees: [],
+  labels, maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: 'c0', detached: false, unborn: false }, truncated: false, worktrees: [],
 });
 const labels = [
   label(1, 'main', true, [remote('origin', 'main')], { isHead: true }),

@@ -12,7 +12,7 @@ vi.mock('./open', () => ({ openFileHistory }));
 const { HistoryButtons } = await import('./HistoryButtons');
 
 const A = 'a'.repeat(40);
-const graph = { rows: [{ id: A, kind: 'commit', lane: 0, color: 0, segments: [], summary: 's', bodyFirstLine: '', authorName: 'A', authorEmail: 'a@x', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null }], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] } as unknown as GraphPayload;
+const graph = { rows: [{ id: A, kind: 'commit', lane: 0, color: 0, segments: [], summary: 's', bodyFirstLine: '', authorName: 'A', authorEmail: 'a@x', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null }], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: 'refs/heads/main', target: A, detached: false, unborn: false }, truncated: false, worktrees: [] } as unknown as GraphPayload;
 const file = { path: 'src/story.txt', oldPath: null, status: 'M', additions: 1, deletions: 1, old: { kind: 'object' as const, oid: 'o'.repeat(40) }, new: { kind: 'object' as const, oid: 'n'.repeat(40) }, submodule: false };
 
 function mount(status = 'M', spec: object = { kind: 'commit', id: A, parent: 0 }, binary = false, view: 'diff' | 'file' = 'diff') {

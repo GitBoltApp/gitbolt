@@ -19,13 +19,14 @@ export function labelsByRowOf(labels: RefLabel[]): Map<number, RefLabel[]> {
   return m;
 }
 
-const membershipCache = new WeakMap<readonly RowPayload[], { byRow: Map<number, RefLabel[]>; pinnedRef: string | null; pinnedRemote: string | null; value: (BranchMembership | null)[] }>();
+const membershipCache = new WeakMap<readonly RowPayload[], { byRow: Map<number, RefLabel[]>; pinned: string; value: (BranchMembership | null)[] }>();
 
-/** `branchMembership(rows, byRow, pinnedRef, pinnedRemote)` (F7), once per rows array and inputs. */
-export function membershipOf(rows: RowPayload[], byRow: Map<number, RefLabel[]>, pinnedRef: string | null, pinnedRemote: string | null = null): (BranchMembership | null)[] {
+/** `branchMembership(rows, byRow, pinnedRefs)` (F7), once per rows array and inputs. */
+export function membershipOf(rows: RowPayload[], byRow: Map<number, RefLabel[]>, pinnedRefs: readonly string[] = []): (BranchMembership | null)[] {
   const hit = membershipCache.get(rows);
-  if (hit && hit.byRow === byRow && hit.pinnedRef === pinnedRef && hit.pinnedRemote === pinnedRemote) return hit.value;
-  const value = branchMembership(rows, byRow, pinnedRef, pinnedRemote);
-  membershipCache.set(rows, { byRow, pinnedRef, pinnedRemote, value });
+  const pinned = pinnedRefs.join('\n');
+  if (hit && hit.byRow === byRow && hit.pinned === pinned) return hit.value;
+  const value = branchMembership(rows, byRow, pinnedRefs);
+  membershipCache.set(rows, { byRow, pinned, value });
   return value;
 }

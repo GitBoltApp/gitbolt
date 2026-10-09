@@ -14,7 +14,7 @@ import { loadWipPanel, WIP_PANEL, wipSplitBounds } from './wipPanelPrefs';
 const file = (path: string): FileChange => ({ path, oldPath: null, status: 'M', additions: 1, deletions: 0, old: { kind: 'absent' }, new: { kind: 'worktree', worktree: '/r' }, submodule: false });
 const list = (...paths: string[]): FileListPayload => ({ files: paths.map(file), added: paths.length, deleted: 0 });
 const section = (title: string, staged: boolean, ...paths: string[]): FileSection => ({ title, spec: { kind: 'wip', worktree: '/r', staged }, list: { status: 'ready', data: list(...paths) } });
-const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRef: null, head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
+const graph: GraphPayload = { rows: [], labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] };
 
 function setup() {
   const store = createRepoViewStore(1, '/r', graph, fakeServices());
