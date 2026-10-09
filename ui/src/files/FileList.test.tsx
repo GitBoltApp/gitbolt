@@ -591,6 +591,22 @@ describe('FileList', () => {
     }
   });
 
+  it("a folder's full path shows on hover only while its name is cut off at the side", () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: true });
+    setup();
+    const docs = rowEls().find((r) => r.dataset.path === 'docs')!;
+    const name = docs.querySelector<HTMLElement>('.file-name')!;
+    fireEvent.mouseEnter(docs);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    fireEvent.mouseLeave(docs);
+    Object.defineProperty(name, 'scrollWidth', { configurable: true, value: 300 });
+    Object.defineProperty(name, 'clientWidth', { configurable: true, value: 120 });
+    fireEvent.mouseEnter(docs);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^docs$/);
+    fireEvent.mouseLeave(docs);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
   it('K4: ↓ wraps from the last file to the first, and ↑ from the first to the last, in path mode too', () => {
     useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
     const store = setup();

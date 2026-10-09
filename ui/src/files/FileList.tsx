@@ -133,14 +133,27 @@ const Row = memo(function Row({ id, index, row, mode, active, context, top, heig
   const onMouseDown = (e: MouseEvent) => onPress(e, row, index);
   const conflict = file?.change?.conflict && file.target.new.kind === 'worktree' ? { kind: file.change.conflict, worktree: file.target.new.worktree } : null;
   const path = file ? <PathTooltip path={file.target.path} oldPath={file.change?.oldPath ?? null} /> : null;
-  const tip = useHoverTooltip({ content: conflict ? <>{path}<ConflictTip {...conflict} /></> : path, disabled: !file, placement: 'left-of', leftOf: fileListOf });
+  // A folder's tooltip is its full path, only while its name doesn't fit (a long compacted
+  // a/b/c/d run cut off at the side).
+  const tip = useHoverTooltip({ content: file ? (conflict ? <>{path}<ConflictTip {...conflict} /></> : path) : row.kind === 'folder' ? row.path : null, placement: 'left-of', leftOf: fileListOf });
+  const cutOff = (e: MouseEvent<HTMLElement>) => {
+    const name = e.currentTarget.querySelector<HTMLElement>('.file-name');
+    return !!name && name.scrollWidth > name.clientWidth;
+  };
+  const folderTip = {
+    ...tip.triggerProps,
+    onMouseEnter: (e: MouseEvent<HTMLElement>) => { if (cutOff(e)) tip.triggerProps.onMouseEnter(e); },
+    onMouseOver: (e: MouseEvent<HTMLElement>) => { if (cutOff(e)) tip.triggerProps.onMouseOver(e); },
+    onMouseMove: (e: MouseEvent<HTMLElement>) => { if (cutOff(e)) tip.triggerProps.onMouseMove(e); },
+  };
   if (row.kind === 'folder') {
     return (
-      <div id={id} role={role} aria-selected={active} aria-level={level} aria-expanded={row.expanded} data-context={context || undefined} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={(e) => onMenu(e, row)}>
+      <div id={id} role={role} aria-selected={active} aria-level={level} aria-expanded={row.expanded} data-context={context || undefined} data-kind="folder" data-path={row.path} className="file-row" style={style} onMouseDown={onMouseDown} onContextMenu={(e) => { tip.hide(); onMenu(e, row); }} {...folderTip}>
         <span className="file-chevron" style={{ width: TREE.chevron }}>{row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
         {row.counts && <StatusCountsView counts={row.counts} testId="folder-counts" size={10} />}
         {renderActions?.(row)}
+        {tip.tooltip}
       </div>
     );
   }
