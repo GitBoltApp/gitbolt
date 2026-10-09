@@ -1,15 +1,16 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadEmoji } from '../forge/emoji';
 import { Markdown } from './Markdown';
 import { clearParseCache } from './parse';
+import { linesBase, MdSuggestionBase } from './suggestion';
 
 const ctx = { kind: 'forge', tabId: 't' } as const;
 beforeAll(async () => { await loadEmoji(); });
 beforeEach(() => clearParseCache());
 
 describe('<Markdown> (spec #5 §3.1)', () => {
-  it("renders a review comment's suggestion as the lines it puts in: GitHub's fence, and GitLab's with its line offsets (spec 2026-10-08)", () => {
+  it("renders a review comment's suggestion, the lines it replaces unknown, as the lines it puts in: GitHub's fence, and GitLab's with its line offsets (spec 2026-10-08)", () => {
     for (const [flavor, fence] of [['github', 'suggestion'], ['gitlab', 'suggestion:-1+0']] as const) {
       const { container, unmount } = render(<Markdown flavor={flavor} context={ctx} text={`Try this:\n\n\`\`\`${fence}\nconst a = 2;\nconst b = 3;\n\`\`\``} />);
       const box = container.querySelector('.md-suggestion');
@@ -17,6 +18,39 @@ describe('<Markdown> (spec #5 §3.1)', () => {
       expect([...box!.querySelectorAll('.md-code-line.md-code-add')].map((l) => l.textContent)).toEqual(['const a = 2;', 'const b = 3;']);
       unmount();
     }
+  });
+
+  describe('a suggestion as a diff of the lines it replaces, as the forges show it', () => {
+    const file = ['function total(items) {', '  let sum = 0;', '  for (const i of items) sum += i.price;', '  return sum;', '}'];
+    const get = (from: number, to: number) => file.slice(from - 1, to);
+    const lines = (c: HTMLElement) => [...c.querySelectorAll('.md-suggestion .md-code-line')].map((l) => `${l.classList.contains('md-code-del') ? '-' : l.classList.contains('md-code-add') ? '+' : ' '}${l.textContent}`);
+    const show = (flavor: 'github' | 'gitlab', fence: string, code: string, start: number, line: number) =>
+      render(<MdSuggestionBase value={linesBase(flavor, null, start, line, get)}><Markdown flavor={flavor} context={ctx} text={`\`\`\`${fence}\n${code}\n\`\`\``} /></MdSuggestionBase>).container;
+
+    it('a changed line: removed, then added, its changed words marked; lines in both stay as context', () => {
+      const c = show('github', 'suggestion', '  let sum = 0;\n  for (const i of items) sum += i.cost;', 2, 3);
+      expect(c.querySelector('figcaption')).toHaveTextContent('Suggested change');
+      expect(lines(c)).toEqual(['   let sum = 0;', '-  for (const i of items) sum += i.price;', '+  for (const i of items) sum += i.cost;']);
+      expect([...c.querySelectorAll('.md-code-word-del, .md-code-word-add')].map((w) => w.textContent)).toEqual(['price', 'cost']);
+    });
+
+    it("lines added only, lines removed only, and an empty one (all removed, no note)", () => {
+      expect(lines(show('gitlab', 'suggestion:-0+0', '  return sum;\n  // done', 4, 4))).toEqual(['   return sum;', '+  // done']);
+      cleanup();
+      expect(lines(show('gitlab', 'suggestion:-1+0', '  return sum;', 4, 4))).toEqual(['-  for (const i of items) sum += i.price;', '   return sum;']);
+      cleanup();
+      const c = show('github', 'suggestion', '', 3, 4);
+      expect(lines(c)).toEqual(['-  for (const i of items) sum += i.price;', '-  return sum;']);
+      expect(c.querySelector('.md-suggestion-note')).toBeNull();
+    });
+
+    it("GitLab's -N+M: from N lines above the comment's last line to M below it", () => {
+      expect(lines(show('gitlab', 'suggestion:-2+1', '  return sum;\n}', 4, 4))).toEqual(['-  let sum = 0;', '-  for (const i of items) sum += i.price;', '   return sum;', ' }']);
+    });
+
+    it('lines it can’t know (past the file) leave only the lines it puts in', () => {
+      expect(lines(show('gitlab', 'suggestion:-9+0', 'x', 3, 3))).toEqual(['+x']);
+    });
   });
 
   it('renders an empty suggestion as removing the lines: no added line, a note (spec 2026-10-08)', () => {

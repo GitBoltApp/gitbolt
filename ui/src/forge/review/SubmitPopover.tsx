@@ -1,4 +1,4 @@
-import { useEffect, useId } from 'react';
+import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import { useModalKeys } from '../../app/modalKeys';
@@ -40,7 +40,6 @@ export default function SubmitPopover({ tabId, kind, number, anchor, onClose }: 
   const s = useReview(tabId);
   const placed = useReviewPlacements(tabId);
   const loose = s?.number === number ? placed?.unplacedDrafts ?? [] : [];
-  const head = useId();
   // A deleted one held the keyboard: on to the composer.
   const toComposer = () => ref.current?.querySelector<HTMLElement>('form[aria-label="Review"] textarea')?.focus();
   useEffect(() => {
@@ -51,8 +50,7 @@ export default function SubmitPopover({ tabId, kind, number, anchor, onClose }: 
   return createPortal(
     <div ref={ref} role="dialog" aria-label={`Submit your review of ${mrRef(kind, number)}`} className="review-submit" style={pos ?? { opacity: 0, left: 0, top: 0 }}>
       {loose.length > 0 && (
-        <section className="review-loose" aria-labelledby={head}>
-          <h3 id={head} className="review-loose-head">Not on a line in this diff</h3>
+        <section className="review-loose" aria-label="Pending comments">
           {loose.map((d) => <DraftCard key={d.id} tabId={tabId} draft={d} outdated={d.position !== null && isOutdated(d.position, s?.refs ?? null)} onGone={toComposer} />)}
         </section>
       )}

@@ -122,6 +122,7 @@ import type { NoteRef } from './gen/NoteRef';
 import type { ThreadState } from './gen/ThreadState';
 import type { Fresh } from './gen/Fresh';
 import type { MergeOptions } from './gen/MergeOptions';
+import type { BranchUpdate } from './gen/BranchUpdate';
 import type { MrEdit } from './gen/MrEdit';
 import type { MrHead } from './gen/MrHead';
 import type { PeopleLimits } from './gen/PeopleLimits';
@@ -536,6 +537,8 @@ export const api = {
   forgeMerge: (repo: number, number: number, options: MergeOptions) => call<ForgeMr>({ method: 'forgeMerge', params: { repo, number, options } }),
   forgeSetAutoMerge: (repo: number, number: number, options: MergeOptions) => call<ForgeMr>({ method: 'forgeSetAutoMerge', params: { repo, number, options } }),
   forgeCancelAutoMerge: (repo: number, number: number) => call<ForgeMr>({ method: 'forgeCancelAutoMerge', params: { repo, number } }),
+  /** The forge brings the source branch up to date with its target (GitLab's Rebase, GitHub's Update branch), only while its head is `expectedSha`; it waits a while for the forge to finish. */
+  forgeUpdateBranch: (repo: number, number: number, how: BranchUpdate, expectedSha: string | null) => call<ForgeMr>({ method: 'forgeUpdateBranch', params: { repo, number, how, expectedSha } }),
   forgeEditMr: (repo: number, number: number, edit: MrEdit) => call<ForgeMr>({ method: 'forgeEditMr', params: { repo, number, edit } }),
   forgeSetDraft: (repo: number, number: number, draft: boolean) => call<ForgeMr>({ method: 'forgeSetDraft', params: { repo, number, draft } }),
   /** The common ancestor of two commits; null when the repo lacks one of them. */

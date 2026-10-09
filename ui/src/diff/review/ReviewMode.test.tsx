@@ -23,6 +23,7 @@ const { useReplyDrafts } = await import('../../forge/mrview/drafts');
 const { patchForge, useForge } = await import('../../forge/mrStore');
 const { detailOf, mrOf, user } = await import('../../forge/testMrs');
 const { useToast } = await import('../../ui/toastStore');
+const { useTooltip } = await import('../../ui/tooltipStore');
 const { preloadMarkdown } = await import('../../markdown/lazy');
 
 beforeAll(() => preloadMarkdown(), 60_000);
@@ -34,12 +35,24 @@ const ON = { on: true as const, stale: false, tooLarge: false, file: FILE };
 const position = { path: 'README.md', oldPath: null, line: 2, oldLine: null, snippet: null, startLine: null, startOldLine: null };
 const thread: ForgeDiscussion = { id: 'd1', resolvable: true, resolved: false, notes: [{ id: 'n1', author: user('Grace Hopper'), body: 'Why?', createdAt: 1, system: false, position }] };
 
-type Spec = { path: string; items: { key: string }[]; placed(nodes: Map<string, HTMLElement>): void };
+const placedAt = (d: ForgeDiscussion) => ({ kind: 'thread', thread: d, at: { path: 'README.md', side: 'new', line: 2, startLine: null, outdated: false } });
+
+type Spec = { path: string; items: { key: string; side: string; line: number; icon?: boolean }[]; placed(nodes: Map<string, HTMLElement>): void; expand(keys: string[]): void };
 const lastSpec = () => host.setReviewZones.mock.lastCall![0] as Spec;
-/** The host lays the cards: a node per item, handed to the view. */
+/** The host lays the cards: a node per item, handed to the view; a folded one's, its line's icon. */
 async function place(): Promise<Map<string, HTMLElement>> {
   const spec = lastSpec();
-  const nodes = new Map(spec.items.map((i) => [i.key, document.body.appendChild(document.createElement('div'))]));
+  const icons = new Map<string, HTMLElement>();
+  const icon = (at: string) => {
+    if (!icons.has(at)) {
+      const n = document.body.appendChild(document.createElement('div'));
+      n.className = 'review-gutter-icon';
+      n.dataset.size = '19';
+      icons.set(at, n);
+    }
+    return icons.get(at)!;
+  };
+  const nodes = new Map(spec.items.map((i) => [i.key, i.icon ? icon(`${i.side}:${i.line}`) : document.body.appendChild(document.createElement('div'))]));
   await act(async () => {
     spec.placed(nodes);
     await Promise.resolve();
@@ -108,6 +121,77 @@ describe('review mode in the source diff (spec 2026-10-08 §2)', () => {
     // Esc on the card, which no control there takes: back to the diff.
     fireEvent.keyDown(within(nodes.get('t:d1')!).getByRole('button', { name: 'Collapse the thread by Grace Hopper' }), { key: 'Escape' });
     expect(host.focus).toHaveBeenCalled();
+  });
+
+  it("a suggestion in a card shows as a diff of the lines it replaces, read from the diff's new side", async () => {
+    const draft = { id: '5', body: '```suggestion:-1+0\nReadme\nSecond, edited\n```', position, replyTo: null };
+    S.placements = { byPath: { 'README.md': [{ kind: 'draft', draft, at: { path: 'README.md', side: 'new', line: 2, startLine: null, outdated: false } }] }, unplacedDrafts: [] };
+    host.diffLineText.mockImplementation((_side: string, from: number, to: number) => ['Readme', 'Second', 'Third'].slice(from - 1, to));
+    render(<ActiveReview tabId="t" path="README.md" mode={ON} />);
+    await waitFor(() => expect(host.setReviewZones).toHaveBeenCalled());
+    const nodes = await place();
+    const card = nodes.get('d:5')!;
+    await waitFor(() => expect(card.querySelectorAll('.md-suggestion .md-code-line')).toHaveLength(3));
+    expect([...card.querySelectorAll('.md-code-line')].map((l) => [l.textContent, l.className])).toEqual([
+      ['Readme', 'md-code-line'], ['Second', 'md-code-line md-code-del'], ['Second, edited', 'md-code-line md-code-add'],
+    ]);
+    expect(host.diffLineText).toHaveBeenCalledWith('modified', 1, 2);
+  });
+
+  it("a resolved thread starts folded: its author's avatar in the gutter with a check and a tooltip, no card; a click unfolds it into its card, avatar and all; folded again, it's the icon again", async () => {
+    S.placements = { byPath: { 'README.md': [placedAt({ ...thread, resolved: true })] }, unplacedDrafts: [] };
+    render(<ActiveReview tabId="t" path="README.md" mode={ON} />);
+    await waitFor(() => expect(host.setReviewZones).toHaveBeenCalled());
+    expect(lastSpec().items).toEqual([{ key: 't:d1', side: 'modified', line: 2, startLine: null, stop: true, icon: true }]);
+    let nodes = await place();
+    const icon = within(nodes.get('t:d1')!).getByRole('button', { name: 'Expand: Resolved thread by Grace Hopper: Why?' });
+    expect(within(icon).getByTestId('avatar')).toBeInTheDocument();
+    expect(icon.querySelector('.review-gutter-check')).not.toBeNull();
+    expect(screen.queryByRole('article')).toBeNull();
+    fireEvent.mouseEnter(icon);
+    expect(useTooltip.getState().tip?.text).toBe('Resolved thread by Grace Hopper: Why?');
+    // Its click (the host's: `ReviewZones`) unfolds it: a zone and its card, the icon gone.
+    act(() => lastSpec().expand(['t:d1']));
+    expect(lastSpec().items[0]!.icon).toBeUndefined();
+    nodes = await place();
+    expect(useTooltip.getState().tip).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Expand: / })).toBeNull();
+    const card = within(nodes.get('t:d1')!).getByRole('article', { name: 'Thread by Grace Hopper' });
+    // The first comment's author, as on the timeline.
+    expect(within(card).getByTestId('avatar')).toBeInTheDocument();
+    fireEvent.click(within(nodes.get('t:d1')!).getByRole('button', { name: 'Collapse the thread by Grace Hopper' }));
+    expect(lastSpec().items[0]!.icon).toBe(true);
+  });
+
+  it('the keyboard follows a fold and an unfold: from the icon into its card, and back to the icon', async () => {
+    S.placements = { byPath: { 'README.md': [placedAt({ ...thread, resolved: true })] }, unplacedDrafts: [] };
+    render(<ActiveReview tabId="t" path="README.md" mode={ON} />);
+    await waitFor(() => expect(host.setReviewZones).toHaveBeenCalled());
+    let nodes = await place();
+    act(() => within(nodes.get('t:d1')!).getByRole('button', { name: /^Expand: / }).focus());
+    // Enter on it (the host's).
+    act(() => lastSpec().expand(['t:d1']));
+    nodes = await place();
+    const toggle = within(nodes.get('t:d1')!).getByRole('button', { name: 'Collapse the thread by Grace Hopper' });
+    expect(toggle).toHaveFocus();
+    fireEvent.click(toggle);
+    nodes = await place();
+    expect(within(nodes.get('t:d1')!).getByRole('button', { name: /^Expand: / })).toHaveFocus();
+  });
+
+  it('several folded at a line: one icon, the first one\'s author and a count; F9 reaches it and puts the keyboard on it', async () => {
+    const other = { ...thread, id: 'd2', resolved: false, notes: [{ ...thread.notes[0]!, id: 'n2', author: user('Ada Lovelace'), body: 'And this?' }] };
+    useReviewUi.setState({ boxes: {}, folds: { 't:12:d2': false } });
+    S.placements = { byPath: { 'README.md': [placedAt({ ...thread, resolved: true }), placedAt(other)] }, unplacedDrafts: [] };
+    render(<ActiveReview tabId="t" path="README.md" mode={ON} />);
+    await waitFor(() => expect(host.setReviewZones).toHaveBeenCalled());
+    const nodes = await place();
+    expect(nodes.get('t:d1')).toBe(nodes.get('t:d2'));
+    const icon = within(nodes.get('t:d1')!).getByRole('button', { name: 'Expand: Resolved thread by Grace Hopper: Why? (and 1 more thread)' });
+    expect(icon.querySelector('.review-gutter-count')).toHaveTextContent('2');
+    host.goToReviewZone.mockReturnValue('t:d1');
+    act(() => lentHandler('review.nextThread')!());
+    expect(icon).toHaveFocus();
   });
 
   it('F9 onto a draft being edited puts the keyboard in its field', async () => {

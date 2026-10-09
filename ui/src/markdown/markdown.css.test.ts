@@ -24,6 +24,12 @@ describe('markdown.css (spec #5 §3.1)', () => {
     expect(rule('.md .md-diff-del code')).toMatch(/background-image:\s*linear-gradient\(var\(--md-diff-del-text\)/);
   });
 
+  it("a suggestion's -/+ column: a sign per changed line, never selected or copied with the code", () => {
+    expect(rule('.md-code-signs .md-code-line::before')).toMatch(/user-select:\s*none/);
+    expect(rule('.md-code-signs .md-code-add::before')).toMatch(/content:\s*'\+'/);
+    expect(rule('.md-code-signs .md-code-del::before')).toMatch(/content:\s*'-'/);
+  });
+
   it('front matter: compact keys, values that wrap in the rest of the width', () => {
     expect(rule('.md .md-frontmatter th')).toMatch(/white-space:\s*nowrap/);
     expect(rule('.md .md-frontmatter td')).toMatch(/overflow-wrap:\s*anywhere/);

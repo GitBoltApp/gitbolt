@@ -26,6 +26,10 @@ export interface MarkdownFieldProps {
   onBlur?(): void;
   /** Right of the Write/Preview tabs, in the field's header (Create's template picker). */
   toolbar?: ReactNode;
+  /** Preview grows to its content (from the textarea's height, up to 60% of the window, then it
+   * scrolls) instead of lying over the textarea; Write has the textarea back at its own height.
+   * A review comment's box: a suggestion's diff shows whole. */
+  growPreview?: boolean;
 }
 
 type Mode = 'write' | 'preview';
@@ -36,8 +40,11 @@ const isToggle = (e: KeyboardEvent<HTMLElement>) => (e.ctrlKey || e.metaKey) && 
  * whole box. Preview renders the text (debounced by 150 ms) with the same context and rules, over
  * the textarea, which stays mounted and keeps its size, value and caret. Ctrl+Shift+P switches
  * while the field has the focus. */
-export function MarkdownField({ value, onChange, label, flavor, context, placeholder, rows, spellCheck, autoFocus, disabled, onKeyDown, onBlur, toolbar }: MarkdownFieldProps) {
+export function MarkdownField({ value, onChange, label, flavor, context, placeholder, rows, spellCheck, autoFocus, disabled, onKeyDown, onBlur, toolbar, growPreview = false }: MarkdownFieldProps) {
   const [mode, setMode] = useState<Mode>('write');
+  /** `growPreview`: the textarea's height when Preview took its place, the least the preview takes
+   * (the box never shrinks under the pointer). */
+  const [floor, setFloor] = useState(0);
   const [shown, setShown] = useState(value);
   const area = useRef<HTMLTextAreaElement>(null);
   const pane = useRef<HTMLDivElement>(null);
@@ -53,6 +60,7 @@ export function MarkdownField({ value, onChange, label, flavor, context, placeho
     if (next === 'preview') {
       const a = area.current;
       if (a) caret.current = [a.selectionStart, a.selectionEnd];
+      if (a && growPreview) setFloor(a.offsetHeight);
       setShown(value);
     }
     setMode(next);
@@ -75,7 +83,7 @@ export function MarkdownField({ value, onChange, label, flavor, context, placeho
     onKeyDown?.(e);
   };
   return (
-    <div className="md-field" data-mode={mode} data-disabled={disabled || undefined}>
+    <div className="md-field" data-mode={mode} data-disabled={disabled || undefined} data-grow={growPreview || undefined}>
       <div className="md-field-head">
         <div className="md-field-tabs" role="tablist" aria-label={`${label}: write or preview`}>
           <button type="button" role="tab" className="md-field-tab" aria-selected={mode === 'write'} onClick={() => show('write')}>Write</button>
@@ -103,7 +111,7 @@ export function MarkdownField({ value, onChange, label, flavor, context, placeho
         />
         {mode === 'write' && emoji.popup}
         {mode === 'preview' && (
-          <div ref={pane} className="md-field-preview" role="tabpanel" aria-label={`${label} preview`} tabIndex={0} onKeyDown={keys}>
+          <div ref={pane} className="md-field-preview" role="tabpanel" aria-label={`${label} preview`} tabIndex={0} onKeyDown={keys} style={growPreview ? { minHeight: floor } : undefined}>
             {shown.trim() ? <Markdown text={shown} flavor={flavor} context={context} /> : <p className="md-field-empty">Nothing to preview</p>}
           </div>
         )}

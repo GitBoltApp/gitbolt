@@ -20,7 +20,7 @@
 .mr-button { padding: 3px 10px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); font: inherit; font-size: 12px; cursor: pointer; }
 .mr-button:hover:not(:disabled) { background: var(--control-hover-bg); }
 .mr-button:disabled { color: var(--text-disabled); cursor: default; }
-.mr-button.primary { background: var(--blue); border-color: var(--blue); color: var(--text-on-accent); }
+.mr-button.primary { background: var(--button-primary); border-color: var(--button-primary); color: var(--text-on-accent); }
 .mr-form-row { display: flex; justify-content: flex-end; gap: 6px; }
 .mr-check, .mr-field { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 /* Reserved rows (4B final fix): a GitHub method select and its plain line take the same height. */
@@ -38,7 +38,7 @@ input.mr-edit-title:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var
 button.mr-button { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); font: inherit; font-size: 12px; cursor: pointer; }
 button.mr-button:hover:not(:disabled) { background: var(--control-hover-bg); }
 button.mr-button:disabled { color: var(--text-disabled); cursor: default; }
-button.mr-button.primary { background: var(--blue); border-color: var(--blue); color: var(--text-on-accent); }
+button.mr-button.primary { background: var(--button-primary); border-color: var(--button-primary); color: var(--text-on-accent); }
 button.mr-button:focus-visible { outline: 1px solid var(--focus-outline); outline-offset: 1px; }
 /* --- end 4B T13 --- */
 
@@ -100,6 +100,18 @@ button.mr-button.merge.split { border-top-right-radius: 0; border-bottom-right-r
 button.mr-button.mr-merge-pick { padding: 3px 5px; align-self: stretch; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--text-on-accent) 35%, transparent); }
 button.mr-button.mr-merge-pick:disabled { border-left-color: var(--section-border); }
 button.mr-button.mr-merge-go.cancel { color: var(--text-normal); }
+/* The source branch's update (GitLab's Rebase, GitHub's Update branch): why on the left, the
+   buttons on the right; one line tall whether it offers, runs or failed. */
+.mr-merge-update { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--section-border); min-height: 38px; }
+.mr-merge-update-note { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.mr-merge-update-note.bad { color: var(--red); }
+.mr-merge-update-note .spin { flex: none; animation: mr-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .mr-merge-update-note .spin { animation: none; } }
+.mr-merge-update-act { display: flex; gap: 6px; margin-left: auto; }
+.mr-merge-update-label { display: inline-grid; }
+.mr-merge-update-label > span { grid-area: 1 / 1; text-align: center; }
+.mr-merge-update button.mr-button.primary:disabled { background: var(--control-bg); border-color: var(--section-border); color: var(--text-disabled); }
+.mr-merge-update button.mr-button.primary:hover:not(:disabled) { background: var(--blue); filter: brightness(1.1); }
 .mr-merge-opts { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; padding: 8px 12px; border-top: 1px solid var(--section-border); min-height: 38px; }
 .mr-merge-opts .mr-merge-row { min-height: 22px; }
 /* GitLab's delete / squash / message switches, side by side (one column when narrow). */
@@ -181,6 +193,17 @@ button.mr-button.mr-merge-go.cancel { color: var(--text-normal); }
 .mr-replies-faces > * + * { margin-left: -6px; }
 .mr-replies-last .mr-when, .mr-ev-line .mr-when { margin-left: 6px; }
 /* --- end comment actions --- */
+/* A resolved thread rolled up (as GitLab's): who started it where and when, who resolved it; its
+   chevron (or the header) unrolls it. */
+.mr-rolled { cursor: pointer; }
+.mr-rolled-line { flex: 1; min-width: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.mr-rolled-line .mr-when { margin-left: 6px; }
+.mr-rolled-resolved { padding-left: 24px; font-size: 11px; color: var(--text-secondary); }
+.mr-rolled-resolved .mr-when { color: inherit; font-size: inherit; }
+.mr-roll-chevron { transition: transform var(--motion-fast); }
+/* The chevron's box is wider than the replies row's chevron: line them up. */
+.mr-rolled .mr-roll { margin-left: -4px; }
+.mr-roll[aria-expanded="true"] .mr-roll-chevron { transform: rotate(90deg); }
 /* A thread's own system note: a compact event row among its comments, its node inline. */
 .mr-thread-sys { display: flex; align-items: flex-start; gap: 8px; padding: 4px 12px; border-top: 1px solid var(--section-border); font-size: 12px; color: var(--text-secondary); min-width: 0; }
 .mr-thread-sys > .mr-node { position: static; flex: none; }
@@ -217,7 +240,7 @@ button.mr-button.mr-merge-go.cancel { color: var(--text-normal); }
 .mr-review-mode:has(input:focus-visible) { outline: 2px solid var(--focus-outline); outline-offset: -2px; }
 .mr-review textarea { box-sizing: border-box; width: 100%; min-height: 4.5em; resize: vertical; padding: 5px 8px; border: 1px solid var(--wip-input-border); border-radius: 6px; outline: none; background: var(--wip-input-bg); color: var(--text-normal); font: inherit; font-size: 12px; }
 .mr-review textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var(--focus-outline); }
-button.mr-button.primary.warn { background: var(--orange); border-color: var(--orange); }
+button.mr-button.primary.warn { background: var(--button-warn); border-color: var(--button-warn); color: var(--button-warn-ink); }
 
 /* The MR/PR view's body: the header and forms, then the rest (hidden in Edit, still mounted). */
 .mr-body, .mr-rest { display: flex; flex-direction: column; gap: 12px; }
@@ -227,3 +250,24 @@ button.mr-button.primary.warn { background: var(--orange); border-color: var(--o
 /* Edit's Save / Cancel: the modal dialogs' action buttons (auth.css), right-aligned, stuck to the bottom of the view's scroll. */
 .mr-edit-actions { position: sticky; bottom: -12px; z-index: 2; gap: 8px; margin-top: 6px; padding: 10px 0 12px; background: var(--panel-bg1); }
 .mr-edit-actions button.mr-button { padding: 5px 14px; font-size: inherit; }
+
+/* --- Review comments round 2: the review composer's foot, the pending review panel, its pill --- */
+/* The buttons first in the DOM, drawn on the right just under the message; the notes take the
+   rest of the row on the left, and wrap under the buttons when there's no room beside them. */
+.mr-review-foot { display: flex; flex-direction: row-reverse; flex-wrap: wrap; align-items: flex-start; gap: 4px 12px; }
+.mr-review-foot > .mr-form-row { flex: none; }
+.mr-review-notes { flex: 1 1 16em; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 3px; overflow-wrap: anywhere; }
+.mr-review-notes:empty { display: none; }
+/* Your pending review: a box as the merge box's, its header a band; the composer inside it. */
+.mr-pending-off { display: contents; }
+.mr-pending { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; border: 1px solid color-mix(in srgb, var(--yellow) 45%, var(--section-border)); border-radius: 8px; background: var(--panel-bg1); }
+.mr-pending-head { display: flex; align-items: center; gap: 8px; margin: 0 -12px; padding: 8px 12px; border-bottom: 1px solid var(--section-border); border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--yellow) 10%, var(--panel-bg1)); }
+.mr-pending-icon { flex: none; color: var(--yellow); }
+.mr-pending-title { flex: 1; min-width: 0; margin: 0; font-size: 12px; font-weight: 600; color: var(--text-selected); }
+.mr-pending-count { font-weight: 400; color: var(--text-normal); }
+button.mr-button.mr-pending-discard { flex: none; padding: 2px 8px; }
+.mr-pending-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.mr-pending-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.mr-pending-row > .mr-where { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-pending-excerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.mr-pending > .mr-pending-loose { margin: 0; }

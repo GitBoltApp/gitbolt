@@ -462,6 +462,23 @@ pub mod json {
         }
     }
 
+    // --- branch update ---
+    /// Update branch (with a merge commit, or a rebase), offered while it's open and GitHub says
+    /// it's behind its base (`mergeable_state: behind`, which GitHub sets when the base's
+    /// protection requires branches to be up to date). A fork's head only when the token's user
+    /// (`me`) may push to it: its author, or anyone when it allows edits from maintainers
+    /// (`maintainer_can_modify`). The base repository's own branch, or `me` unknown: offered, and
+    /// GitHub's 403 says why not.
+    pub fn update_offer(v: &Value, me: Option<u64>) -> Option<BranchUpdateOffer> {
+        if v["state"].as_str() != Some("open") || v["merged"].as_bool() == Some(true) || v["mergeable_state"].as_str() != Some("behind") {
+            return None;
+        }
+        let fork = v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"];
+        let may_push = !fork || v["maintainer_can_modify"].as_bool() == Some(true) || me.is_none_or(|me| v["user"]["id"].as_u64() == Some(me));
+        may_push.then(|| BranchUpdateOffer { behind: None, kinds: vec![BranchUpdate::Merge, BranchUpdate::Rebase], in_progress: false })
+    }
+    // --- end branch update ---
+
     /// A conversation or review comment.
     pub fn comment_note(v: &Value) -> Option<ForgeNote> {
         Some(ForgeNote {
@@ -541,7 +558,7 @@ pub mod json {
     /// The conversation (`issue-<id>`), review summaries with text (`review-<id>`) and review
     /// threads by their first comment (`thread-<id>`), oldest first.
     pub fn discussions(comments: &[Value], review_comments: &[Value], reviews: &[Value]) -> Vec<ForgeDiscussion> {
-        let one = |id: String, n: ForgeNote| ForgeDiscussion { id, notes: vec![n], resolvable: false, resolved: false, resolved_by: None };
+        let one = |id: String, n: ForgeNote| ForgeDiscussion { id, notes: vec![n], resolvable: false, resolved: false, resolved_by: None, resolved_at: None };
         let mut out: Vec<ForgeDiscussion> = comments.iter().filter_map(|c| comment_note(c).map(|n| one(format!("issue-{}", n.id), n))).collect();
         for r in reviews {
             let body = r["body"].as_str().unwrap_or_default();
@@ -991,6 +1008,9 @@ impl ForgeProvider for GitHubProvider {
             }
             mr.review = json::review(&reviews, &v["requested_reviewers"]);
             let reviewers = mr.review.reviews.iter().map(|x| x.user.clone()).collect();
+            // --- branch update: a fork's head is pushed to by its author (asked only then) ---
+            let fork = v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"];
+            let me = if fork && v["mergeable_state"].as_str() == Some("behind") { self.me().await.ok().map(|u| u.id) } else { None };
             let detail = ForgeMrDetail {
                 description: v["body"].as_str().unwrap_or_default().to_string(),
                 reviewers,
@@ -1002,6 +1022,7 @@ impl ForgeProvider for GitHubProvider {
                 subscribed: self.subscription(project, number, v["updated_at"].as_str().unwrap_or_default()).await,
                 mr,
                 body_html: json::text(&v["body_html"]),
+                update: json::update_offer(&v, me),
             };
             self.names.learn_detail(&detail);
             // Not modified only when the PR, its reviews and its checks all were (a 304 each).
@@ -1295,6 +1316,44 @@ impl ForgeProvider for GitHubProvider {
         })
     }
     // --- end auto-merge ---
+
+    // --- branch update ---
+    /// GitHub's Update branch, both ways its merge box offers: a merge of the base into the head
+    /// (REST `PUT /repos/{owner}/{repo}/pulls/{n}/update-branch` with `expected_head_sha`:
+    /// https://docs.github.com/en/rest/pulls/pulls#update-a-pull-request-branch; 202 Accepted,
+    /// 403, 422 when the head moved), or a rebase (GraphQL's `updatePullRequestBranch` with
+    /// `updateMethod: REBASE`: https://docs.github.com/en/graphql/reference/mutations#updatepullrequestbranch).
+    /// GitHub updates it in the background: the PR is asked again until its head moves.
+    fn update_branch<'a>(&'a self, project: &'a ForgeProject, number: u64, how: BranchUpdate, expected_sha: Option<&'a str>) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let repo = Self::repo_url(&project.path)?;
+            // The PR as it is: its node id (the mutation's), and the head to see move.
+            let mut pr = if how == BranchUpdate::Merge && expected_sha.is_some() { Value::Null } else { self.pull_json(project, number).await? };
+            let from = expected_sha.map(str::to_string).or_else(|| json::text(&pr["head"]["sha"]));
+            match how {
+                BranchUpdate::Merge => {
+                    let body = from.as_ref().map_or_else(|| json!({}), |sha| json!({ "expected_head_sha": sha }));
+                    self.http.send_json(Method::Put, &format!("{repo}/pulls/{number}/update-branch"), &body).await.map_err(|e| update_refused(number, e))?;
+                }
+                BranchUpdate::Rebase => {
+                    let id = pr["node_id"].as_str().ok_or_else(|| unreadable(&self.host, "pull request"))?;
+                    self.mutate(&json!({ "query": UPDATE_BRANCH_MUTATION, "variables": { "id": id, "sha": from, "method": "REBASE" } }), |m| update_error(number, m)).await?;
+                }
+                BranchUpdate::RebaseSkipCi => return Err(GbError::new(GbErrorKind::InvalidInput, "GitHub can't rebase without running the checks")),
+            }
+            for ms in crate::time::BRANCH_UPDATE_POLLS_MS {
+                tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                // Each look asks GitHub: not an answer the client kept a moment ago.
+                self.http.expire_fresh();
+                pr = self.pull_json(project, number).await?;
+                if json::text(&pr["head"]["sha"]) != from {
+                    break;
+                }
+            }
+            json::pr(&pr).ok_or_else(|| unreadable(&self.host, "pull request"))
+        })
+    }
+    // --- end branch update ---
 
     fn edit<'a>(&'a self, project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
         Box::pin(async move {
@@ -1749,6 +1808,33 @@ pub fn auto_merge_error(number: u64, message: &str) -> GbError {
     GbError::new(GbErrorKind::InvalidInput, plain)
 }
 // --- end auto-merge ---
+
+// --- branch update ---
+/// Updates the head with its base (`updateMethod`: `MERGE` or `REBASE`), while it's `sha`.
+pub const UPDATE_BRANCH_MUTATION: &str = "mutation($id: ID!, $sha: GitObjectID, $method: PullRequestBranchUpdateMethod) { updatePullRequestBranch(input: {pullRequestId: $id, expectedHeadOid: $sha, updateMethod: $method}) { pullRequest { number } } }";
+
+/// GitHub's REST refusals of an update, said plainly: the head moved (422), or the user can't
+/// push to it (403: about the branch, not the token, so the account stays fine).
+pub fn update_refused(number: u64, e: GbError) -> GbError {
+    if e.message.contains("expected head sha") {
+        return GbError::new(GbErrorKind::InvalidInput, format!("#{number} changed since it was loaded: refresh and try again"));
+    }
+    if crate::http::is_forbidden(&e) {
+        let said = e.message.split_once(crate::http::REFUSED).map_or("", |(_, s)| s);
+        return GbError::new(GbErrorKind::InvalidInput, format!("GitHub can't update #{number}'s branch: {}", if said.is_empty() { "you can't push to it" } else { said }));
+    }
+    e
+}
+
+/// GitHub's GraphQL refusal of an update, said plainly.
+pub fn update_error(number: u64, message: &str) -> GbError {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("head branch was modified") || lower.contains("expected head") {
+        return GbError::new(GbErrorKind::InvalidInput, format!("#{number} changed since it was loaded: refresh and try again"));
+    }
+    GbError::new(GbErrorKind::InvalidInput, format!("GitHub couldn't update #{number}'s branch: {message}"))
+}
+// --- end branch update ---
 
 impl GitHubProvider {
     // --- auto-merge ---
@@ -2519,4 +2605,94 @@ mod tests {
         assert!(bodies[2]["query"].as_str().unwrap().contains("deletePullRequestReview(") && bodies[2]["variables"]["review"] == "PRR_9", "{bodies:?}");
     }
     // --- end review comments ---
+
+    // --- branch update ---
+    fn pr_json(extra: Value) -> Value {
+        let mut v = json!({"number": 3, "node_id": "PR_3", "title": "Dev", "state": "open", "merged": false, "draft": false, "user": {"id": 2, "login": "monalisa"},
+            "head": {"ref": "dev", "sha": "a".repeat(40), "repo": {"full_name": "octo-org/widget"}}, "base": {"ref": "main", "repo": {"full_name": "octo-org/widget"}},
+            "html_url": "", "mergeable": true, "mergeable_state": "behind"});
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    }
+
+    #[test]
+    fn update_branch_is_offered_while_open_and_behind_and_pushable() {
+        let both = Some(BranchUpdateOffer { behind: None, kinds: vec![BranchUpdate::Merge, BranchUpdate::Rebase], in_progress: false });
+        assert_eq!(json::update_offer(&pr_json(json!({})), None), both);
+        assert_eq!(json::update_offer(&pr_json(json!({"mergeable_state": "clean"})), None), None);
+        assert_eq!(json::update_offer(&pr_json(json!({"state": "closed"})), None), None);
+        let fork = |extra: Value| { let mut v = pr_json(extra); v["head"]["repo"]["full_name"] = json!("monalisa/widget"); v };
+        assert_eq!(json::update_offer(&fork(json!({})), Some(1)), None, "someone else's fork");
+        assert_eq!(json::update_offer(&fork(json!({})), Some(2)), both, "the author's own fork");
+        assert_eq!(json::update_offer(&fork(json!({"maintainer_can_modify": true})), Some(1)), both);
+    }
+
+    #[test]
+    fn update_refusals_are_said_plainly() {
+        let moved = crate::http::status_error("github.com", 422, br#"{"message": "expected head sha didn't match current head ref."}"#);
+        assert_eq!(super::update_refused(3, moved).message, "#3 changed since it was loaded: refresh and try again");
+        let e = super::update_refused(3, crate::http::status_error("github.com", 403, br#"{"message": "Resource not accessible by integration"}"#));
+        assert_eq!((e.kind, e.message.as_str()), (gitbolt_core::error::GbErrorKind::InvalidInput, "GitHub can't update #3's branch: Resource not accessible by integration"));
+        assert_eq!(super::update_error(3, "Head branch was modified. Review and try the merge again.").message, "#3 changed since it was loaded: refresh and try again");
+        assert_eq!(super::update_error(3, "merge conflict between base and head").message, "GitHub couldn't update #3's branch: merge conflict between base and head");
+    }
+
+    /// A GitHub whose PR 3 updates: `answer` for the update itself; each GET of the PR after it
+    /// answers the moved head.
+    fn served_update(answer: impl Fn(&str) -> Option<crate::test_server::Canned> + Send + Sync + 'static) -> (crate::test_server::TestServer, super::GitHubProvider, ForgeProject) {
+        use crate::test_server::{Canned, TestServer};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let updated = AtomicBool::new(false);
+        let s = TestServer::start(move |_, head| {
+            let line = head.lines().next().unwrap_or_default().to_string();
+            if line.starts_with("get /repos/octo-org/widget/pulls/3 ") {
+                let sha = if updated.load(Ordering::SeqCst) { "b" } else { "a" };
+                return Canned::json(200, &pr_json(json!({})).to_string().replace(&"a".repeat(40), &sha.repeat(40)));
+            }
+            match answer(&line) {
+                Some(c) => {
+                    updated.store(c.status < 300, Ordering::SeqCst);
+                    c
+                }
+                None => Canned::json(404, r#"{"message": "Not Found"}"#),
+            }
+        });
+        let ep = crate::endpoints::HostEndpoints { api: s.base.clone(), web: s.base.clone(), avatars: None };
+        let p = super::GitHubProvider::new("github.com", &ep, gitbolt_core::redact::Secret::new("ghp_FAKE-test-token"), None);
+        let (_other, _, project) = served();
+        (s, p, project)
+    }
+
+    #[tokio::test]
+    async fn update_branch_merges_with_rest_or_rebases_with_graphql_then_waits_for_the_head_to_move() {
+        use crate::test_server::Canned;
+        let (s, p, project) = served_update(|line| line.starts_with("put /repos/octo-org/widget/pulls/3/update-branch ").then(|| Canned::json(202, r#"{"message": "Updating pull request branch.", "url": "https://github.example/x"}"#)));
+        let mr = p.update_branch(&project, 3, BranchUpdate::Merge, Some(&"a".repeat(40))).await.unwrap();
+        assert_eq!(mr.head_sha, Some("b".repeat(40)));
+        assert_eq!(lines(&s), ["put /repos/octo-org/widget/pulls/3/update-branch", "get /repos/octo-org/widget/pulls/3"]);
+        assert_eq!(serde_json::from_str::<Value>(&s.bodies.lock().unwrap()[0]).unwrap(), json!({"expected_head_sha": "a".repeat(40)}));
+
+        let (s, p, project) = served_update(|line| line.starts_with("post /graphql ").then(|| Canned::json(200, r#"{"data": {"updatePullRequestBranch": {"pullRequest": {"number": 3}}}}"#)));
+        let mr = p.update_branch(&project, 3, BranchUpdate::Rebase, None).await.unwrap();
+        assert_eq!(mr.head_sha, Some("b".repeat(40)));
+        assert_eq!(lines(&s), ["get /repos/octo-org/widget/pulls/3", "post /graphql", "get /repos/octo-org/widget/pulls/3"]);
+        let sent: Value = serde_json::from_str(&s.bodies.lock().unwrap()[1]).unwrap();
+        assert!(sent["query"].as_str().unwrap().contains("updatePullRequestBranch("), "{sent}");
+        assert_eq!(sent["variables"], json!({"id": "PR_3", "sha": "a".repeat(40), "method": "REBASE"}));
+        // GitHub has no rebase without checks.
+        assert_eq!(p.update_branch(&project, 3, BranchUpdate::RebaseSkipCi, None).await.unwrap_err().kind, gitbolt_core::error::GbErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn a_refused_update_says_why_and_waits_for_nothing() {
+        use crate::test_server::Canned;
+        let (s, p, project) = served_update(|line| line.starts_with("put ").then(|| Canned::json(422, r#"{"message": "expected head sha didn't match current head ref."}"#)));
+        let e = p.update_branch(&project, 3, BranchUpdate::Merge, Some("c")).await.unwrap_err();
+        assert_eq!(e.message, "#3 changed since it was loaded: refresh and try again");
+        assert!(!e.message.contains("ghp_"), "never the token");
+        assert_eq!(lines(&s).len(), 1);
+    }
+    // --- end branch update ---
 }

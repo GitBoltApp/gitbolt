@@ -19,7 +19,9 @@ import { forgeName, mrRef } from '../labels';
 import { useForge } from '../mrStore';
 import { EditMr } from './EditMr';
 import { forgeWrite, setMrSubscribed, toggleMrDraft } from './writes';
+import { isPending, pendingLabel } from '../review/pending';
 import { resumeReview, submitReview, useReview } from '../review/session';
+import { PendingReview } from './PendingReview';
 import { clearDraft, draftKey, setDraft, useReplyDrafts } from './drafts';
 
 /** What Request changes does on GitLab (said in the composer): its REST API has no review state;
@@ -59,9 +61,13 @@ export function partialText(kind: ForgeKind, published: number, error: string): 
  * (`submitReview`), the message optional then; if the forge took the comments but refused the
  * event, it stays open, says what went through, and keeps the message for another try (§7).
  * The message is kept as a draft until it's sent (`drafts.ts`); Cancel drops it. The top bar's
- * Submit review… shows it too (`SubmitPopover`).
+ * Submit review… shows it too (`SubmitPopover`), and the MR view's pending review panel
+ * (`PendingReview`), where it stays (`keep`): Cancel only clears the message there, and it takes
+ * the keyboard when asked, not as it mounts. `onSend`: a send started (the view keeps it shown
+ * until it's done, even once nothing is pending). Its buttons sit right under the message; what
+ * it says goes to their left, wrapping under them when long.
  */
-export function ReviewComposer({ tabId, kind, number, onDone }: { tabId: string; kind: ForgeKind; number: number; onDone: () => void }) {
+export function ReviewComposer({ tabId, kind, number, onDone, keep = false, onSend }: { tabId: string; kind: ForgeKind; number: number; onDone: () => void; keep?: boolean; onSend?: () => void }) {
   const [event, setEvent] = useState<ReviewEvent>('comment');
   const key = draftKey(tabId, number, 'review');
   const text = useReplyDrafts((s) => s.text[key] ?? '');
@@ -85,6 +91,7 @@ export function ReviewComposer({ tabId, kind, number, onDone }: { tabId: string;
   const done = (message: string) => { clearDraft(key); useToast.getState().show(message); onDone(); };
   const cancel = () => { clearDraft(key); onDone(); };
   const send = async () => {
+    onSend?.();
     setBusy(true);
     setPartial(null);
     const plan = retryPlan(event, text, sent);
@@ -119,16 +126,21 @@ export function ReviewComposer({ tabId, kind, number, onDone }: { tabId: string;
         aria-label="Message"
         placeholder={placeholder}
         value={text}
-        autoFocus
+        autoFocus={!keep}
         onChange={(e) => setDraft(key, e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (ready) void send(); } }}
       />
-      {withPending && <p className="mr-form-note">{pending === 0 ? `Sends your pending review on ${forgeName(kind)}` : `Sends your ${pending === 1 ? 'pending comment' : `${pending} pending comments`} with it`}</p>}
-      {kind === 'gitlab' && event === 'requestChanges' && <p className="mr-form-note">{GITLAB_CHANGES_NOTE}</p>}
-      {partial && <p role="alert" className="mr-form-note">{partial}</p>}
-      <div className="mr-form-row">
-        <button type="button" className="mr-button" onClick={cancel}>Cancel</button>
-        <button type="submit" className={`mr-button primary${event === 'requestChanges' ? ' warn' : ''}`} disabled={!ready}>{busy ? 'Sending…' : mode.label}</button>
+      {/* The buttons first (the tab order), drawn on the right; the notes take the rest of the row. */}
+      <div className="mr-review-foot">
+        <div className="mr-form-row">
+          <button type="button" className="mr-button" disabled={keep && text === ''} onClick={cancel}>Cancel</button>
+          <button type="submit" className={`mr-button primary${event === 'requestChanges' ? ' warn' : ''}`} disabled={!ready}>{busy ? 'Sending…' : mode.label}</button>
+        </div>
+        <div className="mr-review-notes">
+          {withPending && <p className="mr-form-note">{pending === 0 ? `Sends your pending review on ${forgeName(kind)}` : `Sends your ${pending === 1 ? 'pending comment' : `${pending} pending comments`} with it`}</p>}
+          {kind === 'gitlab' && event === 'requestChanges' && <p className="mr-form-note">{GITLAB_CHANGES_NOTE}</p>}
+          {partial && <p role="alert" className="mr-form-note">{partial}</p>}
+        </div>
       </div>
     </form>
   );
@@ -148,6 +160,12 @@ export interface MrActionsState {
   /** Open or draft: the review actions, Edit and draft ⇄ ready apply. */
   live: boolean;
   approvedByMe: boolean;
+  /** The tab's review session has a review pending on this MR/PR: "3 pending" (`pendingLabel`). */
+  pending: string | null;
+  /** Bumped by `toReview`: the pending review panel scrolls into view and takes the keyboard. */
+  reviewAsk: number;
+  /** To the review: the pending review panel while one is pending, else the composer (Review…). */
+  toReview(): void;
   /** Arms in place; approves on the second click. */
   approve(): void;
   /** The ⋯ menu's rows. */
@@ -163,6 +181,14 @@ export function useMrActions(tabId: string, kind: ForgeKind, mr: ForgeMr, detail
   const live = mr.state === 'open' || mr.state === 'draft';
   const ref = mrRef(kind, mr.number);
   const approvedByMe = me !== null && (detail?.mr.review.reviews ?? []).some((r) => r.user.username === me && r.state === 'approved');
+  const session = useReview(tabId);
+  const pending = isPending(session) && session.number === mr.number ? pendingLabel(session) : null;
+  const [reviewAsk, setReviewAsk] = useState(0);
+  const toReview = () => {
+    if (pending === null) return setMode(mode === 'review' ? 'none' : 'review');
+    setMode('review');
+    setReviewAsk((n) => n + 1);
+  };
   const approve = async () => {
     const origin = currentOrigin();
     if (!(await confirmAction({ title: `Approve ${ref}?`, confirmLabel: 'Approve', arm: 'Click again to approve', tone: 'positive' }, origin))) return;
@@ -190,13 +216,14 @@ export function useMrActions(tabId: string, kind: ForgeKind, mr: ForgeMr, detail
   ];
   // Ctrl+Shift+A (`keyActions.ts`), while the button would take a click.
   useLend('mr.approve', tabId, live && !approvedByMe && busy === null ? () => void approve() : null);
-  return { mode, setMode, editFocus, busy, live, approvedByMe, approve: () => void approve(), rows };
+  return { mode, setMode, editFocus, busy, live, approvedByMe, pending, reviewAsk, toReview, approve: () => void approve(), rows };
 }
 
 /** Approve (a green check) and Review… (an orange bubble with a caret): small icon buttons at the
  * top right of the APPROVALS box, for open and draft MRs/PRs only. Approve arms in place first;
  * Review… opens the review composer (Comment, Approve, Request changes): it prompts rather than
- * acts, so its caret, as every card button that opens something. */
+ * acts, so its caret, as every card button that opens something. With a review pending, Review…
+ * goes to the pending review panel (open under the header) instead. */
 export function ReviewButtons({ kind, mr, actions: a }: { kind: ForgeKind; mr: ForgeMr; actions: MrActionsState }) {
   if (!a.live) return null;
   const ref = mrRef(kind, mr.number);
@@ -208,7 +235,7 @@ export function ReviewButtons({ kind, mr, actions: a }: { kind: ForgeKind; mr: F
         </button>
       </HoverTooltip>
       <HoverTooltip content={`Review ${ref}: comment, approve or request changes`}>
-        <button type="button" className="card-btn changes prompts" aria-label="Review…" aria-haspopup="dialog" aria-expanded={a.mode === 'review'} disabled={a.busy !== null} onClick={() => a.setMode(a.mode === 'review' ? 'none' : 'review')}>
+        <button type="button" className="card-btn changes prompts" aria-label="Review…" aria-haspopup="dialog" aria-expanded={a.mode === 'review' || a.pending !== null} disabled={a.busy !== null} onClick={a.toReview}>
           <MessageSquareWarning size={13} aria-hidden /><ChevronDown className="card-caret" size={9} aria-hidden />
         </button>
       </HoverTooltip>
@@ -230,12 +257,20 @@ export function StatusActions({ actions: a, children }: { actions: MrActionsStat
   );
 }
 
-/** The Request changes composer or the Edit form, under the header. */
+/** The Edit form, or the review composer, under the header: in the pending review panel while a
+ * review is pending on this MR/PR (open, even merged or closed under it), else as Review… opens it.
+ * The composer keeps its place in the tree either way: a send that empties the review (the panel
+ * goes) leaves it mounted, for a part-way answer to show (`onSend` holds it in review mode). */
 export function MrForms({ tabId, kind, mr, detail, actions: a }: { tabId: string; kind: ForgeKind; mr: ForgeMr; detail: ForgeMrDetail | null; actions: MrActionsState }) {
-  if (!a.live) return null;
-  if (a.mode === 'review') return <ReviewComposer tabId={tabId} kind={kind} number={mr.number} onDone={() => a.setMode('none')} />;
-  if (a.mode === 'edit') return <EditMr tabId={tabId} mr={mr} detail={detail} focus={a.editFocus} onDone={() => a.setMode('none')} />;
-  return null;
+  const s = useReview(tabId);
+  const session = isPending(s) && s.number === mr.number ? s : null;
+  if (a.live && a.mode === 'edit') return <EditMr tabId={tabId} mr={mr} detail={detail} focus={a.editFocus} onDone={() => a.setMode('none')} />;
+  if (!session && !(a.live && a.mode === 'review')) return null;
+  return (
+    <PendingReview tabId={tabId} kind={kind} mr={mr} session={session} ask={a.reviewAsk}>
+      <ReviewComposer tabId={tabId} kind={kind} number={mr.number} keep={session !== null} onSend={() => a.setMode('review')} onDone={() => a.setMode('none')} />
+    </PendingReview>
+  );
 }
 
 // Shown in the Keyboard Shortcuts panel (Ctrl+/); metadata only.

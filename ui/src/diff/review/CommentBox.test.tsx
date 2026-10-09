@@ -13,6 +13,7 @@ const { setOrigin } = await import('../../ui/arm/origin');
 const { armClock, press } = await import('../../ui/arm/armTesting');
 const { useReplyDrafts } = await import('../../forge/mrview/drafts');
 const { preloadMarkdown } = await import('../../markdown/lazy');
+const { ReviewNewText, textLines } = await import('./newText');
 
 beforeAll(() => preloadMarkdown(), 60_000);
 
@@ -127,6 +128,28 @@ describe('the comment box (spec 2026-10-08 §2)', () => {
     expect(preview.closest('[data-owns-escape]')).not.toBeNull();
     fireEvent.keyDown(preview, { key: 'Escape' });
     expect(overlay()).toHaveTextContent('Click again to discard the comment');
+  });
+
+  it("Preview shows a suggestion as a diff of the lines it replaces: the commented ones, or with the diff's text, the lines around them", async () => {
+    const marked = () => [...document.querySelectorAll('.md-suggestion .md-code-line')].map((l) => `${l.classList.contains('md-code-del') ? '-' : l.classList.contains('md-code-add') ? '+' : ' '}${l.textContent}`);
+    const { field } = renderBox();
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest change' }));
+    expect(field).toHaveValue('```suggestion:-1+0\nReadme\nSecond line\n```');
+    fireEvent.change(field, { target: { value: '```suggestion:-1+0\nReadme\nSecond line, edited\n```' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    await waitFor(() => expect(marked()).toEqual([' Readme', '-Second line', '+Second line, edited']));
+    // The preview grows to show it whole, not held at the textarea's height.
+    expect(screen.getByRole('tabpanel', { name: 'Comment preview' }).closest('.md-field')).toHaveAttribute('data-grow');
+    // Past the commented lines, only the diff's text knows them.
+    fireEvent.click(screen.getByRole('tab', { name: 'Write' }));
+    fireEvent.change(field, { target: { value: '```suggestion:-1+1\nReadme\n```' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    await waitFor(() => expect(marked()).toEqual(['+Readme']));
+    // The same draft, in a box over the diff's text.
+    cleanup();
+    render(<ReviewNewText value={textLines('Readme\nSecond line\nThird line')}><CommentBox tabId="t" anchor={anchor} suggestion={'Readme\nSecond line'} onDone={vi.fn()} onCancel={vi.fn()} /></ReviewNewText>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    await waitFor(() => expect(marked()).toEqual([' Readme', '-Second line', '-Third line']));
   });
 
   it('without drafts (a GitLab before 16.3), Add to review says why; a stale Compare blocks both sends', () => {

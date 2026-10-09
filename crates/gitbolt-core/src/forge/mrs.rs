@@ -464,6 +464,20 @@ impl ForgeHub {
     }
     // --- end auto-merge ---
 
+    // --- branch update ---
+    /// Brings MR `number`'s source branch up to date with its target on the forge (GitLab's
+    /// Rebase, GitHub's Update branch). No stack guard: its dependents keep their target branch.
+    pub async fn update_branch(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, how: BranchUpdate, expected_sha: Option<String>) -> Result<ForgeMr, GbError> {
+        let t = self.mr_target(store, remotes).await?;
+        let r = t.provider.update_branch(&t.project, number, how, expected_sha.as_deref()).await;
+        self.record(&t.key, &r);
+        if r.is_ok() {
+            self.wrote(&t);
+        }
+        r
+    }
+    // --- end branch update ---
+
     pub async fn edit_mr(&self, store: &Arc<SettingsStore>, remotes: &[RemotePayload], number: u64, edit: MrEdit) -> Result<ForgeMr, GbError> {
         if edit.title.as_deref().is_some_and(|t| t.trim().is_empty()) {
             return Err(refuse("The title can't be empty"));
@@ -915,7 +929,7 @@ mod tests {
     async fn the_list_details_and_discussions_come_from_the_target_project() {
         let (p, hub, store, remotes) = setup().await;
         p.mrs.lock().unwrap().extend([mr(12, "group/project", "dev", MrState::Open), mr(5, "group/project", "x", MrState::Draft)]);
-        let detail = ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: "d".into(), reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None };
+        let detail = ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: "d".into(), reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None, update: None };
         p.details.lock().unwrap().insert(12, detail.clone());
         let list = hub.mr_list(&store, &remotes, MrFilter::Mine).await.unwrap();
         assert_eq!((list.filter, list.remote.as_str(), list.mrs.len(), list.fetched_at), (MrFilter::Mine, "origin", 2, 9));
@@ -966,5 +980,21 @@ mod tests {
             assert!(calls.iter().any(|x| x == c), "{c} in {calls:?}");
         }
         assert!(!calls.iter().any(|c| c.starts_with("open_mrs_targeting") || c.starts_with("retarget")), "no stack guard: nothing merges now");
+    }
+
+    #[tokio::test]
+    async fn a_branch_update_reaches_the_targets_provider_with_its_kind_and_head() {
+        let (p, hub, store, remotes) = setup().await;
+        p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
+        let out = hub.update_branch(&store, &remotes, 12, BranchUpdate::RebaseSkipCi, Some("abc".into())).await.unwrap();
+        assert_eq!(out.head_sha.as_deref(), Some("updated"));
+        hub.update_branch(&store, &remotes, 12, BranchUpdate::Merge, None).await.unwrap();
+        let calls = p.calls();
+        for c in ["update_branch 12 RebaseSkipCi Some(\"abc\")", "update_branch 12 Merge None"] {
+            assert!(calls.iter().any(|x| x == c), "{c} in {calls:?}");
+        }
+        // The forge's refusal comes back as it said it, and the account stays fine.
+        assert_eq!(hub.update_branch(&store, &remotes, 99, BranchUpdate::Rebase, None).await.unwrap_err().kind, GbErrorKind::NotFound);
+        assert!(matches!(hub.accounts(&store)[0].status, crate::forge::accounts::AccountStatus::Ok));
     }
 }

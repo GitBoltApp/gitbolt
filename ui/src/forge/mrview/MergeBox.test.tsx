@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeProjectSettings } from '../../api/gen/ForgeProjectSettings';
 
-const api = vi.hoisted(() => ({ forgeMerge: vi.fn(), forgeSetAutoMerge: vi.fn(), forgeCancelAutoMerge: vi.fn(), forgeProjectSettings: vi.fn() }));
+const api = vi.hoisted(() => ({ forgeMerge: vi.fn(), forgeSetAutoMerge: vi.fn(), forgeCancelAutoMerge: vi.fn(), forgeProjectSettings: vi.fn(), forgeUpdateBranch: vi.fn() }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e) }));
 vi.mock('../usePolling', () => ({ notifyForgeWrite: vi.fn() }));
+const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}) }));
+vi.mock('../poll', () => poll);
 const confirm = vi.hoisted(() => ({ confirmAction: vi.fn(async () => true) }));
 vi.mock('../../ui/ConfirmDialog', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../ui/ConfirmDialog')>()), confirmAction: confirm.confirmAction }));
 
@@ -275,5 +277,87 @@ describe('auto-merge (merge when all checks pass)', () => {
     expect(title()).toBe('Merging…');
     expect(primary()).toBeDisabled();
     expect(screen.queryByRole('switch')).toBeNull();
+  });
+});
+
+describe("the source branch's update: GitLab's Rebase, GitHub's Update branch", () => {
+  const behind = (kind: 'gitlab' | 'github', over: { behind?: number | null; inProgress?: boolean } = {}) =>
+    detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'Rebase the source branch first' }, update: { behind: kind === 'gitlab' ? 3 : null, kinds: kind === 'gitlab' ? ['rebase', 'rebaseSkipCi'] : ['merge', 'rebase'], inProgress: false, ...over } });
+  const note = () => document.querySelector('.mr-merge-update-note');
+  const row = () => document.querySelector('.mr-merge-update');
+
+  it('GitLab: offered with how far behind, Rebase first and Rebase without pipeline; not offered when up to date', async () => {
+    const { unmount } = show('gitlab', behind('gitlab'));
+    await loaded();
+    expect(note()).toHaveTextContent('The source branch is 3 commits behind main');
+    const buttons = [...row()!.querySelectorAll('button')];
+    expect(buttons.map((b) => b.textContent)).toEqual(['RebaseRebasing…', 'Rebase without pipelineRebasing…']);
+    expect(screen.getByRole('button', { name: 'Rebase' })).toHaveClass('primary');
+    expect(screen.getByRole('button', { name: 'Rebase without pipeline' })).not.toHaveClass('primary');
+    unmount();
+    const second = show('gitlab', behind('gitlab', { behind: null }));
+    expect(note()).toHaveTextContent('The source branch is behind main');
+    second.unmount();
+    show('gitlab', detailOf(mr));
+    expect(row()).toBeNull();
+  });
+
+  it('GitHub: Update branch, then Update with rebase, with its out-of-date line', async () => {
+    show('github', behind('github'));
+    await loaded();
+    expect(note()).toHaveTextContent('This branch is out of date with main');
+    expect([...row()!.querySelectorAll('button')].map((b) => b.querySelector('span > span:not([aria-hidden])')?.textContent)).toEqual(['Merge main in', 'Rebase onto main']);
+  });
+
+  it('runs without arming: Rebasing… in the clicked button (as wide as before), the reason line says so, Merge waits; then the MR is read again', async () => {
+    let finish: (v: unknown) => void = () => {};
+    api.forgeUpdateBranch.mockImplementation(() => new Promise((r) => { finish = r; }));
+    show('gitlab', behind('gitlab'));
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: 'Rebase without pipeline' }));
+    expect(confirm.confirmAction).not.toHaveBeenCalled();
+    expect(api.forgeUpdateBranch).toHaveBeenCalledWith(4, 12, 'rebaseSkipCi', mr.headSha);
+    expect(note()).toHaveTextContent('GitLab is rebasing the source branch onto main');
+    const busy = screen.getByRole('button', { name: 'Rebasing…' });
+    expect(busy).toBeDisabled();
+    // Both labels stay in the button (one hidden): its width doesn't change.
+    expect(busy.textContent).toBe('Rebase without pipelineRebasing…');
+    expect(screen.getByRole('button', { name: 'Rebase' })).toBeDisabled();
+    expect(primary()).toBeDisabled();
+    await act(async () => finish(mrOf(12, { headSha: 'b'.repeat(40) })));
+    await waitFor(() => expect(useToast.getState().message).toBe('Rebased !12 onto main'));
+    expect(poll.refreshMr).toHaveBeenCalledWith('t', 12);
+    expect(forgeOf('t').details[12]?.value.mr.headSha).toBe('b'.repeat(40));
+    expect(screen.getByRole('button', { name: 'Rebase' })).toBeEnabled();
+  });
+
+  it("a failure says the forge's reason in place, not in a toast, and it can be tried again", async () => {
+    api.forgeUpdateBranch.mockRejectedValueOnce({ message: "GitLab couldn't rebase !12: Rebase failed. Please rebase locally" });
+    show('gitlab', behind('gitlab'));
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: 'Rebase' }));
+    await waitFor(() => expect(note()).toHaveTextContent("GitLab couldn't rebase !12: Rebase failed. Please rebase locally"));
+    expect(note()).toHaveClass('bad');
+    expect(useToast.getState().message).toBeNull();
+    expect(screen.getByRole('button', { name: 'Rebase' })).toBeEnabled();
+  });
+
+  it('a rebase GitLab is already running shows as running, with nothing to click', async () => {
+    show('gitlab', behind('gitlab', { inProgress: true }));
+    await loaded();
+    expect(note()).toHaveTextContent('GitLab is rebasing the source branch onto main');
+    expect(screen.getByRole('button', { name: 'Rebasing…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Rebase without pipeline' })).toBeDisabled();
+  });
+
+  it('Ctrl+Alt+U runs the first: Rebase on GitLab', async () => {
+    const { EMPTY_PROFILE, useAppState } = await import('../../app/state');
+    const { lentHandler } = await import('../../app/lent');
+    useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
+    api.forgeUpdateBranch.mockResolvedValue(mrOf(12));
+    show('gitlab', behind('gitlab'));
+    await loaded();
+    act(() => lentHandler('mr.updateBranch')?.());
+    expect(api.forgeUpdateBranch).toHaveBeenCalledWith(4, 12, 'rebase', mr.headSha);
   });
 });

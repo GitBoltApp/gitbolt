@@ -61,6 +61,13 @@ const DERIVED_TOKENS = [
   // Tab groups' nine colours and the ink on them (tabs/tabs.css): brighter on a dark theme,
   // deeper on a light one, the same across the themes of a kind.
   'tg-ink', 'tg-blue', 'tg-purple', 'tg-cyan', 'tg-orange', 'tg-yellow', 'tg-pink', 'tg-green', 'tg-gray', 'tg-red',
+  // The MR/PR view's filled buttons (forge/mrview): the blue one under --text-on-accent, and the
+  // orange one (Request changes) under its own ink; each fill deepened (or lightened) as far as
+  // its text needs to read at 4.5:1 (WCAG AA).
+  'button-primary', 'button-warn', 'button-warn-ink',
+  // The top bar's review chip (forge/review/review.css): its yellow tint, and the yellow its text
+  // and icon take on it, made to read at 4.5:1 there.
+  'review-pending', 'review-pending-bg',
 ] as const;
 
 /** Every colour custom property a theme sets on :root. */
@@ -91,6 +98,51 @@ export const SHIKI_BUNDLED_THEMES = ['dark-plus', 'light-plus', 'monokai', 'drac
 /** A tick drawn on `fill`: white, or the theme's darkest ground, whichever contrasts more. */
 function tickOn(fill: string, ground: string): string {
   return contrastRatio('#ffffff', fill) >= contrastRatio(ground, fill) ? '#ffffff' : ground;
+}
+
+const isLight = (c: string) => contrastRatio(c, '#000000') > contrastRatio(c, '#ffffff');
+
+/** `hex` taken toward black (`dark`) or white, in 2% steps, until `reads` says it reads at 4.5:1. */
+function stepUntil(hex: string, dark: boolean, reads: (c: string) => boolean): string {
+  const n = parseInt(hex.slice(1), 16);
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const to = dark ? 0 : 255;
+  for (let t = 0; t <= 1; t += 0.02) {
+    const c = `#${rgb.map((v) => Math.round(v + (to - v) * t).toString(16).padStart(2, '0')).join('')}`;
+    if (reads(c)) return c;
+  }
+  return dark ? '#000000' : '#ffffff';
+}
+
+/** `fill` taken toward black (under a light `ink`) or white (a dark one) until `ink` reads on it
+ * at 4.5:1; `fill` itself when it already does. */
+export function buttonFill(fill: string, ink: string): string {
+  return stepUntil(fill, isLight(ink), (c) => contrastRatio(ink, c) >= 4.5);
+}
+
+/** Text in `fg` on `bg`: taken toward white (a dark `bg`) or black until it reads at 4.5:1. */
+export function readableOn(fg: string, bg: string): string {
+  return stepUntil(fg, isLight(bg), (c) => contrastRatio(c, bg) >= 4.5);
+}
+
+/** `#rrggbb` at alpha `a` over the opaque `bg`, as an opaque `#rrggbb`. */
+function over(hex: string, a: number, bg: string): string {
+  const p = (h: string) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const b = p(bg);
+  return `#${p(hex).map((v, i) => Math.round(v * a + b[i]! * (1 - a)).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** The top bar's review chip's tint: the theme's yellow, light. */
+const REVIEW_TINT = 0.14;
+
+/** The ink on a filled `fill`: the theme's --text-on-accent while it reads at 3:1 there (a small
+ * step of the fill then reaches 4.5:1), else the opposite one: white, or the theme's darkest. */
+function inkOn(fill: string, c: CoreColors): string {
+  const ink = c['text-on-accent'];
+  if (contrastRatio(ink, fill) >= 3) return ink;
+  const light = isLight(ink);
+  if (!light) return '#ffffff';
+  return contrastRatio(c['app-bg0'], '#ffffff') > contrastRatio(c['text-selected'], '#ffffff') ? c['app-bg0'] : c['text-selected'];
 }
 
 function alpha(hex: string, a: number): string {
@@ -178,6 +230,11 @@ function derive(c: CoreColors, kind: 'dark' | 'light'): DerivedColors {
     'switch-on': c.blue,
     'switch-off': alpha(fg, light ? 0.24 : 0.16),
     ...GROUP_COLORS[kind],
+    'button-primary': buttonFill(c.blue, c['text-on-accent']),
+    'button-warn': buttonFill(c.orange, inkOn(c.orange, c)),
+    'button-warn-ink': inkOn(c.orange, c),
+    'review-pending': readableOn(c.yellow, over(c.yellow, REVIEW_TINT, c['action-bar-bg'])),
+    'review-pending-bg': alpha(c.yellow, REVIEW_TINT),
   };
 }
 
@@ -217,6 +274,8 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       'forge-gitlab': '#e2432a', 'forge-github': '#6e5494', purple: '#a371f7',
       'switch-on': '#4d88ff', 'switch-off': 'rgba(255, 255, 255, 0.16)',
       ...GROUP_COLORS.dark,
+      'button-primary': '#4172d6', 'button-warn': '#de9b43', 'button-warn-ink': '#1c1e23',
+      'review-pending': '#ecb91c', 'review-pending-bg': 'rgba(236, 185, 28, 0.14)',
     },
     graph: ['#15a0bf', '#0669f7', '#8e00c2', '#c517b6', '#d90171', '#cd0101', '#f25d2e', '#f2ca33', '#7bd938', '#2ece9d'],
     // White initials on every lane, its yellow included (1C's look, kept as is).

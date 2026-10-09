@@ -707,6 +707,8 @@ class Host implements MonacoHost {
       // Input in a card is the user taking over, as in the editor (`attachDiff`).
       const drop = () => this.dropAnchor();
       for (const type of ['pointerdown', 'wheel', 'keydown'] as const) review.layer.addEventListener(type, drop, { capture: true, passive: true });
+      // A drag from a folded thread's icon picks lines, as one from the +.
+      review.pressIcon = (side, line, click) => this.reviewGutter?.press(side, line, click) ?? false;
       review.shown(this.diffModels.length ? this.diffPath : null, this.prefs.mode);
     }
     this.review.set(spec);
@@ -720,7 +722,12 @@ class Host implements MonacoHost {
       return;
     }
     if (!this.diff) return;
-    (this.reviewGutter ??= new ReviewGutter(this.diff)).set(spec);
+    if (!this.reviewGutter) {
+      this.reviewGutter = new ReviewGutter(this.diff);
+      // A folded thread's icon has its line: no + over it.
+      this.reviewGutter.occupied = (side, line) => this.review?.iconAt(side, line) ?? false;
+    }
+    this.reviewGutter.set(spec);
   }
 
   diffLines(): DiffLines | null {

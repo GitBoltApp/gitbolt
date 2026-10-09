@@ -99,6 +99,81 @@ async fn auto_merge_is_set_and_cancelled_through_the_api() {
 }
 // --- end auto-merge ---
 
+// --- branch update ---
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gitlab_mr_behind_its_target_is_rebased_through_the_api() {
+    let h = Harness::for_tests().await;
+    let mut seed = h.forge.current_seed();
+    let m = seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap();
+    (m.diverged_commits_count, m.merge_status) = (3, "need_rebase".into());
+    let failing = seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 5).unwrap();
+    failing.rebase_error = Some("Rebase failed: conflicts. Please rebase locally".into());
+    h.forge.seed(seed);
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": GITLAB_TOKEN}})).await.unwrap();
+    let r = repo_on("https://gitlab.example.com/group/project.git");
+    let id = open(&h.api, &r).await;
+
+    let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 12}})).await.unwrap();
+    assert_eq!(detail["value"]["update"], json!({"behind": 3, "kinds": ["rebase", "rebaseSkipCi"], "inProgress": false}));
+    let head = detail["value"]["mr"]["headSha"].clone();
+    let out = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 12, "how": "rebaseSkipCi", "expectedSha": head}})).await.unwrap();
+    assert_ne!(out["headSha"], head, "the rebased head");
+    // Asked while GitLab rebased it (in progress for one read), then done.
+    let looks = h.forge.requests().iter().filter(|q| q.method == "GET" && q.path.ends_with("/merge_requests/12") && q.query.contains("include_rebase_in_progress")).count();
+    assert_eq!(looks, 3, "the detail, then in progress, then done");
+    let m = h.forge.current_seed().gitlab.merge_requests.into_iter().find(|m| m.iid == 12).unwrap();
+    assert_eq!((m.rebases, m.rebase_skipped_ci, m.pipeline), (1, true, None), "without pipeline");
+    let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 12}})).await.unwrap();
+    assert_eq!(detail["value"].get("update"), None, "up to date");
+    assert_eq!(detail["value"]["mergeStatus"]["kind"], "mergeable");
+
+    // A rebase GitLab can't do: its merge_error, and nothing moved.
+    let e = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 5, "how": "rebase", "expectedSha": null}})).await.unwrap_err();
+    assert_eq!(e.message, "GitLab couldn't rebase !5: Rebase failed: conflicts. Please rebase locally");
+    // One the user can't push: GitLab's 403 in its words, and the account stays fine.
+    let mut seed = h.forge.current_seed();
+    seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 5).unwrap().rebase_forbidden = true;
+    h.forge.seed(seed);
+    let e = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 5, "how": "rebase", "expectedSha": null}})).await.unwrap_err();
+    assert_eq!(e.message, "GitLab can't rebase !5: Cannot push to source branch");
+    let accounts = call(&h.api, json!({"method": "forgeAccounts"})).await.unwrap();
+    assert_eq!(accounts[0]["status"]["kind"], "ok", "{accounts}");
+    assert!(!serde_json::to_string(&h.forge.requests()).unwrap().contains(GITLAB_TOKEN));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_github_pr_behind_its_base_is_updated_by_merge_or_rebase_through_the_api() {
+    let h = Harness::for_tests().await;
+    let behind = |h: &Harness| {
+        let mut seed = h.forge.current_seed();
+        seed.github.pulls.iter_mut().find(|p| p.number == 3).unwrap().mergeable_state = "behind".into();
+        h.forge.seed(seed);
+    };
+    behind(&h);
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "github.com", "kind": "github", "token": GITHUB_TOKEN}})).await.unwrap();
+    let r = repo_on("https://github.com/octo-org/widget.git");
+    let id = open(&h.api, &r).await;
+
+    let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 3}})).await.unwrap();
+    assert_eq!(detail["value"]["update"], json!({"behind": null, "kinds": ["merge", "rebase"], "inProgress": false}));
+    let head = detail["value"]["mr"]["headSha"].clone();
+    // A head that moved since: refused, in plain words.
+    let e = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 3, "how": "merge", "expectedSha": "f".repeat(40)}})).await.unwrap_err();
+    assert_eq!(e.message, "#3 changed since it was loaded: refresh and try again");
+    let out = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 3, "how": "merge", "expectedSha": head}})).await.unwrap();
+    assert_ne!(out["headSha"], head);
+    let pull = |h: &Harness| h.forge.current_seed().github.pulls.into_iter().find(|p| p.number == 3).unwrap();
+    assert_eq!(pull(&h).updated_with, "merge");
+    let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 3}})).await.unwrap();
+    assert_eq!(detail["value"].get("update"), None, "up to date");
+
+    behind(&h);
+    let out = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 3, "how": "rebase", "expectedSha": null}})).await.unwrap();
+    assert_eq!((pull(&h).updated_with.as_str(), out["headSha"].as_str()), ("rebase", Some(pull(&h).head_sha.as_str())));
+    assert!(!serde_json::to_string(&h.forge.requests()).unwrap().contains(GITHUB_TOKEN));
+}
+// --- end branch update ---
+
 // --- 4B final fix ---
 #[tokio::test(flavor = "multi_thread")]
 async fn a_full_github_poll_reads_each_prs_checks_once() {

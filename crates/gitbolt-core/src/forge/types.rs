@@ -413,7 +413,44 @@ pub struct ForgeMrDetail {
     #[ts(optional)]
     pub body_html: Option<String>,
     // --- end 5A T1 ---
+    // --- branch update ---
+    /// The source branch is behind its target and the forge can bring it up to date (GitLab's
+    /// Rebase, GitHub's Update branch); `None`: no update offered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub update: Option<BranchUpdateOffer>,
+    // --- end branch update ---
 }
+
+// --- branch update ---
+/// A forge-side update of an MR's source branch with its target: the forge rewrites the branch,
+/// not the repository (the local branch then lags its remote, as after anyone's push).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum BranchUpdate {
+    /// GitLab's Rebase, GitHub's Update with rebase.
+    Rebase,
+    /// GitLab's Rebase without pipeline (`skip_ci`).
+    RebaseSkipCi,
+    /// GitHub's Update branch: merges the base into the head.
+    Merge,
+}
+
+/// How the forge offers to update the source branch (`ForgeMrDetail::update`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct BranchUpdateOffer {
+    /// Commits the target has that the source branch doesn't (GitLab's
+    /// `diverged_commits_count`); `None`: the forge didn't count them (GitHub says only "behind").
+    pub behind: Option<u32>,
+    /// The kinds this forge offers, the primary first.
+    pub kinds: Vec<BranchUpdate>,
+    /// The forge is updating it now (GitLab's `rebase_in_progress`).
+    pub in_progress: bool,
+}
+// --- end branch update ---
 
 /// Where a diff-line note sits (spec #4 §2: shown in the thread with `file:line` and a snippet).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -539,6 +576,10 @@ pub struct ForgeDiscussion {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub resolved_by: Option<String>,
+    /// When it was resolved (Unix seconds), when the forge said (GitLab).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub resolved_at: Option<i64>,
     // --- end comment actions ---
 }
 

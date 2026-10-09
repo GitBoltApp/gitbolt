@@ -309,6 +309,15 @@ pub trait ForgeProvider: Send + Sync {
         unsupported("Auto-merge")
     }
     // --- end auto-merge ---
+    // --- branch update ---
+    /// Brings the source branch up to date with its target on the forge (`how`: one of the
+    /// detail's `update.kinds`), only while its head is still `expected_sha` where the forge can
+    /// check it. The forge does it in the background: this waits a while for it to finish, and
+    /// answers the MR as it is then (still updating, if it took longer: the detail says so).
+    fn update_branch<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _how: BranchUpdate, _expected_sha: Option<&'a str>) -> ForgeFuture<'a, ForgeMr> {
+        unsupported("Updating the branch")
+    }
+    // --- end branch update ---
     fn edit<'a>(&'a self, _project: &'a ForgeProject, _number: u64, _edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
         unsupported("Editing a merge request")
     }

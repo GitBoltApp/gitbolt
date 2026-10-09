@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { resolveColors } from './apply';
 import { contrastRatio } from './contrast';
-import { COLOR_TOKENS, DEFAULT_THEME_ID, isThemeId, SHIKI_BUNDLED_THEMES, THEME_IDS, THEMES } from './themes';
+import { buttonFill, COLOR_TOKENS, DEFAULT_THEME_ID, isThemeId, readableOn, SHIKI_BUNDLED_THEMES, THEME_IDS, THEMES } from './themes';
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -118,6 +118,36 @@ describe('themes', () => {
     for (const bg of ['app-bg0', 'panel-bg0', 'panel-bg1'] as const) expect(c['selection-bg'], bg).not.toBe(c[bg]);
   });
 
+  it.each(THEME_IDS)("%s MR view's filled buttons read at 4.5:1 (WCAG AA)", (id) => {
+    const c = THEMES[id].colors;
+    expect(contrastRatio(c['text-on-accent'], c['button-primary']), 'Comment, Approve').toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(c['button-warn-ink'], c['button-warn']), 'Request changes').toBeGreaterThanOrEqual(4.5);
+    // The theme's own blue and orange where they already read.
+    if (contrastRatio(c['text-on-accent'], c.blue) >= 4.5) expect(c['button-primary']).toBe(c.blue);
+    if (contrastRatio(c['button-warn-ink'], c.orange) >= 4.5) expect(c['button-warn']).toBe(c.orange);
+  });
+
+  it.each(THEME_IDS)("%s top bar's review chip: its yellow reads at 4.5:1 on its tint, unlike the branch picker's text", (id) => {
+    const c = THEMES[id].colors;
+    const [r, g, b, a] = c['review-pending-bg'].match(/[\d.]+/g)!.map(Number) as [number, number, number, number];
+    const n = parseInt(c['action-bar-bg'].slice(1), 16);
+    const tint = `#${[[r, (n >> 16) & 255], [g, (n >> 8) & 255], [b, n & 255]].map(([f, k]) => Math.round(f! * a + k! * (1 - a)).toString(16).padStart(2, '0')).join('')}`;
+    expect(contrastRatio(c['review-pending'], tint)).toBeGreaterThanOrEqual(4.5);
+    expect(c['review-pending']).not.toBe(c['text-selected']);
+  });
+
+  it('readableOn takes a colour toward the contrast it needs, and keeps one that reads', () => {
+    expect(contrastRatio(readableOn('#9a6700', '#e6e8ec'), '#e6e8ec')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(readableOn('#705000', '#33373f'), '#33373f')).toBeGreaterThanOrEqual(4.5);
+    expect(readableOn('#ecb91c', '#1c1e23')).toBe('#ecb91c');
+  });
+
+  it('buttonFill deepens a fill under white text, lightens one under dark text, and keeps one that reads', () => {
+    expect(contrastRatio('#ffffff', buttonFill('#de9b43', '#ffffff'))).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#1c1e23', buttonFill('#2a3a8a', '#1c1e23'))).toBeGreaterThanOrEqual(4.5);
+    expect(buttonFill('#2563eb', '#ffffff')).toBe('#2563eb');
+  });
+
   it.each(THEME_IDS)('%s lane colors stand out from the background', (id) => {
     // Default Dark's own darkest lane (#8e00c2) is 2.33:1, so 2:1 is the floor.
     for (const g of THEMES[id].graph) expect(contrastRatio(g, THEMES[id].colors['app-bg0'])).toBeGreaterThanOrEqual(2);
@@ -168,6 +198,8 @@ describe('themes', () => {
         'switch-on': '#4d88ff', 'switch-off': 'rgba(255, 255, 255, 0.16)',
         'tg-ink': '#14161a', 'tg-blue': '#5b9cff', 'tg-purple': '#b48cff', 'tg-cyan': '#3fc8d8', 'tg-orange': '#ff9e4a',
         'tg-yellow': '#f2c94c', 'tg-pink': '#ff7ab8', 'tg-green': '#5fd17f', 'tg-gray': '#a6aab1', 'tg-red': '#ff6b6b',
+        'button-primary': '#4172d6', 'button-warn': '#de9b43', 'button-warn-ink': '#1c1e23',
+        'review-pending': '#ecb91c', 'review-pending-bg': 'rgba(236, 185, 28, 0.14)',
       },
     });
   });

@@ -91,7 +91,7 @@ describe('the chip', () => {
     renderChip();
     fireEvent.click(screen.getByRole('button', { name: 'Review options' }));
     await act(async () => { menuRow('Discard pending review')!.run(); });
-    expect(confirm.confirmAction).toHaveBeenCalledWith(expect.objectContaining({ arm: 'Click again to discard 2 pending comments', danger: true }));
+    expect((confirm.confirmAction.mock.calls[0] as unknown[])[0]).toEqual(expect.objectContaining({ arm: 'Click again to discard 2 pending comments', danger: true }));
     expect(review.discardReview).toHaveBeenCalledWith('t');
     expect(useToast.getState().message).toBe('Discarded 2 pending comments on !12');
   });

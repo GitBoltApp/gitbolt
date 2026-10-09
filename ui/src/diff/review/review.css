@@ -17,10 +17,24 @@
 .review-error { margin: 0; color: var(--red); overflow-wrap: anywhere; }
 /* The MR view's thread, inside the card: the card is its frame. */
 .review-thread .mr-discussion { border: 0; background: none; }
+/* The card has its own padding: the thread inside it adds none at the sides, so the card's chevron,
+   the comments and the replies row's chevron share one left edge. */
+.review-thread .mr-discussion > * { padding-left: 0; padding-right: 0; }
+.review-thread .review-toggle { margin-left: -2px; }
 .review-box .md-field .md-field-body > textarea { min-height: 4.5em; }
 /* Unavailable but hoverable (its tooltip says why): Suggest change on the old side. */
 .review-box button.mr-button:not(.primary)[aria-disabled="true"] { color: var(--text-disabled); cursor: default; }
 .review-box button.mr-button:not(.primary)[aria-disabled="true"]:hover { background: var(--control-bg); }
+/* A folded thread in the glyph margin (as GitLab's): its author's avatar, a line high, with a check
+ * on a resolved thread and a count when several fold at the line. Monaco sizes and places the node. */
+.review-gutter-keys { display: contents; }
+.review-gutter-thread { all: unset; position: relative; box-sizing: border-box; display: grid; place-items: center; width: 100%; height: 100%; cursor: pointer; }
+.review-gutter-thread > .avatar { box-shadow: 0 0 0 1px var(--section-border); }
+.review-gutter-thread:hover > .avatar, .review-gutter-thread:focus-visible > .avatar { box-shadow: 0 0 0 2px var(--focus-outline); }
+.review-gutter-thread:focus-visible { outline: none; }
+.review-gutter-check, .review-gutter-count { position: absolute; display: grid; place-items: center; box-sizing: border-box; border-radius: 2em; border: 1px solid var(--app-bg0); font: 700 8px/1 var(--font-ui); pointer-events: none; }
+.review-gutter-check { right: -2px; bottom: -1px; width: 10px; height: 10px; background: var(--green); color: var(--text-on-accent); }
+.review-gutter-count { right: -3px; top: -2px; min-width: 11px; height: 11px; padding: 0 2px; background: var(--blue); color: var(--text-on-accent); }
 /* Over the editor's top edge (the body is positioned), clear of the find widget at its top right:
  * one appearing (a poll can bring it) moves no line. */
 .diff-banner.review-banner { position: absolute; z-index: 2; top: 6px; left: 12px; max-width: max(200px, calc(100% - 470px)); box-sizing: border-box; display: flex; align-items: center; gap: 8px; border: 1px solid var(--section-border); border-radius: 6px; background: color-mix(in srgb, var(--yellow) 18%, var(--panel-bg1)); box-shadow: 0 1px 4px var(--shadow-popup); }

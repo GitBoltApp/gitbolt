@@ -1,4 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { useState } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { preloadMarkdown } from './lazy';
@@ -26,6 +29,30 @@ describe('MarkdownField (spec #5 §3.2)', () => {
     expect(screen.getByRole('tabpanel', { name: 'Write a comment preview' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Write' }));
     expect(screen.getByRole('textbox', { name: 'Write a comment' })).toHaveValue('## Hi\n\nthere');
+  });
+
+  it("growPreview: Preview takes the textarea's place, from its height up (60vh, then it scrolls); Write has the textarea back as it was", () => {
+    render(<MarkdownField label="Comment" value={'```suggestion\na\n```'} onChange={() => {}} flavor="github" context={ctx} growPreview />);
+    const area = screen.getByRole('textbox', { name: 'Comment' });
+    area.style.height = '150px';
+    Object.defineProperty(area, 'offsetHeight', { configurable: true, value: 150 });
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    const pane = screen.getByRole('tabpanel', { name: 'Comment preview' });
+    expect(pane.closest('.md-field')).toHaveAttribute('data-grow');
+    expect(pane).toHaveStyle({ minHeight: '150px' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Write' }));
+    expect(screen.getByRole('textbox', { name: 'Comment' })).toBe(area);
+    expect(area.style.height).toBe('150px');
+    // jsdom doesn't load CSS: the rules that do it.
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'field.css'), 'utf8');
+    expect(css).toContain('.md-field[data-grow][data-mode="preview"] .md-field-body > textarea { display: none; }');
+    expect(css).toContain('.md-field[data-grow] .md-field-preview { position: static; max-height: 60vh; }');
+  });
+
+  it('without growPreview, the preview lies over the textarea at its size', () => {
+    render(<Field initial="text" />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    expect(screen.getByRole('tabpanel', { name: 'Write a comment preview' }).getAttribute('style')).toBeNull();
   });
 
   it('says when there is nothing to preview', () => {

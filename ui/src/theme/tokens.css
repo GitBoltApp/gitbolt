@@ -195,5 +195,16 @@ body { background: var(--app-bg0); color: var(--text-normal); font: 13px/1.4 var
   --tg-red: #ff6b6b;
 }
 
+/* ---- The MR/PR view's filled buttons (forge/mrview; themes.ts derives each theme's): the blue
+   and the orange, as deep as their text needs to read at 4.5:1. ---- */
+:root {
+  --button-primary: #4172d6;
+  --button-warn: #de9b43;
+  --button-warn-ink: #1c1e23;
+  /* The top bar's review chip (forge/review/review.css): its tint, and its text and icon. */
+  --review-pending: #ecb91c;
+  --review-pending-bg: rgba(236, 185, 28, 0.14);
+}
+
 /* Controls are not text: no selecting button labels, toggles, tabs, menu items or checkbox labels. */
 button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="switch"], [role="radio"], label, summary, .icon-button { user-select: none; -webkit-user-select: none; }

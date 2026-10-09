@@ -6,13 +6,12 @@ import { useLend } from '../../app/lent';
 import { useRepoContext } from '../../app/repoContext';
 import { openMenuAt } from '../../menu/menuStore';
 import type { MenuRow } from '../../menu/types';
-import { confirmAction } from '../../ui/ConfirmDialog';
 import { HoverTooltip } from '../../ui/HoverTooltip';
-import { useToast } from '../../ui/toastStore';
 import { forgeName, mrRef } from '../labels';
 import { forgeOf, knownMr, useForge, type ReviewSession } from '../mrStore';
 import { loadMrDetail, openMrView } from '../poll';
-import { discardReview, useReview } from './session';
+import { discardPending, isPending, pendingLabel, pendingText } from './pending';
+import { useReview } from './session';
 import './review.css';
 
 const SubmitPopover = lazy(() => import('./SubmitPopover'));
@@ -28,7 +27,7 @@ export interface ChipView { name: string; value: string; tooltip: string; proble
  */
 export function chipView(kind: ForgeKind, s: ReviewSession, mr: ForgeMr | null): ChipView {
   const ref = mrRef(kind, s.number);
-  const pending = s.drafts.length > 0 ? `${s.drafts.length} pending` : 'review pending';
+  const pending = pendingLabel(s);
   const state = mr?.state;
   const ended = s.closed && (state === 'merged' || state === 'closed') ? state : null;
   const value = `${ref}${ended ? ` ${ended}` : ''} · ${pending}`;
@@ -36,9 +35,6 @@ export function chipView(kind: ForgeKind, s: ReviewSession, mr: ForgeMr | null):
     : s.error ? `Couldn't read your pending review: ${s.error}` : null;
   return { name: `Reviewing ${value}`, value, tooltip: problem ?? `Back to ${ref}'s changes and your pending review`, problem };
 }
-
-/** What's pending, for the confirm and the toast. */
-const pendingText = (n: number) => (n === 0 ? 'your pending review' : n === 1 ? '1 pending comment' : `${n} pending comments`);
 
 /** Back to the review: the MR/PR view, then its Compare (which picks the session up again).
  * Compare's code (and review mode's, which it preloads) loads here, not with the app: the chip is
@@ -65,7 +61,7 @@ export function ReviewChip() {
   const kind = useForge((st) => st.byTab[tabId]?.kind ?? null);
   const mr = useForge((st) => { const f = st.byTab[tabId]; return f && s ? knownMr(f, s.number) : null; });
   const chip = useRef<HTMLButtonElement>(null);
-  const shown = !!s && !!kind && (s.drafts.length > 0 || s.pendingReview !== null);
+  const shown = isPending(s) && !!kind;
   // The MR it was opened for: it stays open while needed, even once nothing is pending.
   // `fromMenu`: focus comes back to the chip when it closes (the menu it came from is gone); from
   // the key, the popover's own focus trap gives it back to where it was.
@@ -93,12 +89,7 @@ export function ReviewChip() {
   const view = chipView(kind, s, mr);
   const ref = mrRef(kind, s.number);
   const what = pendingText(s.drafts.length);
-  const discard = async () => {
-    if (!(await confirmAction({ title: `Discard ${what} on ${ref}?`, arm: `Click again to discard ${what}`, confirmLabel: 'Discard', danger: true }))) return;
-    const out = await discardReview(tabId);
-    if (out.ok) useToast.getState().show(`Discarded ${what} on ${ref}`);
-    else useToast.getState().show(`Couldn't discard the review: ${out.error}`, { error: true });
-  };
+  const discard = () => discardPending(tabId, kind, s);
   const rows = (): MenuRow[] => [
     { kind: 'action', id: 'review.submitMenu', label: 'Submit review…', icon: Send, tooltip: `Send ${what} on ${ref} as one review: Comment, Approve or Request changes`, run: () => openSubmit(true) },
     { kind: 'action', id: 'review.discard', label: 'Discard pending review', icon: Trash2, tooltip: `Delete ${what} on ${ref} from ${forgeName(kind)}`, run: () => void discard() },

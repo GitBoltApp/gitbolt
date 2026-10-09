@@ -191,7 +191,9 @@ function lineWords(a: string, b: string, deadline: number): { old: string; neu: 
 export function codeLines(old: string, neu: string, deadline = Infinity): { value: string; marks: string; words?: string } {
   const lines: string[] = [];
   let marks = '';
-  for (const c of inTime(diffLines(lf(old), lf(neu), { timeout: left(deadline) }))) {
+  // Each side's last line ends like the others: a line added after it keeps it in common.
+  const ended = (s: string) => (s === '' ? s : `${lf(s)}\n`);
+  for (const c of inTime(diffLines(ended(old), ended(neu), { timeout: left(deadline) }))) {
     if (c.value === '') continue;
     const part = c.value.replace(/\n$/, '').split('\n');
     lines.push(...part);

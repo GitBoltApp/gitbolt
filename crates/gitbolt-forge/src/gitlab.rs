@@ -352,8 +352,30 @@ pub mod json {
             base_sha: text(&v["diff_refs"]["base_sha"]),
             subscribed: v["subscribed"].as_bool(),
             body_html: None,
+            update: None,
         })
     }
+
+    // --- branch update ---
+    /// Rebase, offered while it's open and its source branch is behind the target
+    /// (`diverged_commits_count`, asked with `include_diverged_commits_count`; or `need_rebase`),
+    /// and while GitLab rebases it (`rebase_in_progress`). A fork's branch only when the token's
+    /// user (`me`) may push to it: its author, or anyone when it allows collaboration. The MR's
+    /// own project, or `me` unknown: offered, and GitLab's 403 says why not.
+    pub fn update_offer(v: &Value, me: Option<u64>) -> Option<BranchUpdateOffer> {
+        if v["state"].as_str() != Some("opened") {
+            return None;
+        }
+        let behind = v["diverged_commits_count"].as_u64().filter(|n| *n > 0).map(|n| n as u32);
+        let in_progress = v["rebase_in_progress"].as_bool() == Some(true);
+        if behind.is_none() && v["detailed_merge_status"].as_str() != Some("need_rebase") && !in_progress {
+            return None;
+        }
+        let fork = v["source_project_id"].as_u64() != v["target_project_id"].as_u64();
+        let may_push = !fork || v["allow_collaboration"].as_bool() == Some(true) || me.is_none_or(|me| v["author"]["id"].as_u64() == Some(me));
+        may_push.then(|| BranchUpdateOffer { behind, kinds: vec![BranchUpdate::Rebase, BranchUpdate::RebaseSkipCi], in_progress })
+    }
+    // --- end branch update ---
 
     // --- MR round 2 ---
     /// The project's people limits from GraphQL's `allowsMultipleReviewers` /
@@ -452,6 +474,7 @@ pub mod json {
             resolvable: first["resolvable"].as_bool().unwrap_or(false),
             resolved,
             resolved_by,
+            resolved_at: raw.iter().find_map(|n| n["resolved_at"].as_str().and_then(parse_rfc3339)).filter(|_| resolved),
         })
     }
 
@@ -1038,6 +1061,38 @@ pub fn cancel_refused(number: u64, e: GbError) -> GbError {
 }
 // --- end auto-merge ---
 
+// --- branch update ---
+/// GitLab's refusals of a rebase (its docs, below), said plainly and never as a token problem:
+/// a 403 is about the branch, not the token, so the account stays fine.
+pub fn rebase_refused(number: u64, e: GbError) -> GbError {
+    if crate::http::is_forbidden(&e) {
+        let said = e.message.split_once(crate::http::REFUSED).map_or("", |(_, s)| s);
+        let said = said.trim_start_matches("403 Forbidden").trim_start_matches([' ', '-']);
+        let said = if said.is_empty() { "the token's user can't push to its source branch" } else { said };
+        return GbError::new(GbErrorKind::InvalidInput, format!("GitLab can't rebase !{number}: {said}"));
+    }
+    if e.message.contains("HTTP 409") || (e.kind == GbErrorKind::InvalidInput && e.message.contains("enqueue")) {
+        return GbError::new(GbErrorKind::InvalidInput, format!("GitLab couldn't start rebasing !{number}: try again in a moment"));
+    }
+    e
+}
+
+/// The rebase failed: GitLab's `merge_error`, once it's no longer in progress, while the head is
+/// still the one it started from (`expected_sha`, when known: an older `merge_error` stays set
+/// after a later rebase or push moved the head).
+pub fn rebase_failed(number: u64, v: &Value, expected_sha: Option<&str>) -> Option<GbError> {
+    if v["rebase_in_progress"].as_bool() == Some(true) {
+        return None;
+    }
+    let said = v["merge_error"].as_str().map(str::trim).filter(|m| !m.is_empty())?;
+    if expected_sha.is_some_and(|sha| v["sha"].as_str() != Some(sha)) {
+        return None;
+    }
+    let said: String = gitbolt_core::redact::redact(said).chars().take(200).collect();
+    Some(GbError::new(GbErrorKind::InvalidInput, format!("GitLab couldn't rebase !{number}: {said}")))
+}
+// --- end branch update ---
+
 impl GitLabProvider {
     /// An MR JSON the forge answered a write with, normalized.
     async fn mr_from(&self, project: &ForgeProject, v: &Value) -> Result<ForgeMr, GbError> {
@@ -1364,7 +1419,8 @@ impl ForgeProvider for GitLabProvider {
     fn mr_detail<'a>(&'a self, project: &'a ForgeProject, number: u64) -> ForgeFuture<'a, Fresh<ForgeMrDetail>> {
         Box::pin(async move {
             let url = Self::mr_url(project, number);
-            let r = self.http.get(&url).await?;
+            // --- branch update: how far behind its target, and whether GitLab is rebasing it ---
+            let r = self.http.get(&format!("{url}?include_diverged_commits_count=true&include_rebase_in_progress=true")).await?;
             let v: Value = r.json(&self.host)?;
             let source = self.source_of(project, &v).await;
             // Every tier has `/approvals`; a 404 (an old GitLab) is "no approvals".
@@ -1374,6 +1430,10 @@ impl ForgeProvider for GitLabProvider {
                 Err(e) => return Err(e),
             };
             let mut d = json::detail(&v, &project.path, &source, approvals.as_ref()).ok_or_else(|| unreadable(&self.host, "merge request"))?;
+            // --- branch update: a fork's branch is pushed to by its author (asked only then) ---
+            let fork = v["source_project_id"].as_u64() != v["target_project_id"].as_u64();
+            let me = if fork { self.me().await.ok().map(|u| u.id) } else { None };
+            d.update = json::update_offer(&v, me);
             // A single MR's GET has label names only (`with_labels_details` is for the lists).
             self.fill_label_colors(project, &mut d.mr).await;
             self.names.learn_detail(&d);
@@ -1540,6 +1600,43 @@ impl ForgeProvider for GitLabProvider {
         })
     }
     // --- end auto-merge ---
+
+    // --- branch update ---
+    /// GitLab's rebase of the source branch onto the target
+    /// (https://docs.gitlab.com/api/merge_requests/#rebase-a-merge-request): `PUT …/rebase` answers
+    /// 202 once queued, 403 when the user can't push to the source branch (or it's protected from
+    /// force pushes, or gone), 409 when GitLab couldn't queue it. `skip_ci` (GitLab 12.6 and
+    /// later; an older one ignores it) skips the rebased head's pipeline. It's asynchronous: the
+    /// MR, asked `include_rebase_in_progress`, says `rebase_in_progress` until it's done, then
+    /// `merge_error` if it failed. GitLab's rebase takes no expected head: `expected_sha` only
+    /// tells an old `merge_error` from this rebase's.
+    fn update_branch<'a>(&'a self, project: &'a ForgeProject, number: u64, how: BranchUpdate, expected_sha: Option<&'a str>) -> ForgeFuture<'a, ForgeMr> {
+        Box::pin(async move {
+            let skip_ci = match how {
+                BranchUpdate::Rebase => false,
+                BranchUpdate::RebaseSkipCi => true,
+                BranchUpdate::Merge => return Err(GbError::new(GbErrorKind::InvalidInput, "GitLab updates a source branch by rebasing it")),
+            };
+            let url = Self::mr_url(project, number);
+            let body = if skip_ci { json!({ "skip_ci": true }) } else { json!({}) };
+            self.http.send_json(Method::Put, &format!("{url}/rebase"), &body).await.map_err(|e| rebase_refused(number, e))?;
+            let mut v = Value::Null;
+            for ms in crate::time::BRANCH_UPDATE_POLLS_MS {
+                tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                // Each look asks GitLab: not an answer the client kept a moment ago.
+                self.http.expire_fresh();
+                v = self.http.get(&format!("{url}?include_rebase_in_progress=true")).await?.json(&self.host)?;
+                if v["rebase_in_progress"].as_bool() != Some(true) {
+                    break;
+                }
+            }
+            if let Some(e) = rebase_failed(number, &v, expected_sha) {
+                return Err(e);
+            }
+            self.mr_from(project, &v).await
+        })
+    }
+    // --- end branch update ---
 
     /// A draft keeps its prefix: a new title for it is sent as `Draft: <title>` (Review Focus 5).
     fn edit<'a>(&'a self, project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
@@ -2141,7 +2238,9 @@ mod tests {
         assert_eq!(p.resolve(&project, 12, "d2", true).await.unwrap(), ThreadState { resolved: true, resolved_by: Some("Ada".into()) });
         assert_eq!(lines(&s), ["put /api/v4/projects/1/merge_requests/12/discussions/d2?resolved=true"]);
         let open = json::discussion(&json!({"id": "d3", "notes": [{"id": 1, "body": "b", "author": {"id": 8, "username": "grace", "name": "Grace"}, "resolvable": true, "resolved": false, "resolved_by": null}]})).unwrap();
-        assert_eq!((open.resolvable, open.resolved, open.resolved_by), (true, false, None));
+        assert_eq!((open.resolvable, open.resolved, open.resolved_by, open.resolved_at), (true, false, None, None));
+        let done = json::discussion(&json!({"id": "d4", "notes": [{"id": 2, "body": "b", "author": {"id": 8, "username": "grace", "name": "Grace"}, "resolvable": true, "resolved": true, "resolved_by": {"id": 7, "username": "ada", "name": "Ada"}, "resolved_at": "2026-10-04T12:00:00Z"}]})).unwrap();
+        assert_eq!((done.resolved_by.as_deref(), done.resolved_at), (Some("Ada"), Some(1_791_115_200)));
     }
     // --- end comment actions ---
 
@@ -2363,4 +2462,98 @@ mod tests {
         assert_eq!(p.delete_draft(&project, 12, "5/../x").await.unwrap_err().kind, gitbolt_core::error::GbErrorKind::InvalidInput);
     }
     // --- end review comments ---
+
+    // --- branch update ---
+    fn mr_json(extra: serde_json::Value) -> serde_json::Value {
+        let mut v = json!({"iid": 12, "title": "Dev work", "state": "opened", "author": {"id": 8, "username": "grace", "name": "Grace"}, "source_branch": "dev", "target_branch": "main", "sha": "a".repeat(40), "source_project_id": 1, "target_project_id": 1, "web_url": ""});
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    }
+
+    #[test]
+    fn a_rebase_is_offered_while_open_and_behind_and_pushable() {
+        let rebase = vec![BranchUpdate::Rebase, BranchUpdate::RebaseSkipCi];
+        let offer = |extra, me| json::update_offer(&mr_json(extra), me);
+        assert_eq!(offer(json!({"diverged_commits_count": 3}), None), Some(BranchUpdateOffer { behind: Some(3), kinds: rebase.clone(), in_progress: false }));
+        // A fast-forward project says so without a count (an older GitLab has none).
+        assert_eq!(offer(json!({"detailed_merge_status": "need_rebase"}), None).map(|o| o.behind), Some(None));
+        assert_eq!(offer(json!({"diverged_commits_count": 3, "rebase_in_progress": true}), None).map(|o| o.in_progress), Some(true));
+        assert_eq!(offer(json!({"diverged_commits_count": 0}), None), None, "up to date");
+        assert_eq!(offer(json!({"diverged_commits_count": 3, "state": "merged"}), None), None);
+        // A fork's branch: its author pushes to it, others only when it allows collaboration.
+        let fork = |extra: serde_json::Value| { let mut e = json!({"diverged_commits_count": 2, "source_project_id": 5}); e.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone()); e };
+        assert_eq!(offer(fork(json!({})), Some(7)), None);
+        assert!(offer(fork(json!({})), Some(8)).is_some(), "the author's own fork");
+        assert!(offer(fork(json!({"allow_collaboration": true})), Some(7)).is_some());
+        assert!(offer(fork(json!({})), None).is_some(), "who the user is isn't known: GitLab's 403 says");
+    }
+
+    #[test]
+    fn rebase_refusals_and_failures_are_said_plainly() {
+        use gitbolt_core::error::{GbError, GbErrorKind};
+        let forbidden = crate::http::status_error("gitlab.example.com", 403, br#"{"message": "403 Forbidden - Cannot push to source branch"}"#);
+        let e = super::rebase_refused(12, forbidden);
+        assert_eq!((e.kind, e.message.as_str()), (GbErrorKind::InvalidInput, "GitLab can't rebase !12: Cannot push to source branch"));
+        let e = super::rebase_refused(12, crate::http::status_error("gitlab.example.com", 409, br#"{"message": "Failed to enqueue the rebase operation, possibly due to a long-lived transaction. Try again later."}"#));
+        assert_eq!(e.message, "GitLab couldn't start rebasing !12: try again in a moment");
+        let other = GbError::other("boom");
+        assert_eq!(super::rebase_refused(12, other.clone()).message, other.message);
+        let head = "a".repeat(40);
+        let failed = mr_json(json!({"rebase_in_progress": false, "merge_error": "Rebase failed. Please rebase locally"}));
+        assert_eq!(super::rebase_failed(12, &failed, Some(&head)).unwrap().message, "GitLab couldn't rebase !12: Rebase failed. Please rebase locally");
+        assert!(super::rebase_failed(12, &failed, Some("b")).is_none(), "the head moved: an older merge error");
+        assert!(super::rebase_failed(12, &mr_json(json!({"rebase_in_progress": true, "merge_error": "x"})), None).is_none());
+        assert!(super::rebase_failed(12, &mr_json(json!({"merge_error": null})), None).is_none());
+    }
+
+    /// A GitLab whose MR 12 rebases: the PUT's answer `put`, then `rebasing` reads in progress,
+    /// then the MR `done`.
+    fn served_rebase(put: (u16, &'static str), rebasing: usize, done: serde_json::Value) -> (crate::test_server::TestServer, super::GitLabProvider, ForgeProject) {
+        use crate::test_server::Canned;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let reads = AtomicUsize::new(0);
+        let (busy, done) = (mr_json(json!({"rebase_in_progress": true})).to_string(), done.to_string());
+        served_review(move |line| {
+            if line.starts_with("put /api/v4/projects/1/merge_requests/12/rebase ") {
+                Canned::json(put.0, put.1)
+            } else if line.starts_with("get /api/v4/projects/1/merge_requests/12?include_rebase_in_progress=true ") {
+                Canned::json(200, if reads.fetch_add(1, Ordering::SeqCst) < rebasing { &busy } else { &done })
+            } else {
+                Canned::json(404, r#"{"message": "404 Not found"}"#)
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn a_rebase_is_queued_then_asked_after_until_gitlab_is_done() {
+        let moved = mr_json(json!({"sha": "b".repeat(40), "rebase_in_progress": false, "merge_error": null}));
+        let (s, p, project) = served_rebase((202, r#"{"rebase_in_progress": true}"#), 1, moved);
+        let mr = p.update_branch(&project, 12, BranchUpdate::RebaseSkipCi, Some(&"a".repeat(40))).await.unwrap();
+        assert_eq!(mr.head_sha, Some("b".repeat(40)));
+        let get = "get /api/v4/projects/1/merge_requests/12?include_rebase_in_progress=true";
+        assert_eq!(lines(&s), ["put /api/v4/projects/1/merge_requests/12/rebase", get, get]);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&s.bodies.lock().unwrap()[0]).unwrap(), json!({"skip_ci": true}));
+        // A plain rebase runs the pipeline: no skip_ci.
+        let (s, p, project) = served_rebase((202, "{}"), 0, mr_json(json!({"sha": "b".repeat(40)})));
+        p.update_branch(&project, 12, BranchUpdate::Rebase, None).await.unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&s.bodies.lock().unwrap()[0]).unwrap(), json!({}));
+    }
+
+    #[tokio::test]
+    async fn a_failed_or_refused_rebase_says_gitlabs_reason() {
+        let failed = mr_json(json!({"rebase_in_progress": false, "merge_error": "Rebase failed: conflicts. Please rebase locally"}));
+        let (_s, p, project) = served_rebase((202, "{}"), 0, failed);
+        let e = p.update_branch(&project, 12, BranchUpdate::Rebase, Some(&"a".repeat(40))).await.unwrap_err();
+        assert_eq!(e.message, "GitLab couldn't rebase !12: Rebase failed: conflicts. Please rebase locally");
+        let (s, p, project) = served_rebase((403, r#"{"message": "403 Forbidden - Source branch is protected from force push"}"#), 0, json!({}));
+        let e = p.update_branch(&project, 12, BranchUpdate::Rebase, None).await.unwrap_err();
+        assert_eq!((e.kind, e.message.as_str()), (gitbolt_core::error::GbErrorKind::InvalidInput, "GitLab can't rebase !12: Source branch is protected from force push"));
+        assert!(!e.message.contains("glpat"), "never the token");
+        assert_eq!(lines(&s).len(), 1, "refused: nothing to wait for");
+        // GitLab has no merge update.
+        assert_eq!(p.update_branch(&project, 12, BranchUpdate::Merge, None).await.unwrap_err().kind, gitbolt_core::error::GbErrorKind::InvalidInput);
+    }
+    // --- end branch update ---
 }

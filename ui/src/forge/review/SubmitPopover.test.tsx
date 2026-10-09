@@ -40,7 +40,7 @@ beforeEach(() => {
 
 const onClose = vi.fn();
 const open = () => render(<SubmitPopover tabId="t" kind="gitlab" number={12} anchor={null} onClose={onClose} />);
-const listed = () => within(screen.getByRole('region', { name: 'Not on a line in this diff' }));
+const listed = () => within(screen.getByRole('region', { name: 'Pending comments' }));
 
 describe('Submit review…: the pending comments on no line of the diff (spec 2026-10-08 §4)', () => {
   it('lists them above the composer, the outdated one marked; the chip counts them with the placed one', async () => {
@@ -51,7 +51,7 @@ describe('Submit review…: the pending comments on no line of the diff (spec 20
     expect(listed().getAllByRole('article', { name: 'Pending comment' })).toHaveLength(2);
     expect(listed().getAllByText('Outdated')).toHaveLength(1);
     // The region comes before the composer.
-    const region = screen.getByRole('region', { name: 'Not on a line in this diff' });
+    const region = screen.getByRole('region', { name: 'Pending comments' });
     expect(region.compareDocumentPosition(screen.getByRole('form', { name: 'Review' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(chipView('gitlab', useForge.getState().byTab.t!.review!, null).value).toBe('!12 · 3 pending');
   });
@@ -59,7 +59,7 @@ describe('Submit review…: the pending comments on no line of the diff (spec 20
   it('none: no list', () => {
     patchForge('t', (f) => ({ review: { ...f.review!, drafts: [DRAFTS[0]!] } }));
     open();
-    expect(screen.queryByRole('region', { name: 'Not on a line in this diff' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Pending comments' })).toBeNull();
   });
 
   it('one edits in place: Esc leaves the edit and keeps the popover; Mod+Enter saves it; the composer takes Mod+Enter too', async () => {

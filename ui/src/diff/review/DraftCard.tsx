@@ -1,5 +1,5 @@
 import { Pencil, Trash2 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReviewDraft } from '../../api/gen/ReviewDraft';
 import { escOwners } from '../../app/modalKeys';
 import { clearDraft, draftKey, setDraft, useReplyDrafts } from '../../forge/mrview/drafts';
@@ -7,11 +7,13 @@ import { deleteDraft, editDraft, useReview } from '../../forge/review/session';
 import { Markdown } from '../../markdown/lazy';
 import { MR_BODY_MAX_BYTES } from '../../markdown/limits';
 import { MarkdownField } from '../../markdown/MarkdownField';
+import { MdSuggestionBase, positionBase } from '../../markdown/suggestion';
 import { registerKeyHints } from '../../shortcuts/hints';
 import { currentOrigin } from '../../ui/arm/origin';
 import { confirmAction } from '../../ui/ConfirmDialog';
 import { HoverTooltip } from '../../ui/HoverTooltip';
 import { useCardFocus } from './cardFocus';
+import { ReviewNewText } from './newText';
 import './review.css';
 
 /**
@@ -24,6 +26,9 @@ export function DraftCard({ tabId, draft, outdated, onGone }: { tabId: string; d
   const review = useReview(tabId);
   const kind = review?.kind ?? 'gitlab';
   const context = useMemo(() => ({ kind: 'forge', tabId }) as const, [tabId]);
+  // What a suggestion in it replaces: the diff's lines at its own.
+  const newText = useContext(ReviewNewText);
+  const base = useMemo(() => (newText ? positionBase(kind, draft.position, newText) : null), [kind, draft.position, newText]);
   /** The edit's text; null while not editing. In the MR view's reply drafts, so an edit outlives
    * the card being laid out again (a tab shown again). */
   const key = draftKey(tabId, review?.number ?? -1, `review-draft:${draft.id}`);
@@ -86,33 +91,35 @@ export function DraftCard({ tabId, draft, outdated, onGone }: { tabId: string; d
           </>
         )}
       </div>
-      {text === null
-        ? <div className="mr-note-body"><Markdown text={draft.body} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} /></div>
-        : (
-          <form ref={form} className="mr-reply" aria-label="Edit pending comment" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-            <MarkdownField
-              label="Edit pending comment"
-              value={text}
-              onChange={setText}
-              flavor={kind}
-              context={context}
-              autoFocus={started}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault();
-                  void save();
-                } else if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
-                  e.preventDefault();
-                  setText(null);
-                }
-              }}
-            />
-            <div className="mr-form-row">
-              <button type="button" className="mr-button" onClick={() => setText(null)}>Cancel</button>
-              <button type="submit" className="mr-button primary" disabled={!changed || busy}>Save</button>
-            </div>
-          </form>
-        )}
+      <MdSuggestionBase value={base}>
+        {text === null
+          ? <div className="mr-note-body"><Markdown text={draft.body} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} /></div>
+          : (
+            <form ref={form} className="mr-reply" aria-label="Edit pending comment" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+              <MarkdownField
+                label="Edit pending comment"
+                value={text}
+                onChange={setText}
+                flavor={kind}
+                context={context}
+                autoFocus={started}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    void save();
+                  } else if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+                    e.preventDefault();
+                    setText(null);
+                  }
+                }}
+              />
+              <div className="mr-form-row">
+                <button type="button" className="mr-button" onClick={() => setText(null)}>Cancel</button>
+                <button type="submit" className="mr-button primary" disabled={!changed || busy}>Save</button>
+              </div>
+            </form>
+          )}
+      </MdSuggestionBase>
       {error && <p role="alert" className="review-error">{error}</p>}
     </article>
   );

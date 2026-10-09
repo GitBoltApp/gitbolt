@@ -183,3 +183,43 @@ describe("review mode's gutter (spec 2026-10-08 §2)", () => {
     expect(modified.widget().hidden).toBe(true);
   });
 });
+
+describe("the gutter beside a folded thread's icon", () => {
+  it('no + on a line with an icon: the icon has it', () => {
+    const { gutter, modified } = setup();
+    gutter.occupied = (side, line) => side === 'modified' && line === 9;
+    modified.fire('move', move(2, 9));
+    expect(modified.widget().hidden).toBe(true);
+    modified.fire('move', move(2, 3));
+    expect(modified.widget().hidden).toBe(false);
+  });
+
+  it("a press on the icon released on its line is the icon's click; dragged off it, it picks the lines as from the +", () => {
+    const { gutter, modified, onPick } = setup();
+    const click = vi.fn();
+    expect(gutter.press('modified', 1, click)).toBe(true);
+    // Not a drag yet: nothing highlighted.
+    expect(modified.decorations).toEqual([]);
+    fireEvent.mouseUp(window);
+    expect([click.mock.calls.length, onPick.mock.calls.length]).toEqual([1, 0]);
+    gutter.press('modified', 1, click);
+    modified.target.mockReturnValue({ type: 6, position: { lineNumber: 3 } });
+    fireEvent.mouseMove(window, { clientX: 10, clientY: 60 });
+    expect(modified.decorations).toEqual(drag(1, 3));
+    fireEvent.mouseUp(window);
+    expect(onPick).toHaveBeenCalledWith('modified', 1, 3);
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("on a line that takes no comment, the press is only ever a click; with no review there's no press", () => {
+    const { gutter, modified, onPick } = setup();
+    const click = vi.fn();
+    gutter.press('modified', 7, click);
+    modified.target.mockReturnValue({ type: 6, position: { lineNumber: 9 } });
+    fireEvent.mouseMove(window, { clientX: 10, clientY: 60 });
+    fireEvent.mouseUp(window);
+    expect([click.mock.calls.length, onPick.mock.calls.length]).toEqual([1, 0]);
+    gutter.set(null);
+    expect(gutter.press('modified', 1, click)).toBe(false);
+  });
+});

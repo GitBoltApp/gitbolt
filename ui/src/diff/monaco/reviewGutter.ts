@@ -15,8 +15,10 @@ export interface ReviewGutterSpec extends GutterLines {
 }
 
 /** A drag from the +: the side its lines are on, the editor it started in (`edSide`; Inline's old
- * lines are in the modified editor's deleted-lines zones), and its lines so far. */
-interface Drag { side: Side; ed: Editor; edSide: Side; from: number; to: number }
+ * lines are in the modified editor's deleted-lines zones), and its lines so far. `click`: a press
+ * on a folded thread's icon, run when it ends on its own line; `fixed`: its line takes no
+ * comment, so it never becomes a drag. */
+interface Drag { side: Side; ed: Editor; edSide: Side; from: number; to: number; click?: () => void; fixed?: boolean }
 
 /**
  * The comment "+" (spec 2026-10-08 §2): a square in the glyph margin on the hovered line that
@@ -46,6 +48,22 @@ export class ReviewGutter {
     if (spec) return;
     this.end(false);
     for (const h of this.hides) h();
+  }
+
+  /** Whether `edSide`'s editor shows a folded thread's icon at `line`: the icon has the line, so
+   * no + shows there (`ReviewZones.iconAt`). */
+  occupied: ((edSide: Side, line: number) => boolean) | null = null;
+
+  /** A press on a folded thread's icon at `line` of `edSide`'s editor: dragged off its line, it
+   * picks lines as a drag from the + does (on a line that takes a comment); released on it, it's
+   * the icon's click. False while there's no review. */
+  press(edSide: Side, line: number, click: () => void): boolean {
+    const spec = this.spec;
+    if (!spec) return false;
+    const ed = edSide === 'original' ? this.diff.getOriginalEditor() : this.diff.getModifiedEditor();
+    const fixed = !(edSide === 'original' ? spec.old : spec.new).has(line);
+    this.start({ side: edSide, ed, edSide, from: line, to: line, click, fixed });
+    return true;
   }
 
   /** Gone from the editor: its + (the overlay widgets) and its listeners. The host makes a new one
@@ -106,7 +124,7 @@ export class ReviewGutter {
         // Mid-drag the + stays where the drag started; over the button itself, it stays too.
         if (this.drag || e.target.type === T.OVERLAY_WIDGET) return;
         const hit = this.spec ? gutterHit(this.diff, edSide, ed, e, this.spec) : null;
-        if (!hit) hide();
+        if (!hit || (hit.side === edSide && this.occupied?.(edSide, hit.line))) hide();
         else if (!at || hit.line !== at.line || hit.side !== at.side || btn.hidden) show(hit);
       }),
       ed.onMouseLeave((e) => {
@@ -128,7 +146,7 @@ export class ReviewGutter {
     this.paint();
     const move = (e: MouseEvent) => {
       const n = this.lineAt(e.clientX, e.clientY);
-      if (n === null || !this.drag || n === this.drag.to) return;
+      if (n === null || !this.drag || this.drag.fixed || n === this.drag.to) return;
       this.drag.to = n;
       this.paint();
     };
@@ -157,7 +175,9 @@ export class ReviewGutter {
     this.release = null;
     this.marks.original.clear();
     this.marks.modified.clear();
-    if (pick) this.spec?.onPick(d.side, d.from, d.to);
+    if (!pick) return;
+    if (d.click && d.from === d.to) d.click();
+    else this.spec?.onPick(d.side, d.from, d.to);
   }
 
   /** The line of the drag's side under the pointer: a line of its own editor, or (an old line in
@@ -176,6 +196,8 @@ export class ReviewGutter {
   private paint(): void {
     const d = this.drag;
     if (!d || d.side !== d.edSide) return;
+    // A press on an icon is a click until it leaves the line.
+    if (d.click && d.from === d.to) return void this.marks[d.side].clear();
     const [lo, hi] = d.from <= d.to ? [d.from, d.to] : [d.to, d.from];
     this.marks[d.side].set([{ range: { startLineNumber: lo, startColumn: 1, endLineNumber: hi, endColumn: 1 }, options: { isWholeLine: true, className: 'review-drag', marginClassName: 'review-drag' } }]);
   }

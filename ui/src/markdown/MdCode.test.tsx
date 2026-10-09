@@ -10,7 +10,8 @@ vi.mock('./highlightQueue', () => ({
 const copy = vi.hoisted(() => ({ copyText: vi.fn(async () => {}) }));
 vi.mock('../api/transport', async (orig) => ({ ...(await orig<typeof import('../api/transport')>()), ...copy }));
 
-const { MdCode } = await import('./MdCode');
+const { MdCode, MdSuggestion } = await import('./MdCode');
+const { linesBase, MdSuggestionBase } = await import('./suggestion');
 const { useTheme } = await import('../theme/store');
 const { useToast } = await import('../ui/toastStore');
 
@@ -64,6 +65,26 @@ describe('MdCode (spec #5 §3.1)', () => {
     const { container } = render(<MdCode code={'a = 1\na = 2\nkept'} lang={null} marks="-+ " words="4-5;4-5,9-99;" />);
     expect([...container.querySelectorAll('.md-code-word-del, .md-code-word-add')].map((e) => e.textContent)).toEqual(['1', '2']);
     expect(container.querySelector('code')).toHaveTextContent('a = 1a = 2kept');
+  });
+
+  it("highlights a suggestion's diff in the commented file's language, keeping its tints and word marks, with a -/+ column", async () => {
+    shiki.highlightCode.mockImplementation(async (code: string) => ({ lines: code.split('\n').map((l) => [{ content: l, color: '#9cdcfe' }]) }));
+    const base = linesBase('gitlab', 'src/cart.ts', 1, 1, () => ['  return sum;']);
+    const { container } = render(<MdSuggestionBase value={base}><MdSuggestion code="  return sum - discount;" lang="suggestion:-0+0" /></MdSuggestionBase>);
+    await waitFor(() => expect(shiki.highlightCode).toHaveBeenCalledWith('  return sum;\n  return sum - discount;', 'typescript'));
+    await waitFor(() => expect(container.querySelector('.md-code-add .md-code-word-add')).toHaveStyle({ color: '#9cdcfe' }));
+    expect(container.querySelector('.md-code-add .md-code-word-add')).toHaveTextContent('- discount');
+    expect(container.querySelector('pre')).toHaveClass('md-code-signs');
+    expect([...container.querySelectorAll('.md-code-line')].map((l) => l.className)).toEqual(['md-code-line md-code-del', 'md-code-line md-code-add']);
+  });
+
+  it('keeps a suggestion plain for a file in no known language; other code has no -/+ column', async () => {
+    shiki.highlightCode.mockResolvedValue(null);
+    const base = linesBase('github', 'notes/LICENSE', 1, 1, () => ['a']);
+    const { container } = render(<><MdSuggestionBase value={base}><MdSuggestion code="b" lang="suggestion" /></MdSuggestionBase><MdCode code="x" lang={null} marks="+" /></>);
+    await act(async () => { await import('../diff/language'); });
+    expect(shiki.highlightCode).not.toHaveBeenCalled();
+    expect([...container.querySelectorAll('pre')].map((p) => p.classList.contains('md-code-signs'))).toEqual([true, false]);
   });
 
   it('copies the code with the Copy button', async () => {

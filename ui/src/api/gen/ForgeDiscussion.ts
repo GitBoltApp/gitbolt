@@ -5,4 +5,8 @@ export type ForgeDiscussion = { id: string, notes: Array<ForgeNote>, resolvable:
 /**
  * Who resolved it (a display name or login), when the forge said.
  */
-resolvedBy?: string, };
+resolvedBy?: string, 
+/**
+ * When it was resolved (Unix seconds), when the forge said (GitLab).
+ */
+resolvedAt?: number, };

@@ -14,9 +14,10 @@ import { notifyForgeWrite } from '../usePolling';
 /**
  * One forge write from the MR/PR view (spec #4 §3.5: a remote action, not journaled). It works:
  * the tab's poller polls at once, and the caller puts the answer in the store. It fails: a toast
- * says why, and nothing in the store changes (§6: no optimistic UI).
+ * says why (or `inPlace` does, where the action was), and nothing in the store changes (§6: no
+ * optimistic UI).
  */
-export async function forgeWrite<T>(tabId: string, failure: string, send: (repo: number) => Promise<T>): Promise<{ value: T } | null> {
+export async function forgeWrite<T>(tabId: string, failure: string, send: (repo: number) => Promise<T>, inPlace?: (message: string) => void): Promise<{ value: T } | null> {
   const repo = useRuntime.getState().tabs[tabId]?.repo?.id;
   if (repo === undefined) return null;
   try {
@@ -34,7 +35,8 @@ export async function forgeWrite<T>(tabId: string, failure: string, send: (repo:
       useToast.getState().show(errorMessage(e), { error: true });
       return null;
     }
-    useToast.getState().show(`${failure}: ${errorMessage(e)}`, { error: true });
+    if (inPlace) inPlace(errorMessage(e));
+    else useToast.getState().show(`${failure}: ${errorMessage(e)}`, { error: true });
     return null;
   }
 }

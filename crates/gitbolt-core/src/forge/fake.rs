@@ -243,6 +243,10 @@ impl ForgeProvider for FakeProvider {
         self.call(format!("cancel_auto_merge {number}"));
         Box::pin(async move { self.change(number, |m| m.auto_merge = None) })
     }
+    fn update_branch<'a>(&'a self, _project: &'a ForgeProject, number: u64, how: BranchUpdate, expected_sha: Option<&'a str>) -> ForgeFuture<'a, ForgeMr> {
+        self.call(format!("update_branch {number} {how:?} {expected_sha:?}"));
+        Box::pin(async move { self.change(number, |m| m.head_sha = Some("updated".into())) })
+    }
     fn edit<'a>(&'a self, _project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {
         self.call(format!("edit {number} {:?}", edit.title));
         if let Some(e) = self.edit_error.lock().unwrap().take() {
@@ -368,7 +372,7 @@ impl ForgeProvider for FakeProvider {
     }
     fn comment_now<'a>(&'a self, _project: &'a ForgeProject, number: u64, c: &'a NewReviewComment) -> ForgeFuture<'a, ForgeDiscussion> {
         self.call(format!("comment_now {number} {}:{} {}", c.anchor.path, c.anchor.end.number(), c.body));
-        Box::pin(async move { Ok(ForgeDiscussion { id: "d-now".into(), notes: vec![], resolvable: true, resolved: false, resolved_by: None }) })
+        Box::pin(async move { Ok(ForgeDiscussion { id: "d-now".into(), notes: vec![], resolvable: true, resolved: false, resolved_by: None, resolved_at: None }) })
     }
     // --- end review comments ---
 }
@@ -629,7 +633,7 @@ impl ForgeProvider for StackFake {
         let found = self.mrs.lock().unwrap().iter().find(|(m, _)| m.number == number).cloned();
         Box::pin(async move {
             let (mr, description) = found.ok_or_else(|| self.missing(number))?;
-            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None }, 1))
+            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None, update: None }, 1))
         })
     }
     fn edit<'a>(&'a self, _project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {

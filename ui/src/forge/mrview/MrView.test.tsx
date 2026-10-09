@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 
@@ -13,6 +13,7 @@ const { MrView } = await import('./MrView');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
 const { detailOf, mrOf, projectOf, user } = await import('../testMrs');
 const { useRuntime } = await import('../../app/runtime');
+const { useThreadFolds } = await import('./noteActionsStore');
 
 const grace = user('Grace Hopper');
 const mr = mrOf(12, { title: 'Dev work', pipeline: { status: 'success', webUrl: 'https://gitlab.example.com/p/-/pipelines/1' }, labels: ['backend'] });
@@ -31,6 +32,7 @@ beforeAll(async () => { await import('../../markdown/Markdown'); });
 beforeEach(() => {
   vi.clearAllMocks();
   useForge.setState({ byTab: {} });
+  useThreadFolds.setState({ open: {} });
   useRuntime.setState({ tabs: { t: { repo: { id: 4 } } as never } });
   patchForge('t', { kind: 'gitlab', remote: 'origin', details: { 12: { value: detail, at: 1 } }, discussions: { 12: threads } });
 });
@@ -189,11 +191,31 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     const activity = screen.getByRole('region', { name: 'Activity' });
     expect(within(activity).getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['Thread by Grace Hopper', 'Thread by Grace Hopper']);
     expect(activity).toHaveTextContent('Looks good overall.');
-    expect(activity).toHaveTextContent('+Second line');
-    expect(within(activity).getByRole('button', { name: 'Unresolve thread' })).toHaveAttribute('aria-pressed', 'true');
     expect(activity).toHaveTextContent('Grace Hopper added 1 commit');
+    // The resolved diff thread is rolled up; its file:line still opens the file.
+    expect(activity).toHaveTextContent('Grace Hopper started a thread on README.md:1-2');
+    expect(activity).not.toHaveTextContent('+Second line');
     fireEvent.click(within(activity).getByRole('button', { name: 'README.md:1-2' }));
     expect(note.openNoteFile).toHaveBeenCalledWith('t', 'gitlab', expect.objectContaining({ number: 12 }), expect.objectContaining({ path: 'README.md', line: 2 }));
+    fireEvent.click(within(activity).getByRole('button', { name: 'Show the resolved thread' }));
+    expect(activity).toHaveTextContent('+Second line');
+    expect(within(activity).getByRole('button', { name: 'Unresolve thread' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it("shows a diff note's suggestion as a diff of the lines it replaces, from the thread's snippet; past what the snippet has, only the lines it puts in", async () => {
+    const at = (id: string, body: string, snippet: string) => ({ id, resolvable: true, resolved: false, notes: [{ id: `n${id}`, author: grace, body, createdAt: 1_791_100_300, system: false, position: { path: 'src/app.ts', oldPath: null, line: 7, oldLine: null, snippet, startLine: 5, startOldLine: 5 } }] });
+    // A range note's snippet: its lines from the first, a removed one among them.
+    const range = ' let a = 1;\n-let b = 2;\n+let b = 3;\n+let c = 4;';
+    patchForge('t', { discussions: { 12: [
+      at('s1', '```suggestion:-2+0\nlet a = 1;\nlet b = 30;\nlet c = 4;\n```', range),
+      at('s2', '```suggestion:-5+0\nlet z = 0;\n```', range),
+    ] } });
+    show();
+    const activity = screen.getByRole('region', { name: 'Activity' });
+    await waitFor(() => expect(activity.querySelectorAll('.md-suggestion')).toHaveLength(2));
+    const [one, two] = [...activity.querySelectorAll('.md-suggestion')].map((b) => [...b.querySelectorAll('.md-code-line')].map((l) => `${l.classList.contains('md-code-del') ? '-' : l.classList.contains('md-code-add') ? '+' : ' '}${l.textContent}`));
+    expect(one).toEqual([' let a = 1;', '-let b = 3;', '+let b = 30;', ' let c = 4;']);
+    expect(two).toEqual(['+let z = 0;']);
   });
 
   it('has the tabs Activity, Comments and Diff notes, with counts on the last two', () => {
@@ -279,6 +301,53 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     expect(article).toHaveTextContent('Last reply by Ada Lovelace');
     fireEvent.click(within(article).getByRole('button', { name: '1 reply' }));
     expect(article.querySelector('.mr-thread-sys')).not.toBeNull();
+  });
+
+  it('a resolved thread rolls up whole, as GitLab: who started it where, who resolved it when, its replies; the chevron unrolls it and rolls it back', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const d: ForgeDiscussion = { ...threads[1]!, resolved: true, resolvedBy: 'Ada Lovelace', resolvedAt: now - 120, notes: [
+      threads[1]!.notes[0]!,
+      { id: '3', author: user('Ada Lovelace'), body: 'Fixed it.', createdAt: 1_791_136_100, system: false, position: null },
+    ] };
+    const open: ForgeDiscussion = { ...threads[0]!, resolvable: true, resolved: false };
+    patchForge('t', { discussions: { 12: [d, open] } });
+    show();
+    const [unresolved, rolled] = screen.getAllByRole('article');
+    expect(rolled).toHaveTextContent('Grace Hopper started a thread on README.md:1-2');
+    expect(rolled).toHaveTextContent('Resolved 2 minutes ago by Ada Lovelace');
+    expect(rolled).toHaveTextContent('Last reply by Ada Lovelace');
+    // The first comment's body and snippet are rolled up too.
+    expect(rolled).not.toHaveTextContent('Second line');
+    expect(rolled).not.toHaveTextContent('Fixed it.');
+    // An unresolved thread stays unrolled.
+    expect(unresolved).toHaveTextContent('Looks good overall.');
+    expect(within(unresolved!).queryByRole('button', { name: /resolved thread/ })).toBeNull();
+    const chevron = within(rolled!).getByRole('button', { name: 'Show the resolved thread' });
+    expect(chevron).toHaveAttribute('aria-expanded', 'false');
+    chevron.focus();
+    fireEvent.click(chevron);
+    expect(rolled).toHaveTextContent('+Second line');
+    expect(rolled).toHaveTextContent('Fixed it.');
+    const back = within(rolled!).getByRole('button', { name: 'Roll up the resolved thread' });
+    expect(back).toHaveAttribute('aria-expanded', 'true');
+    // The keyboard follows to the new chevron.
+    expect(back).toHaveFocus();
+    fireEvent.click(back);
+    expect(rolled).not.toHaveTextContent('Fixed it.');
+    // A click on the header unrolls it too; the choice is kept for the session (a new view).
+    fireEvent.click(rolled!.querySelector('.mr-rolled')!);
+    expect(rolled).toHaveTextContent('Fixed it.');
+    cleanup();
+    show();
+    expect(screen.getAllByRole('article')[1]).toHaveTextContent('Fixed it.');
+  });
+
+  it("a resolved thread the forge says nothing more of says just Resolved; one with no replies has no replies' row", () => {
+    patchForge('t', { discussions: { 12: [{ ...threads[1]!, resolved: true, resolvedBy: undefined }] } });
+    show();
+    const rolled = screen.getByRole('article');
+    expect(rolled.querySelector('.mr-rolled-resolved')).toHaveTextContent(/^Resolved$/);
+    expect(rolled.querySelector('.mr-replies-row')).toBeNull();
   });
 
   it('Reply opens the reply box in the thread', () => {

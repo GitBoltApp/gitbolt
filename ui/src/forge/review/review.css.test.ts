@@ -32,3 +32,18 @@ describe('review.css: the chip in a narrow top bar (spec 2026-10-08 §4)', () =>
     expect(text).toMatch(/text-overflow:\s*ellipsis/);
   });
 });
+
+describe("review.css: the chip stands out from the branch picker (review comments round 2)", () => {
+  /** Every rule for `selector`, as one body. */
+  const all = (selector: string) => [...css.matchAll(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`, 'g'))].map((m) => m[1]).join(';');
+  it('is a yellow-tinted pill as tall as the bar\'s buttons, its caption, value and icon in the readable yellow', () => {
+    expect(all('.tb-review')).toMatch(/background:\s*var\(--review-pending-bg\)/);
+    expect(all('.tb-review')).toMatch(/border:\s*1px solid color-mix\(in srgb, var\(--review-pending\)/);
+    expect(all('.tb-review')).toMatch(/height:\s*38px/);
+    expect(all('.tb-review .tb-caption, .tb-review .tb-value')).toMatch(/color:\s*var\(--review-pending\)/);
+  });
+  it('a problem keeps the warning look: orange, no tint', () => {
+    expect(all('.tb-review[data-problem]')).toMatch(/background:\s*transparent/);
+    expect(all('.tb-review[data-problem] .tb-value, .tb-review-warn')).toMatch(/color:\s*var\(--orange\)/);
+  });
+});

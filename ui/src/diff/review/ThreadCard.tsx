@@ -1,15 +1,16 @@
 import { ChevronRight } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { useContext, useLayoutEffect, useMemo, useRef } from 'react';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 import { ForgeAvatar } from '../../avatars/Avatar';
 import { EMPTY_FORGE, knownMr, useForge } from '../../forge/mrStore';
 import { Discussion } from '../../forge/mrview/Thread';
 import { useReview } from '../../forge/review/session';
+import { plainExcerpt } from '../../markdown/excerpt';
+import { MdSuggestionBase, positionBase } from '../../markdown/suggestion';
 import { useCardFocus } from './cardFocus';
+import { ReviewNewText } from './newText';
 import { cardKey, setCardOpen, useReviewUi } from './store';
 import './review.css';
-
-const firstLine = (s: string) => s.split('\n').find((l) => l.trim() !== '')?.trim() ?? '';
 
 /**
  * A published thread under its line (spec 2026-10-08 §2): the MR view's thread (Reply, Reply and
@@ -28,6 +29,10 @@ export function ThreadCard({ tabId, thread, outdated }: { tabId: string; thread:
   const open = chosen ?? !thread.resolved;
   const focus = useCardFocus();
   const toggle = useRef<HTMLButtonElement>(null);
+  // What a suggestion in it replaces: the diff's lines at the thread's.
+  const newText = useContext(ReviewNewText);
+  const pos = thread.notes.find((n) => n.position)?.position;
+  const base = useMemo(() => (newText ? positionBase(review?.kind ?? 'gitlab', pos, newText) : null), [review?.kind, pos, newText]);
   // Folded with the keyboard in it (Resolve folds a thread): the keyboard goes to its toggle, not
   // to the page.
   useLayoutEffect(() => {
@@ -45,7 +50,7 @@ export function ThreadCard({ tabId, thread, outdated }: { tabId: string; thread:
           <>
             <ForgeAvatar user={first.author} size={18} />
             <b>{first.author.name}</b>
-            <span className="review-excerpt">{firstLine(first.body)}</span>
+            <span className="review-excerpt">{plainExcerpt(first.body)}</span>
             {replies > 0 && <span className="review-dim">{replies} {replies === 1 ? 'reply' : 'replies'}</span>}
           </>
         )}
@@ -53,7 +58,7 @@ export function ThreadCard({ tabId, thread, outdated }: { tabId: string; thread:
         {thread.resolved && <span className="review-chip resolved">Resolved</span>}
         {outdated && <span className="review-chip outdated">Outdated</span>}
       </div>
-      {open && mr && review && <Discussion tabId={tabId} kind={review.kind} mr={mr} d={thread} showWhere={false} />}
+      {open && mr && review && <MdSuggestionBase value={base}><Discussion tabId={tabId} kind={review.kind} mr={mr} d={thread} showWhere={false} /></MdSuggestionBase>}
     </div>
   );
 }

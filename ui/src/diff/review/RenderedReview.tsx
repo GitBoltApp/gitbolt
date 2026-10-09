@@ -186,7 +186,7 @@ export function RenderedReview({ tabId, path, pane, modified, children }: { tabI
       if (here.length === 0 && open.length === 0) return null;
       return (
         <div className="review-card-keys" data-owns-escape="" onKeyDown={leaveOnEsc}>
-          <Suspense fallback={null}><RenderedCards tabId={tabId} items={here} boxes={open} fresh={fresh} disabledReason={blocked} onClose={closed} onFocus={settle} onLeave={leave} /></Suspense>
+          <Suspense fallback={null}><RenderedCards tabId={tabId} items={here} boxes={open} fresh={fresh} disabledReason={blocked} text={modified} onClose={closed} onFocus={settle} onLeave={leave} /></Suspense>
         </div>
       );
     },

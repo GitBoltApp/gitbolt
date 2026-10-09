@@ -236,7 +236,7 @@ export function componentsFor(ctx: MarkdownContext, refs: MdReferenceNode[], non
         const words = markOf(code.properties.dataGbWords);
         const lineMarks = marks !== null && LINE_MARKS.test(marks) ? marks : undefined;
         if (lang === 'mermaid') inner = <MdMermaid source={text} />;
-        else if (lang !== null && SUGGESTION_LANG.test(lang)) inner = <MdSuggestion code={text} />;
+        else if (lang !== null && SUGGESTION_LANG.test(lang)) inner = <MdSuggestion code={text} lang={lang} />;
         else inner = <MdCode code={text} lang={lang} marks={lineMarks} words={lineMarks !== undefined && words !== null && WORD_MARKS.test(words) ? words : undefined} />;
       }
       // A code block renders as a component: a box carries its lines and its slot.

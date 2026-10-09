@@ -111,18 +111,20 @@ export async function deleteNote(tabId: string, number: number, discussion: stri
   return true;
 }
 
-const setResolved = (tabId: string, number: number, discussion: string, resolved: boolean, resolvedBy: string | null) =>
-  patchThreads(tabId, number, (l) => l.map((d) => (d.id === discussion ? { ...d, resolved, resolvedBy: resolvedBy ?? undefined } : d)));
+const setResolved = (tabId: string, number: number, discussion: string, resolved: boolean, resolvedBy: string | null, resolvedAt: number | null) =>
+  patchThreads(tabId, number, (l) => l.map((d) => (d.id === discussion ? { ...d, resolved, resolvedBy: resolvedBy ?? undefined, resolvedAt: resolvedAt ?? undefined } : d)));
 
 /** Resolves a thread, or unresolves it: shown at once, put back (with the forge's reason, after
  * `failure`) if refused. */
 export async function resolveThread(tabId: string, number: number, discussion: string, resolved: boolean, failure?: string): Promise<boolean> {
   const d = forgeOf(tabId).discussions[number]?.find((x) => x.id === discussion);
   if (!d) return false;
-  setResolved(tabId, number, discussion, resolved, resolved ? (forgeOf(tabId).me ?? null) : null);
+  // When, as GitLab would say it (its next read brings its own; GitHub says no time).
+  const now = forgeOf(tabId).kind === 'gitlab' ? Math.floor(Date.now() / 1000) : null;
+  setResolved(tabId, number, discussion, resolved, resolved ? (forgeOf(tabId).me ?? null) : null, resolved ? now : null);
   const out = await forgeWrite(tabId, failure ?? (resolved ? "Couldn't resolve the thread" : "Couldn't unresolve the thread"), (repo) => api.forgeResolve(repo, number, discussion, resolved));
-  if (out) setResolved(tabId, number, discussion, out.value.resolved, out.value.resolvedBy);
-  else setResolved(tabId, number, discussion, d.resolved, d.resolvedBy ?? null);
+  if (out) setResolved(tabId, number, discussion, out.value.resolved, out.value.resolvedBy, out.value.resolved ? now : null);
+  else setResolved(tabId, number, discussion, d.resolved, d.resolvedBy ?? null, d.resolvedAt ?? null);
   return out !== null;
 }
 

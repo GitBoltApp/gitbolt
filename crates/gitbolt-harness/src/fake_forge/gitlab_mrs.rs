@@ -125,6 +125,8 @@ pub struct FakeDiscussion {
     // --- comment actions ---
     /// The username who resolved it.
     pub resolved_by: Option<String>,
+    /// When (RFC 3339).
+    pub resolved_at: Option<String>,
     // --- end comment actions ---
 }
 
@@ -189,6 +191,22 @@ pub struct FakeMergeRequest {
     pub draft_notes: Vec<FakeDraftNote>,
     // --- end review comments ---
     // --- end MR round 2 ---
+    // --- branch update ---
+    /// Commits the target has that the source branch doesn't (`diverged_commits_count`, asked
+    /// with `include_diverged_commits_count`).
+    pub diverged_commits_count: u32,
+    /// GitLab is rebasing it: the next GET with `include_rebase_in_progress` says so, once.
+    pub rebase_in_progress: bool,
+    /// The rebase fails with this `merge_error`, the head unmoved; `None`: it works.
+    pub rebase_error: Option<String>,
+    /// The token's user can't push to the source branch: the rebase is a 403.
+    pub rebase_forbidden: bool,
+    /// The last rebase's `merge_error`.
+    pub merge_error: Option<String>,
+    /// How many rebases went in (each gives the head a new SHA), and whether the last skipped CI.
+    pub rebases: u32,
+    pub rebase_skipped_ci: bool,
+    // --- end branch update ---
 }
 
 pub fn default_users() -> Vec<FakeUser> {
@@ -220,7 +238,7 @@ pub fn default_mrs() -> Vec<FakeMergeRequest> {
             merge_status: "not_approved".into(),
             labels: vec!["backend".into()],
             discussions: vec![
-                FakeDiscussion { id: "d1".into(), notes: vec![note(101, "grace", "Looks good overall.", "2026-10-04T09:00:00Z")], resolvable: false, resolved: false, resolved_by: None },
+                FakeDiscussion { id: "d1".into(), notes: vec![note(101, "grace", "Looks good overall.", "2026-10-04T09:00:00Z")], resolvable: false, resolved: false, resolved_by: None, resolved_at: None },
                 FakeDiscussion {
                     id: "d2".into(),
                     notes: vec![
@@ -231,13 +249,14 @@ pub fn default_mrs() -> Vec<FakeMergeRequest> {
                     resolvable: true,
                     resolved: false,
                     resolved_by: None,
+                    resolved_at: None,
                 },
-                FakeDiscussion { id: "d3".into(), notes: vec![FakeNote { system: true, ..note(103, "grace", "added 1 commit", "2026-10-04T09:10:00Z") }], resolvable: false, resolved: false, resolved_by: None },
+                FakeDiscussion { id: "d3".into(), notes: vec![FakeNote { system: true, ..note(103, "grace", "added 1 commit", "2026-10-04T09:10:00Z") }], resolvable: false, resolved: false, resolved_by: None, resolved_at: None },
             ],
             diffs: vec![FakeDiff { old_path: "README.md".into(), new_path: "README.md".into(), diff: "@@ -1,1 +1,2 @@\n Readme\n+Second line\n".into() }],
             ..mr(12, "Dev work", "dev", "grace", "opened", "2026-10-04")
         },
-        FakeMergeRequest { pipeline: Some("running".into()), merge_status: "draft_status".into(), ..mr(5, "Draft: Explore caching", "diverged", "ada", "opened", "2026-10-03") },
+        FakeMergeRequest { pipeline: Some("running".into()), merge_status: "draft_status".into(), diverged_commits_count: 2, ..mr(5, "Draft: Explore caching", "diverged", "ada", "opened", "2026-10-03") },
         mr(9, "Old feature", "feature/old", "ada", "merged", "2026-09-20"),
         FakeMergeRequest { source_project: "alice/project".into(), ..mr(14, "Fix from a fork", "fix", "alice", "opened", "2026-10-02") },
     ]
@@ -451,7 +470,8 @@ fn note_json(st: &ForgeState, n: &FakeNote, resolvable: bool, resolved: bool, ba
 fn discussion_json(st: &ForgeState, d: &FakeDiscussion, base: &str) -> Value {
     // --- comment actions: each note of a resolved discussion names who resolved it ---
     let by = d.resolved_by.as_deref().filter(|_| d.resolved).map_or(Value::Null, |u| user_json(&person(st, u), base));
-    let notes: Vec<Value> = d.notes.iter().map(|n| { let mut v = note_json(st, n, d.resolvable, d.resolved, base); if d.resolvable { v["resolved_by"] = by.clone(); } v }).collect();
+    let at = d.resolved_at.as_deref().filter(|_| d.resolved).map_or(Value::Null, |t| json!(t));
+    let notes: Vec<Value> = d.notes.iter().map(|n| { let mut v = note_json(st, n, d.resolvable, d.resolved, base); if d.resolvable { v["resolved_by"] = by.clone(); v["resolved_at"] = at.clone(); } v }).collect();
     json!({ "id": d.id, "individual_note": d.notes.len() == 1 && !d.resolvable, "notes": notes })
 }
 
@@ -541,7 +561,20 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         }
         ("GET", ["merge_requests", iid]) => match index(st, iid) {
             Some(i) => {
-                let reply = Reply::json(mr_json_for(st, &st.seed.gitlab.merge_requests[i], r, &base));
+                let mut v = mr_json_for(st, &st.seed.gitlab.merge_requests[i], r, &base);
+                // --- branch update: the counts GitLab adds when asked ---
+                let asked = |k: &str| r.query.get(k).is_some_and(|v| v == "true");
+                let m = &st.seed.gitlab.merge_requests[i];
+                v["merge_error"] = m.merge_error.clone().into();
+                if asked("include_diverged_commits_count") {
+                    v["diverged_commits_count"] = m.diverged_commits_count.into();
+                }
+                if asked("include_rebase_in_progress") {
+                    v["rebase_in_progress"] = m.rebase_in_progress.into();
+                    st.seed.gitlab.merge_requests[i].rebase_in_progress = false;
+                }
+                // --- end branch update ---
+                let reply = Reply::json(v);
                 // GitLab's merge finishes: the next GET says merged.
                 let m = &mut st.seed.gitlab.merge_requests[i];
                 if m.state == "locked" {
@@ -568,7 +601,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
         ("POST", ["merge_requests", iid, "notes"]) => match index(st, iid) {
             Some(i) => {
                 let Some(note) = new_note(st, r) else { return Some(bad_request()) };
-                st.seed.gitlab.merge_requests[i].discussions.push(FakeDiscussion { id: format!("d{}", note.id), notes: vec![note.clone()], resolvable: false, resolved: false, resolved_by: None });
+                st.seed.gitlab.merge_requests[i].discussions.push(FakeDiscussion { id: format!("d{}", note.id), notes: vec![note.clone()], resolvable: false, resolved: false, resolved_by: None, resolved_at: None });
                 Reply::status(201, note_json(st, &note, false, false, &base))
             }
             None => not_found(),
@@ -598,6 +631,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 let Some(on) = r.query.get("resolved").map(|v| v == "true") else { return Some(bad_request()) };
                 d.resolved = on;
                 d.resolved_by = on.then_some(me);
+                d.resolved_at = on.then(|| WRITE_TIME.into());
                 let d = d.clone();
                 Reply::json(discussion_json(st, &d, &base))
             }
@@ -681,6 +715,33 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             None => not_found(),
         },
         // --- end auto-merge ---
+        // --- branch update: GitLab's rebase (queued: 202; the MR then says it's in progress for one read) ---
+        ("PUT", ["merge_requests", iid, "rebase"]) => match index(st, iid) {
+            Some(i) => {
+                let skip_ci = body_of(r)["skip_ci"].as_bool() == Some(true);
+                let m = &mut st.seed.gitlab.merge_requests[i];
+                if m.rebase_forbidden || m.state != "opened" {
+                    return Some(Reply::status(403, json!({ "message": "403 Forbidden - Cannot push to source branch" })));
+                }
+                m.rebase_in_progress = true;
+                m.merge_error = m.rebase_error.clone();
+                if m.merge_error.is_none() {
+                    m.rebases += 1;
+                    m.head_sha = format!("{:0>40x}", 0xb0000 + m.iid * 0x100 + u64::from(m.rebases));
+                    m.diverged_commits_count = 0;
+                    if m.merge_status == "need_rebase" {
+                        m.merge_status = "mergeable".into();
+                    }
+                    // A new head: its pipeline, unless skipped.
+                    m.pipeline = (!skip_ci).then(|| "pending".into());
+                    m.rebase_skipped_ci = skip_ci;
+                    m.updated_at = WRITE_TIME.into();
+                }
+                Reply::status(202, json!({ "rebase_in_progress": true }))
+            }
+            None => not_found(),
+        },
+        // --- end branch update ---
         ("PUT", ["merge_requests", iid]) => match index(st, iid) {
             Some(i) => {
                 let b = body_of(r);
@@ -784,7 +845,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 m.draft_notes.retain(|d| d.author != me);
                 for (id, (body, position)) in (first..).zip(mine) {
                     let note = FakeNote { id, author: me.clone(), body, created_at: WRITE_TIME.into(), system: false, position, awards: vec![] };
-                    m.discussions.push(FakeDiscussion { id: format!("d{id}"), notes: vec![note], resolvable: true, resolved: false, resolved_by: None });
+                    m.discussions.push(FakeDiscussion { id: format!("d{id}"), notes: vec![note], resolvable: true, resolved: false, resolved_by: None, resolved_at: None });
                 }
                 m.updated_at = WRITE_TIME.into();
                 Reply::no_content()
@@ -845,7 +906,7 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
                 };
                 let id = next_note_id(st);
                 let note = FakeNote { id, author: me(r), body, created_at: WRITE_TIME.into(), system: false, position: Some(position), awards: vec![] };
-                let d = FakeDiscussion { id: format!("d{id}"), notes: vec![note], resolvable: true, resolved: false, resolved_by: None };
+                let d = FakeDiscussion { id: format!("d{id}"), notes: vec![note], resolvable: true, resolved: false, resolved_by: None, resolved_at: None };
                 st.seed.gitlab.merge_requests[i].discussions.push(d.clone());
                 Reply::status(201, discussion_json(st, &d, &base))
             }

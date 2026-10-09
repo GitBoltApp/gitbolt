@@ -143,6 +143,12 @@ pub struct FakePull {
     /// `/files`: each changed file and its patch.
     pub files: Vec<FakePrFile>,
     // --- end review comments ---
+    // --- branch update ---
+    /// Anyone who can push to the base may push to a fork's head (`maintainer_can_modify`).
+    pub maintainer_can_modify: bool,
+    /// How the last Update branch went in (`merge`, `rebase`); empty: none.
+    pub updated_with: String,
+    // --- end branch update ---
 }
 
 // --- review comments ---
@@ -360,9 +366,32 @@ pub fn pull_json(st: &ForgeState, p: &FakePull, base: &str, single: bool) -> Val
     if single {
         v["mergeable"] = p.mergeable.map_or(Value::Null, Value::from);
         v["mergeable_state"] = p.mergeable_state.clone().into();
+        v["maintainer_can_modify"] = p.maintainer_can_modify.into();
     }
     v
 }
+
+// --- branch update ---
+/// Update branch (REST's merge, GraphQL's `MERGE` / `REBASE`): only an open PR behind its base,
+/// while its head is `expected` (when said). The head gets a new SHA and it's up to date (`clean`).
+/// The refusal in GitHub's words otherwise.
+fn update_branch(p: &mut FakePull, expected: Option<&str>, method: &str) -> Result<(), &'static str> {
+    if p.state != "open" {
+        return Err("Pull request is closed");
+    }
+    if expected.is_some_and(|sha| sha != p.head_sha) {
+        return Err("expected head sha didn't match current head ref.");
+    }
+    if p.mergeable_state != "behind" {
+        return Err("There are no new commits on the base branch.");
+    }
+    p.head_sha = format!("{:0>40x}", 0xc0000 + p.number * 0x100 + u64::from(method == "rebase"));
+    p.mergeable_state = "clean".into();
+    p.updated_with = method.into();
+    p.updated_at = WRITE_TIME.into();
+    Ok(())
+}
+// --- end branch update ---
 
 fn review_json(st: &ForgeState, r: &FakeReview, base: &str) -> Value {
     let submitted = if r.submitted_at.is_empty() { Value::Null } else { Value::from(r.submitted_at.as_str()) };
@@ -786,6 +815,19 @@ fn graphql(st: &mut ForgeState, r: &FakeRequest) -> Reply {
         return auto_merge(st, r, &b["variables"], query.contains("enablePullRequestAutoMerge"));
     }
     // --- end auto-merge ---
+    // --- branch update ---
+    if query.contains("updatePullRequestBranch") {
+        let v = &b["variables"];
+        let method = v["method"].as_str().unwrap_or("MERGE").to_ascii_lowercase();
+        return match st.seed.github.pulls.iter_mut().find(|p| format!("PR_{}", p.number) == id) {
+            Some(p) => match update_branch(p, v["sha"].as_str(), &method) {
+                Ok(()) => Reply::json(json!({ "data": { "updatePullRequestBranch": { "pullRequest": { "number": p.number } } } })),
+                Err(m) => Reply::json(json!({ "data": { "updatePullRequestBranch": null }, "errors": [{ "type": "UNPROCESSABLE", "message": m }] })),
+            },
+            None => Reply::json(json!({ "errors": [{ "message": format!("Could not resolve to a node with the global id of '{id}'") }] })),
+        };
+    }
+    // --- end branch update ---
     let (field, draft) = if query.contains("convertPullRequestToDraft") {
         ("convertPullRequestToDraft", true)
     } else if query.contains("markPullRequestReadyForReview") {
@@ -1060,6 +1102,18 @@ pub(crate) fn route(st: &mut ForgeState, r: &FakeRequest) -> Option<Reply> {
             }
             None => not_found(),
         },
+        // --- branch update: REST's Update branch merges the base in (202: GitHub does it in the background) ---
+        ("PUT", ["pulls", num, "update-branch"]) => match index(st, num) {
+            Some(i) => {
+                let b = body_of(r);
+                match update_branch(&mut st.seed.github.pulls[i], b["expected_head_sha"].as_str(), "merge") {
+                    Ok(()) => Reply::status(202, json!({ "message": "Updating pull request branch.", "url": format!("{base}/github/repos/{repo}/pulls/{num}") })),
+                    Err(m) => Reply::status(422, json!({ "message": m, "documentation_url": "https://docs.github.com/rest/pulls/pulls#update-a-pull-request-branch" })),
+                }
+            }
+            None => not_found(),
+        },
+        // --- end branch update ---
         ("PATCH", ["pulls", num]) => match index(st, num) {
             Some(i) => {
                 let b = body_of(r);

@@ -1,13 +1,15 @@
 import { Copy } from 'lucide-react';
-import { Fragment, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { copyText } from '../api/transport';
 import type { CodeTokens } from '../diff/monaco/shiki';
 import { useTheme } from '../theme/store';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useToast } from '../ui/toastStore';
+import { codeLines } from './diff/words';
 import { queueHighlight } from './highlightQueue';
 import { useNearViewport } from './nearViewport';
 import { MdContextOverride } from './sideContext';
+import { MdSuggestionBase, replacedLines } from './suggestion';
 import type { MdCodeProps } from './types';
 
 /** Longer blocks stay plain: one would hold the main thread too long (ruling 21). */
@@ -55,7 +57,7 @@ function withWords(segs: readonly Token[], ranges: readonly [number, number][], 
   return out;
 }
 
-export function MdCode({ code, lang, marks, words }: MdCodeProps) {
+export function MdCode({ code, lang, marks, words, signs = false }: MdCodeProps) {
   const theme = useTheme((s) => s.id);
   const box = useRef<HTMLDivElement>(null);
   const near = useNearViewport(box);
@@ -87,7 +89,7 @@ export function MdCode({ code, lang, marks, words }: MdCodeProps) {
     : tokens ? tokens.lines.map((line, i) => <Fragment key={i}>{i > 0 && '\n'}{tokenLine(line)}</Fragment>) : code;
   return (
     <div className="md-code" ref={box}>
-      <pre data-lang={lang ?? undefined}>
+      <pre data-lang={lang ?? undefined} className={signs ? 'md-code-signs' : undefined}>
         <code>{body}</code>
       </pre>
       <HoverTooltip content="Copy">
@@ -97,15 +99,41 @@ export function MdCode({ code, lang, marks, words }: MdCodeProps) {
   );
 }
 
+/** The language of the file at `path` (the diff view's mapping), once its registry has loaded
+ * (with the highlighter's chunk, not the Markdown one's); null for plain text or no path. */
+function useFileLanguage(path: string | null): string | null {
+  const [lang, setLang] = useState<{ path: string; lang: string | null } | null>(null);
+  useEffect(() => {
+    if (path === null) return;
+    let live = true;
+    void import('../diff/language').then((m) => {
+      const id = m.detectLanguage(path);
+      if (live) setLang({ path, lang: id === 'plaintext' ? null : id });
+    }, () => {});
+    return () => { live = false; };
+  }, [path]);
+  return path !== null && lang?.path === path ? lang.lang : null;
+}
+
 /** A review comment's suggested change (spec 2026-10-08: GitHub's ```suggestion, GitLab's
- * ```suggestion:-N+M): the lines it puts in, as added lines. The lines they replace are the
- * thread's own, right above it in the diff and in its snippet on the timeline. */
-export function MdSuggestion({ code }: { code: string }) {
+ * ```suggestion:-N+M), as the forges show it: a diff of the lines it replaces (`MdSuggestionBase`,
+ * from whoever renders the note) and the lines it puts in: word marks in a changed pair, a -/+
+ * sign on each changed line, highlighted in the commented file's language. With the replaced
+ * lines unknown, only the lines it puts in, as added lines. */
+export function MdSuggestion({ code, lang }: { code: string; lang: string }) {
+  const base = useContext(MdSuggestionBase);
+  const replaced = replacedLines(lang, base)?.join('\n') ?? null;
+  const fileLang = useFileLanguage(base?.path ?? null);
+  const diff = useMemo(() => {
+    if (replaced === null) return code === '' ? null : { value: code, marks: '+'.repeat(code.split('\n').length) };
+    // An empty one takes the lines out.
+    if (code === '') return { value: replaced, marks: '-'.repeat(replaced.split('\n').length) };
+    return codeLines(replaced, code);
+  }, [replaced, code]);
   return (
     <figure className="md-suggestion">
       <figcaption>Suggested change</figcaption>
-      {/* An empty one takes the lines out. */}
-      {code === '' ? <p className="md-suggestion-note">Removes these lines</p> : <MdCode code={code} lang={null} marks={'+'.repeat(code.split('\n').length)} />}
+      {diff ? <MdCode code={diff.value} lang={fileLang} marks={diff.marks} words={'words' in diff ? diff.words : undefined} signs /> : <p className="md-suggestion-note">Removes these lines</p>}
     </figure>
   );
 }

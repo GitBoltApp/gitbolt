@@ -48,6 +48,11 @@ describe("the file list's review badges (spec 2026-10-08 §5)", () => {
     expect(badge).toHaveTextContent('2');
     fireEvent.click(badge);
     expect(store.getState().diff).toMatchObject({ path: 'README.md', view: 'diff', line: { side: 'modified', line: 2 } });
+    // Clicked again: the next thread (the resolved one), then round to the first.
+    fireEvent.click(badge);
+    expect(store.getState().diff).toMatchObject({ line: { side: 'modified', line: 1 } });
+    fireEvent.click(badge);
+    expect(store.getState().diff).toMatchObject({ line: { side: 'modified', line: 2 } });
   });
 
   it('none while the Compare is stale (the MR moved on, or GitLab is still catching up): neither view shows the cards', () => {

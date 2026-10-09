@@ -1049,6 +1049,16 @@ pub enum Request {
         number: u64,
     },
     // --- end auto-merge ---
+    /// Brings the source branch up to date with its target on the forge (GitLab's Rebase,
+    /// GitHub's Update branch), only while its head is `expected_sha`: `ForgeMr`. A forge write:
+    /// the repository isn't touched.
+    ForgeUpdateBranch {
+        repo: u32,
+        #[ts(type = "number")]
+        number: u64,
+        how: crate::forge::BranchUpdate,
+        expected_sha: Option<String>,
+    },
     /// The common ancestor of two commits (the MR/PR view's diff of a note's file): `string | null`.
     MergeBase { repo: u32, a: String, b: String },
     // --- end 4B T1 ---
@@ -1118,7 +1128,7 @@ impl Request {
             | Request::ForgeProjectByPath { .. } | Request::ForgeReply { .. } | Request::ForgeApprove { .. } | Request::ForgeRequestChanges { .. }
             | Request::ForgeMerge { .. } | Request::ForgeEditMr { .. } | Request::ForgeSetDraft { .. } | Request::MergeBase { .. } => false,
             // --- end 4B T1 ---
-            Request::ForgeSetAutoMerge { .. } | Request::ForgeCancelAutoMerge { .. } => false,
+            Request::ForgeSetAutoMerge { .. } | Request::ForgeCancelAutoMerge { .. } | Request::ForgeUpdateBranch { .. } => false,
             Request::ForgeReview { .. } | Request::ForgePeopleLimits { .. } | Request::ForgeSetSubscribed { .. } => false,
             Request::ForgeReact { .. } | Request::ForgeEditNote { .. } | Request::ForgeDeleteNote { .. } | Request::ForgeResolve { .. } => false,
             Request::ForgeReviewDiff { .. } | Request::ForgeReviewDrafts { .. } | Request::ForgeAddDraft { .. } | Request::ForgeEditDraft { .. } | Request::ForgeDeleteDraft { .. }
@@ -2725,6 +2735,10 @@ impl Api {
                 to_json(self.forge_hub()?.cancel_auto_merge(&self.store, &list, number).await?)
             }
             // --- end auto-merge ---
+            Request::ForgeUpdateBranch { repo, number, how, expected_sha } => {
+                let list = self.forge_remotes_of(&*self.handle(repo)?);
+                to_json(self.forge_hub()?.update_branch(&self.store, &list, number, how, expected_sha).await?)
+            }
             Request::MergeBase { repo, a, b } => to_json(merge_base(&self.handle(repo)?.repo.to_thread_local(), &a, &b)?),
             // --- end 4B T1 ---
               // --- 4C T5 ---
@@ -4692,6 +4706,7 @@ mod tests {
             json!({"method": "forgeSetDraft", "params": {"repo": id, "number": 1, "draft": true}}),
             json!({"method": "forgeSetAutoMerge", "params": {"repo": id, "number": 1, "options": {"method": null, "squash": null, "deleteSourceBranch": null, "expectedSha": null}}}),
             json!({"method": "forgeCancelAutoMerge", "params": {"repo": id, "number": 1}}),
+            json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 1, "how": "rebaseSkipCi", "expectedSha": null}}),
             json!({"method": "forgeReview", "params": {"repo": id, "number": 1, "review": {"event": "comment", "body": "x"}}}),
             json!({"method": "forgePeopleLimits", "params": {"repo": id, "remote": "origin"}}),
             json!({"method": "forgeSetSubscribed", "params": {"repo": id, "number": 1, "on": true}}),
@@ -4987,7 +5002,7 @@ mod tests {
     /// Samples that fail by design here: the harness-less `Api` has no log folder, URL opener,
     /// openers or askpass, and the profile samples name no existing profile. Each refusal comes
     /// before any repository access.
-    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeReviewDiff", "forgeReviewDrafts", "forgeAddDraft", "forgeEditDraft", "forgeDeleteDraft", "forgeSubmitReview", "forgeDiscardReview", "forgeCommentNow", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage", "forgeVideo", "forgeOpenVideo", "updateCheck", "updateDownload", "updateInstall", "updateRestart"];
+    const EXPECTED_FAILURES: &[&str] = &["openLogsFolder", "openUrl", "openIn", "switchProfile", "deleteProfile", "authAnswer", "saveProfile", "addForgeAccount", "removeForgeAccount", "forgeProjectSettings", "forgeForks", "forgeMrList", "forgeBranchMrs", "forgeMrDetail", "forgeMrDiscussions", "forgeProjectByPath", "forgeReply", "forgeApprove", "forgeRequestChanges", "forgeMerge", "forgeEditMr", "forgeSetDraft", "forgeSetAutoMerge", "forgeCancelAutoMerge", "forgeUpdateBranch", "forgeReview", "forgePeopleLimits", "forgeSetSubscribed", "forgeReact", "forgeEditNote", "forgeDeleteNote", "forgeResolve", "forgeReviewDiff", "forgeReviewDrafts", "forgeAddDraft", "forgeEditDraft", "forgeDeleteDraft", "forgeSubmitReview", "forgeDiscardReview", "forgeCommentNow", "forgeCreateContext", "forgeSearchUsers", "forgeLabels", "forgeCreateMr", "forgeCompleteCreate", "forgeStack", "forgeSyncStack", "forgeRetarget", "forgeImage", "forgeVideo", "forgeOpenVideo", "updateCheck", "updateDownload", "updateInstall", "updateRestart"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn no_read_request_writes_to_the_repository() {
@@ -5210,7 +5225,7 @@ mod tests {
         p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
         // --- 4D T4: the merge guard reads the MR and the project's default ---
         p.settings = Some(crate::forge::ForgeProjectSettings { merge_methods: vec![], squash: crate::forge::SquashOption::DefaultOff, delete_source_branch: false });
-        p.details.lock().unwrap().insert(12, crate::forge::ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: String::new(), reviewers: vec![], assignees: vec![], merge_status: crate::forge::MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None });
+        p.details.lock().unwrap().insert(12, crate::forge::ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: String::new(), reviewers: vec![], assignees: vec![], merge_status: crate::forge::MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None, update: None });
         // --- end 4D T4 ---
         let conn = Arc::new(FakeConnector::default());
         let fake = conn.add(TOKEN, p);

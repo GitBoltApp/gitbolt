@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./setup', () => ({ monaco: { editor: { EditorOption: { lineHeight: 75 } } } }));
+vi.mock('./setup', () => ({ monaco: { editor: { EditorOption: { lineHeight: 75, glyphMargin: 66 }, GlyphMarginLane: { Center: 2 } } } }));
 
-const { REVIEW_ZONE_ORDINAL, ReviewZones, layerClip, shiftAbove, zoneTarget } = await import('./reviewZones');
+const { ICON_CLASS, REVIEW_ZONE_ORDINAL, ReviewZones, layerClip, shiftAbove, zoneTarget } = await import('./reviewZones');
 
 type Zone = { afterLineNumber: number; heightInPx: number; ordinal?: number; showInHiddenAreas?: boolean; onDomNodeTop?: (top: number) => void };
-type Item = { key: string; side: 'original' | 'modified'; line: number; startLine: number | null; stop: boolean };
+type Item = { key: string; side: 'original' | 'modified'; line: number; startLine: number | null; stop: boolean; icon?: boolean };
 const item = (key: string, side: Item['side'], line: number, over: Partial<Item> = {}): Item => ({ key, side, line, startLine: null, stop: !key.startsWith('b:'), ...over });
 
 /** An editor: 19 px lines (their bottoms at line × 19), a 500 px view, its box at `left`, 30 px down the layer. */
@@ -32,11 +32,20 @@ function fakeEditor(left: number) {
     getLayoutInfo: () => ({ contentLeft: 50, contentWidth: 350, verticalScrollbarWidth: 10, height: 500 }),
     getDomNode: () => dom,
     getBottomForLineNumber: (line: number) => line * 19,
+    getTopForLineNumber: (line: number) => (line - 1) * 19,
+    /** The glyph margin's widgets: each one's node and line. */
+    glyphs: new Map<string, { node: HTMLElement; line: number; lane: number }>(),
+    addGlyphMarginWidget: (w: { getId(): string; getDomNode(): HTMLElement; getPosition(): { lane: number; range: { startLineNumber: number } } }) => {
+      ed.glyphs.set(w.getId(), { node: w.getDomNode(), line: w.getPosition().range.startLineNumber, lane: w.getPosition().lane });
+    },
+    removeGlyphMarginWidget: (w: { getId(): string }) => void ed.glyphs.delete(w.getId()),
+    focus: vi.fn(),
     /** Every zone, Monaco's and the API's, in Monaco's order: by line, then ordinal. */
     getWhitespaces: () => [...ed.own, ...[...ed.zones].map(([id, z]) => ({ id, afterLineNumber: z.afterLineNumber, ordinal: z.ordinal ?? 0, height: z.heightInPx }))]
       .sort((a, b) => a.afterLineNumber - b.afterLineNumber || a.ordinal - b.ordinal),
     getScrollTop: () => ed.scrollTop,
-    getOption: () => 19,
+    getOption: (o: number) => (o === 66 ? false : 19),
+    updateOptions: vi.fn(),
   };
   return ed;
 }
@@ -250,5 +259,106 @@ describe('ReviewZones', () => {
     area.dispatchEvent(inner);
     expect(inner.defaultPrevented).toBe(false);
     expect(modified.setScrollTop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a folded thread: an icon in the glyph margin, no zone", () => {
+  const glyphs = (ed: ReturnType<typeof fakeEditor>) => [...ed.glyphs.values()].map((g) => [g.line, g.lane]);
+
+  it('takes no zone: an icon at its line, its node the view renders into; unfolded, a zone again, the icon gone', () => {
+    const { zones, modified, placed, nodes } = setup();
+    const folded = [item('t:1', 'modified', 4, { icon: true }), item('t:2', 'modified', 9)];
+    zones.set({ path: 'a.rs', items: folded, placed });
+    zones.shown('a.rs', 'inline');
+    expect(afters(modified)).toEqual([9]);
+    expect(glyphs(modified)).toEqual([[4, 2]]);
+    const icon = nodes().get('t:1')!;
+    expect(icon.classList.contains(ICON_CLASS)).toBe(true);
+    expect(icon.dataset.size).toBe('19');
+    expect([zones.iconAt('modified', 4), zones.iconAt('modified', 9)]).toEqual([true, false]);
+    zones.set({ path: 'a.rs', items: [item('t:1', 'modified', 4), item('t:2', 'modified', 9)], placed });
+    expect(afters(modified).sort((a, b) => a - b)).toEqual([4, 9]);
+    expect(modified.glyphs.size).toBe(0);
+    expect(nodes().get('t:1')!.parentElement).toBe(zones.layer);
+    expect(zones.iconAt('modified', 4)).toBe(false);
+  });
+
+  it("several folded at a line share one icon; an old line's goes where its card would (Inline: under the deleted block)", () => {
+    const { zones, modified, placed, nodes } = setup([ch(9, 10, 9, 11)]);
+    zones.set({ path: 'a.rs', items: [item('t:1', 'modified', 4, { icon: true }), item('t:2', 'modified', 4, { icon: true }), item('t:3', 'original', 10, { icon: true })], placed });
+    zones.shown('a.rs', 'inline');
+    expect(glyphs(modified).sort()).toEqual([[4, 2], [8, 2]]);
+    expect(nodes().get('t:1')).toBe(nodes().get('t:2'));
+  });
+
+  it("a press without a drag, Enter or Space unfold its threads; a press goes through the gutter (a drag from it picks lines); Esc goes back to the editor", () => {
+    const { zones, modified, placed, nodes } = setup();
+    const expand = vi.fn();
+    zones.set({ path: 'a.rs', items: [item('t:1', 'modified', 4, { icon: true }), item('t:2', 'modified', 4, { icon: true })], placed, expand });
+    zones.shown('a.rs', 'inline');
+    const icon = nodes().get('t:1')!;
+    // No gutter: the press is the click.
+    const down = new MouseEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
+    icon.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(expand).toHaveBeenLastCalledWith(['t:1', 't:2']);
+    const press = vi.fn((_side: string, _line: number, _click: () => void) => true);
+    zones.pressIcon = press;
+    icon.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+    expect(press).toHaveBeenCalledWith('modified', 4, expect.any(Function));
+    expect(expand).toHaveBeenCalledTimes(1);
+    press.mock.lastCall![2]();
+    expect(expand).toHaveBeenCalledTimes(2);
+    for (const key of ['Enter', ' ']) {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      icon.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    }
+    expect(expand).toHaveBeenCalledTimes(4);
+    icon.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(modified.focus).toHaveBeenCalled();
+    // Its Esc is its own, not the diff's close (repo/escape.ts).
+    expect(icon.hasAttribute('data-owns-escape')).toBe(true);
+  });
+
+  it("its range shows only while it's hovered", () => {
+    const { zones, modified, placed, nodes } = setup();
+    zones.set({ path: 'a.rs', items: [item('t:1', 'modified', 8, { startLine: 5, icon: true })], placed });
+    zones.shown('a.rs', 'inline');
+    expect(modified.decorations).toEqual([]);
+    nodes().get('t:1')!.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(modified.decorations).toMatchObject([{ range: { startLineNumber: 5, endLineNumber: 8 }, options: { className: 'review-range' } }]);
+    nodes().get('t:1')!.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(modified.decorations).toEqual([]);
+  });
+
+  it('Next / Previous thread stop at an icon too, and draw it at once (so the keyboard can go to it)', () => {
+    const { zones, modified, placed } = setup();
+    zones.set({ path: 'a.rs', items: [item('t:1', 'modified', 8), item('t:2', 'modified', 60, { icon: true })], placed });
+    zones.shown('a.rs', 'inline');
+    expect(zones.goTo('next', 57)).toBe('t:2');
+    // Line 60's box (1121-1140) centred in the 500 px view.
+    expect(modified.setScrollTop).toHaveBeenLastCalledWith(880.5);
+    expect(modified.render).toHaveBeenCalledWith(true);
+    expect(zones.goTo('next', 57)).toBe('t:1');
+  });
+
+  it("the icons get a column of their own while the review shows: the modified editor's glyph margin, put back after", () => {
+    const { zones, modified } = setup();
+    expect(modified.updateOptions).toHaveBeenLastCalledWith({ glyphMargin: true });
+    zones.dispose();
+    expect(modified.updateOptions).toHaveBeenLastCalledWith({ glyphMargin: false });
+  });
+
+  it('a new diff in the editor takes the icons off it until the file shows again', () => {
+    const { zones, modified, placed } = setup();
+    zones.set({ path: 'a.rs', items: [item('t:1', 'modified', 4, { icon: true })], placed });
+    zones.shown('a.rs', 'inline');
+    zones.clear();
+    expect(modified.glyphs.size).toBe(0);
+    zones.shown('a.rs', 'inline');
+    expect(glyphs(modified)).toEqual([[4, 2]]);
+    zones.set(null);
+    expect(modified.glyphs.size).toBe(0);
   });
 });

@@ -1,14 +1,16 @@
-import { useRef, useState } from 'react';
+import { useContext, useMemo, useRef, useState } from 'react';
 import type { ReviewAnchor } from '../../api/gen/ReviewAnchor';
 import { clearDraft, draftKey, setDraft, useReplyDrafts } from '../../forge/mrview/drafts';
 import { addToReview, commentNow, useReview } from '../../forge/review/session';
 import { MarkdownField } from '../../markdown/MarkdownField';
+import { linesBase, MdSuggestionBase } from '../../markdown/suggestion';
 import { registerKeyHints } from '../../shortcuts/hints';
 import { currentOrigin, type Origin } from '../../ui/arm/origin';
 import { confirmAction } from '../../ui/ConfirmDialog';
 import { HoverTooltip } from '../../ui/HoverTooltip';
 import { boxKey } from './store';
 import { suggestionBlock } from './mode';
+import { ReviewNewText } from './newText';
 import './review.css';
 
 export const NO_SUGGESTION = 'Suggestions are for the new side’s lines';
@@ -73,32 +75,45 @@ export function CommentBox({ tabId, anchor, suggestion, onDone, onCancel, disabl
     const block = suggestionBlock(kind, suggestion.split('\n'));
     setDraft(key, empty ? block : `${text.trimEnd()}\n\n${block}`);
   };
+  // Preview: a suggestion replaces the commented lines (or, with offsets, the diff's lines around
+  // them); without the diff's text, the commented lines are all it knows.
+  const newText = useContext(ReviewNewText);
+  const base = useMemo(() => {
+    if (suggestion === undefined || anchor.end.kind === 'removed') return null;
+    const line = anchor.end.newLine;
+    const own = suggestion.split('\n');
+    const start = line - own.length + 1;
+    return linesBase(kind, anchor.path, start, line, newText ?? ((from, to) => (from >= start && to <= line ? own.slice(from - start, to - start + 1) : null)));
+  }, [suggestion, anchor.end, anchor.path, kind, newText]);
   const reason = error ?? disabledReason;
   return (
     <form ref={form} className="review-card review-box" data-owns-escape="" aria-label="New comment" aria-busy={busy || undefined} onSubmit={(e) => { e.preventDefault(); void send('add'); }}>
-      <MarkdownField
-        label="Comment"
-        placeholder="Leave a comment"
-        value={text}
-        onChange={(v) => setDraft(key, v)}
-        flavor={kind}
-        context={{ kind: 'forge', tabId }}
-        autoFocus={autoFocus}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-            e.preventDefault();
-            void send('add');
-          } else if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
-            e.preventDefault();
-            const b = cancelButton.current;
-            const from = e.currentTarget;
-            // The confirm arms the Cancel button in place: it takes the focus first, so Enter
-            // confirms, and Esc or a click elsewhere keeps writing.
-            b?.focus();
-            void cancel(b ? keyOrigin(b) : null, from);
-          }
-        }}
-      />
+      <MdSuggestionBase value={base}>
+        <MarkdownField
+          label="Comment"
+          placeholder="Leave a comment"
+          value={text}
+          onChange={(v) => setDraft(key, v)}
+          flavor={kind}
+          context={{ kind: 'forge', tabId }}
+          autoFocus={autoFocus}
+          growPreview
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+              e.preventDefault();
+              void send('add');
+            } else if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+              e.preventDefault();
+              const b = cancelButton.current;
+              const from = e.currentTarget;
+              // The confirm arms the Cancel button in place: it takes the focus first, so Enter
+              // confirms, and Esc or a click elsewhere keeps writing.
+              b?.focus();
+              void cancel(b ? keyOrigin(b) : null, from);
+            }
+          }}
+        />
+      </MdSuggestionBase>
       {reason && <p role="alert" className="review-error">{reason}</p>}
       <div className="mr-form-row">
         <button ref={cancelButton} type="button" className="mr-button" onClick={() => void cancel(currentOrigin())}>Cancel</button>

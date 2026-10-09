@@ -11,6 +11,8 @@ vi.mock('../../forge/mrview/openNote', () => ({ openNoteFile: vi.fn() }));
 
 const { ThreadCard } = await import('./ThreadCard');
 const { DraftCard } = await import('./DraftCard');
+const { RenderedCards } = await import('./RenderedCards');
+const { ReviewNewText, textLines } = await import('./newText');
 const { useReviewUi } = await import('./store');
 const { patchForge, useForge } = await import('../../forge/mrStore');
 const { detailOf, mrOf, user } = await import('../../forge/testMrs');
@@ -68,7 +70,7 @@ describe('a thread under its line (spec 2026-10-08 §2)', () => {
     const { unmount } = render(<ThreadCard tabId="t" thread={thread(true, 2)} outdated={false} />);
     const toggle = screen.getByRole('button', { name: 'Expand the thread by Grace Hopper' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByText('Why this line?')).toBeInTheDocument();
+    expect(screen.getByText('Why this line? More below.')).toBeInTheDocument();
     expect(screen.getByText('2 replies')).toBeInTheDocument();
     expect(screen.getByText('Resolved')).toBeInTheDocument();
     expect(screen.queryByRole('article')).toBeNull();
@@ -172,5 +174,38 @@ describe('a pending draft under its line', () => {
     clock.settle();
     press(overlay()!);
     await waitFor(() => expect(onGone).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('a suggestion in a card: a diff of the lines it replaces, from the diff’s text', () => {
+  const FILE_TEXT = 'Title\nFirst line\nSecond line\nThird line';
+  const marked = (c: HTMLElement) => [...c.querySelectorAll('.md-suggestion .md-code-line')].map((l) => `${l.classList.contains('md-code-del') ? '-' : l.classList.contains('md-code-add') ? '+' : ' '}${l.textContent}`);
+  const body = '```suggestion:-1+0\nFirst line\nSecond line, edited\n```\n\nTighter?';
+  const at = { path: 'README.md', side: 'new' as const, line: 3, startLine: null, outdated: false };
+  const pos3 = { ...position, line: 3 };
+
+  it("a draft's and a thread's, at their lines (the rendered diff's cards: the file's text)", async () => {
+    const items = [
+      { kind: 'draft' as const, draft: { ...draft(body), position: pos3 }, at },
+      { kind: 'thread' as const, thread: { ...thread(false), id: 'd2', notes: [{ ...note('n9', 'Grace Hopper', body), position: pos3 }] }, at },
+    ];
+    const { container } = render(<RenderedCards tabId="t" items={items} boxes={[]} fresh={null} disabledReason={null} text={FILE_TEXT} onClose={vi.fn()} onFocus={vi.fn()} onLeave={vi.fn()} />);
+    await waitFor(() => expect(container.querySelectorAll('.md-suggestion')).toHaveLength(2));
+    for (const box of container.querySelectorAll<HTMLElement>('.md-suggestion')) expect(marked(box)).toEqual([' First line', '-Second line', '+Second line, edited']);
+  });
+
+  it('without the diff’s text (Submit review…’s list), or on a removed line: only the lines it puts in', async () => {
+    const { container } = render(<DraftCard tabId="t" draft={{ ...draft(body), position: pos3 }} outdated={false} />);
+    await waitFor(() => expect(container.querySelector('.md-suggestion')).not.toBeNull());
+    expect(marked(container)).toEqual(['+First line', '+Second line, edited']);
+    cleanup();
+    const old = render(<ReviewNewText value={textLines(FILE_TEXT)}><DraftCard tabId="t" draft={{ ...draft(body), position: { ...position, line: null, oldLine: 3 } }} outdated={false} /></ReviewNewText>);
+    await waitFor(() => expect(old.container.querySelector('.md-suggestion')).not.toBeNull());
+    expect(marked(old.container)).toEqual(['+First line', '+Second line, edited']);
+  });
+
+  it('folded, a thread reads as plain text: a suggestion as "Suggested change", no fences or markup', () => {
+    render(<ThreadCard tabId="t" thread={{ ...thread(true), notes: [note('n1', 'Grace Hopper', '```suggestion:-1+0\nFirst line\n```\n\nTighter **this** way?')] }} outdated={false} />);
+    expect(screen.getByText('Suggested change · Tighter this way?')).toBeInTheDocument();
   });
 });

@@ -133,6 +133,10 @@
 .md-suggestion { margin: 0 0 8px; border: 1px solid var(--section-border); border-radius: 6px; overflow: hidden; }
 .md-suggestion > figcaption { padding: 3px 8px; border-bottom: 1px solid var(--section-border); color: var(--text-secondary); font-size: 11px; }
 .md-suggestion .md-code { margin: 0; border-radius: 0; }
+/* A diff's -/+ column (a suggestion's): drawn, never copied or selected with the code. */
+.md-code-signs .md-code-line::before { content: ' '; display: inline-block; width: 2ch; color: var(--text-secondary); user-select: none; }
+.md-code-signs .md-code-add::before { content: '+'; }
+.md-code-signs .md-code-del::before { content: '-'; }
 .md .md-suggestion-note { margin: 0; padding: 4px 8px; color: var(--text-secondary); font-style: italic; }
 /* A changed line's changed words, over its tint (Monaco's inline diff); the code keeps its colours. */
 .md-code-word-add { background: var(--md-diff-ins-text); border-radius: 2px; }

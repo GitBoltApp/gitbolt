@@ -5,6 +5,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// `Retry-After` is never believed past an hour.
 pub const MAX_RETRY_AFTER_SECS: i64 = 3600;
 
+/// A branch update's waits before each look at the MR, in ms (about 30 s in all): the forge
+/// rebases or merges in the background. After the last, the MR is answered as it is (still
+/// updating: the detail says so, and the view's poll catches the end).
+pub const BRANCH_UPDATE_POLLS_MS: [u64; 10] = [300, 700, 1000, 1000, 2000, 2000, 3000, 5000, 5000, 10_000];
+
 pub fn unix_now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }

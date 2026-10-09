@@ -73,7 +73,7 @@ describe('the action registry', () => {
       'F8 diff.nextFile', 'Shift+F8 diff.prevFile', 'Ctrl+Shift+H history.file', 'Ctrl+Shift+B history.blame',
       'Alt+1 view.focusSidebar', 'Alt+2 view.focusGraph', 'Alt+3 view.focusFiles', 'Alt+4 view.focusDiff',
       'Ctrl+1 view.tab1', 'Ctrl+8 view.tab8', 'Ctrl+9 view.lastTab', 'Ctrl+W file.closeFile',
-      'Ctrl+Shift+A mr.approve', 'Ctrl+Shift+M mr.merge', 'Ctrl+Shift+O mr.openInBrowser', 'Ctrl+Alt+R review.submit',
+      'Ctrl+Shift+A mr.approve', 'Ctrl+Shift+M mr.merge', 'Ctrl+Shift+O mr.openInBrowser', 'Ctrl+Alt+U mr.updateBranch', 'Ctrl+Alt+R review.submit',
       'Ctrl+Alt+C review.comment', 'F9 review.nextThread', 'Shift+F9 review.prevThread',
     ];
     expect(want.filter((w) => !map[w])).toEqual([]);

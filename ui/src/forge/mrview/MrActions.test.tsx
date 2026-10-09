@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeMrDetail } from '../../api/gen/ForgeMrDetail';
+import type { ReviewDraft } from '../../api/gen/ReviewDraft';
+import type { ReviewSession } from '../mrStore';
 
 const api = vi.hoisted(() => ({ forgeApprove: vi.fn(async () => null), forgeReview: vi.fn(async () => ({ fallback: false })), forgeSetDraft: vi.fn(), forgePeopleLimits: vi.fn(() => new Promise(() => {})), forgeSearchUsers: vi.fn(async () => []), forgeEditMr: vi.fn(), forgeSetSubscribed: vi.fn(async (_r: number, _n: number, on: boolean) => on), forgeLabels: vi.fn(async () => [{ name: 'ui', color: '#1f75cb', description: null }]) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e) }));
@@ -10,8 +12,24 @@ const polling = vi.hoisted(() => ({ notifyForgeWrite: vi.fn() }));
 vi.mock('../usePolling', () => polling);
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}) }));
 vi.mock('../poll', () => poll);
-const review = vi.hoisted(() => ({ session: null as null | { number: number; drafts: Array<{ id: string }>; pendingReview: string | null }, submitReview: vi.fn(), resumeReview: vi.fn(async () => {}) }));
-vi.mock('../review/session', () => ({ useReview: () => review.session, submitReview: review.submitReview, resumeReview: review.resumeReview }));
+const review = vi.hoisted(() => ({ session: null as null | ReviewSession, submitReview: vi.fn(), resumeReview: vi.fn(async () => {}), discardReview: vi.fn(async () => ({ ok: true, value: 0 })) }));
+vi.mock('../review/session', async (orig) => {
+  const { placeReview } = await import('../review/model');
+  return {
+    ...(await orig<typeof import('../review/session')>()),
+    useReview: () => review.session,
+    useReviewPlacements: () => (review.session ? placeReview(review.session, []) : null),
+    submitReview: review.submitReview,
+    resumeReview: review.resumeReview,
+    discardReview: review.discardReview,
+  };
+});
+const note = vi.hoisted(() => ({ openNoteFile: vi.fn(async () => {}) }));
+vi.mock('./openNote', () => note);
+/** A review pending on !12: drafts on no line (`pendingOf`), or as given. */
+const pendingOf = (ids: string[], drafts: ReviewDraft[] = ids.map((id) => ({ id, body: `Draft ${id}`, position: null, replyTo: null }))): ReviewSession => ({
+  number: 12, kind: 'gitlab', compare: null, refs: null, files: {}, diffHead: null, drafts, pendingReview: null, canDraft: true, closed: false, error: null, loaded: true,
+});
 
 const { MrForms, partialText, ReviewButtons, reviewSaid, StatusActions, useMrActions } = await import('./MrActions');
 const { forgeOf, patchForge, useForge } = await import('../mrStore');
@@ -219,8 +237,9 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
   });
 
   it('with a review pending, the composer sends the pending comments with it, a message optional', async () => {
-    review.session = { number: 12, drafts: [{ id: '5' }, { id: '6' }], pendingReview: null };
-    review.submitReview.mockResolvedValueOnce({ ok: true, value: { published: 2, eventError: null, bodyPosted: false, eventSent: false, fallback: false } });
+    review.session = pendingOf(['5', '6']);
+    // Sent: nothing is pending any more.
+    review.submitReview.mockImplementationOnce(async () => { review.session = null; return { ok: true, value: { published: 2, eventError: null, bodyPosted: false, eventSent: false, fallback: false } }; });
     show();
     fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
     const form = screen.getByRole('form', { name: 'Review' });
@@ -233,7 +252,7 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
   });
 
   it('when the forge takes the comments but refuses the approval, it stays open and says what went through', async () => {
-    review.session = { number: 12, drafts: [{ id: '5' }], pendingReview: null };
+    review.session = pendingOf(['5']);
     review.submitReview.mockResolvedValueOnce({ ok: true, value: { published: 1, eventError: 'gitlab.example.com refused: 403 Forbidden', bodyPosted: false, eventSent: false, fallback: false } });
     show();
     fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
@@ -259,18 +278,29 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     expect(reviewSaid('comment', '#12', false, 0)).toBe('Commented on #12');
   });
 
-  it("a part-way review that answers once the composer is closed says so in a toast", async () => {
-    review.session = { number: 12, drafts: [{ id: '5' }], pendingReview: null };
+  it('a part-way review keeps the composer even once nothing is pending (the panel goes)', async () => {
+    review.session = pendingOf(['5']);
+    review.submitReview.mockImplementationOnce(async () => { review.session = null; return { ok: true, value: { published: 1, eventError: 'gitlab.example.com refused: 403 Forbidden', bodyPosted: false, eventSent: false, fallback: false } }; });
+    show();
+    const form = screen.getByRole('form', { name: 'Review' });
+    fireEvent.click(within(form).getByRole('radio', { name: 'Approve' }));
+    fireEvent.click(within(form).getByRole('button', { name: 'Approve' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Your comment was published, but GitLab refused the rest');
+    expect(form).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /Your review/ })).toBeNull();
+  });
+
+  it("a part-way review that answers once the composer is closed (Edit opened) says so in a toast", async () => {
+    review.session = pendingOf(['5']);
     let answer!: (v: unknown) => void;
     review.submitReview.mockReturnValueOnce(new Promise((r) => { answer = r; }));
     const toast = vi.spyOn(useToast.getState(), 'show');
     show();
-    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
     const form = screen.getByRole('form', { name: 'Review' });
     fireEvent.click(within(form).getByRole('radio', { name: 'Approve' }));
     fireEvent.click(within(form).getByRole('button', { name: 'Approve' }));
     expect(form).toHaveAttribute('aria-busy', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+    fireEvent.click(within(screen.getByTestId('status')).getByRole('button', { name: 'Edit' }));
     expect(form).not.toBeInTheDocument();
     await act(async () => answer({ ok: true, value: { published: 1, eventError: 'gitlab.example.com refused: 403 Forbidden', bodyPosted: false, eventSent: false, fallback: false } }));
     expect(toast).toHaveBeenCalledWith('Your comment was published, but GitLab refused the rest: gitlab.example.com refused: 403 Forbidden', { error: true });
@@ -414,5 +444,100 @@ describe("the MR/PR view's actions (spec #4 §4 \"4B\")", () => {
     expect(screen.getByRole('button', { name: 'Check out' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+  });
+});
+
+describe('your pending review in the MR/PR view (review comments round 2)', () => {
+  const at = (path: string, line: number) => ({ path, oldPath: null, line, oldLine: null, snippet: null, startLine: null, startOldLine: null });
+  const DRAFTS: ReviewDraft[] = [
+    { id: '7', body: 'Rename this\n\nIt reads better.', position: at('src/z.rs', 30), replyTo: null },
+    { id: '5', body: 'Off by one?', position: at('src/a.rs', 12), replyTo: null },
+    { id: '6', body: 'A reply made on the web', position: null, replyTo: 'd9' },
+  ];
+  const panel = () => screen.getByRole('region', { name: /^Your (pending )?review/ });
+
+  it('is open with a review pending, without Review…: its header counts, its rows say where and what, the loose one is a card, then the composer', () => {
+    review.session = pendingOf([], DRAFTS);
+    show();
+    expect(panel()).toHaveTextContent('Your review · 3 pending');
+    const rows = within(within(panel()).getByRole('list', { name: 'Pending comments' })).getAllByRole('listitem');
+    // By file, then line.
+    expect(rows.map((r) => r.textContent)).toEqual(['src/a.rs:12Off by one?', 'src/z.rs:30Rename this']);
+    expect(within(within(panel()).getByRole('group', { name: 'Pending comments' })).getByText('A reply made on the web')).toBeInTheDocument();
+    const form = within(panel()).getByRole('form', { name: 'Review' });
+    expect(form).toHaveTextContent('Sends your 3 pending comments with it');
+    // Open by default, but it doesn't take the keyboard as the view opens.
+    expect(within(form).getByRole('textbox', { name: 'Message' })).not.toHaveFocus();
+    // Its Cancel only clears a message: off while there's none.
+    expect(within(form).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  });
+
+  it("a row's file:line opens the file at that line", () => {
+    review.session = pendingOf([], DRAFTS);
+    show();
+    fireEvent.click(within(panel()).getByRole('button', { name: 'src/a.rs:12' }));
+    expect(note.openNoteFile).toHaveBeenCalledWith('t', 'gitlab', expect.objectContaining({ number: 12 }), expect.objectContaining({ path: 'src/a.rs', line: 12 }));
+  });
+
+  it('none pending: no panel; Review… opens the composer as before', () => {
+    show();
+    expect(screen.queryByRole('region', { name: /Your review/ })).toBeNull();
+    expect(screen.queryByRole('form', { name: 'Review' })).toBeNull();
+    // A review on another MR/PR isn't this one's.
+    review.session = { ...pendingOf(['5']), number: 13 };
+    show();
+    expect(screen.queryByRole('region', { name: /Your review/ })).toBeNull();
+  });
+
+  it('GitHub: a pending review with no comment yet is still a panel', () => {
+    review.session = { ...pendingOf([]), kind: 'github', pendingReview: 'PRR_1' };
+    show(mr, detail, 'github');
+    expect(panel()).toHaveTextContent('Your pending review');
+    expect(within(panel()).queryByRole('list')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Review…' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('Review… takes the keyboard to the panel; the APPROVALS card has no other control for it', () => {
+    review.session = pendingOf([], DRAFTS);
+    show();
+    // Approve and Review… only: the panel under the header is the cue.
+    expect(within(screen.getByTestId('approvals')).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Approve', 'Review…']);
+    const textbox = within(panel()).getByRole('textbox', { name: 'Message' });
+    const reviewBtn = screen.getByRole('button', { name: 'Review…' });
+    expect(reviewBtn).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(reviewBtn);
+    expect(textbox).toHaveFocus();
+    textbox.blur();
+    fireEvent.click(reviewBtn);
+    // Still there, and focused: Review… doesn't close it while a review is pending.
+    expect(within(panel()).getByRole('textbox', { name: 'Message' })).toHaveFocus();
+  });
+
+  it('Discard arms in place, then deletes the pending review on the forge', async () => {
+    review.session = pendingOf([], DRAFTS);
+    show();
+    press(within(panel()).getByRole('button', { name: 'Discard' }));
+    expect(overlay()).toHaveTextContent('Click again to discard 3 pending comments');
+    expect(overlay()).toHaveClass('tone-danger');
+    expect(review.discardReview).not.toHaveBeenCalled();
+    clock.settle();
+    press(overlay()!);
+    await waitFor(() => expect(review.discardReview).toHaveBeenCalledWith('t'));
+  });
+
+  it("the composer's buttons come right after the message, before what it says", () => {
+    review.session = pendingOf(['5']);
+    show(mr, detail, 'gitlab');
+    const form = screen.getByRole('form', { name: 'Review' });
+    fireEvent.click(within(form).getByRole('radio', { name: 'Request changes' }));
+    const textbox = within(form).getByRole('textbox', { name: 'Message' });
+    const submit = within(form).getByRole('button', { name: 'Request changes' });
+    const note = within(form).getByText(/withdraws your approval/);
+    expect(textbox.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(submit.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The foot: the buttons' row, then the notes beside it (drawn on its left).
+    const foot = form.querySelector('.mr-review-foot')!;
+    expect([...foot.children].map((c) => c.className)).toEqual(['mr-form-row', 'mr-review-notes']);
+    expect(submit).toHaveClass('primary', 'warn');
   });
 });

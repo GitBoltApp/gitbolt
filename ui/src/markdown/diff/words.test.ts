@@ -84,4 +84,10 @@ describe('codeLines (R10)', () => {
     expect(codeLines('', 'a\nb')).toEqual({ value: 'a\nb', marks: '++' });
     expect(codeLines('a', 'a')).toEqual({ value: 'a', marks: ' ' });
   });
+
+  it('keeps the last line in common when a line is added after it', () => {
+    expect(codeLines('a\nb', 'a\nb\nc')).toEqual({ value: 'a\nb\nc', marks: '  +' });
+    expect(codeLines('a\nb\nc', 'a\nb')).toEqual({ value: 'a\nb\nc', marks: '  -' });
+    expect(codeLines('a', '')).toEqual({ value: 'a', marks: '-' });
+  });
 });
