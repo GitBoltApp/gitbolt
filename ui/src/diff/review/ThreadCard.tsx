@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Minus } from 'lucide-react';
 import { useContext, useLayoutEffect, useMemo, useRef } from 'react';
 import type { ForgeDiscussion } from '../../api/gen/ForgeDiscussion';
 import { ForgeAvatar } from '../../avatars/Avatar';
@@ -7,6 +7,7 @@ import { Discussion } from '../../forge/mrview/Thread';
 import { useReview } from '../../forge/review/session';
 import { plainExcerpt } from '../../markdown/excerpt';
 import { MdSuggestionBase, positionBase } from '../../markdown/suggestion';
+import { HoverTooltip } from '../../ui/HoverTooltip';
 import { useCardFocus } from './cardFocus';
 import { ReviewNewText } from './newText';
 import { cardKey, setCardOpen, useReviewUi } from './store';
@@ -17,8 +18,11 @@ import './review.css';
  * resolve, Resolve, reactions) under a header that folds it to one line (who, the first line,
  * how many replies). A resolved thread starts folded; the user's choice is kept for the session.
  * Folding with the keyboard in it hands the keyboard to the toggle.
+ *
+ * `toGutter`: folded, the card leaves the lines for its author's avatar in the glyph margin (the
+ * source diff), so its toggle is a minus that says so rather than a chevron to a one-line row.
  */
-export function ThreadCard({ tabId, thread, outdated }: { tabId: string; thread: ForgeDiscussion; outdated: boolean }) {
+export function ThreadCard({ tabId, thread, outdated, toGutter = false }: { tabId: string; thread: ForgeDiscussion; outdated: boolean; toGutter?: boolean }) {
   const review = useReview(tabId);
   const number = review?.number ?? -1;
   const mr = useForge((s) => (review ? knownMr(s.byTab[tabId] ?? EMPTY_FORGE, review.number) : null));
@@ -43,9 +47,19 @@ export function ThreadCard({ tabId, thread, outdated }: { tabId: string; thread:
   return (
     <div className="review-card review-thread" data-resolved={thread.resolved || undefined} {...focus.props}>
       <div className="review-card-head">
-        <button ref={toggle} type="button" className="review-toggle" data-review-focus="" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} the thread by ${first.author.name}`} onClick={() => setCardOpen(key, !open)}>
-          <ChevronRight size={14} aria-hidden />
-        </button>
+        {toGutter && open
+          ? (
+              <HoverTooltip content="Minimize to the gutter">
+                <button ref={toggle} type="button" className="review-toggle" data-review-focus="" aria-label={`Minimize the thread by ${first.author.name} to the gutter`} onClick={() => setCardOpen(key, false)}>
+                  <Minus size={14} aria-hidden />
+                </button>
+              </HoverTooltip>
+            )
+          : (
+              <button ref={toggle} type="button" className="review-toggle" data-review-focus="" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} the thread by ${first.author.name}`} onClick={() => setCardOpen(key, !open)}>
+                <ChevronRight size={14} aria-hidden />
+              </button>
+            )}
         {!open && (
           <>
             <ForgeAvatar user={first.author} size={18} />

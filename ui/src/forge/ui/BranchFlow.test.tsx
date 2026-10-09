@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { RowPayload } from '../../api/gen/RowPayload';
 import { BranchFlow, FlowStrip } from './BranchFlow';
@@ -132,5 +132,23 @@ describe("BranchFlow's commit rows jump to the graph", () => {
     expect(open).not.toHaveBeenCalled();
     fireEvent.mouseEnter(row);
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Not in the graph yet: fetch first');
+  });
+
+  it('the "not fetched" footer is a button: it asks again with a spinner, then says it is still missing', async () => {
+    let done!: (s: RangeState) => void;
+    const recheck = vi.fn(() => new Promise<RangeState>((r) => { done = r; }));
+    render(<BranchFlow from={{ branch: 'f', sub: 'o' }} into={{ branch: 'dev', sub: 'o' }} stats={{ status: 'none' }} none="Not fetched" recheck={recheck} />);
+    const btn = screen.getByRole('button', { name: /Not fetched/ });
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn).toHaveAttribute('aria-busy', 'false');
+    fireEvent.click(btn);
+    expect(recheck).toHaveBeenCalledTimes(1);
+    expect(btn).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(btn);
+    expect(recheck).toHaveBeenCalledTimes(1);
+    await act(async () => { done({ status: 'none' }); });
+    expect(btn).toHaveAttribute('aria-busy', 'false');
+    fireEvent.mouseEnter(btn);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/Still not in this repository.*source branch/);
   });
 });

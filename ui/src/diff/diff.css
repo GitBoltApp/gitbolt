@@ -89,6 +89,8 @@
 .review-glyph[hidden] { display: none; }
 .review-glyph > span { display: grid; place-items: center; width: 14px; height: 14px; border-radius: 3px; background: var(--blue); color: var(--text-on-accent); font: 700 13px/1 var(--font-ui); }
 .review-glyph:hover > span { filter: brightness(1.15); }
+/* The glyph margin at a line that takes no comment, under the pointer (its tooltip says why). */
+.monaco-editor.review-no-comment .margin, .monaco-editor.review-no-comment .margin * { cursor: not-allowed; }
 .monaco-editor .review-range { background: color-mix(in srgb, var(--yellow) 12%, transparent); }
 .monaco-editor .review-drag { background: color-mix(in srgb, var(--blue) 18%, transparent); }
 .line-action-bar { position: fixed; z-index: 20; display: flex; gap: 4px; padding: 3px; border-radius: 4px; background: var(--panel-bg1); box-shadow: 0 1px 4px var(--shadow-popup); }

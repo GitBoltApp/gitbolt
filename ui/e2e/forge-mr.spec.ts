@@ -158,7 +158,14 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
       const panel = page.locator('.diff-panel');
       const markdown = panel.getByRole('group', { name: 'Markdown view' });
       if (file.endsWith('.md')) await markdown.getByRole('button', { name: 'Source' }).click();
-      await panel.locator('.editor.modified .margin-view-overlays .line-numbers').filter({ hasText: new RegExp(`^${line}$`) }).hover();
+      // The + comes with a pointer move once review mode is on (the forge's diff loaded, a moment
+      // after the file opens): moved again until it shows.
+      const at = panel.locator('.editor.modified .margin-view-overlays .line-numbers').filter({ hasText: new RegExp(`^${line}$`) });
+      await expect(async () => {
+        await at.hover({ position: { x: 1, y: 1 } });
+        await at.hover();
+        await expect(panel.locator('.review-glyph:visible')).toBeVisible({ timeout: 500 });
+      }).toPass();
       await panel.locator('.review-glyph:visible').click();
       const box = panel.getByRole('form', { name: 'New comment' });
       await box.getByRole('textbox', { name: 'Comment' }).fill('Why this line?');

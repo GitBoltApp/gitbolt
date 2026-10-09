@@ -155,7 +155,7 @@ export function ActiveReview({ tabId, path, mode }: { tabId: string; path: strin
         const node = nodes.get(e.item.key);
         if (!node || items[i]!.icon || node.classList.contains(ICON_CLASS)) return null;
         const card = e.kind === 'thread'
-          ? <ThreadCard tabId={tabId} thread={e.thread} outdated={e.outdated} />
+          ? <ThreadCard tabId={tabId} thread={e.thread} outdated={e.outdated} toGutter />
           : e.kind === 'draft'
             ? <DraftCard tabId={tabId} draft={e.draft} outdated={e.outdated} onGone={() => host?.focus()} />
             : <CommentBox tabId={tabId} anchor={e.box.anchor} suggestion={e.box.suggestion} disabledReason={blocked} autoFocus={fresh === e.item.key} onDone={() => closed(e.box.key)} onCancel={() => closed(e.box.key)} />;

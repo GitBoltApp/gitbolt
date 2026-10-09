@@ -1,5 +1,5 @@
 import { fireEvent } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./setup', () => ({
   monaco: {
@@ -10,8 +10,8 @@ vi.mock('./setup', () => ({
   },
 }));
 
-const { GLYPH_TIP, ReviewGutter } = await import('./reviewGutter');
-const { useTooltip } = await import('../../ui/tooltipStore');
+const { GLYPH_TIP, NO_COMMENT_CLASS, NO_COMMENT_TIP, NO_COMMENT_TIP_DELAY_MS, ReviewGutter } = await import('./reviewGutter');
+const { showTooltip, useTooltip } = await import('../../ui/tooltipStore');
 
 type Listener = (e: unknown) => void;
 function fakeEditor() {
@@ -221,5 +221,138 @@ describe("the gutter beside a folded thread's icon", () => {
     expect([click.mock.calls.length, onPick.mock.calls.length]).toEqual([1, 0]);
     gutter.set(null);
     expect(gutter.press('modified', 1, click)).toBe(false);
+  });
+});
+
+describe('the glyph margin at a line that takes no comment', () => {
+  /** The modified editor with a node (an editor's `.monaco-editor`), 40 px down the window. */
+  function withRoot() {
+    const s = setup();
+    const root = document.createElement('div');
+    root.className = 'monaco-editor';
+    vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 40, 600, 400));
+    Object.assign(s.modified, { getDomNode: () => root });
+    useTooltip.setState({ tip: null });
+    return { ...s, root };
+  }
+  const tip = () => useTooltip.getState().tip;
+  const rest = () => vi.advanceTimersByTime(NO_COMMENT_TIP_DELAY_MS);
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("shows once the pointer rests there (the graph's 500 ms): a sweep down the margin shows none", () => {
+    const { modified } = withRoot();
+    expect(NO_COMMENT_TIP_DELAY_MS).toBe(500);
+    modified.fire('move', move(2, 4));
+    vi.advanceTimersByTime(NO_COMMENT_TIP_DELAY_MS - 100);
+    expect(tip()).toBeNull();
+    // On to the next line: it waits again from there.
+    modified.fire('move', move(2, 5));
+    vi.advanceTimersByTime(NO_COMMENT_TIP_DELAY_MS - 100);
+    expect(tip()).toBeNull();
+    // A move within the line doesn't restart it.
+    modified.fire('move', move(2, 5));
+    vi.advanceTimersByTime(100);
+    expect(tip()?.text).toBe(NO_COMMENT_TIP);
+  });
+
+  it("the + and a folded thread's icon keep their tooltips at once", () => {
+    const { modified } = withRoot();
+    modified.fire('move', move(2, 9));
+    fireEvent.mouseEnter(modified.widget());
+    expect(tip()?.text).toBe(GLYPH_TIP);
+  });
+
+  it("says why in the app's tooltip, beside its glyph cell, with a not-allowed pointer; gone on a line with a +", () => {
+    const { modified, root } = withRoot();
+    modified.fire('move', move(2, 7));
+    expect(root.classList.contains(NO_COMMENT_CLASS)).toBe(true);
+    rest();
+    expect(tip()).toMatchObject({ text: NO_COMMENT_TIP, placement: 'right' });
+    expect([tip()!.rect.left, tip()!.rect.top, tip()!.rect.width, tip()!.rect.height]).toEqual([100, 40 + 6 * 19, 18, 19]);
+    expect(root.classList.contains(NO_COMMENT_CLASS)).toBe(true);
+    expect(modified.widget().hidden).toBe(true);
+    modified.fire('move', move(2, 9));
+    expect(tip()).toBeNull();
+    expect(root.classList.contains(NO_COMMENT_CLASS)).toBe(false);
+    expect(modified.widget().hidden).toBe(false);
+  });
+
+  it('only in the glyph margin: not over the line numbers or the text of such a line', () => {
+    const { modified } = withRoot();
+    modified.fire('move', move(3, 7));
+    modified.fire('move', move(6, 7));
+    modified.fire('move', move(7, 7));
+    rest();
+    expect(tip()).toBeNull();
+    modified.fire('move', move(2, 7));
+    modified.fire('move', move(3, 7));
+    rest();
+    expect(tip()).toBeNull();
+  });
+
+  it("not at a folded thread's icon, whose own tooltip stays", () => {
+    const { gutter, modified } = withRoot();
+    gutter.occupied = (side, line) => side === 'modified' && line === 8;
+    modified.fire('move', move(2, 8));
+    rest();
+    expect(tip()).toBeNull();
+    // From a line with no comment (its tooltip shown) onto the icon: the icon's tooltip comes
+    // first, then the move.
+    modified.fire('move', move(2, 7));
+    rest();
+    showTooltip(document.body, 'Thread by Grace Hopper: Why?', 0, 'right');
+    modified.fire('move', move(2, 8));
+    rest();
+    expect(tip()?.text).toBe('Thread by Grace Hopper: Why?');
+  });
+
+  it('not while a drag is under way: a press takes it away, and the lines it goes over show none', () => {
+    const { gutter, modified } = withRoot();
+    modified.fire('move', move(2, 7));
+    rest();
+    expect(tip()?.text).toBe(NO_COMMENT_TIP);
+    gutter.press('modified', 7, vi.fn());
+    expect(tip()).toBeNull();
+    modified.fire('move', move(2, 4));
+    rest();
+    expect(tip()).toBeNull();
+    fireEvent.mouseUp(window);
+    // Pending when a press comes: it never shows.
+    modified.fire('move', move(2, 4));
+    gutter.press('modified', 4, vi.fn());
+    rest();
+    expect(tip()).toBeNull();
+    fireEvent.mouseUp(window);
+    modified.fire('move', move(2, 5));
+    rest();
+    expect(tip()?.text).toBe(NO_COMMENT_TIP);
+  });
+
+  it('gone when the pointer leaves the editor, on a scroll, and with the review', () => {
+    const { gutter, modified, root } = withRoot();
+    const out = { event: { browserEvent: { relatedTarget: null } } };
+    modified.fire('move', move(2, 7));
+    rest();
+    modified.fire('leave', out);
+    expect(tip()).toBeNull();
+    // Pending: a leave or a scroll cancels it.
+    modified.fire('move', move(2, 7));
+    modified.fire('leave', out);
+    rest();
+    expect(tip()).toBeNull();
+    modified.fire('move', move(2, 7));
+    modified.fire('scroll', {});
+    rest();
+    expect(tip()).toBeNull();
+    // Still on that line after the scroll: it comes back with the next move.
+    modified.fire('move', move(2, 7));
+    rest();
+    expect(tip()?.text).toBe(NO_COMMENT_TIP);
+    gutter.set(null);
+    expect([tip(), root.classList.contains(NO_COMMENT_CLASS)]).toEqual([null, false]);
+    modified.fire('move', move(2, 7));
+    rest();
+    expect(tip()).toBeNull();
   });
 });

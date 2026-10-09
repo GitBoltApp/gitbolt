@@ -117,9 +117,9 @@ describe('review mode in the source diff (spec 2026-10-08 §2)', () => {
     host.goToReviewZone.mockReturnValue('t:d1');
     act(() => lentHandler('review.nextThread')!());
     expect(host.goToReviewZone).toHaveBeenCalledWith('next');
-    expect(within(nodes.get('t:d1')!).getByRole('button', { name: 'Collapse the thread by Grace Hopper' })).toHaveFocus();
+    expect(within(nodes.get('t:d1')!).getByRole('button', { name: 'Minimize the thread by Grace Hopper to the gutter' })).toHaveFocus();
     // Esc on the card, which no control there takes: back to the diff.
-    fireEvent.keyDown(within(nodes.get('t:d1')!).getByRole('button', { name: 'Collapse the thread by Grace Hopper' }), { key: 'Escape' });
+    fireEvent.keyDown(within(nodes.get('t:d1')!).getByRole('button', { name: 'Minimize the thread by Grace Hopper to the gutter' }), { key: 'Escape' });
     expect(host.focus).toHaveBeenCalled();
   });
 
@@ -159,7 +159,7 @@ describe('review mode in the source diff (spec 2026-10-08 §2)', () => {
     const card = within(nodes.get('t:d1')!).getByRole('article', { name: 'Thread by Grace Hopper' });
     // The first comment's author, as on the timeline.
     expect(within(card).getByTestId('avatar')).toBeInTheDocument();
-    fireEvent.click(within(nodes.get('t:d1')!).getByRole('button', { name: 'Collapse the thread by Grace Hopper' }));
+    fireEvent.click(within(nodes.get('t:d1')!).getByRole('button', { name: 'Minimize the thread by Grace Hopper to the gutter' }));
     expect(lastSpec().items[0]!.icon).toBe(true);
   });
 
@@ -172,7 +172,7 @@ describe('review mode in the source diff (spec 2026-10-08 §2)', () => {
     // Enter on it (the host's).
     act(() => lastSpec().expand(['t:d1']));
     nodes = await place();
-    const toggle = within(nodes.get('t:d1')!).getByRole('button', { name: 'Collapse the thread by Grace Hopper' });
+    const toggle = within(nodes.get('t:d1')!).getByRole('button', { name: 'Minimize the thread by Grace Hopper to the gutter' });
     expect(toggle).toHaveFocus();
     fireEvent.click(toggle);
     nodes = await place();

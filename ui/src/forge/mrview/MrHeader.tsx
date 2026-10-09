@@ -11,7 +11,7 @@ import { ownerOf, pipelineWord, reviewText } from '../mrText';
 import { useTabForgeField } from '../mrStore';
 import { BranchFlow } from '../ui/BranchFlow';
 import { useCommitJump } from '../ui/commitJump';
-import { useRangeStats } from '../ui/rangeStats';
+import { useRangeStatsRecheck } from '../ui/rangeStats';
 import { compareMr } from './compare';
 import { MrPeople } from './MrPeople';
 
@@ -33,7 +33,7 @@ export function MrHeader({ tabId, kind, mr, detail, actions, review, editLabels,
   const jump = useCommitJump(tabId);
   // Compare's spinner: while it fetches the head (when it must) and finds the base.
   const [comparing, setComparing] = useState(false);
-  const stats = useRangeStats(tabId, open ? detail?.mr.headSha ?? mr.headSha : null, open && remote ? `refs/remotes/${remote}/${mr.targetBranch}` : null);
+  const [stats, recheck] = useRangeStatsRecheck(tabId, open ? detail?.mr.headSha ?? mr.headSha : null, open && remote ? `refs/remotes/${remote}/${mr.targetBranch}` : null);
   const none = mr.state === 'merged' ? `Merged into ${mr.targetBranch}` : mr.state === 'closed' ? 'Closed' : "Its commits aren't fetched into this repository";
   const decision = detail?.mr.review.decision;
   const reviewTone = decision === 'approved' ? 'ok' : decision === 'changesRequested' ? 'bad' : '';
@@ -54,6 +54,7 @@ export function MrHeader({ tabId, kind, mr, detail, actions, review, editLabels,
         into={{ branch: mr.targetBranch, sub: mr.targetProject }}
         stats={stats}
         none={none}
+        recheck={open ? recheck : undefined}
         jump={jump}
         compare={(detail?.mr.headSha ?? mr.headSha) ? { busy: comparing, run: () => { setComparing(true); void compareMr(tabId, kind, mr, detail).finally(() => setComparing(false)); } } : undefined}
       />

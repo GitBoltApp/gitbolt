@@ -81,6 +81,26 @@ describe('a thread under its line (spec 2026-10-08 §2)', () => {
     expect(screen.getByRole('button', { name: 'Collapse the thread by Grace Hopper' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it("in the source diff it minimizes to the gutter (its author's avatar): a minus that says so, not a chevron", () => {
+    render(<ThreadCard tabId="t" thread={thread(false)} outdated={false} toGutter />);
+    const toggle = screen.getByRole('button', { name: 'Minimize the thread by Grace Hopper to the gutter' });
+    expect(toggle).toHaveAttribute('data-review-focus');
+    expect(toggle).not.toHaveAttribute('aria-expanded');
+    expect(toggle.querySelector('.lucide-minus')).not.toBeNull();
+    expect(toggle.querySelector('.lucide-chevron-right')).toBeNull();
+    fireEvent.mouseEnter(toggle);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Minimize to the gutter');
+    fireEvent.click(toggle);
+    expect(useReviewUi.getState().folds['t:12:d1']).toBe(false);
+  });
+
+  it('folding to one line (the rendered diff), it keeps its chevron', () => {
+    render(<ThreadCard tabId="t" thread={thread(false)} outdated={false} />);
+    const toggle = screen.getByRole('button', { name: 'Collapse the thread by Grace Hopper' });
+    expect(toggle.querySelector('.lucide-chevron-right')).not.toBeNull();
+    expect(toggle.querySelector('.lucide-minus')).toBeNull();
+  });
+
   it('an outdated one says so', () => {
     render(<ThreadCard tabId="t" thread={thread(false)} outdated />);
     expect(screen.getByText('Outdated')).toBeInTheDocument();

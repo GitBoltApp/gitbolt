@@ -1,10 +1,17 @@
 import type * as MonacoNs from 'monaco-editor/editor/editor.api';
 import { deletedLineAt, gutterHit, type GutterLines, type Hit } from './lineGutter';
 import { monaco } from './setup';
-import { hideTooltip, showTooltip } from '../../ui/tooltipStore';
+import { hideTooltip, showTooltip, useTooltip } from '../../ui/tooltipStore';
 
 type Side = 'original' | 'modified';
 export const GLYPH_TIP = 'Comment on this line (drag for several)';
+/** The glyph margin at a line that takes no comment: why there's no + there. */
+export const NO_COMMENT_TIP = "No review comments here: the forge only takes them on the merge request's changed lines and the lines around them";
+/** How long the pointer rests at such a line before it shows (the graph's message tooltip's
+ * delay): a sweep down the margin doesn't flash it at every line. */
+export const NO_COMMENT_TIP_DELAY_MS = 500;
+/** On the editor's node while the pointer is in the glyph margin at such a line (a not-allowed pointer). */
+export const NO_COMMENT_CLASS = 'review-no-comment';
 type Editor = MonacoNs.editor.ICodeEditor;
 
 /** Review mode's gutter (spec 2026-10-08 §2): the lines that take a comment, and what a click or
@@ -31,6 +38,8 @@ export class ReviewGutter {
   private drag: Drag | null = null;
   private release: (() => void) | null = null;
   private readonly hides: (() => void)[] = [];
+  /** Each editor's "no comment here" tooltip, gone (a drag, or no review). */
+  private readonly unbars: (() => void)[] = [];
   /** What `dispose` undoes: each editor's widget and listeners. */
   private readonly offs: (() => void)[] = [];
   private readonly marks: Record<Side, MonacoNs.editor.IEditorDecorationsCollection>;
@@ -48,6 +57,7 @@ export class ReviewGutter {
     if (spec) return;
     this.end(false);
     for (const h of this.hides) h();
+    for (const u of this.unbars) u();
   }
 
   /** Whether `edSide`'s editor shows a folded thread's icon at `line`: the icon has the line, so
@@ -106,9 +116,32 @@ export class ReviewGutter {
       btn.hidden = false;
     };
     this.hides.push(hide);
+    // The glyph margin at a line that takes no comment (no +, no folded thread's icon): the app's
+    // tooltip says why once the pointer rests there, and the pointer is not-allowed. Only its own
+    // tooltip (shown or pending) goes with it: the pointer can come onto a neighbour's icon (its
+    // tooltip shown first) before the move.
+    let barred: number | null = null;
+    const unbar = () => {
+      if (barred === null) return;
+      barred = null;
+      ed.getDomNode()?.classList.remove(NO_COMMENT_CLASS);
+      const shown = useTooltip.getState().tip;
+      if (!shown || shown.text === NO_COMMENT_TIP) hideTooltip();
+    };
+    const bar = (line: number) => {
+      if (barred === line) return;
+      barred = line;
+      const root = ed.getDomNode();
+      root?.classList.add(NO_COMMENT_CLASS);
+      const info = ed.getLayoutInfo();
+      const box = root?.getBoundingClientRect() ?? new DOMRect();
+      const top = box.top + ed.getTopForLineNumber(line) - ed.getScrollTop();
+      showTooltip(new DOMRect(box.left + info.glyphMarginLeft, top, Math.max(info.glyphMarginWidth, 16), ed.getOption(monaco.editor.EditorOption.lineHeight)), NO_COMMENT_TIP, NO_COMMENT_TIP_DELAY_MS, 'right');
+    };
+    this.unbars.push(unbar);
     const widget: MonacoNs.editor.IOverlayWidget = { getId: () => `gitbolt.reviewComment.${edSide}`, getDomNode: () => btn, getPosition: () => null };
     ed.addOverlayWidget(widget);
-    this.offs.push(() => { untip(); ed.removeOverlayWidget(widget); });
+    this.offs.push(() => { untip(); unbar(); ed.removeOverlayWidget(widget); });
     // The press is the button's: Monaco mustn't move the cursor or start a selection under it.
     btn.addEventListener('mousedown', (e) => {
       untip();
@@ -126,15 +159,23 @@ export class ReviewGutter {
         const hit = this.spec ? gutterHit(this.diff, edSide, ed, e, this.spec) : null;
         if (!hit || (hit.side === edSide && this.occupied?.(edSide, hit.line))) hide();
         else if (!at || hit.line !== at.line || hit.side !== at.side || btn.hidden) show(hit);
+        const line = e.target.type === T.GUTTER_GLYPH_MARGIN ? e.target.position?.lineNumber : undefined;
+        if (this.spec && !hit && line !== undefined && !this.occupied?.(edSide, line)) bar(line);
+        else unbar();
       }),
       ed.onMouseLeave((e) => {
+        unbar();
         if (this.drag) return;
         if (!(e.event.browserEvent.relatedTarget instanceof Node && btn.contains(e.event.browserEvent.relatedTarget))) hide();
       }),
-      ed.onDidScrollChange(() => { if (!this.drag) hide(); }),
+      ed.onDidScrollChange(() => {
+        unbar();
+        if (!this.drag) hide();
+      }),
       ed.onDidChangeModel(() => {
         this.end(false);
         hide();
+        unbar();
       }),
     );
   }
@@ -142,6 +183,7 @@ export class ReviewGutter {
   private start(d: Drag): void {
     // A drag whose mouseup never came (released outside the window): its listeners go first.
     this.end(false);
+    for (const u of this.unbars) u();
     this.drag = d;
     this.paint();
     const move = (e: MouseEvent) => {

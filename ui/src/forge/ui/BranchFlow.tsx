@@ -20,7 +20,7 @@ export interface FlowEnd {
  * status strip at the bottom (Create's "isn't on origin yet" with Push). The footer keeps its
  * height while the counts load.
  */
-export function BranchFlow({ from, into, stats, count = null, none, strip, jump, compare }: {
+export function BranchFlow({ from, into, stats, count = null, none, recheck, strip, jump, compare }: {
   from: FlowEnd;
   into: FlowEnd;
   stats: RangeState;
@@ -30,12 +30,21 @@ export function BranchFlow({ from, into, stats, count = null, none, strip, jump,
   count?: number | null;
   /** The footer when the repository lacks the commits. */
   none?: ReactNode;
+  /** Makes the `none` footer a button that asks again (the commits may have been fetched since). */
+  recheck?: () => Promise<RangeState>;
   strip?: ReactNode;
   /** The MR view's Compare, an icon at the bar's right end (`busy`: fetching its head). */
   compare?: { run(): void; busy: boolean };
 }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
+  const [checking, setChecking] = useState(false);
+  const [missed, setMissed] = useState(false);
+  const ask = () => {
+    if (checking || !recheck) return;
+    setChecking(true);
+    void recheck().then((s) => setMissed(s.status === 'none')).finally(() => setChecking(false));
+  };
   const ready = stats.status === 'ready' ? stats.stats : null;
   const commits = ready?.commits ?? null;
   const shownCount = commits?.length ?? count;
@@ -44,7 +53,16 @@ export function BranchFlow({ from, into, stats, count = null, none, strip, jump,
       {stats.status === 'loading' && <span className="flow-wait">Counting…</span>}
       {stats.status === 'none' && (count !== null
         ? <span><b>{count}</b> {count === 1 ? 'commit' : 'commits'}</span>
-        : <span className="flow-wait">{none ?? "The commits aren't in this repository yet"}</span>)}
+        : recheck
+          ? (
+            <HoverTooltip content={missed ? 'Still not in this repository. Fetching the source branch brings them in.' : 'Check again'}>
+              <button type="button" className="flow-wait flow-recheck" aria-busy={checking} onClick={ask}>
+                <span>{none ?? "The commits aren't in this repository yet"}</span>
+                <span className="flow-recheck-spin" aria-hidden>{checking && <LoaderCircle className="spin" size={12} />}</span>
+              </button>
+            </HoverTooltip>
+          )
+          : <span className="flow-wait">{none ?? "The commits aren't in this repository yet"}</span>)}
       {ready && (
         <>
           {shownCount !== null && <span><b>{shownCount}</b> {shownCount === 1 ? 'commit' : 'commits'}</span>}
