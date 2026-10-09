@@ -5,6 +5,43 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Inline review comments** on GitHub and GitLab. Open an MR's or PR's **Compare**, and a **+**
+  in the diff's gutter comments on a line, or drag it over a range. The comment box has **Add to
+  review** (Mod+Enter: a draft kept on the forge, as GitLab's draft notes or GitHub's pending
+  review), **Comment now** and **Suggest change**. Threads and your drafts show as cards under
+  their lines in every diff mode, outdated ones marked. A resolved thread folds into its author's
+  avatar in the gutter, as on GitLab; F9 and Shift+F9 step between threads, and Mod+Alt+C comments
+  on the cursor's lines. The rendered Markdown diff takes comments on a block's lines too.
+- **Your pending review**, in a boxed panel in the MR view (your drafts, the summary and
+  Comment, Approve or Request changes) and as a chip in the top bar ("Reviewing !12 · 3
+  pending"). **Submit review…** (Mod+Alt+R) sends the drafts with it; if the forge refuses part of
+  it, it says what went through, and trying again sends only the rest. **Discard** arms in place.
+  A review left pending on the web comes back when its MR opens.
+- **Suggested changes** show as a diff of the lines they replace, highlighted in the file's
+  language: in the comment box's Preview, the diff's cards and the MR timeline.
+- The diff panel's file list marks files with review threads; clicking the mark again steps
+  through them.
+- **Rebase from the merge panel:** when an MR's branch is behind its target, GitLab's **Rebase**
+  and **Rebase without pipeline**, or GitHub's **Merge main in** and **Rebase onto main**
+  (Ctrl+Alt+U).
+
+### Changed
+
+- **The pinned trunk is a pair:** your main branch and the remote branch it tracks both stay at
+  the left of the graph. One behind the other, they share the leftmost lane; diverged, the remote
+  branch's own commits take the next lane.
+- A resolved thread on the MR timeline rolls up into one line, as GitLab shows it; a click opens
+  it again.
+- The MR view's buttons meet WCAG AA contrast in every theme.
+
+### Fixed
+
+- The MR view's "Its commits aren't fetched into this repository" stayed until the MR was
+  reopened. It checks again after a fetch, and when you click it.
+- A folder whose name is too long for the file list shows its full path on hover.
+
 ## [0.4.0] - 2026-10-08
 
 ### Added

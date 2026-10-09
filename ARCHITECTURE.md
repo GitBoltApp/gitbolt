@@ -36,7 +36,7 @@ profiles (`settings.rs`), askpass (`askpass.rs`), log files (`logging.rs`), and 
 contract (`forge/`: the normalized types the UI sees, the `ForgeProvider` trait, the hub that holds
 accounts, the cache). Core never speaks HTTP; it defines traits that the other crates implement.
 
-**`gitbolt-forge`** implements that contract for real forges: `github.rs` (GitHub REST),
+**`gitbolt-forge`** implements that contract for real forges: `github.rs` (GitHub REST, and GraphQL where REST lacks it),
 `gitlab.rs` (GitLab REST v4), one HTTP client per account (`http.rs`), the token store
 (`tokens.rs`), avatar and Markdown-image fetching, and Gravatar (`gravatar.rs`). It depends on core,
 never the other way round.
@@ -273,8 +273,11 @@ through that account's provider, any other host only when the user chooses to lo
 GitHub and GitLab are the two providers (`gitbolt-forge`), both over personal access tokens. Core
 holds the `ForgeHub` (`forge/hub.rs`): the active profile's accounts, a provider per account built
 on first use, and each account's last known status. It maps each remote to its forge project and
-answers the MR/PR badges, the sidebar list, the MR/PR view, the Create MR/PR flow and stacked
-MRs/PRs (`forge/mrs.rs`, `forge/create.rs`, `forge/stack.rs`).
+answers the MR/PR badges, the sidebar list, the MR/PR view, the Create MR/PR flow, stacked
+MRs/PRs and inline review comments (`forge/mrs.rs`, `forge/create.rs`, `forge/stack.rs`,
+`forge/review.rs`: the lines a forge's diff takes comments on, positions and GitLab line codes,
+drafts and their submit). The UI keeps one review session per tab (`ui/src/forge/review/`), and the
+diff view draws its threads and drafts (`ui/src/diff/review/`).
 
 **HTTP** (`gitbolt-forge/src/http.rs`): one client per account with bearer auth, an ETag cache
 (`If-None-Match`, so an unchanged answer is a cheap 304), the forges' poll-interval hints, rate

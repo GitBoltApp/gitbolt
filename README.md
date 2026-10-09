@@ -66,12 +66,15 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
   and edit (the rebase stops so you can amend that commit), predicts which commits will
   conflict before you start, and lets you move, add or delete branches on the rewritten commits
   in the same step.
+- **Code review on GitHub and GitLab, rendered Markdown included.** Comment on lines and ranges,
+  batch them into one review with Comment, Approve or Request changes, and suggest changes, on
+  GitHub and GitLab (self-managed included), in the source diff or on a rendered Markdown diff's
+  blocks. GitKraken's inline review comments work with GitHub only.
 - **Stacked MRs on GitLab too.** Create a whole stack of merge or pull requests at once, push
   and rebase the stack, and have the next one retargeted after a merge, on GitHub and GitLab
   (self-managed included). GitKraken's stacked pull requests work with GitHub.com only.
-- **Automatic trunk pinning.** The graph keeps your main branch in the leftmost lane without
-  being asked: the local branch that tracks the upstream's default branch, or in a fork, the
-  original project's rather than your fork's.
+- **Automatic trunk pinning.** The graph keeps your main branch and the remote branch it tracks
+  at the left by default, picking the original project's default branch in a fork.
 - **Image diff modes:** side by side, swipe, onion skin and a pixel
   difference view, all with zoom.
 - **Free and MIT licensed, private repos included.** No account and no telemetry. GitKraken's free
@@ -85,7 +88,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 | | GitKraken | GitBolt |
 |---|---|---|
 | Commit graph with lanes, branch/tag chips and avatars | ✅ | ✅ |
-| Main branch pinned to the left | 🟡 When you pin one | ✅ Automatic, fork-aware; can be changed or turned off |
+| Main branch pinned to the left | 🟡 When you pin one | ✅ Automatic, with its remote branch; can be changed or turned off |
 | Tabs, multiple repos, worktrees | ✅ | ✅ |
 | Staging files, hunks and lines | ✅ | ✅ |
 | Undo / redo | 🟡 Last action only | ✅ Last 50 operations, across restarts |
@@ -99,7 +102,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 | File history and blame | ✅ | ✅ |
 | Rendered Markdown | 🟡 Files only | ✅ Files, diffs and MR/PR threads |
 | Pull/merge requests: list, view, create, comment, approve, merge | ✅ | ✅ Also auto-merge (merge when the checks pass) |
-| Inline code review comments | ✅ GitHub | 🟡 Shown, but you can't add new ones yet |
+| Inline code review comments | ✅ GitHub | ✅ GitHub and GitLab: lines and ranges, batched into a review, suggested changes |
 | Stacked pull/merge requests | 🟡 GitHub.com only | ✅ GitHub and GitLab |
 | Forges | GitHub, GitLab, Bitbucket, Azure DevOps; self-hosted on paid plans | GitHub.com and GitLab, including self-managed |
 | Commit signing | ✅ | ✅ Through your git config |
@@ -120,7 +123,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 
 ### What GitBolt doesn't do
 
-- **Planned:** Forgejo, and adding inline review comments.
+- **Planned:** Forgejo.
 - **Not there yet:** Intel Macs, Git LFS, Git Flow, submodule commands, and hiding or soloing branches.
 - **Not planned:** an integrated terminal, AI features, issue tracker integrations, and Bitbucket,
   Azure DevOps or GitHub Enterprise Server support. Use the tools you already have for those.
