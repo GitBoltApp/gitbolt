@@ -1,9 +1,11 @@
 //! Updates from GitHub Releases: the check, the download and its `SHA256SUMS` check, and the
 //! install.
 //!
-//! - **Check:** `GET /repos/GitBoltApp/gitbolt/releases`, without a token or anything about the
-//!   user's repositories, at startup and once a day (Settings › Updates turns that off), and on
-//!   Check for updates. The newest release above this version is offered (`release.rs`).
+//! - **Check:** `GET /repos/GitVoltApp/gitvolt/releases` (the project's new name), or
+//!   `/repos/GitBoltApp/gitbolt/releases` while the new one doesn't exist yet (a 404), without a
+//!   token or anything about the user's repositories, at startup and once a day (Settings ›
+//!   Updates turns that off), and on Check for updates. The newest release above this version is
+//!   offered (`release.rs`).
 //! - **Download:** this install's package (`InstallKind`) into the cache's `updates/` folder,
 //!   with progress events, cancellable. It's kept only if `SHA256SUMS` from the same release
 //!   lists it with the same digest; otherwise it's deleted and never run.
@@ -19,8 +21,8 @@ pub mod version;
 use crate::error::{GbError, GbErrorKind};
 use crate::events::{AppEvent, EventBus};
 use crate::forge::ForgeFuture;
-use install::{app_bundle, bundle_replaceable, install_command, manual_command, relaunch_command, InstallCommand, InstallKind};
-use release::{asset_name, check_sum, newest_update, sha256_file, GhRelease, SumCheck, SUMS_ASSET};
+use install::{app_bundle, bundle_replaceable, install_command, manual_command, relaunch_command, relaunch_target, retired_bundle, InstallCommand, InstallKind};
+use release::{asset_names, check_sum, newest_update, sha256_file, GhRelease, SumCheck, SUMS_ASSET};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -31,8 +33,9 @@ use std::time::{Duration, Instant};
 use ts_rs::TS;
 use version::Version;
 
-/// Where the releases are.
-pub const RELEASES_REPO: &str = "GitBoltApp/gitbolt";
+/// Where the releases are: the project under its new name, GitVolt, then (while that repository
+/// doesn't exist yet) its old one. Both are the same project's releases.
+pub const RELEASES_REPOS: [&str; 2] = ["GitVoltApp/gitvolt", "GitBoltApp/gitbolt"];
 /// The automatic check runs this often.
 pub const CHECK_EVERY_SECS: i64 = 24 * 60 * 60;
 /// How often the automatic check looks at the clock (a laptop that slept catches up within it).
@@ -262,7 +265,7 @@ impl Updates {
     }
 
     fn found(&self, r: &GhRelease, v: &Version) -> Found {
-        let asset = asset_name(self.cfg.kind, v).and_then(|n| r.asset(&n));
+        let asset = asset_names(self.cfg.kind, v).iter().find_map(|n| r.asset(n));
         let version = v.without_build();
         Found {
             release: UpdateRelease {
@@ -484,11 +487,16 @@ impl Updates {
 
     /// Starts the installed version once this one has quit, and quits.
     pub fn restart(&self) -> Result<(), GbError> {
-        if !matches!(self.lock().state, UpdateState::Installed { .. }) {
-            return Err(not_ready("No update has been installed"));
-        }
+        let into_gitvolt = match &self.lock().state {
+            UpdateState::Installed { release } => release.asset.as_ref().is_some_and(|a| a.name.starts_with(release::PRODUCT_NAMES[0])),
+            _ => return Err(not_ready("No update has been installed")),
+        };
         let exe = self.cfg.exe.as_ref().ok_or_else(|| not_ready("GitBolt doesn't know where its binary is: start it again yourself"))?;
-        self.cfg.runner.spawn(&relaunch_command(exe, std::process::id())).map_err(|e| GbError::new(GbErrorKind::Io, format!("Couldn't restart GitBolt: {e}")))?;
+        // An update into GitVolt may have put the new binary under that name, and left the old
+        // GitBolt.app for this step to remove.
+        let target = relaunch_target(exe, into_gitvolt);
+        let retire = if self.cfg.kind == InstallKind::Dmg { retired_bundle(exe, &target) } else { None };
+        self.cfg.runner.spawn(&relaunch_command(&target, std::process::id(), retire.as_deref())).map_err(|e| GbError::new(GbErrorKind::Io, format!("Couldn't restart GitBolt: {e}")))?;
         self.cfg.runner.quit();
         Ok(())
     }

@@ -182,6 +182,9 @@ pub struct GitHubSeed {
     // --- end 5A T3 ---
     /// GitBolt's own releases (the update check): none by default.
     pub releases: Vec<releases::FakeRelease>,
+    /// The repository that has them (`releases::REPO`, the new name, by default; `OLD_REPO`
+    /// before the new one exists): the other answers 404.
+    pub releases_repo: String,
     /// A release download waits this long between 64 KiB chunks (a test sees it downloading).
     pub download_chunk_delay_ms: u64,
   }
@@ -449,6 +452,7 @@ pub fn default_seed(base: &str) -> ForgeSeed {
             image_jwt: "jwt-1".into(),
             // --- end 5A T3 ---
             releases: Vec::new(),
+            releases_repo: releases::REPO.into(),
             download_chunk_delay_ms: 0,
           },
     }
@@ -505,7 +509,7 @@ impl FakeForge {
         format!("{}/github-images", self.base)
     }
     // --- end 5A T3 ---
-    /// GitHub's release downloads (`<it>/GitBoltApp/gitbolt/releases/download/<tag>/<name>`).
+    /// GitHub's release downloads (`<it>/<owner>/<repo>/releases/download/<tag>/<name>`).
     pub fn github_releases(&self) -> String {
         format!("{}/github-releases", self.base)
     }
@@ -681,7 +685,7 @@ async fn handle(State(s): State<Shared>, method: Method, uri: Uri, headers: Head
         "github" => github::route(&mut st, &req),
         // --- 5A T3 ---
         "github-images" => github_pulls::image(&st, &req),
-        "github-releases" => releases::download(&req),
+        "github-releases" => releases::download(&st, &req),
         _ => github::avatar(&req),
     };
     let reply = if forge == "gitlab" && st.gitlab_etags_off { reply } else { reply.with_etag(header("if-none-match").as_deref()) };

@@ -70,15 +70,25 @@ so keep them exactly as they are, and keep `SHA256SUMS` in every release: an upd
 package `SHA256SUMS` doesn't list is never installed. The website's downloads
 (`scripts/site-release.py`) find the packages by these names too.
 
+The project is being renamed GitVolt. GitBolt 0.6.1 and later accept each package under either
+name, `GitVolt` or `GitBolt` (`<Name>` below), and take the GitVolt one when a release has both;
+0.6.0 and earlier only know the GitBolt names. They also look for the releases in
+`GitVoltApp/gitvolt` first, and in `GitBoltApp/gitbolt` while that answers 404 or lists no
+releases, and download from either's `releases/download/` (see
+[Moving to GitVoltApp/gitvolt](#moving-to-gitvoltappgitvolt)).
+
 | Install | Asset |
 |---|---|
-| `.deb` | `GitBolt_<version>_amd64.deb` |
-| Arch | `GitBolt-<pkgver>-1-x86_64.pkg.tar.zst` (`<pkgver>`: the version without the pre-release's `-`) |
-| `.rpm` (Fedora, openSUSE) | `GitBolt-<version>-1.x86_64.rpm` (the version as in the `.deb`'s name: `GitBolt-0.1.0-alpha.1-1.x86_64.rpm`, although the package's Version is `0.1.0~alpha.1`) |
-| Windows (NSIS) | `GitBolt_<version>_x64-setup.exe` |
-| Windows (MSI) | `GitBolt_<version>_x64.msi` |
-| macOS | `GitBolt_<version>_aarch64.dmg` (Apple Silicon; an Intel Mac takes `GitBolt_<version>_x64.dmg`, which no release has yet) |
+| `.deb` | `<Name>_<version>_amd64.deb` |
+| Arch | `<Name>-<pkgver>-1-x86_64.pkg.tar.zst` (`<pkgver>`: the version without the pre-release's `-`) |
+| `.rpm` (Fedora, openSUSE) | `<Name>-<version>-1.x86_64.rpm` (the version as in the `.deb`'s name: `GitBolt-0.1.0-alpha.1-1.x86_64.rpm`, although the package's Version is `0.1.0~alpha.1`) |
+| Windows (NSIS) | `<Name>_<version>_x64-setup.exe` |
+| Windows (MSI) | `<Name>_<version>_x64.msi` |
+| macOS | `<Name>_<version>_aarch64.dmg` (Apple Silicon; an Intel Mac takes `<Name>_<version>_x64.dmg`, which no release has yet). The image holds `GitVolt.app` or `GitBolt.app` at its top level (0.6.0 and earlier: `GitBolt.app` only) |
 | all | `SHA256SUMS` (`sha256sum` output listing each package) |
+
+`<Name>` is `GitBolt` (every version) or `GitVolt` (0.6.1 and later): `GitBolt_0.6.1_amd64.deb`,
+`GitVolt_0.7.0_amd64.deb`, `GitVolt-0.7.0-1.x86_64.rpm`.
 
 The tag stays `v<version>`, and the release's body (the CHANGELOG section) is what the update
 dialog shows. Drafts are never offered; a release marked pre-release (or with a pre-release
@@ -98,12 +108,48 @@ can't know):
   its files: `crates/gitbolt-app/packaging/install-kind-dmg`, through
   `packaging/macos/dmg.conf.json`, which only `just package-macos` passes, so a plain
   `cargo tauri build` bundle counts as a build from source); `scripts/package-macos.sh` checks it.
-  An update mounts the new `.dmg` and copies its `GitBolt.app` over the running bundle, so the
-  image must keep holding `GitBolt.app` at its top level.
+  An update mounts the new `.dmg` and copies its `GitVolt.app`, else its `GitBolt.app`, over the
+  running bundle, so the image must keep holding one of them at its top level (0.6.0 and earlier
+  take only `GitBolt.app`). The bundle keeps its name, except that `GitBolt.app` updated to
+  `GitVolt.app` becomes `GitVolt.app` beside it; Restart removes the old one once GitBolt has
+  exited.
 
 No file: a build from source, which is only offered the release page. `just package`,
 `just package-windows` and `just package-macos` also bake the stamped version in
 (`GITBOLT_BUILD_VERSION`), which the status bar and the update check use.
+
+## Moving to GitVoltApp/gitvolt
+
+The project is being renamed GitVolt, and the repository moves from `GitBoltApp/gitbolt` to
+`GitVoltApp/gitvolt` (a transfer, so GitHub redirects the old addresses). 0.6.0 and earlier only
+know `GitBoltApp/gitbolt` and the GitBolt asset names, so they can't follow; 0.6.1 is the bridge
+(`crates/gitbolt-forge/src/updates.rs`, `crates/gitbolt-core/src/updates/`).
+
+1. **Publish 0.6.1 from `GitBoltApp/gitbolt`,** with GitBolt asset names, and give users time to
+   take it before the move: an install still on 0.6.0 after it is stranded.
+2. **The final name must be `GitVoltApp/gitvolt`**, in any capitals: it's the name 0.6.1
+   asks first and downloads from. Rename the repository in the transfer or right after it.
+3. **Don't create `GitVoltApp/gitvolt` ahead of time.** An empty one is harmless to 0.6.1 (an empty
+   list falls back to the old name), but a repository already there blocks the transfer.
+4. **Never delete or rename the `GitBoltApp` organization, nor create a new `gitbolt` repository
+   in it.** It would take over the old address: 0.6.0 and 0.6.1 would check it instead of
+   following GitHub's redirect, and the redirect would be gone.
+5. **GitVolt's packages must replace an installed GitBolt**, since the update only installs the
+   package:
+   - `.deb`: `Conflicts`, `Replaces` and `Provides: gitbolt` (`apt install -y` then removes it);
+   - `.rpm`: `Obsoletes` and `Provides: gitbolt` (dnf, zypper and `rpm -U` then replace it);
+   - Arch: `conflicts=('gitbolt')`, `provides=('gitbolt')` and `replaces=('gitbolt')`. For a
+     `GitVolt-*` package the update runs `pacman -U --noconfirm --ask=4`, which answers yes to
+     removing a conflicting package (`--noconfirm` alone answers no);
+   - Windows: the installers remove GitBolt's install (NSIS) or keep the MSI's UpgradeCode;
+   - macOS: the `.dmg` holds `GitVolt.app` at its top level.
+6. **Restart finds the new binary where GitBolt's was, renamed** `GitBolt` → `GitVolt` and
+   `gitbolt` → `gitvolt` in the binary's name and its folder only: `/usr/share/GitVolt/gitvolt`
+   for `/usr/share/GitBolt/gitbolt` (or only one of the two renamed), and
+   `GitVolt.app/Contents/MacOS/GitVolt` for the bundle. Elsewhere, Restart fails and the user
+   starts GitVolt themselves.
+7. **Later, in a GitVolt release:** drop `GitBoltApp/gitbolt` from `RELEASES_REPOS` (and so from
+   the download allow-list), and the GitBolt asset names from `PRODUCT_NAMES`.
 
 ## Versions
 

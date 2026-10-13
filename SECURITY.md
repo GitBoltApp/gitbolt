@@ -254,14 +254,19 @@ GitBolt can download and install its own updates from GitHub Releases
   without `SHA256SUMS` deletes the download and says so; it is never run. Right before the
   install, the digest is checked again, so a file changed in the meantime is deleted too.
 - **Where downloads come from.** The release list comes from `api.github.com` without any
-  token. A package is fetched only from `github.com/GitBoltApp/gitbolt/releases/download/`, and
-  a redirect is followed only to GitHub's asset storage (`objects.githubusercontent.com`,
+  token: from `GitVoltApp/gitvolt`, the project's new name, or from `GitBoltApp/gitbolt` while
+  that answers 404 or lists no releases. A package is fetched only from
+  `github.com/<owner>/<repo>/releases/download/` of one of those two (the owner and repo in any
+  case, as GitHub takes them; no `.`, `..` or encoded `/`, `\` or `.` in the path), and a
+  redirect is followed only to GitHub's asset storage (`objects.githubusercontent.com`,
   `release-assets.githubusercontent.com`), over https, through the same HTTP client (TLS, proxy,
-  timeouts) as the forge API. The download goes to `~/.cache/gitbolt/updates/` (0700; `%LOCALAPPDATA%\gitbolt\updates` on Windows, `~/Library/Caches/GitBolt/updates` on macOS).
+  timeouts) as the forge API. The download goes to `~/.cache/gitbolt/updates/` (0700;
+  `%LOCALAPPDATA%\gitbolt\updates` on Windows, `~/Library/Caches/GitBolt/updates` on macOS).
 - **What `SHA256SUMS` proves.** It catches a corrupted or swapped download, but it comes from the
   same release, so it only proves the file is the one published there. **The packages aren't
   code-signed yet.** For a stronger check, GitHub's build provenance attestations tie each
-  package to the release workflow that built it; verify one by hand with the GitHub CLI:
+  package to the release workflow that built it; verify one by hand with the GitHub CLI, giving
+  `--repo` the repository the release came from (`GitVoltApp/gitvolt` once the project has moved):
 
   ```sh
   gh attestation verify GitBolt_0.3.0_amd64.deb --repo GitBoltApp/gitbolt
@@ -269,18 +274,24 @@ GitBolt can download and install its own updates from GitHub Releases
 
 - **The install.** GitBolt runs `pkexec apt install -y /<path>/<package>.deb`,
   `pkexec dnf install -y /<path>/<package>.rpm` (on openSUSE `pkexec zypper --non-interactive
-  install --allow-unsigned-rpm`, else `pkexec rpm -U`) or `pkexec pacman -U --noconfirm <package>`
-  as an argument list (no shell), with the absolute path of the download it has just checked
-  against `SHA256SUMS`, so your desktop's
-  polkit prompt asks for the password; GitBolt never sees it and never uses `sudo` itself. If
-  `pkexec` is missing or you cancel, it shows the `sudo` command to run yourself. On Windows it
-  starts the installer (the NSIS setup, or `msiexec /i` for the MSI) and quits. On macOS it runs a
-  fixed script as you (`/bin/sh -c`, the two paths as arguments, never spliced into it): it mounts
-  the `.dmg` read-only and unbrowsed, copies its GitBolt.app with `ditto` beside the running one
-  and swaps them by rename, never asking for an administrator password; where the app's folder
-  isn't writable it shows the manual steps instead. GitBolt's downloads carry no quarantine flag
-  (it isn't App Sandboxed and doesn't set `LSFileQuarantineEnabled`), so Gatekeeper doesn't check
-  the copy again: `SHA256SUMS` is the check, as on the other platforms.
+  install --allow-unsigned-rpm`, else `pkexec rpm -U`) or `pkexec pacman -U --noconfirm
+  <package>` as an argument list (no shell), with the absolute path of the download it has just
+  checked against `SHA256SUMS`, so your desktop's polkit prompt asks for the password; GitBolt
+  never sees it and never uses `sudo` itself. For a GitVolt Arch package (`GitVolt-*`) pacman
+  also gets `--ask=4`, which answers yes to removing any installed package that the new one, or
+  a dependency it pulls in, conflicts with: for GitVolt's that is `gitbolt`, but it would remove
+  whatever else a conflict named, without asking. If `pkexec` is missing or you cancel, it shows
+  the `sudo` command to run yourself. On Windows it starts the installer (the NSIS setup, or
+  `msiexec /i` for the MSI) and quits. On macOS it runs a fixed script as you (`/bin/sh -c`, the
+  two paths as arguments, never spliced into it): it mounts the `.dmg` read-only and unbrowsed,
+  copies its GitVolt.app (else its GitBolt.app) with `ditto` beside the running one and swaps
+  them by rename, putting the old one back if that fails, never asking for an administrator
+  password. A GitBolt.app updated to GitVolt.app becomes GitVolt.app beside it, and Restart
+  removes the old GitBolt.app once GitBolt has exited (its helper processes may still load from
+  it until then). Where the app's folder isn't writable it shows the manual steps instead.
+  GitBolt's downloads carry no quarantine flag (it isn't App Sandboxed and doesn't set
+  `LSFileQuarantineEnabled`), so Gatekeeper doesn't check the copy again: `SHA256SUMS` is the
+  check, as on the other platforms.
 - **Which package.** Each package names how it was installed in an `install-kind` file beside the
   binary (`deb`, `arch`, `rpm`, `nsis` or `msi`), or in the bundle's `Contents/Resources` (`dmg`); a build
   from source has none and is only offered the release page.

@@ -2,7 +2,7 @@
 //! this install takes, and the `SHA256SUMS` check of a download.
 //!
 //! The asset names are an API (docs/releasing.md): an installed GitBolt finds its package in a
-//! later release by these names.
+//! later release by these names, under the project's new name (GitVolt) or its old one.
 
 use super::install::InstallKind;
 use super::version::Version;
@@ -63,27 +63,34 @@ pub fn newest_update<'a>(releases: &'a [GhRelease], current: &Version, include_p
         .max_by(|a, b| a.1.cmp(&b.1))
 }
 
-/// The asset a `kind` install takes from the release of `version` (docs/releasing.md):
-/// - deb: `GitBolt_<version>_amd64.deb`;
-/// - arch: `GitBolt-<pkgver>-1-x86_64.pkg.tar.zst`, where pkgver drops the pre-release's `-`
+/// The names a release's package goes by, the project's new one first: GitVolt, then GitBolt.
+pub const PRODUCT_NAMES: [&str; 2] = ["GitVolt", "GitBolt"];
+
+/// The assets a `kind` install takes from the release of `version` (docs/releasing.md), in the
+/// order to look for them: `<name>` is each of [`PRODUCT_NAMES`], GitVolt first.
+/// - deb: `<name>_<version>_amd64.deb`;
+/// - arch: `<name>-<pkgver>-1-x86_64.pkg.tar.zst`, where pkgver drops the pre-release's `-`
 ///   (`0.3.0-rc.1` → `0.3.0rc.1`, scripts/arch-pkg.py);
-/// - rpm: `GitBolt-<version>-1.x86_64.rpm`, the version as in the `.deb`'s name (the package's
+/// - rpm: `<name>-<version>-1.x86_64.rpm`, the version as in the `.deb`'s name (the package's
 ///   own Version is `0.3.0~rc.1`; scripts/rpm-pkg.py);
-/// - nsis: `GitBolt_<version>_x64-setup.exe`; msi: `GitBolt_<version>_x64.msi`;
-/// - dmg: `GitBolt_<version>_<arch>.dmg`, this machine's: `aarch64` (Apple Silicon) or `x64`
+/// - nsis: `<name>_<version>_x64-setup.exe`; msi: `<name>_<version>_x64.msi`;
+/// - dmg: `<name>_<version>_<arch>.dmg`, this machine's: `aarch64` (Apple Silicon) or `x64`
 ///   (Intel, which has no release yet), as Tauri's bundler names them;
 /// - none for a build from source.
-pub fn asset_name(kind: InstallKind, version: &Version) -> Option<String> {
+pub fn asset_names(kind: InstallKind, version: &Version) -> Vec<String> {
     let v = version.without_build();
-    match kind {
-        InstallKind::Deb => Some(format!("GitBolt_{v}_amd64.deb")),
-        InstallKind::Arch => Some(format!("GitBolt-{}-1-x86_64.pkg.tar.zst", v.replacen('-', "", 1))),
-        InstallKind::Rpm => Some(format!("GitBolt-{v}-1.x86_64.rpm")),
-        InstallKind::Nsis => Some(format!("GitBolt_{v}_x64-setup.exe")),
-        InstallKind::Msi => Some(format!("GitBolt_{v}_x64.msi")),
-        InstallKind::Dmg => Some(format!("GitBolt_{v}_{DMG_ARCH}.dmg")),
-        InstallKind::Unpackaged => None,
-    }
+    PRODUCT_NAMES
+        .iter()
+        .filter_map(|p| match kind {
+            InstallKind::Deb => Some(format!("{p}_{v}_amd64.deb")),
+            InstallKind::Arch => Some(format!("{p}-{}-1-x86_64.pkg.tar.zst", v.replacen('-', "", 1))),
+            InstallKind::Rpm => Some(format!("{p}-{v}-1.x86_64.rpm")),
+            InstallKind::Nsis => Some(format!("{p}_{v}_x64-setup.exe")),
+            InstallKind::Msi => Some(format!("{p}_{v}_x64.msi")),
+            InstallKind::Dmg => Some(format!("{p}_{v}_{DMG_ARCH}.dmg")),
+            InstallKind::Unpackaged => None,
+        })
+        .collect()
 }
 
 /// The `.dmg` architecture this build takes.
@@ -191,20 +198,21 @@ mod tests {
     }
 
     #[test]
-    fn each_install_kind_takes_its_package() {
+    fn each_install_kind_takes_its_package_under_either_name() {
         let rel = v("0.3.0");
         let rc = v("0.3.0-rc.1");
-        assert_eq!(asset_name(InstallKind::Deb, &rel).as_deref(), Some("GitBolt_0.3.0_amd64.deb"));
-        assert_eq!(asset_name(InstallKind::Deb, &rc).as_deref(), Some("GitBolt_0.3.0-rc.1_amd64.deb"));
-        assert_eq!(asset_name(InstallKind::Arch, &rel).as_deref(), Some("GitBolt-0.3.0-1-x86_64.pkg.tar.zst"));
-        assert_eq!(asset_name(InstallKind::Arch, &rc).as_deref(), Some("GitBolt-0.3.0rc.1-1-x86_64.pkg.tar.zst"));
-        assert_eq!(asset_name(InstallKind::Rpm, &rel).as_deref(), Some("GitBolt-0.3.0-1.x86_64.rpm"));
-        assert_eq!(asset_name(InstallKind::Rpm, &rc).as_deref(), Some("GitBolt-0.3.0-rc.1-1.x86_64.rpm"));
-        assert_eq!(asset_name(InstallKind::Nsis, &rel).as_deref(), Some("GitBolt_0.3.0_x64-setup.exe"));
-        assert_eq!(asset_name(InstallKind::Msi, &rel).as_deref(), Some("GitBolt_0.3.0_x64.msi"));
-        let dmg = if cfg!(target_arch = "aarch64") { "GitBolt_0.3.0-rc.1_aarch64.dmg" } else { "GitBolt_0.3.0-rc.1_x64.dmg" };
-        assert_eq!(asset_name(InstallKind::Dmg, &rc).as_deref(), Some(dmg));
-        assert_eq!(asset_name(InstallKind::Unpackaged, &rel), None);
+        let names = |kind, v: &Version| asset_names(kind, v);
+        assert_eq!(names(InstallKind::Deb, &rel), ["GitVolt_0.3.0_amd64.deb", "GitBolt_0.3.0_amd64.deb"]);
+        assert_eq!(names(InstallKind::Deb, &rc), ["GitVolt_0.3.0-rc.1_amd64.deb", "GitBolt_0.3.0-rc.1_amd64.deb"]);
+        assert_eq!(names(InstallKind::Arch, &rel), ["GitVolt-0.3.0-1-x86_64.pkg.tar.zst", "GitBolt-0.3.0-1-x86_64.pkg.tar.zst"]);
+        assert_eq!(names(InstallKind::Arch, &rc), ["GitVolt-0.3.0rc.1-1-x86_64.pkg.tar.zst", "GitBolt-0.3.0rc.1-1-x86_64.pkg.tar.zst"]);
+        assert_eq!(names(InstallKind::Rpm, &rel), ["GitVolt-0.3.0-1.x86_64.rpm", "GitBolt-0.3.0-1.x86_64.rpm"]);
+        assert_eq!(names(InstallKind::Rpm, &rc), ["GitVolt-0.3.0-rc.1-1.x86_64.rpm", "GitBolt-0.3.0-rc.1-1.x86_64.rpm"]);
+        assert_eq!(names(InstallKind::Nsis, &rel), ["GitVolt_0.3.0_x64-setup.exe", "GitBolt_0.3.0_x64-setup.exe"]);
+        assert_eq!(names(InstallKind::Msi, &rel), ["GitVolt_0.3.0_x64.msi", "GitBolt_0.3.0_x64.msi"]);
+        let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" };
+        assert_eq!(names(InstallKind::Dmg, &rc), [format!("GitVolt_0.3.0-rc.1_{arch}.dmg"), format!("GitBolt_0.3.0-rc.1_{arch}.dmg")]);
+        assert!(names(InstallKind::Unpackaged, &rel).is_empty());
     }
 
     #[test]

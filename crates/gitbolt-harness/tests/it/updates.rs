@@ -4,7 +4,7 @@
 
 use gitbolt_core::api::{Api, Request};
 use gitbolt_core::error::GbError;
-use gitbolt_harness::fake_forge::releases::{FakeAsset, FakeRelease};
+use gitbolt_harness::fake_forge::releases::{FakeAsset, FakeRelease, OLD_REPO};
 use gitbolt_harness::Harness;
 use serde_json::{json, Value};
 
@@ -48,6 +48,9 @@ async fn settled(api: &Api) -> Value {
 async fn checks_downloads_verifies_and_records_the_install() {
     let h = Harness::for_tests().await;
     assert_eq!(call(&h.api, "updateCheck").await.unwrap()["state"], "upToDate", "no releases seeded");
+    let asked: Vec<String> = h.forge.requests().iter().map(|r| format!("{} {}", r.path, r.status)).collect();
+    assert_eq!(asked, ["/repos/GitVoltApp/gitvolt/releases 200", "/repos/GitBoltApp/gitbolt/releases 404"], "an empty list asks the old name too");
+    h.forge.clear_requests();
     seed(&h, false);
     let state = call(&h.api, "updateCheck").await.unwrap();
     assert_eq!(state["state"], "available");
@@ -58,8 +61,9 @@ async fn checks_downloads_verifies_and_records_the_install() {
     let state = settled(&h.api).await;
     assert_eq!(state["state"], "ready", "{state}");
     let paths: Vec<String> = h.forge.requests().iter().map(|r| format!("{} {}", r.forge, r.path)).collect();
-    assert!(paths.contains(&"github /repos/GitBoltApp/gitbolt/releases".to_string()), "{paths:?}");
-    assert!(paths.contains(&format!("github-releases /GitBoltApp/gitbolt/releases/download/v0.99.0/{DEB}")), "{paths:?}");
+    assert!(paths.contains(&"github /repos/GitVoltApp/gitvolt/releases".to_string()), "{paths:?}");
+    assert!(!paths.iter().any(|p| p.contains("GitBoltApp")), "the new name answered: the old one isn't asked: {paths:?}");
+    assert!(paths.contains(&format!("github-releases /GitVoltApp/gitvolt/releases/download/v0.99.0/{DEB}")), "{paths:?}");
     assert!(paths.contains(&format!("github-objects /v0.99.0/{DEB}")), "{paths:?}");
     assert!(paths.contains(&"github-objects /v0.99.0/SHA256SUMS".to_string()), "{paths:?}");
     assert!(h.forge.requests().iter().all(|r| !r.authorized && r.user_agent.as_deref().is_some_and(|u| u.starts_with("GitBolt/"))));
@@ -96,4 +100,33 @@ async fn a_bad_checksum_fails_and_leaves_nothing_to_install() {
     assert_eq!(state["message"], "The download doesn't match its checksum in SHA256SUMS, so GitBolt deleted it and won't install it.");
     assert!(call(&h.api, "updateInstall").await.is_err());
     assert!(h.launches.all().is_empty());
+}
+
+/// Before the project's new name (GitVolt) has a repository, the check falls back to the old one,
+/// and a release's GitVolt-named package is taken over its GitBolt-named one.
+#[tokio::test(flavor = "multi_thread")]
+async fn falls_back_to_the_old_repository_and_takes_the_gitvolt_package() {
+    const VOLT: &str = "GitVolt_0.99.0_amd64.deb";
+    let h = Harness::for_tests().await;
+    let mut s = h.forge.current_seed();
+    s.github.releases_repo = OLD_REPO.into();
+    let asset = |name: &str, size| FakeAsset { name: name.into(), size };
+    s.github.releases = vec![FakeRelease { tag_name: "v0.99.0".into(), name: "GitVolt 0.99.0".into(), assets: vec![asset(DEB, 1000), asset(VOLT, 2000), asset("SHA256SUMS", 0)], ..Default::default() }];
+    h.forge.seed(s);
+    let state = call(&h.api, "updateCheck").await.unwrap();
+    assert_eq!(state["release"]["asset"], json!({"name": VOLT, "size": 2000}), "{state}");
+    call(&h.api, "updateDownload").await.unwrap();
+    let state = settled(&h.api).await;
+    assert_eq!(state["state"], "ready", "{state}");
+    let asked: Vec<(String, u16)> = h.forge.requests().iter().filter(|r| r.forge != "github-objects" && r.path.contains("/releases")).map(|r| (format!("{} {}", r.forge, r.path), r.status)).collect();
+    assert_eq!(
+        asked,
+        [
+            ("github /repos/GitVoltApp/gitvolt/releases".to_string(), 404),
+            ("github /repos/GitBoltApp/gitbolt/releases".to_string(), 200),
+            (format!("github-releases /GitBoltApp/gitbolt/releases/download/v0.99.0/{VOLT}"), 302),
+            ("github-releases /GitBoltApp/gitbolt/releases/download/v0.99.0/SHA256SUMS".to_string(), 302),
+        ]
+    );
+    assert!(h.forge.requests().iter().all(|r| !r.authorized));
 }

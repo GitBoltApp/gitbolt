@@ -75,12 +75,15 @@ Setting: Settings › Updates › **Check for updates automatically** (on by def
 
 - **When:** 10 seconds after startup, then once a day while GitBolt runs, and whenever you click
   Help › **Check for updates** (or the button in About), even with the setting off.
-- **Sends:** `GET https://api.github.com/repos/GitBoltApp/gitbolt/releases?per_page=30`, with no
-  token (not even a GitHub account's you added), no cookie and nothing about you or your
-  repositories. GitHub sees your IP address and `User-Agent: GitBolt/<version>`. A repeated check
-  is conditional (an ETag), so an unchanged list is a cheap 304.
+- **Sends:** `GET https://api.github.com/repos/GitVoltApp/gitvolt/releases?per_page=30` (the
+  project's new name), and while that repository doesn't exist yet or has no releases the same
+  for `GitBoltApp/gitbolt`, with no token (not even a GitHub account's you added), no cookie
+  and nothing about you or your repositories. GitHub sees your IP address and
+  `User-Agent: GitBolt/<version>`. A repeated check is conditional (an ETag), so an unchanged
+  list is a cheap 304.
 - **Download:** only when you click the update. GitBolt downloads that release's package for
-  your install (`.deb`, `.rpm`, Arch package, Windows setup `.exe` or `.msi`) and its `SHA256SUMS` from
+  your install (`.deb`, `.rpm`, Arch package, Windows setup `.exe` or `.msi`) and its
+  `SHA256SUMS` from `github.com/GitVoltApp/gitvolt/releases/download/…` or
   `github.com/GitBoltApp/gitbolt/releases/download/…`, following GitHub's redirect to its asset
   storage (`objects.githubusercontent.com` or `release-assets.githubusercontent.com`), over https
   and without a token. No other host is followed.

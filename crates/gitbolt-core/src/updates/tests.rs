@@ -192,6 +192,24 @@ async fn a_release_without_this_kinds_package_offers_the_page_only() {
 }
 
 #[tokio::test]
+async fn a_release_under_the_new_name_offers_its_gitvolt_package_first() {
+    const VOLT: &str = "GitVolt_0.3.0_amd64.deb";
+    let sums = format!("{}  {VOLT}\n{}  {DEB}\n", sha(PAYLOAD), "0".repeat(64));
+    let source = FakeSource::with(vec![release("v0.3.0", &[DEB, VOLT, "SHA256SUMS"])], &sums);
+    source.files.lock().unwrap().insert(format!("https://downloads.example/{VOLT}"), PAYLOAD.to_vec());
+    let s = setup(InstallKind::Deb, "0.2.0", source);
+    let UpdateState::Available { release } = s.updates.check(false, 1).await.unwrap() else { panic!() };
+    assert_eq!(release.asset.map(|a| a.name).as_deref(), Some(VOLT), "GitVolt's, though GitBolt's is listed first");
+    s.updates.start_download().unwrap();
+    assert!(matches!(settled(&s.updates).await, UpdateState::Ready { .. }), "{:?}", s.updates.state());
+    assert_eq!(files(&s.dir.path().join("updates")), [VOLT]);
+    // A release with only the old name's package still offers it.
+    let s = setup(InstallKind::Deb, "0.2.0", FakeSource::with(deb_release(), &good_sums()));
+    let UpdateState::Available { release } = s.updates.check(false, 1).await.unwrap() else { panic!() };
+    assert_eq!(release.asset.map(|a| a.name).as_deref(), Some(DEB));
+}
+
+#[tokio::test]
 async fn downloads_verifies_and_keeps_the_package_with_progress() {
     let mut s = setup(InstallKind::Deb, "0.2.0", FakeSource::with(deb_release(), &good_sums()));
     s.updates.check(false, 1).await.unwrap();
@@ -300,7 +318,7 @@ async fn a_deb_installs_through_pkexec_then_restarts_the_installed_binary() {
     assert!(matches!(s.updates.state(), UpdateState::Installed { .. }));
     s.updates.restart().unwrap();
     let spawned = s.runner.spawned.lock().unwrap().clone();
-    assert_eq!(spawned, [relaunch_command(Path::new("/usr/share/GitBolt/gitbolt"), std::process::id())]);
+    assert_eq!(spawned, [relaunch_command(Path::new("/usr/share/GitBolt/gitbolt"), std::process::id(), None)]);
     assert_eq!(s.runner.quits.load(Ordering::SeqCst), 1);
 }
 
@@ -393,9 +411,14 @@ async fn windows_installers_start_and_gitbolt_quits() {
     }
 }
 
-/// A downloaded and verified `.dmg` update, the app running from `exe(<temp dir>)`.
+/// A downloaded and verified `.dmg` update (GitBolt's), the app running from `exe(<temp dir>)`.
 async fn dmg_ready(exe: impl FnOnce(&Path) -> PathBuf) -> (Setup, PathBuf) {
-    let name = super::release::asset_name(InstallKind::Dmg, &super::version::Version::parse("0.3.0").unwrap()).unwrap();
+    dmg_ready_as(1, exe).await
+}
+
+/// `dmg_ready` with the package named as `asset_names`' `which` (0: GitVolt's, 1: GitBolt's).
+async fn dmg_ready_as(which: usize, exe: impl FnOnce(&Path) -> PathBuf) -> (Setup, PathBuf) {
+    let name = super::release::asset_names(InstallKind::Dmg, &super::version::Version::parse("0.3.0").unwrap()).remove(which);
     let mut releases = deb_release();
     releases[0].assets = vec![asset(&name), asset("SHA256SUMS")];
     let source = FakeSource::with(releases, &format!("{}  {name}\n", sha(PAYLOAD)));
@@ -419,7 +442,25 @@ async fn a_dmg_replaces_the_running_bundle_then_restarts_it() {
     assert_eq!(ran, [install_command(InstallKind::Dmg, &file, Some(&app)).unwrap()], "the script over this bundle, as this user");
     assert!(s.runner.spawned.lock().unwrap().is_empty() && s.runner.quits.load(Ordering::SeqCst) == 0, "GitBolt stays open until Restart");
     s.updates.restart().unwrap();
-    assert_eq!(s.runner.spawned.lock().unwrap()[0], relaunch_command(&app.join("Contents/MacOS/GitBolt"), std::process::id()));
+    assert_eq!(s.runner.spawned.lock().unwrap()[0], relaunch_command(&app.join("Contents/MacOS/GitBolt"), std::process::id(), None));
+}
+
+/// An update into GitVolt put `GitVolt.app` beside the running `GitBolt.app`: Restart starts the
+/// new one (never the old one, still there) and removes the old bundle once GitBolt has exited.
+#[cfg(unix)]
+#[tokio::test]
+async fn restart_after_an_update_into_gitvolt_starts_the_new_bundle_and_retires_the_old() {
+    let (s, _) = dmg_ready_as(0, |dir| dir.join("Applications/GitBolt.app/Contents/MacOS/GitBolt")).await;
+    let old = s.dir.path().join("Applications/GitBolt.app");
+    std::fs::create_dir_all(old.join("Contents/MacOS")).unwrap();
+    std::fs::write(old.join("Contents/MacOS/GitBolt"), "").unwrap();
+    assert_eq!(s.updates.install().await.unwrap(), InstallOutcome::Installed);
+    // What the script did (its own test runs it).
+    let exe = s.dir.path().join("Applications/GitVolt.app/Contents/MacOS/GitVolt");
+    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    std::fs::write(&exe, "").unwrap();
+    s.updates.restart().unwrap();
+    assert_eq!(s.runner.spawned.lock().unwrap()[0], relaunch_command(&exe, std::process::id(), Some(&old)));
 }
 
 #[cfg(unix)]

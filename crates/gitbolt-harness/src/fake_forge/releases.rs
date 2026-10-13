@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-/// Where the releases live (core's `RELEASES_REPO`).
-pub const REPO: &str = "GitBoltApp/gitbolt";
+/// Where the releases live by default: the project's new name (core's `RELEASES_REPOS`).
+pub const REPO: &str = "GitVoltApp/gitvolt";
+/// Its old name, where a seed's `releasesRepo` can put them instead (before the new one exists).
+pub const OLD_REPO: &str = "GitBoltApp/gitbolt";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -55,10 +57,16 @@ fn content(r: &FakeRelease, a: &FakeAsset) -> Vec<u8> {
     if a.name == "SHA256SUMS" { sums(r) } else { asset_bytes(a) }
 }
 
-/// `GET /repos/GitBoltApp/gitbolt/releases` (no token needed, as on GitHub).
+/// `GET /repos/<the seed's releases repo>/releases` (no token needed, as on GitHub); the other
+/// name's is a 404, as GitHub answers for a repository that doesn't exist.
 pub(crate) fn api(st: &ForgeState, r: &FakeRequest) -> Option<Reply> {
-    if r.method != "GET" || r.path != format!("/repos/{REPO}/releases") {
+    let repo = &st.seed.github.releases_repo;
+    if r.method != "GET" {
         return None;
+    }
+    if r.path != format!("/repos/{repo}/releases") {
+        let other = [REPO, OLD_REPO].iter().any(|x| r.path == format!("/repos/{x}/releases"));
+        return other.then(|| Reply::status(404, json!({ "message": "Not Found" })));
     }
     let list: Vec<Value> = st
         .seed
@@ -68,11 +76,11 @@ pub(crate) fn api(st: &ForgeState, r: &FakeRequest) -> Option<Reply> {
         .map(|rel| {
             json!({
                 "tag_name": rel.tag_name, "name": rel.name, "body": rel.body, "draft": rel.draft, "prerelease": rel.prerelease,
-                "html_url": format!("{}/github-web/{REPO}/releases/tag/{}", r.base, rel.tag_name),
+                "html_url": format!("{}/github-web/{repo}/releases/tag/{}", r.base, rel.tag_name),
                 "published_at": "2026-10-07T12:00:00Z",
                 "assets": rel.assets.iter().map(|a| json!({
                     "name": a.name, "size": content(rel, a).len(),
-                    "browser_download_url": format!("{}/github-releases/{REPO}/releases/download/{}/{}", r.base, rel.tag_name, a.name),
+                    "browser_download_url": format!("{}/github-releases/{repo}/releases/download/{}/{}", r.base, rel.tag_name, a.name),
                 })).collect::<Vec<_>>(),
             })
         })
@@ -80,10 +88,11 @@ pub(crate) fn api(st: &ForgeState, r: &FakeRequest) -> Option<Reply> {
     Some(Reply::json(Value::Array(list)))
 }
 
-/// `/github-releases/<repo>/releases/download/<tag>/<name>`: a redirect to its storage host.
-pub(crate) fn download(r: &FakeRequest) -> Reply {
+/// `/github-releases/<repo>/releases/download/<tag>/<name>`, the seed's releases repo: a
+/// redirect to its storage host.
+pub(crate) fn download(st: &ForgeState, r: &FakeRequest) -> Reply {
     match r.segments.as_slice() {
-        [owner, repo, releases, download, tag, name] if format!("{owner}/{repo}") == REPO && releases == "releases" && download == "download" => Reply::redirect(&format!("{}/github-objects/{tag}/{name}?signature=fake", r.base)),
+        [owner, repo, releases, download, tag, name] if format!("{owner}/{repo}") == st.seed.github.releases_repo && releases == "releases" && download == "download" => Reply::redirect(&format!("{}/github-objects/{tag}/{name}?signature=fake", r.base)),
         _ => Reply::status(404, json!({ "message": "Not Found" })),
     }
 }

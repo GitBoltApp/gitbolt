@@ -7,6 +7,10 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ### Changed
 
+- **Updates** also look for the project under its new name, GitVolt (`GitVoltApp/gitvolt` on
+  GitHub, packages named `GitVolt_…`), so this version can update into it. Until that
+  repository exists, they come from `GitBoltApp/gitbolt` as before. On macOS, GitVolt.app takes
+  GitBolt.app's place; on Arch, the update removes the `gitbolt` package that `gitvolt` replaces.
 - **New app icon:** two graph lanes, one cool and one warm, branch from a commit and merge into
   another, outlining a bolt. Its commits are drawn as the graph draws them: a ring in the lane's
   colour. Small sizes use a bolder version of the same mark.

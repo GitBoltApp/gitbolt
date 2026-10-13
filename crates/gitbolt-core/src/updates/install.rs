@@ -162,7 +162,8 @@ fn text(path: &Path) -> String {
 /// - deb: `pkexec apt install -y <absolute file>` (polkit asks for the password). Absolute: pkexec
 ///   doesn't keep the working directory, and apt only takes a path that starts with `/` or `./`
 ///   as a file to install;
-/// - arch: `pkexec pacman -U --noconfirm <file>`;
+/// - arch: `pkexec pacman -U --noconfirm <file>`, plus `--ask=4` for a GitVolt package
+///   ([`arch_install_args`]);
 /// - rpm: [`rpm_install_command`] with this system's [`RpmTool`];
 /// - nsis: the installer itself, with its normal UI; msi: `msiexec /i <file>` (UAC asks);
 /// - dmg: [`DMG_INSTALL`] over `bundle`, the running app's `.app` (none outside one);
@@ -172,13 +173,27 @@ pub fn install_command(kind: InstallKind, file: &Path, bundle: Option<&Path>) ->
     match kind {
         InstallKind::Deb if file.is_absolute() => Some(InstallCommand::new("pkexec", &["apt", "install", "-y", &text(file)])),
         InstallKind::Deb => None,
-        InstallKind::Arch => Some(InstallCommand::new("pkexec", &["pacman", "-U", "--noconfirm", &text(file)])),
+        InstallKind::Arch => Some(InstallCommand { program: "pkexec".into(), args: arch_install_args(file), cwd: None }),
         InstallKind::Rpm => rpm_install_command(file, RpmTool::detect()),
         InstallKind::Nsis => Some(InstallCommand::new(&text(file), &[])),
         InstallKind::Msi => Some(InstallCommand::new("msiexec", &["/i", &text(file)])),
         InstallKind::Dmg => Some(InstallCommand::new("/bin/sh", &["-c", DMG_INSTALL, "gitbolt-update", &text(file), &text(bundle?)])),
         InstallKind::Unpackaged => None,
     }
+}
+
+/// `pacman -U --noconfirm <file>`. `--noconfirm` takes each question's default, and "Remove the
+/// conflicting package?" defaults to no, so on its own it fails a package that conflicts with an
+/// installed one: GitVolt's, with `conflicts=('gitbolt')` (`replaces=` only counts in a `-Su` from
+/// a repository, never in a `-U`). So a `GitVolt-*` package also gets `--ask=4`: `--ask` answers
+/// the question kinds of its bitmask the other way, and 4 is libalpm's
+/// `ALPM_QUESTION_CONFLICT_PKG`. It says yes to removing any installed package the new one (or a
+/// dependency it pulls in) conflicts with, so a GitBolt package, which has no conflict to resolve,
+/// never gets it.
+fn arch_install_args(file: &Path) -> Vec<String> {
+    let gitvolt = file.file_name().is_some_and(|n| n.to_string_lossy().starts_with("GitVolt-"));
+    let ask = gitvolt.then_some("--ask=4");
+    ["pacman", "-U", "--noconfirm"].into_iter().chain(ask).map(String::from).chain([text(file)]).collect()
 }
 
 /// `pkexec <tool's install> <absolute file>`: absolute, since pkexec doesn't keep the working
@@ -193,23 +208,31 @@ pub fn rpm_install_command(file: &Path, tool: RpmTool) -> Option<InstallCommand>
 
 /// A `.dmg` update, as a script of its two arguments (never spliced into it): the verified image
 /// and the running app's bundle. It mounts the image read-only, unbrowsed (no Finder window, no
-/// volume on the desktop), copies its `GitBolt.app` with `ditto` (signature and attributes kept)
-/// beside the bundle under a hidden name, swaps the two with renames in the same folder, and
-/// detaches. The running process keeps its open files; the new bundle takes effect on Restart.
-/// GitBolt's own downloads carry no quarantine flag (it isn't sandboxed and doesn't ask for
-/// `LSFileQuarantineEnabled`), so the copy doesn't either.
+/// volume on the desktop), and copies its `GitVolt.app` (the project's new name), else its
+/// `GitBolt.app`, with `ditto` (signature and attributes kept) beside the bundle under a hidden
+/// name. That replaces the bundle with renames in the same folder, under the bundle's own name;
+/// except that a `GitBolt.app` updated to `GitVolt.app` becomes `GitVolt.app` beside it (taking
+/// the place of one already there), and the old `GitBolt.app` is left for Restart to remove once
+/// this process has exited ([`retired_bundle`]): its helpers may still load from it. Then it
+/// detaches. The running process keeps its open files; the new bundle takes effect on Restart
+/// ([`relaunch_target`] finds it). GitBolt's own downloads carry no quarantine flag (it isn't
+/// sandboxed and doesn't ask for `LSFileQuarantineEnabled`), so the copy doesn't either.
 pub const DMG_INSTALL: &str = r#"set -eu
 dmg=$1 app=${2%/}
-dir=$(dirname "$app") name=$(basename "$app")
+dir=${app%/*} name=${app##*/}
 new="$dir/.$name.new.$$" old="$dir/.$name.old.$$"
 mnt=$(mktemp -d "${TMPDIR:-/tmp}/gitbolt-update.XXXXXX")
 finish() { rm -rf "$new"; hdiutil detach -quiet "$mnt" 2>/dev/null || hdiutil detach -quiet -force "$mnt" 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true; }
 trap finish EXIT
 hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
-[ -d "$mnt/GitBolt.app" ] || { echo "The disk image has no GitBolt.app." >&2; exit 1; }
-ditto "$mnt/GitBolt.app" "$new"
-mv "$app" "$old"
-mv "$new" "$app" || { mv "$old" "$app"; exit 1; }
+src=GitVolt.app
+[ -d "$mnt/$src" ] || src=GitBolt.app
+[ -d "$mnt/$src" ] || { echo "The disk image has no GitVolt.app or GitBolt.app." >&2; exit 1; }
+to=$app
+[ "$name:$src" != GitBolt.app:GitVolt.app ] || to="$dir/GitVolt.app"
+ditto "$mnt/$src" "$new"
+if [ -e "$to" ] || [ -L "$to" ]; then mv "$to" "$old"; fi
+mv "$new" "$to" || { if [ -e "$old" ] || [ -L "$old" ]; then mv "$old" "$to"; fi; exit 1; }
 rm -rf "$old""#;
 
 /// The `.app` bundle `exe` runs from (`<bundle>/Contents/MacOS/<exe>`), if it is in one.
@@ -249,11 +272,65 @@ pub fn manual_command(kind: InstallKind, file: &Path) -> Option<String> {
     }
 }
 
+/// `GitBolt` → `GitVolt`, `gitbolt` → `gitvolt`: the project's new name in a file name.
+fn renamed(name: &std::ffi::OsStr) -> std::ffi::OsString {
+    name.to_string_lossy().replace("GitBolt", "GitVolt").replace("gitbolt", "gitvolt").into()
+}
+
+/// Where an update into GitVolt may have put the binary `exe` was, most renamed first. Only the
+/// install's own names change, never the folders above it:
+/// - in a bundle: `GitBolt.app` → `GitVolt.app` beside it (as [`DMG_INSTALL`] does), and the
+///   binary's name: `GitVolt.app/Contents/MacOS/GitVolt`, `…/GitBolt`, `GitBolt.app/…/GitVolt`;
+/// - elsewhere: the binary and its folder (`/usr/share/GitBolt/gitbolt` →
+///   `/usr/share/GitVolt/gitvolt`, `/usr/share/GitBolt/gitvolt`, `/usr/share/GitVolt/gitbolt`).
+fn renamed_binaries(exe: &Path) -> Vec<PathBuf> {
+    let Some(bin) = exe.file_name() else { return Vec::new() };
+    let new_bin = renamed(bin);
+    let (home, new_home) = match app_bundle(exe) {
+        Some(bundle) => {
+            let gitvolt = (bundle.file_name().is_some_and(|n| n == "GitBolt.app")).then(|| bundle.with_file_name("GitVolt.app"));
+            (bundle.join("Contents/MacOS"), gitvolt.map(|b| b.join("Contents/MacOS")))
+        }
+        None => {
+            let Some(folder) = exe.parent() else { return Vec::new() };
+            let new_folder = folder.file_name().map(renamed).filter(|n| Some(n.as_os_str()) != folder.file_name());
+            (folder.to_path_buf(), new_folder.map(|n| folder.with_file_name(n)))
+        }
+    };
+    let mut out = Vec::new();
+    if let Some(h) = &new_home {
+        out.extend([h.join(&new_bin), h.join(bin)]);
+    }
+    out.push(home.join(&new_bin));
+    out.retain(|p| p != exe);
+    out
+}
+
+/// What Restart starts: after an update into GitVolt (`into_gitvolt`, its package was GitVolt's),
+/// the first of [`renamed_binaries`] that's there, else `exe`; after any other, `exe` while it's
+/// there, else the same. Nothing there: `exe` (its start then says so).
+pub fn relaunch_target(exe: &Path, into_gitvolt: bool) -> PathBuf {
+    if !into_gitvolt && exe.is_file() {
+        return exe.to_path_buf();
+    }
+    renamed_binaries(exe).into_iter().find(|p| p.is_file()).unwrap_or_else(|| exe.to_path_buf())
+}
+
+/// The old `GitBolt.app` that a `.dmg` update into GitVolt left beside `GitVolt.app`, for Restart to
+/// remove once this process has exited: when `exe` runs from `GitBolt.app` and `target` (what
+/// Restart starts) is in the `GitVolt.app` beside it.
+pub fn retired_bundle(exe: &Path, target: &Path) -> Option<PathBuf> {
+    let old = app_bundle(exe).filter(|b| b.file_name().is_some_and(|n| n == "GitBolt.app"))?;
+    (app_bundle(target) == Some(old.with_file_name("GitVolt.app")) && target.is_file()).then_some(old)
+}
+
 /// Starts `exe` again once process `pid` (this one) has exited: the single-instance guard is
 /// free by then, so the new version starts on its own instead of handing over to the old one.
-/// `exe` and `pid` are arguments to the script, never part of it.
-pub fn relaunch_command(exe: &Path, pid: u32) -> InstallCommand {
-    InstallCommand::new("/bin/sh", &["-c", r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2""#, "gitbolt-relaunch", &pid.to_string(), &text(exe)])
+/// Then, before it starts, `retire` (a bundle the update replaced) is removed. `exe`, `pid` and
+/// `retire` are arguments to the script, never part of it.
+pub fn relaunch_command(exe: &Path, pid: u32, retire: Option<&Path>) -> InstallCommand {
+    let retire = retire.map(text).unwrap_or_default();
+    InstallCommand::new("/bin/sh", &["-c", r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; [ -z "$3" ] || rm -rf "$3"; exec "$2""#, "gitbolt-relaunch", &pid.to_string(), &text(exe), &retire])
 }
 
 #[cfg(test)]
@@ -290,7 +367,10 @@ mod tests {
 
         let pkg = Path::new("/home/u/.cache/gitbolt/updates/GitBolt-0.3.0-1-x86_64.pkg.tar.zst");
         let c = install_command(InstallKind::Arch, pkg, None).unwrap();
-        assert_eq!((c.program.as_str(), c.args.clone()), ("pkexec", vec!["pacman".to_string(), "-U".into(), "--noconfirm".into(), pkg.display().to_string()]));
+        assert_eq!((c.program.as_str(), c.args.clone()), ("pkexec", vec!["pacman".to_string(), "-U".into(), "--noconfirm".into(), pkg.display().to_string()]), "GitBolt's: no conflict to answer");
+        let volt = Path::new("/home/u/.cache/gitbolt/updates/GitVolt-0.7.0-1-x86_64.pkg.tar.zst");
+        let c = install_command(InstallKind::Arch, volt, None).unwrap();
+        assert_eq!(c.args, ["pacman", "-U", "--noconfirm", "--ask=4", &volt.display().to_string()], "GitVolt's: yes to removing gitbolt");
         assert_eq!(manual_command(InstallKind::Arch, pkg).unwrap(), "sudo pacman -U /home/u/.cache/gitbolt/updates/GitBolt-0.3.0-1-x86_64.pkg.tar.zst");
 
         let exe = Path::new(r"C:\Users\u\AppData\Local\gitbolt\updates\GitBolt_0.3.0_x64-setup.exe");
@@ -403,6 +483,130 @@ mod tests {
         assert_eq!(std::fs::read_to_string(app.join("Contents/MacOS/GitBolt")).unwrap(), "new");
     }
 
+    /// A temporary folder with "gitbolt" in its path, as a user's or `TMPDIR` may have: only the
+    /// install's own names may change.
+    fn gitbolt_tempdir() -> tempfile::TempDir {
+        tempfile::Builder::new().prefix("gitbolt-tmp").tempdir().unwrap()
+    }
+
+    /// The script's own steps on any unix, `hdiutil` and `ditto` stood in for (the image is a
+    /// folder): which app it takes from the image, where it puts it, what it leaves, what Restart
+    /// then starts and removes; and a failed swap puts the bundle back.
+    #[cfg(unix)]
+    #[test]
+    fn a_dmg_update_takes_the_images_gitvolt_or_gitbolt_app() {
+        let dir = gitbolt_tempdir();
+        let bin = dir.path().join("bin");
+        let failing = dir.path().join("failing-mv");
+        std::fs::create_dir(&bin).unwrap();
+        std::fs::create_dir(&failing).unwrap();
+        // `attach … -mountpoint <mnt> <image>`: the image folder's contents copied into <mnt>.
+        let hdiutil = "#!/bin/sh\n[ \"$1\" = attach ] || exit 0\nfor a; do last=$a; done\nwhile [ \"$1\" != -mountpoint ]; do shift; done\ncp -R \"$last\"/. \"$2\"\n";
+        // A `mv` that can't move the new copy into place.
+        let mv = "#!/bin/sh\ncase \"$1\" in *.new.*) echo \"mv: refused\" >&2; exit 1;; esac\nexec /bin/mv \"$@\"\n";
+        for (at, body) in [(bin.join("hdiutil"), hdiutil), (bin.join("ditto"), "#!/bin/sh\ncp -R \"$1\" \"$2\"\n"), (failing.join("mv"), mv)] {
+            std::fs::write(&at, body).unwrap();
+            crate::platform::fs::set_mode(&at, 0o755).unwrap();
+        }
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let path_failing = format!("{}:{path}", failing.display());
+        let bundle = |at: &Path, binary: &str, text: &str| {
+            std::fs::create_dir_all(at.join("Contents/MacOS")).unwrap();
+            std::fs::write(at.join("Contents/MacOS").join(binary), text).unwrap();
+        };
+        let listing = |d: &Path| {
+            let mut v: Vec<String> = std::fs::read_dir(d).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            v.sort();
+            v
+        };
+        /// The running bundle, bundles already there, the image's apps, the folder after, what
+        /// Restart starts (none: the install fails), whether Restart removes the old bundle.
+        type Case = (&'static str, &'static [&'static str], &'static [&'static str], &'static [&'static str], Option<&'static str>, bool);
+        let cases: [Case; 5] = [
+            ("GitBolt.app", &[], &["GitVolt.app", "GitBolt.app"], &["GitBolt.app", "GitVolt.app"], Some("GitVolt.app/Contents/MacOS/GitVolt"), true),
+            ("GitBolt.app", &[], &["GitBolt.app"], &["GitBolt.app"], Some("GitBolt.app/Contents/MacOS/GitBolt"), false),
+            ("GitBolt.app", &["GitVolt.app"], &["GitVolt.app"], &["GitBolt.app", "GitVolt.app"], Some("GitVolt.app/Contents/MacOS/GitVolt"), true),
+            ("My GitBolt.app", &[], &["GitVolt.app"], &["My GitBolt.app"], Some("My GitBolt.app/Contents/MacOS/GitVolt"), false),
+            ("GitBolt.app", &[], &["Other.app"], &["GitBolt.app"], None, false),
+        ];
+        for (i, (running, there, image, after, restart, retires)) in cases.into_iter().enumerate() {
+            let apps = dir.path().join(format!("gitbolt/Applications{i}"));
+            let app = apps.join(running);
+            bundle(&app, "GitBolt", "old");
+            for b in there {
+                bundle(&apps.join(b), "GitVolt", "stale");
+            }
+            let img = dir.path().join(format!("image{i}"));
+            for b in image {
+                bundle(&img.join(b), &b.replace(".app", ""), b);
+            }
+            let c = install_command(InstallKind::Dmg, &img, Some(&app)).unwrap();
+            if restart.is_some() {
+                // The swap fails: the bundles are as they were, and nothing is left beside them.
+                let out = std::process::Command::new(&c.program).args(&c.args).env("PATH", &path_failing).env("TMPDIR", dir.path()).output().unwrap();
+                assert!(!out.status.success() && String::from_utf8_lossy(&out.stderr).contains("mv: refused"), "{i}");
+                let mut before: Vec<String> = [running].iter().chain(there).map(|s| s.to_string()).collect();
+                before.sort();
+                assert_eq!(listing(&apps), before, "{i}: restored");
+                assert_eq!(std::fs::read_to_string(app.join("Contents/MacOS/GitBolt")).unwrap(), "old", "{i}");
+                for b in there {
+                    assert_eq!(std::fs::read_to_string(apps.join(b).join("Contents/MacOS/GitVolt")).unwrap(), "stale", "{i}");
+                }
+            }
+            let out = std::process::Command::new(&c.program).args(&c.args).env("PATH", &path).env("TMPDIR", dir.path()).output().unwrap();
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert_eq!(out.status.success(), restart.is_some(), "{i}: {stderr}");
+            assert_eq!(listing(&apps), after.iter().map(|s| s.to_string()).collect::<Vec<_>>(), "{i}: no staging copy left");
+            let running_exe = app.join("Contents/MacOS/GitBolt");
+            let exe = relaunch_target(&running_exe, image[0] == "GitVolt.app");
+            match restart {
+                Some(want) => {
+                    assert_eq!(exe, apps.join(want), "{i}");
+                    assert_eq!(std::fs::read_to_string(&exe).unwrap(), image[0], "{i}: the image's first app");
+                    assert_eq!(retired_bundle(&running_exe, &exe), retires.then(|| app.clone()), "{i}");
+                }
+                None => {
+                    assert_eq!(stderr.trim(), "The disk image has no GitVolt.app or GitBolt.app.");
+                    assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old", "left as it was");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restart_finds_the_binary_under_the_new_name_within_the_install_only() {
+        let dir = gitbolt_tempdir();
+        let root = dir.path().join("gitbolt");
+        for old in [root.join("usr/share/GitBolt/gitbolt"), root.join("usr/bin/gitbolt")] {
+            assert!(renamed_binaries(&old).iter().all(|p| p.starts_with(old.parent().unwrap().parent().unwrap())), "{old:?}");
+            assert_eq!(relaunch_target(&old, true), old, "nothing there: as it was");
+        }
+        let old = root.join("usr/share/GitBolt/gitbolt");
+        let new = root.join("usr/share/GitVolt/gitvolt");
+        assert_eq!(renamed_binaries(&old), [new.clone(), root.join("usr/share/GitVolt/gitbolt"), root.join("usr/share/GitBolt/gitvolt")]);
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        std::fs::write(&new, "").unwrap();
+        assert_eq!(relaunch_target(&old, false), new, "the old one is gone");
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, "").unwrap();
+        assert_eq!(relaunch_target(&old, false), old, "a GitBolt update: the same binary");
+        assert_eq!(relaunch_target(&old, true), new, "an update into GitVolt: its binary, though the old one is there");
+        assert_eq!(renamed_binaries(&root.join("usr/bin/gitbolt")), [root.join("usr/bin/gitvolt")], "`bin` has no old name");
+
+        // A bundle: GitBolt.app → GitVolt.app beside it, whatever the folders above are called.
+        let app = root.join("Applications/GitBolt.app/Contents/MacOS/GitBolt");
+        let gitvolt = root.join("Applications/GitVolt.app/Contents/MacOS");
+        assert_eq!(renamed_binaries(&app), [gitvolt.join("GitVolt"), gitvolt.join("GitBolt"), app.with_file_name("GitVolt")]);
+        std::fs::create_dir_all(&gitvolt).unwrap();
+        std::fs::write(gitvolt.join("GitBolt"), "").unwrap();
+        assert_eq!(relaunch_target(&app, true), gitvolt.join("GitBolt"), "the bundle renamed, its binary not");
+        assert_eq!(retired_bundle(&app, &gitvolt.join("GitBolt")), Some(root.join("Applications/GitBolt.app")));
+        assert_eq!(retired_bundle(&app, &app), None);
+        let mine = root.join("Applications/My GitBolt.app/Contents/MacOS/GitBolt");
+        assert_eq!(renamed_binaries(&mine), [mine.with_file_name("GitVolt")], "a bundle of the user's naming keeps it");
+        assert_eq!(retired_bundle(&mine, &gitvolt.join("GitBolt")), None);
+    }
+
     #[test]
     fn a_path_with_spaces_or_quotes_is_quoted_for_the_shell() {
         let f = Path::new("/home/o'neil/my cache/GitBolt_0.3.0_amd64.deb");
@@ -411,14 +615,24 @@ mod tests {
 
     #[test]
     fn relaunch_waits_for_this_process_then_starts_the_installed_binary() {
-        let c = relaunch_command(Path::new("/usr/share/GitBolt/gitbolt"), 4242);
+        let c = relaunch_command(Path::new("/usr/share/GitBolt/gitbolt"), 4242, None);
         assert_eq!(c.program, "/bin/sh");
-        assert_eq!(c.args[2..], ["gitbolt-relaunch".to_string(), "4242".into(), "/usr/share/GitBolt/gitbolt".into()]);
+        assert_eq!(c.args[2..], ["gitbolt-relaunch".to_string(), "4242".into(), "/usr/share/GitBolt/gitbolt".into(), String::new()]);
         // The script waits for the pid, then execs the binary; neither is spliced into it.
         assert!(c.args[1].contains(r#"kill -0 "$1""#) && c.args[1].ends_with(r#"exec "$2""#));
+        let retire = Path::new("/Applications/GitBolt.app");
+        assert_eq!(relaunch_command(Path::new("/Applications/GitVolt.app/Contents/MacOS/GitVolt"), 4242, Some(retire)).args[5], "/Applications/GitBolt.app", "an argument, never part of the script");
         #[cfg(unix)]
-        let out = std::process::Command::new(&c.program).args(&c.args[..2]).args(["x", "999999999", "true"]).output().unwrap();
-        #[cfg(unix)]
-        assert!(out.status.success());
+        {
+            let out = std::process::Command::new(&c.program).args(&c.args[..2]).args(["x", "999999999", "true", ""]).output().unwrap();
+            assert!(out.status.success());
+            // Then the old bundle goes, before the new one starts.
+            let dir = tempfile::tempdir().unwrap();
+            let old = dir.path().join("GitBolt.app");
+            std::fs::create_dir_all(old.join("Contents/MacOS")).unwrap();
+            let out = std::process::Command::new(&c.program).args(&c.args[..2]).args(["x", "999999999", "true"]).arg(&old).output().unwrap();
+            assert!(out.status.success());
+            assert!(!old.exists());
+        }
     }
 }
