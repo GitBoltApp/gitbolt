@@ -195,7 +195,7 @@ test.describe('file list and diff takeover', () => {
         const box = b.getBoundingClientRect();
         const ink = [...b.querySelectorAll('svg path')].map((p) => p.getBoundingClientRect());
         const range = document.createRange();
-        range.selectNodeContents([...b.childNodes].find((n) => n.nodeType === Node.TEXT_NODE)!);
+        range.selectNodeContents(b.querySelector('.tb-label')!);
         const text = range.getBoundingClientRect();
         const border = parseFloat(getComputedStyle(b).borderLeftWidth);
         return { left: Math.min(...ink.map((r) => r.left)) - box.left - border, right: box.right - border - text.right };

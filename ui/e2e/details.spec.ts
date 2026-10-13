@@ -220,6 +220,17 @@ test.describe('commit details', () => {
       await expect.poll(width).toBeLessThanOrEqual(401); // 1px of border
       expect(await width()).toBeGreaterThanOrEqual(400);
     });
+    await test.step('at its narrowest, the file toolbar keeps its buttons apart: icons, which their tooltips name', async () => {
+      const panel = page.getByRole('complementary', { name: 'Commit details' });
+      const sep = page.getByRole('separator', { name: 'Resize details panel' });
+      await sep.focus();
+      for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+      expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(281);
+      const spans = await panel.locator('.file-toolbar button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return [r.left, r.right]; }).sort((a, b) => a[0] - b[0]));
+      for (let i = 1; i < spans.length; i++) expect(spans[i]![0]).toBeGreaterThanOrEqual(spans[i - 1]![1] - 0.5);
+      expect(await panel.locator('.file-toolbar .tb-label').first().evaluate((e) => e.getBoundingClientRect().width)).toBeLessThanOrEqual(1);
+      await sep.dblclick();
+    });
     await test.step('the header stays put, only the message scrolls, and the split resizes (F13)', async () => {
       // Tall enough that the default 25 % top clears the header's minimum (`splitBounds`) under the
       // shell's toolbar and status bar.

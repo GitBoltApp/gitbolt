@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDownWideNarrow, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { ArrowDownWideNarrow, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, FolderOpen } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { errorMessage } from '../api/client';
 import type { DiffSpec } from '../api/gen/DiffSpec';
@@ -611,19 +611,21 @@ export function FileList({ list, spec, label, allFilesCommit: commitOf = null, a
             // One smart button: expands everything unless everything already is (then collapses).
             // `icon-lead` (feedback H17): the chevrons' ink starts ~3 px into their box, so the
             // left padding is trimmed to match the text's right padding.
-            <button type="button" className="toolbar-button icon-lead" disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
-              {allExpanded ? <ChevronsDownUp size={12} aria-hidden /> : <ChevronsUpDown size={12} aria-hidden />}
-              {allExpanded ? 'Collapse all' : 'Expand all'}
-            </button>
+            <HoverTooltip content={allExpanded ? 'Collapse every folder' : 'Expand every folder'}>
+              <button type="button" className="toolbar-button icon-lead" disabled={folders.length === 0} onClick={() => setCollapsed(allExpanded ? new Set(folders) : new Set())}>
+                {allExpanded ? <ChevronsDownUp size={12} aria-hidden /> : <ChevronsUpDown size={12} aria-hidden />}
+                <span className="tb-label">{allExpanded ? 'Collapse all' : 'Expand all'}</span>
+              </button>
+            </HoverTooltip>
           ) : (
-            <HoverTooltip content="Sort by status, then path"><button type="button" className="toolbar-button" aria-pressed={sort === 'status'} aria-description="Sort by status, then path" onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}>Sort by status</button></HoverTooltip>
+            <HoverTooltip content="Sort by status, then path"><button type="button" className="toolbar-button icon-lead" aria-pressed={sort === 'status'} aria-description="Sort by status, then path" onClick={() => setPrefs({ sort: sort === 'status' ? 'path' : 'status' })}><ArrowDownWideNarrow size={12} aria-hidden /><span className="tb-label">Sort by status</span></button></HoverTooltip>
           )}
         </div>
         <div className="file-toolbar-center">
           {!sharedMode && <PathTreeToggle />}
         </div>
         <div className="file-toolbar-end">
-          {allFilesCommit && <button type="button" className="toolbar-button" aria-pressed={allFilesWanted} onClick={toggleAllFiles}>View all files</button>}
+          {allFilesCommit && <HoverTooltip content="Every file of the commit, not only the changed ones"><button type="button" className="toolbar-button icon-lead" aria-pressed={allFilesWanted} onClick={toggleAllFiles}><FolderOpen size={12} aria-hidden /><span className="tb-label">View all files</span></button></HoverTooltip>}
         </div>
         {slow && <div className="diff-progress" role="progressbar" aria-label="Loading all files" />}
       </div>

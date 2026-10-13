@@ -1,4 +1,4 @@
-import { CheckCheck, ChevronDown, ChevronRight, ListMinus, ListPlus, Trash2 } from 'lucide-react';
+import { CheckCheck, ChevronDown, ChevronRight, FolderOpen, ListMinus, ListPlus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type { FileChange } from '../api/gen/FileChange';
 import { countByStatus, matchesFilter, type FileRow } from '../files/fileTree';
@@ -23,6 +23,7 @@ import { markResolved } from '../conflicts/resolve';
 // --- 2D T20 ---
 import { isMergeDirty, MERGE_SAVE_FIRST, useMergeDirty } from '../conflicts/mergeDrafts';
 import { ClearableInput } from '../ui/ClearableInput';
+import { HoverTooltip } from '../ui/HoverTooltip';
 // --- end 2D T20 ---
 
 type Which = 'conflicted' | 'unstaged' | 'staged';
@@ -193,7 +194,7 @@ export function WipSections({ sections }: { sections: FileSection[] }) {
       <div className="wip-view-bar">
         {/* UX G.2: here rather than in a list's tool line, so a clean worktree (an Edit stop with
             nothing changed yet) has it too. It shows the tracked files in the Unstaged list. */}
-        <button type="button" className="toolbar-button wip-all-files" aria-pressed={wipAllFiles} onClick={() => setListPrefs({ wipAllFiles: !wipAllFiles })}>View all files</button>
+        <HoverTooltip content="Every tracked file of the working tree, not only the changed ones"><button type="button" className="toolbar-button icon-lead wip-all-files" aria-pressed={wipAllFiles} onClick={() => setListPrefs({ wipAllFiles: !wipAllFiles })}><FolderOpen size={12} aria-hidden /><span className="tb-label">View all files</span></button></HoverTooltip>
         <PathTreeToggle />
         {ctx && <StagingUndoButtons ctx={ctx} />}
       </div>

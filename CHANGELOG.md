@@ -5,6 +5,14 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A narrow details panel's file toolbar (Collapse all, Path/Tree, View all files) no longer
+  overlaps itself: at the panel's narrowest its buttons show as icons, named by their tooltips.
+- A working-copy diff's toolbar shows its staging Undo and Redo again. They were drawn midway down
+  the diff's right edge instead, under the scroll strip, where they showed as a stray arrow and
+  couldn't be clicked.
+
 ## [0.6.0] - 2026-10-12
 
 ### Added

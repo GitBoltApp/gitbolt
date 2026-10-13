@@ -7,7 +7,7 @@
 .file-list { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .file-list-header { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px; color: var(--text-secondary); }
 /* Justified three-part toolbar (feedback F18): start | centre | end. */
-.file-toolbar { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; padding: 0 12px 6px; }
+.file-toolbar { container-type: inline-size; position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; padding: 0 12px 6px; }
 .file-toolbar-start { justify-self: start; min-width: 0; }
 .file-toolbar-center { justify-self: center; }
 .file-toolbar-end { justify-self: end; min-width: 0; }
@@ -50,7 +50,7 @@
 
 /* WIP (K36): a shared Path/Tree bar, then two collapsible sections split by a drag handle. */
 .wip-sections { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.wip-view-bar { flex: none; display: flex; justify-content: center; padding: 6px 12px; }
+.wip-view-bar { container-type: inline-size; flex: none; display: flex; justify-content: center; padding: 6px 12px; }
 .wip-section.sized { flex: 0 0 auto; }
 .wip-section.conflicted { flex: 0 1 auto; max-height: 33.333%; }
 /* Capped at a third, its list gives up the usual 120px floor (one row stays): the floor overflowed the
@@ -99,3 +99,10 @@
 .list-tool:disabled { cursor: default; opacity: 0.5; }
 .list-tool:focus-visible { outline: 1px solid var(--blue); }
 .list-tool[aria-pressed="true"] { color: var(--text-selected); }
+
+/* A narrow details panel (its minimum, 280px): the toolbars' buttons drop their words for their
+   icons, which their tooltips name. The words stay for screen readers. */
+@container (max-width: 330px) {
+  .tb-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :is(.file-toolbar, .wip-view-bar) :is(.toolbar-button.icon-lead, .segmented > button) { padding: 3px 6px; }
+}

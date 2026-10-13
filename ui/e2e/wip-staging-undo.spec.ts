@@ -18,6 +18,34 @@ test.describe('the staging undo log (spec #2 §7.6)', () => {
       await page.locator('.wip-view-bar').getByRole('button', { name: 'Redo staging' }).click();
       await expect(fileRow(page, 'staged', 'new.txt')).toBeVisible();
     });
+    await test.step('a WIP diff’s toolbar has them too, in the toolbar: nothing of them under the editor’s overview ruler', async () => {
+      await fileRow(page, 'unstaged', 'src/app.txt').click();
+      const panel = page.locator('.diff-panel');
+      await panel.getByRole('button', { name: 'Split' }).click();
+      await expect(panel.locator('.monaco-diff-editor.side-by-side .diffOverview')).toBeVisible({ timeout: 15_000 });
+      // They were placed as in the file list's bar (absolute, top 50%): midway down the panel's
+      // right edge, under the overview ruler, where no click reached them.
+      const bar = await panel.getByRole('toolbar', { name: 'Diff options' }).boundingBox();
+      const undo = panel.getByRole('toolbar', { name: 'Diff options' }).getByRole('button', { name: 'Undo staging' });
+      const box = await undo.boundingBox();
+      expect(box!.y).toBeGreaterThanOrEqual(bar!.y);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(bar!.y + bar!.height);
+      const strip = await panel.locator('.diffOverview').evaluate((ruler) => {
+        const r = ruler.getBoundingClientRect();
+        const stray: string[] = [];
+        for (let y = r.top + 2; y < r.bottom; y += 6) {
+          for (const x of [r.left + 2, (r.left + r.right) / 2, r.right - 2]) {
+            for (const e of document.elementsFromPoint(x, y)) if (e.closest('.diff-toolbar, .staging-undo')) stray.push(e.tagName);
+          }
+        }
+        return stray;
+      });
+      expect(strip).toEqual([]);
+      await undo.click();
+      await expect(fileRow(page, 'unstaged', 'new.txt')).toBeVisible();
+      await panel.getByRole('button', { name: 'Redo staging' }).click();
+      await expect(fileRow(page, 'staged', 'new.txt')).toBeVisible();
+    });
     await test.step('while editing the working copy, Ctrl+Z is Monaco’s own undo', async () => {
       await fileRow(page, 'unstaged', 'space name.txt').click();
       const editor = page.locator('.diff-panel [data-editable="true"] .editor.modified .view-lines');
